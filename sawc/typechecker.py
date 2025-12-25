@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from ast_nodes import (
     Program, Function, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
-    WhileStatement, BreakStatement, ContinueStatement,
+    WhileExpr, BreakStatement, ContinueStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
@@ -110,6 +110,9 @@ class TypeChecker:
         self.found_return_with_value: bool = False
         # Track loop nesting depth for break/continue validation
         self.loop_depth: int = 0
+        # Track break value types for each loop level
+        # Each entry is (expected_type: Optional[SawType], is_infinite: bool, has_break: bool)
+        self.loop_break_info: List[Tuple[Optional[SawType], bool, bool]] = []
 
         # Register built-in functions
         self._register_builtins()
@@ -464,8 +467,8 @@ class TypeChecker:
             self._check_return_statement(stmt)
         elif isinstance(stmt, GuardLetStatement):
             self._check_guard_let_statement(stmt)
-        elif isinstance(stmt, WhileStatement):
-            self._check_while_statement(stmt)
+        elif isinstance(stmt, WhileExpr):
+            self._check_while_expr(stmt)
         elif isinstance(stmt, BreakStatement):
             self._check_break_statement(stmt)
         elif isinstance(stmt, ContinueStatement):
@@ -668,8 +671,8 @@ class TypeChecker:
                 # Mark that we found a valid return statement with a value
                 self.found_return_with_value = True
 
-    def _check_while_statement(self, stmt: WhileStatement):
-        """Check a while loop statement."""
+    def _check_while_expr(self, stmt: WhileExpr):
+        """Check a while loop used as a statement (no return value expected)."""
         # If condition is present, it must be a Bool
         if stmt.condition:
             cond_type = self._check_expression(stmt.condition)
@@ -680,10 +683,63 @@ class TypeChecker:
                     stmt.line, stmt.column
                 )
 
-        # Check body with increased loop depth
+        # Check body with increased loop depth but NO break type tracking
+        # (statements don't need to return values)
         self.loop_depth += 1
         self._check_block(stmt.body)
         self.loop_depth -= 1
+
+    def _check_while_expr_as_expression(self, expr: WhileExpr) -> Optional[SawType]:
+        """Check a while loop expression and return its type."""
+        # If condition is present, it must be a Bool
+        if expr.condition:
+            cond_type = self._check_expression(expr.condition)
+            if cond_type and cond_type.kind != TypeKind.BOOL:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"while condition must be Bool, got `{cond_type}`",
+                    expr.line, expr.column
+                )
+
+        is_infinite = expr.condition is None
+
+        # Push loop info onto stack: (break_type, is_infinite, has_break)
+        # break_type will be determined by the first break statement
+        self.loop_break_info.append((None, is_infinite, False))
+
+        # Check body with increased loop depth
+        self.loop_depth += 1
+        self._check_block(expr.body)
+        self.loop_depth -= 1
+
+        # Pop loop info and determine return type
+        break_type, _, has_break = self.loop_break_info.pop()
+
+        if is_infinite:
+            # Infinite loop: must have at least one break with value
+            if not has_break:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "infinite while loop used as expression must have at least one `break` statement",
+                    expr.line, expr.column
+                )
+                return None
+            if break_type is None:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "infinite while loop used as expression must `break` with a value",
+                    expr.line, expr.column
+                )
+                return None
+            # Return the break type directly (non-optional)
+            return break_type
+        else:
+            # Conditional loop: returns Optional<break_type>
+            if break_type is None:
+                # No breaks with values, returns Void
+                return SawType(TypeKind.VOID)
+            # Wrap break type in Optional
+            return SawType(TypeKind.OPTIONAL, inner_type=break_type)
 
     def _check_break_statement(self, stmt: BreakStatement):
         """Check a break statement."""
@@ -693,11 +749,31 @@ class TypeChecker:
                 "`break` can only be used inside a loop",
                 stmt.line, stmt.column
             )
+            return
 
         # Type check the break value if present
+        value_type = None
         if stmt.value:
-            self._check_expression(stmt.value)
-            # TODO: Track expected break type for loops used as expressions
+            value_type = self._check_expression(stmt.value)
+
+        # Update loop break info if we're tracking it
+        if self.loop_break_info:
+            existing_type, is_infinite, _ = self.loop_break_info[-1]
+
+            # Mark that we found a break
+            self.loop_break_info[-1] = (existing_type or value_type, is_infinite, True)
+
+            # If there's an existing break type, validate compatibility
+            if existing_type and value_type:
+                if not self._types_compatible(value_type, existing_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"break value type `{value_type}` incompatible with expected type `{existing_type}`",
+                        stmt.line, stmt.column
+                    )
+            elif not existing_type and value_type:
+                # First break with a value sets the type
+                self.loop_break_info[-1] = (value_type, is_infinite, True)
 
     def _check_continue_statement(self, stmt: ContinueStatement):
         """Check a continue statement."""
@@ -775,6 +851,9 @@ class TypeChecker:
 
         elif isinstance(expr, MatchExpr):
             return self._check_match_expr(expr)
+
+        elif isinstance(expr, WhileExpr):
+            return self._check_while_expr_as_expression(expr)
 
         return None
 

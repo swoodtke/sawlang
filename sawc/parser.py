@@ -8,7 +8,7 @@ from lexer import Token, TokenType
 from ast_nodes import (
     Program, Function, Parameter, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
-    WhileStatement, BreakStatement, ContinueStatement,
+    WhileExpr, BreakStatement, ContinueStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
@@ -499,7 +499,7 @@ class Parser:
             column=start.column
         )
 
-    def parse_while_statement(self) -> WhileStatement:
+    def parse_while_statement(self) -> WhileExpr:
         start = self.advance()  # consume 'while'
 
         # Condition is optional - if we see '{', it's an infinite loop
@@ -510,7 +510,7 @@ class Parser:
         self.skip_newlines()
         body = self.parse_block()
 
-        return WhileStatement(
+        return WhileExpr(
             condition=condition,
             body=body,
             line=start.line,
@@ -772,6 +772,9 @@ class Parser:
 
         elif self.match(TokenType.MATCH):
             return self.parse_match_expression()
+
+        elif self.match(TokenType.WHILE):
+            return self.parse_while_statement()
 
         else:
             self.error(f"Unexpected token: {token.type.name}")

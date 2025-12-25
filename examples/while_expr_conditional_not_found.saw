@@ -1,0 +1,18 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+
+func main() {
+    // Conditional loop that exits naturally - returns None
+    var i = 0
+    let found = while i < 5 {
+        if i == 10 {  // Never true
+            break i
+        }
+        i = i + 1
+    }
+
+    // Use if let to check, with nil coalescing for default
+    let result = found ?? 0
+    print(result)
+}

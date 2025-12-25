@@ -321,7 +321,7 @@ class ExpressionStatement(Statement):
 
 
 @dataclass
-class WhileStatement(Statement):
+class WhileExpr(Expression):
     condition: Optional[Expression]  # None for infinite loop
     body: 'Block'
     line: int = 0

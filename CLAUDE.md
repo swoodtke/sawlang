@@ -121,13 +121,14 @@ make test
 # Run with verbose output
 make test-verbose
 
-# Run specific tests
+# Run specific tests by pattern
 make test-filter FILTER=enum
+make test-filter FILTER=while_expr_conditional_found
 
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 43 tests including success cases and error validation
+**Test Coverage:** 46 tests including success cases and error validation
 
 ## Current Features
 
@@ -251,5 +252,38 @@ func main() {
         }
         print(i)
     }
+}
+```
+
+### While as Expression
+```saw
+func main() {
+    // Infinite loop as expression - returns Int
+    var counter = 0
+    let result = while {
+        counter = counter + 1
+        if counter == 5 {
+            break counter  // Exit and return value
+        }
+    }
+    print(result)  // 5
+
+    // Conditional loop as expression - returns Int?
+    var i = 0
+    let found = while i < 10 {
+        if i == 3 {
+            break i  // Return Some(3)
+        }
+        i = i + 1
+    }  // Returns None if loop exits naturally
+
+    // Unwrap with if let
+    if let value = found {
+        print(value)  // 3
+    }
+
+    // Or use nil coalescing
+    let result = found ?? 0
+    print(result)
 }
 ```

@@ -8,7 +8,7 @@ from llvmlite import ir, binding
 from ast_nodes import (
     Program, Function, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
-    WhileStatement, BreakStatement, ContinueStatement,
+    WhileExpr, BreakStatement, ContinueStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
@@ -54,7 +54,8 @@ class CodeGenerator:
         self.string_counter = 0
 
         # Loop tracking for break/continue
-        # Stack of (continue_block, break_block) for nested loops
+        # Stack of (continue_block, break_block, result_storage) for nested loops
+        # result_storage is None for statement context, alloca for expression context
         self.loop_stack: List[tuple] = []
 
         # Declare external functions (printf for print)
@@ -427,8 +428,8 @@ class CodeGenerator:
             self._generate_return_statement(stmt)
         elif isinstance(stmt, GuardLetStatement):
             self._generate_guard_let_statement(stmt)
-        elif isinstance(stmt, WhileStatement):
-            self._generate_while_statement(stmt)
+        elif isinstance(stmt, WhileExpr):
+            self._generate_while_expr(stmt)
         elif isinstance(stmt, BreakStatement):
             self._generate_break_statement(stmt)
         elif isinstance(stmt, ContinueStatement):
@@ -552,8 +553,8 @@ class CodeGenerator:
         else:
             self.builder.ret_void()
 
-    def _generate_while_statement(self, stmt: WhileStatement):
-        """Generate LLVM IR for a while loop."""
+    def _generate_while_expr(self, stmt: WhileExpr):
+        """Generate LLVM IR for a while loop (statement context)."""
         func = self.builder.function
 
         # Create basic blocks
@@ -561,8 +562,8 @@ class CodeGenerator:
         body_block = func.append_basic_block("while.body")
         end_block = func.append_basic_block("while.end")
 
-        # Push loop blocks onto stack for break/continue
-        self.loop_stack.append((cond_block, end_block))
+        # Push loop blocks onto stack for break/continue (no result storage)
+        self.loop_stack.append((cond_block, end_block, None))
 
         # Jump to condition block
         self.builder.branch(cond_block)
@@ -590,18 +591,89 @@ class CodeGenerator:
         # Position at end block for next statements
         self.builder.position_at_end(end_block)
 
+    def _generate_while_expr_value(self, expr: WhileExpr):
+        """Generate LLVM IR for a while loop that returns a value (expression context)."""
+        func = self.builder.function
+
+        # For now, assume result type is Int64 (we'll improve this later with type annotations)
+        # TODO: Get actual type from type checker or AST annotations
+        result_type = ir.IntType(64)
+
+        is_conditional = expr.condition is not None
+
+        if is_conditional:
+            # Conditional loop returns Optional<T>
+            # Optional is { i1 has_value, T value }
+            optional_type = ir.LiteralStructType([ir.IntType(1), result_type])
+            result_alloca = self.builder.alloca(optional_type, name="while.result")
+
+            # Initialize to None (has_value = false, value = 0)
+            none_value = ir.Constant(optional_type, [ir.Constant(ir.IntType(1), 0), ir.Constant(result_type, 0)])
+            self.builder.store(none_value, result_alloca)
+        else:
+            # Infinite loop returns T directly
+            result_alloca = self.builder.alloca(result_type, name="while.result")
+
+        # Create basic blocks
+        cond_block = func.append_basic_block("while.cond")
+        body_block = func.append_basic_block("while.body")
+        end_block = func.append_basic_block("while.end")
+
+        # Push loop info with result storage
+        self.loop_stack.append((cond_block, end_block, result_alloca))
+
+        # Jump to condition block
+        self.builder.branch(cond_block)
+
+        # Generate condition
+        self.builder.position_at_end(cond_block)
+        if expr.condition:
+            cond_value = self._generate_expression(expr.condition)
+            self.builder.cbranch(cond_value, body_block, end_block)
+        else:
+            self.builder.branch(body_block)
+
+        # Generate body
+        self.builder.position_at_end(body_block)
+        self._generate_block(expr.body)
+        if not self.builder.block.is_terminated:
+            self.builder.branch(cond_block)
+
+        # Pop loop info
+        self.loop_stack.pop()
+
+        # Load and return result
+        self.builder.position_at_end(end_block)
+        return self.builder.load(result_alloca, name="while.value")
+
     def _generate_break_statement(self, stmt: BreakStatement):
         """Generate LLVM IR for a break statement."""
         if not self.loop_stack:
             raise ValueError("break outside of loop")
 
-        # TODO: Handle break value for loops as expressions
-        if stmt.value:
-            # For now, just evaluate the expression (will be used later)
-            self._generate_expression(stmt.value)
+        _, break_block, result_storage = self.loop_stack[-1]
+
+        # If there's a break value and result storage, store it
+        if stmt.value and result_storage:
+            value = self._generate_expression(stmt.value)
+
+            # Check if result storage is for an Optional type (conditional loop)
+            storage_type = result_storage.type.pointee
+            if isinstance(storage_type, ir.LiteralStructType) and len(storage_type.elements) == 2:
+                # It's an Optional - wrap the value
+                # Create Some(value) = { has_value: true, value: value }
+                # Start with an undef struct
+                some_value = ir.Constant(storage_type, ir.Undefined)
+                # Insert has_value = true at index 0
+                some_value = self.builder.insert_value(some_value, ir.Constant(ir.IntType(1), 1), 0, name="optional.has_value")
+                # Insert the actual value at index 1
+                some_value = self.builder.insert_value(some_value, value, 1, name="optional.value")
+                self.builder.store(some_value, result_storage)
+            else:
+                # Direct value storage (infinite loop)
+                self.builder.store(value, result_storage)
 
         # Jump to the break block (end of loop)
-        _, break_block = self.loop_stack[-1]
         self.builder.branch(break_block)
 
     def _generate_continue_statement(self, stmt: ContinueStatement):
@@ -610,7 +682,7 @@ class CodeGenerator:
             raise ValueError("continue outside of loop")
 
         # Jump to the continue block (condition check)
-        continue_block, _ = self.loop_stack[-1]
+        continue_block, _, _ = self.loop_stack[-1]
         self.builder.branch(continue_block)
 
     def _generate_expression(self, expr: Expression):
@@ -683,6 +755,9 @@ class CodeGenerator:
 
         elif isinstance(expr, MatchExpr):
             return self._generate_match_expr(expr)
+
+        elif isinstance(expr, WhileExpr):
+            return self._generate_while_expr_value(expr)
 
         else:
             raise ValueError(f"Unknown expression type: {type(expr)}")
