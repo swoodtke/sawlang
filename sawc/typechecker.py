@@ -11,6 +11,7 @@ from ast_nodes import (
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
+    NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     Struct, StructField,
     SawType, TypeKind, Parameter
 )
@@ -354,6 +355,18 @@ class TypeChecker:
         elif isinstance(expr, StructInit):
             return self._check_struct_init(expr)
 
+        elif isinstance(expr, NoneLiteral):
+            return self._check_none_literal(expr)
+
+        elif isinstance(expr, ForceUnwrap):
+            return self._check_force_unwrap(expr)
+
+        elif isinstance(expr, NilCoalesce):
+            return self._check_nil_coalesce(expr)
+
+        elif isinstance(expr, OptionalChain):
+            return self._check_optional_chain(expr)
+
         return None
 
     def _check_identifier(self, expr: Identifier) -> Optional[SawType]:
@@ -617,10 +630,113 @@ class TypeChecker:
 
         return SawType(TypeKind.STRUCT, struct_name=expr.struct_name)
 
+    def _check_none_literal(self, expr: NoneLiteral) -> Optional[SawType]:
+        """Check None literal - returns a special 'None' type that can unify with any T?."""
+        # None has a special type that's compatible with any optional
+        return SawType(TypeKind.OPTIONAL, inner_type=None)
+
+    def _check_force_unwrap(self, expr: ForceUnwrap) -> Optional[SawType]:
+        """Check force unwrap: expr! - unwraps T? to T."""
+        inner_type = self._check_expression(expr.expr)
+        if inner_type is None:
+            return None
+
+        if inner_type.kind != TypeKind.OPTIONAL:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot force unwrap non-optional type `{inner_type}`",
+                expr.line, expr.column
+            )
+            return inner_type  # Return original type to continue checking
+
+        return inner_type.inner_type
+
+    def _check_nil_coalesce(self, expr: NilCoalesce) -> Optional[SawType]:
+        """Check nil coalescing: expr ?? default - returns T."""
+        opt_type = self._check_expression(expr.expr)
+        default_type = self._check_expression(expr.default)
+
+        if opt_type is None or default_type is None:
+            return default_type
+
+        if opt_type.kind != TypeKind.OPTIONAL:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"left side of `??` must be optional, got `{opt_type}`",
+                expr.line, expr.column
+            )
+            return opt_type
+
+        # Check that the inner type matches the default type
+        if opt_type.inner_type and not self._types_compatible(opt_type.inner_type, default_type):
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"optional inner type `{opt_type.inner_type}` does not match default type `{default_type}`",
+                expr.line, expr.column
+            )
+
+        return default_type
+
+    def _check_optional_chain(self, expr: OptionalChain) -> Optional[SawType]:
+        """Check optional chaining: expr?.member - returns U?."""
+        opt_type = self._check_expression(expr.expr)
+        if opt_type is None:
+            return None
+
+        if opt_type.kind != TypeKind.OPTIONAL:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot use optional chaining on non-optional type `{opt_type}`",
+                expr.line, expr.column
+            )
+            return None
+
+        inner_type = opt_type.inner_type
+        if inner_type is None:
+            return None
+
+        # Check that inner type is a struct
+        if inner_type.kind != TypeKind.STRUCT:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot access member of non-struct type `{inner_type}`",
+                expr.line, expr.column
+            )
+            return None
+
+        # Look up the field
+        struct_info = self.structs.get(inner_type.struct_name)
+        if struct_info is None:
+            return None
+
+        if expr.member not in struct_info.fields:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"struct `{inner_type.struct_name}` has no field `{expr.member}`",
+                expr.line, expr.column,
+                hint=f"available fields: {', '.join(struct_info.field_order)}"
+            )
+            return None
+
+        # Return the field type wrapped in optional
+        field_type = struct_info.fields[expr.member]
+        return SawType(TypeKind.OPTIONAL, inner_type=field_type)
+
     def _types_compatible(self, a: Optional[SawType], b: Optional[SawType]) -> bool:
         """Check if two types are compatible."""
         if a is None or b is None:
             return True  # Assume compatible if we couldn't determine types
+
+        # None literal (OPTIONAL with inner_type=None) is compatible with any optional
+        if a.kind == TypeKind.OPTIONAL and a.inner_type is None and b.kind == TypeKind.OPTIONAL:
+            return True
+        if b.kind == TypeKind.OPTIONAL and b.inner_type is None and a.kind == TypeKind.OPTIONAL:
+            return True
+
+        # Allow implicit wrapping: T is compatible with T?
+        if b.kind == TypeKind.OPTIONAL and b.inner_type is not None:
+            if self._types_compatible(a, b.inner_type):
+                return True
 
         if a.kind != b.kind:
             return False
@@ -637,5 +753,11 @@ class TypeChecker:
         # For struct types, check struct names match
         if a.kind == TypeKind.STRUCT:
             return a.struct_name == b.struct_name
+
+        # For optional types, check inner types match
+        if a.kind == TypeKind.OPTIONAL:
+            if a.inner_type is None or b.inner_type is None:
+                return True
+            return self._types_compatible(a.inner_type, b.inner_type)
 
         return True

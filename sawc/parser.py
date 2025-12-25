@@ -11,6 +11,7 @@ from ast_nodes import (
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
+    NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     Struct, StructField,
     SawType, TypeKind
 )
@@ -73,6 +74,18 @@ class Parser:
         return Program(structs=structs, functions=functions)
 
     def parse_type(self) -> SawType:
+        # Parse base type
+        base_type = self._parse_base_type()
+
+        # Check for optional suffix (?)
+        if self.match(TokenType.QUESTION):
+            self.advance()
+            return SawType(TypeKind.OPTIONAL, inner_type=base_type)
+
+        return base_type
+
+    def _parse_base_type(self) -> SawType:
+        """Parse a non-optional base type."""
         token = self.current()
         if token.type == TokenType.INT_TYPE:
             self.advance()
@@ -280,7 +293,23 @@ class Parser:
         )
 
     def parse_expression(self) -> Expression:
-        return self.parse_comparison()
+        return self.parse_nil_coalesce()
+
+    def parse_nil_coalesce(self) -> Expression:
+        """Parse nil coalescing: expr ?? default"""
+        left = self.parse_comparison()
+
+        while self.match(TokenType.DOUBLE_QUESTION):
+            op_token = self.advance()
+            right = self.parse_comparison()
+            left = NilCoalesce(
+                expr=left,
+                default=right,
+                line=op_token.line,
+                column=op_token.column
+            )
+
+        return left
 
     def parse_comparison(self) -> Expression:
         left = self.parse_additive()
@@ -347,32 +376,56 @@ class Parser:
     def parse_postfix(self) -> Expression:
         expr = self.parse_primary()
 
-        # Handle postfix operations: .0, .1, .field
-        while self.match(TokenType.DOT):
-            dot_token = self.advance()
-            member_token = self.current()
+        # Handle postfix operations: .0, .1, .field, !, ?.
+        while True:
+            if self.match(TokenType.DOT):
+                dot_token = self.advance()
+                member_token = self.current()
 
-            if member_token.type == TokenType.INT:
-                # Tuple indexing: expr.0, expr.1, etc.
-                self.advance()
-                index = int(member_token.value)
-                expr = TupleIndex(
-                    tuple_expr=expr,
-                    index=index,
-                    line=dot_token.line,
-                    column=dot_token.column
+                if member_token.type == TokenType.INT:
+                    # Tuple indexing: expr.0, expr.1, etc.
+                    self.advance()
+                    index = int(member_token.value)
+                    expr = TupleIndex(
+                        tuple_expr=expr,
+                        index=index,
+                        line=dot_token.line,
+                        column=dot_token.column
+                    )
+                elif member_token.type == TokenType.IDENT:
+                    # Member access: expr.field
+                    self.advance()
+                    expr = MemberAccess(
+                        object=expr,
+                        member=member_token.value,
+                        line=dot_token.line,
+                        column=dot_token.column
+                    )
+                else:
+                    self.error(f"Expected field name or tuple index after '.', got {member_token.type.name}")
+
+            elif self.match(TokenType.EXCLAIM):
+                # Force unwrap: expr!
+                exclaim_token = self.advance()
+                expr = ForceUnwrap(
+                    expr=expr,
+                    line=exclaim_token.line,
+                    column=exclaim_token.column
                 )
-            elif member_token.type == TokenType.IDENT:
-                # Member access: expr.field
-                self.advance()
-                expr = MemberAccess(
-                    object=expr,
+
+            elif self.match(TokenType.QUESTION_DOT):
+                # Optional chaining: expr?.member
+                chain_token = self.advance()
+                member_token = self.expect(TokenType.IDENT, "Expected member name after '?.'")
+                expr = OptionalChain(
+                    expr=expr,
                     member=member_token.value,
-                    line=dot_token.line,
-                    column=dot_token.column
+                    line=chain_token.line,
+                    column=chain_token.column
                 )
+
             else:
-                self.error(f"Expected field name or tuple index after '.', got {member_token.type.name}")
+                break
 
         return expr
 
@@ -394,6 +447,10 @@ class Parser:
         elif self.match(TokenType.FALSE):
             self.advance()
             return BoolLiteral(value=False, line=token.line, column=token.column)
+
+        elif self.match(TokenType.NONE):
+            self.advance()
+            return NoneLiteral(line=token.line, column=token.column)
 
         elif self.match(TokenType.STRING):
             self.advance()

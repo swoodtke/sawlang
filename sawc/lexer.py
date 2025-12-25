@@ -29,6 +29,7 @@ class TokenType(Enum):
     STRUCT = auto()
     EXTENSION = auto()
     SELF = auto()
+    NONE = auto()
 
     # Types
     INT_TYPE = auto()
@@ -48,6 +49,10 @@ class TokenType(Enum):
     LTE = auto()
     GTE = auto()
     ASSIGN = auto()
+    QUESTION = auto()       # ? for optional types
+    DOUBLE_QUESTION = auto() # ?? for nil coalescing
+    EXCLAIM = auto()        # ! for force unwrap
+    QUESTION_DOT = auto()   # ?. for optional chaining
 
     # Delimiters
     LPAREN = auto()
@@ -84,6 +89,7 @@ KEYWORDS = {
     'struct': TokenType.STRUCT,
     'extension': TokenType.EXTENSION,
     'self': TokenType.SELF,
+    'None': TokenType.NONE,
     'Int': TokenType.INT_TYPE,
     'Float': TokenType.FLOAT_TYPE,
     'Bool': TokenType.BOOL_TYPE,
@@ -238,7 +244,20 @@ class Lexer:
                     self.advance()
                     self.advance()
                 else:
-                    self.error(f"Unexpected character: {ch}")
+                    self.add_token(TokenType.EXCLAIM, '!')
+                    self.advance()
+            elif ch == '?':
+                if self.peek(1) == '?':
+                    self.add_token(TokenType.DOUBLE_QUESTION, '??')
+                    self.advance()
+                    self.advance()
+                elif self.peek(1) == '.':
+                    self.add_token(TokenType.QUESTION_DOT, '?.')
+                    self.advance()
+                    self.advance()
+                else:
+                    self.add_token(TokenType.QUESTION, '?')
+                    self.advance()
             elif ch == '<':
                 if self.peek(1) == '=':
                     self.add_token(TokenType.LTE, '<=')

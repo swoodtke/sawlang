@@ -1,0 +1,14 @@
+// Debug optional chaining
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+fn main() {
+    let p: Point? = Point(x: 10, y: 20)
+
+    // Try optional chaining
+    let x_val: Int? = p?.x
+    print(x_val!)
+}

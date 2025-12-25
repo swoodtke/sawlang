@@ -1,0 +1,16 @@
+// Test optional types
+
+fn main() {
+    // Implicit wrapping
+    let x: Int? = 5
+    print(x!)
+
+    // None literal
+    let y: Int? = None
+
+    // Nil coalescing - should print 10
+    print(y ?? 10)
+
+    // Nil coalescing with Some value - should print 5
+    print(x ?? 99)
+}

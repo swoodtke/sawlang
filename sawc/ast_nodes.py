@@ -15,6 +15,7 @@ class TypeKind(Enum):
     VOID = auto()
     TUPLE = auto()
     STRUCT = auto()
+    OPTIONAL = auto()
 
 
 @dataclass
@@ -24,6 +25,8 @@ class SawType:
     element_types: Optional[List['SawType']] = None
     # For struct types, this holds the struct name
     struct_name: Optional[str] = None
+    # For optional types, this holds the inner type
+    inner_type: Optional['SawType'] = None
 
     def __repr__(self):
         if self.kind == TypeKind.TUPLE and self.element_types:
@@ -31,6 +34,8 @@ class SawType:
             return f"({types_str})"
         if self.kind == TypeKind.STRUCT and self.struct_name:
             return self.struct_name
+        if self.kind == TypeKind.OPTIONAL and self.inner_type:
+            return f"{self.inner_type}?"
         return self.kind.name
 
 
@@ -144,6 +149,39 @@ class StructInit(Expression):
     """Struct initialization: Point(x: 10, y: 20)"""
     struct_name: str
     field_inits: List[tuple[str, Expression]]  # [(field_name, value), ...]
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class NoneLiteral(Expression):
+    """The None literal for optionals."""
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ForceUnwrap(Expression):
+    """Force unwrap: expr!"""
+    expr: Expression
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class NilCoalesce(Expression):
+    """Nil coalescing: expr ?? default"""
+    expr: Expression
+    default: Expression
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class OptionalChain(Expression):
+    """Optional chaining: expr?.member"""
+    expr: Expression
+    member: str
     line: int = 0
     column: int = 0
 

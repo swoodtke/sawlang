@@ -10,6 +10,7 @@ from ast_nodes import (
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
+    NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     Struct, StructField,
     SawType, TypeKind
 )
@@ -78,6 +79,14 @@ class CodeGenerator:
             if saw_type.struct_name not in self.struct_types:
                 raise ValueError(f"Undefined struct: {saw_type.struct_name}")
             return self.struct_types[saw_type.struct_name][0]  # Return LLVM type
+        elif saw_type.kind == TypeKind.OPTIONAL:
+            # Optionals are represented as { i1, T } where i1 indicates presence
+            if saw_type.inner_type is None:
+                # None literal with unknown type - use i64 as placeholder
+                inner_llvm_type = ir.IntType(64)
+            else:
+                inner_llvm_type = self._get_llvm_type(saw_type.inner_type)
+            return ir.LiteralStructType([ir.IntType(1), inner_llvm_type])
         else:
             raise ValueError(f"Unknown type: {saw_type}")
 
@@ -203,6 +212,45 @@ class CodeGenerator:
 
     def _generate_let_statement(self, stmt: LetStatement):
         value = self._generate_expression(stmt.value)
+
+        # Check if we need to wrap the value in an optional
+        if stmt.type_annotation and stmt.type_annotation.kind == TypeKind.OPTIONAL:
+            # Check if value is not already optional
+            # An optional is a struct with first element being i1 (is_some flag)
+            is_already_optional = (isinstance(value.type, ir.LiteralStructType) and
+                                   len(value.type.elements) == 2 and
+                                   isinstance(value.type.elements[0], ir.IntType) and
+                                   value.type.elements[0].width == 1)
+
+            if not is_already_optional:
+                # Wrap the value in an optional
+                value = self._wrap_in_optional(value)
+            else:
+                # Value is already optional, but check if it's a None literal with i64 placeholder
+                # that needs to be converted to match a different expected type
+                current_inner_type = value.type.elements[1]
+                target_inner_type = self._get_llvm_type(stmt.type_annotation.inner_type)
+
+                # Only convert if current is i64 (None literal placeholder) and target is something else
+                needs_conversion = (isinstance(current_inner_type, ir.IntType) and
+                                    current_inner_type.width == 64 and
+                                    not (isinstance(target_inner_type, ir.IntType) and
+                                         target_inner_type.width == 64))
+
+                if needs_conversion:
+                    # This is a None literal (i64 placeholder) being assigned to a different optional type
+                    correct_optional_type = ir.LiteralStructType([ir.IntType(1), target_inner_type])
+
+                    # Extract is_some flag (should be false for None)
+                    is_some = self.builder.extract_value(value, 0, name="is_some")
+
+                    # Create new optional with correct type
+                    new_optional = ir.Constant(correct_optional_type, ir.Undefined)
+                    new_optional = self.builder.insert_value(new_optional, is_some, 0)
+                    # Don't set the value - it's undef for None anyway
+
+                    value = new_optional
+
         alloca = self.builder.alloca(value.type, name=stmt.name)
         self.builder.store(value, alloca)
         self.variables[stmt.name] = alloca
@@ -263,6 +311,18 @@ class CodeGenerator:
 
         elif isinstance(expr, StructInit):
             return self._generate_struct_init(expr)
+
+        elif isinstance(expr, NoneLiteral):
+            return self._generate_none_literal(expr)
+
+        elif isinstance(expr, ForceUnwrap):
+            return self._generate_force_unwrap(expr)
+
+        elif isinstance(expr, NilCoalesce):
+            return self._generate_nil_coalesce(expr)
+
+        elif isinstance(expr, OptionalChain):
+            return self._generate_optional_chain(expr)
 
         else:
             raise ValueError(f"Unknown expression type: {type(expr)}")
@@ -503,12 +563,149 @@ class CodeGenerator:
 
         # Find the matching struct type and field index
         for struct_name, (llvm_type, field_order) in self.struct_types.items():
-            if llvm_type == obj_type:
+            # Compare struct types by structure
+            if (isinstance(obj_type, ir.LiteralStructType) and
+                isinstance(llvm_type, ir.LiteralStructType) and
+                str(obj_type) == str(llvm_type)):
                 if expr.member in field_order:
                     field_index = field_order.index(expr.member)
                     return self.builder.extract_value(obj_val, field_index)
 
-        raise ValueError(f"Cannot find field {expr.member} in struct")
+        raise ValueError(f"Cannot find field {expr.member} in struct with type {obj_type}")
+
+    def _wrap_in_optional(self, value):
+        """Wrap a value in an optional type (for implicit wrapping)."""
+        optional_type = ir.LiteralStructType([ir.IntType(1), value.type])
+        optional_val = ir.Constant(optional_type, ir.Undefined)
+
+        # Set is_some to true
+        true_val = ir.Constant(ir.IntType(1), 1)
+        optional_val = self.builder.insert_value(optional_val, true_val, 0)
+
+        # Set the value
+        optional_val = self.builder.insert_value(optional_val, value, 1)
+
+        return optional_val
+
+    def _generate_none_literal(self, expr: NoneLiteral):
+        """Generate code for None literal."""
+        # Create an optional with is_some = false
+        # We use i64 as a placeholder type since None can be any optional type
+        optional_type = ir.LiteralStructType([ir.IntType(1), ir.IntType(64)])
+        optional_val = ir.Constant(optional_type, ir.Undefined)
+
+        # Set is_some to false
+        false_val = ir.Constant(ir.IntType(1), 0)
+        optional_val = self.builder.insert_value(optional_val, false_val, 0)
+
+        return optional_val
+
+    def _generate_force_unwrap(self, expr: ForceUnwrap):
+        """Generate code for force unwrap (expr!)."""
+        optional_val = self._generate_expression(expr.expr)
+
+        # Extract the is_some flag
+        is_some = self.builder.extract_value(optional_val, 0, name="is_some")
+
+        # TODO: Add runtime check - for now, just extract the value
+        # In a full implementation, we'd check is_some and panic if false
+
+        # Extract and return the value
+        return self.builder.extract_value(optional_val, 1, name="unwrapped")
+
+    def _generate_nil_coalesce(self, expr: NilCoalesce):
+        """Generate code for nil coalescing (expr ?? default)."""
+        optional_val = self._generate_expression(expr.expr)
+
+        # Extract the is_some flag
+        is_some = self.builder.extract_value(optional_val, 0, name="is_some")
+
+        # Create blocks for the conditional
+        func = self.builder.function
+        some_bb = func.append_basic_block(name="some")
+        none_bb = func.append_basic_block(name="none")
+        merge_bb = func.append_basic_block(name="coalesce_merge")
+
+        self.builder.cbranch(is_some, some_bb, none_bb)
+
+        # Some branch - extract the value
+        self.builder.position_at_start(some_bb)
+        some_val = self.builder.extract_value(optional_val, 1, name="some_value")
+        self.builder.branch(merge_bb)
+        some_bb = self.builder.block
+
+        # None branch - evaluate default
+        self.builder.position_at_start(none_bb)
+        none_val = self._generate_expression(expr.default)
+        self.builder.branch(merge_bb)
+        none_bb = self.builder.block
+
+        # Merge
+        self.builder.position_at_start(merge_bb)
+        phi = self.builder.phi(some_val.type, name="coalesced")
+        phi.add_incoming(some_val, some_bb)
+        phi.add_incoming(none_val, none_bb)
+
+        return phi
+
+    def _generate_optional_chain(self, expr: OptionalChain):
+        """Generate code for optional chaining (expr?.member)."""
+        optional_val = self._generate_expression(expr.expr)
+
+        # Extract the is_some flag
+        is_some = self.builder.extract_value(optional_val, 0, name="is_some")
+
+        # Create blocks
+        func = self.builder.function
+        some_bb = func.append_basic_block(name="chain_some")
+        none_bb = func.append_basic_block(name="chain_none")
+        merge_bb = func.append_basic_block(name="chain_merge")
+
+        self.builder.cbranch(is_some, some_bb, none_bb)
+
+        # Some branch - unwrap and access member
+        self.builder.position_at_start(some_bb)
+        unwrapped = self.builder.extract_value(optional_val, 1, name="unwrapped")
+
+        # Access the member (assuming struct)
+        # Find the struct type and field index
+        member_val = None
+        for struct_name, (llvm_type, field_order) in self.struct_types.items():
+            # Compare struct types by checking if they're both LiteralStructType with same elements
+            if (isinstance(unwrapped.type, ir.LiteralStructType) and
+                isinstance(llvm_type, ir.LiteralStructType) and
+                str(unwrapped.type) == str(llvm_type)):
+                if expr.member in field_order:
+                    field_index = field_order.index(expr.member)
+                    member_val = self.builder.extract_value(unwrapped, field_index)
+                    break
+
+        if member_val is None:
+            raise ValueError(f"Cannot find field {expr.member} for type {unwrapped.type}")
+
+        # Wrap the result in an optional
+        result_optional_type = ir.LiteralStructType([ir.IntType(1), member_val.type])
+        some_result = ir.Constant(result_optional_type, ir.Undefined)
+        some_result = self.builder.insert_value(some_result, ir.Constant(ir.IntType(1), 1), 0)
+        some_result = self.builder.insert_value(some_result, member_val, 1)
+
+        self.builder.branch(merge_bb)
+        some_bb = self.builder.block
+
+        # None branch - return None
+        self.builder.position_at_start(none_bb)
+        none_result = ir.Constant(result_optional_type, ir.Undefined)
+        none_result = self.builder.insert_value(none_result, ir.Constant(ir.IntType(1), 0), 0)
+        self.builder.branch(merge_bb)
+        none_bb = self.builder.block
+
+        # Merge
+        self.builder.position_at_start(merge_bb)
+        phi = self.builder.phi(result_optional_type, name="chained")
+        phi.add_incoming(some_result, some_bb)
+        phi.add_incoming(none_result, none_bb)
+
+        return phi
 
     def compile_to_object(self, output_path: str):
         """Compile the module to an object file."""

@@ -1,0 +1,15 @@
+// Simple test of optional struct
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+fn main() {
+    // Optional struct with implicit wrapping
+    let p: Point? = Point(x: 10, y: 20)
+
+    // Force unwrap and access field
+    let unwrapped: Point = p!
+    print(unwrapped.x)
+}

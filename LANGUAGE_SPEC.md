@@ -178,7 +178,7 @@ struct Point {
 }
 
 // Methods
-impl Point {
+extension Point {
     // Initializer (called via Type(...) syntax)
     init(x: Float64, y: Float64) {
         self.x = x
@@ -281,7 +281,7 @@ trait Debug {
 }
 
 // Trait implementation
-impl Display for Point {
+extension Display for Point {
     fn display(self) -> String {
         "({self.x}, {self.y})"
     }
@@ -435,7 +435,7 @@ struct FileHandle {
     fd: Int,
 }
 
-impl FileHandle {
+extension FileHandle {
     fn open(path: String) -> Result<FileHandle, IoError> { ... }
     fn close(self) { ... }  // Takes ownership, closes file
 }
@@ -593,7 +593,7 @@ enum ParseError {
     EndOfInput,
 }
 
-impl Error for ParseError {
+extension Error for ParseError {
     fn message(self) -> String {
         match self {
             InvalidSyntax(line, col) => "Syntax error at {line}:{col}",

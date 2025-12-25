@@ -1,0 +1,20 @@
+// Test optional chaining with structs
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+fn main() {
+    // Optional struct
+    let p: Point? = Point(x: 10, y: 20)
+
+    // Optional chaining - should work
+    let x_opt: Int? = p?.x
+    print(x_opt ?? -1)
+
+    // None struct
+    let q: Point? = None
+    let y_opt: Int? = q?.y
+    print(y_opt ?? -1)
+}

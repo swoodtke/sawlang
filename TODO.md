@@ -51,19 +51,19 @@
 ## Priority 2: Core Type System
 
 ### Optionals (T?)
-- [ ] Optional type syntax: `Int?`, `String?`
-- [ ] `some(value)` and `none` literals
-- [ ] Optional chaining: `user?.profile?.name`
-- [ ] Nil coalescing: `value ?? default`
-- [ ] Force unwrap: `value!`
+- [x] Optional type syntax: `Int?`, `String?`
+- [x] `None` literal (Swift-style with implicit wrapping)
+- [x] Optional chaining: `user?.profile?.name`
+- [x] Nil coalescing: `value ?? default`
+- [x] Force unwrap: `value!`
 - [ ] `if let` binding
 - [ ] `guard let` early exit
 
 ### Structs
 - [x] Struct declarations
 - [x] Field access
-- [ ] `extension` blocks for methods
 - [x] Struct initialization: `Point(x: 10, y: 20)`
+- [ ] `extension` blocks for methods
 - [ ] `self` in methods
 - [ ] `var self` for mutating methods
 
