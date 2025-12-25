@@ -1,0 +1,39 @@
+struct Counter {
+    value: Int
+}
+
+extension Counter {
+    // Mutable method - can modify self using 'var self'
+    func increment(var self) {
+        self.value = self.value + 1
+    }
+
+    // Another mutable method with parameter
+    func add(var self, amount: Int) {
+        self.value = self.value + amount
+    }
+
+    // Immutable method - can only read self
+    func getValue(self) -> Int {
+        self.value
+    }
+}
+
+func main() {
+    var counter = Counter(value: 0)
+
+    // Initial value
+    print(counter.getValue())  // 0
+
+    // Call increment
+    counter.increment()
+    print(counter.getValue())  // 1
+
+    // Call increment again
+    counter.increment()
+    print(counter.getValue())  // 2
+
+    // Call add with parameter
+    counter.add(10)
+    print(counter.getValue())  // 12
+}

@@ -246,7 +246,7 @@ class LetStatement(Statement):
 
 @dataclass
 class AssignStatement(Statement):
-    name: str
+    target: Expression  # Can be Identifier or MemberAccess
     value: Expression
     line: int = 0
     column: int = 0
@@ -314,6 +314,7 @@ class Method(ASTNode):
     return_type: SawType
     body: Block
     is_init: bool = False  # True for 'init' methods
+    self_mutable: bool = False  # True for 'var self'
     line: int = 0
     column: int = 0
 

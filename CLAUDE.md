@@ -98,21 +98,23 @@ examples/          # Example Saw programs
 pip install llvmlite
 
 # Compile a Saw program
-python3 sawc/sawc.py examples/hello.saw -o hello
+./sawc/sawc.py examples/hello.saw -o hello
 
 # Run the compiled executable
 ./hello
 
 # Verbose output
-python3 sawc/sawc.py examples/hello.saw -v
+./sawc/sawc.py examples/hello.saw -v
 
 # Emit LLVM IR only
-python3 sawc/sawc.py examples/hello.saw --emit-ir
+./sawc/sawc.py examples/hello.saw --emit-ir
 ```
 
-## MVP Features
+## Current Features
 
-The current compiler supports:
+The compiler currently supports:
+
+### Core Language
 - Functions with parameters and return types
 - Basic types: Int, Float, Bool, String
 - Variables: `let` (immutable) and `var` (mutable)
@@ -121,3 +123,82 @@ The current compiler supports:
 - Control flow: `if`/`else` expressions
 - Recursion
 - `print(...)` built-in for debugging
+
+### Type System
+- Tuples: literals, indexing, multiple return values
+- Structs: declarations, field access, initialization
+- Field assignment: `obj.field = value`
+- Optionals (`T?`): `None`, `!`, `??`, `?.`
+- Optional binding: `if let`/`if var`, `guard let`/`guard var`
+
+### Extensions & Methods
+- `extension` blocks for adding methods to structs
+- Immutable methods: `func method(self) -> Type`
+- Mutable methods: `func method(var self)` (receives pointer)
+- Custom `init` methods with overloading
+- Method calls: `obj.method(args)`
+- `self` keyword in method bodies
+
+## Example Code
+
+### Basic Extension with Methods
+```saw
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point {
+    func distance(self) -> Int {
+        self.x + self.y
+    }
+}
+
+func main() {
+    let p = Point(x: 3, y: 4)
+    print(p.distance())  // 7
+}
+```
+
+### Custom Init Methods
+```saw
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point {
+    init(magnitude: Int) -> Point {
+        Point(x: magnitude, y: magnitude)
+    }
+}
+
+func main() {
+    let p1 = Point(x: 3, y: 4)     // Field init
+    let p2 = Point(magnitude: 5)    // Custom init
+    print(p2.x)  // 5
+}
+```
+
+### Mutable Methods
+```saw
+struct Counter {
+    value: Int
+}
+
+extension Counter {
+    func increment(var self) {
+        self.value = self.value + 1
+    }
+
+    func getValue(self) -> Int {
+        self.value
+    }
+}
+
+func main() {
+    var counter = Counter(value: 0)
+    counter.increment()
+    print(counter.getValue())  // 1
+}
+```

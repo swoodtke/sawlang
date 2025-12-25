@@ -246,10 +246,8 @@ class TypeChecker:
                     )
                     continue
 
-                # Check if self is mutable (would be marked in the type, but for now we don't have that)
-                # For simplicity, we'll assume self is immutable unless specified otherwise
-                # TODO: Add support for 'var self' detection in parser/AST
-                self_mutable = False
+                # Get self mutability from the method's AST node
+                self_mutable = method.self_mutable
 
                 # Fill in the self parameter type (if it's the placeholder VOID from parser)
                 expected_self_type = SawType(TypeKind.STRUCT, struct_name=extension.struct_name)
@@ -492,31 +490,79 @@ class TypeChecker:
 
     def _check_assign_statement(self, stmt: AssignStatement):
         """Check an assignment statement."""
-        # Look up variable
-        var_info = self.current_scope.lookup(stmt.name)
-        if not var_info:
-            self.reporter.error(
-                ErrorKind.UNDEFINED_VARIABLE,
-                f"undefined variable `{stmt.name}`",
-                stmt.line, stmt.column
-            )
-            return
+        # Handle both simple variable assignment and field assignment
+        if isinstance(stmt.target, Identifier):
+            # Simple variable assignment: x = value
+            var_info = self.current_scope.lookup(stmt.target.name)
+            if not var_info:
+                self.reporter.error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"undefined variable `{stmt.target.name}`",
+                    stmt.line, stmt.column
+                )
+                return
 
-        # Check mutability
-        if not var_info.mutable:
-            self.reporter.error(
-                ErrorKind.IMMUTABLE_ASSIGNMENT,
-                f"cannot assign to immutable variable `{stmt.name}`",
-                stmt.line, stmt.column,
-                hint="consider using `var` instead of `let` to make it mutable"
-            )
+            # Check mutability
+            if not var_info.mutable:
+                self.reporter.error(
+                    ErrorKind.IMMUTABLE_ASSIGNMENT,
+                    f"cannot assign to immutable variable `{stmt.target.name}`",
+                    stmt.line, stmt.column,
+                    hint="consider using `var` instead of `let` to make it mutable"
+                )
 
-        # Check type
-        value_type = self._check_expression(stmt.value)
-        if value_type and not self._types_compatible(value_type, var_info.type):
+            # Check type
+            value_type = self._check_expression(stmt.value)
+            if value_type and not self._types_compatible(value_type, var_info.type):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot assign `{value_type}` to variable of type `{var_info.type}`",
+                    stmt.line, stmt.column
+                )
+
+        elif isinstance(stmt.target, MemberAccess):
+            # Field assignment: obj.field = value
+            obj_type = self._check_expression(stmt.target.object)
+            if not obj_type:
+                return
+
+            # Must be a struct type
+            if obj_type.kind != TypeKind.STRUCT:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot access field on non-struct type `{obj_type}`",
+                    stmt.target.line, stmt.target.column
+                )
+                return
+
+            # Check if field exists
+            struct_info = self.structs.get(obj_type.struct_name)
+            if not struct_info:
+                return
+
+            if stmt.target.member not in struct_info.fields:
+                self.reporter.error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"struct `{obj_type.struct_name}` has no field `{stmt.target.member}`",
+                    stmt.target.line, stmt.target.column
+                )
+                return
+
+            field_type = struct_info.fields[stmt.target.member]
+
+            # Check value type
+            value_type = self._check_expression(stmt.value)
+            if value_type and not self._types_compatible(value_type, field_type):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot assign `{value_type}` to field of type `{field_type}`",
+                    stmt.line, stmt.column
+                )
+
+        else:
             self.reporter.error(
                 ErrorKind.TYPE_MISMATCH,
-                f"cannot assign `{value_type}` to variable of type `{var_info.type}`",
+                "invalid assignment target",
                 stmt.line, stmt.column
             )
 

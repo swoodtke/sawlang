@@ -130,7 +130,7 @@ class Parser:
         name = name_token.value
 
         self.expect(TokenType.LPAREN)
-        parameters = self.parse_parameters()
+        parameters, _ = self.parse_parameters()  # Ignore self_mutable for regular functions
         self.expect(TokenType.RPAREN)
 
         # Return type (optional, defaults to void)
@@ -231,7 +231,7 @@ class Parser:
             self.error("Expected 'func' or 'init' in extension")
 
         self.expect(TokenType.LPAREN)
-        parameters = self.parse_parameters()
+        parameters, self_mutable = self.parse_parameters()
         self.expect(TokenType.RPAREN)
 
         # Return type (optional, defaults to void)
@@ -249,17 +249,26 @@ class Parser:
             return_type=return_type,
             body=body,
             is_init=is_init,
+            self_mutable=self_mutable,
             line=start.line,
             column=start.column
         )
 
-    def parse_parameters(self) -> List[Parameter]:
+    def parse_parameters(self):
+        """Parse parameters. Returns (params, self_mutable) where self_mutable is True if first param is 'var self'."""
         params = []
+        self_mutable = False
 
         if self.match(TokenType.RPAREN):
-            return params
+            return params, self_mutable
 
         while True:
+            # Check for 'var' before parameter name (only valid for 'self')
+            is_var = False
+            if self.match(TokenType.VAR):
+                is_var = True
+                self.advance()
+
             # Allow both IDENT and SELF as parameter names (for method self parameter)
             if self.match(TokenType.IDENT, TokenType.SELF):
                 name_token = self.advance()
@@ -268,10 +277,17 @@ class Parser:
 
             # Special case: 'self' doesn't need type annotation (type is inferred from extension)
             if name_token.value == "self":
+                if is_var:
+                    # This is the first parameter and it's 'var self'
+                    if len(params) != 0:
+                        self.error("'var' can only be used with the first 'self' parameter")
+                    self_mutable = True
                 # Create a placeholder type - will be filled in by type checker
                 param_type = SawType(TypeKind.VOID)  # Placeholder
                 params.append(Parameter(name=name_token.value, type=param_type))
             else:
+                if is_var:
+                    self.error("'var' can only be used with 'self' parameter")
                 self.expect(TokenType.COLON, "Expected ':' after parameter name")
                 param_type = self.parse_type()
                 params.append(Parameter(name=name_token.value, type=param_type))
@@ -280,7 +296,7 @@ class Parser:
                 break
             self.advance()  # consume comma
 
-        return params
+        return params, self_mutable
 
     def parse_block(self) -> Block:
         start = self.current()
@@ -318,10 +334,11 @@ class Parser:
             return self.parse_guard_statement()
         elif self.match(TokenType.RETURN):
             return self.parse_return_statement()
-        elif self.match(TokenType.IDENT) and self.peek(1).type == TokenType.ASSIGN:
-            return self.parse_assign_statement()
         else:
-            return self.parse_expression_statement()
+            # Try to parse assignment or expression statement
+            # We need to parse the target expression first to handle both
+            # simple assignments (x = value) and field assignments (obj.field = value)
+            return self.parse_assignment_or_expression_statement()
 
     def parse_guard_statement(self) -> GuardLetStatement:
         start = self.advance()  # consume 'guard'
@@ -373,17 +390,33 @@ class Parser:
             column=start.column
         )
 
-    def parse_assign_statement(self) -> AssignStatement:
-        name_token = self.advance()
-        self.expect(TokenType.ASSIGN)
-        value = self.parse_expression()
+    def parse_assignment_or_expression_statement(self) -> Statement:
+        """Parse either an assignment (x = value, obj.field = value) or expression statement."""
+        start_pos = self.pos
+        target_expr = self.parse_expression()
 
-        return AssignStatement(
-            name=name_token.value,
-            value=value,
-            line=name_token.line,
-            column=name_token.column
-        )
+        # Check if this is an assignment
+        if self.match(TokenType.ASSIGN):
+            self.advance()  # consume '='
+            value_expr = self.parse_expression()
+
+            # Validate that target is assignable (Identifier or MemberAccess)
+            if not isinstance(target_expr, (Identifier, MemberAccess)):
+                self.error("Invalid assignment target")
+
+            return AssignStatement(
+                target=target_expr,
+                value=value_expr,
+                line=target_expr.line,
+                column=target_expr.column
+            )
+        else:
+            # It's just an expression statement
+            return ExpressionStatement(
+                expression=target_expr,
+                line=target_expr.line,
+                column=target_expr.column
+            )
 
     def parse_return_statement(self) -> ReturnStatement:
         start = self.advance()  # consume return
@@ -396,14 +429,6 @@ class Parser:
             value=value,
             line=start.line,
             column=start.column
-        )
-
-    def parse_expression_statement(self) -> ExpressionStatement:
-        expr = self.parse_expression()
-        return ExpressionStatement(
-            expression=expr,
-            line=expr.line,
-            column=expr.column
         )
 
     def parse_expression(self) -> Expression:

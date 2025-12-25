@@ -177,12 +177,11 @@ struct Point {
     y: Float64,
 }
 
-// Methods
+// Methods via extensions
 extension Point {
-    // Initializer (called via Type(...) syntax)
-    init(x: Float64, y: Float64) {
-        self.x = x
-        self.y = y
+    // Custom initializer (beyond default field init)
+    init(magnitude: Float64) -> Point {
+        Point(x: magnitude, y: magnitude)
     }
 
     // Instance method (immutable self)
@@ -190,16 +189,19 @@ extension Point {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
-    // Mutating method
+    // Mutating method (var self receives pointer)
     func translate(var self, dx: Float64, dy: Float64) {
         self.x += dx
         self.y += dy
     }
 }
 
-// Usage - objects created with Type(...) syntax
-var p = Point(3.0, 4.0)
+// Usage - default field init
+var p = Point(x: 3.0, y: 4.0)
 p.translate(1.0, 1.0)
+
+// Custom init
+let p2 = Point(magnitude: 5.0)  // Creates Point(x: 5.0, y: 5.0)
 ```
 
 ### Enums (Algebraic Data Types)
@@ -339,61 +341,66 @@ type Handler<T> = func(T) -> Result<(), Error>
 
 ### Type Extensions
 
-Extensions allow adding new functionality to existing types, including types from external libraries.
+Extensions allow adding methods and custom initializers to types. Currently implemented for user-defined structs.
 
 ```saw
-// Add methods to existing types
-extension Int {
-    func is_even(self) -> Bool {
-        self % 2 == 0
+// Add methods to struct types
+extension Point {
+    // Immutable method (self passed by value)
+    func distance_from_origin(self) -> Float64 {
+        (self.x * self.x + self.y * self.y).sqrt()
     }
 
-    func squared(self) -> Int {
-        self * self
-    }
-}
-
-let x = 42
-x.is_even()    // true
-x.squared()    // 1764
-
-// Add computed properties
-extension String {
-    var is_empty: Bool {
-        self.len() == 0
+    // Mutable method (var self passed by pointer)
+    func scale(var self, factor: Float64) {
+        self.x *= factor
+        self.y *= factor
     }
 
-    var reversed: String {
-        self.chars().reverse().collect()
+    // Custom initializer (overloaded by parameter names)
+    init(magnitude: Float64) -> Point {
+        Point(x: magnitude, y: magnitude)
     }
-}
 
-// Add trait conformance via extension
-extension Point: Display {
-    func display(self) -> String {
-        "({self.x}, {self.y})"
+    // Another custom initializer
+    init(polar: Float64, angle: Float64) -> Point {
+        Point(
+            x: polar * angle.cos(),
+            y: polar * angle.sin()
+        )
     }
 }
 
-// Conditional extensions (only when constraints are met)
-extension Vec<T> where T: Numeric {
-    func sum(self) -> T {
-        self.fold(T.zero, { acc, x in acc + x })
-    }
-}
+// Usage
+var p = Point(x: 3.0, y: 4.0)     // Default field init
+p.scale(2.0)                       // Mutates p
+let d = p.distance_from_origin()  // Read-only
 
-// Extensions can add initializers
-extension String {
-    init(repeating: Char, count: Int) {
-        self = ""
-        for _ in 0..count {
-            self.push(repeating)
-        }
-    }
-}
+let p2 = Point(magnitude: 5.0)    // Custom init
+let p3 = Point(polar: 10.0, angle: 1.57)  // Another custom init
 
-let stars = String(repeating: '*', count: 5)  // "*****"
+// Future: Built-in type extensions (not yet implemented)
+// extension Int {
+//     func is_even(self) -> Bool { self % 2 == 0 }
+// }
+
+// Future: Computed properties (not yet implemented)
+// extension String {
+//     var is_empty: Bool { self.len() == 0 }
+// }
+
+// Future: Trait conformance via extension (not yet implemented)
+// extension Point: Display {
+//     func display(self) -> String { "({self.x}, {self.y})" }
+// }
 ```
+
+**Key Features:**
+- Methods can be immutable (`self`) or mutable (`var self`)
+- Custom `init` methods return the struct type
+- Multiple `init` methods distinguished by parameter names
+- Mutable methods receive `self` as a pointer for efficient mutation
+- Field assignment supported: `self.field = value`
 
 ---
 

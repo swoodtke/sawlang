@@ -189,7 +189,13 @@ class CodeGenerator:
                 return_type = struct_type
             else:
                 # Regular methods include self as first parameter
-                param_types = [self._get_llvm_type(p.type) for p in method.parameters]
+                param_types = []
+                for i, p in enumerate(method.parameters):
+                    llvm_type = self._get_llvm_type(p.type)
+                    # If first param is self and it's mutable, make it a pointer
+                    if i == 0 and p.name == "self" and method.self_mutable:
+                        llvm_type = llvm_type.as_pointer()
+                    param_types.append(llvm_type)
                 return_type = self._get_llvm_type(method.return_type)
 
             # Create function type
@@ -222,9 +228,13 @@ class CodeGenerator:
         # Create allocas for parameters (including self)
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
-            alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
-            self.builder.store(llvm_func.args[i], alloca)
-            self.variables[param.name] = alloca
+            # For mutable self, it's already a pointer - just store it directly
+            if i == 0 and param.name == "self" and method.self_mutable:
+                self.variables[param.name] = llvm_func.args[i]
+            else:
+                alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
+                self.builder.store(llvm_func.args[i], alloca)
+                self.variables[param.name] = alloca
 
         # Generate method body
         result = self._generate_block(method.body)
@@ -386,10 +396,66 @@ class CodeGenerator:
         self.variables[stmt.name] = alloca
 
     def _generate_assign_statement(self, stmt: AssignStatement):
-        if stmt.name not in self.variables:
-            raise ValueError(f"Undefined variable: {stmt.name}")
         value = self._generate_expression(stmt.value)
-        self.builder.store(value, self.variables[stmt.name])
+
+        if isinstance(stmt.target, Identifier):
+            # Simple variable assignment
+            if stmt.target.name not in self.variables:
+                raise ValueError(f"Undefined variable: {stmt.target.name}")
+            self.builder.store(value, self.variables[stmt.target.name])
+
+        elif isinstance(stmt.target, MemberAccess):
+            # Field assignment: obj.field = value
+            # We need to get a pointer to the object first
+            obj_expr = stmt.target.object
+
+            # Get pointer to the struct
+            if isinstance(obj_expr, Identifier):
+                # Direct variable reference: p.x = value
+                if obj_expr.name not in self.variables:
+                    raise ValueError(f"Undefined variable: {obj_expr.name}")
+                struct_ptr = self.variables[obj_expr.name]
+            elif isinstance(obj_expr, SelfExpr):
+                # self.field = value
+                struct_ptr = self.variables["self"]
+            else:
+                raise ValueError(f"Unsupported object expression in field assignment: {type(obj_expr)}")
+
+            # Determine struct type and field index
+            # Get the actual struct type (dereference if it's a pointer)
+            if isinstance(struct_ptr.type.pointee, ir.LiteralStructType):
+                llvm_struct_type = struct_ptr.type.pointee
+            else:
+                raise ValueError(f"Cannot assign to field of non-struct type")
+
+            # Find which struct this is
+            struct_name = None
+            for name, (st, _) in self.struct_types.items():
+                if isinstance(st, ir.LiteralStructType) and str(st) == str(llvm_struct_type):
+                    struct_name = name
+                    break
+
+            if not struct_name:
+                raise ValueError("Cannot determine struct type for field assignment")
+
+            # Get field index
+            _, field_order = self.struct_types[struct_name]
+            if stmt.target.member not in field_order:
+                raise ValueError(f"Struct {struct_name} has no field {stmt.target.member}")
+
+            field_index = field_order.index(stmt.target.member)
+
+            # Generate GEP to get pointer to field
+            field_ptr = self.builder.gep(struct_ptr, [
+                ir.Constant(ir.IntType(32), 0),
+                ir.Constant(ir.IntType(32), field_index)
+            ], name=f"{stmt.target.member}_ptr")
+
+            # Store value to field
+            self.builder.store(value, field_ptr)
+
+        else:
+            raise ValueError(f"Invalid assignment target: {type(stmt.target)}")
 
     def _generate_return_statement(self, stmt: ReturnStatement):
         if stmt.value is not None:
@@ -960,7 +1026,9 @@ class CodeGenerator:
 
     def _generate_method_call(self, expr: MethodCall):
         """Generate code for method call: object.method(args)."""
-        # Generate the object expression
+        # Get mangled method name first to check if method expects mutable self
+        # We need this info before generating the object expression
+        # First, determine struct type by generating the object
         obj_val = self._generate_expression(expr.object)
 
         # Determine the struct type
@@ -986,7 +1054,20 @@ class CodeGenerator:
         method_func = self.functions[mangled_name]
 
         # Generate arguments: [self, arg1, arg2, ...]
-        args = [obj_val]  # self is first argument
+        # Check if method expects mutable self (pointer)
+        self_arg = obj_val
+        if method_func.args and isinstance(method_func.args[0].type, ir.PointerType):
+            # Method expects pointer to self
+            # If object is a variable, pass its alloca directly
+            if isinstance(expr.object, Identifier) and expr.object.name in self.variables:
+                self_arg = self.variables[expr.object.name]
+            else:
+                # Otherwise create a temporary
+                self_alloca = self.builder.alloca(obj_val.type, name="self_temp")
+                self.builder.store(obj_val, self_alloca)
+                self_arg = self_alloca
+
+        args = [self_arg]  # self is first argument
         for arg_expr in expr.arguments:
             args.append(self._generate_expression(arg_expr))
 

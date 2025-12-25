@@ -40,6 +40,13 @@
 - [x] Suggestion hints ("did you mean X?")
 - [x] Multiple errors per compilation (don't stop at first)
 - [x] Warning vs error distinction
+- [ ] Better error messages for extensions:
+  - [ ] Extension of undefined struct
+  - [ ] Duplicate method names
+  - [ ] Missing self parameter
+  - [ ] Self type mismatch
+  - [ ] Method call on non-struct type
+  - [ ] Accessing method as field
 
 ### Error Recovery
 - [ ] Parser recovery after syntax errors
@@ -63,9 +70,14 @@
 - [x] Struct declarations
 - [x] Field access
 - [x] Struct initialization: `Point(x: 10, y: 20)`
-- [ ] `extension` blocks for methods
-- [ ] `self` in methods
-- [ ] `var self` for mutating methods
+- [x] Field assignment: `obj.field = value`
+- [x] `extension` blocks for methods
+- [x] `self` in methods
+- [x] `var self` for mutating methods
+- [x] Custom `init` methods with overloading
+- [ ] Built-in type extensions (Int, String, Bool, etc.)
+- [ ] Static methods (no self parameter)
+- [ ] Method overloading (beyond init)
 
 ### Enums (Algebraic Data Types)
 - [ ] Simple enums (no data)
