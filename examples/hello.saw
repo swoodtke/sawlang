@@ -1,4 +1,4 @@
 // Hello World in Saw
-fn main() {
+func main() {
     print("Hello, Saw!")
 }

@@ -1,5 +1,5 @@
 // Multiple errors in one file
-fn main() {
+func main() {
     let x = 10
     print(y)
     x = 20

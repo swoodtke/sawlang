@@ -1,14 +1,14 @@
 // Math operations in Saw
 
-fn add(a: Int, b: Int) -> Int {
+func add(a: Int, b: Int) -> Int {
     a + b
 }
 
-fn multiply(a: Int, b: Int) -> Int {
+func multiply(a: Int, b: Int) -> Int {
     a * b
 }
 
-fn factorial(n: Int) -> Int {
+func factorial(n: Int) -> Int {
     if n <= 1 {
         1
     } else {
@@ -16,7 +16,7 @@ fn factorial(n: Int) -> Int {
     }
 }
 
-fn main() {
+func main() {
     print("Basic math:")
     let x = 10
     let y = 20

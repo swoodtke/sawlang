@@ -5,7 +5,7 @@ struct Point {
     y: Int
 }
 
-fn main() {
+func main() {
     // Optional struct
     let p: Point? = Point(x: 10, y: 20)
 

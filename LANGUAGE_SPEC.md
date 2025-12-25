@@ -43,29 +43,29 @@ var items: [Int] = []
 
 ```saw
 // Basic function
-fn add(a: Int, b: Int) -> Int {
+func add(a: Int, b: Int) -> Int {
     a + b  // implicit return for last expression
 }
 
 // Multiple return values via tuples
-fn divide(a: Int, b: Int) -> (quotient: Int, remainder: Int) {
+func divide(a: Int, b: Int) -> (quotient: Int, remainder: Int) {
     (a / b, a % b)
 }
 
 // Generic functions
-fn swap<T>(a: var T, b: var T) {
+func swap<T>(a: var T, b: var T) {
     let temp = a
     a = b
     b = temp
 }
 
 // Functions with default parameters
-fn greet(name: String, greeting: String = "Hello") -> String {
+func greet(name: String, greeting: String = "Hello") -> String {
     "{greeting}, {name}!"
 }
 
 // Trailing closure syntax
-fn map<T, U>(list: [T], transform: fn(T) -> U) -> [U]
+func map<T, U>(list: [T], transform: func(T) -> U) -> [U]
 
 let doubled = numbers.map { x in x * 2 }
 let doubled = numbers.map { $0 * 2 }  // shorthand
@@ -107,7 +107,7 @@ let result = loop {
 }
 
 // Guard for early exit (from Swift)
-fn process(input: String?) {
+func process(input: String?) {
     guard let value = input else {
         return
     }
@@ -186,12 +186,12 @@ extension Point {
     }
 
     // Instance method (immutable self)
-    fn magnitude(self) -> Float64 {
+    func magnitude(self) -> Float64 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
     // Mutating method
-    fn translate(var self, dx: Float64, dy: Float64) {
+    func translate(var self, dx: Float64, dy: Float64) {
         self.x += dx
         self.y += dy
     }
@@ -270,11 +270,11 @@ guard let value = maybe else {
 
 ```saw
 trait Display {
-    fn display(self) -> String
+    func display(self) -> String
 }
 
 trait Debug {
-    fn debug(self) -> String {
+    func debug(self) -> String {
         // Default implementation
         "<opaque>"
     }
@@ -282,29 +282,29 @@ trait Debug {
 
 // Trait implementation
 extension Display for Point {
-    fn display(self) -> String {
+    func display(self) -> String {
         "({self.x}, {self.y})"
     }
 }
 
 // Trait bounds
-fn print_all<T: Display>(items: [T]) {
+func print_all<T: Display>(items: [T]) {
     for item in items {
         print(item.display())
     }
 }
 
 // Multiple bounds
-fn process<T: Display + Debug + Clone>(item: T)
+func process<T: Display + Debug + Clone>(item: T)
 
 // Associated types
 trait Iterator {
     type Item
-    fn next(var self) -> Self.Item?
+    func next(var self) -> Self.Item?
 }
 
 // Trait objects (dynamic dispatch)
-fn render(shapes: [dyn Shape]) {
+func render(shapes: [dyn Shape]) {
     for shape in shapes {
         shape.draw()
     }
@@ -333,8 +333,8 @@ let k: Kilometers = m  // Error! Can't mix miles and kilometers
 let raw: Float64 = m.value
 
 // Type definitions for function signatures
-type Callback = fn(Int) -> Bool
-type Handler<T> = fn(T) -> Result<(), Error>
+type Callback = func(Int) -> Bool
+type Handler<T> = func(T) -> Result<(), Error>
 ```
 
 ### Type Extensions
@@ -344,11 +344,11 @@ Extensions allow adding new functionality to existing types, including types fro
 ```saw
 // Add methods to existing types
 extension Int {
-    fn is_even(self) -> Bool {
+    func is_even(self) -> Bool {
         self % 2 == 0
     }
 
-    fn squared(self) -> Int {
+    func squared(self) -> Int {
         self * self
     }
 }
@@ -370,14 +370,14 @@ extension String {
 
 // Add trait conformance via extension
 extension Point: Display {
-    fn display(self) -> String {
+    func display(self) -> String {
         "({self.x}, {self.y})"
     }
 }
 
 // Conditional extensions (only when constraints are met)
 extension Vec<T> where T: Numeric {
-    fn sum(self) -> T {
+    func sum(self) -> T {
         self.fold(T.zero, { acc, x in acc + x })
     }
 }
@@ -436,8 +436,8 @@ struct FileHandle {
 }
 
 extension FileHandle {
-    fn open(path: String) -> Result<FileHandle, IoError> { ... }
-    fn close(self) { ... }  // Takes ownership, closes file
+    func open(path: String) -> Result<FileHandle, IoError> { ... }
+    func close(self) { ... }  // Takes ownership, closes file
 }
 
 // Move-only types must be explicitly moved
@@ -459,7 +459,7 @@ Use `var` parameters to allow a function to mutate the caller's value. At the ca
 
 ```saw
 // var parameter: function can mutate caller's value
-fn append_greeting(s: var String) {
+func append_greeting(s: var String) {
     s.push_str(", world!")
 }
 
@@ -468,7 +468,7 @@ append_greeting(&msg)  // & indicates msg may be mutated
 print(msg)  // "Hello, world!"
 
 // Multiple var parameters
-fn swap<T>(a: var T, b: var T) {
+func swap<T>(a: var T, b: var T) {
     let temp = a
     a = b
     b = temp
@@ -479,7 +479,7 @@ var y = 2
 swap(&x, &y)  // x is now 2, y is now 1
 
 // Regular parameters are copied (caller's value unchanged)
-fn process(s: String) {
+func process(s: String) {
     // s is a copy, modifications don't affect caller
 }
 
@@ -546,7 +546,7 @@ enum Result<T, E> {
     Err(E),
 }
 
-fn read_file(path: String) -> Result<String, IoError> {
+func read_file(path: String) -> Result<String, IoError> {
     // ...
 }
 
@@ -557,7 +557,7 @@ match read_file("data.txt") {
 }
 
 // Propagation operator
-fn load_config() -> Result<Config, Error> {
+func load_config() -> Result<Config, Error> {
     let content = read_file("config.json")?  // Returns early on error
     parse_json(content)?
 }
@@ -572,7 +572,7 @@ let result = read_file("data.txt")
 
 ```saw
 // Panic halts execution (unrecoverable)
-fn get_index(arr: [Int], i: Int) -> Int {
+func get_index(arr: [Int], i: Int) -> Int {
     if i >= arr.len() {
         panic("Index {i} out of bounds for length {arr.len()}")
     }
@@ -594,7 +594,7 @@ enum ParseError {
 }
 
 extension Error for ParseError {
-    fn message(self) -> String {
+    func message(self) -> String {
         match self {
             InvalidSyntax(line, col) => "Syntax error at {line}:{col}",
             UnexpectedToken(tok) => "Unexpected token: {tok}",
@@ -612,13 +612,13 @@ extension Error for ParseError {
 
 ```saw
 // Async functions return futures
-async fn fetch_url(url: String) -> Result<Response, HttpError> {
+async func fetch_url(url: String) -> Result<Response, HttpError> {
     let connection = connect(url).await?
     connection.get("/").await
 }
 
 // Concurrent execution
-async fn fetch_all(urls: [String]) -> [Result<Response, HttpError>] {
+async func fetch_all(urls: [String]) -> [Result<Response, HttpError>] {
     // Spawn concurrent tasks
     let tasks = urls.map { url in spawn { fetch_url(url).await } }
 
@@ -627,7 +627,7 @@ async fn fetch_all(urls: [String]) -> [Result<Response, HttpError>] {
 }
 
 // Select first completed
-async fn race_fetch(primary: String, backup: String) -> Response {
+async func race_fetch(primary: String, backup: String) -> Response {
     select {
         result = fetch_url(primary).await => result,
         result = fetch_url(backup).await => result,
@@ -674,7 +674,7 @@ trait Send {}
 trait Sync {}
 
 // Compiler enforces thread safety
-fn spawn<F: FnOnce() + Send>(f: F) -> JoinHandle
+func spawn<F: FnOnce() + Send>(f: F) -> JoinHandle
 ```
 
 ---
@@ -697,7 +697,7 @@ struct Array<T, const N: Int> {
 let arr: Array<Int, 5> = Array()
 
 // Where clauses for complex bounds
-fn merge<T, U, V>(a: T, b: U) -> V
+func merge<T, U, V>(a: T, b: U) -> V
 where
     T: Into<V>,
     U: Into<V>,
@@ -711,7 +711,7 @@ where
 
 ```saw
 // Const functions evaluated at compile time
-const fn factorial(n: Int) -> Int {
+const func factorial(n: Int) -> Int {
     if n <= 1 { 1 } else { n * factorial(n - 1) }
 }
 
@@ -744,19 +744,19 @@ struct User {
 
 // Attribute macros
 #[test]
-fn test_addition() {
+func test_addition() {
     assert_eq(2 + 2, 4)
 }
 
 #[inline(always)]
-fn hot_path() { ... }
+func hot_path() { ... }
 ```
 
 ### Compile-Time Reflection
 
 ```saw
 // Type introspection at compile time
-const fn field_names<T>() -> [String] {
+const func field_names<T>() -> [String] {
     T.fields().map { f in f.name }
 }
 
@@ -782,7 +782,7 @@ public module runtime  // Public module
 
 // Inline module
 module helpers {
-    public fn utility() { ... }
+    public func utility() { ... }
 }
 ```
 
@@ -796,10 +796,10 @@ struct Internal { ... }
 public struct Public { ... }
 
 // Public within package only
-public(package) fn internal_api() { ... }
+public(package) func internal_api() { ... }
 
 // Public to parent module
-public(parent) fn parent_visible() { ... }
+public(parent) func parent_visible() { ... }
 ```
 
 ### Imports
@@ -902,14 +902,14 @@ std.time.{Instant, Duration}
 ```saw
 // Declare external C functions
 extern "C" {
-    fn printf(format: *Char, ...) -> Int
-    fn malloc(size: UInt) -> *var Void
-    fn free(ptr: *var Void)
+    func printf(format: *Char, ...) -> Int
+    func malloc(size: UInt) -> *var Void
+    func free(ptr: *var Void)
 }
 
 // Export for C
 #[no_mangle]
-public extern "C" fn my_function(x: Int32) -> Int32 {
+public extern "C" func my_function(x: Int32) -> Int32 {
     x * 2
 }
 
@@ -932,7 +932,7 @@ unsafe {
 }
 
 // Unsafe functions must be called in unsafe blocks
-unsafe fn dangerous() {
+unsafe func dangerous() {
     // Raw pointer operations
     // Calling external functions
     // Accessing mutable statics
@@ -940,8 +940,8 @@ unsafe fn dangerous() {
 
 // Unsafe traits
 unsafe trait GlobalAlloc {
-    unsafe fn alloc(layout: Layout) -> *var Void
-    unsafe fn dealloc(ptr: *var Void, layout: Layout)
+    unsafe func alloc(layout: Layout) -> *var Void
+    unsafe func dealloc(ptr: *var Void, layout: Layout)
 }
 ```
 
@@ -966,7 +966,7 @@ unsafe trait GlobalAlloc {
 and         as          async       await       break
 const       continue    defer       do          dyn
 else        enum        extension   extern      false
-fn          for         guard       if          impl
+func          for         guard       if          impl
 import      in          init        let         loop
 macro       match       module      move        none
 not         or          package     parent      public

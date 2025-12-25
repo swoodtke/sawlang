@@ -1,10 +1,10 @@
-fn swap(pair: (Int, Int)) -> (Int, Int) {
+func swap(pair: (Int, Int)) -> (Int, Int) {
     let a = pair.0
     let b = pair.1
     (b, a)
 }
 
-fn add_points(p1: (Int, Int), p2: (Int, Int)) -> (Int, Int) {
+func add_points(p1: (Int, Int), p2: (Int, Int)) -> (Int, Int) {
     let x1 = p1.0
     let y1 = p1.1
     let x2 = p2.0
@@ -12,7 +12,7 @@ fn add_points(p1: (Int, Int), p2: (Int, Int)) -> (Int, Int) {
     (x1 + x2, y1 + y2)
 }
 
-fn main() -> Int {
+func main() -> Int {
     // Create a tuple with different types
     let mixed = (42, 3.14, true)
     print(mixed.0)

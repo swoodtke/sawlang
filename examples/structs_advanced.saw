@@ -8,11 +8,11 @@ struct Rectangle {
     height: Int
 }
 
-fn area(r: Rectangle) -> Int {
+func area(r: Rectangle) -> Int {
     r.width * r.height
 }
 
-fn distance(p1: Point, p2: Point) -> Int {
+func distance(p1: Point, p2: Point) -> Int {
     let dx = p2.x - p1.x
     let dy = p2.y - p1.y
     // Simple Manhattan distance
@@ -34,7 +34,7 @@ fn distance(p1: Point, p2: Point) -> Int {
     }
 }
 
-fn main() -> Int {
+func main() -> Int {
     let rect = Rectangle(width: 15, height: 10)
     print(area(rect))
 

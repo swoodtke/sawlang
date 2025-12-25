@@ -1,6 +1,6 @@
 // Test optional types
 
-fn main() {
+func main() {
     // Implicit wrapping
     let x: Int? = 5
     print(x!)

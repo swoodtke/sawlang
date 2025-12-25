@@ -18,7 +18,7 @@ class TokenType(Enum):
 
     # Identifiers and keywords
     IDENT = auto()
-    FN = auto()
+    FUNC = auto()
     LET = auto()
     VAR = auto()
     IF = auto()
@@ -78,7 +78,7 @@ class Token:
 
 
 KEYWORDS = {
-    'fn': TokenType.FN,
+    'func': TokenType.FUNC,
     'let': TokenType.LET,
     'var': TokenType.VAR,
     'if': TokenType.IF,

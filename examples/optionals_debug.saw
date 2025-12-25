@@ -5,7 +5,7 @@ struct Point {
     y: Int
 }
 
-fn main() {
+func main() {
     let p: Point? = Point(x: 10, y: 20)
 
     // First unwrap to check p works

@@ -1,4 +1,4 @@
-fn main() -> Int {
+func main() -> Int {
     let point = (10, 20, 30)
     let x = point.0
     let y = point.1

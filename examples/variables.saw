@@ -1,6 +1,6 @@
 // Variables and control flow in Saw
 
-fn abs(n: Int) -> Int {
+func abs(n: Int) -> Int {
     if n < 0 {
         -n
     } else {
@@ -8,7 +8,7 @@ fn abs(n: Int) -> Int {
     }
 }
 
-fn max(a: Int, b: Int) -> Int {
+func max(a: Int, b: Int) -> Int {
     if a > b {
         a
     } else {
@@ -16,7 +16,7 @@ fn max(a: Int, b: Int) -> Int {
     }
 }
 
-fn main() {
+func main() {
     // Immutable binding
     let pi = 3.14159
     print("Pi:")

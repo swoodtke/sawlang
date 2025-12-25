@@ -65,7 +65,7 @@ class Parser:
         while not self.match(TokenType.EOF):
             if self.match(TokenType.STRUCT):
                 structs.append(self.parse_struct())
-            elif self.match(TokenType.FN):
+            elif self.match(TokenType.FUNC):
                 functions.append(self.parse_function())
             else:
                 self.error(f"Expected struct or function declaration, got {self.current().type.name}")
@@ -119,7 +119,7 @@ class Parser:
 
     def parse_function(self) -> Function:
         start = self.current()
-        self.expect(TokenType.FN)
+        self.expect(TokenType.FUNC)
 
         name_token = self.expect(TokenType.IDENT, "Expected function name")
         name = name_token.value
