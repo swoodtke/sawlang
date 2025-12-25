@@ -1,6 +1,6 @@
 # Saw Language - Implementation Roadmap
 
-## Current Status (MVP Complete)
+## Current Status (MVP Complete + Core Types)
 - [x] Basic functions with parameters and return types
 - [x] Primitive types: Int, Float, Bool, String
 - [x] Variables: `let` (immutable) and `var` (mutable)
@@ -9,6 +9,8 @@
 - [x] `if`/`else` expressions
 - [x] Recursion
 - [x] `print(...)` built-in
+- [x] Tuples with literals, indexing, and multiple return values
+- [x] Structs with field access and initialization
 
 ---
 
@@ -58,10 +60,10 @@
 - [ ] `guard let` early exit
 
 ### Structs
-- [ ] Struct declarations
-- [ ] Field access
-- [ ] `impl` blocks for methods
-- [ ] `init` initializers
+- [x] Struct declarations
+- [x] Field access
+- [ ] `extension` blocks for methods
+- [x] Struct initialization: `Point(x: 10, y: 20)`
 - [ ] `self` in methods
 - [ ] `var self` for mutating methods
 
@@ -151,7 +153,7 @@
 ### Function Features
 - [ ] Default parameter values
 - [ ] `var` parameters with `&` at call site
-- [ ] Multiple return via tuples
+- [x] Multiple return via tuples
 
 ### Closures
 - [ ] Closure syntax: `{ x in x * 2 }`
@@ -276,9 +278,9 @@
 ## Compiler Improvements
 
 ### Error Handling
-- [ ] Better error messages with source locations
+- [x] Better error messages with source locations
 - [ ] Error recovery in parser
-- [ ] Type error messages
+- [x] Type error messages
 
 ### Optimizations
 - [ ] Basic optimizations via LLVM

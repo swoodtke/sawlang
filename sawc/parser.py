@@ -10,7 +10,8 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr,
-    TupleLiteral, TupleIndex, MemberAccess,
+    TupleLiteral, TupleIndex, MemberAccess, StructInit,
+    Struct, StructField,
     SawType, TypeKind
 )
 
@@ -56,17 +57,20 @@ class Parser:
             self.advance()
 
     def parse(self) -> Program:
+        structs = []
         functions = []
         self.skip_newlines()
 
         while not self.match(TokenType.EOF):
-            if self.match(TokenType.FN):
+            if self.match(TokenType.STRUCT):
+                structs.append(self.parse_struct())
+            elif self.match(TokenType.FN):
                 functions.append(self.parse_function())
             else:
-                self.error(f"Expected function declaration, got {self.current().type.name}")
+                self.error(f"Expected struct or function declaration, got {self.current().type.name}")
             self.skip_newlines()
 
-        return Program(functions=functions)
+        return Program(structs=structs, functions=functions)
 
     def parse_type(self) -> SawType:
         token = self.current()
@@ -93,6 +97,10 @@ class Parser:
                     element_types.append(self.parse_type())
             self.expect(TokenType.RPAREN)
             return SawType(TypeKind.TUPLE, element_types=element_types)
+        elif token.type == TokenType.IDENT:
+            # Struct type (user-defined)
+            self.advance()
+            return SawType(TypeKind.STRUCT, struct_name=token.value)
         else:
             self.error(f"Expected type, got {token.type.name}")
 
@@ -121,6 +129,40 @@ class Parser:
             parameters=parameters,
             return_type=return_type,
             body=body,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_struct(self) -> Struct:
+        """Parse a struct declaration: struct Name { field: Type, ... }"""
+        start = self.current()
+        self.expect(TokenType.STRUCT)
+
+        name_token = self.expect(TokenType.IDENT, "Expected struct name")
+        name = name_token.value
+
+        self.skip_newlines()
+        self.expect(TokenType.LBRACE)
+        self.skip_newlines()
+
+        fields = []
+        while not self.match(TokenType.RBRACE, TokenType.EOF):
+            field_name_token = self.expect(TokenType.IDENT, "Expected field name")
+            self.expect(TokenType.COLON, "Expected ':' after field name")
+            field_type = self.parse_type()
+            fields.append(StructField(name=field_name_token.value, type=field_type))
+
+            self.skip_newlines()
+            # Allow optional comma
+            if self.match(TokenType.COMMA):
+                self.advance()
+            self.skip_newlines()
+
+        self.expect(TokenType.RBRACE)
+
+        return Struct(
+            name=name,
+            fields=fields,
             line=start.line,
             column=start.column
         )
@@ -359,9 +401,13 @@ class Parser:
 
         elif self.match(TokenType.IDENT):
             self.advance()
-            # Check for function call
+            # Check for function call or struct initialization
             if self.match(TokenType.LPAREN):
-                return self.parse_function_call(token)
+                # Peek ahead to see if this is struct init (name: value) or function call
+                if self.peek(1).type == TokenType.IDENT and self.peek(2).type == TokenType.COLON:
+                    return self.parse_struct_init(token)
+                else:
+                    return self.parse_function_call(token)
             return Identifier(name=token.value, line=token.line, column=token.column)
 
         elif self.match(TokenType.LPAREN):
@@ -414,6 +460,38 @@ class Parser:
         return FunctionCall(
             name=name_token.value,
             arguments=arguments,
+            line=name_token.line,
+            column=name_token.column
+        )
+
+    def parse_struct_init(self, name_token: Token) -> StructInit:
+        """Parse struct initialization: StructName(field1: value1, field2: value2)"""
+        self.expect(TokenType.LPAREN)
+        field_inits = []
+
+        if not self.match(TokenType.RPAREN):
+            # Parse first field
+            field_name = self.expect(TokenType.IDENT, "Expected field name").value
+            self.expect(TokenType.COLON, "Expected ':' after field name")
+            field_value = self.parse_expression()
+            field_inits.append((field_name, field_value))
+
+            # Parse remaining fields
+            while self.match(TokenType.COMMA):
+                self.advance()
+                # Allow trailing comma
+                if self.match(TokenType.RPAREN):
+                    break
+                field_name = self.expect(TokenType.IDENT, "Expected field name").value
+                self.expect(TokenType.COLON, "Expected ':' after field name")
+                field_value = self.parse_expression()
+                field_inits.append((field_name, field_value))
+
+        self.expect(TokenType.RPAREN)
+
+        return StructInit(
+            struct_name=name_token.value,
+            field_inits=field_inits,
             line=name_token.line,
             column=name_token.column
         )

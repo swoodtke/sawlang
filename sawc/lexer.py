@@ -26,6 +26,9 @@ class TokenType(Enum):
     RETURN = auto()
     TRUE = auto()
     FALSE = auto()
+    STRUCT = auto()
+    EXTENSION = auto()
+    SELF = auto()
 
     # Types
     INT_TYPE = auto()
@@ -78,6 +81,9 @@ KEYWORDS = {
     'return': TokenType.RETURN,
     'true': TokenType.TRUE,
     'false': TokenType.FALSE,
+    'struct': TokenType.STRUCT,
+    'extension': TokenType.EXTENSION,
+    'self': TokenType.SELF,
     'Int': TokenType.INT_TYPE,
     'Float': TokenType.FLOAT_TYPE,
     'Bool': TokenType.BOOL_TYPE,

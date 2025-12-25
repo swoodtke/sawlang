@@ -145,8 +145,15 @@ Examples:
     if args.output:
         output_path = args.output
     else:
-        # Use input filename without extension
-        output_path = os.path.splitext(args.input)[0]
+        # Use input filename without extension, place in .build/ directory
+        basename = os.path.basename(args.input)
+        name_without_ext = os.path.splitext(basename)[0]
+
+        # Ensure .build/ directory exists
+        build_dir = ".build"
+        os.makedirs(build_dir, exist_ok=True)
+
+        output_path = os.path.join(build_dir, name_without_ext)
 
     if args.emit_ir:
         # Only emit IR

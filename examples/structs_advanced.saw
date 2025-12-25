@@ -1,0 +1,48 @@
+struct Point {
+    x: Int,
+    y: Int
+}
+
+struct Rectangle {
+    width: Int,
+    height: Int
+}
+
+fn area(r: Rectangle) -> Int {
+    r.width * r.height
+}
+
+fn distance(p1: Point, p2: Point) -> Int {
+    let dx = p2.x - p1.x
+    let dy = p2.y - p1.y
+    // Simple Manhattan distance
+    if dx < 0 {
+        let dx_abs = 0 - dx
+        if dy < 0 {
+            let dy_abs = 0 - dy
+            dx_abs + dy_abs
+        } else {
+            dx_abs + dy
+        }
+    } else {
+        if dy < 0 {
+            let dy_abs = 0 - dy
+            dx + dy_abs
+        } else {
+            dx + dy
+        }
+    }
+}
+
+fn main() -> Int {
+    let rect = Rectangle(width: 15, height: 10)
+    print(area(rect))
+
+    let p1 = Point(x: 5, y: 10)
+    let p2 = Point(x: 20, y: 30)
+
+    let dist = distance(p1, p2)
+    print(dist)
+
+    0
+}

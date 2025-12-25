@@ -9,7 +9,8 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr,
-    TupleLiteral, TupleIndex, MemberAccess,
+    TupleLiteral, TupleIndex, MemberAccess, StructInit,
+    Struct, StructField,
     SawType, TypeKind
 )
 
@@ -33,6 +34,9 @@ class CodeGenerator:
 
         # Function table
         self.functions: dict = {}
+
+        # Struct types (name -> (LLVM type, field_order))
+        self.struct_types: dict = {}
 
         # String constants
         self.string_constants: dict = {}
@@ -67,6 +71,13 @@ class CodeGenerator:
                 return ir.LiteralStructType([])
             element_llvm_types = [self._get_llvm_type(t) for t in saw_type.element_types]
             return ir.LiteralStructType(element_llvm_types)
+        elif saw_type.kind == TypeKind.STRUCT:
+            # Look up the struct type
+            if saw_type.struct_name is None:
+                raise ValueError("Struct type missing name")
+            if saw_type.struct_name not in self.struct_types:
+                raise ValueError(f"Undefined struct: {saw_type.struct_name}")
+            return self.struct_types[saw_type.struct_name][0]  # Return LLVM type
         else:
             raise ValueError(f"Unknown type: {saw_type}")
 
@@ -90,15 +101,31 @@ class CodeGenerator:
         return global_str
 
     def generate(self, program: Program) -> str:
-        # First pass: declare all functions
+        # First pass: register struct types
+        for struct in program.structs:
+            self._register_struct(struct)
+
+        # Second pass: declare all functions
         for func in program.functions:
             self._declare_function(func)
 
-        # Second pass: generate function bodies
+        # Third pass: generate function bodies
         for func in program.functions:
             self._generate_function(func)
 
         return str(self.module)
+
+    def _register_struct(self, struct: Struct):
+        """Register a struct type with LLVM."""
+        # Get LLVM types for each field
+        field_types = [self._get_llvm_type(field.type) for field in struct.fields]
+
+        # Create LLVM struct type
+        llvm_struct_type = ir.LiteralStructType(field_types)
+
+        # Store the type and field order for later use
+        field_order = [field.name for field in struct.fields]
+        self.struct_types[struct.name] = (llvm_struct_type, field_order)
 
     def _declare_function(self, func: Function):
         param_types = [self._get_llvm_type(p.type) for p in func.parameters]
@@ -232,7 +259,10 @@ class CodeGenerator:
             return self._generate_tuple_index(expr)
 
         elif isinstance(expr, MemberAccess):
-            raise ValueError("Member access not yet implemented (structs not supported)")
+            return self._generate_member_access(expr)
+
+        elif isinstance(expr, StructInit):
+            return self._generate_struct_init(expr)
 
         else:
             raise ValueError(f"Unknown expression type: {type(expr)}")
@@ -439,6 +469,46 @@ class CodeGenerator:
 
         # Extract the element at the given index
         return self.builder.extract_value(tuple_val, expr.index)
+
+    def _generate_struct_init(self, expr: StructInit):
+        """Generate code for struct initialization."""
+        if expr.struct_name not in self.struct_types:
+            raise ValueError(f"Undefined struct: {expr.struct_name}")
+
+        llvm_struct_type, field_order = self.struct_types[expr.struct_name]
+
+        # Create a map from field name to value
+        field_values = {field_name: self._generate_expression(value)
+                       for field_name, value in expr.field_inits}
+
+        # Build the struct value in the correct field order
+        struct_val = ir.Constant(llvm_struct_type, ir.Undefined)
+        for i, field_name in enumerate(field_order):
+            if field_name in field_values:
+                struct_val = self.builder.insert_value(struct_val, field_values[field_name], i)
+
+        return struct_val
+
+    def _generate_member_access(self, expr: MemberAccess):
+        """Generate code for member access on structs."""
+        obj_val = self._generate_expression(expr.object)
+
+        # Determine the struct type
+        # For now, we need to infer the struct type from the object expression
+        # This is a bit hacky, but works for simple cases
+        # In a more sophisticated system, we'd track type info through the codegen
+
+        # For now, assume the object is a struct and find which one based on its LLVM type
+        obj_type = obj_val.type
+
+        # Find the matching struct type and field index
+        for struct_name, (llvm_type, field_order) in self.struct_types.items():
+            if llvm_type == obj_type:
+                if expr.member in field_order:
+                    field_index = field_order.index(expr.member)
+                    return self.builder.extract_value(obj_val, field_index)
+
+        raise ValueError(f"Cannot find field {expr.member} in struct")
 
     def compile_to_object(self, output_path: str):
         """Compile the module to an object file."""

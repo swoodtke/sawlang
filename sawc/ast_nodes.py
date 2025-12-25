@@ -14,6 +14,7 @@ class TypeKind(Enum):
     STRING = auto()
     VOID = auto()
     TUPLE = auto()
+    STRUCT = auto()
 
 
 @dataclass
@@ -21,11 +22,15 @@ class SawType:
     kind: TypeKind
     # For tuple types, this holds the element types
     element_types: Optional[List['SawType']] = None
+    # For struct types, this holds the struct name
+    struct_name: Optional[str] = None
 
     def __repr__(self):
         if self.kind == TypeKind.TUPLE and self.element_types:
             types_str = ", ".join(str(t) for t in self.element_types)
             return f"({types_str})"
+        if self.kind == TypeKind.STRUCT and self.struct_name:
+            return self.struct_name
         return self.kind.name
 
 
@@ -127,9 +132,18 @@ class TupleIndex(Expression):
 
 @dataclass
 class MemberAccess(Expression):
-    """Access a member/field of an expression (for structs later)."""
+    """Access a member/field of an expression."""
     object: Expression
     member: str
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class StructInit(Expression):
+    """Struct initialization: Point(x: 10, y: 20)"""
+    struct_name: str
+    field_inits: List[tuple[str, Expression]]  # [(field_name, value), ...]
     line: int = 0
     column: int = 0
 
@@ -188,6 +202,22 @@ class Parameter:
 
 
 @dataclass
+class StructField:
+    """A field in a struct declaration."""
+    name: str
+    type: SawType
+
+
+@dataclass
+class Struct(ASTNode):
+    """Struct declaration."""
+    name: str
+    fields: List[StructField]
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class Function(ASTNode):
     name: str
     parameters: List[Parameter]
@@ -199,6 +229,7 @@ class Function(ASTNode):
 
 @dataclass
 class Program(ASTNode):
+    structs: List[Struct]
     functions: List[Function]
     line: int = 0
     column: int = 0

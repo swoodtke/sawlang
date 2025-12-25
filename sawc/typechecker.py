@@ -10,7 +10,8 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr,
-    TupleLiteral, TupleIndex, MemberAccess,
+    TupleLiteral, TupleIndex, MemberAccess, StructInit,
+    Struct, StructField,
     SawType, TypeKind, Parameter
 )
 from errors import ErrorReporter, ErrorKind
@@ -31,6 +32,14 @@ class FunctionInfo:
     param_types: List[SawType]
     return_type: SawType
     param_names: List[str]
+
+
+@dataclass
+class StructInfo:
+    """Information about a struct."""
+    name: str
+    fields: Dict[str, SawType]  # field_name -> type
+    field_order: List[str]  # preserve declaration order
 
 
 class Scope:
@@ -65,6 +74,7 @@ class TypeChecker:
 
     def __init__(self, reporter: ErrorReporter):
         self.reporter = reporter
+        self.structs: Dict[str, StructInfo] = {}
         self.functions: Dict[str, FunctionInfo] = {}
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
@@ -80,7 +90,11 @@ class TypeChecker:
 
     def check(self, program: Program) -> bool:
         """Type check the entire program. Returns True if no errors."""
-        # First pass: collect function signatures
+        # First pass: collect struct definitions
+        for struct in program.structs:
+            self._register_struct(struct)
+
+        # Second pass: collect function signatures
         for func in program.functions:
             self._register_function(func)
 
@@ -93,11 +107,44 @@ class TypeChecker:
                 hint="add a `fn main() { }` function as the entry point"
             )
 
-        # Second pass: type check function bodies
+        # Third pass: type check function bodies
         for func in program.functions:
             self._check_function(func)
 
         return not self.reporter.has_errors()
+
+    def _register_struct(self, struct: Struct):
+        """Register a struct definition."""
+        if struct.name in self.structs:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,  # We can reuse this error kind
+                f"struct `{struct.name}` is defined multiple times",
+                struct.line, struct.column
+            )
+            return
+
+        # Check for duplicate fields
+        fields = {}
+        field_order = []
+        seen_fields = set()
+
+        for field in struct.fields:
+            if field.name in seen_fields:
+                self.reporter.error(
+                    ErrorKind.DUPLICATE_VARIABLE,  # Reuse this
+                    f"field `{field.name}` is defined multiple times in struct `{struct.name}`",
+                    struct.line, struct.column
+                )
+            else:
+                seen_fields.add(field.name)
+                fields[field.name] = field.type
+                field_order.append(field.name)
+
+        self.structs[struct.name] = StructInfo(
+            name=struct.name,
+            fields=fields,
+            field_order=field_order
+        )
 
     def _register_function(self, func: Function):
         """Register a function signature."""
@@ -304,6 +351,9 @@ class TypeChecker:
         elif isinstance(expr, MemberAccess):
             return self._check_member_access(expr)
 
+        elif isinstance(expr, StructInit):
+            return self._check_struct_init(expr)
+
         return None
 
     def _check_identifier(self, expr: Identifier) -> Optional[SawType]:
@@ -488,18 +538,84 @@ class TypeChecker:
         return tuple_type.element_types[expr.index]
 
     def _check_member_access(self, expr: MemberAccess) -> Optional[SawType]:
-        """Check member access (for structs, not yet implemented)."""
+        """Check member access for struct fields."""
         obj_type = self._check_expression(expr.object)
         if obj_type is None:
             return None
 
-        # For now, member access is only used for future struct support
-        self.reporter.error(
-            ErrorKind.TYPE_MISMATCH,
-            f"member access not yet supported (structs not implemented)",
-            expr.line, expr.column
-        )
-        return None
+        if obj_type.kind != TypeKind.STRUCT:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot access member of non-struct type `{obj_type}`",
+                expr.line, expr.column
+            )
+            return None
+
+        if obj_type.struct_name is None:
+            return None
+
+        struct_info = self.structs.get(obj_type.struct_name)
+        if struct_info is None:
+            # This shouldn't happen if type checking is working correctly
+            return None
+
+        if expr.member not in struct_info.fields:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"struct `{obj_type.struct_name}` has no field `{expr.member}`",
+                expr.line, expr.column,
+                hint=f"available fields: {', '.join(struct_info.field_order)}"
+            )
+            return None
+
+        return struct_info.fields[expr.member]
+
+    def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
+        """Check struct initialization."""
+        # Check if struct exists
+        struct_info = self.structs.get(expr.struct_name)
+        if struct_info is None:
+            self.reporter.error(
+                ErrorKind.UNDEFINED_VARIABLE,  # Could add UNDEFINED_STRUCT
+                f"undefined struct `{expr.struct_name}`",
+                expr.line, expr.column
+            )
+            return None
+
+        # Check that all fields are initialized
+        provided_fields = {field_name for field_name, _ in expr.field_inits}
+        required_fields = set(struct_info.fields.keys())
+
+        missing = required_fields - provided_fields
+        if missing:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"struct `{expr.struct_name}` is missing fields: {', '.join(sorted(missing))}",
+                expr.line, expr.column
+            )
+
+        # Check for extra fields
+        extra = provided_fields - required_fields
+        if extra:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"struct `{expr.struct_name}` has no fields: {', '.join(sorted(extra))}",
+                expr.line, expr.column
+            )
+
+        # Check field types
+        for field_name, field_value in expr.field_inits:
+            if field_name in struct_info.fields:
+                expected_type = struct_info.fields[field_name]
+                actual_type = self._check_expression(field_value)
+                if actual_type and not self._types_compatible(actual_type, expected_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"field `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
+                        expr.line, expr.column
+                    )
+
+        return SawType(TypeKind.STRUCT, struct_name=expr.struct_name)
 
     def _types_compatible(self, a: Optional[SawType], b: Optional[SawType]) -> bool:
         """Check if two types are compatible."""
@@ -517,5 +633,9 @@ class TypeChecker:
                 return False
             return all(self._types_compatible(at, bt)
                       for at, bt in zip(a.element_types, b.element_types))
+
+        # For struct types, check struct names match
+        if a.kind == TypeKind.STRUCT:
+            return a.struct_name == b.struct_name
 
         return True
