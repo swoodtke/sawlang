@@ -1,0 +1,14 @@
+// Error test: guard let binding is immutable
+
+func process(x: Int?) -> Int {
+    guard let value = x else {
+        return -1
+    }
+    value = 20  // ERROR: cannot assign to immutable variable
+    value
+}
+
+func main() {
+    let a: Int? = 10
+    print(process(a))
+}

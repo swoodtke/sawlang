@@ -1,0 +1,8 @@
+// Error test: if let binding is immutable
+
+func main() {
+    let x: Int? = 10
+    if let value = x {
+        value = 20  // ERROR: cannot assign to immutable variable
+    }
+}

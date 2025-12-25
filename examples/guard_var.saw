@@ -1,0 +1,22 @@
+// Test guard var optional binding (mutable)
+
+func process(x: Int?) -> Int {
+    guard var value = x else {
+        return -1
+    }
+    // value is mutable here
+    value = value * 2
+    value + 10
+}
+
+func main() {
+    let a: Int? = 5
+    let b: Int? = None
+
+    print(process(a))
+    print(process(b))
+
+    // Should print:
+    // 20  (5 * 2 + 10)
+    // -1
+}
