@@ -1,0 +1,24 @@
+// Simple enum test - no associated values
+enum Status {
+    case Success,
+    case Failure
+}
+
+func main() {
+    let s1 = Status.Success
+    let s2 = Status.Failure
+    let s3 = Status.Success
+
+    // Test equality
+    if s1 == s3 {
+        print(1)  // Should print
+    }
+
+    if s1 == s2 {
+        print(2)  // Should NOT print
+    }
+
+    if s1 != s2 {
+        print(3)  // Should print
+    }
+}

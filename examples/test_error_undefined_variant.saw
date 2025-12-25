@@ -1,0 +1,9 @@
+// Test error: undefined variant
+enum Status {
+    case Success,
+    case Failure
+}
+
+func main() {
+    let x = Status.Unknown
+}

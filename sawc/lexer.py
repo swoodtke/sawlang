@@ -32,6 +32,9 @@ class TokenType(Enum):
     SELF = auto()
     INIT = auto()
     NONE = auto()
+    ENUM = auto()
+    CASE = auto()
+    MATCH = auto()
 
     # Types
     INT_TYPE = auto()
@@ -94,6 +97,9 @@ KEYWORDS = {
     'self': TokenType.SELF,
     'init': TokenType.INIT,
     'None': TokenType.NONE,
+    'enum': TokenType.ENUM,
+    'case': TokenType.CASE,
+    'match': TokenType.MATCH,
     'Int': TokenType.INT_TYPE,
     'Float': TokenType.FLOAT_TYPE,
     'Bool': TokenType.BOOL_TYPE,

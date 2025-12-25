@@ -16,6 +16,7 @@ class TypeKind(Enum):
     TUPLE = auto()
     STRUCT = auto()
     OPTIONAL = auto()
+    ENUM = auto()
 
 
 @dataclass
@@ -27,6 +28,8 @@ class SawType:
     struct_name: Optional[str] = None
     # For optional types, this holds the inner type
     inner_type: Optional['SawType'] = None
+    # For enum types, this holds the enum name
+    enum_name: Optional[str] = None
 
     def __repr__(self):
         if self.kind == TypeKind.TUPLE and self.element_types:
@@ -36,6 +39,8 @@ class SawType:
             return self.struct_name
         if self.kind == TypeKind.OPTIONAL and self.inner_type:
             return f"{self.inner_type}?"
+        if self.kind == TypeKind.ENUM and self.enum_name:
+            return self.enum_name
         return self.kind.name
 
 
@@ -228,6 +233,35 @@ class GuardLetStatement(ASTNode):
     column: int = 0
 
 
+@dataclass
+class EnumInit(Expression):
+    """Enum variant initialization: Status.Success or Status.Error(code: 404)"""
+    enum_name: str
+    variant_name: str
+    arguments: List[tuple[str, Expression]]  # [(param_name, value), ...]
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class MatchArm(ASTNode):
+    """Match arm: case VariantName(binding1, binding2) -> expression"""
+    variant_name: str
+    bindings: List[str]  # Variable names to bind associated values to
+    body: Expression  # Can be an expression or a Block
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class MatchExpr(Expression):
+    """Match expression: match value { case Variant1 -> expr1, case Variant2 -> expr2 }"""
+    matched_expr: Expression
+    arms: List[MatchArm]
+    line: int = 0
+    column: int = 0
+
+
 # Statements
 @dataclass
 class Statement(ASTNode):
@@ -298,6 +332,22 @@ class Struct(ASTNode):
 
 
 @dataclass
+class EnumVariant:
+    """A variant in an enum declaration."""
+    name: str
+    associated_types: List[tuple[str, SawType]]  # [(param_name, type), ...]
+
+
+@dataclass
+class Enum(ASTNode):
+    """Enum declaration: enum Status { case Success, case Error(code: Int) }"""
+    name: str
+    variants: List[EnumVariant]
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class Extension(ASTNode):
     """Extension declaration: extension StructName { ... }"""
     struct_name: str
@@ -334,5 +384,6 @@ class Program(ASTNode):
     structs: List[Struct]
     functions: List[Function]
     extensions: List[Extension] = field(default_factory=list)
+    enums: List[Enum] = field(default_factory=list)
     line: int = 0
     column: int = 0

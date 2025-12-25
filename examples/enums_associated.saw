@@ -1,0 +1,31 @@
+// Enum with associated values
+enum Result {
+    case Success(value: Int),
+    case Error(code: Int)
+}
+
+func make_success(n: Int) -> Result {
+    Result.Success(value: n)
+}
+
+func make_error(code: Int) -> Result {
+    Result.Error(code: code)
+}
+
+func main() {
+    let r1 = make_success(42)
+    let r2 = make_error(404)
+
+    // Test equality (should compare tags only)
+    if r1 != r2 {
+        print(1)  // Should print
+    }
+
+    let r3 = Result.Success(value: 100)
+    let r4 = Result.Success(value: 200)
+
+    // Even with different payloads, same variant tags are equal
+    if r3 == r4 {
+        print(2)  // Should print (tag-only comparison)
+    }
+}

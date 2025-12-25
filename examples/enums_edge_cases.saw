@@ -1,0 +1,47 @@
+// Edge cases for enum implementation
+enum Point {
+    case TwoD(x: Int, y: Int),
+    case ThreeD(x: Int, y: Int, z: Int)
+}
+
+enum Option {
+    case Empty,
+    case Some(value: Int)
+}
+
+// Test multiple associated values
+func test_multiple_params() {
+    let p1 = Point.TwoD(x: 10, y: 20)
+    let p2 = Point.ThreeD(x: 1, y: 2, z: 3)
+
+    let sum1 = match p1 {
+        case TwoD(a, b) -> a + b,
+        case ThreeD(a, b, c) -> a + b + c
+    }
+
+    let sum2 = match p2 {
+        case TwoD(a, b) -> a + b,
+        case ThreeD(a, b, c) -> a + b + c
+    }
+
+    print(sum1)  // Should print 30
+    print(sum2)  // Should print 6
+}
+
+// Test mixed variants (some with data, some without)
+func test_option() {
+    let empty = Option.Empty
+    let some = Option.Some(value: 42)
+
+    let result = match some {
+        case Empty -> 0,
+        case Some(val) -> val
+    }
+
+    print(result)  // Should print 42
+}
+
+func main() {
+    test_multiple_params()
+    test_option()
+}

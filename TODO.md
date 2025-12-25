@@ -80,10 +80,14 @@
 - [ ] Method overloading (beyond init)
 
 ### Enums (Algebraic Data Types)
-- [ ] Simple enums (no data)
-- [ ] Enums with associated data: `Some(T)`, `None`
-- [ ] Named parameters: `Move(x: Int, y: Int)`
-- [ ] Pattern matching on enums
+- [x] Simple enums (no data)
+- [x] Enums with associated data: `Some(T)`, `None`
+- [x] Named parameters: `Move(x: Int, y: Int)`
+- [x] Pattern matching on enums with `match` expressions
+- [x] Match bindings to extract associated values
+- [x] Enum equality operators (`==` and `!=`)
+- [ ] Exhaustiveness checking for match expressions (warn on missing cases)
+- [ ] Deep equality comparison (compare payloads, not just variant tags)
 
 ### Tuples
 - [x] Tuple literals: `(1, 2, 3)`
@@ -115,13 +119,15 @@
 - [ ] `break` statement
 
 ### Pattern Matching
-- [ ] `match` expression
+- [x] `match` expression on enums
+- [x] Variable binding in enum patterns: `case Success(n) -> ...`
 - [ ] Literal patterns: `0 => ...`
 - [ ] Range patterns: `1..=9 => ...`
-- [ ] Variable binding: `n => ...`
 - [ ] Wildcard: `_ => ...`
 - [ ] Guards: `n if n < 0 => ...`
-- [ ] Exhaustiveness checking
+- [ ] Exhaustiveness checking (same as enum section above)
+- [ ] Match on primitive types (Int, Bool, String)
+- [ ] Match on tuples with destructuring
 
 ### Additional Operators
 - [ ] Logical: `&&`, `||`, `!`

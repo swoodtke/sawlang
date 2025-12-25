@@ -1,0 +1,20 @@
+// Enum with match expression
+enum Status {
+    case Success,
+    case Failure
+}
+
+func check_status(s: Status) -> Int {
+    match s {
+        case Success -> 1,
+        case Failure -> 0
+    }
+}
+
+func main() {
+    let s1 = Status.Success
+    let s2 = Status.Failure
+
+    print(check_status(s1))  // Should print 1
+    print(check_status(s2))  // Should print 0
+}

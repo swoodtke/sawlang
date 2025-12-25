@@ -14,6 +14,7 @@ from ast_nodes import (
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     GuardLetStatement,
     Struct, StructField,
+    Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
     SawType, TypeKind, Parameter
 )
@@ -44,6 +45,14 @@ class StructInfo:
     fields: Dict[str, SawType]  # field_name -> type
     field_order: List[str]  # preserve declaration order
     methods: Dict[str, 'MethodInfo'] = field(default_factory=dict)  # method_name -> info
+
+
+@dataclass
+class EnumInfo:
+    """Information about an enum."""
+    name: str
+    variants: Dict[str, List[Tuple[str, SawType]]]  # variant_name -> [(param_name, type), ...]
+    variant_order: List[str]  # preserve declaration order
 
 
 @dataclass
@@ -91,6 +100,7 @@ class TypeChecker:
     def __init__(self, reporter: ErrorReporter):
         self.reporter = reporter
         self.structs: Dict[str, StructInfo] = {}
+        self.enums: Dict[str, EnumInfo] = {}
         self.functions: Dict[str, FunctionInfo] = {}
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
@@ -113,11 +123,15 @@ class TypeChecker:
         for struct in program.structs:
             self._register_struct(struct)
 
-        # Second pass: register extensions and their methods
+        # Second pass: collect enum definitions
+        for enum in program.enums:
+            self._register_enum(enum)
+
+        # Third pass: register extensions and their methods
         for extension in program.extensions:
             self._register_extension(extension)
 
-        # Third pass: collect function signatures
+        # Fourth pass: collect function signatures
         for func in program.functions:
             self._register_function(func)
 
@@ -130,11 +144,11 @@ class TypeChecker:
                 hint="add a `fn main() { }` function as the entry point"
             )
 
-        # Fourth pass: type check function bodies
+        # Fifth pass: type check function bodies
         for func in program.functions:
             self._check_function(func)
 
-        # Fifth pass: type check method bodies
+        # Sixth pass: type check method bodies
         for extension in program.extensions:
             self._check_extension(extension)
 
@@ -173,6 +187,47 @@ class TypeChecker:
             field_order=field_order
         )
 
+    def _register_enum(self, enum: Enum):
+        """Register an enum definition."""
+        if enum.name in self.enums:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,  # Reuse this error kind
+                f"enum `{enum.name}` is defined multiple times",
+                enum.line, enum.column
+            )
+            return
+
+        if enum.name in self.structs:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"enum `{enum.name}` conflicts with existing struct name",
+                enum.line, enum.column
+            )
+            return
+
+        # Check for duplicate variants
+        variants = {}
+        variant_order = []
+        seen_variants = set()
+
+        for variant in enum.variants:
+            if variant.name in seen_variants:
+                self.reporter.error(
+                    ErrorKind.DUPLICATE_VARIABLE,  # Reuse this
+                    f"variant `{variant.name}` is defined multiple times in enum `{enum.name}`",
+                    enum.line, enum.column
+                )
+            else:
+                seen_variants.add(variant.name)
+                variants[variant.name] = variant.associated_types
+                variant_order.append(variant.name)
+
+        self.enums[enum.name] = EnumInfo(
+            name=enum.name,
+            variants=variants,
+            variant_order=variant_order
+        )
+
     def _register_function(self, func: Function):
         """Register a function signature."""
         if func.name in self.functions:
@@ -183,9 +238,11 @@ class TypeChecker:
             )
             return
 
-        param_types = [p.type for p in func.parameters]
+        # Resolve types before registering
+        param_types = [self._resolve_type(p.type) for p in func.parameters]
         param_names = [p.name for p in func.parameters]
-        info = FunctionInfo(param_types, func.return_type, param_names)
+        resolved_return_type = self._resolve_type(func.return_type)
+        info = FunctionInfo(param_types, resolved_return_type, param_names)
         self.functions[func.name] = info
 
     def _register_extension(self, extension: Extension):
@@ -344,29 +401,33 @@ class TypeChecker:
         # Create new scope for function
         self.current_scope = Scope()
 
-        # Add parameters to scope
+        # Add parameters to scope (resolve types first)
         for param in func.parameters:
-            info = VariableInfo(param.type, mutable=False, line=func.line, column=func.column)
+            resolved_type = self._resolve_type(param.type)
+            info = VariableInfo(resolved_type, mutable=False, line=func.line, column=func.column)
             self.current_scope.define(param.name, info)
 
         # Check body
         body_type = self._check_block(func.body)
 
+        # Resolve return type
+        resolved_return_type = self._resolve_type(func.return_type)
+
         # Check return type matches
-        if func.return_type.kind != TypeKind.VOID:
+        if resolved_return_type.kind != TypeKind.VOID:
             # Function can return a value via either:
             # 1. An explicit return statement (found_return_with_value)
             # 2. A final expression in the body (body_type)
             if body_type is None and not self.found_return_with_value:
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"function `{func.name}` should return `{func.return_type}` but body has no value",
+                    f"function `{func.name}` should return `{resolved_return_type}` but body has no value",
                     func.line, func.column
                 )
-            elif body_type is not None and not self._types_compatible(body_type, func.return_type):
+            elif body_type is not None and not self._types_compatible(body_type, resolved_return_type):
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"function `{func.name}` should return `{func.return_type}` but returns `{body_type}`",
+                    f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
                     func.line, func.column
                 )
 
@@ -660,6 +721,12 @@ class TypeChecker:
         elif isinstance(expr, SelfExpr):
             return self._check_self_expr(expr)
 
+        elif isinstance(expr, EnumInit):
+            return self._check_enum_init(expr)
+
+        elif isinstance(expr, MatchExpr):
+            return self._check_match_expr(expr)
+
         return None
 
     def _check_identifier(self, expr: Identifier) -> Optional[SawType]:
@@ -699,6 +766,16 @@ class TypeChecker:
 
         # Comparison operators
         elif expr.op in ['==', '!=', '<', '>', '<=', '>=']:
+            # Enums only support == and !=, not ordering operators
+            if left_type.kind == TypeKind.ENUM or right_type.kind == TypeKind.ENUM:
+                if expr.op in ['<', '>', '<=', '>=']:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"enum types do not support ordering operators (`{expr.op}`), only `==` and `!=`",
+                        expr.line, expr.column
+                    )
+                    return None
+
             if not self._types_compatible(left_type, right_type):
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
@@ -904,7 +981,35 @@ class TypeChecker:
         return tuple_type.element_types[expr.index]
 
     def _check_member_access(self, expr: MemberAccess) -> Optional[SawType]:
-        """Check member access for struct fields."""
+        """Check member access for struct fields or enum variant access."""
+        # Special case: EnumName.VariantName (simple variant with no associated values)
+        # This is parsed as MemberAccess where object is an Identifier
+        if isinstance(expr.object, Identifier):
+            # Check if it's an enum name
+            if expr.object.name in self.enums:
+                enum_info = self.enums[expr.object.name]
+                # Check if the member is a valid variant
+                if expr.member in enum_info.variants:
+                    variant_params = enum_info.variants[expr.member]
+                    # Only simple variants (no associated values) can be accessed this way
+                    if len(variant_params) == 0:
+                        # This is a simple enum variant
+                        return SawType(TypeKind.ENUM, enum_name=expr.object.name)
+                    else:
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"variant `{expr.member}` has associated values and must be called like `{expr.object.name}.{expr.member}(...)`",
+                            expr.line, expr.column
+                        )
+                        return None
+                else:
+                    self.reporter.error(
+                        ErrorKind.UNDEFINED_VARIABLE,
+                        f"enum `{expr.object.name}` has no variant `{expr.member}`",
+                        expr.line, expr.column
+                    )
+                    return None
+
         obj_type = self._check_expression(expr.object)
         if obj_type is None:
             return None
@@ -1199,6 +1304,167 @@ class TypeChecker:
 
         return var_info.type
 
+    def _check_enum_init(self, expr: EnumInit) -> Optional[SawType]:
+        """Check enum variant initialization."""
+        # Verify enum exists
+        if expr.enum_name not in self.enums:
+            self.reporter.error(
+                ErrorKind.UNDEFINED_VARIABLE,
+                f"undefined enum `{expr.enum_name}`",
+                expr.line, expr.column
+            )
+            return None
+
+        enum_info = self.enums[expr.enum_name]
+
+        # Verify variant exists
+        if expr.variant_name not in enum_info.variants:
+            self.reporter.error(
+                ErrorKind.UNDEFINED_VARIABLE,
+                f"enum `{expr.enum_name}` has no variant `{expr.variant_name}`",
+                expr.line, expr.column
+            )
+            return None
+
+        expected_params = enum_info.variants[expr.variant_name]
+
+        # Check argument count
+        if len(expr.arguments) != len(expected_params):
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"variant `{expr.variant_name}` expects {len(expected_params)} arguments, got {len(expr.arguments)}",
+                expr.line, expr.column
+            )
+            return None
+
+        # Check argument names and types
+        expected_dict = {name: typ for name, typ in expected_params}
+        for arg_name, arg_value in expr.arguments:
+            if arg_name not in expected_dict:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"variant `{expr.variant_name}` has no parameter named `{arg_name}`",
+                    expr.line, expr.column
+                )
+                continue
+
+            arg_type = self._check_expression(arg_value)
+            expected_type = expected_dict[arg_name]
+            if not self._types_compatible(arg_type, expected_type):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"expected type `{expected_type}` for parameter `{arg_name}`, got `{arg_type}`",
+                    expr.line, expr.column
+                )
+
+        # Return enum type
+        return SawType(TypeKind.ENUM, enum_name=expr.enum_name)
+
+    def _check_match_expr(self, expr: MatchExpr) -> Optional[SawType]:
+        """Check match expression."""
+        # Check matched expression
+        matched_type = self._check_expression(expr.matched_expr)
+        if matched_type is None:
+            return None
+
+        # Verify it's an enum type
+        if matched_type.kind != TypeKind.ENUM or matched_type.enum_name is None:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"match expression requires an enum type, got `{matched_type}`",
+                expr.line, expr.column
+            )
+            return None
+
+        enum_info = self.enums.get(matched_type.enum_name)
+        if enum_info is None:
+            return None  # Error already reported
+
+        # Type check each arm
+        arm_types = []
+        for arm in expr.arms:
+            # Verify variant exists
+            if arm.variant_name not in enum_info.variants:
+                self.reporter.error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"enum `{matched_type.enum_name}` has no variant `{arm.variant_name}`",
+                    arm.line, arm.column
+                )
+                continue
+
+            variant_params = enum_info.variants[arm.variant_name]
+
+            # Check binding count
+            if len(arm.bindings) != len(variant_params):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"variant `{arm.variant_name}` has {len(variant_params)} associated values, got {len(arm.bindings)} bindings",
+                    arm.line, arm.column
+                )
+                continue
+
+            # Create new scope for arm body with bindings
+            old_scope = self.current_scope
+            self.current_scope = Scope(parent=old_scope)
+
+            # Add bindings to scope
+            for binding_name, (_, param_type) in zip(arm.bindings, variant_params):
+                var_info = VariableInfo(
+                    type=param_type,
+                    mutable=False,  # Bindings are immutable by default
+                    line=arm.line,
+                    column=arm.column
+                )
+                if not self.current_scope.define(binding_name, var_info):
+                    self.reporter.error(
+                        ErrorKind.DUPLICATE_VARIABLE,
+                        f"binding `{binding_name}` is already defined in this scope",
+                        arm.line, arm.column
+                    )
+
+            # Type check arm body
+            if isinstance(arm.body, Block):
+                arm_type = self._check_block(arm.body)
+            else:
+                arm_type = self._check_expression(arm.body)
+
+            arm_types.append(arm_type)
+
+            # Restore scope
+            self.current_scope = old_scope
+
+        # Verify all arms have compatible return types
+        if not arm_types:
+            return None
+
+        result_type = arm_types[0]
+        for arm_type in arm_types[1:]:
+            if not self._types_compatible(result_type, arm_type):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"match arms have incompatible types: `{result_type}` and `{arm_type}`",
+                    expr.line, expr.column
+                )
+                return None
+
+        return result_type
+
+    def _resolve_type(self, saw_type: SawType) -> SawType:
+        """Resolve user-defined types (convert STRUCT types that are actually ENUMs)."""
+        if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
+            # Check if this is actually an enum
+            if saw_type.struct_name in self.enums:
+                return SawType(TypeKind.ENUM, enum_name=saw_type.struct_name)
+        elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
+            # Recursively resolve optional inner types
+            resolved_inner = self._resolve_type(saw_type.inner_type)
+            return SawType(TypeKind.OPTIONAL, inner_type=resolved_inner)
+        elif saw_type.kind == TypeKind.TUPLE and saw_type.element_types:
+            # Recursively resolve tuple element types
+            resolved_elements = [self._resolve_type(t) for t in saw_type.element_types]
+            return SawType(TypeKind.TUPLE, element_types=resolved_elements)
+        return saw_type
+
     def _types_compatible(self, a: Optional[SawType], b: Optional[SawType]) -> bool:
         """Check if two types are compatible."""
         if a is None or b is None:
@@ -1230,6 +1496,10 @@ class TypeChecker:
         # For struct types, check struct names match
         if a.kind == TypeKind.STRUCT:
             return a.struct_name == b.struct_name
+
+        # For enum types, check enum names match
+        if a.kind == TypeKind.ENUM:
+            return a.enum_name == b.enum_name
 
         # For optional types, check inner types match
         if a.kind == TypeKind.OPTIONAL:

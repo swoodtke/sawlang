@@ -1,0 +1,15 @@
+// Test error: ordering operators on enums
+enum Status {
+    case Success,
+    case Failure
+}
+
+func main() {
+    let s1 = Status.Success
+    let s2 = Status.Failure
+
+    // These should all fail - enums don't support ordering
+    if s1 < s2 {
+        print(1)
+    }
+}

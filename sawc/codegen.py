@@ -14,6 +14,7 @@ from ast_nodes import (
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     GuardLetStatement,
     Struct, StructField,
+    Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
     SawType, TypeKind
 )
@@ -41,6 +42,11 @@ class CodeGenerator:
 
         # Struct types (name -> (LLVM type, field_order))
         self.struct_types: dict = {}
+
+        # Enum types (name -> (LLVM type, variant_tags, variant_info))
+        # variant_tags: dict[variant_name, tag_value]
+        # variant_info: dict[variant_name, list[(param_name, SawType)]]
+        self.enum_types: dict = {}
 
         # String constants
         self.string_constants: dict = {}
@@ -76,9 +82,12 @@ class CodeGenerator:
             element_llvm_types = [self._get_llvm_type(t) for t in saw_type.element_types]
             return ir.LiteralStructType(element_llvm_types)
         elif saw_type.kind == TypeKind.STRUCT:
-            # Look up the struct type
+            # Look up the struct type (might actually be an enum)
             if saw_type.struct_name is None:
                 raise ValueError("Struct type missing name")
+            # Check if it's actually an enum
+            if saw_type.struct_name in self.enum_types:
+                return self.enum_types[saw_type.struct_name][0]  # Return LLVM type
             if saw_type.struct_name not in self.struct_types:
                 raise ValueError(f"Undefined struct: {saw_type.struct_name}")
             return self.struct_types[saw_type.struct_name][0]  # Return LLVM type
@@ -90,6 +99,13 @@ class CodeGenerator:
             else:
                 inner_llvm_type = self._get_llvm_type(saw_type.inner_type)
             return ir.LiteralStructType([ir.IntType(1), inner_llvm_type])
+        elif saw_type.kind == TypeKind.ENUM:
+            # Look up the enum type
+            if saw_type.enum_name is None:
+                raise ValueError("Enum type missing name")
+            if saw_type.enum_name not in self.enum_types:
+                raise ValueError(f"Undefined enum: {saw_type.enum_name}")
+            return self.enum_types[saw_type.enum_name][0]  # Return LLVM type
         else:
             raise ValueError(f"Unknown type: {saw_type}")
 
@@ -117,7 +133,11 @@ class CodeGenerator:
         for struct in program.structs:
             self._register_struct(struct)
 
-        # Second pass: declare all functions
+        # Second pass: register enum types
+        for enum in program.enums:
+            self._register_enum(enum)
+
+        # Third pass: declare all functions
         for func in program.functions:
             self._declare_function(func)
 
@@ -125,7 +145,7 @@ class CodeGenerator:
         for extension in program.extensions:
             self._declare_extension_methods(extension)
 
-        # Third pass: generate function bodies
+        # Fourth pass: generate function bodies
         for func in program.functions:
             self._generate_function(func)
 
@@ -146,6 +166,63 @@ class CodeGenerator:
         # Store the type and field order for later use
         field_order = [field.name for field in struct.fields]
         self.struct_types[struct.name] = (llvm_struct_type, field_order)
+
+    def _register_enum(self, enum: Enum):
+        """Register an enum type with LLVM.
+        Enums are represented as tagged unions: { i32 tag, [N x i8] payload }
+        or just i32 if all variants have no associated values."""
+        # Assign tag values to variants (0, 1, 2, ...)
+        variant_tags = {}
+        variant_info = {}
+        max_payload_size = 0
+
+        for i, variant in enumerate(enum.variants):
+            variant_tags[variant.name] = i
+            variant_info[variant.name] = variant.associated_types
+
+            # Calculate payload size for this variant
+            if variant.associated_types:
+                variant_types = [self._get_llvm_type(typ) for _, typ in variant.associated_types]
+                # Create a struct to hold the associated values
+                if variant_types:
+                    variant_struct = ir.LiteralStructType(variant_types)
+                    # Get size of the variant struct in bytes
+                    # For simplicity, we calculate a conservative size
+                    # In a real implementation, we'd use LLVM's DataLayout
+                    size = sum(self._estimate_type_size(t) for t in variant_types)
+                    max_payload_size = max(max_payload_size, size)
+
+        # Create LLVM type for enum
+        if max_payload_size > 0:
+            # Enum with associated values: { i32 tag, [N x i8] payload }
+            llvm_enum_type = ir.LiteralStructType([
+                ir.IntType(32),  # tag
+                ir.ArrayType(ir.IntType(8), max_payload_size)  # payload
+            ])
+        else:
+            # Simple enum (no associated values): just i32 tag
+            llvm_enum_type = ir.IntType(32)
+
+        # Store enum info
+        self.enum_types[enum.name] = (llvm_enum_type, variant_tags, variant_info)
+
+    def _estimate_type_size(self, llvm_type: ir.Type) -> int:
+        """Estimate the size of an LLVM type in bytes (conservative estimate)."""
+        if isinstance(llvm_type, ir.IntType):
+            return (llvm_type.width + 7) // 8  # Round up to nearest byte
+        elif isinstance(llvm_type, ir.DoubleType):
+            return 8
+        elif isinstance(llvm_type, ir.FloatType):
+            return 4
+        elif isinstance(llvm_type, ir.PointerType):
+            return 8  # Assume 64-bit pointers
+        elif isinstance(llvm_type, (ir.LiteralStructType, ir.IdentifiedStructType)):
+            # Sum of element sizes
+            return sum(self._estimate_type_size(elem) for elem in llvm_type.elements)
+        elif isinstance(llvm_type, ir.ArrayType):
+            return llvm_type.count * self._estimate_type_size(llvm_type.element)
+        else:
+            return 8  # Default conservative estimate
 
     def _declare_function(self, func: Function):
         param_types = [self._get_llvm_type(p.type) for p in func.parameters]
@@ -529,6 +606,12 @@ class CodeGenerator:
         elif isinstance(expr, SelfExpr):
             return self._generate_self_expr(expr)
 
+        elif isinstance(expr, EnumInit):
+            return self._generate_enum_init(expr)
+
+        elif isinstance(expr, MatchExpr):
+            return self._generate_match_expr(expr)
+
         else:
             raise ValueError(f"Unknown expression type: {type(expr)}")
 
@@ -560,11 +643,29 @@ class CodeGenerator:
             return self.builder.sdiv(left, right, name="divtmp")
 
         elif expr.op == '==':
+            # Check if we're comparing enum types (tag-only comparison)
+            if isinstance(left.type, ir.LiteralStructType) and len(left.type.elements) == 2:
+                # Might be an enum with payload: {i32, [N x i8]}
+                if isinstance(left.type.elements[0], ir.IntType) and left.type.elements[0].width == 32:
+                    # Extract tags and compare
+                    left_tag = self.builder.extract_value(left, 0, name="left_tag")
+                    right_tag = self.builder.extract_value(right, 0, name="right_tag")
+                    return self.builder.icmp_signed('==', left_tag, right_tag, name="eqtmp")
+
             if is_float:
                 return self.builder.fcmp_ordered('==', left, right, name="eqtmp")
             return self.builder.icmp_signed('==', left, right, name="eqtmp")
 
         elif expr.op == '!=':
+            # Check if we're comparing enum types (tag-only comparison)
+            if isinstance(left.type, ir.LiteralStructType) and len(left.type.elements) == 2:
+                # Might be an enum with payload: {i32, [N x i8]}
+                if isinstance(left.type.elements[0], ir.IntType) and left.type.elements[0].width == 32:
+                    # Extract tags and compare
+                    left_tag = self.builder.extract_value(left, 0, name="left_tag")
+                    right_tag = self.builder.extract_value(right, 0, name="right_tag")
+                    return self.builder.icmp_signed('!=', left_tag, right_tag, name="netmp")
+
             if is_float:
                 return self.builder.fcmp_ordered('!=', left, right, name="netmp")
             return self.builder.icmp_signed('!=', left, right, name="netmp")
@@ -867,7 +968,19 @@ class CodeGenerator:
         return struct_val
 
     def _generate_member_access(self, expr: MemberAccess):
-        """Generate code for member access on structs."""
+        """Generate code for member access on structs or enum variant access."""
+        # Special case: EnumName.VariantName (simple variant with no associated values)
+        if isinstance(expr.object, Identifier) and expr.object.name in self.enum_types:
+            # This is an enum variant access - convert to EnumInit
+            enum_init = EnumInit(
+                enum_name=expr.object.name,
+                variant_name=expr.member,
+                arguments=[],
+                line=expr.line,
+                column=expr.column
+            )
+            return self._generate_enum_init(enum_init)
+
         obj_val = self._generate_expression(expr.object)
 
         # Determine the struct type
@@ -1081,6 +1194,185 @@ class CodeGenerator:
 
         # Load self from its alloca
         return self.builder.load(self.variables["self"], name="self")
+
+    def _generate_enum_init(self, expr: EnumInit):
+        """Generate code for enum variant initialization."""
+        if expr.enum_name not in self.enum_types:
+            raise ValueError(f"Undefined enum: {expr.enum_name}")
+
+        llvm_enum_type, variant_tags, variant_info = self.enum_types[expr.enum_name]
+        tag_value = variant_tags[expr.variant_name]
+        variant_params = variant_info[expr.variant_name]
+
+        # Check if this is a simple enum (just i32) or enum with payload
+        if isinstance(llvm_enum_type, ir.IntType):
+            # Simple enum: just return the tag value
+            return ir.Constant(ir.IntType(32), tag_value)
+        else:
+            # Enum with payload: { i32 tag, [N x i8] payload }
+            # Create undefined struct value
+            enum_val = ir.Constant(llvm_enum_type, ir.Undefined)
+
+            # Insert tag value
+            tag_const = ir.Constant(ir.IntType(32), tag_value)
+            enum_val = self.builder.insert_value(enum_val, tag_const, 0, name="enum_with_tag")
+
+            # If this variant has associated values, pack them into payload
+            if variant_params:
+                # Generate values for arguments
+                arg_values = []
+                arg_dict = {name: val for name, val in expr.arguments}
+                for param_name, param_type in variant_params:
+                    arg_val = self._generate_expression(arg_dict[param_name])
+                    arg_values.append(arg_val)
+
+                # Create a struct for the associated values
+                param_struct_type = ir.LiteralStructType([self._get_llvm_type(t) for _, t in variant_params])
+                param_struct = ir.Constant(param_struct_type, ir.Undefined)
+                for i, val in enumerate(arg_values):
+                    param_struct = self.builder.insert_value(param_struct, val, i, name=f"param{i}")
+
+                # Cast the param struct to bytes and store in payload
+                # For simplicity, we'll use bitcast + store
+                payload_array_type = llvm_enum_type.elements[1]  # [N x i8]
+
+                # Allocate temporary space for the payload
+                payload_temp = self.builder.alloca(param_struct_type, name="payload_temp")
+                self.builder.store(param_struct, payload_temp)
+
+                # Bitcast to array of bytes
+                payload_ptr = self.builder.bitcast(payload_temp,
+                                                   ir.PointerType(ir.IntType(8)),
+                                                   name="payload_bytes_ptr")
+
+                # Load bytes into an array value
+                payload_bytes = ir.Constant(payload_array_type, ir.Undefined)
+                for i in range(payload_array_type.count):
+                    idx_ptr = self.builder.gep(payload_ptr,
+                                              [ir.Constant(ir.IntType(32), i)],
+                                              inbounds=True)
+                    byte_val = self.builder.load(idx_ptr, name=f"byte{i}")
+                    payload_bytes = self.builder.insert_value(payload_bytes, byte_val, i, name=f"payload{i}")
+
+                # Insert payload into enum
+                enum_val = self.builder.insert_value(enum_val, payload_bytes, 1, name="enum_with_payload")
+
+            return enum_val
+
+    def _generate_match_expr(self, expr: MatchExpr):
+        """Generate code for match expression."""
+        # Generate the matched value
+        matched_val = self._generate_expression(expr.matched_expr)
+
+        # Extract the tag
+        # Check if enum is simple (i32) or has payload ({ i32, [N x i8] })
+        if isinstance(matched_val.type, ir.IntType):
+            # Simple enum
+            tag = matched_val
+        else:
+            # Enum with payload
+            tag = self.builder.extract_value(matched_val, 0, name="match_tag")
+
+        # Create basic blocks for each arm + merge block
+        arm_blocks = []
+        for arm in expr.arms:
+            arm_block = self.builder.append_basic_block(f"match_arm_{arm.variant_name}")
+            arm_blocks.append((arm, arm_block))
+
+        merge_block = self.builder.append_basic_block("match_merge")
+
+        # Create switch instruction
+        # Default case goes to first arm (we don't have exhaustiveness checking yet)
+        switch = self.builder.switch(tag, arm_blocks[0][1])
+        for arm, arm_block in arm_blocks:
+            # Get enum info to find tag value
+            # We need to extract enum name from the matched expression's type
+            # This is a bit hacky - we should track this better
+            # For now, we'll iterate through enum_types to find matching LLVM type
+            enum_name = None
+            for name, (llvm_type, _, _) in self.enum_types.items():
+                if llvm_type == matched_val.type:
+                    enum_name = name
+                    break
+
+            if enum_name:
+                _, variant_tags, variant_info = self.enum_types[enum_name]
+                tag_value = variant_tags[arm.variant_name]
+                tag_const = ir.Constant(ir.IntType(32), tag_value)
+                switch.add_case(tag_const, arm_block)
+
+        # Generate code for each arm
+        arm_results = []
+        for arm, arm_block in arm_blocks:
+            self.builder.position_at_end(arm_block)
+
+            # Extract and bind associated values if any
+            if arm.bindings and not isinstance(matched_val.type, ir.IntType):
+                # Get variant info and enum type
+                llvm_enum_type, _, variant_info = self.enum_types[enum_name]
+                variant_params = variant_info[arm.variant_name]
+
+                # Extract payload
+                payload_bytes = self.builder.extract_value(matched_val, 1, name="payload")
+
+                # Cast to appropriate struct type
+                param_types = [self._get_llvm_type(t) for _, t in variant_params]
+                param_struct_type = ir.LiteralStructType(param_types)
+
+                # Store bytes to memory, then load as struct
+                payload_alloca = self.builder.alloca(llvm_enum_type.elements[1], name="payload_alloca")
+                self.builder.store(payload_bytes, payload_alloca)
+                struct_ptr = self.builder.bitcast(payload_alloca,
+                                                  ir.PointerType(param_struct_type),
+                                                  name="param_struct_ptr")
+
+                # Create variables for bindings
+                for i, binding_name in enumerate(arm.bindings):
+                    # Extract field from struct
+                    field_ptr = self.builder.gep(struct_ptr,
+                                                [ir.Constant(ir.IntType(32), 0),
+                                                 ir.Constant(ir.IntType(32), i)],
+                                                inbounds=True)
+                    field_val = self.builder.load(field_ptr, name=binding_name)
+
+                    # Store in a variable
+                    var_alloca = self.builder.alloca(field_val.type, name=binding_name)
+                    self.builder.store(field_val, var_alloca)
+                    self.variables[binding_name] = var_alloca
+
+            # Generate arm body
+            if isinstance(arm.body, Block):
+                arm_result = self._generate_block(arm.body)
+                # Get the value from the block
+                if arm_result is None:
+                    # Block didn't have a value, use void or a placeholder
+                    arm_result = ir.Constant(ir.IntType(32), 0)  # Placeholder
+            else:
+                arm_result = self._generate_expression(arm.body)
+
+            arm_results.append((arm_result, self.builder.block))
+
+            # Clean up bindings
+            for binding_name in arm.bindings:
+                if binding_name in self.variables:
+                    del self.variables[binding_name]
+
+            # Branch to merge block
+            self.builder.branch(merge_block)
+
+        # Position at merge block
+        self.builder.position_at_end(merge_block)
+
+        # Create phi node to merge results
+        if arm_results and arm_results[0][0] is not None:
+            result_type = arm_results[0][0].type
+            phi = self.builder.phi(result_type, name="match_result")
+            for val, block in arm_results:
+                phi.add_incoming(val, block)
+            return phi
+        else:
+            # Match doesn't produce a value
+            return None
 
     def compile_to_object(self, output_path: str):
         """Compile the module to an object file."""

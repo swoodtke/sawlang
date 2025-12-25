@@ -1,0 +1,57 @@
+// Comprehensive enum equality tests
+enum Color {
+    case Red,
+    case Green,
+    case Blue
+}
+
+enum Result {
+    case Success(value: Int),
+    case Error(code: Int)
+}
+
+func test_simple_equality() {
+    let c1 = Color.Red
+    let c2 = Color.Red
+    let c3 = Color.Blue
+
+    // Same variants should be equal
+    if c1 == c2 {
+        print(1)  // Should print
+    }
+
+    // Different variants should not be equal
+    if c1 != c3 {
+        print(2)  // Should print
+    }
+
+    // Test all three comparison cases
+    if c2 == c1 {
+        print(3)  // Should print
+    }
+}
+
+func test_associated_equality() {
+    let r1 = Result.Success(value: 42)
+    let r2 = Result.Success(value: 99)
+    let r3 = Result.Error(code: 404)
+
+    // Same variant tags are equal (tag-only comparison)
+    if r1 == r2 {
+        print(4)  // Should print
+    }
+
+    // Different variant tags are not equal
+    if r1 != r3 {
+        print(5)  // Should print
+    }
+
+    if r2 != r3 {
+        print(6)  // Should print
+    }
+}
+
+func main() {
+    test_simple_equality()
+    test_associated_equality()
+}

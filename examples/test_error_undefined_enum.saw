@@ -1,0 +1,4 @@
+// Test error: undefined enum
+func main() {
+    let x = Undefined.Variant
+}

@@ -14,6 +14,7 @@ from ast_nodes import (
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     GuardLetStatement,
     Struct, StructField,
+    Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
     SawType, TypeKind
 )
@@ -63,20 +64,23 @@ class Parser:
         structs = []
         functions = []
         extensions = []
+        enums = []
         self.skip_newlines()
 
         while not self.match(TokenType.EOF):
             if self.match(TokenType.STRUCT):
                 structs.append(self.parse_struct())
+            elif self.match(TokenType.ENUM):
+                enums.append(self.parse_enum())
             elif self.match(TokenType.EXTENSION):
                 extensions.append(self.parse_extension())
             elif self.match(TokenType.FUNC):
                 functions.append(self.parse_function())
             else:
-                self.error(f"Expected struct, extension, or function declaration, got {self.current().type.name}")
+                self.error(f"Expected struct, enum, extension, or function declaration, got {self.current().type.name}")
             self.skip_newlines()
 
-        return Program(structs=structs, functions=functions, extensions=extensions)
+        return Program(structs=structs, functions=functions, extensions=extensions, enums=enums)
 
     def parse_type(self) -> SawType:
         # Parse base type
@@ -181,6 +185,63 @@ class Parser:
         return Struct(
             name=name,
             fields=fields,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_enum(self) -> Enum:
+        """Parse an enum declaration: enum Name { case Variant1, case Variant2(x: Type) }"""
+        start = self.current()
+        self.expect(TokenType.ENUM)
+
+        name_token = self.expect(TokenType.IDENT, "Expected enum name")
+        name = name_token.value
+
+        self.skip_newlines()
+        self.expect(TokenType.LBRACE)
+        self.skip_newlines()
+
+        variants = []
+        while not self.match(TokenType.RBRACE, TokenType.EOF):
+            self.expect(TokenType.CASE, "Expected 'case' keyword for enum variant")
+
+            variant_name_token = self.expect(TokenType.IDENT, "Expected variant name")
+            variant_name = variant_name_token.value
+
+            # Parse optional associated values: (name: Type, ...)
+            associated_types = []
+            if self.match(TokenType.LPAREN):
+                self.advance()
+                if not self.match(TokenType.RPAREN):
+                    # Parse first parameter
+                    param_name = self.expect(TokenType.IDENT, "Expected parameter name").value
+                    self.expect(TokenType.COLON, "Expected ':' after parameter name")
+                    param_type = self.parse_type()
+                    associated_types.append((param_name, param_type))
+
+                    # Parse additional parameters
+                    while self.match(TokenType.COMMA):
+                        self.advance()
+                        param_name = self.expect(TokenType.IDENT, "Expected parameter name").value
+                        self.expect(TokenType.COLON, "Expected ':' after parameter name")
+                        param_type = self.parse_type()
+                        associated_types.append((param_name, param_type))
+
+                self.expect(TokenType.RPAREN)
+
+            variants.append(EnumVariant(name=variant_name, associated_types=associated_types))
+
+            self.skip_newlines()
+            # Allow optional comma
+            if self.match(TokenType.COMMA):
+                self.advance()
+            self.skip_newlines()
+
+        self.expect(TokenType.RBRACE)
+
+        return Enum(
+            name=name,
+            variants=variants,
             line=start.line,
             column=start.column
         )
@@ -532,31 +593,76 @@ class Parser:
                         column=dot_token.column
                     )
                 elif member_token.type == TokenType.IDENT:
-                    # Could be member access or method call
+                    # Could be member access, method call, or enum init
                     member_name = member_token.value
                     self.advance()
 
-                    # Check if followed by '(' for method call
+                    # Check if followed by '('
                     if self.match(TokenType.LPAREN):
-                        # It's a method call
-                        self.advance()  # consume '('
-                        arguments = []
-                        if not self.match(TokenType.RPAREN):
-                            arguments.append(self.parse_expression())
-                            while self.match(TokenType.COMMA):
-                                self.advance()
-                                arguments.append(self.parse_expression())
-                        self.expect(TokenType.RPAREN)
+                        # Check if this is enum init (named params) or method call (positional params)
+                        # Enum init: EnumName.Variant(x: val) - has name:value syntax
+                        # Method call: obj.method(val) - no name:value syntax
+                        # Special case: empty parens () could be either
 
-                        expr = MethodCall(
-                            object=expr,
-                            method_name=member_name,
-                            arguments=arguments,
-                            line=dot_token.line,
-                            column=dot_token.column
-                        )
+                        # Peek ahead to check for named parameters
+                        is_enum_init = False
+                        if isinstance(expr, Identifier) and self.peek(1).type == TokenType.IDENT and self.peek(2).type == TokenType.COLON:
+                            is_enum_init = True
+                        elif isinstance(expr, Identifier) and self.peek(1).type == TokenType.RPAREN:
+                            # Empty parens: could be enum init or method call
+                            # We'll treat Identifier.Name() as potential enum init
+                            is_enum_init = True
+
+                        if is_enum_init and isinstance(expr, Identifier):
+                            # Parse as enum initialization
+                            self.advance()  # consume '('
+                            arguments = []
+                            if not self.match(TokenType.RPAREN):
+                                # Parse first argument (name: value)
+                                arg_name = self.expect(TokenType.IDENT, "Expected argument name").value
+                                self.expect(TokenType.COLON, "Expected ':' after argument name")
+                                arg_value = self.parse_expression()
+                                arguments.append((arg_name, arg_value))
+
+                                # Parse additional arguments
+                                while self.match(TokenType.COMMA):
+                                    self.advance()
+                                    arg_name = self.expect(TokenType.IDENT, "Expected argument name").value
+                                    self.expect(TokenType.COLON, "Expected ':' after argument name")
+                                    arg_value = self.parse_expression()
+                                    arguments.append((arg_name, arg_value))
+
+                            self.expect(TokenType.RPAREN)
+
+                            expr = EnumInit(
+                                enum_name=expr.name,
+                                variant_name=member_name,
+                                arguments=arguments,
+                                line=dot_token.line,
+                                column=dot_token.column
+                            )
+                        else:
+                            # It's a method call
+                            self.advance()  # consume '('
+                            arguments = []
+                            if not self.match(TokenType.RPAREN):
+                                arguments.append(self.parse_expression())
+                                while self.match(TokenType.COMMA):
+                                    self.advance()
+                                    arguments.append(self.parse_expression())
+                            self.expect(TokenType.RPAREN)
+
+                            expr = MethodCall(
+                                object=expr,
+                                method_name=member_name,
+                                arguments=arguments,
+                                line=dot_token.line,
+                                column=dot_token.column
+                            )
                     else:
-                        # It's just member access
+                        # It's just member access (could be simple enum variant or struct field)
+                        # For simple enum variants like Status.Success, we create MemberAccess
+                        # The type checker will convert this to EnumInit if needed
                         expr = MemberAccess(
                             object=expr,
                             member=member_name,
@@ -665,6 +771,9 @@ class Parser:
         elif self.match(TokenType.IF):
             return self.parse_if_expression()
 
+        elif self.match(TokenType.MATCH):
+            return self.parse_match_expression()
+
         else:
             self.error(f"Unexpected token: {token.type.name}")
 
@@ -767,6 +876,76 @@ class Parser:
             condition=condition,
             then_branch=then_branch,
             else_branch=else_branch,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_match_expression(self) -> MatchExpr:
+        """Parse match expression: match value { case Variant -> expr, ... }"""
+        start = self.advance()  # consume 'match'
+
+        # Parse the expression being matched
+        matched_expr = self.parse_expression()
+
+        self.skip_newlines()
+        self.expect(TokenType.LBRACE, "Expected '{' after match expression")
+        self.skip_newlines()
+
+        # Parse match arms
+        arms = []
+        while not self.match(TokenType.RBRACE, TokenType.EOF):
+            arm_start = self.current()
+            self.expect(TokenType.CASE, "Expected 'case' keyword in match arm")
+
+            # Parse variant name
+            variant_token = self.expect(TokenType.IDENT, "Expected variant name after 'case'")
+            variant_name = variant_token.value
+
+            # Parse optional bindings: case Variant(x, y)
+            bindings = []
+            if self.match(TokenType.LPAREN):
+                self.advance()
+                if not self.match(TokenType.RPAREN):
+                    # Parse first binding
+                    binding_token = self.expect(TokenType.IDENT, "Expected binding name")
+                    bindings.append(binding_token.value)
+
+                    # Parse additional bindings
+                    while self.match(TokenType.COMMA):
+                        self.advance()
+                        binding_token = self.expect(TokenType.IDENT, "Expected binding name")
+                        bindings.append(binding_token.value)
+
+                self.expect(TokenType.RPAREN)
+
+            # Parse arrow
+            self.expect(TokenType.ARROW, "Expected '->' after match pattern")
+
+            # Parse arm body (can be expression or block)
+            if self.match(TokenType.LBRACE):
+                body = self.parse_block()
+            else:
+                body = self.parse_expression()
+
+            arms.append(MatchArm(
+                variant_name=variant_name,
+                bindings=bindings,
+                body=body,
+                line=arm_start.line,
+                column=arm_start.column
+            ))
+
+            self.skip_newlines()
+            # Allow optional comma after arm
+            if self.match(TokenType.COMMA):
+                self.advance()
+            self.skip_newlines()
+
+        self.expect(TokenType.RBRACE, "Expected '}' at end of match expression")
+
+        return MatchExpr(
+            matched_expr=matched_expr,
+            arms=arms,
             line=start.line,
             column=start.column
         )
