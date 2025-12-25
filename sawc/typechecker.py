@@ -4,7 +4,7 @@ Performs type checking and semantic analysis on the AST.
 """
 
 from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from ast_nodes import (
     Program, Function, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
@@ -14,6 +14,7 @@ from ast_nodes import (
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     GuardLetStatement,
     Struct, StructField,
+    Extension, Method, MethodCall, SelfExpr,
     SawType, TypeKind, Parameter
 )
 from errors import ErrorReporter, ErrorKind
@@ -42,6 +43,19 @@ class StructInfo:
     name: str
     fields: Dict[str, SawType]  # field_name -> type
     field_order: List[str]  # preserve declaration order
+    methods: Dict[str, 'MethodInfo'] = field(default_factory=dict)  # method_name -> info
+
+
+@dataclass
+class MethodInfo:
+    """Information about a method."""
+    struct_name: str
+    method_name: str
+    param_types: List[SawType]  # Includes self for instance methods
+    return_type: SawType
+    param_names: List[str]
+    self_mutable: bool  # True if 'var self'
+    is_init: bool = False
 
 
 class Scope:
@@ -80,6 +94,7 @@ class TypeChecker:
         self.functions: Dict[str, FunctionInfo] = {}
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
+        self.current_method: Optional['Method'] = None  # Track current method for 'self'
         # Track return statements found in current function
         self.found_return_with_value: bool = False
 
@@ -98,7 +113,11 @@ class TypeChecker:
         for struct in program.structs:
             self._register_struct(struct)
 
-        # Second pass: collect function signatures
+        # Second pass: register extensions and their methods
+        for extension in program.extensions:
+            self._register_extension(extension)
+
+        # Third pass: collect function signatures
         for func in program.functions:
             self._register_function(func)
 
@@ -111,9 +130,13 @@ class TypeChecker:
                 hint="add a `fn main() { }` function as the entry point"
             )
 
-        # Third pass: type check function bodies
+        # Fourth pass: type check function bodies
         for func in program.functions:
             self._check_function(func)
+
+        # Fifth pass: type check method bodies
+        for extension in program.extensions:
+            self._check_extension(extension)
 
         return not self.reporter.has_errors()
 
@@ -164,6 +187,156 @@ class TypeChecker:
         param_names = [p.name for p in func.parameters]
         info = FunctionInfo(param_types, func.return_type, param_names)
         self.functions[func.name] = info
+
+    def _register_extension(self, extension: Extension):
+        """Register methods from an extension."""
+        # Verify the struct exists
+        if extension.struct_name not in self.structs:
+            self.reporter.error(
+                ErrorKind.UNDEFINED_VARIABLE,
+                f"cannot extend undefined struct `{extension.struct_name}`",
+                extension.line, extension.column
+            )
+            return
+
+        struct_info = self.structs[extension.struct_name]
+
+        for method in extension.methods:
+            # For init methods, allow multiple with different parameter signatures
+            # Use parameter names in the key to distinguish them
+            if method.is_init:
+                param_names = tuple(p.name for p in method.parameters)
+                method_key = f"init:{','.join(param_names)}"
+            else:
+                method_key = method.name
+
+            # Check for duplicate methods
+            if method_key in struct_info.methods:
+                if method.is_init:
+                    self.reporter.error(
+                        ErrorKind.DUPLICATE_FUNCTION,
+                        f"init method with parameters ({', '.join(p.name for p in method.parameters)}) is already defined for struct `{extension.struct_name}`",
+                        method.line, method.column
+                    )
+                else:
+                    self.reporter.error(
+                        ErrorKind.DUPLICATE_FUNCTION,
+                        f"method `{method.name}` is already defined for struct `{extension.struct_name}`",
+                        method.line, method.column
+                    )
+                continue
+
+            # For instance methods (not init), validate 'self' parameter
+            self_mutable = False
+            if not method.is_init:
+                if len(method.parameters) == 0:
+                    self.reporter.error(
+                        ErrorKind.WRONG_ARGUMENT_COUNT,
+                        f"method `{method.name}` must have 'self' as first parameter",
+                        method.line, method.column
+                    )
+                    continue
+
+                first_param = method.parameters[0]
+                if first_param.name != "self":
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"first parameter of method must be named 'self', got `{first_param.name}`",
+                        method.line, method.column
+                    )
+                    continue
+
+                # Check if self is mutable (would be marked in the type, but for now we don't have that)
+                # For simplicity, we'll assume self is immutable unless specified otherwise
+                # TODO: Add support for 'var self' detection in parser/AST
+                self_mutable = False
+
+                # Fill in the self parameter type (if it's the placeholder VOID from parser)
+                expected_self_type = SawType(TypeKind.STRUCT, struct_name=extension.struct_name)
+                if first_param.type.kind == TypeKind.VOID:
+                    # Replace placeholder with actual type
+                    first_param.type = expected_self_type
+                elif not self._types_compatible(first_param.type, expected_self_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"'self' parameter must have type `{extension.struct_name}`, got `{first_param.type}`",
+                        method.line, method.column
+                    )
+
+            # For init methods, check parameter names don't conflict with field names
+            if method.is_init:
+                param_names_set = {p.name for p in method.parameters}
+                field_names_set = set(struct_info.fields.keys())
+                if param_names_set == field_names_set:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"init method parameters match field names exactly - this is ambiguous with field initialization",
+                        method.line, method.column,
+                        hint="use different parameter names to distinguish from field init"
+                    )
+
+            # Register method
+            param_types = [p.type for p in method.parameters]
+            param_names = [p.name for p in method.parameters]
+
+            # For init methods, override return type to be the struct type
+            return_type = method.return_type
+            if method.is_init:
+                return_type = SawType(TypeKind.STRUCT, struct_name=extension.struct_name)
+
+            method_info = MethodInfo(
+                struct_name=extension.struct_name,
+                method_name=method.name,
+                param_types=param_types,
+                return_type=return_type,
+                param_names=param_names,
+                self_mutable=self_mutable,
+                is_init=method.is_init
+            )
+
+            struct_info.methods[method_key] = method_info
+
+    def _check_extension(self, extension: Extension):
+        """Type check all methods in an extension."""
+        for method in extension.methods:
+            self._check_method(extension.struct_name, method)
+
+    def _check_method(self, struct_name: str, method: Method):
+        """Type check a method body."""
+        self.current_method = method
+        self.found_return_with_value = False
+
+        # Create new scope for method
+        self.current_scope = Scope()
+
+        # Add parameters to scope
+        for param in method.parameters:
+            info = VariableInfo(param.type, mutable=False, line=method.line, column=method.column)
+            self.current_scope.define(param.name, info)
+
+        # Check body
+        body_type = self._check_block(method.body)
+
+        # For init methods, check return type
+        expected_return = method.return_type
+        if method.is_init:
+            expected_return = SawType(TypeKind.STRUCT, struct_name=struct_name)
+
+        if expected_return.kind != TypeKind.VOID:
+            if body_type is None and not self.found_return_with_value:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"method `{method.name}` should return `{expected_return}` but body has no value",
+                    method.line, method.column
+                )
+            elif body_type is not None and not self._types_compatible(body_type, expected_return):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
+                    method.line, method.column
+                )
+
+        self.current_method = None
 
     def _check_function(self, func: Function):
         """Type check a function body."""
@@ -434,6 +607,12 @@ class TypeChecker:
 
         elif isinstance(expr, OptionalChain):
             return self._check_optional_chain(expr)
+
+        elif isinstance(expr, MethodCall):
+            return self._check_method_call(expr)
+
+        elif isinstance(expr, SelfExpr):
+            return self._check_self_expr(expr)
 
         return None
 
@@ -712,7 +891,7 @@ class TypeChecker:
         return struct_info.fields[expr.member]
 
     def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
-        """Check struct initialization."""
+        """Check struct initialization with parameter-based resolution."""
         # Check if struct exists
         struct_info = self.structs.get(expr.struct_name)
         if struct_info is None:
@@ -723,36 +902,75 @@ class TypeChecker:
             )
             return None
 
-        # Check that all fields are initialized
-        provided_fields = {field_name for field_name, _ in expr.field_inits}
-        required_fields = set(struct_info.fields.keys())
+        # Get provided parameter names
+        provided_params = {field_name for field_name, _ in expr.field_inits}
 
-        missing = required_fields - provided_fields
-        if missing:
+        # Try to match against field initialization
+        field_names = set(struct_info.fields.keys())
+        matches_fields = provided_params == field_names
+
+        # Try to match against custom init methods
+        matching_inits = []
+        for method_name, method_info in struct_info.methods.items():
+            if method_info.is_init:
+                init_param_names = set(method_info.param_names)
+                if provided_params == init_param_names:
+                    matching_inits.append(method_info)
+
+        # Resolve which initialization to use
+        total_matches = (1 if matches_fields else 0) + len(matching_inits)
+
+        if total_matches == 0:
+            # No match found
             self.reporter.error(
                 ErrorKind.TYPE_MISMATCH,
-                f"struct `{expr.struct_name}` is missing fields: {', '.join(sorted(missing))}",
-                expr.line, expr.column
+                f"no matching initializer for `{expr.struct_name}` with parameters: {', '.join(sorted(provided_params))}",
+                expr.line, expr.column,
+                hint=f"field init expects: {', '.join(sorted(field_names))}" +
+                     (f"; available init methods: {[m.param_names for m in struct_info.methods.values() if m.is_init]}" if any(m.is_init for m in struct_info.methods.values()) else "")
             )
+            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name)
 
-        # Check for extra fields
-        extra = provided_fields - required_fields
-        if extra:
+        elif total_matches > 1:
+            # Ambiguous
             self.reporter.error(
                 ErrorKind.TYPE_MISMATCH,
-                f"struct `{expr.struct_name}` has no fields: {', '.join(sorted(extra))}",
-                expr.line, expr.column
+                f"ambiguous initializer for `{expr.struct_name}` - matches both field initialization and custom init",
+                expr.line, expr.column,
+                hint="use different parameter names in init method to disambiguate"
             )
+            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name)
 
-        # Check field types
-        for field_name, field_value in expr.field_inits:
-            if field_name in struct_info.fields:
+        # Exactly one match - resolve it
+        if matches_fields:
+            # Field initialization
+            expr.resolved_init_params = None
+
+            # Check field types
+            for field_name, field_value in expr.field_inits:
                 expected_type = struct_info.fields[field_name]
                 actual_type = self._check_expression(field_value)
                 if actual_type and not self._types_compatible(actual_type, expected_type):
                     self.reporter.error(
                         ErrorKind.TYPE_MISMATCH,
                         f"field `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
+                        expr.line, expr.column
+                    )
+        else:
+            # Custom init method
+            method_info = matching_inits[0]
+            expr.resolved_init_params = method_info.param_names
+
+            # Check argument types
+            for field_name, field_value in expr.field_inits:
+                # Find parameter index
+                param_idx = method_info.param_names.index(field_name)
+                expected_type = method_info.param_types[param_idx]
+                actual_type = self._check_expression(field_value)
+                if actual_type and not self._types_compatible(actual_type, expected_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"parameter `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
                         expr.line, expr.column
                     )
 
@@ -849,6 +1067,91 @@ class TypeChecker:
         # Return the field type wrapped in optional
         field_type = struct_info.fields[expr.member]
         return SawType(TypeKind.OPTIONAL, inner_type=field_type)
+
+    def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
+        """Check a method call: object.method(args)."""
+        obj_type = self._check_expression(expr.object)
+        if obj_type is None:
+            return None
+
+        # Must be a struct type
+        if obj_type.kind != TypeKind.STRUCT:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot call method on non-struct type `{obj_type}`",
+                expr.line, expr.column
+            )
+            return None
+
+        if obj_type.struct_name is None:
+            return None
+
+        struct_info = self.structs.get(obj_type.struct_name)
+        if struct_info is None:
+            return None
+
+        # Look up method
+        if expr.method_name not in struct_info.methods:
+            self.reporter.error(
+                ErrorKind.UNDEFINED_FUNCTION,
+                f"struct `{obj_type.struct_name}` has no method `{expr.method_name}`",
+                expr.line, expr.column,
+                hint=f"available methods: {', '.join(struct_info.methods.keys())}" if struct_info.methods else "no methods defined"
+            )
+            return None
+
+        method_info = struct_info.methods[expr.method_name]
+
+        # Check argument count (excluding 'self' which is implicit in method calls)
+        expected_arg_count = len(method_info.param_types) - 1  # -1 for self
+        if method_info.is_init:
+            expected_arg_count = len(method_info.param_types)  # init has no self
+
+        if len(expr.arguments) != expected_arg_count:
+            self.reporter.error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"method `{expr.method_name}` takes {expected_arg_count} argument(s), "
+                f"but {len(expr.arguments)} were given",
+                expr.line, expr.column
+            )
+            return method_info.return_type
+
+        # Check argument types (skip first param which is self for non-init methods)
+        param_offset = 1 if not method_info.is_init else 0
+        for i, arg in enumerate(expr.arguments):
+            arg_type = self._check_expression(arg)
+            expected_type = method_info.param_types[i + param_offset]
+            if arg_type and not self._types_compatible(arg_type, expected_type):
+                param_name = method_info.param_names[i + param_offset]
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
+                    arg.line, arg.column
+                )
+
+        return method_info.return_type
+
+    def _check_self_expr(self, expr: SelfExpr) -> Optional[SawType]:
+        """Check 'self' keyword usage."""
+        if self.current_method is None:
+            self.reporter.error(
+                ErrorKind.UNDEFINED_VARIABLE,
+                "'self' can only be used inside methods",
+                expr.line, expr.column
+            )
+            return None
+
+        # Look up 'self' in current scope (it's a parameter)
+        var_info = self.current_scope.lookup("self")
+        if not var_info:
+            self.reporter.error(
+                ErrorKind.UNDEFINED_VARIABLE,
+                "'self' not found in method scope",
+                expr.line, expr.column
+            )
+            return None
+
+        return var_info.type
 
     def _types_compatible(self, a: Optional[SawType], b: Optional[SawType]) -> bool:
         """Check if two types are compatible."""

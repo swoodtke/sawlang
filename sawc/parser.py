@@ -14,6 +14,7 @@ from ast_nodes import (
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     GuardLetStatement,
     Struct, StructField,
+    Extension, Method, MethodCall, SelfExpr,
     SawType, TypeKind
 )
 
@@ -61,18 +62,21 @@ class Parser:
     def parse(self) -> Program:
         structs = []
         functions = []
+        extensions = []
         self.skip_newlines()
 
         while not self.match(TokenType.EOF):
             if self.match(TokenType.STRUCT):
                 structs.append(self.parse_struct())
+            elif self.match(TokenType.EXTENSION):
+                extensions.append(self.parse_extension())
             elif self.match(TokenType.FUNC):
                 functions.append(self.parse_function())
             else:
-                self.error(f"Expected struct or function declaration, got {self.current().type.name}")
+                self.error(f"Expected struct, extension, or function declaration, got {self.current().type.name}")
             self.skip_newlines()
 
-        return Program(structs=structs, functions=functions)
+        return Program(structs=structs, functions=functions, extensions=extensions)
 
     def parse_type(self) -> SawType:
         # Parse base type
@@ -181,6 +185,74 @@ class Parser:
             column=start.column
         )
 
+    def parse_extension(self) -> Extension:
+        """Parse extension declaration: extension StructName { methods... }"""
+        start = self.current()
+        self.expect(TokenType.EXTENSION)
+
+        name_token = self.expect(TokenType.IDENT, "Expected struct name after 'extension'")
+        struct_name = name_token.value
+
+        self.skip_newlines()
+        self.expect(TokenType.LBRACE)
+        self.skip_newlines()
+
+        methods = []
+        while not self.match(TokenType.RBRACE, TokenType.EOF):
+            method = self.parse_method()
+            methods.append(method)
+            self.skip_newlines()
+
+        self.expect(TokenType.RBRACE)
+
+        return Extension(
+            struct_name=struct_name,
+            methods=methods,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_method(self) -> Method:
+        """Parse method definition: func name(self, ...) -> Type { ... }
+           or init method: init(...) { ... }"""
+        start = self.current()
+
+        # Check if it's an init method
+        is_init = False
+        if self.match(TokenType.INIT):
+            is_init = True
+            name = "init"
+            self.advance()
+        elif self.match(TokenType.FUNC):
+            self.advance()
+            name_token = self.expect(TokenType.IDENT, "Expected method name")
+            name = name_token.value
+        else:
+            self.error("Expected 'func' or 'init' in extension")
+
+        self.expect(TokenType.LPAREN)
+        parameters = self.parse_parameters()
+        self.expect(TokenType.RPAREN)
+
+        # Return type (optional, defaults to void)
+        return_type = SawType(TypeKind.VOID)
+        if self.match(TokenType.ARROW):
+            self.advance()
+            return_type = self.parse_type()
+
+        self.skip_newlines()
+        body = self.parse_block()
+
+        return Method(
+            name=name,
+            parameters=parameters,
+            return_type=return_type,
+            body=body,
+            is_init=is_init,
+            line=start.line,
+            column=start.column
+        )
+
     def parse_parameters(self) -> List[Parameter]:
         params = []
 
@@ -188,10 +260,21 @@ class Parser:
             return params
 
         while True:
-            name_token = self.expect(TokenType.IDENT, "Expected parameter name")
-            self.expect(TokenType.COLON, "Expected ':' after parameter name")
-            param_type = self.parse_type()
-            params.append(Parameter(name=name_token.value, type=param_type))
+            # Allow both IDENT and SELF as parameter names (for method self parameter)
+            if self.match(TokenType.IDENT, TokenType.SELF):
+                name_token = self.advance()
+            else:
+                self.error("Expected parameter name")
+
+            # Special case: 'self' doesn't need type annotation (type is inferred from extension)
+            if name_token.value == "self":
+                # Create a placeholder type - will be filled in by type checker
+                param_type = SawType(TypeKind.VOID)  # Placeholder
+                params.append(Parameter(name=name_token.value, type=param_type))
+            else:
+                self.expect(TokenType.COLON, "Expected ':' after parameter name")
+                param_type = self.parse_type()
+                params.append(Parameter(name=name_token.value, type=param_type))
 
             if not self.match(TokenType.COMMA):
                 break
@@ -424,14 +507,37 @@ class Parser:
                         column=dot_token.column
                     )
                 elif member_token.type == TokenType.IDENT:
-                    # Member access: expr.field
+                    # Could be member access or method call
+                    member_name = member_token.value
                     self.advance()
-                    expr = MemberAccess(
-                        object=expr,
-                        member=member_token.value,
-                        line=dot_token.line,
-                        column=dot_token.column
-                    )
+
+                    # Check if followed by '(' for method call
+                    if self.match(TokenType.LPAREN):
+                        # It's a method call
+                        self.advance()  # consume '('
+                        arguments = []
+                        if not self.match(TokenType.RPAREN):
+                            arguments.append(self.parse_expression())
+                            while self.match(TokenType.COMMA):
+                                self.advance()
+                                arguments.append(self.parse_expression())
+                        self.expect(TokenType.RPAREN)
+
+                        expr = MethodCall(
+                            object=expr,
+                            method_name=member_name,
+                            arguments=arguments,
+                            line=dot_token.line,
+                            column=dot_token.column
+                        )
+                    else:
+                        # It's just member access
+                        expr = MemberAccess(
+                            object=expr,
+                            member=member_name,
+                            line=dot_token.line,
+                            column=dot_token.column
+                        )
                 else:
                     self.error(f"Expected field name or tuple index after '.', got {member_token.type.name}")
 
@@ -482,6 +588,10 @@ class Parser:
         elif self.match(TokenType.NONE):
             self.advance()
             return NoneLiteral(line=token.line, column=token.column)
+
+        elif self.match(TokenType.SELF):
+            self.advance()
+            return SelfExpr(line=token.line, column=token.column)
 
         elif self.match(TokenType.STRING):
             self.advance()

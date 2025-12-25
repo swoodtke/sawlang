@@ -3,6 +3,7 @@ Saw Language Code Generator
 Generates LLVM IR from the AST using llvmlite.
 """
 
+from typing import Optional, List
 from llvmlite import ir, binding
 from ast_nodes import (
     Program, Function, Block, Statement, Expression,
@@ -13,6 +14,7 @@ from ast_nodes import (
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     GuardLetStatement,
     Struct, StructField,
+    Extension, Method, MethodCall, SelfExpr,
     SawType, TypeKind
 )
 
@@ -119,9 +121,17 @@ class CodeGenerator:
         for func in program.functions:
             self._declare_function(func)
 
+        # Declare extension methods
+        for extension in program.extensions:
+            self._declare_extension_methods(extension)
+
         # Third pass: generate function bodies
         for func in program.functions:
             self._generate_function(func)
+
+        # Generate extension method bodies
+        for extension in program.extensions:
+            self._generate_extension_methods(extension)
 
         return str(self.module)
 
@@ -148,6 +158,123 @@ class CodeGenerator:
         func_type = ir.FunctionType(return_type, param_types)
         llvm_func = ir.Function(self.module, func_type, name=func.name)
         self.functions[func.name] = llvm_func
+
+    def _mangle_method_name(self, struct_name: str, method_name: str, param_names: Optional[List[str]] = None) -> str:
+        """Generate mangled name for methods: StructName_methodName
+           For init methods, include parameter names to allow overloading."""
+        if param_names is not None:
+            # Init method - include parameter signature
+            param_sig = '_'.join(param_names)
+            return f"{struct_name}_{method_name}_{param_sig}"
+        else:
+            return f"{struct_name}_{method_name}"
+
+    def _declare_extension_methods(self, extension: Extension):
+        """Declare all methods in an extension."""
+        for method in extension.methods:
+            # Create mangled name
+            if method.is_init:
+                # Include parameter names for init methods to allow overloading
+                param_names = [p.name for p in method.parameters]
+                mangled_name = self._mangle_method_name(extension.struct_name, method.name, param_names)
+            else:
+                mangled_name = self._mangle_method_name(extension.struct_name, method.name)
+
+            # Build parameter types
+            if method.is_init:
+                # Init methods take parameters (no self) and return the struct
+                param_types = [self._get_llvm_type(p.type) for p in method.parameters]
+                # Return type is the struct being initialized
+                struct_type, _ = self.struct_types[extension.struct_name]
+                return_type = struct_type
+            else:
+                # Regular methods include self as first parameter
+                param_types = [self._get_llvm_type(p.type) for p in method.parameters]
+                return_type = self._get_llvm_type(method.return_type)
+
+            # Create function type
+            func_type = ir.FunctionType(return_type, param_types)
+            llvm_func = ir.Function(self.module, func_type, name=mangled_name)
+
+            # Store in functions table
+            self.functions[mangled_name] = llvm_func
+
+    def _generate_extension_methods(self, extension: Extension):
+        """Generate code for all methods in an extension."""
+        for method in extension.methods:
+            if method.is_init:
+                self._generate_init_method(extension.struct_name, method)
+            else:
+                self._generate_method(extension.struct_name, method)
+
+    def _generate_method(self, struct_name: str, method: Method):
+        """Generate code for a single method."""
+        mangled_name = self._mangle_method_name(struct_name, method.name)
+        llvm_func = self.functions[mangled_name]
+
+        # Create entry block
+        block = llvm_func.append_basic_block(name="entry")
+        self.builder = ir.IRBuilder(block)
+
+        # Clear variables for this method
+        self.variables = {}
+
+        # Create allocas for parameters (including self)
+        for i, param in enumerate(method.parameters):
+            llvm_func.args[i].name = param.name
+            alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
+            self.builder.store(llvm_func.args[i], alloca)
+            self.variables[param.name] = alloca
+
+        # Generate method body
+        result = self._generate_block(method.body)
+
+        # Handle return
+        if method.return_type.kind == TypeKind.VOID:
+            if not self.builder.block.is_terminated:
+                self.builder.ret_void()
+        else:
+            if not self.builder.block.is_terminated:
+                if result is not None:
+                    self.builder.ret(result)
+                else:
+                    # Return default value
+                    default = ir.Constant(self._get_llvm_type(method.return_type), 0)
+                    self.builder.ret(default)
+
+    def _generate_init_method(self, struct_name: str, method: Method):
+        """Generate code for a custom init method."""
+        param_names = [p.name for p in method.parameters]
+        mangled_name = self._mangle_method_name(struct_name, method.name, param_names)
+        llvm_func = self.functions[mangled_name]
+
+        # Create entry block
+        block = llvm_func.append_basic_block(name="entry")
+        self.builder = ir.IRBuilder(block)
+
+        # Clear variables for this method
+        self.variables = {}
+
+        # Create allocas for parameters (no self for init methods)
+        for i, param in enumerate(method.parameters):
+            llvm_func.args[i].name = param.name
+            alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
+            self.builder.store(llvm_func.args[i], alloca)
+            self.variables[param.name] = alloca
+
+        # Generate method body - must return a struct value
+        result = self._generate_block(method.body)
+
+        # Handle return - init methods must return the struct
+        if not self.builder.block.is_terminated:
+            if result is not None:
+                self.builder.ret(result)
+            else:
+                # Error: init must return a struct
+                # For now, return a default struct value
+                struct_type, _ = self.struct_types[struct_name]
+                default = ir.Constant(struct_type, ir.Undefined)
+                self.builder.ret(default)
 
     def _generate_function(self, func: Function):
         llvm_func = self.functions[func.name]
@@ -329,6 +456,12 @@ class CodeGenerator:
 
         elif isinstance(expr, OptionalChain):
             return self._generate_optional_chain(expr)
+
+        elif isinstance(expr, MethodCall):
+            return self._generate_method_call(expr)
+
+        elif isinstance(expr, SelfExpr):
+            return self._generate_self_expr(expr)
 
         else:
             raise ValueError(f"Unknown expression type: {type(expr)}")
@@ -636,6 +769,23 @@ class CodeGenerator:
         if expr.struct_name not in self.struct_types:
             raise ValueError(f"Undefined struct: {expr.struct_name}")
 
+        # Check if this is a custom init method call
+        if expr.resolved_init_params is not None:
+            # Custom init - call the init method
+            mangled_name = self._mangle_method_name(expr.struct_name, "init", expr.resolved_init_params)
+            init_func = self.functions[mangled_name]
+
+            # Generate arguments in the order expected by the init method
+            args = []
+            param_to_value = {param_name: value for param_name, value in expr.field_inits}
+            for param_name in expr.resolved_init_params:
+                arg_value = self._generate_expression(param_to_value[param_name])
+                args.append(arg_value)
+
+            # Call the init method
+            return self.builder.call(init_func, args)
+
+        # Field initialization (original behavior)
         llvm_struct_type, field_order = self.struct_types[expr.struct_name]
 
         # Create a map from field name to value
@@ -807,6 +957,49 @@ class CodeGenerator:
         phi.add_incoming(none_result, none_bb)
 
         return phi
+
+    def _generate_method_call(self, expr: MethodCall):
+        """Generate code for method call: object.method(args)."""
+        # Generate the object expression
+        obj_val = self._generate_expression(expr.object)
+
+        # Determine the struct type
+        # Find which struct this is by matching LLVM type
+        struct_name = None
+        for name, (llvm_type, _) in self.struct_types.items():
+            if (isinstance(obj_val.type, ir.LiteralStructType) and
+                isinstance(llvm_type, ir.LiteralStructType) and
+                str(obj_val.type) == str(llvm_type)):
+                struct_name = name
+                break
+
+        if struct_name is None:
+            raise ValueError(f"Cannot determine struct type for method call to {expr.method_name}")
+
+        # Get mangled method name
+        mangled_name = self._mangle_method_name(struct_name, expr.method_name)
+
+        # Look up the method function
+        if mangled_name not in self.functions:
+            raise ValueError(f"Undefined method: {struct_name}.{expr.method_name}")
+
+        method_func = self.functions[mangled_name]
+
+        # Generate arguments: [self, arg1, arg2, ...]
+        args = [obj_val]  # self is first argument
+        for arg_expr in expr.arguments:
+            args.append(self._generate_expression(arg_expr))
+
+        # Call the method
+        return self.builder.call(method_func, args, name="methodcall")
+
+    def _generate_self_expr(self, expr: SelfExpr):
+        """Generate code for 'self' keyword."""
+        if "self" not in self.variables:
+            raise ValueError("'self' not found in current scope")
+
+        # Load self from its alloca
+        return self.builder.load(self.variables["self"], name="self")
 
     def compile_to_object(self, output_path: str):
         """Compile the module to an object file."""

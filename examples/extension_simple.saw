@@ -1,0 +1,16 @@
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point {
+    func distance(self) -> Int {
+        self.x + self.y
+    }
+}
+
+func main() {
+    let p = Point(x: 3, y: 4)
+    let d = p.distance()
+    print(d)
+}

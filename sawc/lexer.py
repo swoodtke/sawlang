@@ -30,6 +30,7 @@ class TokenType(Enum):
     STRUCT = auto()
     EXTENSION = auto()
     SELF = auto()
+    INIT = auto()
     NONE = auto()
 
     # Types
@@ -91,6 +92,7 @@ KEYWORDS = {
     'struct': TokenType.STRUCT,
     'extension': TokenType.EXTENSION,
     'self': TokenType.SELF,
+    'init': TokenType.INIT,
     'None': TokenType.NONE,
     'Int': TokenType.INT_TYPE,
     'Float': TokenType.FLOAT_TYPE,

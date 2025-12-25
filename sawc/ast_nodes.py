@@ -151,6 +151,8 @@ class StructInit(Expression):
     field_inits: List[tuple[str, Expression]]  # [(field_name, value), ...]
     line: int = 0
     column: int = 0
+    # Resolution metadata (filled in by type checker)
+    resolved_init_params: Optional[List[str]] = None  # None = field init, List = custom init params
 
 
 @dataclass
@@ -182,6 +184,23 @@ class OptionalChain(Expression):
     """Optional chaining: expr?.member"""
     expr: Expression
     member: str
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class MethodCall(Expression):
+    """Method call: object.method(args)"""
+    object: Expression
+    method_name: str
+    arguments: List[Expression]
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class SelfExpr(Expression):
+    """The 'self' keyword"""
     line: int = 0
     column: int = 0
 
@@ -279,6 +298,27 @@ class Struct(ASTNode):
 
 
 @dataclass
+class Extension(ASTNode):
+    """Extension declaration: extension StructName { ... }"""
+    struct_name: str
+    methods: List['Method']
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class Method(ASTNode):
+    """Method definition: func name(self, ...) -> Type { ... }"""
+    name: str
+    parameters: List[Parameter]
+    return_type: SawType
+    body: Block
+    is_init: bool = False  # True for 'init' methods
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class Function(ASTNode):
     name: str
     parameters: List[Parameter]
@@ -292,5 +332,6 @@ class Function(ASTNode):
 class Program(ASTNode):
     structs: List[Struct]
     functions: List[Function]
+    extensions: List[Extension] = field(default_factory=list)
     line: int = 0
     column: int = 0

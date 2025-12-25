@@ -1,0 +1,36 @@
+// Test custom init methods via extensions
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point {
+    // Custom init using different parameter names (magnitude)
+    init(magnitude: Int) -> Point {
+        Point(x: magnitude, y: magnitude)
+    }
+
+    // Custom init with different parameter names (a, b)
+    init(a: Int, b: Int) -> Point {
+        let sum = a + b
+        Point(magnitude: sum)
+    }
+}
+
+func main() {
+    // Field initialization - uses field names
+    let p1 = Point(x: 3, y: 4)
+    print(p1.x)
+    print(p1.y)
+
+    // Custom init with magnitude parameter
+    let p2 = Point(magnitude: 5)
+    print(p2.x)
+    print(p2.y)
+
+    // Custom init with a, b parameters
+    let p3 = Point(a: 2, b: 3)
+    print(p3.x)
+    print(p3.y)
+}
