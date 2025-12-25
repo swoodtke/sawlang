@@ -1,4 +1,6 @@
 // Error test: guard let binding is immutable
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to immutable variable `value`
 
 func process(x: Int?) -> Int {
     guard let value = x else {

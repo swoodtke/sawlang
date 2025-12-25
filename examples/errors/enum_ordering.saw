@@ -1,4 +1,7 @@
 // Test error: ordering operators on enums
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: enum types do not support ordering operators
+
 enum Status {
     case Success,
     case Failure

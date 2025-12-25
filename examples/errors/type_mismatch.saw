@@ -1,4 +1,7 @@
 // Error: type mismatch
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: argument `a` expects `INT` but got `STRING`
+
 func add(a: Int, b: Int) -> Int {
     a + b
 }

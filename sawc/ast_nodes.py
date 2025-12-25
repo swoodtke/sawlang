@@ -57,6 +57,17 @@ class Expression(ASTNode):
 
 
 @dataclass
+class Argument:
+    """A function/method/enum call argument - can be named or positional."""
+    value: 'Expression'
+    name: Optional[str] = None  # None for positional, string for named
+
+    @property
+    def is_named(self) -> bool:
+        return self.name is not None
+
+
+@dataclass
 class IntLiteral(Expression):
     value: int
     line: int = 0
@@ -110,8 +121,9 @@ class UnaryOp(Expression):
 
 @dataclass
 class FunctionCall(Expression):
+    """Function call: name(args). Arguments can be positional or named."""
     name: str
-    arguments: List[Expression]
+    arguments: List[Argument]
     line: int = 0
     column: int = 0
 
@@ -195,10 +207,14 @@ class OptionalChain(Expression):
 
 @dataclass
 class MethodCall(Expression):
-    """Method call: object.method(args)"""
+    """Method or enum variant call: object.method(args) or EnumType.Variant(args)
+
+    The type checker disambiguates based on whether 'object' refers to an enum type.
+    Arguments can be positional or named (name: value).
+    """
     object: Expression
     method_name: str
-    arguments: List[Expression]
+    arguments: List[Argument]
     line: int = 0
     column: int = 0
 
@@ -235,10 +251,14 @@ class GuardLetStatement(ASTNode):
 
 @dataclass
 class EnumInit(Expression):
-    """Enum variant initialization: Status.Success or Status.Error(code: 404)"""
+    """Enum variant initialization: Status.Success or Status.Error(code: 404)
+
+    Created by the type checker from MethodCall when the base is an enum type.
+    Arguments can be positional or named.
+    """
     enum_name: str
     variant_name: str
-    arguments: List[tuple[str, Expression]]  # [(param_name, value), ...]
+    arguments: List[Argument]
     line: int = 0
     column: int = 0
 

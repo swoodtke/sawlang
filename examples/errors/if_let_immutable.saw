@@ -1,4 +1,6 @@
 // Error test: if let binding is immutable
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to immutable variable `value`
 
 func main() {
     let x: Int? = 10

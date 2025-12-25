@@ -16,7 +16,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    SawType, TypeKind, Parameter
+    SawType, TypeKind, Parameter, Argument
 )
 from errors import ErrorReporter, ErrorKind
 
@@ -806,7 +806,10 @@ class TypeChecker:
         return None
 
     def _check_function_call(self, expr: FunctionCall) -> Optional[SawType]:
-        """Check a function call."""
+        """Check a function call.
+
+        Arguments are Argument objects with .value and optional .name.
+        """
         # Handle built-in print specially
         if expr.name == "print":
             if len(expr.arguments) > 1:
@@ -817,7 +820,7 @@ class TypeChecker:
                 )
             # Check argument type (print accepts any type)
             for arg in expr.arguments:
-                self._check_expression(arg)
+                self._check_expression(arg.value)
             return SawType(TypeKind.VOID)
 
         # Look up function
@@ -842,13 +845,13 @@ class TypeChecker:
 
         # Check argument types
         for i, (arg, expected_type) in enumerate(zip(expr.arguments, func_info.param_types)):
-            arg_type = self._check_expression(arg)
+            arg_type = self._check_expression(arg.value)
             if arg_type and not self._types_compatible(arg_type, expected_type):
                 param_name = func_info.param_names[i]
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
-                    arg.line, arg.column
+                    arg.value.line, arg.value.column
                 )
 
         return func_info.return_type
@@ -1220,7 +1223,25 @@ class TypeChecker:
         return SawType(TypeKind.OPTIONAL, inner_type=field_type)
 
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
-        """Check a method call: object.method(args)."""
+        """Check a method call or enum initialization: object.method(args) or Enum.Variant(args).
+
+        The parser creates MethodCall for both cases. This method disambiguates based on
+        whether the object refers to an enum type.
+        """
+        # Check if this is actually an enum initialization
+        # This happens when object is an Identifier that matches an enum name
+        if isinstance(expr.object, Identifier) and expr.object.name in self.enums:
+            # Convert to EnumInit and check it
+            enum_init = EnumInit(
+                enum_name=expr.object.name,
+                variant_name=expr.method_name,
+                arguments=expr.arguments,
+                line=expr.line,
+                column=expr.column
+            )
+            return self._check_enum_init(enum_init)
+
+        # Otherwise, it's a method call - check the object type
         obj_type = self._check_expression(expr.object)
         if obj_type is None:
             return None
@@ -1268,16 +1289,17 @@ class TypeChecker:
             return method_info.return_type
 
         # Check argument types (skip first param which is self for non-init methods)
+        # Arguments are now Argument objects with .value and optional .name
         param_offset = 1 if not method_info.is_init else 0
         for i, arg in enumerate(expr.arguments):
-            arg_type = self._check_expression(arg)
+            arg_type = self._check_expression(arg.value)
             expected_type = method_info.param_types[i + param_offset]
             if arg_type and not self._types_compatible(arg_type, expected_type):
                 param_name = method_info.param_names[i + param_offset]
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
-                    arg.line, arg.column
+                    arg.value.line, arg.value.column
                 )
 
         return method_info.return_type
@@ -1305,7 +1327,10 @@ class TypeChecker:
         return var_info.type
 
     def _check_enum_init(self, expr: EnumInit) -> Optional[SawType]:
-        """Check enum variant initialization."""
+        """Check enum variant initialization.
+
+        Supports both named arguments (value: 42) and positional arguments (42).
+        """
         # Verify enum exists
         if expr.enum_name not in self.enums:
             self.reporter.error(
@@ -1337,25 +1362,43 @@ class TypeChecker:
             )
             return None
 
-        # Check argument names and types
+        # Arguments are now Argument objects with .value and optional .name
+        # Support both named and positional arguments
         expected_dict = {name: typ for name, typ in expected_params}
-        for arg_name, arg_value in expr.arguments:
-            if arg_name not in expected_dict:
-                self.reporter.error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"variant `{expr.variant_name}` has no parameter named `{arg_name}`",
-                    expr.line, expr.column
-                )
-                continue
+        expected_list = expected_params  # [(name, type), ...]
 
-            arg_type = self._check_expression(arg_value)
-            expected_type = expected_dict[arg_name]
-            if not self._types_compatible(arg_type, expected_type):
-                self.reporter.error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"expected type `{expected_type}` for parameter `{arg_name}`, got `{arg_type}`",
-                    expr.line, expr.column
-                )
+        for i, arg in enumerate(expr.arguments):
+            if arg.is_named:
+                # Named argument - look up by name
+                if arg.name not in expected_dict:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"variant `{expr.variant_name}` has no parameter named `{arg.name}`",
+                        expr.line, expr.column
+                    )
+                    continue
+
+                arg_type = self._check_expression(arg.value)
+                expected_type = expected_dict[arg.name]
+                if arg_type and not self._types_compatible(arg_type, expected_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"expected type `{expected_type}` for parameter `{arg.name}`, got `{arg_type}`",
+                        arg.value.line, arg.value.column
+                    )
+            else:
+                # Positional argument - match by position
+                if i >= len(expected_list):
+                    continue  # Already reported count mismatch
+
+                param_name, expected_type = expected_list[i]
+                arg_type = self._check_expression(arg.value)
+                if arg_type and not self._types_compatible(arg_type, expected_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"expected type `{expected_type}` for parameter `{param_name}`, got `{arg_type}`",
+                        arg.value.line, arg.value.column
+                    )
 
         # Return enum type
         return SawType(TypeKind.ENUM, enum_name=expr.enum_name)

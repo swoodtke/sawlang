@@ -16,7 +16,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    SawType, TypeKind
+    SawType, TypeKind, Argument
 )
 
 
@@ -715,10 +715,11 @@ class CodeGenerator:
             raise ValueError(f"Undefined function: {expr.name}")
 
         func = self.functions[expr.name]
-        args = [self._generate_expression(arg) for arg in expr.arguments]
+        # Arguments are now Argument objects with .value
+        args = [self._generate_expression(arg.value) for arg in expr.arguments]
         return self.builder.call(func, args, name="calltmp")
 
-    def _generate_print(self, arguments):
+    def _generate_print(self, arguments: List[Argument]):
         if not arguments:
             # Print newline
             fmt = self._create_string_constant("\n")
@@ -726,8 +727,9 @@ class CodeGenerator:
             fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
             return self.builder.call(self.printf, [fmt_ptr])
 
+        # Arguments are Argument objects with .value
         arg = arguments[0]
-        value = self._generate_expression(arg)
+        value = self._generate_expression(arg.value)
 
         # Choose format based on type
         if isinstance(value.type, ir.IntType):
@@ -1138,7 +1140,24 @@ class CodeGenerator:
         return phi
 
     def _generate_method_call(self, expr: MethodCall):
-        """Generate code for method call: object.method(args)."""
+        """Generate code for method call or enum initialization: object.method(args).
+
+        The parser creates MethodCall for both cases. This method disambiguates
+        based on whether 'object' is an Identifier that matches an enum name.
+        """
+        # Check if this is actually an enum initialization
+        if isinstance(expr.object, Identifier) and expr.object.name in self.enum_types:
+            # Convert to EnumInit and generate it
+            enum_init = EnumInit(
+                enum_name=expr.object.name,
+                variant_name=expr.method_name,
+                arguments=expr.arguments,
+                line=expr.line,
+                column=expr.column
+            )
+            return self._generate_enum_init(enum_init)
+
+        # Otherwise, it's a method call
         # Get mangled method name first to check if method expects mutable self
         # We need this info before generating the object expression
         # First, determine struct type by generating the object
@@ -1181,8 +1200,9 @@ class CodeGenerator:
                 self_arg = self_alloca
 
         args = [self_arg]  # self is first argument
-        for arg_expr in expr.arguments:
-            args.append(self._generate_expression(arg_expr))
+        # Arguments are Argument objects with .value
+        for arg in expr.arguments:
+            args.append(self._generate_expression(arg.value))
 
         # Call the method
         return self.builder.call(method_func, args, name="methodcall")
@@ -1220,10 +1240,26 @@ class CodeGenerator:
             # If this variant has associated values, pack them into payload
             if variant_params:
                 # Generate values for arguments
+                # Arguments are Argument objects with .value and optional .name
                 arg_values = []
-                arg_dict = {name: val for name, val in expr.arguments}
-                for param_name, param_type in variant_params:
-                    arg_val = self._generate_expression(arg_dict[param_name])
+
+                # Build a dict for named args, list for positional
+                arg_dict = {}
+                arg_list = []
+                for arg in expr.arguments:
+                    if arg.is_named:
+                        arg_dict[arg.name] = arg.value
+                    else:
+                        arg_list.append(arg.value)
+
+                # Match arguments to parameters (named takes precedence, then positional)
+                for i, (param_name, param_type) in enumerate(variant_params):
+                    if param_name in arg_dict:
+                        arg_val = self._generate_expression(arg_dict[param_name])
+                    elif i < len(arg_list):
+                        arg_val = self._generate_expression(arg_list[i])
+                    else:
+                        raise ValueError(f"Missing argument for parameter {param_name}")
                     arg_values.append(arg_val)
 
                 # Create a struct for the associated values

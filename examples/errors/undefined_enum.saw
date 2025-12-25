@@ -1,4 +1,7 @@
 // Test error: undefined enum
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: undefined variable `Undefined`
+
 func main() {
     let x = Undefined.Variant
 }

@@ -1,4 +1,7 @@
 // Error: wrong number of arguments
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: function `add` takes 2 argument(s), but 3 were given
+
 func add(a: Int, b: Int) -> Int {
     a + b
 }

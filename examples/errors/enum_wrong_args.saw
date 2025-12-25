@@ -1,4 +1,8 @@
-// Test error: wrong argument count
+// Test error: wrong argument count for enum variants
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: variant `Success` expects 1 arguments, got 0
+// EXPECT-ERROR-CONTAINS: variant `Error` expects 1 arguments, got 2
+
 enum Result {
     case Success(value: Int),
     case Error(code: Int)

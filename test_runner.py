@@ -164,11 +164,18 @@ def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
             if compile_success:
                 return False, "Expected compilation to fail, but it succeeded"
 
+            # Require at least one EXPECT-ERROR-CONTAINS directive
+            if not test.expected_error_contains:
+                return False, (
+                    "Error test must have at least one EXPECT-ERROR-CONTAINS directive.\n"
+                    f"Actual error: {(compile_stdout + compile_stderr)[:200]}"
+                )
+
             # Check error message contains expected text
             combined_output = compile_stdout + compile_stderr
             for expected_text in test.expected_error_contains:
                 if expected_text not in combined_output:
-                    return False, f"Error message should contain '{expected_text}'\nGot: {combined_output[:200]}"
+                    return False, f"Error message should contain '{expected_text}'\nGot: {combined_output[:300]}"
 
             return True, "Failed as expected"
 

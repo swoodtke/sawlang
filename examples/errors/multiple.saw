@@ -1,4 +1,9 @@
 // Multiple errors in one file
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: undefined variable `y`
+// EXPECT-ERROR-CONTAINS: cannot assign to immutable variable `x`
+// EXPECT-ERROR-CONTAINS: undefined function `undefined_func`
+
 func main() {
     let x = 10
     print(y)

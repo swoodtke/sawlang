@@ -1,0 +1,28 @@
+// Test positional arguments for enum variants
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 404
+
+enum Result {
+    case Success(value: Int),
+    case Error(code: Int)
+}
+
+func main() {
+    // Named arguments (traditional)
+    let r1 = Result.Success(value: 42)
+
+    // Positional arguments (new!)
+    let r2 = Result.Error(404)
+
+    match r1 {
+        case Success(n) -> print(n)
+        case Error(c) -> print(c)
+    }
+
+    match r2 {
+        case Success(n) -> print(n)
+        case Error(c) -> print(c)
+    }
+}

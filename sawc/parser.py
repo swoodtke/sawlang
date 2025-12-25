@@ -14,9 +14,9 @@ from ast_nodes import (
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     GuardLetStatement,
     Struct, StructField,
-    Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
+    Enum, EnumVariant, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    SawType, TypeKind
+    SawType, TypeKind, Argument
 )
 
 
@@ -593,69 +593,24 @@ class Parser:
                         column=dot_token.column
                     )
                 elif member_token.type == TokenType.IDENT:
-                    # Could be member access, method call, or enum init
+                    # Could be member access or method/enum call
                     member_name = member_token.value
                     self.advance()
 
-                    # Check if followed by '('
+                    # Check if followed by '(' - if so, it's a call (method or enum)
                     if self.match(TokenType.LPAREN):
-                        # Check if this is enum init (named params) or method call (positional params)
-                        # Enum init: EnumName.Variant(x: val) - has name:value syntax
-                        # Method call: obj.method(val) - no name:value syntax
-                        # We distinguish by looking for the name:value syntax
+                        # Parse as MethodCall - type checker will determine if it's
+                        # actually an enum initialization based on the object type
+                        self.advance()  # consume '('
+                        arguments = self.parse_arguments()
 
-                        # Peek ahead to check for named parameters
-                        is_enum_init = False
-                        if isinstance(expr, Identifier) and self.peek(1).type == TokenType.IDENT and self.peek(2).type == TokenType.COLON:
-                            # Has name:value syntax -> enum init
-                            is_enum_init = True
-
-                        if is_enum_init and isinstance(expr, Identifier):
-                            # Parse as enum initialization
-                            self.advance()  # consume '('
-                            arguments = []
-                            if not self.match(TokenType.RPAREN):
-                                # Parse first argument (name: value)
-                                arg_name = self.expect(TokenType.IDENT, "Expected argument name").value
-                                self.expect(TokenType.COLON, "Expected ':' after argument name")
-                                arg_value = self.parse_expression()
-                                arguments.append((arg_name, arg_value))
-
-                                # Parse additional arguments
-                                while self.match(TokenType.COMMA):
-                                    self.advance()
-                                    arg_name = self.expect(TokenType.IDENT, "Expected argument name").value
-                                    self.expect(TokenType.COLON, "Expected ':' after argument name")
-                                    arg_value = self.parse_expression()
-                                    arguments.append((arg_name, arg_value))
-
-                            self.expect(TokenType.RPAREN)
-
-                            expr = EnumInit(
-                                enum_name=expr.name,
-                                variant_name=member_name,
-                                arguments=arguments,
-                                line=dot_token.line,
-                                column=dot_token.column
-                            )
-                        else:
-                            # It's a method call
-                            self.advance()  # consume '('
-                            arguments = []
-                            if not self.match(TokenType.RPAREN):
-                                arguments.append(self.parse_expression())
-                                while self.match(TokenType.COMMA):
-                                    self.advance()
-                                    arguments.append(self.parse_expression())
-                            self.expect(TokenType.RPAREN)
-
-                            expr = MethodCall(
-                                object=expr,
-                                method_name=member_name,
-                                arguments=arguments,
-                                line=dot_token.line,
-                                column=dot_token.column
-                            )
+                        expr = MethodCall(
+                            object=expr,
+                            method_name=member_name,
+                            arguments=arguments,
+                            line=dot_token.line,
+                            column=dot_token.column
+                        )
                     else:
                         # It's just member access (could be simple enum variant or struct field)
                         # For simple enum variants like Status.Success, we create MemberAccess
@@ -774,17 +729,45 @@ class Parser:
         else:
             self.error(f"Unexpected token: {token.type.name}")
 
-    def parse_function_call(self, name_token: Token) -> FunctionCall:
-        self.expect(TokenType.LPAREN)
+    def parse_arguments(self) -> List[Argument]:
+        """Parse a comma-separated list of arguments (named or positional).
+
+        Each argument can be:
+        - Named: name: expression
+        - Positional: expression
+
+        Called after '(' has been consumed. Consumes the closing ')'.
+        """
         arguments = []
 
         if not self.match(TokenType.RPAREN):
-            arguments.append(self.parse_expression())
+            arguments.append(self._parse_single_argument())
             while self.match(TokenType.COMMA):
                 self.advance()
-                arguments.append(self.parse_expression())
+                # Allow trailing comma
+                if self.match(TokenType.RPAREN):
+                    break
+                arguments.append(self._parse_single_argument())
 
         self.expect(TokenType.RPAREN)
+        return arguments
+
+    def _parse_single_argument(self) -> Argument:
+        """Parse a single argument which may be named (name: value) or positional (value)."""
+        # Check if this is a named argument: identifier followed by ':'
+        if self.match(TokenType.IDENT) and self.peek(1).type == TokenType.COLON:
+            name = self.advance().value
+            self.advance()  # consume ':'
+            value = self.parse_expression()
+            return Argument(value=value, name=name)
+        else:
+            # Positional argument
+            value = self.parse_expression()
+            return Argument(value=value, name=None)
+
+    def parse_function_call(self, name_token: Token) -> FunctionCall:
+        self.expect(TokenType.LPAREN)
+        arguments = self.parse_arguments()
 
         return FunctionCall(
             name=name_token.value,
