@@ -1,0 +1,43 @@
+// Variables and control flow in Saw
+
+fn abs(n: Int) -> Int {
+    if n < 0 {
+        -n
+    } else {
+        n
+    }
+}
+
+fn max(a: Int, b: Int) -> Int {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
+
+fn main() {
+    // Immutable binding
+    let pi = 3.14159
+    print("Pi:")
+    print(pi)
+
+    // Mutable binding
+    var counter = 0
+    counter = counter + 1
+    counter = counter + 1
+    print("Counter:")
+    print(counter)
+
+    // Conditionals
+    print("Absolute value of -42:")
+    print(abs(-42))
+
+    print("Max of 10 and 25:")
+    print(max(10, 25))
+
+    // Boolean values
+    let is_positive = 10 > 0
+    print("10 > 0:")
+    print(is_positive)
+}

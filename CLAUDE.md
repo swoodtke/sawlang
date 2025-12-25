@@ -79,4 +79,45 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 ```
 LANGUAGE_SPEC.md   # Full language specification
 CLAUDE.md          # This file - project context
+sawc/              # Saw compiler (Python + LLVM)
+  sawc.py          # CLI entry point
+  lexer.py         # Tokenizer
+  parser.py        # Recursive descent parser
+  ast_nodes.py     # AST node definitions
+  codegen.py       # LLVM IR code generator
+examples/          # Example Saw programs
+  hello.saw        # Hello world
+  math.saw         # Math operations and recursion
+  variables.saw    # Variables and control flow
 ```
+
+## Compiler Usage
+
+```bash
+# Install dependencies
+pip install llvmlite
+
+# Compile a Saw program
+python3 sawc/sawc.py examples/hello.saw -o hello
+
+# Run the compiled executable
+./hello
+
+# Verbose output
+python3 sawc/sawc.py examples/hello.saw -v
+
+# Emit LLVM IR only
+python3 sawc/sawc.py examples/hello.saw --emit-ir
+```
+
+## MVP Features
+
+The current compiler supports:
+- Functions with parameters and return types
+- Basic types: Int, Float, Bool, String
+- Variables: `let` (immutable) and `var` (mutable)
+- Arithmetic: `+`, `-`, `*`, `/`
+- Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Control flow: `if`/`else` expressions
+- Recursion
+- `print(...)` built-in for debugging

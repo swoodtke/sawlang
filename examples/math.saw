@@ -1,0 +1,33 @@
+// Math operations in Saw
+
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+fn multiply(a: Int, b: Int) -> Int {
+    a * b
+}
+
+fn factorial(n: Int) -> Int {
+    if n <= 1 {
+        1
+    } else {
+        n * factorial(n - 1)
+    }
+}
+
+fn main() {
+    print("Basic math:")
+    let x = 10
+    let y = 20
+    print(add(x, y))
+    print(multiply(x, y))
+
+    print("Factorial of 5:")
+    print(factorial(5))
+
+    print("Comparisons:")
+    print(x < y)
+    print(x == y)
+    print(x > 5)
+}
