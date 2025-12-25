@@ -53,7 +53,7 @@ fn divide(a: Int, b: Int) -> (quotient: Int, remainder: Int) {
 }
 
 // Generic functions
-fn swap<T>(a: mut T, b: mut T) {
+fn swap<T>(a: var T, b: var T) {
     let temp = a
     a = b
     b = temp
@@ -107,7 +107,7 @@ let result = loop {
 }
 
 // Guard for early exit (from Swift)
-fn process(input: ?String) {
+fn process(input: String?) {
     guard let value = input else {
         return
     }
@@ -157,11 +157,15 @@ let slice: [Int] = &fixed[1..4]
 // Vectors (dynamic, heap allocated)
 let dynamic: Vec<Int> = [1, 2, 3]
 
-// Dictionaries
-let ages: Map<String, Int> = ["alice": 30, "bob": 25]
+// Dictionaries (use { } with key: value pairs)
+let ages: Map<String, Int> = {"alice": 30, "bob": 25}
 
-// Sets
+// Sets (use { } without colons)
 let uniques: Set<Int> = {1, 2, 3}
+
+// Empty collections require type annotation
+let empty_map: Map<String, Int> = {:}
+let empty_set: Set<Int> = {}
 ```
 
 ### Structs
@@ -175,9 +179,10 @@ struct Point {
 
 // Methods
 impl Point {
-    // Associated function (constructor)
-    fn new(x: Float64, y: Float64) -> Self {
-        Point { x, y }
+    // Initializer (called via Type(...) syntax)
+    init(x: Float64, y: Float64) {
+        self.x = x
+        self.y = y
     }
 
     // Instance method (immutable self)
@@ -186,14 +191,14 @@ impl Point {
     }
 
     // Mutating method
-    fn translate(mut self, dx: Float64, dy: Float64) {
+    fn translate(var self, dx: Float64, dy: Float64) {
         self.x += dx
         self.y += dy
     }
 }
 
-// Usage
-var p = Point.new(3.0, 4.0)
+// Usage - objects created with Type(...) syntax
+var p = Point(3.0, 4.0)
 p.translate(1.0, 1.0)
 ```
 
@@ -216,15 +221,19 @@ enum Result<T, E> {
 
 enum Message {
     Quit,
-    Move { x: Int, y: Int },
-    Write(String),
-    Color(Int, Int, Int),
+    Move(x: Int, y: Int),      // Named parameters
+    Write(String),              // Positional parameter
+    Color(Int, Int, Int),       // Multiple positional
 }
+
+// Creating enum values
+let msg1 = Message.Move(x: 10, y: 20)
+let msg2 = Message.Color(255, 128, 0)
 
 // Pattern matching on enums
 match message {
     Message.Quit => quit(),
-    Message.Move { x, y } => move_to(x, y),
+    Message.Move(x, y) => move_to(x, y),
     Message.Write(text) => print(text),
     Message.Color(r, g, b) => set_color(r, g, b),
 }
@@ -233,9 +242,9 @@ match message {
 ### Optionals
 
 ```saw
-// Optional type (no null!)
-let maybe: ?Int = some(42)
-let nothing: ?Int = none
+// Optional type (no null!) - T? syntax like Swift
+let maybe: Int? = some(42)
+let nothing: Int? = none
 
 // Optional chaining
 let len = user?.profile?.bio?.len()
@@ -291,7 +300,7 @@ fn process<T: Display + Debug + Clone>(item: T)
 // Associated types
 trait Iterator {
     type Item
-    fn next(mut self) -> ?Self.Item
+    fn next(var self) -> Self.Item?
 }
 
 // Trait objects (dynamic dispatch)
@@ -302,20 +311,88 @@ fn render(shapes: [dyn Shape]) {
 }
 ```
 
-### Type Aliases and Newtypes
+### Type Definitions
 
 ```saw
-// Type alias
+// Type definitions create distinct types (not interchangeable aliases)
 type UserId = Int64
-type Callback = fn(Int) -> Bool
+type OrderId = Int64
 
-// Newtype (distinct type, not just alias)
-newtype Miles(Float64)
-newtype Kilometers(Float64)
+// Even with same underlying type, they are distinct
+let user: UserId = UserId(42)
+let order: OrderId = user  // Error! Types are not compatible
 
-// Can't accidentally mix them
+// Useful for units and domain types
+type Miles = Float64
+type Kilometers = Float64
+
 let m: Miles = Miles(100.0)
-let k: Kilometers = m  // Error!
+let k: Kilometers = m  // Error! Can't mix miles and kilometers
+
+// Access underlying value with .value
+let raw: Float64 = m.value
+
+// Type definitions for function signatures
+type Callback = fn(Int) -> Bool
+type Handler<T> = fn(T) -> Result<(), Error>
+```
+
+### Type Extensions
+
+Extensions allow adding new functionality to existing types, including types from external libraries.
+
+```saw
+// Add methods to existing types
+extension Int {
+    fn is_even(self) -> Bool {
+        self % 2 == 0
+    }
+
+    fn squared(self) -> Int {
+        self * self
+    }
+}
+
+let x = 42
+x.is_even()    // true
+x.squared()    // 1764
+
+// Add computed properties
+extension String {
+    var is_empty: Bool {
+        self.len() == 0
+    }
+
+    var reversed: String {
+        self.chars().reverse().collect()
+    }
+}
+
+// Add trait conformance via extension
+extension Point: Display {
+    fn display(self) -> String {
+        "({self.x}, {self.y})"
+    }
+}
+
+// Conditional extensions (only when constraints are met)
+extension Vec<T> where T: Numeric {
+    fn sum(self) -> T {
+        self.fold(T.zero, { acc, x in acc + x })
+    }
+}
+
+// Extensions can add initializers
+extension String {
+    init(repeating: Char, count: Int) {
+        self = ""
+        for _ in 0..count {
+            self.push(repeating)
+        }
+    }
+}
+
+let stars = String(repeating: '*', count: 5)  // "*****"
 ```
 
 ---
@@ -324,82 +401,137 @@ let k: Kilometers = m  // Error!
 
 ### Ownership Model
 
-Saw uses Rust-style ownership with some ergonomic improvements:
+Saw uses copy-by-default semantics with explicit move for transferring ownership:
 
 ```saw
-// Each value has exactly one owner
+// All types are copied by default
 let s1 = String.from("hello")
-let s2 = s1  // s1 is moved, no longer valid
+let s2 = s1  // s1 is copied, both valid
 
-// Clone for explicit copy
-let s3 = s2.clone()
+// Explicit move transfers ownership
+let s3 = move s1  // s1 is moved, no longer valid
+use_string(move s3)  // Transfer ownership to function
 
-// Small types are Copy by default (Int, Float, Bool, etc.)
+// Move is useful for:
+// - Large types where copy is expensive
+// - Types representing unique resources (file handles, connections)
+// - Ensuring single ownership semantics
+
+// Copy happens automatically for all assignments
 let a = 42
-let b = a  // Copy, both valid
+let b = a  // Copy
+let list = [1, 2, 3]
+let list2 = list  // Copy (deep copy for collections)
 ```
 
-### References and Borrowing
+### Move-Only Types
+
+Some types represent unique resources that should not be copied:
 
 ```saw
-// Immutable reference (can have many)
-fn len(s: &String) -> Int {
-    s.bytes().count()
+// Mark a type as move-only with @move attribute
+@move
+struct FileHandle {
+    fd: Int,
 }
 
-// Mutable reference (exclusive access)
-fn push(s: &mut String, c: Char) {
-    s.append(c)
+impl FileHandle {
+    fn open(path: String) -> Result<FileHandle, IoError> { ... }
+    fn close(self) { ... }  // Takes ownership, closes file
 }
 
-// Borrowing rules:
-// 1. Any number of immutable references, OR
-// 2. Exactly one mutable reference
-// Never both at the same time
+// Move-only types must be explicitly moved
+let file = FileHandle.open("data.txt")?
+let file2 = file       // Error! FileHandle is move-only
+let file2 = move file  // Ok, ownership transferred
 
-let mut s = String.from("hello")
-let r1 = &s      // ok
-let r2 = &s      // ok
-let r3 = &mut s  // Error! Can't borrow mutably while immutable refs exist
+// Useful for resources that need cleanup
+@move
+struct Connection { ... }
+
+@move
+struct MutexGuard<T> { ... }
 ```
 
-### Lifetimes
+### Passing by Reference
+
+Use `var` parameters to allow a function to mutate the caller's value. At the call site, use `&` to indicate the variable may be modified:
 
 ```saw
-// Explicit lifetimes when needed (often inferred)
-fn longest<'a>(a: &'a String, b: &'a String) -> &'a String {
-    if a.len() > b.len() { a } else { b }
+// var parameter: function can mutate caller's value
+fn append_greeting(s: var String) {
+    s.push_str(", world!")
 }
 
-// Lifetime in structs
-struct Parser<'src> {
-    source: &'src String,
-    position: Int,
+var msg = String.from("Hello")
+append_greeting(&msg)  // & indicates msg may be mutated
+print(msg)  // "Hello, world!"
+
+// Multiple var parameters
+fn swap<T>(a: var T, b: var T) {
+    let temp = a
+    a = b
+    b = temp
 }
 
-// Simplified syntax for common patterns
-fn first_word(s: &String) -> &String  // Lifetime elided
+var x = 1
+var y = 2
+swap(&x, &y)  // x is now 2, y is now 1
+
+// Regular parameters are copied (caller's value unchanged)
+fn process(s: String) {
+    // s is a copy, modifications don't affect caller
+}
+
+let original = "hello"
+process(original)  // original is copied, unchanged
 ```
 
-### Smart Pointers
+### Shared Ownership
+
+For data that needs multiple owners, use reference-counted wrappers:
 
 ```saw
-// Unique ownership (heap allocation)
-let boxed: Box<LargeStruct> = Box.new(LargeStruct { ... })
+// Reference counting (single-threaded shared ownership)
+let shared: Rc<Data> = Rc(Data { ... })
+let shared2 = shared  // Both point to same data, ref count increases
 
-// Reference counting (shared ownership)
-let shared: Rc<Data> = Rc.new(data)
-let clone = shared.clone()  // Increases ref count
+// Atomic reference counting (thread-safe shared ownership)
+let atomic: Arc<Data> = Arc(Data { ... })
 
-// Atomic reference counting (thread-safe)
-let atomic: Arc<Data> = Arc.new(data)
+// Send Arc across threads
+thread.spawn {
+    let local = atomic  // Safe to share across threads
+    process(local)
+}
 
-// Interior mutability
-let cell: Cell<Int> = Cell.new(0)
-cell.set(42)
+// Box for heap allocation without sharing
+let boxed: Box<LargeStruct> = Box(LargeStruct { ... })
+```
 
-let ref_cell: RefCell<Vec<Int>> = RefCell.new([])
-ref_cell.borrow_mut().push(1)
+### Synchronized Access
+
+For mutable shared state, wrap in synchronization primitives:
+
+```saw
+// Mutex for exclusive mutable access
+let counter: Arc<Mutex<Int>> = Arc(Mutex(0))
+
+thread.spawn {
+    var guard = counter.lock()
+    *guard += 1
+}  // Lock released when guard goes out of scope
+
+// RwLock for multiple readers or single writer
+let data: Arc<RwLock<Map<String, Int>>> = Arc(RwLock(Map()))
+
+// Read lock (shared)
+let guard = data.read()
+let value = guard.get("key")
+
+// Write lock (exclusive)
+var guard = data.write()
+guard.insert("key", 42)
 ```
 
 ---
@@ -456,7 +588,7 @@ debug_assert(expensive_check())  // Only in debug builds
 
 ```saw
 enum ParseError {
-    InvalidSyntax { line: Int, column: Int },
+    InvalidSyntax(line: Int, column: Int),
     UnexpectedToken(String),
     EndOfInput,
 }
@@ -464,7 +596,7 @@ enum ParseError {
 impl Error for ParseError {
     fn message(self) -> String {
         match self {
-            InvalidSyntax { line, col } => "Syntax error at {line}:{col}",
+            InvalidSyntax(line, col) => "Syntax error at {line}:{col}",
             UnexpectedToken(tok) => "Unexpected token: {tok}",
             EndOfInput => "Unexpected end of input",
         }
@@ -530,26 +662,7 @@ let (tx, rx) = channel.buffered<Int>(100)
 
 ### Shared State
 
-```saw
-// Mutex for exclusive access
-let counter: Mutex<Int> = Mutex.new(0)
-
-thread.spawn {
-    let mut guard = counter.lock()
-    *guard += 1
-}  // Lock released when guard goes out of scope
-
-// RwLock for multiple readers
-let data: RwLock<Map<String, Int>> = RwLock.new(Map.new())
-
-// Read lock (shared)
-let guard = data.read()
-let value = guard.get("key")
-
-// Write lock (exclusive)
-let mut guard = data.write()
-guard.insert("key", 42)
-```
+See [Synchronized Access](#synchronized-access) in Memory Management for `Mutex` and `RwLock` usage with `Arc` for thread-safe shared state.
 
 ### Send and Sync Traits
 
@@ -557,7 +670,7 @@ guard.insert("key", 42)
 // Types that can be sent between threads
 trait Send {}
 
-// Types that can be shared between threads via references
+// Types that can be safely shared between threads
 trait Sync {}
 
 // Compiler enforces thread safety
@@ -581,7 +694,7 @@ struct Array<T, const N: Int> {
     data: [T; N],
 }
 
-let arr: Array<Int, 5> = Array.new()
+let arr: Array<Int, 5> = Array()
 
 // Where clauses for complex bounds
 fn merge<T, U, V>(a: T, b: U) -> V
@@ -614,7 +727,7 @@ static_assert(size_of<MyStruct>() <= 64, "Struct too large")
 // Declarative macros (pattern-based)
 macro vec[$($elem:expr),*] {
     {
-        let mut v = Vec.new()
+        var v = Vec()
         $(v.push($elem);)*
         v
     }
@@ -662,14 +775,14 @@ struct Config {
 ### Module Declaration
 
 ```saw
-// In lib.saw (crate root)
-mod parser;      // Loads parser.saw or parser/mod.saw
-mod compiler;
-pub mod runtime; // Public module
+// In lib.saw (package root)
+module parser      // Loads parser.saw or parser/module.saw
+module compiler
+public module runtime  // Public module
 
 // Inline module
-mod helpers {
-    pub fn utility() { ... }
+module helpers {
+    public fn utility() { ... }
 }
 ```
 
@@ -680,29 +793,44 @@ mod helpers {
 struct Internal { ... }
 
 // Public
-pub struct Public { ... }
+public struct Public { ... }
 
-// Public within crate only
-pub(crate) fn internal_api() { ... }
+// Public within package only
+public(package) fn internal_api() { ... }
 
 // Public to parent module
-pub(super) fn parent_visible() { ... }
+public(parent) fn parent_visible() { ... }
 ```
 
 ### Imports
 
+Imports follow Python-style semantics - only the explicitly named symbol is added to the namespace:
+
 ```saw
-// Use declarations
-use std.collections.{Map, Set}
-use std.io.{Read, Write}
-use crate.parser.Parser
-use super.helpers.utility
+// Import a module - adds 'io' to namespace
+import std.io
+io.open("file.txt")     // Access via module name
+
+// Import specific symbols - adds only those names
+import std.collections.{Map, Set}
+let m = Map()           // Map is directly available
+let s = Set()           // Set is directly available
+
+// Import a single symbol
+import std.io.File
+let f = File.open("data.txt")
 
 // Aliasing
-use std.collections.HashMap as Map
+import std.collections.HashMap as Map
+import std.io as fileio
+fileio.open("file.txt")
 
-// Glob import (discouraged except for preludes)
-use std.prelude.*
+// Import from current package
+import package.parser.Parser
+import parent.helpers.utility
+
+// Glob import (discouraged, makes dependencies unclear)
+import std.prelude.*
 ```
 
 ### Package Structure
@@ -715,7 +843,7 @@ my_project/
 │   ├── main.saw      # Binary root
 │   ├── parser.saw
 │   └── compiler/
-│       ├── mod.saw
+│       ├── module.saw
 │       ├── lexer.saw
 │       └── codegen.saw
 ├── tests/
@@ -775,13 +903,13 @@ std.time.{Instant, Duration}
 // Declare external C functions
 extern "C" {
     fn printf(format: *Char, ...) -> Int
-    fn malloc(size: UInt) -> *mut Void
-    fn free(ptr: *mut Void)
+    fn malloc(size: UInt) -> *var Void
+    fn free(ptr: *var Void)
 }
 
 // Export for C
 #[no_mangle]
-pub extern "C" fn my_function(x: Int32) -> Int32 {
+public extern "C" fn my_function(x: Int32) -> Int32 {
     x * 2
 }
 
@@ -812,8 +940,8 @@ unsafe fn dangerous() {
 
 // Unsafe traits
 unsafe trait GlobalAlloc {
-    unsafe fn alloc(layout: Layout) -> *mut Void
-    unsafe fn dealloc(ptr: *mut Void, layout: Layout)
+    unsafe fn alloc(layout: Layout) -> *var Void
+    unsafe fn dealloc(ptr: *var Void, layout: Layout)
 }
 ```
 
@@ -836,15 +964,15 @@ unsafe trait GlobalAlloc {
 
 ```
 and         as          async       await       break
-const       continue    crate       defer       do
-dyn         else        enum        extern      false
+const       continue    defer       do          dyn
+else        enum        extension   extern      false
 fn          for         guard       if          impl
-in          let         loop        macro       match
-mod         move        mut         newtype     none
-not         or          pub         ref         return
-self        Self        some        static      struct
-super       trait       true        type        unsafe
-use         var         where       while
+import      in          init        let         loop
+macro       match       module      move        none
+not         or          package     parent      public
+ref         return      self        Self        some
+static      struct      trait       true        type
+unsafe      var         where       while
 ```
 
 ## Appendix B: Operators
@@ -857,7 +985,7 @@ Bitwise:        &  |  ^  ~  << >>
 Assignment:     =  += -= *= /= %= &= |= ^= <<= >>=
 Range:          ..  ..=
 Optional:       ?  ??  ?.  !
-Reference:      &  &mut  *
+Reference:      &  *
 Type:           ->  =>  ::  .
 ```
 

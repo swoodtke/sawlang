@@ -9,22 +9,29 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 ## Key Design Decisions
 
 ### Memory Management
-- Rust-style ownership and borrowing
+- Copy by default (unlike Rust's move-by-default)
+- Explicit `move` keyword for ownership transfer
+- `@move` attribute for types that cannot be copied (unique resources)
 - No garbage collector
 - Deterministic destruction
-- Lifetimes for reference validity
+- No reference types or lifetimes in type system
+- Shared ownership via `Rc<T>`/`Arc<T>` wrapper types
+- Synchronized access via `Mutex<T>`/`RwLock<T>`
 
 ### Mutability
 - Immutable by default (`let`)
 - Explicit `var` for mutable bindings
-- `&` for immutable refs, `&mut` for mutable refs
+- `var` parameters allow mutation of caller's value
+- `&` at call site indicates variable may be mutated: `foo(&x)`
 
 ### Type System
 - Algebraic data types (enums with data)
 - Traits for polymorphism
 - Generics with trait bounds
-- No null - `?T` optionals instead
+- No null - `T?` optionals (postfix syntax like Swift)
 - `Result<T, E>` for error handling
+- Type extensions for adding methods to existing types
+- `type` creates distinct types (not interchangeable aliases)
 
 ### Syntax Philosophy
 - Expression-oriented (everything returns a value)
@@ -32,13 +39,29 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 - String interpolation: `"Hello, {name}!"`
 - Trailing closure syntax
 - Pattern matching as core feature
+- Dictionaries use `{ }` syntax: `{"key": value}`
+- Swift-style `init` for struct initialization: `Point(x, y)`
+- Named parameters in enums: `Move(x: Int, y: Int)`
 
 ### Key Differences from Rust
-1. `var` instead of `let mut`
-2. `?T` for optionals (Swift-style)
-3. `guard let` for early unwrapping
-4. Simpler closure syntax: `{ x in x * 2 }` or `{ $0 * 2 }`
-5. Named tuple fields
+1. `var` instead of `let mut` (consistent use of `var` for mutability)
+2. No reference types or lifetimes - use `var` params with `&` at call site
+3. Copy by default, explicit `move` (inverse of Rust)
+4. `T?` for optionals (postfix, Swift-style)
+5. `guard let` for early unwrapping
+6. Simpler closure syntax: `{ x in x * 2 }` or `{ $0 * 2 }`
+7. Named tuple fields
+8. `Type(...)` initialization instead of `Type::new(...)`
+9. Type extensions like Swift
+10. `type` definitions are distinct (not type aliases)
+11. Python-style imports with full keywords (`import`, `module`, `public`)
+
+### Module System
+- Python-style imports (no namespace pollution)
+- `import std.io` adds only `io` to namespace
+- `import std.io.{Read, Write}` adds specific symbols
+- Full keywords: `module`, `public`, `import` (not `mod`, `pub`, `use`)
+- `package` and `parent` for relative imports (not `crate`, `super`)
 
 ### Concurrency
 - Async/await
@@ -50,7 +73,6 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 - Final language name (Saw is placeholder)
 - Semicolons: required, optional, or forbidden?
 - Compilation target: LLVM, VM, or transpilation?
-- Reference counting as alternative to pure ownership?
 
 ## File Structure
 
