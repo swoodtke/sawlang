@@ -1,4 +1,7 @@
 // Error: undefined variable
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: undefined variable
+
 func main() {
     print(x)
 }

@@ -602,15 +602,12 @@ class Parser:
                         # Check if this is enum init (named params) or method call (positional params)
                         # Enum init: EnumName.Variant(x: val) - has name:value syntax
                         # Method call: obj.method(val) - no name:value syntax
-                        # Special case: empty parens () could be either
+                        # We distinguish by looking for the name:value syntax
 
                         # Peek ahead to check for named parameters
                         is_enum_init = False
                         if isinstance(expr, Identifier) and self.peek(1).type == TokenType.IDENT and self.peek(2).type == TokenType.COLON:
-                            is_enum_init = True
-                        elif isinstance(expr, Identifier) and self.peek(1).type == TokenType.RPAREN:
-                            # Empty parens: could be enum init or method call
-                            # We'll treat Identifier.Name() as potential enum init
+                            # Has name:value syntax -> enum init
                             is_enum_init = True
 
                         if is_enum_init and isinstance(expr, Identifier):

@@ -110,6 +110,25 @@ pip install llvmlite
 ./sawc/sawc.py examples/hello.saw --emit-ir
 ```
 
+## Testing
+
+The compiler includes a comprehensive test runner:
+
+```bash
+# Run all tests
+make test
+
+# Run with verbose output
+make test-verbose
+
+# Run specific tests
+make test-filter FILTER=enum
+
+# See TESTING.md for detailed documentation
+```
+
+**Test Coverage:** 36 tests including success cases and error validation
+
 ## Current Features
 
 The compiler currently supports:

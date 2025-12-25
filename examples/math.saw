@@ -1,4 +1,15 @@
 // Math operations in Saw
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Basic math:
+// 30
+// 200
+// Factorial of 5:
+// 120
+// Comparisons:
+// true
+// false
+// true
 
 func add(a: Int, b: Int) -> Int {
     a + b

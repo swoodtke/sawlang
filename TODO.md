@@ -1,6 +1,11 @@
 # Saw Language - Implementation Roadmap
 
 ## Current Status (MVP Complete + Core Types)
+
+**Compiler Stats:** ~4,900 lines of Python across 7 modules
+- Lexer: 312 LOC | Parser: 951 LOC | Type Checker: 1,510 LOC | Codegen: 1,391 LOC
+
+**Completed Features:**
 - [x] Basic functions with parameters and return types
 - [x] Primitive types: Int, Float, Bool, String
 - [x] Variables: `let` (immutable) and `var` (mutable)
@@ -11,6 +16,58 @@
 - [x] `print(...)` built-in
 - [x] Tuples with literals, indexing, and multiple return values
 - [x] Structs with field access and initialization
+- [x] Optionals with `None`, `!`, `??`, `?.`
+- [x] Optional binding: `if let`/`if var`, `guard let`/`guard var`
+- [x] Enums with associated data and pattern matching
+- [x] Struct extensions with methods and custom init
+- [x] Mutable methods (`var self`)
+
+---
+
+## Priority 0: Code Quality & Technical Debt
+
+### Known Issues in Code (TODOs)
+- [ ] `typechecker.py:499` - Validate guard else branch contains early exit (return/break/continue)
+- [ ] `codegen.py:1033` - Add runtime panic check for force-unwrap of None
+
+### Runtime Safety
+- [ ] Panic on force-unwrap (`!`) of `None` value
+- [ ] Panic on out-of-bounds tuple access
+- [ ] Better runtime error messages with source locations
+
+### Code Refactoring
+- [ ] Extract `_check_expression` into visitor pattern (currently ~150 lines)
+- [ ] Extract `_generate_expression` into visitor pattern (currently ~160 lines)
+- [ ] Extract `parse_postfix` into smaller methods (currently ~120 lines)
+- [ ] Reduce code duplication in optional wrapping/unwrapping logic
+- [ ] Add docstrings to complex type checking methods
+
+### String Handling
+- [ ] Support additional escape sequences: `\r`, `\0`, `\xNN`
+- [ ] Unicode escapes: `\u{NNNN}`
+
+---
+
+## Priority 0.5: Testing Infrastructure
+
+### Automated Testing
+- [ ] Create test runner script for all examples
+- [ ] Add expected output assertions for each example
+- [ ] Verify error test cases produce correct error messages
+- [ ] Add unit tests for lexer
+- [ ] Add unit tests for parser
+- [ ] Add unit tests for type checker
+
+### CI/CD
+- [ ] GitHub Actions workflow for automated testing
+- [ ] Test on multiple Python versions (3.9+)
+- [ ] Test LLVM IR generation without full compilation
+
+### Test Coverage Gaps
+- [ ] Edge cases for optional chaining chains
+- [ ] Nested struct field assignment
+- [ ] Complex enum pattern matching
+- [ ] Method overloading resolution
 
 ---
 
@@ -49,7 +106,7 @@
   - [ ] Accessing method as field
 
 ### Error Recovery
-- [ ] Parser recovery after syntax errors
+- [ ] Parser recovery after syntax errors (currently stops on first error)
 - [x] Continue type checking after type errors
 - [x] Collect all errors before reporting
 
@@ -121,16 +178,17 @@
 ### Pattern Matching
 - [x] `match` expression on enums
 - [x] Variable binding in enum patterns: `case Success(n) -> ...`
-- [ ] Literal patterns: `0 => ...`
-- [ ] Range patterns: `1..=9 => ...`
-- [ ] Wildcard: `_ => ...`
-- [ ] Guards: `n if n < 0 => ...`
-- [ ] Exhaustiveness checking (same as enum section above)
+- [x] Wildcard pattern: `case _ -> ...` (default case)
+- [ ] Literal patterns: `case 0 -> ...`
+- [ ] Range patterns: `case 1..=9 -> ...`
+- [ ] Guards: `case n if n < 0 -> ...`
+- [ ] Exhaustiveness checking (warn on missing enum variants)
 - [ ] Match on primitive types (Int, Bool, String)
 - [ ] Match on tuples with destructuring
 
 ### Additional Operators
-- [ ] Logical: `&&`, `||`, `!`
+- [ ] Logical AND/OR: `&&`, `||`
+- [ ] Logical NOT: `not` keyword (note: `!` is force-unwrap)
 - [ ] Modulo: `%`
 - [ ] Compound assignment: `+=`, `-=`, `*=`, `/=`
 - [ ] Bitwise: `&`, `|`, `^`, `~`, `<<`, `>>`
@@ -202,10 +260,14 @@
 - [ ] `Iterator` - iteration protocol
 
 ### Type Extensions
-- [ ] `extension Type { }` syntax
-- [ ] Adding methods to existing types
+- [x] `extension Type { }` syntax
+- [x] Adding methods to structs
+- [x] `self` in immutable methods
+- [x] `var self` for mutating methods
+- [x] Custom `init` methods with overloading
 - [ ] Computed properties
 - [ ] Conditional extensions with `where`
+- [ ] Extensions for built-in types (Int, String, Bool)
 
 ---
 
@@ -304,20 +366,68 @@
 - [ ] Basic optimizations via LLVM
 - [ ] Dead code elimination
 - [ ] Inlining hints
+- [ ] String constant deduplication
 
 ### Tooling
 - [ ] REPL for interactive testing
 - [ ] Language server (LSP)
 - [ ] Formatter
 - [ ] Package manager
+- [ ] Debug info generation (DWARF)
+
+### Build System
+- [ ] Makefile or build script
+- [ ] Incremental compilation
+- [ ] Parallel compilation of independent modules
+
+---
+
+## Architecture Notes
+
+### Current Compiler Pipeline
+```
+Source (.saw) → Lexer → Tokens → Parser → AST → Type Checker → Typed AST → Codegen → LLVM IR → clang → Binary
+```
+
+### Module Sizes (as of last analysis)
+| Module | Lines | Responsibility |
+|--------|-------|----------------|
+| typechecker.py | 1,510 | Type checking, semantic analysis |
+| codegen.py | 1,391 | LLVM IR generation |
+| parser.py | 951 | Recursive descent parsing |
+| ast_nodes.py | 389 | 38 AST node dataclasses |
+| lexer.py | 312 | Tokenization |
+| sawc.py | 191 | CLI entry point |
+| errors.py | 132 | Error formatting |
+
+### Strengths
+- Clean separation of compiler phases
+- All AST nodes track line/column for diagnostics
+- Multi-pass type checking handles forward references
+- 36 example programs as integration tests
+
+### Areas Needing Attention
+- Large switch statements in typechecker and codegen
+- No automated test runner
+- Guard statement validation incomplete
+- Force-unwrap lacks runtime safety check
 
 ---
 
 ## Notes
 
+- **Code quality (Priority 0)** added because technical debt slows feature development
+- **Testing infrastructure (Priority 0.5)** critical for catching regressions
 - **Type checking is Priority 1** because a compiler without proper errors is frustrating to use
 - Features are ordered by dependency (later features often depend on earlier ones)
 - Type system comes before collections because structs/enums are needed to build them
-- Control flow is essential for writing practical programs
+- Control flow (loops) is essential for writing practical programs
 - Traits enable the standard library design (`Copy`, `Clone`, `Iterator`, etc.)
 - Concurrency and metaprogramming can wait until the core language is solid
+
+## Quick Wins (Low effort, high value)
+- [ ] Add `while` loop (simple extension of existing control flow)
+- [ ] Add logical operators `&&`, `||` (straightforward binary ops)
+- [ ] Add `%` modulo operator
+- [ ] Exhaustiveness warning for match expressions
+- [ ] Simple test runner script

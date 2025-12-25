@@ -1,4 +1,8 @@
 // Hello World in Saw
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Hello, Saw!
+
 func main() {
     print("Hello, Saw!")
 }

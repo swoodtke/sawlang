@@ -1,4 +1,7 @@
 // Error: assignment to immutable variable
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to immutable variable
+
 func main() {
     let x = 10
     x = 20
