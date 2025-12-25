@@ -1,0 +1,16 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: break value type `STRING` incompatible with expected type `INT`
+
+func main() {
+    var counter = 0
+    let result = while {
+        counter = counter + 1
+        if counter == 3 {
+            break 42  // First break - sets expected type to Int
+        }
+        if counter == 5 {
+            break "hello"  // Error: String incompatible with Int
+        }
+    }
+    print(result)
+}
