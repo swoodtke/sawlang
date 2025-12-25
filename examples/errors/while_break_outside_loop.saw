@@ -1,0 +1,9 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `break` can only be used inside a loop
+
+func main() {
+    var x = 5
+    if x > 3 {
+        break
+    }
+}

@@ -2,8 +2,8 @@
 
 ## Current Status (MVP Complete + Core Types)
 
-**Compiler Stats:** ~4,900 lines of Python across 7 modules
-- Lexer: 312 LOC | Parser: 951 LOC | Type Checker: 1,510 LOC | Codegen: 1,391 LOC
+**Compiler Stats:** ~5,100 lines of Python across 7 modules
+- Lexer: 316 LOC | Parser: 993 LOC | Type Checker: 1,556 LOC | Codegen: 1,454 LOC
 
 **Completed Features:**
 - [x] Basic functions with parameters and return types
@@ -21,6 +21,7 @@
 - [x] Enums with associated data and pattern matching
 - [x] Struct extensions with methods and custom init
 - [x] Mutable methods (`var self`)
+- [x] While loops with `break` and `continue`
 
 ---
 
@@ -51,9 +52,9 @@
 ## Priority 0.5: Testing Infrastructure
 
 ### Automated Testing
-- [ ] Create test runner script for all examples
-- [ ] Add expected output assertions for each example
-- [ ] Verify error test cases produce correct error messages
+- [x] Create test runner script for all examples
+- [x] Add expected output assertions for each example
+- [x] Verify error test cases produce correct error messages
 - [ ] Add unit tests for lexer
 - [ ] Add unit tests for parser
 - [ ] Add unit tests for type checker
@@ -168,12 +169,61 @@
 ## Priority 3: Core Control Flow
 
 ### Loops
-- [ ] `while` loops
+- [x] `while` loops (with optional condition for infinite loops)
+- [x] `break` statement (with optional value)
+- [x] `continue` statement
+- [ ] While loops as expressions (see details below)
 - [ ] `for item in collection` loops
 - [ ] `for (index, item) in collection.enumerate()`
-- [ ] `loop` with `break value`
-- [ ] `continue` statement
-- [ ] `break` statement
+
+#### While Loops as Expressions (Future Enhancement)
+
+**Goal**: Allow while loops to return values via `break value`
+
+**Syntax**:
+```saw
+// Conditional loop → Optional type
+let found = while i < arr.len() {
+    if arr[i] == target {
+        break i  // Return Some(i)
+    }
+    i = i + 1
+}  // found: Int? (Some if found, None if loop exits naturally)
+
+// Infinite loop → Non-optional type
+let result = while {
+    if ready() {
+        break 42
+    }
+}  // result: Int (must break to exit)
+```
+
+**Type Rules**:
+- **Conditional while**: Returns `T?` where T is the break value type
+  - `break value` → `Some(value)`
+  - Natural exit (condition false) → `None`
+- **Infinite while**: Returns `T` (non-optional)
+  - Must have at least one `break value` to exit
+  - Compile error if no breaks or if any break has no value
+
+**Implementation Complexity**: Medium (3-4 hours)
+1. AST: Convert `WhileStatement` to `WhileExpr` (can be used as statement or expression)
+2. Type Checking (1-1.5 hours):
+   - Track expected break type in current loop
+   - Validate all breaks have compatible types
+   - For conditional loops: wrap result in Optional
+   - For infinite loops: ensure at least one break exists
+3. Code Generation (1.5-2 hours):
+   - Allocate storage for result value
+   - Store break values before jumping to end
+   - Load result after loop
+   - For conditional loops: wrap in Optional struct
+4. Testing (30 min): Add tests for both cases
+
+**Challenges**:
+- Type inference: Need to know result type before generating loop storage
+- Multiple break points: All must have compatible types
+- Error handling: Infinite loops without breaks should error
 
 ### Pattern Matching
 - [x] `match` expression on enums
@@ -426,8 +476,7 @@ Source (.saw) → Lexer → Tokens → Parser → AST → Type Checker → Typed
 - Concurrency and metaprogramming can wait until the core language is solid
 
 ## Quick Wins (Low effort, high value)
-- [ ] Add `while` loop (simple extension of existing control flow)
+- [x] Add `while` loop (simple extension of existing control flow)
 - [ ] Add logical operators `&&`, `||` (straightforward binary ops)
 - [ ] Add `%` modulo operator
 - [ ] Exhaustiveness warning for match expressions
-- [ ] Simple test runner script

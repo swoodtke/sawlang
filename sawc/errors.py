@@ -23,6 +23,7 @@ class ErrorKind(Enum):
     DUPLICATE_FUNCTION = auto()
     WRONG_ARGUMENT_COUNT = auto()
     IMMUTABLE_ASSIGNMENT = auto()
+    INVALID_BREAK_CONTINUE = auto()
 
     # Warnings
     UNUSED_VARIABLE = auto()

@@ -35,6 +35,9 @@ class TokenType(Enum):
     ENUM = auto()
     CASE = auto()
     MATCH = auto()
+    WHILE = auto()
+    BREAK = auto()
+    CONTINUE = auto()
 
     # Types
     INT_TYPE = auto()
@@ -98,6 +101,9 @@ KEYWORDS = {
     'init': TokenType.INIT,
     'None': TokenType.NONE,
     'enum': TokenType.ENUM,
+    'while': TokenType.WHILE,
+    'break': TokenType.BREAK,
+    'continue': TokenType.CONTINUE,
     'case': TokenType.CASE,
     'match': TokenType.MATCH,
     'Int': TokenType.INT_TYPE,

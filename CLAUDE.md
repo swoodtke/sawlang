@@ -127,7 +127,7 @@ make test-filter FILTER=enum
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 36 tests including success cases and error validation
+**Test Coverage:** 43 tests including success cases and error validation
 
 ## Current Features
 
@@ -139,7 +139,8 @@ The compiler currently supports:
 - Variables: `let` (immutable) and `var` (mutable)
 - Arithmetic: `+`, `-`, `*`, `/`
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
-- Control flow: `if`/`else` expressions
+- Control flow: `if`/`else` expressions, `while` loops
+- Loop control: `break`, `continue`
 - Recursion
 - `print(...)` built-in for debugging
 
@@ -219,5 +220,36 @@ func main() {
     var counter = Counter(value: 0)
     counter.increment()
     print(counter.getValue())  // 1
+}
+```
+
+### While Loops
+```saw
+func main() {
+    // Conditional while loop
+    var count = 0
+    while count < 5 {
+        print(count)
+        count = count + 1
+    }
+
+    // Infinite loop with break
+    var n = 0
+    while {
+        n = n + 1
+        if n > 3 {
+            break
+        }
+    }
+
+    // Skip iterations with continue
+    var i = 0
+    while i < 10 {
+        i = i + 1
+        if i == 5 {
+            continue  // Skip printing 5
+        }
+        print(i)
+    }
 }
 ```

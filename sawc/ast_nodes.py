@@ -321,6 +321,27 @@ class ExpressionStatement(Statement):
 
 
 @dataclass
+class WhileStatement(Statement):
+    condition: Optional[Expression]  # None for infinite loop
+    body: 'Block'
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class BreakStatement(Statement):
+    value: Optional[Expression] = None  # Optional break value
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ContinueStatement(Statement):
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class Block(ASTNode):
     statements: List[Statement]
     final_expr: Optional[Expression] = None

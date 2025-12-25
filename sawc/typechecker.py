@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from ast_nodes import (
     Program, Function, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
+    WhileStatement, BreakStatement, ContinueStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
@@ -107,6 +108,8 @@ class TypeChecker:
         self.current_method: Optional['Method'] = None  # Track current method for 'self'
         # Track return statements found in current function
         self.found_return_with_value: bool = False
+        # Track loop nesting depth for break/continue validation
+        self.loop_depth: int = 0
 
         # Register built-in functions
         self._register_builtins()
@@ -461,6 +464,12 @@ class TypeChecker:
             self._check_return_statement(stmt)
         elif isinstance(stmt, GuardLetStatement):
             self._check_guard_let_statement(stmt)
+        elif isinstance(stmt, WhileStatement):
+            self._check_while_statement(stmt)
+        elif isinstance(stmt, BreakStatement):
+            self._check_break_statement(stmt)
+        elif isinstance(stmt, ContinueStatement):
+            self._check_continue_statement(stmt)
         elif isinstance(stmt, ExpressionStatement):
             self._check_expression(stmt.expression)
 
@@ -658,6 +667,46 @@ class TypeChecker:
             else:
                 # Mark that we found a valid return statement with a value
                 self.found_return_with_value = True
+
+    def _check_while_statement(self, stmt: WhileStatement):
+        """Check a while loop statement."""
+        # If condition is present, it must be a Bool
+        if stmt.condition:
+            cond_type = self._check_expression(stmt.condition)
+            if cond_type and cond_type.kind != TypeKind.BOOL:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"while condition must be Bool, got `{cond_type}`",
+                    stmt.line, stmt.column
+                )
+
+        # Check body with increased loop depth
+        self.loop_depth += 1
+        self._check_block(stmt.body)
+        self.loop_depth -= 1
+
+    def _check_break_statement(self, stmt: BreakStatement):
+        """Check a break statement."""
+        if self.loop_depth == 0:
+            self.reporter.error(
+                ErrorKind.INVALID_BREAK_CONTINUE,
+                "`break` can only be used inside a loop",
+                stmt.line, stmt.column
+            )
+
+        # Type check the break value if present
+        if stmt.value:
+            self._check_expression(stmt.value)
+            # TODO: Track expected break type for loops used as expressions
+
+    def _check_continue_statement(self, stmt: ContinueStatement):
+        """Check a continue statement."""
+        if self.loop_depth == 0:
+            self.reporter.error(
+                ErrorKind.INVALID_BREAK_CONTINUE,
+                "`continue` can only be used inside a loop",
+                stmt.line, stmt.column
+            )
 
     def _check_expression(self, expr: Expression) -> Optional[SawType]:
         """Check an expression and return its type."""

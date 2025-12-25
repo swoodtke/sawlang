@@ -8,6 +8,7 @@ from lexer import Token, TokenType
 from ast_nodes import (
     Program, Function, Parameter, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
+    WhileStatement, BreakStatement, ContinueStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
@@ -395,6 +396,12 @@ class Parser:
             return self.parse_guard_statement()
         elif self.match(TokenType.RETURN):
             return self.parse_return_statement()
+        elif self.match(TokenType.WHILE):
+            return self.parse_while_statement()
+        elif self.match(TokenType.BREAK):
+            return self.parse_break_statement()
+        elif self.match(TokenType.CONTINUE):
+            return self.parse_continue_statement()
         else:
             # Try to parse assignment or expression statement
             # We need to parse the target expression first to handle both
@@ -488,6 +495,46 @@ class Parser:
 
         return ReturnStatement(
             value=value,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_while_statement(self) -> WhileStatement:
+        start = self.advance()  # consume 'while'
+
+        # Condition is optional - if we see '{', it's an infinite loop
+        condition = None
+        if not self.match(TokenType.LBRACE):
+            condition = self.parse_expression()
+
+        self.skip_newlines()
+        body = self.parse_block()
+
+        return WhileStatement(
+            condition=condition,
+            body=body,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_break_statement(self) -> BreakStatement:
+        start = self.advance()  # consume 'break'
+
+        # Check if there's a value to break with
+        value = None
+        if not self.match(TokenType.NEWLINE, TokenType.RBRACE, TokenType.EOF):
+            value = self.parse_expression()
+
+        return BreakStatement(
+            value=value,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_continue_statement(self) -> ContinueStatement:
+        start = self.advance()  # consume 'continue'
+
+        return ContinueStatement(
             line=start.line,
             column=start.column
         )

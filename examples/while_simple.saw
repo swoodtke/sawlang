@@ -1,0 +1,28 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 2
+// 3
+// 4
+// 3
+// 2
+// 1
+// 0
+
+func main() {
+    // Simple while loop
+    var count = 0
+    while count < 5 {
+        print(count)
+        count = count + 1
+    }
+
+    // Countdown
+    var n = 3
+    while n > 0 {
+        print(n)
+        n = n - 1
+    }
+    print(0)
+}
