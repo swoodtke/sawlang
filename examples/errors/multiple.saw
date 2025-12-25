@@ -1,0 +1,7 @@
+// Multiple errors in one file
+fn main() {
+    let x = 10
+    print(y)
+    x = 20
+    print(undefined_func())
+}

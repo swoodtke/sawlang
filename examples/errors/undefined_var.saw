@@ -1,0 +1,4 @@
+// Error: undefined variable
+fn main() {
+    print(x)
+}

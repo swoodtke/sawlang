@@ -18,6 +18,8 @@ import tempfile
 from lexer import Lexer
 from parser import Parser
 from codegen import CodeGenerator
+from errors import ErrorReporter
+from typechecker import TypeChecker
 
 
 def compile_saw(source_path: str, output_path: str, verbose: bool = False):
@@ -33,8 +35,12 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False):
     # Lexical analysis
     if verbose:
         print("  Lexing...")
-    lexer = Lexer(source)
-    tokens = lexer.tokenize()
+    try:
+        lexer = Lexer(source)
+        tokens = lexer.tokenize()
+    except SyntaxError as e:
+        print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if verbose:
         print(f"    Generated {len(tokens)} tokens")
@@ -42,11 +48,27 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False):
     # Parsing
     if verbose:
         print("  Parsing...")
-    parser = Parser(tokens)
-    ast = parser.parse()
+    try:
+        parser = Parser(tokens)
+        ast = parser.parse()
+    except SyntaxError as e:
+        print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if verbose:
         print(f"    Parsed {len(ast.functions)} functions")
+
+    # Type checking
+    if verbose:
+        print("  Type checking...")
+    reporter = ErrorReporter(source, source_path)
+    typechecker = TypeChecker(reporter)
+    if not typechecker.check(ast):
+        reporter.print_all()
+        sys.exit(1)
+
+    if verbose:
+        print("    Type check passed")
 
     # Code generation
     if verbose:
@@ -131,10 +153,22 @@ Examples:
         with open(args.input, 'r') as f:
             source = f.read()
 
-        lexer = Lexer(source)
-        tokens = lexer.tokenize()
-        parser_obj = Parser(tokens)
-        ast = parser_obj.parse()
+        try:
+            lexer = Lexer(source)
+            tokens = lexer.tokenize()
+            parser_obj = Parser(tokens)
+            ast = parser_obj.parse()
+        except SyntaxError as e:
+            print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        # Type check
+        reporter = ErrorReporter(source, args.input)
+        typechecker = TypeChecker(reporter)
+        if not typechecker.check(ast):
+            reporter.print_all()
+            sys.exit(1)
+
         codegen = CodeGenerator()
         llvm_ir = codegen.generate(ast)
 

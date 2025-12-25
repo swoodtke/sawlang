@@ -1,0 +1,9 @@
+// Error: type mismatch
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+fn main() {
+    let result = add("hello", 42)
+    print(result)
+}
