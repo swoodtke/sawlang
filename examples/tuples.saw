@@ -1,0 +1,12 @@
+fn main() -> Int {
+    let point = (10, 20, 30)
+    let x = point.0
+    let y = point.1
+    let z = point.2
+
+    print(x)
+    print(y)
+    print(z)
+
+    0
+}

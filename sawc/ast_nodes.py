@@ -13,13 +13,19 @@ class TypeKind(Enum):
     BOOL = auto()
     STRING = auto()
     VOID = auto()
+    TUPLE = auto()
 
 
 @dataclass
 class SawType:
     kind: TypeKind
+    # For tuple types, this holds the element types
+    element_types: Optional[List['SawType']] = None
 
     def __repr__(self):
+        if self.kind == TypeKind.TUPLE and self.element_types:
+            types_str = ", ".join(str(t) for t in self.element_types)
+            return f"({types_str})"
         return self.kind.name
 
 
@@ -100,6 +106,30 @@ class IfExpr(Expression):
     condition: Expression
     then_branch: 'Block'
     else_branch: Optional['Block'] = None
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class TupleLiteral(Expression):
+    elements: List[Expression]
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class TupleIndex(Expression):
+    tuple_expr: Expression
+    index: int
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class MemberAccess(Expression):
+    """Access a member/field of an expression (for structs later)."""
+    object: Expression
+    member: str
     line: int = 0
     column: int = 0
 

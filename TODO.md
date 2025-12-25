@@ -72,11 +72,11 @@
 - [ ] Pattern matching on enums
 
 ### Tuples
-- [ ] Tuple literals: `(1, 2, 3)`
+- [x] Tuple literals: `(1, 2, 3)`
 - [ ] Named tuples: `(x: 10, y: 20)`
-- [ ] Tuple indexing: `point.0`, `point.1`
+- [x] Tuple indexing: `point.0`, `point.1`
 - [ ] Named field access: `point.x`
-- [ ] Multiple return values
+- [x] Multiple return values
 
 ### Type Definitions
 - [ ] `type` keyword for distinct types

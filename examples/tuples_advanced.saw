@@ -1,0 +1,34 @@
+fn swap(pair: (Int, Int)) -> (Int, Int) {
+    let a = pair.0
+    let b = pair.1
+    (b, a)
+}
+
+fn add_points(p1: (Int, Int), p2: (Int, Int)) -> (Int, Int) {
+    let x1 = p1.0
+    let y1 = p1.1
+    let x2 = p2.0
+    let y2 = p2.1
+    (x1 + x2, y1 + y2)
+}
+
+fn main() -> Int {
+    // Create a tuple with different types
+    let mixed = (42, 3.14, true)
+    print(mixed.0)
+
+    // Test swap function
+    let pair = (10, 20)
+    let swapped = swap(pair)
+    print(swapped.0)
+    print(swapped.1)
+
+    // Test add_points
+    let p1 = (5, 10)
+    let p2 = (3, 7)
+    let sum = add_points(p1, p2)
+    print(sum.0)
+    print(sum.1)
+
+    0
+}

@@ -10,6 +10,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr,
+    TupleLiteral, TupleIndex, MemberAccess,
     SawType, TypeKind
 )
 
@@ -81,6 +82,17 @@ class Parser:
         elif token.type == TokenType.STRING_TYPE:
             self.advance()
             return SawType(TypeKind.STRING)
+        elif token.type == TokenType.LPAREN:
+            # Tuple type: (Type, Type, ...)
+            self.advance()
+            element_types = []
+            if not self.match(TokenType.RPAREN):
+                element_types.append(self.parse_type())
+                while self.match(TokenType.COMMA):
+                    self.advance()
+                    element_types.append(self.parse_type())
+            self.expect(TokenType.RPAREN)
+            return SawType(TypeKind.TUPLE, element_types=element_types)
         else:
             self.error(f"Expected type, got {token.type.name}")
 
@@ -288,7 +300,39 @@ class Parser:
                 column=op_token.column
             )
 
-        return self.parse_primary()
+        return self.parse_postfix()
+
+    def parse_postfix(self) -> Expression:
+        expr = self.parse_primary()
+
+        # Handle postfix operations: .0, .1, .field
+        while self.match(TokenType.DOT):
+            dot_token = self.advance()
+            member_token = self.current()
+
+            if member_token.type == TokenType.INT:
+                # Tuple indexing: expr.0, expr.1, etc.
+                self.advance()
+                index = int(member_token.value)
+                expr = TupleIndex(
+                    tuple_expr=expr,
+                    index=index,
+                    line=dot_token.line,
+                    column=dot_token.column
+                )
+            elif member_token.type == TokenType.IDENT:
+                # Member access: expr.field
+                self.advance()
+                expr = MemberAccess(
+                    object=expr,
+                    member=member_token.value,
+                    line=dot_token.line,
+                    column=dot_token.column
+                )
+            else:
+                self.error(f"Expected field name or tuple index after '.', got {member_token.type.name}")
+
+        return expr
 
     def parse_primary(self) -> Expression:
         token = self.current()
@@ -321,10 +365,33 @@ class Parser:
             return Identifier(name=token.value, line=token.line, column=token.column)
 
         elif self.match(TokenType.LPAREN):
+            start = self.current()
             self.advance()
-            expr = self.parse_expression()
-            self.expect(TokenType.RPAREN, "Expected ')' after expression")
-            return expr
+
+            # Empty tuple: ()
+            if self.match(TokenType.RPAREN):
+                self.advance()
+                return TupleLiteral(elements=[], line=start.line, column=start.column)
+
+            # Parse first expression
+            first_expr = self.parse_expression()
+
+            # Check if it's a tuple or parenthesized expression
+            if self.match(TokenType.COMMA):
+                # It's a tuple
+                elements = [first_expr]
+                while self.match(TokenType.COMMA):
+                    self.advance()
+                    # Allow trailing comma
+                    if self.match(TokenType.RPAREN):
+                        break
+                    elements.append(self.parse_expression())
+                self.expect(TokenType.RPAREN, "Expected ')' after tuple")
+                return TupleLiteral(elements=elements, line=start.line, column=start.column)
+            else:
+                # It's a parenthesized expression
+                self.expect(TokenType.RPAREN, "Expected ')' after expression")
+                return first_expr
 
         elif self.match(TokenType.IF):
             return self.parse_if_expression()

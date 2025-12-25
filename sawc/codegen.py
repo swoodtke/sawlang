@@ -9,6 +9,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr,
+    TupleLiteral, TupleIndex, MemberAccess,
     SawType, TypeKind
 )
 
@@ -60,6 +61,12 @@ class CodeGenerator:
             return ir.PointerType(ir.IntType(8))
         elif saw_type.kind == TypeKind.VOID:
             return ir.VoidType()
+        elif saw_type.kind == TypeKind.TUPLE:
+            # Tuples are represented as LLVM structs
+            if saw_type.element_types is None:
+                return ir.LiteralStructType([])
+            element_llvm_types = [self._get_llvm_type(t) for t in saw_type.element_types]
+            return ir.LiteralStructType(element_llvm_types)
         else:
             raise ValueError(f"Unknown type: {saw_type}")
 
@@ -217,6 +224,15 @@ class CodeGenerator:
 
         elif isinstance(expr, IfExpr):
             return self._generate_if_expression(expr)
+
+        elif isinstance(expr, TupleLiteral):
+            return self._generate_tuple_literal(expr)
+
+        elif isinstance(expr, TupleIndex):
+            return self._generate_tuple_index(expr)
+
+        elif isinstance(expr, MemberAccess):
+            raise ValueError("Member access not yet implemented (structs not supported)")
 
         else:
             raise ValueError(f"Unknown expression type: {type(expr)}")
@@ -400,6 +416,29 @@ class CodeGenerator:
                 return phi
 
         return then_val
+
+    def _generate_tuple_literal(self, expr: TupleLiteral):
+        """Generate code for a tuple literal."""
+        # Generate each element
+        element_values = [self._generate_expression(elem) for elem in expr.elements]
+
+        # Create the tuple type
+        element_types = [val.type for val in element_values]
+        tuple_type = ir.LiteralStructType(element_types)
+
+        # Build the tuple value
+        tuple_val = ir.Constant(tuple_type, ir.Undefined)
+        for i, elem_val in enumerate(element_values):
+            tuple_val = self.builder.insert_value(tuple_val, elem_val, i)
+
+        return tuple_val
+
+    def _generate_tuple_index(self, expr: TupleIndex):
+        """Generate code for tuple indexing."""
+        tuple_val = self._generate_expression(expr.tuple_expr)
+
+        # Extract the element at the given index
+        return self.builder.extract_value(tuple_val, expr.index)
 
     def compile_to_object(self, output_path: str):
         """Compile the module to an object file."""

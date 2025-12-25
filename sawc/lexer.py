@@ -54,6 +54,7 @@ class TokenType(Enum):
     COMMA = auto()
     COLON = auto()
     ARROW = auto()
+    DOT = auto()
 
     # Special
     NEWLINE = auto()
@@ -265,6 +266,9 @@ class Lexer:
                 self.advance()
             elif ch == ':':
                 self.add_token(TokenType.COLON, ':')
+                self.advance()
+            elif ch == '.':
+                self.add_token(TokenType.DOT, '.')
                 self.advance()
             else:
                 self.error(f"Unexpected character: {ch}")

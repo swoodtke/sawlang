@@ -10,6 +10,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr,
+    TupleLiteral, TupleIndex, MemberAccess,
     SawType, TypeKind, Parameter
 )
 from errors import ErrorReporter, ErrorKind
@@ -294,6 +295,15 @@ class TypeChecker:
         elif isinstance(expr, IfExpr):
             return self._check_if_expr(expr)
 
+        elif isinstance(expr, TupleLiteral):
+            return self._check_tuple_literal(expr)
+
+        elif isinstance(expr, TupleIndex):
+            return self._check_tuple_index(expr)
+
+        elif isinstance(expr, MemberAccess):
+            return self._check_member_access(expr)
+
         return None
 
     def _check_identifier(self, expr: Identifier) -> Optional[SawType]:
@@ -440,8 +450,72 @@ class TypeChecker:
         else:
             return then_type
 
+    def _check_tuple_literal(self, expr: TupleLiteral) -> Optional[SawType]:
+        """Check a tuple literal."""
+        element_types = []
+        for element in expr.elements:
+            elem_type = self._check_expression(element)
+            if elem_type is None:
+                return None
+            element_types.append(elem_type)
+        return SawType(TypeKind.TUPLE, element_types=element_types)
+
+    def _check_tuple_index(self, expr: TupleIndex) -> Optional[SawType]:
+        """Check tuple indexing."""
+        tuple_type = self._check_expression(expr.tuple_expr)
+        if tuple_type is None:
+            return None
+
+        if tuple_type.kind != TypeKind.TUPLE:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot index into non-tuple type `{tuple_type}`",
+                expr.line, expr.column
+            )
+            return None
+
+        if tuple_type.element_types is None:
+            return None
+
+        if expr.index < 0 or expr.index >= len(tuple_type.element_types):
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"tuple index {expr.index} out of range for tuple with {len(tuple_type.element_types)} elements",
+                expr.line, expr.column
+            )
+            return None
+
+        return tuple_type.element_types[expr.index]
+
+    def _check_member_access(self, expr: MemberAccess) -> Optional[SawType]:
+        """Check member access (for structs, not yet implemented)."""
+        obj_type = self._check_expression(expr.object)
+        if obj_type is None:
+            return None
+
+        # For now, member access is only used for future struct support
+        self.reporter.error(
+            ErrorKind.TYPE_MISMATCH,
+            f"member access not yet supported (structs not implemented)",
+            expr.line, expr.column
+        )
+        return None
+
     def _types_compatible(self, a: Optional[SawType], b: Optional[SawType]) -> bool:
         """Check if two types are compatible."""
         if a is None or b is None:
             return True  # Assume compatible if we couldn't determine types
-        return a.kind == b.kind
+
+        if a.kind != b.kind:
+            return False
+
+        # For tuple types, check element types match
+        if a.kind == TypeKind.TUPLE:
+            if a.element_types is None or b.element_types is None:
+                return True
+            if len(a.element_types) != len(b.element_types):
+                return False
+            return all(self._types_compatible(at, bt)
+                      for at, bt in zip(a.element_types, b.element_types))
+
+        return True
