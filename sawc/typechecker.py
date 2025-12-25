@@ -80,6 +80,8 @@ class TypeChecker:
         self.functions: Dict[str, FunctionInfo] = {}
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
+        # Track return statements found in current function
+        self.found_return_with_value: bool = False
 
         # Register built-in functions
         self._register_builtins()
@@ -166,6 +168,7 @@ class TypeChecker:
     def _check_function(self, func: Function):
         """Type check a function body."""
         self.current_function = func
+        self.found_return_with_value = False  # Reset for each function
 
         # Create new scope for function
         self.current_scope = Scope()
@@ -180,13 +183,16 @@ class TypeChecker:
 
         # Check return type matches
         if func.return_type.kind != TypeKind.VOID:
-            if body_type is None:
+            # Function can return a value via either:
+            # 1. An explicit return statement (found_return_with_value)
+            # 2. A final expression in the body (body_type)
+            if body_type is None and not self.found_return_with_value:
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
                     f"function `{func.name}` should return `{func.return_type}` but body has no value",
                     func.line, func.column
                 )
-            elif not self._types_compatible(body_type, func.return_type):
+            elif body_type is not None and not self._types_compatible(body_type, func.return_type):
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
                     f"function `{func.name}` should return `{func.return_type}` but returns `{body_type}`",
@@ -369,6 +375,9 @@ class TypeChecker:
                     f"expected return type `{expected}` but got `{value_type}`",
                     stmt.line, stmt.column
                 )
+            else:
+                # Mark that we found a valid return statement with a value
+                self.found_return_with_value = True
 
     def _check_expression(self, expr: Expression) -> Optional[SawType]:
         """Check an expression and return its type."""
