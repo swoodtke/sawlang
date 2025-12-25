@@ -23,6 +23,7 @@ class TokenType(Enum):
     VAR = auto()
     IF = auto()
     ELSE = auto()
+    GUARD = auto()
     RETURN = auto()
     TRUE = auto()
     FALSE = auto()
@@ -83,6 +84,7 @@ KEYWORDS = {
     'var': TokenType.VAR,
     'if': TokenType.IF,
     'else': TokenType.ELSE,
+    'guard': TokenType.GUARD,
     'return': TokenType.RETURN,
     'true': TokenType.TRUE,
     'false': TokenType.FALSE,

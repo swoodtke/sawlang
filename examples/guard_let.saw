@@ -1,0 +1,21 @@
+// Test guard let optional binding
+
+func process(x: Int?) -> Int {
+    guard let value = x else {
+        return -1
+    }
+    // value is now available here
+    value * 2
+}
+
+func main() {
+    let a: Int? = 21
+    let b: Int? = None
+
+    print(process(a))
+    print(process(b))
+
+    // Should print:
+    // 42
+    // -1
+}

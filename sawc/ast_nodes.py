@@ -186,6 +186,29 @@ class OptionalChain(Expression):
     column: int = 0
 
 
+@dataclass
+class IfLetExpr(Expression):
+    """Optional binding: if let/var x = optional { ... } else { ... }"""
+    name: str
+    optional_expr: Expression
+    mutable: bool  # True for 'if var', False for 'if let'
+    then_branch: 'Block'
+    else_branch: Optional['Block'] = None
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class GuardLetStatement(ASTNode):
+    """Guard statement: guard let/var x = optional else { return }"""
+    name: str
+    optional_expr: Expression
+    mutable: bool  # True for 'guard var', False for 'guard let'
+    else_branch: 'Block'  # Must contain early exit (return, break, etc.)
+    line: int = 0
+    column: int = 0
+
+
 # Statements
 @dataclass
 class Statement(ASTNode):

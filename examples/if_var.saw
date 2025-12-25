@@ -1,0 +1,14 @@
+// Test if var optional binding (mutable)
+
+func main() {
+    let x: Int? = 10
+
+    // if var - allows mutation of the bound variable
+    if var value = x {
+        value = value + 5
+        print(value)
+    }
+
+    // Should print:
+    // 15
+}

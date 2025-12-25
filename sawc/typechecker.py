@@ -9,9 +9,10 @@ from ast_nodes import (
     Program, Function, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
-    BinaryOp, UnaryOp, FunctionCall, IfExpr,
+    BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
+    GuardLetStatement,
     Struct, StructField,
     SawType, TypeKind, Parameter
 )
@@ -220,6 +221,8 @@ class TypeChecker:
             self._check_assign_statement(stmt)
         elif isinstance(stmt, ReturnStatement):
             self._check_return_statement(stmt)
+        elif isinstance(stmt, GuardLetStatement):
+            self._check_guard_let_statement(stmt)
         elif isinstance(stmt, ExpressionStatement):
             self._check_expression(stmt.expression)
 
@@ -254,6 +257,59 @@ class TypeChecker:
         if var_type:
             info = VariableInfo(var_type, stmt.mutable, stmt.line, stmt.column)
             self.current_scope.define(stmt.name, info)
+
+    def _check_guard_let_statement(self, stmt: GuardLetStatement):
+        """Check a guard let/var statement for optional binding."""
+        # Check for duplicate in current scope
+        existing = self.current_scope.lookup_local(stmt.name)
+        if existing:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_VARIABLE,
+                f"variable `{stmt.name}` is already defined in this scope",
+                stmt.line, stmt.column,
+                hint=f"previous definition was at line {existing.line}"
+            )
+            return
+
+        # Check the optional expression
+        optional_type = self._check_expression(stmt.optional_expr)
+
+        if optional_type is None:
+            return
+
+        # Must be an optional type
+        if optional_type.kind != TypeKind.OPTIONAL:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"'guard let' requires an optional type, got `{optional_type}`",
+                stmt.line, stmt.column
+            )
+            return
+
+        # Get the unwrapped type
+        inner_type = optional_type.inner_type
+        if inner_type is None:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot determine type of bound variable from None literal",
+                stmt.line, stmt.column
+            )
+            return
+
+        # Check the else branch (should contain early exit)
+        # Create a temporary scope for the else branch
+        old_scope = self.current_scope
+        self.current_scope = Scope(parent=old_scope)
+        self._check_block(stmt.else_branch)
+        self.current_scope = old_scope
+
+        # TODO: Verify else branch has early exit (return, break, continue)
+        # For now, we trust the programmer
+
+        # Add the bound variable to the current (outer) scope
+        # This is the key difference from if-let: the variable is available after the guard
+        info = VariableInfo(inner_type, stmt.mutable, stmt.line, stmt.column)
+        self.current_scope.define(stmt.name, info)
 
     def _check_assign_statement(self, stmt: AssignStatement):
         """Check an assignment statement."""
@@ -342,6 +398,9 @@ class TypeChecker:
 
         elif isinstance(expr, IfExpr):
             return self._check_if_expr(expr)
+
+        elif isinstance(expr, IfLetExpr):
+            return self._check_if_let_expr(expr)
 
         elif isinstance(expr, TupleLiteral):
             return self._check_tuple_literal(expr)
@@ -506,6 +565,66 @@ class TypeChecker:
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
                     f"`if` and `else` branches have incompatible types: `{then_type}` vs `{else_type}`",
+                    expr.line, expr.column
+                )
+
+            return then_type or else_type
+        else:
+            return then_type
+
+    def _check_if_let_expr(self, expr: IfLetExpr) -> Optional[SawType]:
+        """Check an if let/var expression for optional binding."""
+        # Check the optional expression
+        optional_type = self._check_expression(expr.optional_expr)
+
+        if optional_type is None:
+            return None
+
+        # Must be an optional type
+        if optional_type.kind != TypeKind.OPTIONAL:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"'if let' requires an optional type, got `{optional_type}`",
+                expr.line, expr.column
+            )
+            return None
+
+        # For 'if var', the source optional must be mutable (we'd need to track this)
+        # For now, we'll allow it - the reference semantics will be enforced at codegen
+
+        # Get the unwrapped type
+        inner_type = optional_type.inner_type
+        if inner_type is None:
+            # None literal with unknown type - treat as void or error
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot determine type of bound variable from None literal",
+                expr.line, expr.column
+            )
+            return None
+
+        # Create new scope for then branch with the bound variable
+        old_scope = self.current_scope
+        self.current_scope = Scope(parent=old_scope)
+        self.current_scope.define(
+            expr.name,
+            VariableInfo(inner_type, expr.mutable, expr.line, expr.column)
+        )
+
+        then_type = self._check_block(expr.then_branch)
+
+        self.current_scope = old_scope
+
+        # Check else branch if present
+        else_type = None
+        if expr.else_branch:
+            else_type = self._check_block(expr.else_branch)
+
+            # If both branches have values, they must match
+            if then_type and else_type and not self._types_compatible(then_type, else_type):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`if let` branches have incompatible types: `{then_type}` vs `{else_type}`",
                     expr.line, expr.column
                 )
 

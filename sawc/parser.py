@@ -9,9 +9,10 @@ from ast_nodes import (
     Program, Function, Parameter, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
-    BinaryOp, UnaryOp, FunctionCall, IfExpr,
+    BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
+    GuardLetStatement,
     Struct, StructField,
     SawType, TypeKind
 )
@@ -230,12 +231,42 @@ class Parser:
             return self.parse_let_statement(mutable=False)
         elif self.match(TokenType.VAR):
             return self.parse_let_statement(mutable=True)
+        elif self.match(TokenType.GUARD):
+            return self.parse_guard_statement()
         elif self.match(TokenType.RETURN):
             return self.parse_return_statement()
         elif self.match(TokenType.IDENT) and self.peek(1).type == TokenType.ASSIGN:
             return self.parse_assign_statement()
         else:
             return self.parse_expression_statement()
+
+    def parse_guard_statement(self) -> GuardLetStatement:
+        start = self.advance()  # consume 'guard'
+
+        # Expect 'let' or 'var'
+        if not (self.match(TokenType.LET) or self.match(TokenType.VAR)):
+            self.error("Expected 'let' or 'var' after 'guard'")
+
+        mutable = self.current().type == TokenType.VAR
+        self.advance()  # consume 'let' or 'var'
+
+        name_token = self.expect(TokenType.IDENT, "Expected variable name after 'guard let/var'")
+        self.expect(TokenType.ASSIGN, "Expected '=' in guard binding")
+        optional_expr = self.parse_expression()
+
+        self.skip_newlines()
+        self.expect(TokenType.ELSE, "Expected 'else' in guard statement")
+        self.skip_newlines()
+        else_branch = self.parse_block()
+
+        return GuardLetStatement(
+            name=name_token.value,
+            optional_expr=optional_expr,
+            mutable=mutable,
+            else_branch=else_branch,
+            line=start.line,
+            column=start.column
+        )
 
     def parse_let_statement(self, mutable: bool) -> LetStatement:
         start = self.advance()  # consume let/var
@@ -553,8 +584,39 @@ class Parser:
             column=name_token.column
         )
 
-    def parse_if_expression(self) -> IfExpr:
+    def parse_if_expression(self) -> Expression:
         start = self.advance()  # consume 'if'
+
+        # Check for 'if let' or 'if var' optional binding
+        if self.match(TokenType.LET) or self.match(TokenType.VAR):
+            mutable = self.current().type == TokenType.VAR
+            self.advance()  # consume 'let' or 'var'
+
+            name_token = self.expect(TokenType.IDENT, "Expected variable name after 'if let/var'")
+            self.expect(TokenType.ASSIGN, "Expected '=' in optional binding")
+            optional_expr = self.parse_expression()
+
+            self.skip_newlines()
+            then_branch = self.parse_block()
+
+            else_branch = None
+            self.skip_newlines()
+            if self.match(TokenType.ELSE):
+                self.advance()
+                self.skip_newlines()
+                else_branch = self.parse_block()
+
+            return IfLetExpr(
+                name=name_token.value,
+                optional_expr=optional_expr,
+                mutable=mutable,
+                then_branch=then_branch,
+                else_branch=else_branch,
+                line=start.line,
+                column=start.column
+            )
+
+        # Regular if expression
         condition = self.parse_expression()
         self.skip_newlines()
         then_branch = self.parse_block()

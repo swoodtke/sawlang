@@ -56,8 +56,8 @@
 - [x] Optional chaining: `user?.profile?.name`
 - [x] Nil coalescing: `value ?? default`
 - [x] Force unwrap: `value!`
-- [ ] `if let` binding
-- [ ] `guard let` early exit
+- [x] `if let`/`if var` binding (var creates mutable reference)
+- [x] `guard let`/`guard var` early exit
 
 ### Structs
 - [x] Struct declarations

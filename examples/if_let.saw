@@ -1,0 +1,22 @@
+// Test if let optional binding
+
+func main() {
+    let x: Int? = 42
+
+    // Basic if let
+    if let value = x {
+        print(value)
+    }
+
+    // if let with else
+    let y: Int? = None
+    if let value = y {
+        print(value)
+    } else {
+        print(-1)
+    }
+
+    // Should print:
+    // 42
+    // -1
+}

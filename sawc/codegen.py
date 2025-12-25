@@ -8,9 +8,10 @@ from ast_nodes import (
     Program, Function, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
-    BinaryOp, UnaryOp, FunctionCall, IfExpr,
+    BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
+    GuardLetStatement,
     Struct, StructField,
     SawType, TypeKind
 )
@@ -205,6 +206,8 @@ class CodeGenerator:
             self._generate_assign_statement(stmt)
         elif isinstance(stmt, ReturnStatement):
             self._generate_return_statement(stmt)
+        elif isinstance(stmt, GuardLetStatement):
+            self._generate_guard_let_statement(stmt)
         elif isinstance(stmt, ExpressionStatement):
             self._generate_expression(stmt.expression)
         else:
@@ -299,6 +302,9 @@ class CodeGenerator:
 
         elif isinstance(expr, IfExpr):
             return self._generate_if_expression(expr)
+
+        elif isinstance(expr, IfLetExpr):
+            return self._generate_if_let_expression(expr)
 
         elif isinstance(expr, TupleLiteral):
             return self._generate_tuple_literal(expr)
@@ -506,6 +512,101 @@ class CodeGenerator:
                 return phi
 
         return then_val
+
+    def _generate_if_let_expression(self, expr: IfLetExpr):
+        """Generate code for if let/var optional binding."""
+        # Generate the optional expression
+        optional_val = self._generate_expression(expr.optional_expr)
+
+        # Extract the is_some flag
+        is_some = self.builder.extract_value(optional_val, 0, name="is_some")
+
+        func = self.builder.function
+        then_bb = func.append_basic_block(name="if_let_then")
+        else_bb = func.append_basic_block(name="if_let_else")
+        merge_bb = func.append_basic_block(name="if_let_merge")
+
+        self.builder.cbranch(is_some, then_bb, else_bb)
+
+        # Generate then branch - with bound variable
+        self.builder.position_at_start(then_bb)
+
+        # Extract the inner value from the optional
+        inner_val = self.builder.extract_value(optional_val, 1, name="unwrapped")
+
+        # For 'if let', create a copy; for 'if var', we store and use reference
+        # Currently, we always create a local variable (copy semantics for if let)
+        # For if var reference semantics, we'd need to track the original optional's alloca
+        alloca = self.builder.alloca(inner_val.type, name=expr.name)
+        self.builder.store(inner_val, alloca)
+        self.variables[expr.name] = alloca
+
+        then_val = self._generate_block(expr.then_branch)
+
+        # Remove the bound variable from scope after the block
+        del self.variables[expr.name]
+
+        if not self.builder.block.is_terminated:
+            self.builder.branch(merge_bb)
+        then_bb = self.builder.block
+
+        # Generate else branch
+        self.builder.position_at_start(else_bb)
+        if expr.else_branch:
+            else_val = self._generate_block(expr.else_branch)
+        else:
+            else_val = None
+        if not self.builder.block.is_terminated:
+            self.builder.branch(merge_bb)
+        else_bb = self.builder.block
+
+        # Merge block
+        self.builder.position_at_start(merge_bb)
+
+        # If both branches produce values of the same type, create a phi node
+        if then_val is not None and else_val is not None:
+            if then_val.type == else_val.type:
+                phi = self.builder.phi(then_val.type, name="if_let_result")
+                phi.add_incoming(then_val, then_bb)
+                phi.add_incoming(else_val, else_bb)
+                return phi
+
+        return then_val
+
+    def _generate_guard_let_statement(self, stmt: GuardLetStatement):
+        """Generate code for guard let/var optional binding."""
+        # Generate the optional expression
+        optional_val = self._generate_expression(stmt.optional_expr)
+
+        # Extract the is_some flag
+        is_some = self.builder.extract_value(optional_val, 0, name="guard_is_some")
+
+        func = self.builder.function
+        else_bb = func.append_basic_block(name="guard_else")
+        continue_bb = func.append_basic_block(name="guard_continue")
+
+        # If Some, continue; if None, go to else block
+        self.builder.cbranch(is_some, continue_bb, else_bb)
+
+        # Generate else branch (early exit)
+        self.builder.position_at_start(else_bb)
+        self._generate_block(stmt.else_branch)
+        # Note: else_branch must contain a return/break/etc, so no need to branch
+
+        # If else branch is not terminated, add unreachable (shouldn't happen with proper guard)
+        if not self.builder.block.is_terminated:
+            self.builder.unreachable()
+
+        # Continue block - extract value and bind variable
+        self.builder.position_at_start(continue_bb)
+
+        # Extract the inner value from the optional
+        inner_val = self.builder.extract_value(optional_val, 1, name="guard_unwrapped")
+
+        # Store in a local variable
+        alloca = self.builder.alloca(inner_val.type, name=stmt.name)
+        self.builder.store(inner_val, alloca)
+        self.variables[stmt.name] = alloca
 
     def _generate_tuple_literal(self, expr: TupleLiteral):
         """Generate code for a tuple literal."""
