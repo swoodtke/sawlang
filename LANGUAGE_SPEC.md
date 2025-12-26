@@ -305,6 +305,12 @@ interface Iterator {
     func next(var self) -> Self.Item?
 }
 
+// Interface inheritance (superinterfaces)
+interface CustomCopy: Deinit {
+    func copy(self) -> Self
+    // Implementing CustomCopy requires also implementing Deinit
+}
+
 // Interface objects (dynamic dispatch)
 func render(shapes: [dyn Shape]) {
     for shape in shapes {
@@ -433,32 +439,33 @@ let list2 = list  // Copy (deep copy for collections)
 
 ### Move-Only Types
 
-Some types represent unique resources that should not be copied:
+Some types represent unique resources that should not be copied. Use the `NoCopy` interface:
 
 ```saw
-// Mark a type as move-only with @move attribute
-@move
-struct FileHandle {
+// Implement NoCopy interface for move-only semantics
+struct FileHandle: NoCopy {
     fd: Int,
 }
 
 extension FileHandle {
     func open(path: String) -> Result<FileHandle, IoError> { ... }
-    func close(self) { ... }  // Takes ownership, closes file
+
+    func deinit(var self) {
+        close(self.fd)  // Automatic cleanup
+    }
 }
 
-// Move-only types must be explicitly moved
+// NoCopy types must be explicitly moved
 let file = FileHandle.open("data.txt")?
-let file2 = file       // Error! FileHandle is move-only
+let file2 = file       // Error! Cannot copy NoCopy type
 let file2 = move file  // Ok, ownership transferred
 
 // Useful for resources that need cleanup
-@move
-struct Connection { ... }
-
-@move
-struct MutexGuard<T> { ... }
+struct Connection: NoCopy { ... }
+struct MutexGuard<T>: NoCopy { ... }
 ```
+
+See [Resource Management Interfaces](#resource-management-interfaces) for the full `Deinit`/`CustomCopy`/`NoCopy` hierarchy.
 
 ### Passing by Reference
 
@@ -496,12 +503,12 @@ process(original)  // original is copied, unchanged
 
 ### Shared Ownership
 
-For data that needs multiple owners, use reference-counted wrappers:
+For data that needs multiple owners, use reference-counted wrappers. These implement `CustomCopy` to increment the reference count on copy and `deinit` to decrement it:
 
 ```saw
 // Reference counting (single-threaded shared ownership)
 let shared: Rc<Data> = Rc(Data { ... })
-let shared2 = shared  // Both point to same data, ref count increases
+let shared2 = shared  // copy() called, ref count increases
 
 // Atomic reference counting (thread-safe shared ownership)
 let atomic: Arc<Data> = Arc(Data { ... })
@@ -518,16 +525,16 @@ let boxed: Box<LargeStruct> = Box(LargeStruct { ... })
 
 ### Synchronized Access
 
-For mutable shared state, wrap in synchronization primitives:
+For mutable shared state, wrap in synchronization primitives. Lock guards implement `NoCopy` so they can't be shared, and `deinit` to automatically release the lock:
 
 ```saw
 // Mutex for exclusive mutable access
 let counter: Arc<Mutex<Int>> = Arc(Mutex(0))
 
 thread.spawn {
-    var guard = counter.lock()
+    var guard = counter.lock()  // Returns MutexGuard: NoCopy
     *guard += 1
-}  // Lock released when guard goes out of scope
+}  // guard.deinit() called, lock released automatically
 
 // RwLock for multiple readers or single writer
 let data: Arc<RwLock<Map<String, Int>>> = Arc(RwLock(Map()))
@@ -539,6 +546,120 @@ let value = guard.get("key")
 // Write lock (exclusive)
 var guard = data.write()
 guard.insert("key", 42)
+```
+
+### Resource Management Interfaces
+
+Saw provides a hierarchy of interfaces for types that need custom copy behavior or cleanup when going out of scope. This enables reference counting (like `Arc<T>`), RAII patterns (like file handles), and move-only types.
+
+#### The Deinit Interface
+
+```saw
+// Called automatically when a value goes out of scope
+interface Deinit {
+    func deinit(var self)
+}
+```
+
+The compiler inserts `deinit()` calls at all scope exit points—including normal exits, early returns, breaks, and error propagation.
+
+#### The CustomCopy Interface
+
+```saw
+// Interface inheritance: CustomCopy requires Deinit
+interface CustomCopy: Deinit {
+    func copy(self) -> Self
+}
+```
+
+Types implementing `CustomCopy` use the `copy()` method instead of memcpy when assigned. This enables reference counting:
+
+```saw
+struct Arc<T>: CustomCopy {
+    ptr: *ArcInner<T>  // Points to { refcount: Int, value: T }
+}
+
+extension Arc<T> {
+    func copy(self) -> Arc<T> {
+        self.ptr.refcount = self.ptr.refcount + 1
+        Arc(ptr: self.ptr)
+    }
+
+    func deinit(var self) {
+        self.ptr.refcount = self.ptr.refcount - 1
+        if self.ptr.refcount == 0 {
+            self.ptr.value.deinit()
+            free(self.ptr)
+        }
+    }
+}
+
+// Usage
+let a = Arc.new(42)  // refcount = 1
+let b = a            // copy() called, refcount = 2
+// end of scope: b.deinit() → refcount = 1
+// end of scope: a.deinit() → refcount = 0, freed
+```
+
+#### The NoCopy Interface (Move-Only Types)
+
+```saw
+// Interface inheritance: NoCopy requires Deinit
+interface NoCopy: Deinit {
+    // Marker interface - no methods
+}
+```
+
+Types implementing `NoCopy` cannot be copied—only moved. The compiler errors on assignment; use `move` to transfer ownership:
+
+```saw
+struct File: NoCopy {
+    handle: Int
+}
+
+extension File {
+    func open(path: String) -> Result<File, IoError> { ... }
+
+    func deinit(var self) {
+        close(self.handle)
+    }
+}
+
+let f = File.open("data.txt")?
+let g = f        // Error: Cannot copy NoCopy type 'File'
+let g = move f   // Ok: f is now invalid
+use(f)           // Error: f was moved
+// g.deinit() called at scope exit, file closed
+```
+
+#### Summary of Type Behaviors
+
+| Interface | Copy Behavior | Cleanup |
+|-----------|---------------|---------|
+| (none) | memcpy | none |
+| `CustomCopy` | calls `copy()` | calls `deinit()` |
+| `NoCopy` | compile error | calls `deinit()` |
+
+#### Auto-Derivation for Structs
+
+If a struct contains fields that implement `Deinit`, `CustomCopy`, or `NoCopy`, the compiler automatically derives the appropriate interface:
+
+```saw
+struct Connection {
+    socket: File       // NoCopy
+    config: Config     // plain type
+}
+// Compiler auto-derives NoCopy for Connection:
+// - Cannot copy (because File is NoCopy)
+// - deinit() calls socket.deinit() then config.deinit()
+
+struct SharedData {
+    data: Arc<Bytes>   // CustomCopy
+    name: String       // plain type
+}
+// Compiler auto-derives CustomCopy for SharedData:
+// - copy() calls data.copy(), copies name
+// - deinit() calls data.deinit()
 ```
 
 ---
@@ -1101,15 +1222,16 @@ unsafe interface GlobalAlloc {
 
 ```
 and         as          async       await       break
-catch       const       continue    defer       do
-dyn         else        enum        extension   extern
-false       func        for         guard       if
-import      in          init        interface   let
-loop        macro       match       module      move
-none        not         or          package     parent
-public      ref         return      self        Self
-some        static      struct      true        try
-type        unsafe      var         where       while
+catch       const       continue    deinit      defer
+do          dyn         else        enum        extension
+extern      false       func        for         guard
+if          import      in          init        interface
+let         loop        macro       match       module
+move        none        not         or          package
+parent      public      ref         return      self
+Self        some        static      struct      true
+try         type        unsafe      var         where
+while
 ```
 
 ## Appendix B: Operators
