@@ -259,8 +259,9 @@ class CodeGenerator:
         # Get LLVM types for each field
         field_types = [self._get_llvm_type(field.type) for field in struct.fields]
 
-        # Create LLVM struct type
-        llvm_struct_type = ir.LiteralStructType(field_types)
+        # Create identified struct type (unique identity even if same field types)
+        llvm_struct_type = self.module.context.get_identified_type(struct.name)
+        llvm_struct_type.set_body(*field_types)
 
         # Store the type and field order for later use
         field_order = [field.name for field in struct.fields]
@@ -978,17 +979,19 @@ class CodeGenerator:
 
             # Determine struct type and field index
             # Get the actual struct type (dereference if it's a pointer)
-            if isinstance(struct_ptr.type.pointee, ir.LiteralStructType):
-                llvm_struct_type = struct_ptr.type.pointee
-            else:
-                raise ValueError(f"Cannot assign to field of non-struct type")
+            pointee_type = struct_ptr.type.pointee
 
             # Find which struct this is
             struct_name = None
-            for name, (st, _) in self.struct_types.items():
-                if isinstance(st, ir.LiteralStructType) and str(st) == str(llvm_struct_type):
-                    struct_name = name
-                    break
+            if hasattr(pointee_type, 'name') and pointee_type.name in self.struct_types:
+                # Identified type - name is directly available
+                struct_name = pointee_type.name
+            else:
+                # Fallback to string comparison for literal types
+                for name, (st, _) in self.struct_types.items():
+                    if str(st) == str(pointee_type):
+                        struct_name = name
+                        break
 
             if not struct_name:
                 raise ValueError("Cannot determine struct type for field assignment")
@@ -1058,72 +1061,101 @@ class CodeGenerator:
         self.builder.position_at_end(end_block)
 
     def _generate_for_loop(self, stmt: ForLoop):
-        """Generate LLVM IR for a for loop.
+        """Generate LLVM IR for a for loop using Iterator.
 
         Desugars: for i in start..end { body }
-        Into:     var __iter = start
-                  while __iter < end {
-                      let i = __iter
+        Into:     var __range = Range(current: start, end: end)
+                  while let i = __range.next() {
                       body
-                      __iter = __iter + 1
+                  }
+
+        Or for custom iterators:
+        Desugars: for i in iterator { body }
+        Into:     var __iter = iterator
+                  while let i = __iter.next() {
+                      body
                   }
         """
         func = self.builder.function
 
-        # Extract start and end from the range expression
-        if not isinstance(stmt.iterable, RangeExpr):
-            raise ValueError("For loop currently only supports range expressions")
+        if isinstance(stmt.iterable, RangeExpr):
+            # Range expression: use builtin Range type
+            range_expr = stmt.iterable
+            start_val = self._generate_expression(range_expr.start)
+            end_val = self._generate_expression(range_expr.end)
 
-        range_expr = stmt.iterable
-        start_val = self._generate_expression(range_expr.start)
-        end_val = self._generate_expression(range_expr.end)
+            # Create the Range struct: { current, end }
+            range_type, _ = self.struct_types["Range"]
+            iter_alloca = self.builder.alloca(range_type, name="__range")
 
-        # Create the iterator variable (mutable counter)
-        iter_alloca = self.builder.alloca(ir.IntType(64), name="__for_iter")
-        self.builder.store(start_val, iter_alloca)
+            # Initialize Range with start and end
+            range_val = ir.Constant(range_type, ir.Undefined)
+            range_val = self.builder.insert_value(range_val, start_val, 0)
+            range_val = self.builder.insert_value(range_val, end_val, 1)
+            self.builder.store(range_val, iter_alloca)
+
+            next_func = self.functions["Range_next"]
+            item_type = ir.IntType(64)
+        else:
+            # Custom iterator: generate the iterator expression and call its next() method
+            iter_val = self._generate_expression(stmt.iterable)
+
+            # Find the struct type for the iterator
+            struct_name = self._find_struct_name_for_value(iter_val)
+            if struct_name is None:
+                raise ValueError(f"Cannot determine iterator type for for loop")
+
+            # Get the mangled next method name
+            next_mangled = self._mangle_method_name(struct_name, "next")
+            if next_mangled not in self.functions:
+                raise ValueError(f"Type {struct_name} does not implement Iterator (missing next method)")
+
+            next_func = self.functions[next_mangled]
+
+            # Allocate storage for the iterator (since next mutates it)
+            iter_alloca = self.builder.alloca(iter_val.type, name="__iter")
+            self.builder.store(iter_val, iter_alloca)
+
+            # Determine the item type from the next method's return type
+            # next() returns Optional<Item>, so extract Item type from { i1, Item }
+            optional_type = next_func.function_type.return_type
+            item_type = optional_type.elements[1]
 
         # Create basic blocks
         cond_block = func.append_basic_block("for.cond")
         body_block = func.append_basic_block("for.body")
-        incr_block = func.append_basic_block("for.incr")
         end_block = func.append_basic_block("for.end")
 
         # Push loop blocks onto stack for break/continue
-        # continue goes to increment block (not condition), break goes to end
-        self.loop_stack.append((incr_block, end_block, None))
+        # continue goes to cond block (call next again), break goes to end
+        self.loop_stack.append((cond_block, end_block, None))
 
         # Jump to condition block
         self.builder.branch(cond_block)
 
-        # Generate condition: __iter < end
+        # Generate condition: call next() and check if Some
         self.builder.position_at_end(cond_block)
-        iter_val = self.builder.load(iter_alloca, name="iter_val")
-        cond = self.builder.icmp_signed('<', iter_val, end_val, name="for.cond")
-        self.builder.cbranch(cond, body_block, end_block)
+        optional_result = self.builder.call(next_func, [iter_alloca], name="next_result")
+
+        # Extract is_some flag
+        is_some = self.builder.extract_value(optional_result, 0, name="is_some")
+        self.builder.cbranch(is_some, body_block, end_block)
 
         # Generate body
         self.builder.position_at_end(body_block)
 
-        # Create loop variable (let i = __iter)
-        loop_var_alloca = self.builder.alloca(ir.IntType(64), name=stmt.variable)
-        current_iter = self.builder.load(iter_alloca, name="current_iter")
-        self.builder.store(current_iter, loop_var_alloca)
+        # Extract value and create loop variable
+        loop_val = self.builder.extract_value(optional_result, 1, name="loop_val")
+        loop_var_alloca = self.builder.alloca(item_type, name=stmt.variable)
+        self.builder.store(loop_val, loop_var_alloca)
         self.variables[stmt.variable] = loop_var_alloca
 
         # Generate body block
         self._generate_block(stmt.body)
 
-        # If block doesn't end with terminator, go to increment
+        # If block doesn't end with terminator, go back to condition
         if not self.builder.block.is_terminated:
-            self.builder.branch(incr_block)
-
-        # Generate increment: __iter = __iter + 1
-        self.builder.position_at_end(incr_block)
-        iter_val = self.builder.load(iter_alloca, name="iter_val")
-        one = ir.Constant(ir.IntType(64), 1)
-        next_val = self.builder.add(iter_val, one, name="next_iter")
-        self.builder.store(next_val, iter_alloca)
-        self.builder.branch(cond_block)
+            self.builder.branch(cond_block)
 
         # Pop loop blocks
         self.loop_stack.pop()
@@ -1134,77 +1166,118 @@ class CodeGenerator:
         # Position at end block for next statements
         self.builder.position_at_end(end_block)
 
+    def _find_struct_name_for_value(self, val) -> Optional[str]:
+        """Find the struct name for an LLVM value by matching its type."""
+        val_type = val.type
+        if isinstance(val_type, ir.PointerType):
+            val_type = val_type.pointee
+
+        # For identified types, get name directly
+        if hasattr(val_type, 'name') and val_type.name in self.struct_types:
+            return val_type.name
+
+        # Fallback to string comparison for literal types
+        for name, (llvm_type, _) in self.struct_types.items():
+            if str(val_type) == str(llvm_type):
+                return name
+        return None
+
     def _generate_for_loop_value(self, expr: ForLoop):
         """Generate LLVM IR for a for loop that returns a value (expression context).
 
         For loops are always conditional, so they return Optional<T>.
+        Uses Iterator interface internally.
         """
         func = self.builder.function
 
-        # Extract start and end from the range expression
-        if not isinstance(expr.iterable, RangeExpr):
-            raise ValueError("For loop currently only supports range expressions")
+        if isinstance(expr.iterable, RangeExpr):
+            # Range expression: use builtin Range type
+            range_expr = expr.iterable
+            start_val = self._generate_expression(range_expr.start)
+            end_val = self._generate_expression(range_expr.end)
 
-        range_expr = expr.iterable
-        start_val = self._generate_expression(range_expr.start)
-        end_val = self._generate_expression(range_expr.end)
+            # Create the Range struct: { current, end }
+            range_type, _ = self.struct_types["Range"]
+            iter_alloca = self.builder.alloca(range_type, name="__range")
+
+            # Initialize Range with start and end
+            range_val = ir.Constant(range_type, ir.Undefined)
+            range_val = self.builder.insert_value(range_val, start_val, 0)
+            range_val = self.builder.insert_value(range_val, end_val, 1)
+            self.builder.store(range_val, iter_alloca)
+
+            next_func = self.functions["Range_next"]
+            item_type = ir.IntType(64)
+        else:
+            # Custom iterator: generate the iterator expression and call its next() method
+            iter_val = self._generate_expression(expr.iterable)
+
+            # Find the struct type for the iterator
+            struct_name = self._find_struct_name_for_value(iter_val)
+            if struct_name is None:
+                raise ValueError(f"Cannot determine iterator type for for loop")
+
+            # Get the mangled next method name
+            next_mangled = self._mangle_method_name(struct_name, "next")
+            if next_mangled not in self.functions:
+                raise ValueError(f"Type {struct_name} does not implement Iterator (missing next method)")
+
+            next_func = self.functions[next_mangled]
+
+            # Allocate storage for the iterator (since next mutates it)
+            iter_alloca = self.builder.alloca(iter_val.type, name="__iter")
+            self.builder.store(iter_val, iter_alloca)
+
+            # Determine the item type from the next method's return type
+            # next() returns Optional<Item>, so extract Item type from { i1, Item }
+            optional_type = next_func.function_type.return_type
+            item_type = optional_type.elements[1]
 
         # For loops are conditional, return Optional<T>
         # For now, assume result type is Int64
         result_type = ir.IntType(64)
-        optional_type = ir.LiteralStructType([ir.IntType(1), result_type])
-        result_alloca = self.builder.alloca(optional_type, name="for.result")
+        optional_result_type = ir.LiteralStructType([ir.IntType(1), result_type])
+        result_alloca = self.builder.alloca(optional_result_type, name="for.result")
 
         # Initialize to None (has_value = false, value = 0)
-        none_value = ir.Constant(optional_type, [ir.Constant(ir.IntType(1), 0), ir.Constant(result_type, 0)])
+        none_value = ir.Constant(optional_result_type, [ir.Constant(ir.IntType(1), 0), ir.Constant(result_type, 0)])
         self.builder.store(none_value, result_alloca)
-
-        # Create the iterator variable (mutable counter)
-        iter_alloca = self.builder.alloca(ir.IntType(64), name="__for_iter")
-        self.builder.store(start_val, iter_alloca)
 
         # Create basic blocks
         cond_block = func.append_basic_block("for.cond")
         body_block = func.append_basic_block("for.body")
-        incr_block = func.append_basic_block("for.incr")
         end_block = func.append_basic_block("for.end")
 
         # Push loop info with result storage
-        # continue goes to increment block, break goes to end
-        self.loop_stack.append((incr_block, end_block, result_alloca))
+        # continue goes to cond block (call next again), break goes to end
+        self.loop_stack.append((cond_block, end_block, result_alloca))
 
         # Jump to condition block
         self.builder.branch(cond_block)
 
-        # Generate condition: __iter < end
+        # Generate condition: call next() and check if Some
         self.builder.position_at_end(cond_block)
-        iter_val = self.builder.load(iter_alloca, name="iter_val")
-        cond = self.builder.icmp_signed('<', iter_val, end_val, name="for.cond")
-        self.builder.cbranch(cond, body_block, end_block)
+        optional_result = self.builder.call(next_func, [iter_alloca], name="next_result")
+
+        # Extract is_some flag
+        is_some = self.builder.extract_value(optional_result, 0, name="is_some")
+        self.builder.cbranch(is_some, body_block, end_block)
 
         # Generate body
         self.builder.position_at_end(body_block)
 
-        # Create loop variable (let i = __iter)
-        loop_var_alloca = self.builder.alloca(ir.IntType(64), name=expr.variable)
-        current_iter = self.builder.load(iter_alloca, name="current_iter")
-        self.builder.store(current_iter, loop_var_alloca)
+        # Extract value and create loop variable
+        loop_val = self.builder.extract_value(optional_result, 1, name="loop_val")
+        loop_var_alloca = self.builder.alloca(item_type, name=expr.variable)
+        self.builder.store(loop_val, loop_var_alloca)
         self.variables[expr.variable] = loop_var_alloca
 
         # Generate body block
         self._generate_block(expr.body)
 
-        # If block doesn't end with terminator, go to increment
+        # If block doesn't end with terminator, go back to condition
         if not self.builder.block.is_terminated:
-            self.builder.branch(incr_block)
-
-        # Generate increment: __iter = __iter + 1
-        self.builder.position_at_end(incr_block)
-        iter_val = self.builder.load(iter_alloca, name="iter_val")
-        one = ir.Constant(ir.IntType(64), 1)
-        next_val = self.builder.add(iter_val, one, name="next_iter")
-        self.builder.store(next_val, iter_alloca)
-        self.builder.branch(cond_block)
+            self.builder.branch(cond_block)
 
         # Pop loop info
         self.loop_stack.pop()
@@ -1861,15 +1934,22 @@ class CodeGenerator:
         # For now, assume the object is a struct and find which one based on its LLVM type
         obj_type = obj_val.type
 
-        # Find the matching struct type and field index
-        for struct_name, (llvm_type, field_order) in self.struct_types.items():
-            # Compare struct types by structure
-            if (isinstance(obj_type, ir.LiteralStructType) and
-                isinstance(llvm_type, ir.LiteralStructType) and
-                str(obj_type) == str(llvm_type)):
-                if expr.member in field_order:
-                    field_index = field_order.index(expr.member)
-                    return self.builder.extract_value(obj_val, field_index)
+        # For identified types, get name directly
+        struct_name = None
+        if hasattr(obj_type, 'name') and obj_type.name in self.struct_types:
+            struct_name = obj_type.name
+        else:
+            # Fallback to string comparison for literal types
+            for name, (llvm_type, _) in self.struct_types.items():
+                if str(obj_type) == str(llvm_type):
+                    struct_name = name
+                    break
+
+        if struct_name and struct_name in self.struct_types:
+            _, field_order = self.struct_types[struct_name]
+            if expr.member in field_order:
+                field_index = field_order.index(expr.member)
+                return self.builder.extract_value(obj_val, field_index)
 
         raise ValueError(f"Cannot find field {expr.member} in struct with type {obj_type}")
 
@@ -1969,19 +2049,25 @@ class CodeGenerator:
 
         # Access the member (assuming struct)
         # Find the struct type and field index
-        member_val = None
-        for struct_name, (llvm_type, field_order) in self.struct_types.items():
-            # Compare struct types by checking if they're both LiteralStructType with same elements
-            if (isinstance(unwrapped.type, ir.LiteralStructType) and
-                isinstance(llvm_type, ir.LiteralStructType) and
-                str(unwrapped.type) == str(llvm_type)):
-                if expr.member in field_order:
-                    field_index = field_order.index(expr.member)
-                    member_val = self.builder.extract_value(unwrapped, field_index)
+        unwrapped_type = unwrapped.type
+        struct_name = None
+        if hasattr(unwrapped_type, 'name') and unwrapped_type.name in self.struct_types:
+            struct_name = unwrapped_type.name
+        else:
+            for name, (llvm_type, _) in self.struct_types.items():
+                if str(unwrapped_type) == str(llvm_type):
+                    struct_name = name
                     break
 
+        member_val = None
+        if struct_name:
+            _, field_order = self.struct_types[struct_name]
+            if expr.member in field_order:
+                field_index = field_order.index(expr.member)
+                member_val = self.builder.extract_value(unwrapped, field_index)
+
         if member_val is None:
-            raise ValueError(f"Cannot find field {expr.member} for type {unwrapped.type}")
+            raise ValueError(f"Cannot find field {expr.member} for type {unwrapped_type}")
 
         # Wrap the result in an optional
         result_optional_type = ir.LiteralStructType([ir.IntType(1), member_val.type])
@@ -2032,14 +2118,18 @@ class CodeGenerator:
         obj_val = self._generate_expression(expr.object)
 
         # Determine the struct type
-        # Find which struct this is by matching LLVM type
+        # For identified types, we can get the name directly
         struct_name = None
-        for name, (llvm_type, _) in self.struct_types.items():
-            if (isinstance(obj_val.type, ir.LiteralStructType) and
-                isinstance(llvm_type, ir.LiteralStructType) and
-                str(obj_val.type) == str(llvm_type)):
-                struct_name = name
-                break
+        obj_type = obj_val.type
+        if hasattr(obj_type, 'name') and obj_type.name in self.struct_types:
+            # Identified type - name is directly available
+            struct_name = obj_type.name
+        else:
+            # Fallback to string comparison for literal types
+            for name, (llvm_type, _) in self.struct_types.items():
+                if str(obj_type) == str(llvm_type):
+                    struct_name = name
+                    break
 
         if struct_name is None:
             raise ValueError(f"Cannot determine struct type for method call to {expr.method_name}")

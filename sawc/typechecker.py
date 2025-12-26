@@ -1020,15 +1020,10 @@ class TypeChecker:
             # Range expression - loop variable is Int
             loop_var_type = SawType(TypeKind.INT)
         else:
-            # For now, only support range expressions
-            # Future: support Iterator interface
-            self.reporter.error(
-                ErrorKind.TYPE_MISMATCH,
-                f"for loop currently only supports range expressions",
-                stmt.line, stmt.column,
-                hint="use `for i in start..end {{ ... }}`"
-            )
-            loop_var_type = SawType(TypeKind.INT)  # Default to Int
+            # Check if the type implements Iterator interface
+            loop_var_type = self._get_iterator_item_type(iterable_type, stmt.line, stmt.column)
+            if loop_var_type is None:
+                loop_var_type = SawType(TypeKind.INT)  # Default to Int on error
 
         # Create new scope for loop body with loop variable
         old_scope = self.current_scope
@@ -1060,14 +1055,10 @@ class TypeChecker:
             # Range expression - loop variable is Int
             loop_var_type = SawType(TypeKind.INT)
         else:
-            # For now, only support range expressions
-            self.reporter.error(
-                ErrorKind.TYPE_MISMATCH,
-                f"for loop currently only supports range expressions",
-                expr.line, expr.column,
-                hint="use `for i in start..end {{ ... }}`"
-            )
-            loop_var_type = SawType(TypeKind.INT)  # Default to Int
+            # Check if the type implements Iterator interface
+            loop_var_type = self._get_iterator_item_type(iterable_type, expr.line, expr.column)
+            if loop_var_type is None:
+                loop_var_type = SawType(TypeKind.INT)  # Default to Int on error
 
         # For loops are always conditional (have a finite range), so return Optional<T>
         # Push loop info onto stack: (break_type, is_infinite=False, has_break)
@@ -1100,6 +1091,49 @@ class TypeChecker:
             return SawType(TypeKind.VOID)
         # Wrap break type in Optional
         return SawType(TypeKind.OPTIONAL, inner_type=break_type)
+
+    def _get_iterator_item_type(self, iterable_type: Optional[SawType], line: int, column: int) -> Optional[SawType]:
+        """Get the Item type for a type that implements Iterator interface.
+
+        Returns None if the type doesn't implement Iterator, and reports an error.
+        """
+        if iterable_type is None:
+            return None
+
+        # The type must be a struct
+        if iterable_type.kind != TypeKind.STRUCT:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"for loop requires an Iterator, got `{iterable_type}`",
+                line, column,
+                hint="use `for i in start..end {{ ... }}` for range iteration"
+            )
+            return None
+
+        type_name = iterable_type.struct_name
+
+        # Check if the type conforms to Iterator
+        conformances = self.type_conformances.get(type_name, [])
+        if "Iterator" not in conformances:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"type `{type_name}` does not implement Iterator",
+                line, column,
+                hint="add `extension {}: Iterator {{ type Item = ...; func next(var self) -> Item? {{ ... }} }}`".format(type_name)
+            )
+            return None
+
+        # Get the Item associated type
+        type_assigns = self.type_assignments.get((type_name, "Iterator"), {})
+        if "Item" not in type_assigns:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"Iterator implementation for `{type_name}` is missing associated type `Item`",
+                line, column
+            )
+            return None
+
+        return type_assigns["Item"]
 
     def _check_range_expr(self, expr: RangeExpr) -> Optional[SawType]:
         """Check a range expression: start..end"""

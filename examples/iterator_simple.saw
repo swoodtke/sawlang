@@ -3,42 +3,11 @@
 // EXPECT: 1
 // EXPECT: 2
 
-// Define the Iterator interface
-interface Iterator {
-    type Item
-    func next(var self) -> Item?
-}
-
-// Define a simple Range struct
-struct Range {
-    current: Int
-    end: Int
-}
-
-// Constructor for Range
-extension Range {
-    init(start: Int, end: Int) -> Range {
-        Range(current: start, end: end)
-    }
-}
-
-// Implement Iterator for Range
-extension Range: Iterator {
-    type Item = Int
-
-    func next(var self) -> Int? {
-        if self.current < self.end {
-            let result = self.current
-            self.current = self.current + 1
-            result  // Return Some(result) implicitly
-        } else {
-            None
-        }
-    }
-}
+// Uses built-in Iterator interface and Range struct from builtin.saw
 
 func main() {
-    var iter = Range(start: 0, end: 3)
+    // Use built-in Range (current, end fields)
+    var iter = Range(current: 0, end: 3)
 
     // Manual iteration using infinite loop with if let
     while {

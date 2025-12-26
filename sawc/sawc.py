@@ -22,6 +22,59 @@ from errors import ErrorReporter
 from typechecker import TypeChecker
 
 
+def parse_source(source: str, source_path: str, verbose: bool = False):
+    """Parse a Saw source file and return the AST."""
+    # Lexical analysis
+    try:
+        lexer = Lexer(source)
+        tokens = lexer.tokenize()
+    except SyntaxError as e:
+        print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Parsing
+    try:
+        parser = Parser(tokens)
+        return parser.parse()
+    except SyntaxError as e:
+        print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def load_builtins(verbose: bool = False):
+    """Load and parse the builtin.saw file."""
+    builtin_path = os.path.join(os.path.dirname(__file__), 'builtin.saw')
+    if not os.path.exists(builtin_path):
+        return None
+
+    with open(builtin_path, 'r') as f:
+        builtin_source = f.read()
+
+    if verbose:
+        print("  Loading builtins...")
+
+    return parse_source(builtin_source, builtin_path, verbose)
+
+
+def merge_programs(builtin_ast, user_ast):
+    """Merge builtin definitions with user program."""
+    if builtin_ast is None:
+        return user_ast
+
+    from ast_nodes import Program
+
+    return Program(
+        structs=builtin_ast.structs + user_ast.structs,
+        functions=builtin_ast.functions + user_ast.functions,
+        extensions=builtin_ast.extensions + user_ast.extensions,
+        enums=builtin_ast.enums + user_ast.enums,
+        interfaces=builtin_ast.interfaces + user_ast.interfaces,
+        type_definitions=builtin_ast.type_definitions + user_ast.type_definitions,
+        line=user_ast.line,
+        column=user_ast.column
+    )
+
+
 def compile_saw(source_path: str, output_path: str, verbose: bool = False):
     """Compile a Saw source file to an executable."""
 
@@ -32,28 +85,16 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False):
     if verbose:
         print(f"Compiling {source_path}...")
 
-    # Lexical analysis
-    if verbose:
-        print("  Lexing...")
-    try:
-        lexer = Lexer(source)
-        tokens = lexer.tokenize()
-    except SyntaxError as e:
-        print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Load builtins
+    builtin_ast = load_builtins(verbose)
 
-    if verbose:
-        print(f"    Generated {len(tokens)} tokens")
-
-    # Parsing
+    # Parse user source
     if verbose:
         print("  Parsing...")
-    try:
-        parser = Parser(tokens)
-        ast = parser.parse()
-    except SyntaxError as e:
-        print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
-        sys.exit(1)
+    user_ast = parse_source(source, source_path, verbose)
+
+    # Merge builtins with user program
+    ast = merge_programs(builtin_ast, user_ast)
 
     if verbose:
         print(f"    Parsed {len(ast.functions)} functions")
