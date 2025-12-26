@@ -128,7 +128,7 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 47 tests including success cases and error validation
+**Test Coverage:** 49 tests including success cases and error validation
 
 ## Current Features
 
@@ -136,6 +136,7 @@ The compiler currently supports:
 
 ### Core Language
 - Functions with parameters and return types
+- Generic functions: `func identity<T>(x: T) -> T`
 - Basic types: Int, Float, Bool, String
 - Variables: `let` (immutable) and `var` (mutable)
 - Arithmetic: `+`, `-`, `*`, `/`
@@ -252,6 +253,26 @@ func main() {
         }
         print(i)
     }
+}
+```
+
+### Generic Functions
+```saw
+// Generic identity function
+func identity<T>(x: T) -> T {
+    x
+}
+
+// Generic function with multiple type parameters
+func first<A, B>(a: A, b: B) -> A {
+    a
+}
+
+func main() {
+    let x = identity<Int>(42)     // Returns 42
+    let y = identity<Bool>(true)  // Returns true
+    let z = first<Int, Bool>(10, false)  // Returns 10
+    print(x)
 }
 ```
 

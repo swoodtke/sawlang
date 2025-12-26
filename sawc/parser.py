@@ -17,7 +17,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    SawType, TypeKind, Argument
+    SawType, TypeKind, Argument, TypeParameter
 )
 
 
@@ -60,6 +60,40 @@ class Parser:
     def skip_newlines(self):
         while self.match(TokenType.NEWLINE):
             self.advance()
+
+    def parse_type_params(self) -> List[TypeParameter]:
+        """Parse optional type parameters: <T, U, ...>"""
+        if not self.match(TokenType.LT):
+            return []
+
+        self.advance()  # consume '<'
+        params = []
+
+        # Parse first type parameter
+        params.append(self._parse_single_type_param())
+
+        # Parse additional type parameters
+        while self.match(TokenType.COMMA):
+            self.advance()
+            params.append(self._parse_single_type_param())
+
+        self.expect(TokenType.GT, "Expected '>' after type parameters")
+        return params
+
+    def _parse_single_type_param(self) -> TypeParameter:
+        """Parse a single type parameter: T or T: Bound + OtherBound"""
+        start = self.current()
+        name_token = self.expect(TokenType.IDENT, "Expected type parameter name")
+
+        # For now, skip bounds (Phase 3)
+        bounds = []
+
+        return TypeParameter(
+            name=name_token.value,
+            bounds=bounds,
+            line=start.line,
+            column=start.column
+        )
 
     def parse(self) -> Program:
         structs = []
@@ -121,11 +155,37 @@ class Parser:
             self.expect(TokenType.RPAREN)
             return SawType(TypeKind.TUPLE, element_types=element_types)
         elif token.type == TokenType.IDENT:
-            # Struct type (user-defined)
+            # Could be a struct, enum, or type parameter
+            # The type checker will disambiguate
             self.advance()
-            return SawType(TypeKind.STRUCT, struct_name=token.value)
+            name = token.value
+
+            # Check for type arguments: Box<Int>, Pair<A, B>
+            type_args = None
+            if self.match(TokenType.LT):
+                type_args = self._parse_type_args()
+
+            # For now, parse as STRUCT - type checker will determine if it's
+            # actually a type parameter or enum
+            return SawType(TypeKind.STRUCT, struct_name=name, type_args=type_args)
         else:
             self.error(f"Expected type, got {token.type.name}")
+
+    def _parse_type_args(self) -> List[SawType]:
+        """Parse type arguments: <Int, String, ...>"""
+        self.expect(TokenType.LT)
+        type_args = []
+
+        # Parse first type argument
+        type_args.append(self.parse_type())
+
+        # Parse additional type arguments
+        while self.match(TokenType.COMMA):
+            self.advance()
+            type_args.append(self.parse_type())
+
+        self.expect(TokenType.GT, "Expected '>' after type arguments")
+        return type_args
 
     def parse_function(self) -> Function:
         start = self.current()
@@ -133,6 +193,9 @@ class Parser:
 
         name_token = self.expect(TokenType.IDENT, "Expected function name")
         name = name_token.value
+
+        # Parse optional type parameters: <T, U>
+        type_params = self.parse_type_params()
 
         self.expect(TokenType.LPAREN)
         parameters, _ = self.parse_parameters()  # Ignore self_mutable for regular functions
@@ -152,6 +215,7 @@ class Parser:
             parameters=parameters,
             return_type=return_type,
             body=body,
+            type_params=type_params,
             line=start.line,
             column=start.column
         )
@@ -729,13 +793,33 @@ class Parser:
 
         elif self.match(TokenType.IDENT):
             self.advance()
+            # Check for generic function call: name<Type>(args)
+            # We need to carefully handle the ambiguity between:
+            #   foo<Int>(x)  - generic call
+            #   foo < bar    - comparison
+            type_args = None
+            if self.match(TokenType.LT):
+                # Try to parse as type arguments using backtracking
+                saved_pos = self.pos
+                try:
+                    type_args = self._parse_type_args()
+                    # Only keep type_args if followed by '(' (function call)
+                    if not self.match(TokenType.LPAREN):
+                        # Not a function call, restore position
+                        self.pos = saved_pos
+                        type_args = None
+                except SyntaxError:
+                    # Failed to parse type args, restore position
+                    self.pos = saved_pos
+                    type_args = None
+
             # Check for function call or struct initialization
             if self.match(TokenType.LPAREN):
                 # Peek ahead to see if this is struct init (name: value) or function call
                 if self.peek(1).type == TokenType.IDENT and self.peek(2).type == TokenType.COLON:
                     return self.parse_struct_init(token)
                 else:
-                    return self.parse_function_call(token)
+                    return self.parse_function_call(token, type_args)
             return Identifier(name=token.value, line=token.line, column=token.column)
 
         elif self.match(TokenType.LPAREN):
@@ -815,13 +899,14 @@ class Parser:
             value = self.parse_expression()
             return Argument(value=value, name=None)
 
-    def parse_function_call(self, name_token: Token) -> FunctionCall:
+    def parse_function_call(self, name_token: Token, type_args: List[SawType] = None) -> FunctionCall:
         self.expect(TokenType.LPAREN)
         arguments = self.parse_arguments()
 
         return FunctionCall(
             name=name_token.value,
             arguments=arguments,
+            type_args=type_args,
             line=name_token.line,
             column=name_token.column
         )

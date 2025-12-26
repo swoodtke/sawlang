@@ -17,7 +17,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    SawType, TypeKind, Parameter, Argument
+    SawType, TypeKind, Parameter, Argument, TypeParameter
 )
 from errors import ErrorReporter, ErrorKind
 
@@ -37,6 +37,7 @@ class FunctionInfo:
     param_types: List[SawType]
     return_type: SawType
     param_names: List[str]
+    type_params: List[TypeParameter] = field(default_factory=list)  # For generic functions
 
 
 @dataclass
@@ -244,11 +245,17 @@ class TypeChecker:
             )
             return
 
-        # Resolve types before registering
-        param_types = [self._resolve_type(p.type) for p in func.parameters]
-        param_names = [p.name for p in func.parameters]
-        resolved_return_type = self._resolve_type(func.return_type)
-        info = FunctionInfo(param_types, resolved_return_type, param_names)
+        # For generic functions, don't resolve types yet (they may contain type params)
+        if func.type_params:
+            param_types = [p.type for p in func.parameters]
+            param_names = [p.name for p in func.parameters]
+            info = FunctionInfo(param_types, func.return_type, param_names, func.type_params)
+        else:
+            # Resolve types before registering
+            param_types = [self._resolve_type(p.type) for p in func.parameters]
+            param_names = [p.name for p in func.parameters]
+            resolved_return_type = self._resolve_type(func.return_type)
+            info = FunctionInfo(param_types, resolved_return_type, param_names)
         self.functions[func.name] = info
 
     def _register_extension(self, extension: Extension):
@@ -401,6 +408,10 @@ class TypeChecker:
 
     def _check_function(self, func: Function):
         """Type check a function body."""
+        # Skip type checking generic function bodies - they'll be checked at instantiation
+        if func.type_params:
+            return
+
         self.current_function = func
         self.found_return_with_value = False  # Reset for each function
 
@@ -961,18 +972,61 @@ class TypeChecker:
             )
             return None
 
+        # Handle generic functions
+        if func_info.type_params:
+            # Generic function - require type arguments
+            if not expr.type_args:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"generic function `{expr.name}` requires type arguments",
+                    expr.line, expr.column,
+                    hint=f"use `{expr.name}<Type>(...)`"
+                )
+                return None
+
+            # Check type argument count
+            if len(expr.type_args) != len(func_info.type_params):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"function `{expr.name}` expects {len(func_info.type_params)} type argument(s), "
+                    f"but {len(expr.type_args)} were given",
+                    expr.line, expr.column
+                )
+                return None
+
+            # Build type substitution map
+            type_map: Dict[str, SawType] = {}
+            for type_param, type_arg in zip(func_info.type_params, expr.type_args):
+                # Resolve the type argument
+                resolved_arg = self._resolve_type(type_arg)
+                type_map[type_param.name] = resolved_arg
+
+            # Substitute type parameters in param types and return type
+            param_types = [self._substitute_type(t, type_map) for t in func_info.param_types]
+            return_type = self._substitute_type(func_info.return_type, type_map)
+        else:
+            # Non-generic function
+            if expr.type_args:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"function `{expr.name}` is not generic but was called with type arguments",
+                    expr.line, expr.column
+                )
+            param_types = func_info.param_types
+            return_type = func_info.return_type
+
         # Check argument count
-        if len(expr.arguments) != len(func_info.param_types):
+        if len(expr.arguments) != len(param_types):
             self.reporter.error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
-                f"function `{expr.name}` takes {len(func_info.param_types)} argument(s), "
+                f"function `{expr.name}` takes {len(param_types)} argument(s), "
                 f"but {len(expr.arguments)} were given",
                 expr.line, expr.column
             )
-            return func_info.return_type
+            return return_type
 
         # Check argument types
-        for i, (arg, expected_type) in enumerate(zip(expr.arguments, func_info.param_types)):
+        for i, (arg, expected_type) in enumerate(zip(expr.arguments, param_types)):
             arg_type = self._check_expression(arg.value)
             if arg_type and not self._types_compatible(arg_type, expected_type):
                 param_name = func_info.param_names[i]
@@ -982,7 +1036,7 @@ class TypeChecker:
                     arg.value.line, arg.value.column
                 )
 
-        return func_info.return_type
+        return return_type
 
     def _check_if_expr(self, expr: IfExpr) -> Optional[SawType]:
         """Check an if expression."""
@@ -1634,6 +1688,35 @@ class TypeChecker:
             # Recursively resolve tuple element types
             resolved_elements = [self._resolve_type(t) for t in saw_type.element_types]
             return SawType(TypeKind.TUPLE, element_types=resolved_elements)
+        return saw_type
+
+    def _substitute_type(self, saw_type: SawType, type_map: Dict[str, SawType]) -> SawType:
+        """Substitute type parameters with concrete types.
+
+        Args:
+            saw_type: The type that may contain type parameters
+            type_map: Mapping from type parameter names to concrete types
+        """
+        if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
+            # Check if this is a type parameter
+            if saw_type.struct_name in type_map:
+                return type_map[saw_type.struct_name]
+            # Check for generic type with type args
+            if saw_type.type_args:
+                substituted_args = [self._substitute_type(t, type_map) for t in saw_type.type_args]
+                return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=substituted_args)
+        elif saw_type.kind == TypeKind.TYPE_PARAM and saw_type.type_param_name:
+            # Type parameter - substitute if we have a mapping
+            if saw_type.type_param_name in type_map:
+                return type_map[saw_type.type_param_name]
+        elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
+            # Recursively substitute in optional inner type
+            substituted_inner = self._substitute_type(saw_type.inner_type, type_map)
+            return SawType(TypeKind.OPTIONAL, inner_type=substituted_inner)
+        elif saw_type.kind == TypeKind.TUPLE and saw_type.element_types:
+            # Recursively substitute in tuple element types
+            substituted_elements = [self._substitute_type(t, type_map) for t in saw_type.element_types]
+            return SawType(TypeKind.TUPLE, element_types=substituted_elements)
         return saw_type
 
     def _types_compatible(self, a: Optional[SawType], b: Optional[SawType]) -> bool:

@@ -1,0 +1,29 @@
+// Generic function with multiple type parameters
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 20
+// 30
+// 5
+
+func first<A, B>(a: A, b: B) -> A {
+    a
+}
+
+func second<A, B>(a: A, b: B) -> B {
+    b
+}
+
+func main() {
+    let x = first<Int, Int>(10, 20)
+    print(x)
+
+    let y = second<Int, Int>(10, 20)
+    print(y)
+
+    let z = first<Int, Bool>(30, true)
+    print(z)
+
+    let w = second<Bool, Int>(false, 5)
+    print(w)
+}

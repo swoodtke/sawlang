@@ -17,6 +17,7 @@ class TypeKind(Enum):
     STRUCT = auto()
     OPTIONAL = auto()
     ENUM = auto()
+    TYPE_PARAM = auto()  # For generic type parameters like T, U
 
 
 @dataclass
@@ -30,18 +31,39 @@ class SawType:
     inner_type: Optional['SawType'] = None
     # For enum types, this holds the enum name
     enum_name: Optional[str] = None
+    # For generic types, this holds the type arguments (e.g., Box<Int> has type_args=[Int])
+    type_args: Optional[List['SawType']] = None
+    # For type parameters (T, U), this holds the parameter name
+    type_param_name: Optional[str] = None
 
     def __repr__(self):
         if self.kind == TypeKind.TUPLE and self.element_types:
             types_str = ", ".join(str(t) for t in self.element_types)
             return f"({types_str})"
         if self.kind == TypeKind.STRUCT and self.struct_name:
+            if self.type_args:
+                args_str = ", ".join(str(t) for t in self.type_args)
+                return f"{self.struct_name}<{args_str}>"
             return self.struct_name
         if self.kind == TypeKind.OPTIONAL and self.inner_type:
             return f"{self.inner_type}?"
         if self.kind == TypeKind.ENUM and self.enum_name:
+            if self.type_args:
+                args_str = ", ".join(str(t) for t in self.type_args)
+                return f"{self.enum_name}<{args_str}>"
             return self.enum_name
+        if self.kind == TypeKind.TYPE_PARAM and self.type_param_name:
+            return self.type_param_name
         return self.kind.name
+
+
+@dataclass
+class TypeParameter:
+    """A type parameter in a generic function, struct, or enum (e.g., T in func foo<T>)."""
+    name: str
+    bounds: List[str] = field(default_factory=list)  # Interface bounds (Phase 3)
+    line: int = 0
+    column: int = 0
 
 
 # Base AST Node - no default values to avoid inheritance issues
@@ -121,9 +143,10 @@ class UnaryOp(Expression):
 
 @dataclass
 class FunctionCall(Expression):
-    """Function call: name(args). Arguments can be positional or named."""
+    """Function call: name(args) or name<T>(args). Arguments can be positional or named."""
     name: str
     arguments: List[Argument]
+    type_args: Optional[List['SawType']] = None  # For generic calls: identity<Int>(x)
     line: int = 0
     column: int = 0
 
@@ -416,6 +439,7 @@ class Function(ASTNode):
     parameters: List[Parameter]
     return_type: SawType
     body: Block
+    type_params: List[TypeParameter] = field(default_factory=list)  # Generic type parameters
     line: int = 0
     column: int = 0
 

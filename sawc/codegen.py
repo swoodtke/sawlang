@@ -17,8 +17,9 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    SawType, TypeKind, Argument
+    SawType, TypeKind, Argument, TypeParameter
 )
+import copy
 
 
 class CodeGenerator:
@@ -58,6 +59,14 @@ class CodeGenerator:
         # result_storage is None for statement context, alloca for expression context
         self.loop_stack: List[tuple] = []
 
+        # Generics support
+        # Maps type parameter names to concrete SawTypes during instantiation
+        self.type_param_context: dict[str, SawType] = {}
+        # Stores original AST of generic functions for later instantiation
+        self.generic_functions: dict[str, Function] = {}
+        # Tracks which monomorphized functions have been generated
+        self.generated_instantiations: set[str] = set()
+
         # Declare external functions (printf for print)
         self._declare_external_functions()
 
@@ -88,9 +97,12 @@ class CodeGenerator:
             element_llvm_types = [self._get_llvm_type(t) for t in saw_type.element_types]
             return ir.LiteralStructType(element_llvm_types)
         elif saw_type.kind == TypeKind.STRUCT:
-            # Look up the struct type (might actually be an enum)
+            # Look up the struct type (might actually be an enum or type param)
             if saw_type.struct_name is None:
                 raise ValueError("Struct type missing name")
+            # Check if it's a type parameter in the current context
+            if saw_type.struct_name in self.type_param_context:
+                return self._get_llvm_type(self.type_param_context[saw_type.struct_name])
             # Check if it's actually an enum
             if saw_type.struct_name in self.enum_types:
                 return self.enum_types[saw_type.struct_name][0]  # Return LLVM type
@@ -112,6 +124,13 @@ class CodeGenerator:
             if saw_type.enum_name not in self.enum_types:
                 raise ValueError(f"Undefined enum: {saw_type.enum_name}")
             return self.enum_types[saw_type.enum_name][0]  # Return LLVM type
+        elif saw_type.kind == TypeKind.TYPE_PARAM:
+            # Look up the type parameter in the current context
+            if saw_type.type_param_name is None:
+                raise ValueError("Type parameter missing name")
+            if saw_type.type_param_name not in self.type_param_context:
+                raise ValueError(f"Unbound type parameter: {saw_type.type_param_name}")
+            return self._get_llvm_type(self.type_param_context[saw_type.type_param_name])
         else:
             raise ValueError(f"Unknown type: {saw_type}")
 
@@ -143,17 +162,22 @@ class CodeGenerator:
         for enum in program.enums:
             self._register_enum(enum)
 
-        # Third pass: declare all functions
+        # Third pass: declare all functions (skip generic functions)
         for func in program.functions:
-            self._declare_function(func)
+            if func.type_params:
+                # Store generic function for later instantiation
+                self.generic_functions[func.name] = func
+            else:
+                self._declare_function(func)
 
         # Declare extension methods
         for extension in program.extensions:
             self._declare_extension_methods(extension)
 
-        # Fourth pass: generate function bodies
+        # Fourth pass: generate function bodies (skip generic functions)
         for func in program.functions:
-            self._generate_function(func)
+            if not func.type_params:
+                self._generate_function(func)
 
         # Generate extension method bodies
         for extension in program.extensions:
@@ -230,17 +254,104 @@ class CodeGenerator:
         else:
             return 8  # Default conservative estimate
 
-    def _declare_function(self, func: Function):
+    def _declare_function(self, func: Function, name_override: str = None):
+        """Declare a function. If name_override is provided, use it instead of func.name."""
+        func_name = name_override if name_override else func.name
         param_types = [self._get_llvm_type(p.type) for p in func.parameters]
         return_type = self._get_llvm_type(func.return_type)
 
         # Main function should return int for proper exit code
-        if func.name == "main" and func.return_type.kind == TypeKind.VOID:
+        if func_name == "main" and func.return_type.kind == TypeKind.VOID:
             return_type = ir.IntType(32)
 
         func_type = ir.FunctionType(return_type, param_types)
-        llvm_func = ir.Function(self.module, func_type, name=func.name)
-        self.functions[func.name] = llvm_func
+        llvm_func = ir.Function(self.module, func_type, name=func_name)
+        self.functions[func_name] = llvm_func
+
+    def _mangle_generic_name(self, func_name: str, type_args: List[SawType]) -> str:
+        """Generate mangled name for generic instantiation: identity$Int or swap$Int_String"""
+        type_names = []
+        for t in type_args:
+            type_names.append(self._type_to_string(t))
+        return f"{func_name}${'_'.join(type_names)}"
+
+    def _type_to_string(self, saw_type: SawType) -> str:
+        """Convert a SawType to a string representation for name mangling."""
+        if saw_type.kind == TypeKind.INT:
+            return "Int"
+        elif saw_type.kind == TypeKind.FLOAT:
+            return "Float"
+        elif saw_type.kind == TypeKind.BOOL:
+            return "Bool"
+        elif saw_type.kind == TypeKind.STRING:
+            return "String"
+        elif saw_type.kind == TypeKind.VOID:
+            return "Void"
+        elif saw_type.kind == TypeKind.TUPLE:
+            if saw_type.element_types:
+                inner = "_".join(self._type_to_string(t) for t in saw_type.element_types)
+                return f"Tuple_{inner}"
+            return "Tuple"
+        elif saw_type.kind == TypeKind.STRUCT:
+            return saw_type.struct_name
+        elif saw_type.kind == TypeKind.OPTIONAL:
+            if saw_type.inner_type:
+                return f"Opt_{self._type_to_string(saw_type.inner_type)}"
+            return "Opt"
+        elif saw_type.kind == TypeKind.ENUM:
+            return saw_type.enum_name
+        else:
+            return "Unknown"
+
+    def _instantiate_generic_function(self, func_name: str, type_args: List[SawType]) -> str:
+        """Instantiate a generic function with concrete type arguments.
+
+        Returns the mangled name of the instantiated function.
+        """
+        if func_name not in self.generic_functions:
+            raise ValueError(f"Unknown generic function: {func_name}")
+
+        mangled_name = self._mangle_generic_name(func_name, type_args)
+
+        # Check if already instantiated
+        if mangled_name in self.generated_instantiations:
+            return mangled_name
+
+        # Get the generic function template
+        generic_func = self.generic_functions[func_name]
+
+        # Set up type parameter context
+        if len(type_args) != len(generic_func.type_params):
+            raise ValueError(
+                f"Generic function {func_name} expects {len(generic_func.type_params)} "
+                f"type arguments, got {len(type_args)}"
+            )
+
+        # Save current state (we might be in the middle of generating another function)
+        saved_builder = self.builder
+        saved_variables = self.variables.copy()
+        old_context = self.type_param_context.copy()
+
+        # Build type parameter mapping
+        for type_param, type_arg in zip(generic_func.type_params, type_args):
+            self.type_param_context[type_param.name] = type_arg
+
+        try:
+            # Declare the instantiated function
+            self._declare_function(generic_func, name_override=mangled_name)
+
+            # Generate the function body
+            self._generate_function(generic_func, name_override=mangled_name)
+
+            # Mark as generated
+            self.generated_instantiations.add(mangled_name)
+        finally:
+            # Restore state
+            self.type_param_context = old_context
+            self.builder = saved_builder
+            self.variables = saved_variables
+
+        return mangled_name
 
     def _mangle_method_name(self, struct_name: str, method_name: str, param_names: Optional[List[str]] = None) -> str:
         """Generate mangled name for methods: StructName_methodName
@@ -369,8 +480,10 @@ class CodeGenerator:
                 default = ir.Constant(struct_type, ir.Undefined)
                 self.builder.ret(default)
 
-    def _generate_function(self, func: Function):
-        llvm_func = self.functions[func.name]
+    def _generate_function(self, func: Function, name_override: str = None):
+        """Generate a function body. If name_override is provided, use it instead of func.name."""
+        func_name = name_override if name_override else func.name
+        llvm_func = self.functions[func_name]
 
         # Create entry block
         block = llvm_func.append_basic_block(name="entry")
@@ -857,11 +970,22 @@ class CodeGenerator:
         if expr.name == "print":
             return self._generate_print(expr.arguments)
 
-        # Look up user-defined function
-        if expr.name not in self.functions:
-            raise ValueError(f"Undefined function: {expr.name}")
+        # Check if this is a call to a generic function
+        if expr.name in self.generic_functions:
+            if not expr.type_args:
+                raise ValueError(
+                    f"Generic function {expr.name} requires type arguments. "
+                    f"Use {expr.name}<Type>(...)"
+                )
+            # Instantiate the generic function
+            mangled_name = self._instantiate_generic_function(expr.name, expr.type_args)
+            func = self.functions[mangled_name]
+        else:
+            # Look up regular user-defined function
+            if expr.name not in self.functions:
+                raise ValueError(f"Undefined function: {expr.name}")
+            func = self.functions[expr.name]
 
-        func = self.functions[expr.name]
         # Arguments are now Argument objects with .value
         args = [self._generate_expression(arg.value) for arg in expr.arguments]
         return self.builder.call(func, args, name="calltmp")
