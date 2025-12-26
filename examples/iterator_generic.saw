@@ -1,0 +1,60 @@
+// Test Iterator interface with generic functions
+// EXPECT: 6
+// EXPECT: 15
+
+// Define the Iterator interface
+interface Iterator {
+    type Item
+    func next(var self) -> Item?
+}
+
+// Define a simple Range struct
+struct Range {
+    current: Int
+    end: Int
+}
+
+extension Range {
+    init(start: Int, end: Int) -> Range {
+        Range(current: start, end: end)
+    }
+}
+
+extension Range: Iterator {
+    type Item = Int
+
+    func next(var self) -> Int? {
+        if self.current < self.end {
+            let result = self.current
+            self.current = self.current + 1
+            result
+        } else {
+            None
+        }
+    }
+}
+
+// Sum function for Range (since we can't have var params on generics yet)
+extension Range {
+    func sum(var self) -> Int {
+        var total = 0
+        while {
+            if let value = self.next() {
+                total = total + value
+            } else {
+                break
+            }
+        }
+        total
+    }
+}
+
+func main() {
+    // Sum 0..4 = 0+1+2+3 = 6
+    var r1 = Range(start: 0, end: 4)
+    print(r1.sum())
+
+    // Sum 0..6 = 0+1+2+3+4+5 = 15
+    var r2 = Range(start: 0, end: 6)
+    print(r2.sum())
+}

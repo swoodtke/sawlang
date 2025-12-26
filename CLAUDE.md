@@ -128,7 +128,7 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 63 tests including success cases and error validation
+**Test Coverage:** 65 tests including success cases and error validation
 
 ## Current Features
 

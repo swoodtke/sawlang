@@ -1574,9 +1574,8 @@ class CodeGenerator:
         # Generate then branch
         self.builder.position_at_start(then_bb)
         then_val = self._generate_block(expr.then_branch)
-        if not self.builder.block.is_terminated:
-            self.builder.branch(merge_bb)
-        then_bb = self.builder.block
+        then_bb_end = self.builder.block  # May have changed due to nested control flow
+        then_terminated = self.builder.block.is_terminated
 
         # Generate else branch
         self.builder.position_at_start(else_bb)
@@ -1584,9 +1583,86 @@ class CodeGenerator:
             else_val = self._generate_block(expr.else_branch)
         else:
             else_val = None
-        if not self.builder.block.is_terminated:
+        else_bb_end = self.builder.block
+        else_terminated = self.builder.block.is_terminated
+
+        # Determine result type and wrap values if needed
+        result_alloca = None
+        if then_val is not None and else_val is not None:
+            if then_val.type != else_val.type:
+                # Check if we need to wrap one in Optional
+                then_is_optional = (isinstance(then_val.type, ir.LiteralStructType) and
+                                   len(then_val.type.elements) == 2 and
+                                   isinstance(then_val.type.elements[0], ir.IntType) and
+                                   then_val.type.elements[0].width == 1)
+                else_is_optional = (isinstance(else_val.type, ir.LiteralStructType) and
+                                   len(else_val.type.elements) == 2 and
+                                   isinstance(else_val.type.elements[0], ir.IntType) and
+                                   else_val.type.elements[0].width == 1)
+
+                if else_is_optional and then_val.type == else_val.type.elements[1]:
+                    # else is Optional, then is inner type - wrap then
+                    optional_type = else_val.type
+
+                    # Create alloca for result before branches
+                    self.builder.position_at_start(func.entry_basic_block)
+                    result_alloca = self.builder.alloca(optional_type, name="if_result")
+                    self.builder.position_at_end(func.entry_basic_block)
+
+                    # Go back to then block and wrap + store
+                    self.builder.position_at_end(then_bb_end)
+                    if not then_terminated:
+                        wrapped_then = ir.Constant(optional_type, ir.Undefined)
+                        wrapped_then = self.builder.insert_value(wrapped_then, ir.Constant(ir.IntType(1), 1), 0)
+                        wrapped_then = self.builder.insert_value(wrapped_then, then_val, 1, name="some_then")
+                        self.builder.store(wrapped_then, result_alloca)
+                        self.builder.branch(merge_bb)
+
+                    # Go to else block and store
+                    self.builder.position_at_end(else_bb_end)
+                    if not else_terminated:
+                        self.builder.store(else_val, result_alloca)
+                        self.builder.branch(merge_bb)
+
+                    # Load result at merge
+                    self.builder.position_at_start(merge_bb)
+                    return self.builder.load(result_alloca, name="iftmp")
+
+                elif then_is_optional and else_val.type == then_val.type.elements[1]:
+                    # then is Optional, else is inner type - wrap else
+                    optional_type = then_val.type
+
+                    # Create alloca for result
+                    self.builder.position_at_start(func.entry_basic_block)
+                    result_alloca = self.builder.alloca(optional_type, name="if_result")
+                    self.builder.position_at_end(func.entry_basic_block)
+
+                    # Go to then block and store
+                    self.builder.position_at_end(then_bb_end)
+                    if not then_terminated:
+                        self.builder.store(then_val, result_alloca)
+                        self.builder.branch(merge_bb)
+
+                    # Go to else block and wrap + store
+                    self.builder.position_at_end(else_bb_end)
+                    if not else_terminated:
+                        wrapped_else = ir.Constant(optional_type, ir.Undefined)
+                        wrapped_else = self.builder.insert_value(wrapped_else, ir.Constant(ir.IntType(1), 1), 0)
+                        wrapped_else = self.builder.insert_value(wrapped_else, else_val, 1, name="some_else")
+                        self.builder.store(wrapped_else, result_alloca)
+                        self.builder.branch(merge_bb)
+
+                    # Load result at merge
+                    self.builder.position_at_start(merge_bb)
+                    return self.builder.load(result_alloca, name="iftmp")
+
+        # Normal case - add branches if not terminated
+        if not then_terminated:
+            self.builder.position_at_end(then_bb_end)
             self.builder.branch(merge_bb)
-        else_bb = self.builder.block
+        if not else_terminated:
+            self.builder.position_at_end(else_bb_end)
+            self.builder.branch(merge_bb)
 
         # Merge block
         self.builder.position_at_start(merge_bb)
@@ -1595,8 +1671,8 @@ class CodeGenerator:
         if then_val is not None and else_val is not None:
             if then_val.type == else_val.type:
                 phi = self.builder.phi(then_val.type, name="iftmp")
-                phi.add_incoming(then_val, then_bb)
-                phi.add_incoming(else_val, else_bb)
+                phi.add_incoming(then_val, then_bb_end)
+                phi.add_incoming(else_val, else_bb_end)
                 return phi
 
         return then_val
@@ -1985,6 +2061,14 @@ class CodeGenerator:
             # If object is a variable, pass its alloca directly
             if isinstance(expr.object, Identifier) and expr.object.name in self.variables:
                 self_arg = self.variables[expr.object.name]
+            elif isinstance(expr.object, SelfExpr) and "self" in self.variables:
+                # For 'self.method()' in a var self method, pass self's pointer directly
+                self_ptr = self.variables["self"]
+                # If self is already a pointer (var self method), use it directly
+                if isinstance(self_ptr.type, ir.PointerType):
+                    self_arg = self_ptr
+                else:
+                    self_arg = self_ptr  # It's an alloca, pass it
             else:
                 # Otherwise create a temporary
                 self_alloca = self.builder.alloca(obj_val.type, name="self_temp")

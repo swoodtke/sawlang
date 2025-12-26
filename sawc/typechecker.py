@@ -1487,6 +1487,15 @@ class TypeChecker:
                     expr.line, expr.column
                 )
 
+            # If one branch is None literal, the result type is Optional<other>
+            if then_type and else_type:
+                if else_type.kind == TypeKind.OPTIONAL and else_type.inner_type is None:
+                    # else is None, result is Optional<then_type>
+                    return SawType(TypeKind.OPTIONAL, inner_type=then_type)
+                if then_type.kind == TypeKind.OPTIONAL and then_type.inner_type is None:
+                    # then is None, result is Optional<else_type>
+                    return SawType(TypeKind.OPTIONAL, inner_type=else_type)
+
             return then_type or else_type
         else:
             return then_type
@@ -2237,6 +2246,15 @@ class TypeChecker:
         if a.kind == TypeKind.OPTIONAL and a.inner_type is None and b.kind == TypeKind.OPTIONAL:
             return True
         if b.kind == TypeKind.OPTIONAL and b.inner_type is None and a.kind == TypeKind.OPTIONAL:
+            return True
+
+        # None literal is compatible with any type that can be wrapped in optional
+        # This allows: if cond { value } else { None } to work
+        if b.kind == TypeKind.OPTIONAL and b.inner_type is None:
+            # None can match any type (the result will be Optional<a>)
+            return True
+        if a.kind == TypeKind.OPTIONAL and a.inner_type is None:
+            # None can match any type (the result will be Optional<b>)
             return True
 
         # Allow implicit wrapping: T is compatible with T?
