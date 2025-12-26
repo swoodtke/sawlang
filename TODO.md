@@ -3,7 +3,7 @@
 ## Current Status
 
 **Compiler Stats:** ~8,000 lines of Python across 7 modules
-**Test Coverage:** 83 tests
+**Test Coverage:** 102 tests
 
 ---
 
@@ -38,6 +38,9 @@
 - [x] Function types: `(Int) -> Int`
 - [x] Trailing closure syntax: `arr.map { $0 * 2 }`
 - [x] Closure variable capture (copy semantics)
+- [x] Resource management: `Deinit`, `CustomCopy`, `NoCopy` interfaces
+- [x] Move semantics: `move` keyword for ownership transfer
+- [x] Automatic scope-based cleanup with containment rules
 
 ---
 
@@ -301,16 +304,22 @@
 
 ## Priority 7: Memory Management
 
-### Move Semantics
-- [ ] `move` keyword for explicit ownership transfer
-- [ ] `@move` attribute for move-only types
+### Resource Management Interfaces ✅ COMPLETE
+- [x] `Deinit` interface - automatic cleanup at scope exit
+- [x] `CustomCopy` interface - custom copy logic (e.g., reference counting)
+- [x] `NoCopy` interface - move-only types (cannot be copied)
+- [x] `move` keyword for explicit ownership transfer
+- [x] Containment rules - structs containing Deinit/CustomCopy/NoCopy fields must implement the interface
+- [x] Automatic field deinit - compiler calls deinit on fields after user's deinit code
+- [x] Automatic field copy - compiler calls copy() on CustomCopy fields during struct init
+- [x] Manual deinit disallowed - calling obj.deinit() is a compile error
 
-### Shared Ownership
+### Shared Ownership (deferred - needs heap allocation)
 - [ ] `Box<T>` - heap allocation
 - [ ] `Rc<T>` - reference counting
 - [ ] `Arc<T>` - atomic reference counting
 
-### Synchronization
+### Synchronization (deferred)
 - [ ] `Mutex<T>`
 - [ ] `RwLock<T>`
 - [ ] Lock guards

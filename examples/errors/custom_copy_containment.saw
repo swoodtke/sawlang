@@ -1,0 +1,25 @@
+// Error: struct contains CustomCopy field but doesn't implement CustomCopy
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: contains CustomCopy field
+
+struct RefCounted {
+    count: Int
+}
+
+extension RefCounted: CustomCopy {
+    func copy(self) -> RefCounted {
+        RefCounted(count: self.count + 1)
+    }
+    func deinit(var self) {
+    }
+}
+
+// Container contains a CustomCopy field but doesn't implement CustomCopy itself
+struct Container {
+    data: RefCounted
+}
+
+func main() {
+    let c = Container(data: RefCounted(count: 1))
+    print(c.data.count)
+}

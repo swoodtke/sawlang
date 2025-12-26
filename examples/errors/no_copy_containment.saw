@@ -1,0 +1,22 @@
+// Error: struct contains NoCopy field but doesn't implement NoCopy
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: contains NoCopy field
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(var self) {
+    }
+}
+
+// Connection contains a NoCopy field but doesn't implement NoCopy itself
+struct Connection {
+    handle: FileHandle
+}
+
+func main() {
+    let c = Connection(handle: FileHandle(fd: 1))
+    print(c.handle.fd)
+}

@@ -1,0 +1,18 @@
+// Error: cannot call deinit manually
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `deinit` manually
+
+struct Resource {
+    value: Int
+}
+
+extension Resource: Deinit {
+    func deinit(var self) {
+        print("cleanup")
+    }
+}
+
+func main() {
+    var r = Resource(value: 42)
+    r.deinit()  // Error: manual deinit not allowed
+}

@@ -13,7 +13,6 @@ extension Resource: Deinit {
 }
 
 func main() {
-    var r = Resource(value: 42)
-    // Manually call deinit for now (automatic will come in Phase 5)
-    r.deinit()
+    let r = Resource(value: 42)
+    // deinit is called automatically when r goes out of scope
 }

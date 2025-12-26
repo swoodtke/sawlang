@@ -102,6 +102,8 @@ class CodeGenerator:
         self.type_cleanup_behavior: dict[str, str] = {}
         # Track moved variables - these should not be cleaned up or accessed
         self.moved_variables: set[str] = set()
+        # Struct field types: struct_name -> {field_name: SawType}
+        self.struct_field_types: dict[str, dict[str, SawType]] = {}
 
         # Declare external functions (printf for print)
         self._declare_external_functions()
@@ -304,6 +306,41 @@ class CodeGenerator:
         # copy(self) takes self by value (immutable), returns Self
         return self.builder.call(copy_fn, [value], name="copy_result")
 
+    def _needs_copy_for_struct_init(self, value_expr, field_type: SawType) -> bool:
+        """Check if a value expression needs copy() called during struct initialization.
+
+        We need to call copy() when:
+        1. The field type implements CustomCopy
+        2. The value comes from an existing variable (Identifier) or field access (MemberAccess)
+
+        We don't need copy() for:
+        - Fresh struct/enum construction (new values don't need copying)
+        - Literals (they don't have existing ownership)
+        - Move expressions (ownership is transferred)
+        """
+        # Check if the field type implements CustomCopy
+        behavior = self._get_cleanup_behavior(field_type)
+        if behavior != "custom_copy":
+            return False
+
+        # Check if the value comes from an existing binding that needs copying
+        # Note: ast_nodes classes are already imported at module level
+
+        if isinstance(value_expr, MoveExpr):
+            # Move expressions transfer ownership, no copy needed
+            return False
+
+        if isinstance(value_expr, Identifier):
+            # Identifier refers to an existing variable - needs copy
+            return True
+
+        if isinstance(value_expr, MemberAccess):
+            # Member access (e.g., self.field) - needs copy
+            return True
+
+        # Fresh construction (struct init, enum init, literals) doesn't need copy
+        return False
+
     def _cleanup_scope(self, scope_vars: List[tuple[str, SawType]]):
         """Generate cleanup code for all variables in a scope (in reverse declaration order)."""
         for var_name, saw_type in reversed(scope_vars):
@@ -432,6 +469,9 @@ class CodeGenerator:
         # Store the type and field order for later use
         field_order = [field.name for field in struct.fields]
         self.struct_types[struct.name] = (llvm_struct_type, field_order)
+
+        # Store field types (SawType) for resource management
+        self.struct_field_types[struct.name] = {field.name: field.type for field in struct.fields}
 
     def _register_enum(self, enum: Enum):
         """Register an enum type with LLVM.
@@ -1029,6 +1069,10 @@ class CodeGenerator:
         # Generate method body
         result = self._generate_block(method.body)
 
+        # For deinit methods, auto-call deinit on fields that implement Deinit
+        if method.name == "deinit" and not self.builder.block.is_terminated:
+            self._generate_field_deinit_calls(struct_name)
+
         # Handle return
         if method.return_type.kind == TypeKind.VOID:
             if not self.builder.block.is_terminated:
@@ -1041,6 +1085,56 @@ class CodeGenerator:
                     # Return default value
                     default = ir.Constant(self._get_llvm_type(method.return_type), 0)
                     self.builder.ret(default)
+
+    def _generate_field_deinit_calls(self, struct_name: str):
+        """Generate deinit calls for all fields that implement Deinit.
+
+        Called at the end of a deinit method to ensure nested resources are cleaned up.
+        Fields are cleaned up in reverse declaration order.
+        """
+        if struct_name not in self.struct_field_types:
+            return
+
+        field_types = self.struct_field_types[struct_name]
+        _, field_order = self.struct_types[struct_name]
+
+        # Get self pointer
+        self_ptr = self.variables.get("self")
+        if self_ptr is None:
+            return
+
+        # Process fields in reverse order
+        for field_name in reversed(field_order):
+            field_type = field_types.get(field_name)
+            if field_type is None:
+                continue
+
+            # Check if this field type needs deinit
+            behavior = self._get_cleanup_behavior(field_type)
+            if behavior == "none":
+                continue
+
+            # Get the field's type name for method lookup
+            type_name = self._get_type_name_for_conformance(field_type)
+            if type_name is None:
+                continue
+
+            # Check if deinit method exists
+            deinit_method_name = self._mangle_method_name(type_name, "deinit")
+            if deinit_method_name not in self.functions:
+                continue
+
+            deinit_fn = self.functions[deinit_method_name]
+
+            # Get pointer to field
+            field_index = field_order.index(field_name)
+            field_ptr = self.builder.gep(self_ptr, [
+                ir.Constant(ir.IntType(32), 0),
+                ir.Constant(ir.IntType(32), field_index)
+            ], name=f"{field_name}_ptr")
+
+            # Call deinit on the field (deinit takes var self = pointer)
+            self.builder.call(deinit_fn, [field_ptr])
 
     def _generate_init_method(self, struct_name: str, method: Method):
         """Generate code for a custom init method."""
@@ -2436,9 +2530,20 @@ class CodeGenerator:
         # Field initialization (original behavior)
         llvm_struct_type, field_order = self.struct_types[struct_name]
 
-        # Create a map from field name to value
-        field_values = {field_name: self._generate_expression(value)
-                       for field_name, value in expr.field_inits}
+        # Get field types for CustomCopy handling
+        field_types = self.struct_field_types.get(struct_name, {})
+
+        # Create a map from field name to value, handling CustomCopy
+        field_values = {}
+        for field_name, value_expr in expr.field_inits:
+            value = self._generate_expression(value_expr)
+
+            # Check if this field needs copy() called
+            field_type = field_types.get(field_name)
+            if field_type and self._needs_copy_for_struct_init(value_expr, field_type):
+                value = self._generate_copy(value, field_type)
+
+            field_values[field_name] = value
 
         # Build the struct value in the correct field order
         struct_val = ir.Constant(llvm_struct_type, ir.Undefined)

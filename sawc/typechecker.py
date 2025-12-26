@@ -49,6 +49,8 @@ class StructInfo:
     name: str
     fields: Dict[str, SawType]  # field_name -> type
     field_order: List[str]  # preserve declaration order
+    line: int = 0
+    column: int = 0
     methods: Dict[str, 'MethodInfo'] = field(default_factory=dict)  # method_name -> info
     type_params: List[TypeParameter] = field(default_factory=list)  # For generic structs
 
@@ -222,6 +224,105 @@ class TypeChecker:
         conformances = self.type_conformances.get(type_name, [])
         return "NoCopy" in conformances
 
+    def _is_custom_copy_type(self, saw_type: SawType) -> bool:
+        """Check if a type implements CustomCopy."""
+        if saw_type is None:
+            return False
+
+        # Get the type name for conformance lookup
+        type_name = None
+        if saw_type.kind == TypeKind.STRUCT:
+            type_name = saw_type.struct_name
+        elif saw_type.kind == TypeKind.ENUM:
+            type_name = saw_type.enum_name
+
+        if type_name is None:
+            return False
+
+        # Check if type conforms to CustomCopy
+        conformances = self.type_conformances.get(type_name, [])
+        return "CustomCopy" in conformances
+
+    def _is_deinit_type(self, saw_type: SawType) -> bool:
+        """Check if a type implements Deinit (directly or through NoCopy/CustomCopy)."""
+        if saw_type is None:
+            return False
+
+        # Get the type name for conformance lookup
+        type_name = None
+        if saw_type.kind == TypeKind.STRUCT:
+            type_name = saw_type.struct_name
+        elif saw_type.kind == TypeKind.ENUM:
+            type_name = saw_type.enum_name
+
+        if type_name is None:
+            return False
+
+        # Check if type conforms to Deinit (directly or via NoCopy/CustomCopy)
+        conformances = self.type_conformances.get(type_name, [])
+        # NoCopy and CustomCopy both inherit from Deinit
+        return "Deinit" in conformances or "NoCopy" in conformances or "CustomCopy" in conformances
+
+    def _check_no_copy_containment(self):
+        """Check that structs containing NoCopy fields also implement NoCopy."""
+        for struct_name, struct_info in self.structs.items():
+            # Skip if struct already implements NoCopy
+            if struct_name in self.type_conformances:
+                if "NoCopy" in self.type_conformances[struct_name]:
+                    continue
+
+            # Check each field
+            for field_name, field_type in struct_info.fields.items():
+                if self._is_no_copy_type(field_type):
+                    self.reporter.error(
+                        ErrorKind.CANNOT_COPY,
+                        f"struct `{struct_name}` contains NoCopy field `{field_name}` of type `{field_type}` but does not implement NoCopy",
+                        struct_info.line, struct_info.column,
+                        hint=f"add `extension {struct_name}: NoCopy {{ func deinit(var self) {{ ... }} }}`"
+                    )
+                    break  # Only report once per struct
+
+    def _check_custom_copy_containment(self):
+        """Check that structs containing CustomCopy fields also implement CustomCopy."""
+        for struct_name, struct_info in self.structs.items():
+            # Skip if struct already implements CustomCopy or NoCopy
+            # (NoCopy types can contain CustomCopy fields since they can't be copied anyway)
+            if struct_name in self.type_conformances:
+                conformances = self.type_conformances[struct_name]
+                if "CustomCopy" in conformances or "NoCopy" in conformances:
+                    continue
+
+            # Check each field
+            for field_name, field_type in struct_info.fields.items():
+                if self._is_custom_copy_type(field_type):
+                    self.reporter.error(
+                        ErrorKind.CANNOT_COPY,
+                        f"struct `{struct_name}` contains CustomCopy field `{field_name}` of type `{field_type}` but does not implement CustomCopy",
+                        struct_info.line, struct_info.column,
+                        hint=f"add `extension {struct_name}: CustomCopy {{ func copy(self) -> {struct_name} {{ ... }} }}`"
+                    )
+                    break  # Only report once per struct
+
+    def _check_deinit_containment(self):
+        """Check that structs containing Deinit fields also implement Deinit."""
+        for struct_name, struct_info in self.structs.items():
+            # Skip if struct already implements Deinit (or NoCopy/CustomCopy which imply Deinit)
+            if struct_name in self.type_conformances:
+                conformances = self.type_conformances[struct_name]
+                if "Deinit" in conformances or "NoCopy" in conformances or "CustomCopy" in conformances:
+                    continue
+
+            # Check each field
+            for field_name, field_type in struct_info.fields.items():
+                if self._is_deinit_type(field_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"struct `{struct_name}` contains Deinit field `{field_name}` of type `{field_type}` but does not implement Deinit",
+                        struct_info.line, struct_info.column,
+                        hint=f"add `extension {struct_name}: Deinit {{ func deinit(var self) {{ ... }} }}`"
+                    )
+                    break  # Only report once per struct
+
     def check(self, program: Program) -> bool:
         """Type check the entire program. Returns True if no errors."""
         # First pass: register type definitions (aliases)
@@ -243,6 +344,11 @@ class TypeChecker:
         # Fifth pass: register extensions and their methods
         for extension in program.extensions:
             self._register_extension(extension)
+
+        # Fifth-b pass: check resource management containment rules
+        self._check_no_copy_containment()
+        self._check_custom_copy_containment()
+        self._check_deinit_containment()
 
         # Sixth pass: collect function signatures
         for func in program.functions:
@@ -298,6 +404,8 @@ class TypeChecker:
             name=struct.name,
             fields=fields,
             field_order=field_order,
+            line=struct.line,
+            column=struct.column,
             type_params=struct.type_params
         )
 
@@ -2365,6 +2473,16 @@ class TypeChecker:
             return None
 
         method_info = struct_info.methods[expr.method_name]
+
+        # Disallow manual deinit calls - deinit is called automatically by the compiler
+        if expr.method_name == "deinit":
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot call `deinit` manually; it is called automatically when the value goes out of scope",
+                expr.line, expr.column,
+                hint="use a nested scope or `move` to transfer ownership if you need early cleanup"
+            )
+            return None
 
         # Check argument count (excluding 'self' which is implicit in method calls)
         expected_arg_count = len(method_info.param_types) - 1  # -1 for self

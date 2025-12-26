@@ -1,0 +1,29 @@
+// Test that nested Deinit fields are cleaned up
+// EXPECT: outer deinit
+// EXPECT: inner deinit
+
+struct Inner {
+    value: Int
+}
+
+extension Inner: Deinit {
+    func deinit(var self) {
+        print("inner deinit")
+    }
+}
+
+struct Outer {
+    inner: Inner
+}
+
+extension Outer: Deinit {
+    func deinit(var self) {
+        print("outer deinit")
+        // Do we need to manually call self.inner.deinit()?
+    }
+}
+
+func main() {
+    let o = Outer(inner: Inner(value: 42))
+    // When o goes out of scope, both deinits should be called
+}

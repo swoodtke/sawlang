@@ -1,0 +1,23 @@
+// Error: struct contains Deinit field but doesn't implement Deinit
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: contains Deinit field
+
+struct Inner {
+    value: Int
+}
+
+extension Inner: Deinit {
+    func deinit(var self) {
+        print("inner cleanup")
+    }
+}
+
+// Outer contains a Deinit field but doesn't implement Deinit itself
+struct Outer {
+    inner: Inner
+}
+
+func main() {
+    let o = Outer(inner: Inner(value: 42))
+    print(o.inner.value)
+}

@@ -563,6 +563,8 @@ interface Deinit {
 
 The compiler inserts `deinit()` calls at all scope exit points—including normal exits, early returns, breaks, and error propagation.
 
+**Important:** Manual `deinit()` calls are not allowed. Calling `obj.deinit()` is a compile-time error to prevent double-free and use-after-free bugs. For early cleanup, use a nested scope or `move` the value to a consuming function.
+
 #### The CustomCopy Interface
 
 ```saw
@@ -640,26 +642,55 @@ use(f)           // Error: f was moved
 | `CustomCopy` | calls `copy()` | calls `deinit()` |
 | `NoCopy` | compile error | calls `deinit()` |
 
-#### Auto-Derivation for Structs
+#### Containment Rules
 
-If a struct contains fields that implement `Deinit`, `CustomCopy`, or `NoCopy`, the compiler automatically derives the appropriate interface:
+If a struct contains fields that implement `Deinit`, `CustomCopy`, or `NoCopy`, the struct must also implement that interface. This ensures resource management is never silently skipped:
 
 ```saw
 struct Connection {
-    socket: File       // NoCopy
+    socket: File       // File implements NoCopy
     config: Config     // plain type
 }
-// Compiler auto-derives NoCopy for Connection:
-// - Cannot copy (because File is NoCopy)
-// - deinit() calls socket.deinit() then config.deinit()
+// Error: Connection contains NoCopy field but doesn't implement NoCopy
 
-struct SharedData {
-    data: Arc<Bytes>   // CustomCopy
-    name: String       // plain type
+// Fix: explicitly implement NoCopy
+extension Connection: NoCopy {
+    func deinit(var self) {
+        // Your cleanup code here
+        // Compiler auto-calls socket.deinit() after your code
+    }
 }
-// Compiler auto-derives CustomCopy for SharedData:
-// - copy() calls data.copy(), copies name
-// - deinit() calls data.deinit()
+```
+
+The containment rules are:
+- **NoCopy containment**: If any field is `NoCopy`, the struct must be `NoCopy`
+- **CustomCopy containment**: If any field is `CustomCopy` (and none are `NoCopy`), the struct must be `CustomCopy`
+- **Deinit containment**: If any field is `Deinit`, the struct must implement `Deinit`
+
+#### Automatic Field Operations
+
+When you implement these interfaces, the compiler automatically handles fields:
+
+**In `deinit`**: After your cleanup code runs, the compiler calls `deinit()` on all fields that implement `Deinit`, in reverse declaration order:
+
+```saw
+extension Connection: NoCopy {
+    func deinit(var self) {
+        print("closing connection")
+        // Compiler inserts: self.socket.deinit()
+    }
+}
+```
+
+**In struct initialization**: When initializing a struct, `copy()` is automatically called on any `CustomCopy` fields that come from existing variables:
+
+```saw
+extension Container: CustomCopy {
+    func copy(self) -> Container {
+        Container(data: self.data)  // Compiler calls self.data.copy()
+    }
+    func deinit(var self) { }
+}
 ```
 
 ---
