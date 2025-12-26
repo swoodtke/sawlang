@@ -11,7 +11,8 @@ from ast_nodes import (
     WhileExpr, BreakStatement, ContinueStatement, ForLoop, RangeExpr,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
-    TupleLiteral, TupleIndex, MemberAccess, StructInit,
+    TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
+    MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     GuardLetStatement,
     Struct, StructField,
@@ -1243,6 +1244,12 @@ class TypeChecker:
         elif isinstance(expr, TupleIndex):
             return self._check_tuple_index(expr)
 
+        elif isinstance(expr, ArrayLiteral):
+            return self._check_array_literal(expr)
+
+        elif isinstance(expr, ArrayIndex):
+            return self._check_array_index(expr)
+
         elif isinstance(expr, MemberAccess):
             return self._check_member_access(expr)
 
@@ -1671,6 +1678,97 @@ class TypeChecker:
             return None
 
         return tuple_type.element_types[expr.index]
+
+    def _check_array_literal(self, expr: ArrayLiteral) -> Optional[SawType]:
+        """Check an array literal and infer its type."""
+        if len(expr.elements) == 0:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                "cannot infer type of empty array literal; use explicit type annotation",
+                expr.line, expr.column
+            )
+            return None
+
+        # Check first element to get the expected type
+        first_type = self._check_expression(expr.elements[0])
+        if first_type is None:
+            return None
+
+        # Check all other elements match the first type
+        for i, element in enumerate(expr.elements[1:], start=1):
+            elem_type = self._check_expression(element)
+            if elem_type is None:
+                return None
+            if not self._types_compatible(elem_type, first_type):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"array element {i} has type `{elem_type}`, expected `{first_type}`",
+                    element.line, element.column
+                )
+                return None
+
+        return SawType(
+            TypeKind.ARRAY,
+            array_element_type=first_type,
+            array_size=len(expr.elements)
+        )
+
+    def _check_array_index(self, expr: ArrayIndex) -> Optional[SawType]:
+        """Check array or tuple indexing with [index] syntax."""
+        container_type = self._check_expression(expr.array_expr)
+        if container_type is None:
+            return None
+
+        # Check that index is an integer
+        index_type = self._check_expression(expr.index)
+        if index_type is None:
+            return None
+
+        index_underlying = self._get_underlying_type(index_type)
+        if index_underlying.kind != TypeKind.INT:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"index must be Int, got `{index_type}`",
+                expr.index.line, expr.index.column
+            )
+            return None
+
+        # Handle array indexing
+        if container_type.kind == TypeKind.ARRAY:
+            return container_type.array_element_type
+
+        # Handle tuple indexing (requires compile-time constant index)
+        elif container_type.kind == TypeKind.TUPLE:
+            # For tuples, index must be a literal integer (compile-time known)
+            if not isinstance(expr.index, IntLiteral):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "tuple index must be a compile-time constant",
+                    expr.index.line, expr.index.column
+                )
+                return None
+
+            index = expr.index.value
+            if container_type.element_types is None:
+                return None
+
+            if index < 0 or index >= len(container_type.element_types):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"tuple index {index} out of range for tuple with {len(container_type.element_types)} elements",
+                    expr.line, expr.column
+                )
+                return None
+
+            return container_type.element_types[index]
+
+        else:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot index into type `{container_type}`",
+                expr.line, expr.column
+            )
+            return None
 
     def _check_member_access(self, expr: MemberAccess) -> Optional[SawType]:
         """Check member access for struct fields or enum variant access."""

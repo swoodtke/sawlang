@@ -143,6 +143,7 @@ The compiler currently supports:
 - Arithmetic: `+`, `-`, `*`, `/`, `%` (modulo)
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - Logical: `&&`, `||`, `not`
+- Arrays: literals `[1, 2, 3]`, indexing `arr[i]`, type `[Int; 5]`
 - Control flow: `if`/`else` expressions, `while` loops, `for` loops
 - Loop control: `break`, `continue`
 - Recursion
@@ -367,6 +368,34 @@ func main() {
     if x % 2 == 0 {
         print("x is even")
     }
+}
+```
+
+### Arrays
+```saw
+func main() {
+    // Array literal
+    let arr = [1, 2, 3, 4, 5]
+
+    // Array indexing
+    print(arr[0])       // 1
+    print(arr[2])       // 3
+
+    // Dynamic indexing
+    let i = 3
+    print(arr[i])       // 4
+
+    // Tuples also support [index] syntax
+    let tuple = (10, 20, 30)
+    print(tuple[0])     // 10 (same as tuple.0)
+    print(tuple[1])     // 20
+
+    // Array in loop
+    var sum = 0
+    for j in 0..5 {
+        sum = sum + arr[j]
+    }
+    print(sum)          // 15
 }
 ```
 

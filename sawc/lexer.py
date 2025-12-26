@@ -76,8 +76,11 @@ class TokenType(Enum):
     RPAREN = auto()
     LBRACE = auto()
     RBRACE = auto()
+    LBRACKET = auto()       # [ for arrays
+    RBRACKET = auto()       # ] for arrays
     COMMA = auto()
     COLON = auto()
+    SEMICOLON = auto()      # ; for array type syntax [T; N]
     ARROW = auto()
     DOT = auto()
 
@@ -335,6 +338,15 @@ class Lexer:
                 self.advance()
             elif ch == '}':
                 self.add_token(TokenType.RBRACE, '}')
+                self.advance()
+            elif ch == '[':
+                self.add_token(TokenType.LBRACKET, '[')
+                self.advance()
+            elif ch == ']':
+                self.add_token(TokenType.RBRACKET, ']')
+                self.advance()
+            elif ch == ';':
+                self.add_token(TokenType.SEMICOLON, ';')
                 self.advance()
             elif ch == ',':
                 self.add_token(TokenType.COMMA, ',')

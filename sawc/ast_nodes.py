@@ -18,6 +18,7 @@ class TypeKind(Enum):
     OPTIONAL = auto()
     ENUM = auto()
     TYPE_PARAM = auto()  # For generic type parameters like T, U
+    ARRAY = auto()       # For fixed-size arrays [T; N]
 
 
 @dataclass
@@ -35,6 +36,9 @@ class SawType:
     type_args: Optional[List['SawType']] = None
     # For type parameters (T, U), this holds the parameter name
     type_param_name: Optional[str] = None
+    # For array types, this holds the element type and size
+    array_element_type: Optional['SawType'] = None
+    array_size: Optional[int] = None
 
     def __repr__(self):
         if self.kind == TypeKind.TUPLE and self.element_types:
@@ -54,6 +58,8 @@ class SawType:
             return self.enum_name
         if self.kind == TypeKind.TYPE_PARAM and self.type_param_name:
             return self.type_param_name
+        if self.kind == TypeKind.ARRAY and self.array_element_type is not None:
+            return f"[{self.array_element_type}; {self.array_size}]"
         return self.kind.name
 
 
@@ -171,6 +177,23 @@ class TupleLiteral(Expression):
 class TupleIndex(Expression):
     tuple_expr: Expression
     index: int
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ArrayLiteral(Expression):
+    """Array literal: [1, 2, 3]"""
+    elements: List[Expression]
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ArrayIndex(Expression):
+    """Array indexing: arr[i]"""
+    array_expr: Expression
+    index: Expression  # Can be any expression that evaluates to Int
     line: int = 0
     column: int = 0
 

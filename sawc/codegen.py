@@ -11,7 +11,8 @@ from ast_nodes import (
     WhileExpr, BreakStatement, ContinueStatement, ForLoop, RangeExpr,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
-    TupleLiteral, TupleIndex, MemberAccess, StructInit,
+    TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
+    MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     GuardLetStatement,
     Struct, StructField,
@@ -149,6 +150,12 @@ class CodeGenerator:
             if saw_type.type_param_name not in self.type_param_context:
                 raise ValueError(f"Unbound type parameter: {saw_type.type_param_name}")
             return self._get_llvm_type(self.type_param_context[saw_type.type_param_name])
+        elif saw_type.kind == TypeKind.ARRAY:
+            # Arrays are LLVM array types [N x T]
+            if saw_type.array_element_type is None or saw_type.array_size is None:
+                raise ValueError("Array type missing element type or size")
+            elem_type = self._get_llvm_type(saw_type.array_element_type)
+            return ir.ArrayType(elem_type, saw_type.array_size)
         else:
             raise ValueError(f"Unknown type: {saw_type}")
 
@@ -1424,6 +1431,12 @@ class CodeGenerator:
         elif isinstance(expr, TupleIndex):
             return self._generate_tuple_index(expr)
 
+        elif isinstance(expr, ArrayLiteral):
+            return self._generate_array_literal(expr)
+
+        elif isinstance(expr, ArrayIndex):
+            return self._generate_array_index(expr)
+
         elif isinstance(expr, MemberAccess):
             return self._generate_member_access(expr)
 
@@ -1951,6 +1964,56 @@ class CodeGenerator:
 
         # Extract the element at the given index
         return self.builder.extract_value(tuple_val, expr.index)
+
+    def _generate_array_literal(self, expr: ArrayLiteral):
+        """Generate code for array literal."""
+        if len(expr.elements) == 0:
+            raise ValueError("Empty array literals not supported")
+
+        # Generate all element values
+        element_values = [self._generate_expression(elem) for elem in expr.elements]
+
+        # Get the element type from the first element
+        elem_type = element_values[0].type
+        array_type = ir.ArrayType(elem_type, len(element_values))
+
+        # Build the array value by inserting elements
+        array_val = ir.Constant(array_type, ir.Undefined)
+        for i, val in enumerate(element_values):
+            array_val = self.builder.insert_value(array_val, val, i, name=f"arr_{i}")
+
+        return array_val
+
+    def _generate_array_index(self, expr: ArrayIndex):
+        """Generate code for array or tuple indexing with [index] syntax."""
+        container_val = self._generate_expression(expr.array_expr)
+
+        # Check if it's a tuple (struct type in LLVM) or array
+        if isinstance(container_val.type, ir.ArrayType):
+            # Array indexing - need to allocate, store, and use GEP
+            index_val = self._generate_expression(expr.index)
+
+            # Allocate space for the array on stack
+            array_ptr = self.builder.alloca(container_val.type, name="arr_tmp")
+            self.builder.store(container_val, array_ptr)
+
+            # Use GEP to get pointer to element
+            zero = ir.Constant(ir.IntType(64), 0)
+            elem_ptr = self.builder.gep(array_ptr, [zero, index_val], name="elem_ptr")
+
+            # Load the element
+            return self.builder.load(elem_ptr, name="elem")
+
+        elif isinstance(container_val.type, ir.LiteralStructType):
+            # Tuple indexing - index must be a constant (checked by typechecker)
+            if isinstance(expr.index, IntLiteral):
+                index = expr.index.value
+                return self.builder.extract_value(container_val, index, name="tuple_elem")
+            else:
+                raise ValueError("Tuple index must be a compile-time constant")
+
+        else:
+            raise ValueError(f"Cannot index into type: {container_val.type}")
 
     def _generate_struct_init(self, expr: StructInit):
         """Generate code for struct initialization."""

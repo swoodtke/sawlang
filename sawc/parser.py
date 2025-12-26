@@ -11,7 +11,8 @@ from ast_nodes import (
     WhileExpr, BreakStatement, ContinueStatement, ForLoop,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
-    TupleLiteral, TupleIndex, MemberAccess, StructInit,
+    TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
+    MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     GuardLetStatement, RangeExpr,
     Struct, StructField,
@@ -161,6 +162,15 @@ class Parser:
         elif token.type == TokenType.STRING_TYPE:
             self.advance()
             return SawType(TypeKind.STRING)
+        elif token.type == TokenType.LBRACKET:
+            # Array type: [Type; Size]
+            self.advance()  # consume '['
+            element_type = self.parse_type()
+            self.expect(TokenType.SEMICOLON, "Expected ';' in array type")
+            size_token = self.expect(TokenType.INT, "Expected array size")
+            size = int(size_token.value)
+            self.expect(TokenType.RBRACKET, "Expected ']' after array type")
+            return SawType(TypeKind.ARRAY, array_element_type=element_type, array_size=size)
         elif token.type == TokenType.LPAREN:
             # Tuple type: (Type, Type, ...)
             self.advance()
@@ -1008,6 +1018,18 @@ class Parser:
                     column=chain_token.column
                 )
 
+            elif self.match(TokenType.LBRACKET):
+                # Array indexing: expr[index]
+                bracket_token = self.advance()
+                index_expr = self.parse_expression()
+                self.expect(TokenType.RBRACKET, "Expected ']' after array index")
+                expr = ArrayIndex(
+                    array_expr=expr,
+                    index=index_expr,
+                    line=bracket_token.line,
+                    column=bracket_token.column
+                )
+
             else:
                 break
 
@@ -1115,6 +1137,24 @@ class Parser:
 
         elif self.match(TokenType.FOR):
             return self.parse_for_statement()
+
+        elif self.match(TokenType.LBRACKET):
+            # Array literal: [1, 2, 3]
+            start = self.current()
+            self.advance()  # consume '['
+
+            elements = []
+            if not self.match(TokenType.RBRACKET):
+                elements.append(self.parse_expression())
+                while self.match(TokenType.COMMA):
+                    self.advance()
+                    # Allow trailing comma
+                    if self.match(TokenType.RBRACKET):
+                        break
+                    elements.append(self.parse_expression())
+
+            self.expect(TokenType.RBRACKET, "Expected ']' after array elements")
+            return ArrayLiteral(elements=elements, line=start.line, column=start.column)
 
         else:
             self.error(f"Unexpected token: {token.type.name}")

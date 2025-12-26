@@ -2,8 +2,8 @@
 
 ## Current Status (MVP Complete + Core Types + Generics/Interfaces)
 
-**Compiler Stats:** ~6,600 lines of Python across 7 modules
-**Test Coverage:** 70 tests
+**Compiler Stats:** ~6,800 lines of Python across 7 modules
+**Test Coverage:** 71 tests
 
 ---
 
@@ -13,10 +13,11 @@
 - [x] Logical operators: `&&`, `||`, `not`
 - [x] Modulo operator: `%`
 
-### Phase 2: Arrays
-- [ ] Fixed-size arrays: `[T; N]`
-- [ ] Array literals: `[1, 2, 3]`
-- [ ] Array indexing: `arr[0]`
+### Phase 2: Arrays ✅ COMPLETE
+- [x] Fixed-size arrays: `[T; N]`
+- [x] Array literals: `[1, 2, 3]`
+- [x] Array indexing: `arr[0]`
+- [x] Unified `[index]` syntax works for both arrays and tuples
 
 ### Phase 3: Complete Generics
 - [ ] Generic enums: `enum Option<T> { Some(T), None }`
@@ -242,9 +243,9 @@
 ## Priority 4: Data Structures & Collections
 
 ### Arrays
-- [ ] Fixed-size arrays: `[Int; 5]`
-- [ ] Array literals: `[1, 2, 3, 4, 5]`
-- [ ] Indexing: `arr[0]`
+- [x] Fixed-size arrays: `[Int; 5]`
+- [x] Array literals: `[1, 2, 3, 4, 5]`
+- [x] Indexing: `arr[0]` (works for both arrays and tuples)
 - [ ] Length: `arr.len()`
 - [ ] Bounds checking
 

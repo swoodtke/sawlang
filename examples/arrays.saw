@@ -1,0 +1,72 @@
+// Test arrays and unified indexing syntax
+
+// Function that returns an array
+func makeArray() -> [Int; 3] {
+    [10, 20, 30]
+}
+
+// Function that takes and returns an array
+func doubleFirst(arr: [Int; 3]) -> Int {
+    arr[0] * 2
+}
+
+func main() {
+    // Test function returning array
+    let fromFunc = makeArray()
+    print("Array from function:")
+    print(fromFunc[0])  // 10
+    print(fromFunc[1])  // 20
+    print(fromFunc[2])  // 30
+
+    // Test passing array to function
+    let result = doubleFirst(fromFunc)
+    print(result)  // 20
+
+    // Array literals
+    let arr = [1, 2, 3, 4, 5]
+
+    // Array indexing with [index]
+    print("Array elements:")
+    print(arr[0])  // 1
+    print(arr[2])  // 3
+    print(arr[4])  // 5
+
+    // Dynamic indexing
+    let i = 3
+    print(arr[i])  // 4
+
+    // Tuple with [index] syntax (same as .0, .1)
+    let tuple = (10, 20, 30)
+    print("Tuple elements:")
+    print(tuple[0])  // 10
+    print(tuple[1])  // 20
+    print(tuple[2])  // 30
+
+    // Old tuple syntax still works
+    print(tuple.0)   // 10
+    print(tuple.1)   // 20
+
+    // Array of bools
+    let flags = [true, false, true]
+    print("Bool array:")
+    print(flags[0])  // true
+    print(flags[1])  // false
+
+    // Nested access
+    let nums = [100, 200, 300]
+    let idx = 1
+    print(nums[idx] + nums[0])  // 300
+
+    // Array in expressions
+    if arr[0] == 1 {
+        print("First element is 1")
+    }
+
+    // Using array elements in loops
+    print("Sum using loop:")
+    var sum = 0
+    for j in 0..5 {
+        sum = sum + arr[j]
+    }
+    print(sum)  // 15
+}
