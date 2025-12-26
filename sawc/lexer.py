@@ -39,6 +39,8 @@ class TokenType(Enum):
     BREAK = auto()
     CONTINUE = auto()
     INTERFACE = auto()
+    FOR = auto()
+    IN = auto()
 
     # Types
     INT_TYPE = auto()
@@ -62,6 +64,7 @@ class TokenType(Enum):
     DOUBLE_QUESTION = auto() # ?? for nil coalescing
     EXCLAIM = auto()        # ! for force unwrap
     QUESTION_DOT = auto()   # ?. for optional chaining
+    DOTDOT = auto()         # .. for ranges
 
     # Delimiters
     LPAREN = auto()
@@ -108,6 +111,8 @@ KEYWORDS = {
     'case': TokenType.CASE,
     'match': TokenType.MATCH,
     'interface': TokenType.INTERFACE,
+    'for': TokenType.FOR,
+    'in': TokenType.IN,
     'Int': TokenType.INT_TYPE,
     'Float': TokenType.FLOAT_TYPE,
     'Bool': TokenType.BOOL_TYPE,
@@ -182,6 +187,9 @@ class Lexer:
 
         while self.peek() and (self.peek().isdigit() or self.peek() == '.'):
             if self.peek() == '.':
+                # Check if this is a range operator (..) - don't consume the dot
+                if self.peek(1) == '.':
+                    break
                 if is_float:
                     break
                 is_float = True
@@ -311,8 +319,13 @@ class Lexer:
                 self.add_token(TokenType.COLON, ':')
                 self.advance()
             elif ch == '.':
-                self.add_token(TokenType.DOT, '.')
-                self.advance()
+                if self.peek(1) == '.':
+                    self.add_token(TokenType.DOTDOT, '..')
+                    self.advance()
+                    self.advance()
+                else:
+                    self.add_token(TokenType.DOT, '.')
+                    self.advance()
             else:
                 self.error(f"Unexpected character: {ch}")
 

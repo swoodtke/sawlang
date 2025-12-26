@@ -1,0 +1,15 @@
+// Test nested for loops
+// EXPECT: 0
+// EXPECT: 1
+// EXPECT: 2
+// EXPECT: 10
+// EXPECT: 11
+// EXPECT: 12
+
+func main() {
+    for i in 0..2 {
+        for j in 0..3 {
+            print(i * 10 + j)
+        }
+    }
+}

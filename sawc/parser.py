@@ -8,12 +8,12 @@ from lexer import Token, TokenType
 from ast_nodes import (
     Program, Function, Parameter, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
-    WhileExpr, BreakStatement, ContinueStatement,
+    WhileExpr, BreakStatement, ContinueStatement, ForLoop,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
-    GuardLetStatement,
+    GuardLetStatement, RangeExpr,
     Struct, StructField,
     Enum, EnumVariant, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
@@ -548,6 +548,8 @@ class Parser:
             return self.parse_return_statement()
         elif self.match(TokenType.WHILE):
             return self.parse_while_statement()
+        elif self.match(TokenType.FOR):
+            return self.parse_for_statement()
         elif self.match(TokenType.BREAK):
             return self.parse_break_statement()
         elif self.match(TokenType.CONTINUE):
@@ -667,6 +669,30 @@ class Parser:
             column=start.column
         )
 
+    def parse_for_statement(self) -> ForLoop:
+        """Parse for loop: for variable in iterable { body }"""
+        start = self.advance()  # consume 'for'
+
+        # Parse loop variable
+        var_token = self.expect(TokenType.IDENT, "Expected variable name after 'for'")
+
+        # Expect 'in' keyword
+        self.expect(TokenType.IN, "Expected 'in' after for loop variable")
+
+        # Parse iterable expression (usually a range like 0..10)
+        iterable = self.parse_expression()
+
+        self.skip_newlines()
+        body = self.parse_block()
+
+        return ForLoop(
+            variable=var_token.value,
+            iterable=iterable,
+            body=body,
+            line=start.line,
+            column=start.column
+        )
+
     def parse_break_statement(self) -> BreakStatement:
         start = self.advance()  # consume 'break'
 
@@ -709,16 +735,32 @@ class Parser:
         return left
 
     def parse_comparison(self) -> Expression:
-        left = self.parse_additive()
+        left = self.parse_range()
 
         while self.match(TokenType.EQ, TokenType.NEQ, TokenType.LT,
                          TokenType.GT, TokenType.LTE, TokenType.GTE):
             op_token = self.advance()
-            right = self.parse_additive()
+            right = self.parse_range()
             left = BinaryOp(
                 op=op_token.value,
                 left=left,
                 right=right,
+                line=op_token.line,
+                column=op_token.column
+            )
+
+        return left
+
+    def parse_range(self) -> Expression:
+        """Parse range expressions: start..end"""
+        left = self.parse_additive()
+
+        if self.match(TokenType.DOTDOT):
+            op_token = self.advance()
+            right = self.parse_additive()
+            return RangeExpr(
+                start=left,
+                end=right,
                 line=op_token.line,
                 column=op_token.column
             )
@@ -945,6 +987,9 @@ class Parser:
 
         elif self.match(TokenType.WHILE):
             return self.parse_while_statement()
+
+        elif self.match(TokenType.FOR):
+            return self.parse_for_statement()
 
         else:
             self.error(f"Unexpected token: {token.type.name}")

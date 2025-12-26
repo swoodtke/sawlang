@@ -593,12 +593,12 @@ Option 1 is simpler and reuses existing while loop code.
 
 ### 7.7 Implementation Steps
 
-1. [ ] Add `FOR` and `IN` tokens
-2. [ ] Add `ForLoop` AST node
-3. [ ] Parse for loops
-4. [ ] Desugar to while + iterator in type checker or early codegen pass
-5. [ ] Add tests for for loops with ranges
-6. [ ] Add tests for for loops with collections
+1. [x] Add `FOR` and `IN` tokens
+2. [x] Add `ForLoop` and `RangeExpr` AST nodes
+3. [x] Parse for loops and range expressions
+4. [x] Desugar to while-like loop in codegen
+5. [x] Add tests for for loops with ranges
+6. [ ] Add tests for for loops with collections (requires Iterator interface)
 
 ---
 
@@ -678,11 +678,22 @@ Option 1 is simpler and reuses existing while loop code.
   - Proper error messages for unsatisfied bounds
   - 2 test files: `interface_param.saw`, `interface_bound_error.saw`
 
+- **2024-12-26**: Phase 7 for loops complete (simplified, without full Iterator)
+  - Added `FOR`, `IN`, `DOTDOT` tokens to lexer
+  - Added `ForLoop` and `RangeExpr` AST nodes
+  - Parser handles `for i in start..end { body }` syntax
+  - Fixed lexer to distinguish `0..5` (range) from `0.5` (float)
+  - Type checker validates range expressions (Int..Int)
+  - Codegen desugars for loops to while-like iteration
+  - For loops work as expressions with `break value` returning `T?`
+  - 5 test files: `for_loop_simple.saw`, `for_loop_break.saw`, `for_loop_continue.saw`, `for_loop_nested.saw`, `for_loop_expr.saw`
+
 ## Next Steps
 
 1. ~~Start with Phase 1: Basic Generics~~ ✓ (functions done)
 2. ~~Begin with generic functions (simpler than generic types)~~ ✓
 3. ~~Phase 2: Interfaces~~ ✓
 4. ~~Phase 3: Interface bounds (T: Interface)~~ ✓
-5. Phase 4: Associated types (type Item) - needed for Iterator
-6. Phase 5-7: Iterator, Range, For Loop
+5. ~~Phase 7: For loops~~ ✓ (simplified version with ranges only)
+6. Phase 4: Associated types (type Item) - needed for Iterator
+7. Phase 5-6: Iterator interface and Range types for full collection iteration

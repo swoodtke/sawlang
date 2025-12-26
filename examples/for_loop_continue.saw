@@ -1,0 +1,14 @@
+// Test for loop with continue
+// EXPECT: 0
+// EXPECT: 1
+// EXPECT: 3
+// EXPECT: 4
+
+func main() {
+    for i in 0..5 {
+        if i == 2 {
+            continue
+        }
+        print(i)
+    }
+}

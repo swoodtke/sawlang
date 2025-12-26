@@ -1,0 +1,15 @@
+// Test for loop with break
+// EXPECT: 0
+// EXPECT: 1
+// EXPECT: 2
+// EXPECT: done
+
+func main() {
+    for i in 0..10 {
+        if i == 3 {
+            break
+        }
+        print(i)
+    }
+    print("done")
+}

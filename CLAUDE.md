@@ -128,7 +128,7 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 53 tests including success cases and error validation
+**Test Coverage:** 58 tests including success cases and error validation
 
 ## Current Features
 
@@ -141,7 +141,7 @@ The compiler currently supports:
 - Variables: `let` (immutable) and `var` (mutable)
 - Arithmetic: `+`, `-`, `*`, `/`
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
-- Control flow: `if`/`else` expressions, `while` loops
+- Control flow: `if`/`else` expressions, `while` loops, `for` loops
 - Loop control: `break`, `continue`
 - Recursion
 - `print(...)` built-in for debugging
@@ -259,6 +259,35 @@ func main() {
             continue  // Skip printing 5
         }
         print(i)
+    }
+}
+```
+
+### For Loops
+```saw
+func main() {
+    // Iterate over a range
+    for i in 0..5 {
+        print(i)  // 0, 1, 2, 3, 4
+    }
+
+    // Break out of loop
+    for i in 0..10 {
+        if i == 3 {
+            break
+        }
+        print(i)  // 0, 1, 2
+    }
+
+    // For loop as expression with break value
+    let found = for i in 0..10 {
+        if i > 5 {
+            break i  // Returns Some(6)
+        }
+    }  // Returns None if loop completes normally
+
+    if let value = found {
+        print(value)  // 6
     }
 }
 ```

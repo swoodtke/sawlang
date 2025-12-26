@@ -305,6 +305,15 @@ class MatchExpr(Expression):
     column: int = 0
 
 
+@dataclass
+class RangeExpr(Expression):
+    """Range expression: start..end (exclusive)"""
+    start: Expression
+    end: Expression
+    line: int = 0
+    column: int = 0
+
+
 # Statements
 @dataclass
 class Statement(ASTNode):
@@ -360,6 +369,16 @@ class BreakStatement(Statement):
 
 @dataclass
 class ContinueStatement(Statement):
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ForLoop(Statement):
+    """For loop: for variable in iterable { body }"""
+    variable: str
+    iterable: Expression  # Usually a RangeExpr
+    body: 'Block'
     line: int = 0
     column: int = 0
 

@@ -8,7 +8,7 @@ from llvmlite import ir, binding
 from ast_nodes import (
     Program, Function, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
-    WhileExpr, BreakStatement, ContinueStatement,
+    WhileExpr, BreakStatement, ContinueStatement, ForLoop, RangeExpr,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
@@ -543,6 +543,8 @@ class CodeGenerator:
             self._generate_guard_let_statement(stmt)
         elif isinstance(stmt, WhileExpr):
             self._generate_while_expr(stmt)
+        elif isinstance(stmt, ForLoop):
+            self._generate_for_loop(stmt)
         elif isinstance(stmt, BreakStatement):
             self._generate_break_statement(stmt)
         elif isinstance(stmt, ContinueStatement):
@@ -703,6 +705,165 @@ class CodeGenerator:
 
         # Position at end block for next statements
         self.builder.position_at_end(end_block)
+
+    def _generate_for_loop(self, stmt: ForLoop):
+        """Generate LLVM IR for a for loop.
+
+        Desugars: for i in start..end { body }
+        Into:     var __iter = start
+                  while __iter < end {
+                      let i = __iter
+                      body
+                      __iter = __iter + 1
+                  }
+        """
+        func = self.builder.function
+
+        # Extract start and end from the range expression
+        if not isinstance(stmt.iterable, RangeExpr):
+            raise ValueError("For loop currently only supports range expressions")
+
+        range_expr = stmt.iterable
+        start_val = self._generate_expression(range_expr.start)
+        end_val = self._generate_expression(range_expr.end)
+
+        # Create the iterator variable (mutable counter)
+        iter_alloca = self.builder.alloca(ir.IntType(64), name="__for_iter")
+        self.builder.store(start_val, iter_alloca)
+
+        # Create basic blocks
+        cond_block = func.append_basic_block("for.cond")
+        body_block = func.append_basic_block("for.body")
+        incr_block = func.append_basic_block("for.incr")
+        end_block = func.append_basic_block("for.end")
+
+        # Push loop blocks onto stack for break/continue
+        # continue goes to increment block (not condition), break goes to end
+        self.loop_stack.append((incr_block, end_block, None))
+
+        # Jump to condition block
+        self.builder.branch(cond_block)
+
+        # Generate condition: __iter < end
+        self.builder.position_at_end(cond_block)
+        iter_val = self.builder.load(iter_alloca, name="iter_val")
+        cond = self.builder.icmp_signed('<', iter_val, end_val, name="for.cond")
+        self.builder.cbranch(cond, body_block, end_block)
+
+        # Generate body
+        self.builder.position_at_end(body_block)
+
+        # Create loop variable (let i = __iter)
+        loop_var_alloca = self.builder.alloca(ir.IntType(64), name=stmt.variable)
+        current_iter = self.builder.load(iter_alloca, name="current_iter")
+        self.builder.store(current_iter, loop_var_alloca)
+        self.variables[stmt.variable] = loop_var_alloca
+
+        # Generate body block
+        self._generate_block(stmt.body)
+
+        # If block doesn't end with terminator, go to increment
+        if not self.builder.block.is_terminated:
+            self.builder.branch(incr_block)
+
+        # Generate increment: __iter = __iter + 1
+        self.builder.position_at_end(incr_block)
+        iter_val = self.builder.load(iter_alloca, name="iter_val")
+        one = ir.Constant(ir.IntType(64), 1)
+        next_val = self.builder.add(iter_val, one, name="next_iter")
+        self.builder.store(next_val, iter_alloca)
+        self.builder.branch(cond_block)
+
+        # Pop loop blocks
+        self.loop_stack.pop()
+
+        # Clean up loop variable from scope
+        del self.variables[stmt.variable]
+
+        # Position at end block for next statements
+        self.builder.position_at_end(end_block)
+
+    def _generate_for_loop_value(self, expr: ForLoop):
+        """Generate LLVM IR for a for loop that returns a value (expression context).
+
+        For loops are always conditional, so they return Optional<T>.
+        """
+        func = self.builder.function
+
+        # Extract start and end from the range expression
+        if not isinstance(expr.iterable, RangeExpr):
+            raise ValueError("For loop currently only supports range expressions")
+
+        range_expr = expr.iterable
+        start_val = self._generate_expression(range_expr.start)
+        end_val = self._generate_expression(range_expr.end)
+
+        # For loops are conditional, return Optional<T>
+        # For now, assume result type is Int64
+        result_type = ir.IntType(64)
+        optional_type = ir.LiteralStructType([ir.IntType(1), result_type])
+        result_alloca = self.builder.alloca(optional_type, name="for.result")
+
+        # Initialize to None (has_value = false, value = 0)
+        none_value = ir.Constant(optional_type, [ir.Constant(ir.IntType(1), 0), ir.Constant(result_type, 0)])
+        self.builder.store(none_value, result_alloca)
+
+        # Create the iterator variable (mutable counter)
+        iter_alloca = self.builder.alloca(ir.IntType(64), name="__for_iter")
+        self.builder.store(start_val, iter_alloca)
+
+        # Create basic blocks
+        cond_block = func.append_basic_block("for.cond")
+        body_block = func.append_basic_block("for.body")
+        incr_block = func.append_basic_block("for.incr")
+        end_block = func.append_basic_block("for.end")
+
+        # Push loop info with result storage
+        # continue goes to increment block, break goes to end
+        self.loop_stack.append((incr_block, end_block, result_alloca))
+
+        # Jump to condition block
+        self.builder.branch(cond_block)
+
+        # Generate condition: __iter < end
+        self.builder.position_at_end(cond_block)
+        iter_val = self.builder.load(iter_alloca, name="iter_val")
+        cond = self.builder.icmp_signed('<', iter_val, end_val, name="for.cond")
+        self.builder.cbranch(cond, body_block, end_block)
+
+        # Generate body
+        self.builder.position_at_end(body_block)
+
+        # Create loop variable (let i = __iter)
+        loop_var_alloca = self.builder.alloca(ir.IntType(64), name=expr.variable)
+        current_iter = self.builder.load(iter_alloca, name="current_iter")
+        self.builder.store(current_iter, loop_var_alloca)
+        self.variables[expr.variable] = loop_var_alloca
+
+        # Generate body block
+        self._generate_block(expr.body)
+
+        # If block doesn't end with terminator, go to increment
+        if not self.builder.block.is_terminated:
+            self.builder.branch(incr_block)
+
+        # Generate increment: __iter = __iter + 1
+        self.builder.position_at_end(incr_block)
+        iter_val = self.builder.load(iter_alloca, name="iter_val")
+        one = ir.Constant(ir.IntType(64), 1)
+        next_val = self.builder.add(iter_val, one, name="next_iter")
+        self.builder.store(next_val, iter_alloca)
+        self.builder.branch(cond_block)
+
+        # Pop loop info
+        self.loop_stack.pop()
+
+        # Clean up loop variable from scope
+        del self.variables[expr.variable]
+
+        # Load and return result
+        self.builder.position_at_end(end_block)
+        return self.builder.load(result_alloca, name="for.value")
 
     def _generate_while_expr_value(self, expr: WhileExpr):
         """Generate LLVM IR for a while loop that returns a value (expression context)."""
@@ -871,6 +1032,9 @@ class CodeGenerator:
 
         elif isinstance(expr, WhileExpr):
             return self._generate_while_expr_value(expr)
+
+        elif isinstance(expr, ForLoop):
+            return self._generate_for_loop_value(expr)
 
         else:
             raise ValueError(f"Unknown expression type: {type(expr)}")

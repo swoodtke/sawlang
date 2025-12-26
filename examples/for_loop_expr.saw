@@ -1,0 +1,30 @@
+// Test for loop as expression with break value
+// EXPECT: 3
+// EXPECT: not found
+
+func main() {
+    // Find first value greater than 2
+    let found = for i in 0..10 {
+        if i > 2 {
+            break i
+        }
+    }
+
+    // found is Int? (optional)
+    if let value = found {
+        print(value)
+    }
+
+    // Search for value not in range (loop completes, returns None)
+    let not_found = for i in 0..5 {
+        if i > 10 {
+            break i
+        }
+    }
+
+    if let value = not_found {
+        print(value)
+    } else {
+        print("not found")
+    }
+}

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from ast_nodes import (
     Program, Function, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
-    WhileExpr, BreakStatement, ContinueStatement,
+    WhileExpr, BreakStatement, ContinueStatement, ForLoop, RangeExpr,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
     BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, MemberAccess, StructInit,
@@ -616,6 +616,8 @@ class TypeChecker:
             self._check_guard_let_statement(stmt)
         elif isinstance(stmt, WhileExpr):
             self._check_while_expr(stmt)
+        elif isinstance(stmt, ForLoop):
+            self._check_for_loop(stmt)
         elif isinstance(stmt, BreakStatement):
             self._check_break_statement(stmt)
         elif isinstance(stmt, ContinueStatement):
@@ -888,6 +890,126 @@ class TypeChecker:
             # Wrap break type in Optional
             return SawType(TypeKind.OPTIONAL, inner_type=break_type)
 
+    def _check_for_loop(self, stmt: ForLoop):
+        """Check a for loop statement."""
+        # Check the iterable expression
+        iterable_type = self._check_expression(stmt.iterable)
+
+        # Determine the loop variable type based on the iterable
+        loop_var_type: Optional[SawType] = None
+
+        if isinstance(stmt.iterable, RangeExpr):
+            # Range expression - loop variable is Int
+            loop_var_type = SawType(TypeKind.INT)
+        else:
+            # For now, only support range expressions
+            # Future: support Iterator interface
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"for loop currently only supports range expressions",
+                stmt.line, stmt.column,
+                hint="use `for i in start..end {{ ... }}`"
+            )
+            loop_var_type = SawType(TypeKind.INT)  # Default to Int
+
+        # Create new scope for loop body with loop variable
+        old_scope = self.current_scope
+        self.current_scope = Scope(parent=old_scope)
+
+        # Add loop variable to scope (immutable by default)
+        self.current_scope.define(
+            stmt.variable,
+            VariableInfo(loop_var_type, mutable=False, line=stmt.line, column=stmt.column)
+        )
+
+        # Check body with increased loop depth
+        self.loop_depth += 1
+        self._check_block(stmt.body)
+        self.loop_depth -= 1
+
+        # Restore scope
+        self.current_scope = old_scope
+
+    def _check_for_loop_as_expression(self, expr: ForLoop) -> Optional[SawType]:
+        """Check a for loop expression and return its type (Optional<T> from break values)."""
+        # Check the iterable expression
+        iterable_type = self._check_expression(expr.iterable)
+
+        # Determine the loop variable type based on the iterable
+        loop_var_type: Optional[SawType] = None
+
+        if isinstance(expr.iterable, RangeExpr):
+            # Range expression - loop variable is Int
+            loop_var_type = SawType(TypeKind.INT)
+        else:
+            # For now, only support range expressions
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"for loop currently only supports range expressions",
+                expr.line, expr.column,
+                hint="use `for i in start..end {{ ... }}`"
+            )
+            loop_var_type = SawType(TypeKind.INT)  # Default to Int
+
+        # For loops are always conditional (have a finite range), so return Optional<T>
+        # Push loop info onto stack: (break_type, is_infinite=False, has_break)
+        self.loop_break_info.append((None, False, False))
+
+        # Create new scope for loop body with loop variable
+        old_scope = self.current_scope
+        self.current_scope = Scope(parent=old_scope)
+
+        # Add loop variable to scope (immutable by default)
+        self.current_scope.define(
+            expr.variable,
+            VariableInfo(loop_var_type, mutable=False, line=expr.line, column=expr.column)
+        )
+
+        # Check body with increased loop depth
+        self.loop_depth += 1
+        self._check_block(expr.body)
+        self.loop_depth -= 1
+
+        # Restore scope
+        self.current_scope = old_scope
+
+        # Pop loop info and determine return type
+        break_type, _, has_break = self.loop_break_info.pop()
+
+        # For loops are conditional, so return Optional<break_type>
+        if break_type is None:
+            # No breaks with values, returns Void
+            return SawType(TypeKind.VOID)
+        # Wrap break type in Optional
+        return SawType(TypeKind.OPTIONAL, inner_type=break_type)
+
+    def _check_range_expr(self, expr: RangeExpr) -> Optional[SawType]:
+        """Check a range expression: start..end"""
+        start_type = self._check_expression(expr.start)
+        end_type = self._check_expression(expr.end)
+
+        if start_type is None or end_type is None:
+            return None
+
+        # Both start and end must be Int
+        if start_type.kind != TypeKind.INT:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"range start must be Int, got `{start_type}`",
+                expr.line, expr.column
+            )
+
+        if end_type.kind != TypeKind.INT:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"range end must be Int, got `{end_type}`",
+                expr.line, expr.column
+            )
+
+        # Return a special "Range" type - for now just use VOID as placeholder
+        # The for loop handles ranges specially
+        return SawType(TypeKind.VOID)
+
     def _check_break_statement(self, stmt: BreakStatement):
         """Check a break statement."""
         if self.loop_depth == 0:
@@ -1001,6 +1123,12 @@ class TypeChecker:
 
         elif isinstance(expr, WhileExpr):
             return self._check_while_expr_as_expression(expr)
+
+        elif isinstance(expr, RangeExpr):
+            return self._check_range_expr(expr)
+
+        elif isinstance(expr, ForLoop):
+            return self._check_for_loop_as_expression(expr)
 
         return None
 
