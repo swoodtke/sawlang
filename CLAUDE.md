@@ -128,7 +128,7 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 59 tests including success cases and error validation
+**Test Coverage:** 63 tests including success cases and error validation
 
 ## Current Features
 
@@ -163,12 +163,18 @@ The compiler currently supports:
 - Method calls: `obj.method(args)`
 - `self` keyword in method bodies
 
+### Type System
+- Type aliases: `type MyInt = Int`
+- Associated types in interfaces: `type Item`
+- Type assignments in extensions: `type Item = Int`
+
 ### Interfaces
 - Interface definitions: `interface Name { func method(self) -> Type }`
 - Interface conformance: `extension Type: Interface { ... }`
 - Conformance checking (missing methods, signature mismatches)
 - Multiple interface conformance: `extension Type: A, B { ... }`
 - Interface bounds on generics: `func foo<T: Interface>(x: T)`
+- Associated types with resolution: `type Item` → `type Item = Int`
 
 ## Example Code
 

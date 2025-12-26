@@ -17,7 +17,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    SawType, TypeKind, Argument, TypeParameter
+    SawType, TypeKind, Argument, TypeParameter, TypeDefinition
 )
 import copy
 
@@ -71,6 +71,17 @@ class CodeGenerator:
         # Tracks which monomorphized functions have been generated
         self.generated_instantiations: set[str] = set()
 
+        # Type aliases: name -> SawType
+        self.type_aliases: dict[str, SawType] = {}
+
+        # Interface info for associated types
+        # interfaces: name -> list of associated type names
+        self.interfaces: dict[str, list[str]] = {}
+        # type_conformances: type_name -> list of interfaces it conforms to
+        self.type_conformances: dict[str, list[str]] = {}
+        # type_assignments: (type_name, interface) -> {assoc_type_name -> SawType}
+        self.type_assignments: dict[tuple[str, str], dict[str, SawType]] = {}
+
         # Declare external functions (printf for print)
         self._declare_external_functions()
 
@@ -101,9 +112,12 @@ class CodeGenerator:
             element_llvm_types = [self._get_llvm_type(t) for t in saw_type.element_types]
             return ir.LiteralStructType(element_llvm_types)
         elif saw_type.kind == TypeKind.STRUCT:
-            # Look up the struct type (might actually be an enum or type param)
+            # Look up the struct type (might actually be an enum, type param, or type alias)
             if saw_type.struct_name is None:
                 raise ValueError("Struct type missing name")
+            # Check if it's a type alias
+            if saw_type.struct_name in self.type_aliases:
+                return self._get_llvm_type(self.type_aliases[saw_type.struct_name])
             # Check if it's a type parameter in the current context
             if saw_type.struct_name in self.type_param_context:
                 return self._get_llvm_type(self.type_param_context[saw_type.struct_name])
@@ -158,15 +172,36 @@ class CodeGenerator:
         return global_str
 
     def generate(self, program: Program) -> str:
-        # First pass: register struct types
+        # First pass: register type aliases
+        for type_def in program.type_definitions:
+            self._register_type_alias(type_def)
+
+        # Second pass: register struct types
         for struct in program.structs:
             self._register_struct(struct)
 
-        # Second pass: register enum types
+        # Third pass: register enum types
         for enum in program.enums:
             self._register_enum(enum)
 
-        # Third pass: declare all functions (skip generic functions)
+        # Register interfaces and their associated types
+        for interface in program.interfaces:
+            self.interfaces[interface.name] = [at.name for at in interface.associated_types]
+
+        # Register type conformances and associated type assignments from extensions
+        for extension in program.extensions:
+            if extension.conformances:
+                if extension.struct_name not in self.type_conformances:
+                    self.type_conformances[extension.struct_name] = []
+                for iface_name in extension.conformances:
+                    self.type_conformances[extension.struct_name].append(iface_name)
+                    # Collect type assignments for this conformance
+                    assignments = {}
+                    for type_assign in extension.type_assignments:
+                        assignments[type_assign.name] = type_assign.assigned_type
+                    self.type_assignments[(extension.struct_name, iface_name)] = assignments
+
+        # Fourth pass: declare all functions (skip generic functions)
         for func in program.functions:
             if func.type_params:
                 # Store generic function for later instantiation
@@ -178,7 +213,7 @@ class CodeGenerator:
         for extension in program.extensions:
             self._declare_extension_methods(extension)
 
-        # Fourth pass: generate function bodies (skip generic functions)
+        # Fifth pass: generate function bodies (skip generic functions)
         for func in program.functions:
             if not func.type_params:
                 self._generate_function(func)
@@ -188,6 +223,31 @@ class CodeGenerator:
             self._generate_extension_methods(extension)
 
         return str(self.module)
+
+    def _register_type_alias(self, type_def: TypeDefinition):
+        """Register a type alias."""
+        # Resolve the type (in case it references other aliases)
+        resolved = self._resolve_type_alias(type_def.defined_type)
+        self.type_aliases[type_def.name] = resolved
+
+    def _resolve_type_alias(self, saw_type: SawType) -> SawType:
+        """Resolve type aliases in a SawType."""
+        if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
+            if saw_type.struct_name in self.type_aliases:
+                return self.type_aliases[saw_type.struct_name]
+            if saw_type.type_args:
+                resolved_args = [self._resolve_type_alias(t) for t in saw_type.type_args]
+                return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=resolved_args)
+        elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
+            resolved_inner = self._resolve_type_alias(saw_type.inner_type)
+            return SawType(TypeKind.OPTIONAL, inner_type=resolved_inner)
+        elif saw_type.kind == TypeKind.TUPLE and saw_type.element_types:
+            resolved_elems = [self._resolve_type_alias(t) for t in saw_type.element_types]
+            return SawType(TypeKind.TUPLE, element_types=resolved_elems)
+        elif saw_type.kind == TypeKind.ENUM and saw_type.type_args:
+            resolved_args = [self._resolve_type_alias(t) for t in saw_type.type_args]
+            return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=resolved_args)
+        return saw_type
 
     def _register_struct(self, struct: Struct):
         """Register a struct type with LLVM."""
@@ -344,6 +404,21 @@ class CodeGenerator:
         # Build type parameter mapping
         for type_param, type_arg in zip(generic_func.type_params, type_args):
             self.type_param_context[type_param.name] = type_arg
+
+            # Add associated type mappings for interface bounds
+            for bound in type_param.bounds:
+                # Get the concrete type name
+                concrete_type_name = None
+                if type_arg.kind == TypeKind.STRUCT:
+                    concrete_type_name = type_arg.struct_name
+                elif type_arg.kind == TypeKind.ENUM:
+                    concrete_type_name = type_arg.enum_name
+
+                if concrete_type_name:
+                    # Get the associated type assignments for this (type, interface) pair
+                    type_assigns = self.type_assignments.get((concrete_type_name, bound), {})
+                    for assoc_name, assoc_type in type_assigns.items():
+                        self.type_param_context[assoc_name] = assoc_type
 
         try:
             # Declare the instantiated function
@@ -830,8 +905,11 @@ class CodeGenerator:
     def _generate_let_statement(self, stmt: LetStatement):
         value = self._generate_expression(stmt.value)
 
+        # Resolve type alias in annotation
+        resolved_annotation = self._resolve_type_alias(stmt.type_annotation) if stmt.type_annotation else None
+
         # Check if we need to wrap the value in an optional
-        if stmt.type_annotation and stmt.type_annotation.kind == TypeKind.OPTIONAL:
+        if resolved_annotation and resolved_annotation.kind == TypeKind.OPTIONAL:
             # Check if value is not already optional
             # An optional is a struct with first element being i1 (is_some flag)
             is_already_optional = (isinstance(value.type, ir.LiteralStructType) and
@@ -846,7 +924,7 @@ class CodeGenerator:
                 # Value is already optional, but check if it's a None literal with i64 placeholder
                 # that needs to be converted to match a different expected type
                 current_inner_type = value.type.elements[1]
-                target_inner_type = self._get_llvm_type(stmt.type_annotation.inner_type)
+                target_inner_type = self._get_llvm_type(resolved_annotation.inner_type)
 
                 # Only convert if current is i64 (None literal placeholder) and target is something else
                 needs_conversion = (isinstance(current_inner_type, ir.IntType) and

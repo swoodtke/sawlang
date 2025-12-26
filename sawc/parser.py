@@ -17,7 +17,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    Interface, InterfaceMethod, AssociatedType, TypeAssignment,
+    Interface, InterfaceMethod, AssociatedType, TypeAssignment, TypeDefinition,
     SawType, TypeKind, Argument, TypeParameter
 )
 
@@ -112,6 +112,7 @@ class Parser:
         extensions = []
         enums = []
         interfaces = []
+        type_definitions = []
         self.skip_newlines()
 
         while not self.match(TokenType.EOF):
@@ -125,11 +126,14 @@ class Parser:
                 extensions.append(self.parse_extension())
             elif self.match(TokenType.FUNC):
                 functions.append(self.parse_function())
+            elif self.match(TokenType.TYPE):
+                type_definitions.append(self.parse_type_definition())
             else:
-                self.error(f"Expected struct, enum, interface, extension, or function declaration, got {self.current().type.name}")
+                self.error(f"Expected struct, enum, interface, extension, type, or function declaration, got {self.current().type.name}")
             self.skip_newlines()
 
-        return Program(structs=structs, functions=functions, extensions=extensions, enums=enums, interfaces=interfaces)
+        return Program(structs=structs, functions=functions, extensions=extensions,
+                       enums=enums, interfaces=interfaces, type_definitions=type_definitions)
 
     def parse_type(self) -> SawType:
         # Parse base type
@@ -481,6 +485,22 @@ class Parser:
         return TypeAssignment(
             name=name_token.value,
             assigned_type=assigned_type,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_type_definition(self) -> TypeDefinition:
+        """Parse top-level type definition: type MyInt = Int"""
+        start = self.current()
+        self.expect(TokenType.TYPE)
+
+        name_token = self.expect(TokenType.IDENT, "Expected type name")
+        self.expect(TokenType.ASSIGN, "Expected '=' after type name")
+        defined_type = self.parse_type()
+
+        return TypeDefinition(
+            name=name_token.value,
+            defined_type=defined_type,
             line=start.line,
             column=start.column
         )

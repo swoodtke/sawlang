@@ -394,12 +394,14 @@ class TypeAssignment:
 
 ### 4.4 Implementation Steps
 
-1. [ ] Add `AssociatedType` AST node
-2. [ ] Parse `type Name` in interfaces
-3. [ ] Add `TypeAssignment` AST node
-4. [ ] Parse `type Name = ConcreteType` in extensions
-5. [ ] Resolve associated types in type checker
-6. [ ] Add tests for associated types
+1. [x] Add `AssociatedType` AST node
+2. [x] Parse `type Name` in interfaces
+3. [x] Add `TypeAssignment` AST node
+4. [x] Parse `type Name = ConcreteType` in extensions
+5. [x] Resolve associated types in type checker
+6. [x] Add tests for associated types
+
+**Status**: Complete. Associated types can be declared in interfaces and assigned in extensions. Method return types using associated types are properly resolved during conformance checking.
 
 ---
 

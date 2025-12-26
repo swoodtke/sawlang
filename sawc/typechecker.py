@@ -17,7 +17,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    Interface, InterfaceMethod, AssociatedType, TypeAssignment,
+    Interface, InterfaceMethod, AssociatedType, TypeAssignment, TypeDefinition,
     SawType, TypeKind, Parameter, Argument, TypeParameter
 )
 from errors import ErrorReporter, ErrorKind
@@ -140,6 +140,8 @@ class TypeChecker:
         self.type_conformances: Dict[str, List[str]] = {}  # type_name -> [interface_names]
         # Track associated type assignments: (type_name, interface_name) -> {assoc_type_name: SawType}
         self.type_assignments: Dict[Tuple[str, str], Dict[str, SawType]] = {}
+        # Type aliases: name -> SawType
+        self.type_aliases: Dict[str, SawType] = {}
 
         # Register built-in functions
         self._register_builtins()
@@ -150,25 +152,72 @@ class TypeChecker:
         # We'll handle it specially in check_function_call
         pass
 
+    def _register_type_definition(self, type_def: TypeDefinition):
+        """Register a type definition (type alias)."""
+        if type_def.name in self.type_aliases:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"type `{type_def.name}` is defined multiple times",
+                type_def.line, type_def.column
+            )
+            return
+
+        # Resolve the defined type (it might reference other type aliases)
+        resolved_type = self._resolve_type_alias(type_def.defined_type)
+        self.type_aliases[type_def.name] = resolved_type
+
+    def _resolve_type_alias(self, saw_type: SawType) -> SawType:
+        """Resolve any type aliases in a SawType."""
+        if saw_type.kind == TypeKind.STRUCT:
+            # Check if this is actually a type alias
+            if saw_type.struct_name in self.type_aliases:
+                return self.type_aliases[saw_type.struct_name]
+            # Recursively resolve type_args
+            if saw_type.type_args:
+                resolved_args = [self._resolve_type_alias(t) for t in saw_type.type_args]
+                return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=resolved_args)
+            return saw_type
+        elif saw_type.kind == TypeKind.OPTIONAL:
+            if saw_type.inner_type:
+                resolved_inner = self._resolve_type_alias(saw_type.inner_type)
+                return SawType(TypeKind.OPTIONAL, inner_type=resolved_inner)
+            return saw_type
+        elif saw_type.kind == TypeKind.TUPLE:
+            if saw_type.element_types:
+                resolved_elems = [self._resolve_type_alias(t) for t in saw_type.element_types]
+                return SawType(TypeKind.TUPLE, element_types=resolved_elems)
+            return saw_type
+        elif saw_type.kind == TypeKind.ENUM:
+            if saw_type.type_args:
+                resolved_args = [self._resolve_type_alias(t) for t in saw_type.type_args]
+                return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=resolved_args)
+            return saw_type
+        else:
+            return saw_type
+
     def check(self, program: Program) -> bool:
         """Type check the entire program. Returns True if no errors."""
-        # First pass: collect struct definitions
+        # First pass: register type definitions (aliases)
+        for type_def in program.type_definitions:
+            self._register_type_definition(type_def)
+
+        # Second pass: collect struct definitions
         for struct in program.structs:
             self._register_struct(struct)
 
-        # Second pass: collect enum definitions
+        # Third pass: collect enum definitions
         for enum in program.enums:
             self._register_enum(enum)
 
-        # Third pass: collect interface definitions
+        # Fourth pass: collect interface definitions
         for interface in program.interfaces:
             self._register_interface(interface)
 
-        # Fourth pass: register extensions and their methods
+        # Fifth pass: register extensions and their methods
         for extension in program.extensions:
             self._register_extension(extension)
 
-        # Fifth pass: collect function signatures
+        # Sixth pass: collect function signatures
         for func in program.functions:
             self._register_function(func)
 
@@ -181,11 +230,11 @@ class TypeChecker:
                 hint="add a `fn main() { }` function as the entry point"
             )
 
-        # Fifth pass: type check function bodies
+        # Seventh pass: type check function bodies
         for func in program.functions:
             self._check_function(func)
 
-        # Sixth pass: type check method bodies
+        # Eighth pass: type check method bodies
         for extension in program.extensions:
             self._check_extension(extension)
 
@@ -498,8 +547,9 @@ class TypeChecker:
                         extension.line, extension.column
                     )
 
-            # Check return type matches (allow Self -> concrete type)
-            if not self._types_compatible_for_interface(iface_method.return_type, impl_method.return_type, type_name):
+            # Check return type matches (allow Self and associated types -> concrete types)
+            if not self._types_compatible_for_interface(iface_method.return_type, impl_method.return_type,
+                                                         type_name, iface_info.name):
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
                     f"method `{method_name}` has return type `{impl_method.return_type}` but interface `{iface_info.name}` expects `{iface_method.return_type}`",
@@ -527,13 +577,42 @@ class TypeChecker:
                     hint=f"add `type {assoc_type_name} = SomeType` to the extension"
                 )
 
-    def _types_compatible_for_interface(self, iface_type: SawType, impl_type: SawType, self_type_name: str) -> bool:
-        """Check if implementation type matches interface type, with Self substitution."""
-        # Handle Self type (parsed as STRUCT with struct_name="Self")
-        if iface_type.kind == TypeKind.STRUCT and iface_type.struct_name == "Self":
-            # Self should match the implementing type
-            return impl_type.kind == TypeKind.STRUCT and impl_type.struct_name == self_type_name
-        return self._types_compatible(iface_type, impl_type)
+    def _types_compatible_for_interface(self, iface_type: SawType, impl_type: SawType,
+                                         self_type_name: str, iface_name: str = None) -> bool:
+        """Check if implementation type matches interface type, with Self and associated type substitution."""
+        # Resolve the interface type by substituting Self and associated types
+        resolved_iface_type = self._resolve_interface_type(iface_type, self_type_name, iface_name)
+        return self._types_compatible(resolved_iface_type, impl_type)
+
+    def _resolve_interface_type(self, iface_type: SawType, self_type_name: str,
+                                  iface_name: str = None) -> SawType:
+        """Resolve Self and associated types in an interface type."""
+        if iface_type.kind == TypeKind.STRUCT and iface_type.struct_name:
+            # Handle Self type
+            if iface_type.struct_name == "Self":
+                return SawType(TypeKind.STRUCT, struct_name=self_type_name)
+            # Handle associated types
+            if iface_name and (self_type_name, iface_name) in self.type_assignments:
+                type_assigns = self.type_assignments[(self_type_name, iface_name)]
+                if iface_type.struct_name in type_assigns:
+                    return type_assigns[iface_type.struct_name]
+            # Recursively resolve type args
+            if iface_type.type_args:
+                resolved_args = [self._resolve_interface_type(t, self_type_name, iface_name)
+                                 for t in iface_type.type_args]
+                return SawType(TypeKind.STRUCT, struct_name=iface_type.struct_name, type_args=resolved_args)
+        elif iface_type.kind == TypeKind.OPTIONAL and iface_type.inner_type:
+            resolved_inner = self._resolve_interface_type(iface_type.inner_type, self_type_name, iface_name)
+            return SawType(TypeKind.OPTIONAL, inner_type=resolved_inner)
+        elif iface_type.kind == TypeKind.TUPLE and iface_type.element_types:
+            resolved_elems = [self._resolve_interface_type(t, self_type_name, iface_name)
+                              for t in iface_type.element_types]
+            return SawType(TypeKind.TUPLE, element_types=resolved_elems)
+        elif iface_type.kind == TypeKind.ENUM and iface_type.type_args:
+            resolved_args = [self._resolve_interface_type(t, self_type_name, iface_name)
+                             for t in iface_type.type_args]
+            return SawType(TypeKind.ENUM, enum_name=iface_type.enum_name, type_args=resolved_args)
+        return iface_type
 
     def _check_extension(self, extension: Extension):
         """Type check all methods in an extension."""
@@ -677,13 +756,17 @@ class TypeChecker:
         value_type = self._check_expression(stmt.value)
 
         if stmt.type_annotation:
-            if not self._types_compatible(value_type, stmt.type_annotation):
+            # Resolve type aliases in the annotation
+            resolved_type = self._resolve_type(stmt.type_annotation)
+            # allow_literal_to_distinct=True because let/var initialization allows primitives to
+            # initialize distinct types (e.g., `let x: MyInt = 21`)
+            if not self._types_compatible(value_type, resolved_type, allow_literal_to_distinct=True):
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot assign `{value_type}` to variable of type `{stmt.type_annotation}`",
                     stmt.line, stmt.column
                 )
-            var_type = stmt.type_annotation
+            var_type = resolved_type
         else:
             var_type = value_type
 
@@ -1187,12 +1270,17 @@ class TypeChecker:
         if left_type is None or right_type is None:
             return None
 
+        # Get underlying types for operation checking (for distinct types like `type MyInt = Int`)
+        left_underlying = self._get_underlying_type(left_type)
+        right_underlying = self._get_underlying_type(right_type)
+
         # Arithmetic operators
         if expr.op in ['+', '-', '*', '/']:
-            if left_type.kind == TypeKind.INT and right_type.kind == TypeKind.INT:
-                return SawType(TypeKind.INT)
-            elif left_type.kind in [TypeKind.INT, TypeKind.FLOAT] and \
-                 right_type.kind in [TypeKind.INT, TypeKind.FLOAT]:
+            if left_underlying.kind == TypeKind.INT and right_underlying.kind == TypeKind.INT:
+                # Return the original left type (preserves distinct types)
+                return left_type
+            elif left_underlying.kind in [TypeKind.INT, TypeKind.FLOAT] and \
+                 right_underlying.kind in [TypeKind.INT, TypeKind.FLOAT]:
                 return SawType(TypeKind.FLOAT)
             else:
                 self.reporter.error(
@@ -1230,9 +1318,12 @@ class TypeChecker:
         if operand_type is None:
             return None
 
+        # Get underlying type for operation checking
+        underlying = self._get_underlying_type(operand_type)
+
         if expr.op == '-':
-            if operand_type.kind in [TypeKind.INT, TypeKind.FLOAT]:
-                return operand_type
+            if underlying.kind in [TypeKind.INT, TypeKind.FLOAT]:
+                return operand_type  # Preserve distinct type
             else:
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
@@ -1326,6 +1417,12 @@ class TypeChecker:
                                 expr.line, expr.column,
                                 hint=f"add `extension {concrete_type_name}: {bound} {{ ... }}`"
                             )
+                        else:
+                            # Add associated type mappings to type_map
+                            # For `T: Container` where T=IntBox, add `Item -> Int`
+                            type_assigns = self.type_assignments.get((concrete_type_name, bound), {})
+                            for assoc_name, assoc_type in type_assigns.items():
+                                type_map[assoc_name] = assoc_type
 
             # Substitute type parameters in param types and return type
             param_types = [self._substitute_type(t, type_map) for t in func_info.param_types]
@@ -1701,6 +1798,12 @@ class TypeChecker:
         if inner_type is None:
             return None
 
+        # Handle distinct optional types (e.g., type OptInt = Int?)
+        if inner_type.kind == TypeKind.STRUCT and inner_type.struct_name in self.type_aliases:
+            underlying = self._get_underlying_type(inner_type)
+            if underlying.kind == TypeKind.OPTIONAL:
+                return underlying.inner_type
+
         if inner_type.kind != TypeKind.OPTIONAL:
             self.reporter.error(
                 ErrorKind.TYPE_MISMATCH,
@@ -2053,11 +2156,15 @@ class TypeChecker:
         return result_type
 
     def _resolve_type(self, saw_type: SawType) -> SawType:
-        """Resolve user-defined types (convert STRUCT types that are actually ENUMs)."""
+        """Resolve user-defined types (ENUMs parsed as STRUCT). Does NOT resolve type aliases."""
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
-            # Check if this is actually an enum
+            # Check if this is actually an enum (NOT a type alias - those stay as STRUCT)
             if saw_type.struct_name in self.enums:
                 return SawType(TypeKind.ENUM, enum_name=saw_type.struct_name)
+            # Recursively resolve type args
+            if saw_type.type_args:
+                resolved_args = [self._resolve_type(t) for t in saw_type.type_args]
+                return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=resolved_args)
         elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
             # Recursively resolve optional inner types
             resolved_inner = self._resolve_type(saw_type.inner_type)
@@ -2066,6 +2173,22 @@ class TypeChecker:
             # Recursively resolve tuple element types
             resolved_elements = [self._resolve_type(t) for t in saw_type.element_types]
             return SawType(TypeKind.TUPLE, element_types=resolved_elements)
+        elif saw_type.kind == TypeKind.ENUM and saw_type.type_args:
+            # Recursively resolve enum type args
+            resolved_args = [self._resolve_type(t) for t in saw_type.type_args]
+            return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=resolved_args)
+        return saw_type
+
+    def _get_underlying_type(self, saw_type: SawType) -> SawType:
+        """Get the underlying primitive type for a type (resolves type aliases).
+        Used for checking if operations are valid on distinct types."""
+        if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
+            # Resolve type alias to underlying type
+            if saw_type.struct_name in self.type_aliases:
+                return self._get_underlying_type(self.type_aliases[saw_type.struct_name])
+        elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
+            resolved_inner = self._get_underlying_type(saw_type.inner_type)
+            return SawType(TypeKind.OPTIONAL, inner_type=resolved_inner)
         return saw_type
 
     def _substitute_type(self, saw_type: SawType, type_map: Dict[str, SawType]) -> SawType:
@@ -2097,8 +2220,16 @@ class TypeChecker:
             return SawType(TypeKind.TUPLE, element_types=substituted_elements)
         return saw_type
 
-    def _types_compatible(self, a: Optional[SawType], b: Optional[SawType]) -> bool:
-        """Check if two types are compatible."""
+    def _types_compatible(self, a: Optional[SawType], b: Optional[SawType],
+                          allow_literal_to_distinct: bool = False) -> bool:
+        """Check if two types are compatible.
+
+        Args:
+            a: The source type (what we have)
+            b: The target type (what we expect)
+            allow_literal_to_distinct: If True, allows primitive types to initialize distinct types.
+                                       Only pass True for let/var initialization context.
+        """
         if a is None or b is None:
             return True  # Assume compatible if we couldn't determine types
 
@@ -2110,7 +2241,25 @@ class TypeChecker:
 
         # Allow implicit wrapping: T is compatible with T?
         if b.kind == TypeKind.OPTIONAL and b.inner_type is not None:
-            if self._types_compatible(a, b.inner_type):
+            if self._types_compatible(a, b.inner_type, allow_literal_to_distinct):
+                return True
+
+        # Check if b is a distinct type (STRUCT with name in type_aliases)
+        if b.kind == TypeKind.STRUCT and b.struct_name in self.type_aliases:
+            # Allow primitive types to initialize distinct type wrappers
+            # Only in initialization context (allow_literal_to_distinct=True)
+            if allow_literal_to_distinct:
+                underlying = self._get_underlying_type(b)
+                if a.kind in [TypeKind.INT, TypeKind.FLOAT, TypeKind.BOOL, TypeKind.STRING]:
+                    if a.kind == underlying.kind:
+                        return True
+                    # Also handle distinct optional types: OptInt = Int?
+                    # Allow Int to be implicitly wrapped into OptInt
+                    if underlying.kind == TypeKind.OPTIONAL and underlying.inner_type:
+                        if a.kind == underlying.inner_type.kind:
+                            return True
+            # Always allow if 'a' is the same distinct type
+            if a.kind == TypeKind.STRUCT and a.struct_name == b.struct_name:
                 return True
 
         if a.kind != b.kind:

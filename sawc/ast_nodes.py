@@ -510,11 +510,21 @@ class Function(ASTNode):
 
 
 @dataclass
+class TypeDefinition(ASTNode):
+    """Type definition: type MyInt = Int"""
+    name: str
+    defined_type: 'SawType'
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class Program(ASTNode):
     structs: List[Struct]
     functions: List[Function]
     extensions: List[Extension] = field(default_factory=list)
     enums: List[Enum] = field(default_factory=list)
     interfaces: List[Interface] = field(default_factory=list)
+    type_definitions: List[TypeDefinition] = field(default_factory=list)
     line: int = 0
     column: int = 0

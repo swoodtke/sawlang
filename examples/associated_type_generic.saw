@@ -1,0 +1,46 @@
+// Test associated types with generic functions
+// EXPECT: 42
+// EXPECT: hello
+
+interface Container {
+    type Item
+    func get(self) -> Item
+}
+
+struct IntBox {
+    value: Int
+}
+
+extension IntBox: Container {
+    type Item = Int
+
+    func get(self) -> Int {
+        self.value
+    }
+}
+
+struct StringBox {
+    value: String
+}
+
+extension StringBox: Container {
+    type Item = String
+
+    func get(self) -> String {
+        self.value
+    }
+}
+
+// Generic function that takes any Container and returns its Item
+// Note: The return type uses Item directly, which gets resolved per instantiation
+func getItem<T: Container>(container: T) -> Item {
+    container.get()
+}
+
+func main() {
+    let ib = IntBox(value: 42)
+    print(getItem<IntBox>(ib))
+
+    let sb = StringBox(value: "hello")
+    print(getItem<StringBox>(sb))
+}
