@@ -124,17 +124,19 @@ class SawType:
 
 ### 1.6 Implementation Steps
 
-1. [ ] Add `TypeParameter` AST node
-2. [ ] Update `Function` AST to include `type_params`
-3. [ ] Update parser to parse `<T, U>` after function name
-4. [ ] Update type checker to handle type parameters in scope
-5. [ ] Add basic type substitution logic
+1. [x] Add `TypeParameter` AST node
+2. [x] Update `Function` AST to include `type_params`
+3. [x] Update parser to parse `<T, U>` after function name
+4. [x] Update type checker to handle type parameters in scope
+5. [x] Add basic type substitution logic
 6. [ ] Update `Struct` AST and parser for generic structs
 7. [ ] Update `Enum` AST and parser for generic enums
-8. [ ] Implement monomorphization in codegen
-9. [ ] Add tests for generic functions
+8. [x] Implement monomorphization in codegen
+9. [x] Add tests for generic functions
 10. [ ] Add tests for generic structs
 11. [ ] Add tests for generic enums
+
+**Status**: Generic functions complete (commit 185b27d). Generic structs/enums deferred as not strictly required for for-loops.
 
 ---
 
@@ -650,9 +652,18 @@ Option 1 is simpler and reuses existing while loop code.
 
 ---
 
+## Progress
+
+- **2024-12-25**: Phase 1 generic functions complete (commit 185b27d)
+  - Added TypeParameter AST node and TYPE_PARAM type kind
+  - Parser handles `<T, U>` with backtracking to disambiguate from `<` comparison
+  - Type checker performs type substitution for generic calls
+  - Codegen implements monomorphization (e.g., `identity<Int>` → `identity$Int`)
+  - 2 test files: `generics_simple.saw`, `generics_multi_param.saw`
+
 ## Next Steps
 
-1. Start with Phase 1: Basic Generics
-2. Begin with generic functions (simpler than generic types)
-3. Add tests as we go
-4. Commit after each major milestone
+1. ~~Start with Phase 1: Basic Generics~~ ✓ (functions done)
+2. ~~Begin with generic functions (simpler than generic types)~~ ✓
+3. Phase 2: Interfaces - needed for Iterator trait
+4. Alternative: Implement simplified for-loop over built-in Range without full interface system
