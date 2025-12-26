@@ -128,7 +128,7 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 76 tests including success cases and error validation
+**Test Coverage:** 78 tests including success cases and error validation
 
 ## Current Features
 
@@ -156,6 +156,8 @@ The compiler currently supports:
 - Field assignment: `obj.field = value`
 - Optionals (`T?`): `None`, `!`, `??`, `?.`
 - Optional binding: `if let`/`if var`, `guard let`/`guard var`
+- Enums with associated values and `match` expressions
+- Match exhaustiveness checking (must cover all variants or use `_` wildcard)
 
 ### Extensions & Methods
 - `extension` blocks for adding methods to structs

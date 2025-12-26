@@ -1,0 +1,33 @@
+// Test: match with wildcard pattern
+enum Status {
+    case Success,
+    case Failure,
+    case Pending,
+    case Unknown
+}
+
+func main() {
+    let s1 = Status.Success
+    let s2 = Status.Pending
+    let s3 = Status.Unknown
+
+    // Wildcard covers remaining cases - no error
+    match s1 {
+        case Success -> print(1),
+        case Failure -> print(2),
+        case _ -> print(0)
+    }
+
+    // Match on Pending - goes to wildcard
+    match s2 {
+        case Success -> print(10),
+        case _ -> print(99)
+    }
+
+    // Match on Unknown - goes to wildcard
+    match s3 {
+        case Success -> print(100),
+        case Failure -> print(200),
+        case _ -> print(999)
+    }
+}

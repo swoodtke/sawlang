@@ -1,0 +1,18 @@
+// Test: non-exhaustive match error
+// EXPECT-ERROR-CONTAINS: match is not exhaustive
+// EXPECT-ERROR-CONTAINS: missing variants: `Pending`
+
+enum Status {
+    case Success,
+    case Failure,
+    case Pending
+}
+
+func main() {
+    let s = Status.Success
+    // Missing case Pending - should error
+    match s {
+        case Success -> print(1),
+        case Failure -> print(2)
+    }
+}

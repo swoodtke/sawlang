@@ -2395,9 +2395,30 @@ class TypeChecker:
             for type_param, type_arg in zip(enum_info.type_params, matched_type.type_args):
                 type_mapping[type_param.name] = type_arg
 
-        # Type check each arm
+        # Type check each arm and track matched variants for exhaustiveness
         arm_types = []
+        matched_variants = set()
+        has_wildcard = False
+
         for arm in expr.arms:
+            # Check for wildcard pattern
+            if arm.variant_name == "_":
+                has_wildcard = True
+                # Wildcard has no bindings and matches everything
+                if arm.bindings:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        "wildcard pattern `_` cannot have bindings",
+                        arm.line, arm.column
+                    )
+                # Type check arm body
+                if isinstance(arm.body, Block):
+                    arm_type = self._check_block(arm.body)
+                else:
+                    arm_type = self._check_expression(arm.body)
+                arm_types.append(arm_type)
+                continue
+
             # Verify variant exists
             if arm.variant_name not in enum_info.variants:
                 self.reporter.error(
@@ -2407,6 +2428,7 @@ class TypeChecker:
                 )
                 continue
 
+            matched_variants.add(arm.variant_name)
             variant_params = enum_info.variants[arm.variant_name]
 
             # Apply type substitution for generic enums
@@ -2452,6 +2474,19 @@ class TypeChecker:
 
             # Restore scope
             self.current_scope = old_scope
+
+        # Check exhaustiveness - error if not all variants are covered
+        if not has_wildcard:
+            all_variants = set(enum_info.variants.keys())
+            missing_variants = all_variants - matched_variants
+            if missing_variants:
+                missing_list = ", ".join(f"`{v}`" for v in sorted(missing_variants))
+                self.reporter.error(
+                    ErrorKind.NON_EXHAUSTIVE_MATCH,
+                    f"match is not exhaustive, missing variants: {missing_list}",
+                    expr.line, expr.column,
+                    hint="add missing cases or use `case _ ->` as a default"
+                )
 
         # Verify all arms have compatible return types
         if not arm_types:

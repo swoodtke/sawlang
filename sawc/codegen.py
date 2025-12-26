@@ -2524,30 +2524,36 @@ class CodeGenerator:
             # Enum with payload
             tag = self.builder.extract_value(matched_val, 0, name="match_tag")
 
+        # Find the enum name by matching LLVM types
+        enum_name = None
+        for name, (llvm_type, _, _) in self.enum_types.items():
+            if llvm_type == matched_val.type:
+                enum_name = name
+                break
+
         # Create basic blocks for each arm + merge block
         arm_blocks = []
+        wildcard_block = None
         for arm in expr.arms:
             arm_block = self.builder.append_basic_block(f"match_arm_{arm.variant_name}")
             arm_blocks.append((arm, arm_block))
+            if arm.variant_name == "_":
+                wildcard_block = arm_block
 
         merge_block = self.builder.append_basic_block("match_merge")
 
         # Create switch instruction
-        # Default case goes to first arm (we don't have exhaustiveness checking yet)
-        switch = self.builder.switch(tag, arm_blocks[0][1])
-        for arm, arm_block in arm_blocks:
-            # Get enum info to find tag value
-            # We need to extract enum name from the matched expression's type
-            # This is a bit hacky - we should track this better
-            # For now, we'll iterate through enum_types to find matching LLVM type
-            enum_name = None
-            for name, (llvm_type, _, _) in self.enum_types.items():
-                if llvm_type == matched_val.type:
-                    enum_name = name
-                    break
+        # Use wildcard as default if present, otherwise first arm
+        default_block = wildcard_block if wildcard_block else arm_blocks[0][1]
+        switch = self.builder.switch(tag, default_block)
 
-            if enum_name:
-                _, variant_tags, variant_info = self.enum_types[enum_name]
+        # Add cases for non-wildcard arms
+        if enum_name:
+            _, variant_tags, variant_info = self.enum_types[enum_name]
+            for arm, arm_block in arm_blocks:
+                # Skip wildcard - it's the default case
+                if arm.variant_name == "_":
+                    continue
                 tag_value = variant_tags[arm.variant_name]
                 tag_const = ir.Constant(ir.IntType(32), tag_value)
                 switch.add_case(tag_const, arm_block)
@@ -2557,8 +2563,8 @@ class CodeGenerator:
         for arm, arm_block in arm_blocks:
             self.builder.position_at_end(arm_block)
 
-            # Extract and bind associated values if any
-            if arm.bindings and not isinstance(matched_val.type, ir.IntType):
+            # Extract and bind associated values if any (not for wildcard)
+            if arm.variant_name != "_" and arm.bindings and not isinstance(matched_val.type, ir.IntType):
                 # Get variant info and enum type
                 llvm_enum_type, _, variant_info = self.enum_types[enum_name]
                 variant_params = variant_info[arm.variant_name]

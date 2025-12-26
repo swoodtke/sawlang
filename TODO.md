@@ -2,8 +2,8 @@
 
 ## Current Status (MVP Complete + Core Types + Generics/Interfaces)
 
-**Compiler Stats:** ~7,000 lines of Python across 7 modules
-**Test Coverage:** 76 tests
+**Compiler Stats:** ~7,100 lines of Python across 7 modules
+**Test Coverage:** 78 tests
 
 ---
 
@@ -19,9 +19,10 @@
 - [x] Array indexing: `arr[0]`
 - [x] Unified `[index]` syntax works for both arrays and tuples
 
-### Phase 3: Complete Generics (In Progress)
+### Phase 3: Complete Generics ✅ COMPLETE
 - [x] Generic enums: `enum Maybe<T> { case Just(value: T), case Nothing }`
-- [ ] Match exhaustiveness checking
+- [x] Match exhaustiveness checking (error if not all variants covered)
+- [x] Wildcard pattern `case _ ->` for default cases
 
 ### Phase 4: Functional Patterns
 - [ ] Closures: `{ x in x * 2 }` and `{ $0 * 2 }`

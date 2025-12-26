@@ -27,6 +27,7 @@ class ErrorKind(Enum):
 
     # Warnings
     UNUSED_VARIABLE = auto()
+    NON_EXHAUSTIVE_MATCH = auto()
 
 
 @dataclass
