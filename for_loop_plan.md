@@ -195,7 +195,7 @@ class Interface:
     name: str
     type_params: List[TypeParameter]
     methods: List[InterfaceMethod]  # Required methods
-    default_methods: List[Method]  # Methods with default impl
+    default_methods: List[Method]  # Methods with default implementation
     line: int = 0
     column: int = 0
 
@@ -611,7 +611,7 @@ Option 1 is simpler and reuses existing while loop code.
 ### Error Tests
 - Missing interface implementation
 - Unsatisfied interface bounds
-- Incorrect method signature in interface impl
+- Incorrect method signature in interface implementation
 - Missing associated type
 - For loop on non-iterable type
 

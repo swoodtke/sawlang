@@ -973,13 +973,13 @@ unsafe interface GlobalAlloc {
 and         as          async       await       break
 const       continue    defer       do          dyn
 else        enum        extension   extern      false
-func        for         guard       if          impl
-import      in          init        interface   let
-loop        macro       match       module      move
-none        not         or          package     parent
-public      ref         return      self        Self
-some        static      struct      true        type
-unsafe      var         where       while
+func        for         guard       if          import
+in          init        interface   let         loop
+macro       match       module      move        none
+not         or          package     parent      public
+ref         return      self        Self        some
+static      struct      true        type        unsafe
+var         where       while
 ```
 
 ## Appendix B: Operators
