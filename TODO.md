@@ -2,8 +2,37 @@
 
 ## Current Status (MVP Complete + Core Types + Generics/Interfaces)
 
-**Compiler Stats:** ~6,500 lines of Python across 7 modules
-**Test Coverage:** 69 tests
+**Compiler Stats:** ~6,600 lines of Python across 7 modules
+**Test Coverage:** 70 tests
+
+---
+
+## Next Up: Prioritized Roadmap
+
+### Phase 1: Quick Wins ✅ COMPLETE
+- [x] Logical operators: `&&`, `||`, `not`
+- [x] Modulo operator: `%`
+
+### Phase 2: Arrays
+- [ ] Fixed-size arrays: `[T; N]`
+- [ ] Array literals: `[1, 2, 3]`
+- [ ] Array indexing: `arr[0]`
+
+### Phase 3: Complete Generics
+- [ ] Generic enums: `enum Option<T> { Some(T), None }`
+- [ ] Match exhaustiveness checking
+
+### Phase 4: Functional Patterns
+- [ ] Closures: `{ x in x * 2 }` and `{ $0 * 2 }`
+- [ ] Function types: `fn(Int) -> Int`
+
+### Deferred (lower priority for now)
+- Unit tests for lexer/parser/typechecker (integration tests sufficient)
+- Code refactoring to visitor pattern (not blocking features)
+- Named tuples (structs cover this use case)
+- Inclusive range `..=` (workaround: `0..(n+1)`)
+
+---
 
 **Completed Features:**
 - [x] Basic functions with parameters and return types
@@ -200,9 +229,9 @@
 - [ ] Match on tuples with destructuring
 
 ### Additional Operators
-- [ ] Logical AND/OR: `&&`, `||`
-- [ ] Logical NOT: `not` keyword (note: `!` is force-unwrap)
-- [ ] Modulo: `%`
+- [x] Logical AND/OR: `&&`, `||`
+- [x] Logical NOT: `not` keyword (note: `!` is force-unwrap)
+- [x] Modulo: `%`
 - [ ] Compound assignment: `+=`, `-=`, `*=`, `/=`
 - [ ] Bitwise: `&`, `|`, `^`, `~`, `<<`, `>>`
 - [x] Range: `..` (exclusive end)
@@ -442,6 +471,6 @@ Source (.saw) → Lexer → Tokens → Parser → AST → Type Checker → Typed
 
 ## Quick Wins (Low effort, high value)
 - [x] Add `while` loop (simple extension of existing control flow)
-- [ ] Add logical operators `&&`, `||` (straightforward binary ops)
-- [ ] Add `%` modulo operator
+- [x] Add logical operators `&&`, `||`, `not` (straightforward binary/unary ops)
+- [x] Add `%` modulo operator
 - [ ] Exhaustiveness warning for match expressions

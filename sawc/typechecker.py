@@ -1324,6 +1324,30 @@ class TypeChecker:
                 )
                 return None
 
+        # Modulo operator (integers only)
+        elif expr.op == '%':
+            if left_underlying.kind == TypeKind.INT and right_underlying.kind == TypeKind.INT:
+                return left_type  # Preserve distinct type
+            else:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"operator `%` requires integer operands, got `{left_type}` and `{right_type}`",
+                    expr.line, expr.column
+                )
+                return None
+
+        # Logical operators
+        elif expr.op in ['&&', '||']:
+            if left_underlying.kind == TypeKind.BOOL and right_underlying.kind == TypeKind.BOOL:
+                return SawType(TypeKind.BOOL)
+            else:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"operator `{expr.op}` requires Bool operands, got `{left_type}` and `{right_type}`",
+                    expr.line, expr.column
+                )
+                return None
+
         # Comparison operators
         elif expr.op in ['==', '!=', '<', '>', '<=', '>=']:
             # Enums only support == and !=, not ordering operators
@@ -1362,6 +1386,17 @@ class TypeChecker:
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `-` cannot be applied to `{operand_type}`",
+                    expr.line, expr.column
+                )
+                return None
+
+        elif expr.op == 'not':
+            if underlying.kind == TypeKind.BOOL:
+                return SawType(TypeKind.BOOL)
+            else:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"operator `not` requires Bool operand, got `{operand_type}`",
                     expr.line, expr.column
                 )
                 return None

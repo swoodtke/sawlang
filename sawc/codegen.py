@@ -1464,6 +1464,12 @@ class CodeGenerator:
             raise ValueError(f"Unknown expression type: {type(expr)}")
 
     def _generate_binary_op(self, expr: BinaryOp):
+        # Handle short-circuit logical operators specially
+        if expr.op == '&&':
+            return self._generate_logical_and(expr)
+        elif expr.op == '||':
+            return self._generate_logical_or(expr)
+
         left = self._generate_expression(expr.left)
         right = self._generate_expression(expr.right)
 
@@ -1489,6 +1495,10 @@ class CodeGenerator:
             if is_float:
                 return self.builder.fdiv(left, right, name="divtmp")
             return self.builder.sdiv(left, right, name="divtmp")
+
+        elif expr.op == '%':
+            # Modulo only works on integers
+            return self.builder.srem(left, right, name="modtmp")
 
         elif expr.op == '==':
             # Check if we're comparing enum types (tag-only comparison)
@@ -1541,6 +1551,76 @@ class CodeGenerator:
         else:
             raise ValueError(f"Unknown binary operator: {expr.op}")
 
+    def _generate_logical_and(self, expr: BinaryOp):
+        """Generate short-circuit && evaluation.
+
+        left && right:
+        - Evaluate left
+        - If left is false, result is false (don't evaluate right)
+        - If left is true, result is value of right
+        """
+        func = self.builder.block.function
+
+        # Create blocks
+        eval_right_block = func.append_basic_block(name="and_right")
+        merge_block = func.append_basic_block(name="and_merge")
+
+        # Evaluate left operand
+        left = self._generate_expression(expr.left)
+        left_block = self.builder.block
+
+        # Branch: if left is false, go to merge with false; else evaluate right
+        self.builder.cbranch(left, eval_right_block, merge_block)
+
+        # Evaluate right operand
+        self.builder.position_at_end(eval_right_block)
+        right = self._generate_expression(expr.right)
+        right_block = self.builder.block
+        self.builder.branch(merge_block)
+
+        # Merge: phi node selects result
+        self.builder.position_at_end(merge_block)
+        phi = self.builder.phi(ir.IntType(1), name="and_result")
+        phi.add_incoming(ir.Constant(ir.IntType(1), 0), left_block)  # false from left
+        phi.add_incoming(right, right_block)  # right value if left was true
+
+        return phi
+
+    def _generate_logical_or(self, expr: BinaryOp):
+        """Generate short-circuit || evaluation.
+
+        left || right:
+        - Evaluate left
+        - If left is true, result is true (don't evaluate right)
+        - If left is false, result is value of right
+        """
+        func = self.builder.block.function
+
+        # Create blocks
+        eval_right_block = func.append_basic_block(name="or_right")
+        merge_block = func.append_basic_block(name="or_merge")
+
+        # Evaluate left operand
+        left = self._generate_expression(expr.left)
+        left_block = self.builder.block
+
+        # Branch: if left is true, go to merge with true; else evaluate right
+        self.builder.cbranch(left, merge_block, eval_right_block)
+
+        # Evaluate right operand
+        self.builder.position_at_end(eval_right_block)
+        right = self._generate_expression(expr.right)
+        right_block = self.builder.block
+        self.builder.branch(merge_block)
+
+        # Merge: phi node selects result
+        self.builder.position_at_end(merge_block)
+        phi = self.builder.phi(ir.IntType(1), name="or_result")
+        phi.add_incoming(ir.Constant(ir.IntType(1), 1), left_block)  # true from left
+        phi.add_incoming(right, right_block)  # right value if left was false
+
+        return phi
+
     def _generate_unary_op(self, expr: UnaryOp):
         operand = self._generate_expression(expr.operand)
 
@@ -1549,6 +1629,10 @@ class CodeGenerator:
                 return self.builder.fneg(operand, name="negtmp")
             zero = ir.Constant(ir.IntType(64), 0)
             return self.builder.sub(zero, operand, name="negtmp")
+
+        elif expr.op == 'not':
+            # Logical NOT: flip the boolean (XOR with 1)
+            return self.builder.xor(operand, ir.Constant(ir.IntType(1), 1), name="nottmp")
 
         else:
             raise ValueError(f"Unknown unary operator: {expr.op}")

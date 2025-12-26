@@ -54,12 +54,16 @@ class TokenType(Enum):
     MINUS = auto()
     STAR = auto()
     SLASH = auto()
+    PERCENT = auto()        # % for modulo
     EQ = auto()
     NEQ = auto()
     LT = auto()
     GT = auto()
     LTE = auto()
     GTE = auto()
+    AND = auto()            # && for logical and
+    OR = auto()             # || for logical or
+    NOT = auto()            # 'not' keyword for logical not
     ASSIGN = auto()
     QUESTION = auto()       # ? for optional types
     DOUBLE_QUESTION = auto() # ?? for nil coalescing
@@ -115,6 +119,7 @@ KEYWORDS = {
     'for': TokenType.FOR,
     'in': TokenType.IN,
     'type': TokenType.TYPE,
+    'not': TokenType.NOT,
     'Int': TokenType.INT_TYPE,
     'Float': TokenType.FLOAT_TYPE,
     'Bool': TokenType.BOOL_TYPE,
@@ -258,6 +263,23 @@ class Lexer:
                 else:
                     self.add_token(TokenType.SLASH, '/')
                     self.advance()
+            elif ch == '%':
+                self.add_token(TokenType.PERCENT, '%')
+                self.advance()
+            elif ch == '&':
+                if self.peek(1) == '&':
+                    self.add_token(TokenType.AND, '&&')
+                    self.advance()
+                    self.advance()
+                else:
+                    self.error(f"Unexpected character: {ch} (did you mean '&&'?)")
+            elif ch == '|':
+                if self.peek(1) == '|':
+                    self.add_token(TokenType.OR, '||')
+                    self.advance()
+                    self.advance()
+                else:
+                    self.error(f"Unexpected character: {ch} (did you mean '||'?)")
             elif ch == '=':
                 if self.peek(1) == '=':
                     self.add_token(TokenType.EQ, '==')

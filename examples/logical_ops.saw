@@ -1,0 +1,64 @@
+// Test logical operators: &&, ||, not
+// Also test modulo operator: %
+
+func main() {
+    // Test logical AND
+    print("Testing &&:")
+    print(true && true)    // true
+    print(true && false)   // false
+    print(false && true)   // false
+    print(false && false)  // false
+
+    // Test logical OR
+    print("Testing ||:")
+    print(true || true)    // true
+    print(true || false)   // true
+    print(false || true)   // true
+    print(false || false)  // false
+
+    // Test logical NOT
+    print("Testing not:")
+    print(not true)   // false
+    print(not false)  // true
+
+    // Test combinations
+    print("Testing combinations:")
+    print(true && not false)           // true
+    print(not true || false)           // false
+    print(not (true && false))         // true
+    print((true || false) && true)     // true
+
+    // Test short-circuit evaluation
+    print("Testing short-circuit:")
+    let x = 5
+    // In && if left is false, right is not evaluated
+    print(false && x > 10)  // false (x > 10 not evaluated)
+    // In || if left is true, right is not evaluated
+    print(true || x > 10)   // true (x > 10 not evaluated)
+
+    // Test with comparisons
+    print("Testing with comparisons:")
+    let a = 10
+    let b = 20
+    print(a < b && b > 15)    // true && true = true
+    print(a > b || b > 15)    // false || true = true
+    print(not (a == b))       // not false = true
+
+    // Test modulo operator
+    print("Testing %:")
+    print(10 % 3)   // 1
+    print(15 % 4)   // 3
+    print(7 % 7)    // 0
+    print(100 % 10) // 0
+    print(17 % 5)   // 2
+
+    // Test modulo in expressions
+    let n = 25
+    print(n % 7)         // 4
+    print((n + 5) % 10)  // 0
+
+    // Test even/odd check with modulo
+    print("Even/odd test:")
+    print(10 % 2 == 0)   // true (10 is even)
+    print(7 % 2 == 0)    // false (7 is odd)
+}

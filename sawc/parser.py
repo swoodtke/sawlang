@@ -801,14 +801,48 @@ class Parser:
 
     def parse_nil_coalesce(self) -> Expression:
         """Parse nil coalescing: expr ?? default"""
-        left = self.parse_comparison()
+        left = self.parse_or()
 
         while self.match(TokenType.DOUBLE_QUESTION):
             op_token = self.advance()
-            right = self.parse_comparison()
+            right = self.parse_or()
             left = NilCoalesce(
                 expr=left,
                 default=right,
+                line=op_token.line,
+                column=op_token.column
+            )
+
+        return left
+
+    def parse_or(self) -> Expression:
+        """Parse logical OR: expr || expr"""
+        left = self.parse_and()
+
+        while self.match(TokenType.OR):
+            op_token = self.advance()
+            right = self.parse_and()
+            left = BinaryOp(
+                op='||',
+                left=left,
+                right=right,
+                line=op_token.line,
+                column=op_token.column
+            )
+
+        return left
+
+    def parse_and(self) -> Expression:
+        """Parse logical AND: expr && expr"""
+        left = self.parse_comparison()
+
+        while self.match(TokenType.AND):
+            op_token = self.advance()
+            right = self.parse_comparison()
+            left = BinaryOp(
+                op='&&',
+                left=left,
+                right=right,
                 line=op_token.line,
                 column=op_token.column
             )
@@ -867,7 +901,7 @@ class Parser:
     def parse_multiplicative(self) -> Expression:
         left = self.parse_unary()
 
-        while self.match(TokenType.STAR, TokenType.SLASH):
+        while self.match(TokenType.STAR, TokenType.SLASH, TokenType.PERCENT):
             op_token = self.advance()
             right = self.parse_unary()
             left = BinaryOp(
@@ -886,6 +920,16 @@ class Parser:
             operand = self.parse_unary()
             return UnaryOp(
                 op='-',
+                operand=operand,
+                line=op_token.line,
+                column=op_token.column
+            )
+
+        if self.match(TokenType.NOT):
+            op_token = self.advance()
+            operand = self.parse_unary()
+            return UnaryOp(
+                op='not',
                 operand=operand,
                 line=op_token.line,
                 column=op_token.column

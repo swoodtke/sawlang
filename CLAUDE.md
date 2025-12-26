@@ -140,8 +140,9 @@ The compiler currently supports:
 - Generic structs: `struct Box<T> { value: T }`
 - Basic types: Int, Float, Bool, String
 - Variables: `let` (immutable) and `var` (mutable)
-- Arithmetic: `+`, `-`, `*`, `/`
+- Arithmetic: `+`, `-`, `*`, `/`, `%` (modulo)
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Logical: `&&`, `||`, `not`
 - Control flow: `if`/`else` expressions, `while` loops, `for` loops
 - Loop control: `break`, `continue`
 - Recursion
@@ -340,6 +341,32 @@ extension Point: Describable {
 func main() {
     let p = Point(x: 3, y: 4)
     print(p.describe())  // 7
+}
+```
+
+### Logical Operators and Modulo
+```saw
+func main() {
+    // Logical operators (short-circuit evaluation)
+    let a = true && false   // false
+    let b = true || false   // true
+    let c = not true        // false
+
+    // Combining with comparisons
+    let x = 10
+    let y = 20
+    if x < y && y > 15 {
+        print("both conditions true")
+    }
+
+    // Modulo operator
+    print(10 % 3)           // 1
+    print(17 % 5)           // 2
+
+    // Even/odd check
+    if x % 2 == 0 {
+        print("x is even")
+    }
 }
 ```
 
