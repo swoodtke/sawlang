@@ -65,7 +65,7 @@ func greet(name: String, greeting: String = "Hello") -> String {
 }
 
 // Trailing closure syntax
-func map<T, U>(list: [T], transform: func(T) -> U) -> [U]
+func map<T, U>(list: [T], transform: (T) -> U) -> [U]
 
 let doubled = numbers.map { x in x * 2 }
 let doubled = numbers.map { $0 * 2 }  // shorthand
@@ -335,8 +335,8 @@ let k: Kilometers = m  // Error! Can't mix miles and kilometers
 let raw: Float64 = m.value
 
 // Type definitions for function signatures
-type Callback = func(Int) -> Bool
-type Handler<T> = func(T) -> Result<(), Error>
+type Callback = (Int) -> Bool
+type Handler<T> = (T) -> Result<(), Error>
 ```
 
 ### Type Extensions
@@ -545,33 +545,173 @@ guard.insert("key", 42)
 
 ## 5. Error Handling
 
+Saw uses `Result<T, E>` for recoverable errors with `try` expressions for ergonomic handling. Errors are explicit in function signatures—no hidden control flow.
+
+### The Error Interface
+
+```saw
+// Built-in interface that all error types should implement
+interface Error {
+    func message(self) -> String
+}
+
+// Custom error types implement Error
+enum IoError: Error {
+    case NotFound(path: String),
+    case Permission(path: String),
+    case ConnectionFailed(host: String),
+}
+
+extension IoError {
+    func message(self) -> String {
+        match self {
+            case NotFound(p) -> "File not found: {p}",
+            case Permission(p) -> "Permission denied: {p}",
+            case ConnectionFailed(h) -> "Connection failed: {h}",
+        }
+    }
+}
+
+enum ParseError: Error {
+    case InvalidSyntax(line: Int, column: Int),
+    case UnexpectedToken(token: String),
+    case EndOfInput,
+}
+
+extension ParseError {
+    func message(self) -> String {
+        match self {
+            case InvalidSyntax(line, col) -> "Syntax error at {line}:{col}",
+            case UnexpectedToken(tok) -> "Unexpected token: {tok}",
+            case EndOfInput -> "Unexpected end of input",
+        }
+    }
+}
+```
+
 ### Result Type
 
 ```saw
+// Built-in generic enum
 enum Result<T, E> {
-    Ok(T),
-    Err(E),
+    case Ok(value: T),
+    case Err(error: E),
 }
 
+// Functions declare error types explicitly in return type
 func read_file(path: String) -> Result<String, IoError> {
     // ...
 }
 
-// Explicit handling
+func parse_json(content: String) -> Result<Config, ParseError> {
+    // ...
+}
+```
+
+### The `try` Expression
+
+The `try` keyword unwraps a `Result`, extracting the `Ok` value. If the result is `Err`, the error is either propagated to the caller or caught by an enclosing `try/catch` block.
+
+```saw
+// 'try' unwraps Ok value, propagates Err to caller
+func load_config() -> Result<Config, IoError> {
+    let content = try read_file("config.json")  // Propagates IoError
+    Ok(parse(content))
+}
+
+// Chaining multiple try expressions
+func process_data() -> Result<Output, IoError> {
+    let input = try read_file("input.txt")
+    let config = try read_file("config.json")
+    Ok(transform(input, config))
+}
+```
+
+**Key rule:** A bare `try` (outside a `try/catch` block) requires the enclosing function to return `Result<_, E>` where `E` is compatible with the error type.
+
+### The `try/catch` Block
+
+For local error handling without propagation, use `try/catch` blocks with pattern matching:
+
+```saw
+func safe_read() -> Config {
+    try {
+        let content = try read_file("config.json")
+        try parse_json(content)
+    } catch {
+        case IoError.NotFound(p) -> {
+            print("Config not found at {p}, using defaults")
+            Config.default()
+        },
+        case IoError.Permission(p) -> {
+            print("Cannot read {p}, using defaults")
+            Config.default()
+        },
+        case ParseError.InvalidSyntax(line, _) -> {
+            panic("Config syntax error at line {line}")
+        },
+        case ParseError.UnexpectedToken(tok) -> {
+            panic("Unexpected token in config: {tok}")
+        },
+        case ParseError.EndOfInput -> {
+            panic("Config file is incomplete")
+        },
+    }
+}
+```
+
+The `catch` block must be **exhaustive**—all possible error types from the `try` block must be handled.
+
+### Mixed Error Types and the Error Interface
+
+When a `try` block contains operations that return different error types, they are automatically erased to the `Error` interface for propagation:
+
+```saw
+// Mixed errors auto-erase to Error interface
+func load_and_parse() -> Result<Config, Error> {
+    // IoError and ParseError both implement Error
+    let content = try read_file("config.json")  // Result<String, IoError>
+    try parse_json(content)                      // Result<Config, ParseError>
+    // Both errors erased to Error for propagation
+}
+```
+
+At a higher level, you can pattern match on the `Error` interface to recover concrete types:
+
+```saw
+func main() {
+    try {
+        let config = try load_and_parse()
+        run(config)
+    } catch {
+        // Pattern match to recover concrete error types
+        case IoError.NotFound(p) -> print("Missing file: {p}"),
+        case IoError.Permission(p) -> print("Access denied: {p}"),
+        case ParseError.InvalidSyntax(line, col) -> {
+            print("Syntax error at {line}:{col}")
+        },
+        // Catch-all required when matching on Error interface
+        // (can't statically know all implementors)
+        case _ -> print("Unknown error occurred"),
+    }
+}
+```
+
+**Important:** When catching `Error` (the interface), a catch-all `case _` is required since the compiler cannot know all types that implement `Error`. When catching specific error types, exhaustiveness is checked statically.
+
+### Explicit Result Handling
+
+You can always handle `Result` explicitly with `match`:
+
+```saw
 match read_file("data.txt") {
-    Ok(content) => process(content),
-    Err(e) => print("Error: {e}"),
+    case Ok(content) -> process(content),
+    case Err(e) -> print("Error: {e.message()}"),
 }
 
-// Propagation operator
-func load_config() -> Result<Config, Error> {
-    let content = read_file("config.json")?  // Returns early on error
-    parse_json(content)?
-}
-
-// Map and combinators
+// Combinators for functional style
 let result = read_file("data.txt")
-    .map(|s| s.to_uppercase())
+    .map { content in content.to_uppercase() }
     .unwrap_or("default")
 ```
 
@@ -591,25 +731,15 @@ assert(x > 0, "x must be positive")
 debug_assert(expensive_check())  // Only in debug builds
 ```
 
-### Custom Error Types
+### Summary
 
-```saw
-enum ParseError {
-    InvalidSyntax(line: Int, column: Int),
-    UnexpectedToken(String),
-    EndOfInput,
-}
-
-extension ParseError: Error {
-    func message(self) -> String {
-        match self {
-            InvalidSyntax(line, col) => "Syntax error at {line}:{col}",
-            UnexpectedToken(tok) => "Unexpected token: {tok}",
-            EndOfInput => "Unexpected end of input",
-        }
-    }
-}
-```
+| Mechanism | Use Case |
+|-----------|----------|
+| `Result<T, E>` | Explicit error type in signature |
+| `try expr` | Unwrap Ok or propagate/catch Err |
+| `try { } catch { }` | Local error handling with pattern matching |
+| `Error` interface | Type-erased errors, pattern match later |
+| `panic()` | Unrecoverable errors, bugs, invariant violations |
 
 ---
 
@@ -971,15 +1101,15 @@ unsafe interface GlobalAlloc {
 
 ```
 and         as          async       await       break
-const       continue    defer       do          dyn
-else        enum        extension   extern      false
-func        for         guard       if          import
-in          init        interface   let         loop
-macro       match       module      move        none
-not         or          package     parent      public
-ref         return      self        Self        some
-static      struct      true        type        unsafe
-var         where       while
+catch       const       continue    defer       do
+dyn         else        enum        extension   extern
+false       func        for         guard       if
+import      in          init        interface   let
+loop        macro       match       module      move
+none        not         or          package     parent
+public      ref         return      self        Self
+some        static      struct      true        try
+type        unsafe      var         where       while
 ```
 
 ## Appendix B: Operators

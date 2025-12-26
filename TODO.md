@@ -26,7 +26,7 @@
 
 ### Phase 4: Functional Patterns
 - [ ] Closures: `{ x in x * 2 }` and `{ $0 * 2 }`
-- [ ] Function types: `fn(Int) -> Int`
+- [ ] Function types: `(Int) -> Int` (Swift-style)
 
 ### Deferred (lower priority for now)
 - Unit tests for lexer/parser/typechecker (integration tests sufficient)
@@ -281,7 +281,7 @@
 - [ ] Shorthand: `{ $0 * 2 }`
 - [ ] Capturing variables
 - [ ] Trailing closure syntax
-- [ ] `fn` types: `fn(Int) -> Int`
+- [ ] Function types: `(Int) -> Int`
 
 ---
 
@@ -337,11 +337,18 @@
 
 ## Priority 8: Error Handling
 
+### Error Interface
+- [ ] Built-in `Error` interface with `message(self) -> String`
+- [ ] Pattern matching on `Error` interface with RTTI
+- [ ] Catch-all required when matching on `Error` (can't know all implementors)
+
 ### Result Type
-- [ ] `Result<T, E>` enum
-- [ ] `Ok(value)` and `Err(error)`
-- [ ] `?` propagation operator
-- [ ] `.map()`, `.and_then()` combinators
+- [ ] `Result<T, E>` enum with `Ok(value)` and `Err(error)`
+- [ ] `try expr` - unwrap Ok or propagate/catch Err
+- [ ] `try { } catch { }` blocks for local error handling
+- [ ] Exhaustive catch blocks with pattern matching
+- [ ] Mixed error types auto-erase to `Error` interface
+- [ ] `.map()`, `.and_then()`, `.unwrap_or()` combinators
 
 ### Panics
 - [ ] `panic(message)` function
