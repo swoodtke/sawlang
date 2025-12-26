@@ -17,7 +17,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    Interface, InterfaceMethod,
+    Interface, InterfaceMethod, AssociatedType, TypeAssignment,
     SawType, TypeKind, Argument, TypeParameter
 )
 
@@ -235,12 +235,15 @@ class Parser:
         )
 
     def parse_struct(self) -> Struct:
-        """Parse a struct declaration: struct Name { field: Type, ... }"""
+        """Parse a struct declaration: struct Name { field: Type } or struct Box<T> { value: T }"""
         start = self.current()
         self.expect(TokenType.STRUCT)
 
         name_token = self.expect(TokenType.IDENT, "Expected struct name")
         name = name_token.value
+
+        # Parse optional type parameters: <T, U>
+        type_params = self.parse_type_params()
 
         self.skip_newlines()
         self.expect(TokenType.LBRACE)
@@ -264,17 +267,21 @@ class Parser:
         return Struct(
             name=name,
             fields=fields,
+            type_params=type_params,
             line=start.line,
             column=start.column
         )
 
     def parse_enum(self) -> Enum:
-        """Parse an enum declaration: enum Name { case Variant1, case Variant2(x: Type) }"""
+        """Parse an enum declaration: enum Name { case Variant1 } or enum Option<T> { case Some(value: T) }"""
         start = self.current()
         self.expect(TokenType.ENUM)
 
         name_token = self.expect(TokenType.IDENT, "Expected enum name")
         name = name_token.value
+
+        # Parse optional type parameters: <T, U>
+        type_params = self.parse_type_params()
 
         self.skip_newlines()
         self.expect(TokenType.LBRACE)
@@ -321,12 +328,13 @@ class Parser:
         return Enum(
             name=name,
             variants=variants,
+            type_params=type_params,
             line=start.line,
             column=start.column
         )
 
     def parse_interface(self) -> Interface:
-        """Parse interface declaration: interface Name { func method(self) -> Type }"""
+        """Parse interface declaration: interface Iterator { type Item; func next(var self) -> Item? }"""
         start = self.current()
         self.expect(TokenType.INTERFACE)
 
@@ -341,9 +349,17 @@ class Parser:
         self.skip_newlines()
 
         methods = []
+        associated_types = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
-            method = self.parse_interface_method()
-            methods.append(method)
+            if self.match(TokenType.TYPE):
+                # Parse associated type: type Item
+                assoc_type = self.parse_associated_type()
+                associated_types.append(assoc_type)
+            elif self.match(TokenType.FUNC):
+                method = self.parse_interface_method()
+                methods.append(method)
+            else:
+                self.error(f"Expected 'type' or 'func' in interface, got {self.current().type.name}")
             self.skip_newlines()
 
         self.expect(TokenType.RBRACE)
@@ -351,7 +367,23 @@ class Parser:
         return Interface(
             name=name,
             methods=methods,
+            associated_types=associated_types,
             type_params=type_params,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_associated_type(self) -> AssociatedType:
+        """Parse associated type declaration: type Item"""
+        start = self.current()
+        self.expect(TokenType.TYPE)
+
+        name_token = self.expect(TokenType.IDENT, "Expected associated type name")
+
+        # TODO: Parse optional bounds: type Item: SomeBound
+
+        return AssociatedType(
+            name=name_token.value,
             line=start.line,
             column=start.column
         )
@@ -384,12 +416,15 @@ class Parser:
         )
 
     def parse_extension(self) -> Extension:
-        """Parse extension declaration: extension StructName: Interface1, Interface2 { methods... }"""
+        """Parse extension declaration: extension Box<T>: Interface { type Item = Int; func... }"""
         start = self.current()
         self.expect(TokenType.EXTENSION)
 
         name_token = self.expect(TokenType.IDENT, "Expected struct name after 'extension'")
         struct_name = name_token.value
+
+        # Parse optional type parameters: <T, U>
+        type_params = self.parse_type_params()
 
         # Parse optional interface conformances: `: Interface1, Interface2`
         conformances = []
@@ -409,9 +444,17 @@ class Parser:
         self.skip_newlines()
 
         methods = []
+        type_assignments = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
-            method = self.parse_method()
-            methods.append(method)
+            if self.match(TokenType.TYPE):
+                # Parse type assignment: type Item = Int
+                type_assign = self.parse_type_assignment()
+                type_assignments.append(type_assign)
+            elif self.match(TokenType.FUNC, TokenType.INIT):
+                method = self.parse_method()
+                methods.append(method)
+            else:
+                self.error(f"Expected 'type', 'func', or 'init' in extension, got {self.current().type.name}")
             self.skip_newlines()
 
         self.expect(TokenType.RBRACE)
@@ -419,7 +462,25 @@ class Parser:
         return Extension(
             struct_name=struct_name,
             methods=methods,
+            type_params=type_params,
             conformances=conformances,
+            type_assignments=type_assignments,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_type_assignment(self) -> TypeAssignment:
+        """Parse type assignment: type Item = Int"""
+        start = self.current()
+        self.expect(TokenType.TYPE)
+
+        name_token = self.expect(TokenType.IDENT, "Expected associated type name")
+        self.expect(TokenType.ASSIGN, "Expected '=' after associated type name")
+        assigned_type = self.parse_type()
+
+        return TypeAssignment(
+            name=name_token.value,
+            assigned_type=assigned_type,
             line=start.line,
             column=start.column
         )
@@ -945,7 +1006,7 @@ class Parser:
             if self.match(TokenType.LPAREN):
                 # Peek ahead to see if this is struct init (name: value) or function call
                 if self.peek(1).type == TokenType.IDENT and self.peek(2).type == TokenType.COLON:
-                    return self.parse_struct_init(token)
+                    return self.parse_struct_init(token, type_args)
                 else:
                     return self.parse_function_call(token, type_args)
             return Identifier(name=token.value, line=token.line, column=token.column)
@@ -1042,8 +1103,8 @@ class Parser:
             column=name_token.column
         )
 
-    def parse_struct_init(self, name_token: Token) -> StructInit:
-        """Parse struct initialization: StructName(field1: value1, field2: value2)"""
+    def parse_struct_init(self, name_token: Token, type_args: Optional[List[SawType]] = None) -> StructInit:
+        """Parse struct initialization: StructName(field1: value1) or Box<Int>(value: 42)"""
         self.expect(TokenType.LPAREN)
         field_inits = []
 
@@ -1070,6 +1131,7 @@ class Parser:
         return StructInit(
             struct_name=name_token.value,
             field_inits=field_inits,
+            type_args=type_args,
             line=name_token.line,
             column=name_token.column
         )

@@ -64,6 +64,10 @@ class CodeGenerator:
         self.type_param_context: dict[str, SawType] = {}
         # Stores original AST of generic functions for later instantiation
         self.generic_functions: dict[str, Function] = {}
+        # Stores original AST of generic structs for later instantiation
+        self.generic_structs: dict[str, Struct] = {}
+        # Stores original AST of generic extensions for later instantiation
+        self.generic_extensions: dict[str, Extension] = {}
         # Tracks which monomorphized functions have been generated
         self.generated_instantiations: set[str] = set()
 
@@ -187,6 +191,11 @@ class CodeGenerator:
 
     def _register_struct(self, struct: Struct):
         """Register a struct type with LLVM."""
+        # Skip generic structs - they'll be monomorphized when used
+        if struct.type_params:
+            self.generic_structs[struct.name] = struct
+            return
+
         # Get LLVM types for each field
         field_types = [self._get_llvm_type(field.type) for field in struct.fields]
 
@@ -363,8 +372,268 @@ class CodeGenerator:
         else:
             return f"{struct_name}_{method_name}"
 
+    def _mangle_generic_struct_name(self, base_name: str, type_args: List[SawType]) -> str:
+        """Generate mangled name for generic struct instantiation: Box<Int> -> Box_Int"""
+        def type_to_string(t: SawType) -> str:
+            if t.kind == TypeKind.INT:
+                return "Int"
+            elif t.kind == TypeKind.FLOAT:
+                return "Float"
+            elif t.kind == TypeKind.BOOL:
+                return "Bool"
+            elif t.kind == TypeKind.STRING:
+                return "String"
+            elif t.kind == TypeKind.STRUCT:
+                if t.type_args:
+                    return self._mangle_generic_struct_name(t.struct_name, t.type_args)
+                return t.struct_name
+            elif t.kind == TypeKind.ENUM:
+                if t.type_args:
+                    return self._mangle_generic_struct_name(t.enum_name, t.type_args)
+                return t.enum_name
+            elif t.kind == TypeKind.OPTIONAL:
+                return f"Optional_{type_to_string(t.inner_type)}"
+            elif t.kind == TypeKind.TUPLE:
+                inner = "_".join(type_to_string(elem) for elem in t.element_types)
+                return f"Tuple_{inner}"
+            else:
+                return str(t.kind.name)
+
+        args_str = "_".join(type_to_string(t) for t in type_args)
+        return f"{base_name}_{args_str}"
+
+    def _substitute_saw_type(self, saw_type: SawType, type_mapping: dict[str, SawType]) -> SawType:
+        """Substitute type parameters with concrete types in a SawType."""
+        if saw_type.kind == TypeKind.TYPE_PARAM:
+            if saw_type.type_param_name in type_mapping:
+                return type_mapping[saw_type.type_param_name]
+            return saw_type
+        elif saw_type.kind == TypeKind.OPTIONAL:
+            if saw_type.inner_type:
+                new_inner = self._substitute_saw_type(saw_type.inner_type, type_mapping)
+                return SawType(TypeKind.OPTIONAL, inner_type=new_inner)
+            return saw_type
+        elif saw_type.kind == TypeKind.TUPLE:
+            if saw_type.element_types:
+                new_elements = [self._substitute_saw_type(e, type_mapping) for e in saw_type.element_types]
+                return SawType(TypeKind.TUPLE, element_types=new_elements)
+            return saw_type
+        elif saw_type.kind == TypeKind.STRUCT:
+            if saw_type.type_args:
+                new_type_args = [self._substitute_saw_type(t, type_mapping) for t in saw_type.type_args]
+                return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=new_type_args)
+            return saw_type
+        elif saw_type.kind == TypeKind.ENUM:
+            if saw_type.type_args:
+                new_type_args = [self._substitute_saw_type(t, type_mapping) for t in saw_type.type_args]
+                return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=new_type_args)
+            return saw_type
+        else:
+            return saw_type
+
+    def _ensure_monomorphized_struct(self, struct_name: str, type_args: List[SawType]) -> str:
+        """Ensure a monomorphized version of a generic struct exists.
+        Returns the mangled name of the monomorphized struct."""
+        mangled_name = self._mangle_generic_struct_name(struct_name, type_args)
+
+        # Already generated
+        if mangled_name in self.struct_types:
+            return mangled_name
+
+        # Get the generic struct
+        if struct_name not in self.generic_structs:
+            raise ValueError(f"Unknown generic struct: {struct_name}")
+        generic_struct = self.generic_structs[struct_name]
+
+        # Build type mapping: T -> Int, etc.
+        type_mapping = {}
+        for i, type_param in enumerate(generic_struct.type_params):
+            if i < len(type_args):
+                type_mapping[type_param.name] = type_args[i]
+
+        # Set type param context for _get_llvm_type
+        old_context = self.type_param_context
+        self.type_param_context = type_mapping
+
+        # Generate field types with substitution
+        field_types = []
+        for field in generic_struct.fields:
+            substituted = self._substitute_saw_type(field.type, type_mapping)
+            field_types.append(self._get_llvm_type(substituted))
+
+        # Restore context
+        self.type_param_context = old_context
+
+        # Create LLVM struct type
+        llvm_struct_type = ir.LiteralStructType(field_types)
+
+        # Store the type and field order
+        field_order = [field.name for field in generic_struct.fields]
+        self.struct_types[mangled_name] = (llvm_struct_type, field_order)
+
+        # If there's a generic extension for this struct, also monomorphize its methods
+        if struct_name in self.generic_extensions:
+            self._monomorphize_extension(struct_name, type_args, mangled_name, type_mapping)
+
+        return mangled_name
+
+    def _monomorphize_extension(self, struct_name: str, type_args: List[SawType],
+                                 mangled_struct_name: str, type_mapping: dict[str, SawType]):
+        """Generate monomorphized version of extension methods for a generic struct."""
+        generic_ext = self.generic_extensions[struct_name]
+
+        # Save current state - we may be in the middle of generating another function
+        saved_builder = self.builder
+        saved_variables = self.variables
+
+        # Set type param context
+        old_context = self.type_param_context
+        self.type_param_context = type_mapping
+
+        for method in generic_ext.methods:
+            # Create mangled name using the monomorphized struct name
+            if method.is_init:
+                param_names = [p.name for p in method.parameters]
+                mangled_name = self._mangle_method_name(mangled_struct_name, method.name, param_names)
+            else:
+                mangled_name = self._mangle_method_name(mangled_struct_name, method.name)
+
+            # Build parameter types with substitution
+            if method.is_init:
+                param_types = []
+                for p in method.parameters:
+                    substituted = self._substitute_saw_type(p.type, type_mapping)
+                    param_types.append(self._get_llvm_type(substituted))
+                struct_type, _ = self.struct_types[mangled_struct_name]
+                return_type = struct_type
+            else:
+                param_types = []
+                for i, p in enumerate(method.parameters):
+                    if i == 0 and p.name == "self":
+                        # Self type is the monomorphized struct
+                        llvm_type = self.struct_types[mangled_struct_name][0]
+                    else:
+                        substituted = self._substitute_saw_type(p.type, type_mapping)
+                        llvm_type = self._get_llvm_type(substituted)
+                    if i == 0 and p.name == "self" and method.self_mutable:
+                        llvm_type = llvm_type.as_pointer()
+                    param_types.append(llvm_type)
+                substituted_return = self._substitute_saw_type(method.return_type, type_mapping)
+                return_type = self._get_llvm_type(substituted_return)
+
+            # Create function type
+            func_type = ir.FunctionType(return_type, param_types)
+            llvm_func = ir.Function(self.module, func_type, name=mangled_name)
+            self.functions[mangled_name] = llvm_func
+
+            # Generate the method body
+            if method.is_init:
+                self._generate_init_method_generic(mangled_struct_name, method, type_mapping)
+            else:
+                self._generate_method_generic(mangled_struct_name, method, type_mapping)
+
+        # Restore all state
+        self.type_param_context = old_context
+        self.builder = saved_builder
+        self.variables = saved_variables
+
+    def _generate_method_generic(self, struct_name: str, method: Method, type_mapping: dict[str, SawType]):
+        """Generate code for a method with type substitution."""
+        mangled_name = self._mangle_method_name(struct_name, method.name)
+        llvm_func = self.functions[mangled_name]
+
+        # Create entry block
+        block = llvm_func.append_basic_block(name="entry")
+        self.builder = ir.IRBuilder(block)
+
+        # Clear variables for this method
+        self.variables = {}
+
+        # Set type param context for method body
+        old_context = self.type_param_context
+        self.type_param_context = type_mapping
+
+        # Create allocas for parameters (including self)
+        for i, param in enumerate(method.parameters):
+            llvm_func.args[i].name = param.name
+            if i == 0 and param.name == "self" and method.self_mutable:
+                self.variables[param.name] = llvm_func.args[i]
+            else:
+                if i == 0 and param.name == "self":
+                    param_type = self.struct_types[struct_name][0]
+                else:
+                    substituted = self._substitute_saw_type(param.type, type_mapping)
+                    param_type = self._get_llvm_type(substituted)
+                alloca = self.builder.alloca(param_type, name=param.name)
+                self.builder.store(llvm_func.args[i], alloca)
+                self.variables[param.name] = alloca
+
+        # Generate method body
+        result = self._generate_block(method.body)
+
+        # Handle return
+        substituted_return = self._substitute_saw_type(method.return_type, type_mapping)
+        if substituted_return.kind == TypeKind.VOID:
+            if not self.builder.block.is_terminated:
+                self.builder.ret_void()
+        else:
+            if not self.builder.block.is_terminated:
+                if result is not None:
+                    self.builder.ret(result)
+                else:
+                    return_type = self._get_llvm_type(substituted_return)
+                    self.builder.ret(ir.Constant(return_type, ir.Undefined))
+
+        # Restore context
+        self.type_param_context = old_context
+
+    def _generate_init_method_generic(self, struct_name: str, method: Method, type_mapping: dict[str, SawType]):
+        """Generate code for an init method with type substitution."""
+        param_names = [p.name for p in method.parameters]
+        mangled_name = self._mangle_method_name(struct_name, method.name, param_names)
+        llvm_func = self.functions[mangled_name]
+
+        # Create entry block
+        block = llvm_func.append_basic_block(name="entry")
+        self.builder = ir.IRBuilder(block)
+
+        # Clear variables for this method
+        self.variables = {}
+
+        # Set type param context
+        old_context = self.type_param_context
+        self.type_param_context = type_mapping
+
+        # Create allocas for parameters
+        for i, param in enumerate(method.parameters):
+            llvm_func.args[i].name = param.name
+            substituted = self._substitute_saw_type(param.type, type_mapping)
+            param_type = self._get_llvm_type(substituted)
+            alloca = self.builder.alloca(param_type, name=param.name)
+            self.builder.store(llvm_func.args[i], alloca)
+            self.variables[param.name] = alloca
+
+        # Generate init body
+        result = self._generate_block(method.body)
+
+        # Return the result (should be a struct)
+        if not self.builder.block.is_terminated:
+            if result is not None:
+                self.builder.ret(result)
+            else:
+                struct_type, _ = self.struct_types[struct_name]
+                self.builder.ret(ir.Constant(struct_type, ir.Undefined))
+
+        # Restore context
+        self.type_param_context = old_context
+
     def _declare_extension_methods(self, extension: Extension):
         """Declare all methods in an extension."""
+        # Skip generic extensions - they'll be monomorphized when the struct is used
+        if extension.type_params:
+            self.generic_extensions[extension.struct_name] = extension
+            return
+
         for method in extension.methods:
             # Create mangled name
             if method.is_init:
@@ -401,6 +670,10 @@ class CodeGenerator:
 
     def _generate_extension_methods(self, extension: Extension):
         """Generate code for all methods in an extension."""
+        # Skip generic extensions - they'll be monomorphized when the struct is used
+        if extension.type_params:
+            return
+
         for method in extension.methods:
             if method.is_init:
                 self._generate_init_method(extension.struct_name, method)
@@ -1370,13 +1643,19 @@ class CodeGenerator:
 
     def _generate_struct_init(self, expr: StructInit):
         """Generate code for struct initialization."""
-        if expr.struct_name not in self.struct_types:
-            raise ValueError(f"Undefined struct: {expr.struct_name}")
+        # Handle generic struct instantiation
+        struct_name = expr.struct_name
+        if expr.type_args:
+            # This is a generic struct - ensure monomorphized version exists
+            struct_name = self._ensure_monomorphized_struct(expr.struct_name, expr.type_args)
+
+        if struct_name not in self.struct_types:
+            raise ValueError(f"Undefined struct: {struct_name}")
 
         # Check if this is a custom init method call
         if expr.resolved_init_params is not None:
             # Custom init - call the init method
-            mangled_name = self._mangle_method_name(expr.struct_name, "init", expr.resolved_init_params)
+            mangled_name = self._mangle_method_name(struct_name, "init", expr.resolved_init_params)
             init_func = self.functions[mangled_name]
 
             # Generate arguments in the order expected by the init method
@@ -1390,7 +1669,7 @@ class CodeGenerator:
             return self.builder.call(init_func, args)
 
         # Field initialization (original behavior)
-        llvm_struct_type, field_order = self.struct_types[expr.struct_name]
+        llvm_struct_type, field_order = self.struct_types[struct_name]
 
         # Create a map from field name to value
         field_values = {field_name: self._generate_expression(value)

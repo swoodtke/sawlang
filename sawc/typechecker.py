@@ -17,7 +17,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    Interface, InterfaceMethod,
+    Interface, InterfaceMethod, AssociatedType, TypeAssignment,
     SawType, TypeKind, Parameter, Argument, TypeParameter
 )
 from errors import ErrorReporter, ErrorKind
@@ -48,6 +48,7 @@ class StructInfo:
     fields: Dict[str, SawType]  # field_name -> type
     field_order: List[str]  # preserve declaration order
     methods: Dict[str, 'MethodInfo'] = field(default_factory=dict)  # method_name -> info
+    type_params: List[TypeParameter] = field(default_factory=list)  # For generic structs
 
 
 @dataclass
@@ -56,6 +57,7 @@ class EnumInfo:
     name: str
     variants: Dict[str, List[Tuple[str, SawType]]]  # variant_name -> [(param_name, type), ...]
     variant_order: List[str]  # preserve declaration order
+    type_params: List[TypeParameter] = field(default_factory=list)  # For generic enums
 
 
 @dataclass
@@ -85,6 +87,7 @@ class InterfaceInfo:
     """Information about an interface."""
     name: str
     methods: Dict[str, InterfaceMethodInfo]  # method_name -> info
+    associated_types: List[str] = field(default_factory=list)  # Associated type names (e.g., ["Item"])
 
 
 class Scope:
@@ -135,6 +138,8 @@ class TypeChecker:
         self.loop_break_info: List[Tuple[Optional[SawType], bool, bool]] = []
         # Track which types implement which interfaces
         self.type_conformances: Dict[str, List[str]] = {}  # type_name -> [interface_names]
+        # Track associated type assignments: (type_name, interface_name) -> {assoc_type_name: SawType}
+        self.type_assignments: Dict[Tuple[str, str], Dict[str, SawType]] = {}
 
         # Register built-in functions
         self._register_builtins()
@@ -216,7 +221,8 @@ class TypeChecker:
         self.structs[struct.name] = StructInfo(
             name=struct.name,
             fields=fields,
-            field_order=field_order
+            field_order=field_order,
+            type_params=struct.type_params
         )
 
     def _register_enum(self, enum: Enum):
@@ -257,7 +263,8 @@ class TypeChecker:
         self.enums[enum.name] = EnumInfo(
             name=enum.name,
             variants=variants,
-            variant_order=variant_order
+            variant_order=variant_order,
+            type_params=enum.type_params
         )
 
     def _register_interface(self, interface: Interface):
@@ -293,9 +300,13 @@ class TypeChecker:
                 self_mutable=method.self_mutable
             )
 
+        # Collect associated type names
+        assoc_type_names = [at.name for at in interface.associated_types]
+
         self.interfaces[interface.name] = InterfaceInfo(
             name=interface.name,
-            methods=methods
+            methods=methods,
+            associated_types=assoc_type_names
         )
 
     def _register_function(self, func: Function):
@@ -427,6 +438,19 @@ class TypeChecker:
 
             struct_info.methods[method_key] = method_info
 
+        # Process type assignments for interface conformances
+        for iface_name in extension.conformances:
+            if iface_name not in self.interfaces:
+                continue  # Error will be reported below
+
+            # Collect type assignments for this interface
+            assignments: Dict[str, SawType] = {}
+            for type_assign in extension.type_assignments:
+                assignments[type_assign.name] = type_assign.assigned_type
+
+            # Store the assignments
+            self.type_assignments[(extension.struct_name, iface_name)] = assignments
+
         # Check interface conformances
         for iface_name in extension.conformances:
             if iface_name not in self.interfaces:
@@ -490,6 +514,17 @@ class TypeChecker:
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"method `{method_name}` takes {impl_param_count} parameter(s) but interface `{iface_info.name}` expects {iface_param_count}",
                     extension.line, extension.column
+                )
+
+        # Check that all required associated types are provided
+        type_assigns = self.type_assignments.get((type_name, iface_info.name), {})
+        for assoc_type_name in iface_info.associated_types:
+            if assoc_type_name not in type_assigns:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"type `{type_name}` does not provide required associated type `{assoc_type_name}` from interface `{iface_info.name}`",
+                    extension.line, extension.column,
+                    hint=f"add `type {assoc_type_name} = SomeType` to the extension"
                 )
 
     def _types_compatible_for_interface(self, iface_type: SawType, impl_type: SawType, self_type_name: str) -> bool:
@@ -1517,6 +1552,31 @@ class TypeChecker:
 
         return struct_info.fields[expr.member]
 
+    def _substitute_type(self, saw_type: SawType, type_mapping: Dict[str, SawType]) -> SawType:
+        """Substitute type parameters with concrete types."""
+        if saw_type.kind == TypeKind.TYPE_PARAM:
+            # This is a type parameter like T - replace with concrete type
+            if saw_type.type_param_name in type_mapping:
+                return type_mapping[saw_type.type_param_name]
+            return saw_type
+        elif saw_type.kind == TypeKind.OPTIONAL:
+            # Substitute in inner type
+            inner = self._substitute_type(saw_type.inner_type, type_mapping)
+            return SawType(TypeKind.OPTIONAL, inner_type=inner)
+        elif saw_type.kind == TypeKind.TUPLE:
+            # Substitute in element types
+            element_types = [self._substitute_type(t, type_mapping) for t in saw_type.element_types]
+            return SawType(TypeKind.TUPLE, element_types=element_types)
+        elif saw_type.kind == TypeKind.STRUCT and saw_type.type_args:
+            # Substitute in type arguments
+            type_args = [self._substitute_type(t, type_mapping) for t in saw_type.type_args]
+            return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=type_args)
+        elif saw_type.kind == TypeKind.ENUM and saw_type.type_args:
+            # Substitute in type arguments
+            type_args = [self._substitute_type(t, type_mapping) for t in saw_type.type_args]
+            return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=type_args)
+        return saw_type
+
     def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
         """Check struct initialization with parameter-based resolution."""
         # Check if struct exists
@@ -1528,6 +1588,27 @@ class TypeChecker:
                 expr.line, expr.column
             )
             return None
+
+        # Build type mapping for generic structs
+        type_mapping: Dict[str, SawType] = {}
+        if struct_info.type_params:
+            if not expr.type_args:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"generic struct `{expr.struct_name}` requires type arguments",
+                    expr.line, expr.column,
+                    hint=f"use `{expr.struct_name}<...>(...)`"
+                )
+            elif len(expr.type_args) != len(struct_info.type_params):
+                self.reporter.error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"expected {len(struct_info.type_params)} type argument(s), got {len(expr.type_args)}",
+                    expr.line, expr.column
+                )
+            else:
+                # Create type mapping: T -> Int, U -> String, etc.
+                for type_param, type_arg in zip(struct_info.type_params, expr.type_args):
+                    type_mapping[type_param.name] = type_arg
 
         # Get provided parameter names
         provided_params = {field_name for field_name, _ in expr.field_inits}
@@ -1556,7 +1637,7 @@ class TypeChecker:
                 hint=f"field init expects: {', '.join(sorted(field_names))}" +
                      (f"; available init methods: {[m.param_names for m in struct_info.methods.values() if m.is_init]}" if any(m.is_init for m in struct_info.methods.values()) else "")
             )
-            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name)
+            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args)
 
         elif total_matches > 1:
             # Ambiguous
@@ -1566,16 +1647,19 @@ class TypeChecker:
                 expr.line, expr.column,
                 hint="use different parameter names in init method to disambiguate"
             )
-            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name)
+            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args)
 
         # Exactly one match - resolve it
         if matches_fields:
             # Field initialization
             expr.resolved_init_params = None
 
-            # Check field types
+            # Check field types (with type substitution for generics)
             for field_name, field_value in expr.field_inits:
                 expected_type = struct_info.fields[field_name]
+                # Substitute type parameters with concrete types
+                if type_mapping:
+                    expected_type = self._substitute_type(expected_type, type_mapping)
                 actual_type = self._check_expression(field_value)
                 if actual_type and not self._types_compatible(actual_type, expected_type):
                     self.reporter.error(
@@ -1588,11 +1672,14 @@ class TypeChecker:
             method_info = matching_inits[0]
             expr.resolved_init_params = method_info.param_names
 
-            # Check argument types
+            # Check argument types (with type substitution for generics)
             for field_name, field_value in expr.field_inits:
                 # Find parameter index
                 param_idx = method_info.param_names.index(field_name)
                 expected_type = method_info.param_types[param_idx]
+                # Substitute type parameters with concrete types
+                if type_mapping:
+                    expected_type = self._substitute_type(expected_type, type_mapping)
                 actual_type = self._check_expression(field_value)
                 if actual_type and not self._types_compatible(actual_type, expected_type):
                     self.reporter.error(
@@ -1601,7 +1688,7 @@ class TypeChecker:
                         expr.line, expr.column
                     )
 
-        return SawType(TypeKind.STRUCT, struct_name=expr.struct_name)
+        return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args)
 
     def _check_none_literal(self, expr: NoneLiteral) -> Optional[SawType]:
         """Check None literal - returns a special 'None' type that can unify with any T?."""

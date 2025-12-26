@@ -41,6 +41,7 @@ class TokenType(Enum):
     INTERFACE = auto()
     FOR = auto()
     IN = auto()
+    TYPE = auto()  # 'type' keyword for associated types
 
     # Types
     INT_TYPE = auto()
@@ -113,6 +114,7 @@ KEYWORDS = {
     'interface': TokenType.INTERFACE,
     'for': TokenType.FOR,
     'in': TokenType.IN,
+    'type': TokenType.TYPE,
     'Int': TokenType.INT_TYPE,
     'Float': TokenType.FLOAT_TYPE,
     'Bool': TokenType.BOOL_TYPE,

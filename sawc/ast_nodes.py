@@ -186,9 +186,10 @@ class MemberAccess(Expression):
 
 @dataclass
 class StructInit(Expression):
-    """Struct initialization: Point(x: 10, y: 20)"""
+    """Struct initialization: Point(x: 10, y: 20) or Box<Int>(value: 42)"""
     struct_name: str
     field_inits: List[tuple[str, Expression]]  # [(field_name, value), ...]
+    type_args: Optional[List['SawType']] = None  # For generic structs: Box<Int> has type_args=[Int]
     line: int = 0
     column: int = 0
     # Resolution metadata (filled in by type checker)
@@ -407,9 +408,10 @@ class StructField:
 
 @dataclass
 class Struct(ASTNode):
-    """Struct declaration."""
+    """Struct declaration: struct Point { x: Int, y: Int } or struct Box<T> { value: T }"""
     name: str
     fields: List[StructField]
+    type_params: List['TypeParameter'] = field(default_factory=list)
     line: int = 0
     column: int = 0
 
@@ -423,9 +425,10 @@ class EnumVariant:
 
 @dataclass
 class Enum(ASTNode):
-    """Enum declaration: enum Status { case Success, case Error(code: Int) }"""
+    """Enum declaration: enum Status { case Success } or enum Option<T> { case Some(value: T), case None }"""
     name: str
     variants: List[EnumVariant]
+    type_params: List['TypeParameter'] = field(default_factory=list)
     line: int = 0
     column: int = 0
 
@@ -442,21 +445,42 @@ class InterfaceMethod(ASTNode):
 
 
 @dataclass
+class AssociatedType(ASTNode):
+    """Associated type declaration in an interface: type Item"""
+    name: str
+    bounds: List[str] = field(default_factory=list)  # Interface bounds (future)
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class Interface(ASTNode):
-    """Interface declaration: interface Display { func display(self) -> String }"""
+    """Interface declaration: interface Iterator { type Item; func next(var self) -> Item? }"""
     name: str
     methods: List[InterfaceMethod]  # Required method signatures
+    associated_types: List[AssociatedType] = field(default_factory=list)
     type_params: List[TypeParameter] = field(default_factory=list)
     line: int = 0
     column: int = 0
 
 
 @dataclass
+class TypeAssignment(ASTNode):
+    """Type assignment in an extension: type Item = Int"""
+    name: str  # Associated type name
+    assigned_type: 'SawType'  # The concrete type
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class Extension(ASTNode):
-    """Extension declaration: extension StructName: Interface1, Interface2 { ... }"""
+    """Extension declaration: extension Box<T>: Interface { ... }"""
     struct_name: str
     methods: List['Method']
+    type_params: List['TypeParameter'] = field(default_factory=list)  # For generic extensions
     conformances: List[str] = field(default_factory=list)  # Interface names
+    type_assignments: List[TypeAssignment] = field(default_factory=list)  # Associated type assignments
     line: int = 0
     column: int = 0
 

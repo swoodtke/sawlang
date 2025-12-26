@@ -128,7 +128,7 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 58 tests including success cases and error validation
+**Test Coverage:** 59 tests including success cases and error validation
 
 ## Current Features
 
@@ -137,6 +137,7 @@ The compiler currently supports:
 ### Core Language
 - Functions with parameters and return types
 - Generic functions: `func identity<T>(x: T) -> T`
+- Generic structs: `struct Box<T> { value: T }`
 - Basic types: Int, Float, Bool, String
 - Variables: `let` (immutable) and `var` (mutable)
 - Arithmetic: `+`, `-`, `*`, `/`
@@ -155,6 +156,7 @@ The compiler currently supports:
 
 ### Extensions & Methods
 - `extension` blocks for adding methods to structs
+- Generic extensions: `extension Box<T> { ... }`
 - Immutable methods: `func method(self) -> Type`
 - Mutable methods: `func method(var self)` (receives pointer)
 - Custom `init` methods with overloading
