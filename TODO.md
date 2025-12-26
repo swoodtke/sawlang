@@ -1,39 +1,9 @@
 # Saw Language - Implementation Roadmap
 
-## Current Status (MVP Complete + Core Types + Generics/Interfaces + Closures)
+## Current Status
 
-**Compiler Stats:** ~7,500 lines of Python across 7 modules
-**Test Coverage:** 81 tests
-
----
-
-## Next Up: Prioritized Roadmap
-
-### Phase 1: Quick Wins ✅ COMPLETE
-- [x] Logical operators: `&&`, `||`, `not`
-- [x] Modulo operator: `%`
-
-### Phase 2: Arrays ✅ COMPLETE
-- [x] Fixed-size arrays: `[T; N]`
-- [x] Array literals: `[1, 2, 3]`
-- [x] Array indexing: `arr[0]`
-- [x] Unified `[index]` syntax works for both arrays and tuples
-
-### Phase 3: Complete Generics ✅ COMPLETE
-- [x] Generic enums: `enum Maybe<T> { case Just(value: T), case Nothing }`
-- [x] Match exhaustiveness checking (error if not all variants covered)
-- [x] Wildcard pattern `case _ ->` for default cases
-
-### Phase 4: Functional Patterns ✅ COMPLETE
-- [x] Closures: `{ x in x * 2 }` and `{ $0 * 2 }`
-- [x] Function types: `(Int) -> Int` (Swift-style)
-- [x] Closure variable capture (copy semantics)
-
-### Deferred (lower priority for now)
-- Unit tests for lexer/parser/typechecker (integration tests sufficient)
-- Code refactoring to visitor pattern (not blocking features)
-- Named tuples (structs cover this use case)
-- Inclusive range `..=` (workaround: `0..(n+1)`)
+**Compiler Stats:** ~8,000 lines of Python across 7 modules
+**Test Coverage:** 83 tests
 
 ---
 
@@ -41,16 +11,20 @@
 - [x] Basic functions with parameters and return types
 - [x] Primitive types: Int, Float, Bool, String
 - [x] Variables: `let` (immutable) and `var` (mutable)
-- [x] Arithmetic operators: `+`, `-`, `*`, `/`
+- [x] Arithmetic operators: `+`, `-`, `*`, `/`, `%`
 - [x] Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- [x] Logical operators: `&&`, `||`, `not`
 - [x] `if`/`else` expressions
 - [x] Recursion
 - [x] `print(...)` built-in
 - [x] Tuples with literals, indexing, and multiple return values
+- [x] Arrays with literals `[1, 2, 3]` and indexing `arr[i]`
 - [x] Structs with field access and initialization
 - [x] Optionals with `None`, `!`, `??`, `?.`
 - [x] Optional binding: `if let`/`if var`, `guard let`/`guard var`
 - [x] Enums with associated data and pattern matching
+- [x] Generic enums: `enum Maybe<T> { case Just(value: T), case Nothing }`
+- [x] Match exhaustiveness checking and wildcard `case _ ->`
 - [x] Struct extensions with methods and custom init
 - [x] Mutable methods (`var self`)
 - [x] While loops with `break` and `continue`
@@ -60,6 +34,10 @@
 - [x] Interface bounds on generics (`<T: Iterator>`)
 - [x] Associated types in interfaces
 - [x] Distinct type definitions (`type UserId = Int`)
+- [x] Closures: `{ x in x * 2 }` and `{ $0 * 2 }`
+- [x] Function types: `(Int) -> Int`
+- [x] Trailing closure syntax: `arr.map { $0 * 2 }`
+- [x] Closure variable capture (copy semantics)
 
 ---
 
@@ -89,10 +67,12 @@
 
 ## Priority 0.5: Testing Infrastructure
 
-### Automated Testing
+### Automated Testing ✅ COMPLETE
 - [x] Create test runner script for all examples
 - [x] Add expected output assertions for each example
 - [x] Verify error test cases produce correct error messages
+
+### Unit Tests (deferred - integration tests sufficient)
 - [ ] Add unit tests for lexer
 - [ ] Add unit tests for parser
 - [ ] Add unit tests for type checker
@@ -182,7 +162,8 @@
 - [x] Pattern matching on enums with `match` expressions
 - [x] Match bindings to extract associated values
 - [x] Enum equality operators (`==` and `!=`)
-- [ ] Exhaustiveness checking for match expressions (warn on missing cases)
+- [x] Exhaustiveness checking for match expressions
+- [x] Wildcard pattern `case _ ->` for default cases
 - [ ] Deep equality comparison (compare payloads, not just variant tags)
 
 ### Tuples
@@ -224,10 +205,10 @@
 - [x] `match` expression on enums
 - [x] Variable binding in enum patterns: `case Success(n) -> ...`
 - [x] Wildcard pattern: `case _ -> ...` (default case)
+- [x] Exhaustiveness checking (error on missing enum variants)
 - [ ] Literal patterns: `case 0 -> ...`
 - [ ] Range patterns: `case 1..=9 -> ...`
 - [ ] Guards: `case n if n < 0 -> ...`
-- [ ] Exhaustiveness checking (warn on missing enum variants)
 - [ ] Match on primitive types (Int, Bool, String)
 - [ ] Match on tuples with destructuring
 
@@ -277,12 +258,12 @@
 - [ ] `var` parameters with `&` at call site
 - [x] Multiple return via tuples
 
-### Closures
-- [ ] Closure syntax: `{ x in x * 2 }`
-- [ ] Shorthand: `{ $0 * 2 }`
-- [ ] Capturing variables
-- [ ] Trailing closure syntax
-- [ ] Function types: `(Int) -> Int`
+### Closures ✅ COMPLETE
+- [x] Closure syntax: `{ x in x * 2 }`
+- [x] Shorthand: `{ $0 * 2 }`
+- [x] Capturing variables (copy semantics)
+- [x] Trailing closure syntax: `obj.method { ... }`
+- [x] Function types: `(Int) -> Int`
 
 ---
 
@@ -458,11 +439,10 @@ Source (.saw) → Lexer → Tokens → Parser → AST → Type Checker → Typed
 - Clean separation of compiler phases
 - All AST nodes track line/column for diagnostics
 - Multi-pass type checking handles forward references
-- 36 example programs as integration tests
+- 83 integration tests with automated test runner
 
 ### Areas Needing Attention
 - Large switch statements in typechecker and codegen
-- No automated test runner
 - Guard statement validation incomplete
 - Force-unwrap lacks runtime safety check
 
@@ -483,4 +463,4 @@ Source (.saw) → Lexer → Tokens → Parser → AST → Type Checker → Typed
 - [x] Add `while` loop (simple extension of existing control flow)
 - [x] Add logical operators `&&`, `||`, `not` (straightforward binary/unary ops)
 - [x] Add `%` modulo operator
-- [ ] Exhaustiveness warning for match expressions
+- [x] Match exhaustiveness checking
