@@ -1130,12 +1130,39 @@ class TypeChecker:
                 )
                 return None
 
-            # Build type substitution map
+            # Build type substitution map and check bounds
             type_map: Dict[str, SawType] = {}
             for type_param, type_arg in zip(func_info.type_params, expr.type_args):
                 # Resolve the type argument
                 resolved_arg = self._resolve_type(type_arg)
                 type_map[type_param.name] = resolved_arg
+
+                # Check interface bounds
+                for bound in type_param.bounds:
+                    if bound not in self.interfaces:
+                        self.reporter.error(
+                            ErrorKind.UNDEFINED_VARIABLE,
+                            f"unknown interface `{bound}` in type parameter bound",
+                            expr.line, expr.column
+                        )
+                        continue
+
+                    # Check if the concrete type satisfies the bound
+                    concrete_type_name = None
+                    if resolved_arg.kind == TypeKind.STRUCT:
+                        concrete_type_name = resolved_arg.struct_name
+                    elif resolved_arg.kind == TypeKind.ENUM:
+                        concrete_type_name = resolved_arg.enum_name
+
+                    if concrete_type_name:
+                        conformances = self.type_conformances.get(concrete_type_name, [])
+                        if bound not in conformances:
+                            self.reporter.error(
+                                ErrorKind.TYPE_MISMATCH,
+                                f"type `{resolved_arg}` does not implement interface `{bound}`",
+                                expr.line, expr.column,
+                                hint=f"add `extension {concrete_type_name}: {bound} {{ ... }}`"
+                            )
 
             # Substitute type parameters in param types and return type
             param_types = [self._substitute_type(t, type_map) for t in func_info.param_types]
@@ -1885,7 +1912,14 @@ class TypeChecker:
 
         # For struct types, check struct names match
         if a.kind == TypeKind.STRUCT:
-            return a.struct_name == b.struct_name
+            if a.struct_name == b.struct_name:
+                return True
+            # Check if b is an interface that a conforms to
+            if b.struct_name in self.interfaces:
+                # a must be a struct that conforms to interface b
+                if a.struct_name in self.type_conformances:
+                    return b.struct_name in self.type_conformances[a.struct_name]
+            return False
 
         # For enum types, check enum names match
         if a.kind == TypeKind.ENUM:

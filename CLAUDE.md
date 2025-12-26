@@ -128,7 +128,7 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 51 tests including success cases and error validation
+**Test Coverage:** 53 tests including success cases and error validation
 
 ## Current Features
 
@@ -166,6 +166,7 @@ The compiler currently supports:
 - Interface conformance: `extension Type: Interface { ... }`
 - Conformance checking (missing methods, signature mismatches)
 - Multiple interface conformance: `extension Type: A, B { ... }`
+- Interface bounds on generics: `func foo<T: Interface>(x: T)`
 
 ## Example Code
 

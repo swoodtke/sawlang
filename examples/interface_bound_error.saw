@@ -1,0 +1,23 @@
+// Test error when type doesn't satisfy interface bound
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not implement interface `Describable`
+
+interface Describable {
+    func describe(self) -> Int
+}
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+// Note: Point does NOT implement Describable
+
+func printDescription<T: Describable>(d: T) {
+    print(d.describe())
+}
+
+func main() {
+    let p = Point(x: 3, y: 4)
+    printDescription<Point>(p)  // Error: Point doesn't implement Describable
+}

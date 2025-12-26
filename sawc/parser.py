@@ -86,8 +86,18 @@ class Parser:
         start = self.current()
         name_token = self.expect(TokenType.IDENT, "Expected type parameter name")
 
-        # For now, skip bounds (Phase 3)
+        # Parse optional bounds: T: Interface1 + Interface2
         bounds = []
+        if self.match(TokenType.COLON):
+            self.advance()
+            # Parse first bound
+            bound_token = self.expect(TokenType.IDENT, "Expected interface name after ':'")
+            bounds.append(bound_token.value)
+            # Parse additional bounds
+            while self.match(TokenType.PLUS):
+                self.advance()
+                bound_token = self.expect(TokenType.IDENT, "Expected interface name after '+'")
+                bounds.append(bound_token.value)
 
         return TypeParameter(
             name=name_token.value,

@@ -1,0 +1,28 @@
+// Test passing object via interface bounds on generics
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+
+interface Describable {
+    func describe(self) -> Int
+}
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point: Describable {
+    func describe(self) -> Int {
+        self.x + self.y
+    }
+}
+
+func printDescription<T: Describable>(d: T) {
+    print(d.describe())
+}
+
+func main() {
+    let p = Point(x: 3, y: 4)
+    printDescription<Point>(p)
+}
