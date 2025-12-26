@@ -19,6 +19,7 @@ class TypeKind(Enum):
     ENUM = auto()
     TYPE_PARAM = auto()  # For generic type parameters like T, U
     ARRAY = auto()       # For fixed-size arrays [T; N]
+    FUNCTION = auto()    # For function types like (Int) -> Int
 
 
 @dataclass
@@ -39,6 +40,9 @@ class SawType:
     # For array types, this holds the element type and size
     array_element_type: Optional['SawType'] = None
     array_size: Optional[int] = None
+    # For function types, this holds the parameter types and return type
+    param_types: Optional[List['SawType']] = None
+    func_return_type: Optional['SawType'] = None
 
     def __repr__(self):
         if self.kind == TypeKind.TUPLE and self.element_types:
@@ -60,6 +64,9 @@ class SawType:
             return self.type_param_name
         if self.kind == TypeKind.ARRAY and self.array_element_type is not None:
             return f"[{self.array_element_type}; {self.array_size}]"
+        if self.kind == TypeKind.FUNCTION:
+            params = ", ".join(str(t) for t in (self.param_types or []))
+            return f"({params}) -> {self.func_return_type}"
         return self.kind.name
 
 
@@ -338,6 +345,32 @@ class RangeExpr(Expression):
     """Range expression: start..end (exclusive)"""
     start: Expression
     end: Expression
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ClosureParam:
+    """A parameter in a closure expression."""
+    name: str
+    type_annotation: Optional[SawType] = None
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ClosureExpr(Expression):
+    """Closure expression: { x in x * 2 } or { $0 * 2 }
+
+    Supports three forms:
+    1. Named parameters: { x, y in x + y }
+    2. Shorthand parameters: { $0 + $1 }
+    3. No parameters: { 42 } (treated as () -> T)
+    """
+    parameters: List[ClosureParam]  # Named parameters, empty for shorthand
+    body: 'Block'
+    shorthand_param_count: int = 0  # Number of $0, $1, etc. used
+    captures: List[str] = field(default_factory=list)  # Filled by type checker
     line: int = 0
     column: int = 0
 

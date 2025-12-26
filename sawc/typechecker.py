@@ -19,7 +19,8 @@ from ast_nodes import (
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
     Interface, InterfaceMethod, AssociatedType, TypeAssignment, TypeDefinition,
-    SawType, TypeKind, Parameter, Argument, TypeParameter
+    SawType, TypeKind, Parameter, Argument, TypeParameter,
+    ClosureExpr, ClosureParam
 )
 from errors import ErrorReporter, ErrorKind
 
@@ -1336,6 +1337,9 @@ class TypeChecker:
         elif isinstance(expr, ForLoop):
             return self._check_for_loop_as_expression(expr)
 
+        elif isinstance(expr, ClosureExpr):
+            return self._check_closure(expr)
+
         return None
 
     def _check_identifier(self, expr: Identifier) -> Optional[SawType]:
@@ -1475,6 +1479,39 @@ class TypeChecker:
                 self._check_expression(arg.value)
             return SawType(TypeKind.VOID)
 
+        # Check if this is a call to a function-typed variable (closure)
+        var_info = self.current_scope.lookup(expr.name)
+        if var_info and var_info.type.kind == TypeKind.FUNCTION:
+            # Calling a closure variable
+            func_type = var_info.type
+            param_types = func_type.param_types or []
+            return_type = func_type.func_return_type or SawType(TypeKind.VOID)
+
+            # Check argument count
+            if len(expr.arguments) != len(param_types):
+                self.reporter.error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"closure takes {len(param_types)} argument(s), "
+                    f"but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+                return return_type
+
+            # Check argument types
+            for i, (arg, expected_type) in enumerate(zip(expr.arguments, param_types)):
+                if isinstance(arg.value, ClosureExpr):
+                    arg_type = self._check_closure(arg.value, expected_type)
+                else:
+                    arg_type = self._check_expression(arg.value)
+                if arg_type and not self._types_compatible(arg_type, expected_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
+                        arg.value.line, arg.value.column
+                    )
+
+            return return_type
+
         # Look up function
         func_info = self.functions.get(expr.name)
         if not func_info:
@@ -1573,7 +1610,12 @@ class TypeChecker:
 
         # Check argument types
         for i, (arg, expected_type) in enumerate(zip(expr.arguments, param_types)):
-            arg_type = self._check_expression(arg.value)
+            # Special handling for closures - pass expected type for inference
+            if isinstance(arg.value, ClosureExpr):
+                arg_type = self._check_closure(arg.value, expected_type)
+            else:
+                arg_type = self._check_expression(arg.value)
+
             if arg_type and not self._types_compatible(arg_type, expected_type):
                 param_name = func_info.param_names[i]
                 self.reporter.error(
@@ -2504,6 +2546,161 @@ class TypeChecker:
 
         return result_type
 
+    def _check_closure(self, expr: ClosureExpr, expected_type: Optional[SawType] = None) -> Optional[SawType]:
+        """Type check a closure expression.
+
+        If expected_type is provided (e.g., from parameter type hint), use it to
+        infer parameter types for unannotated parameters.
+        """
+        # Create new scope for closure body
+        outer_scope = self.current_scope
+        self.current_scope = Scope(parent=outer_scope)
+
+        param_types = []
+
+        if expr.parameters:
+            # Named parameters
+            for i, param in enumerate(expr.parameters):
+                if param.type_annotation:
+                    param_type = self._resolve_type(param.type_annotation)
+                elif expected_type and expected_type.kind == TypeKind.FUNCTION:
+                    # Infer from expected type
+                    expected_params = expected_type.param_types or []
+                    if i < len(expected_params):
+                        param_type = expected_params[i]
+                    else:
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"Closure has more parameters than expected function type",
+                            param.line, param.column
+                        )
+                        param_type = SawType(TypeKind.INT)  # Fallback
+                else:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"Cannot infer type for closure parameter `{param.name}`. Add type annotation: `{param.name}: Type`",
+                        param.line, param.column
+                    )
+                    param_type = SawType(TypeKind.INT)  # Fallback
+
+                param_types.append(param_type)
+                self.current_scope.define(param.name, VariableInfo(param_type, False, param.line, param.column))
+
+        elif expr.shorthand_param_count > 0:
+            # Shorthand parameters $0, $1, ...
+            for i in range(expr.shorthand_param_count):
+                if expected_type and expected_type.kind == TypeKind.FUNCTION:
+                    expected_params = expected_type.param_types or []
+                    if i < len(expected_params):
+                        param_type = expected_params[i]
+                    else:
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"Closure uses `${i}` but expected function type only has {len(expected_params)} parameters",
+                            expr.line, expr.column
+                        )
+                        param_type = SawType(TypeKind.INT)
+                else:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"Cannot infer type for shorthand parameter `${i}`. Use named parameters with type annotations.",
+                        expr.line, expr.column
+                    )
+                    param_type = SawType(TypeKind.INT)
+
+                param_types.append(param_type)
+                self.current_scope.define(f"${i}", VariableInfo(param_type, False, expr.line, expr.column))
+
+        # Check body and get return type
+        return_type = self._check_block(expr.body)
+        if return_type is None:
+            return_type = SawType(TypeKind.VOID)
+
+        # Analyze captures (variables from outer scope used in body)
+        captures = self._analyze_closure_captures(expr.body, outer_scope)
+        expr.captures = captures
+
+        # Restore scope
+        self.current_scope = outer_scope
+
+        return SawType(TypeKind.FUNCTION, param_types=param_types, func_return_type=return_type)
+
+    def _analyze_closure_captures(self, body: Block, outer_scope: 'Scope') -> List[str]:
+        """Find all variables from outer scope that are used in the closure body."""
+        captures = []
+        used_names = set()
+
+        def collect_names(expr):
+            if expr is None:
+                return
+            if isinstance(expr, Identifier):
+                used_names.add(expr.name)
+            elif isinstance(expr, BinaryOp):
+                collect_names(expr.left)
+                collect_names(expr.right)
+            elif isinstance(expr, UnaryOp):
+                collect_names(expr.operand)
+            elif isinstance(expr, FunctionCall):
+                for arg in expr.arguments:
+                    collect_names(arg.value)
+            elif isinstance(expr, MethodCall):
+                collect_names(expr.object)
+                for arg in expr.arguments:
+                    collect_names(arg.value)
+            elif isinstance(expr, IfExpr):
+                collect_names(expr.condition)
+                collect_block(expr.then_branch)
+                if expr.else_branch:
+                    collect_block(expr.else_branch)
+            elif isinstance(expr, TupleLiteral):
+                for elem in expr.elements:
+                    collect_names(elem)
+            elif isinstance(expr, ArrayLiteral):
+                for elem in expr.elements:
+                    collect_names(elem)
+            elif isinstance(expr, ArrayIndex):
+                collect_names(expr.array_expr)
+                collect_names(expr.index)
+            elif isinstance(expr, MemberAccess):
+                collect_names(expr.object)
+            elif isinstance(expr, ForceUnwrap):
+                collect_names(expr.expr)
+            elif isinstance(expr, NilCoalesce):
+                collect_names(expr.expr)
+                collect_names(expr.default)
+            elif isinstance(expr, OptionalChain):
+                collect_names(expr.expr)
+            elif isinstance(expr, ClosureExpr):
+                # Don't recurse into nested closures - they have their own captures
+                pass
+
+        def collect_block(block):
+            if block is None:
+                return
+            for stmt in block.statements:
+                if isinstance(stmt, ExpressionStatement):
+                    collect_names(stmt.expression)
+                elif isinstance(stmt, LetStatement):
+                    collect_names(stmt.value)
+                elif isinstance(stmt, AssignStatement):
+                    collect_names(stmt.value)
+                    collect_names(stmt.target)
+                elif isinstance(stmt, ReturnStatement):
+                    if stmt.value:
+                        collect_names(stmt.value)
+            if block.final_expr:
+                collect_names(block.final_expr)
+
+        collect_block(body)
+
+        # Filter to only variables from outer scope
+        for name in used_names:
+            var_info = outer_scope.lookup(name)
+            if var_info:
+                captures.append(name)
+
+        return captures
+
     def _resolve_type(self, saw_type: SawType) -> SawType:
         """Resolve user-defined types (ENUMs parsed as STRUCT). Does NOT resolve type aliases."""
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
@@ -2526,6 +2723,11 @@ class TypeChecker:
             # Recursively resolve enum type args
             resolved_args = [self._resolve_type(t) for t in saw_type.type_args]
             return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=resolved_args)
+        elif saw_type.kind == TypeKind.FUNCTION:
+            # Recursively resolve function param and return types
+            resolved_params = [self._resolve_type(t) for t in (saw_type.param_types or [])]
+            resolved_return = self._resolve_type(saw_type.func_return_type) if saw_type.func_return_type else None
+            return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return)
         return saw_type
 
     def _get_underlying_type(self, saw_type: SawType) -> SawType:
@@ -2652,5 +2854,16 @@ class TypeChecker:
             if a.inner_type is None or b.inner_type is None:
                 return True
             return self._types_compatible(a.inner_type, b.inner_type)
+
+        # For function types, check param types and return type match
+        if a.kind == TypeKind.FUNCTION:
+            a_params = a.param_types or []
+            b_params = b.param_types or []
+            if len(a_params) != len(b_params):
+                return False
+            for ap, bp in zip(a_params, b_params):
+                if not self._types_compatible(ap, bp):
+                    return False
+            return self._types_compatible(a.func_return_type, b.func_return_type)
 
         return True

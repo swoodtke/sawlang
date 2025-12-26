@@ -1,9 +1,9 @@
 # Saw Language - Implementation Roadmap
 
-## Current Status (MVP Complete + Core Types + Generics/Interfaces)
+## Current Status (MVP Complete + Core Types + Generics/Interfaces + Closures)
 
-**Compiler Stats:** ~7,100 lines of Python across 7 modules
-**Test Coverage:** 78 tests
+**Compiler Stats:** ~7,500 lines of Python across 7 modules
+**Test Coverage:** 81 tests
 
 ---
 
@@ -24,9 +24,10 @@
 - [x] Match exhaustiveness checking (error if not all variants covered)
 - [x] Wildcard pattern `case _ ->` for default cases
 
-### Phase 4: Functional Patterns
-- [ ] Closures: `{ x in x * 2 }` and `{ $0 * 2 }`
-- [ ] Function types: `(Int) -> Int` (Swift-style)
+### Phase 4: Functional Patterns ✅ COMPLETE
+- [x] Closures: `{ x in x * 2 }` and `{ $0 * 2 }`
+- [x] Function types: `(Int) -> Int` (Swift-style)
+- [x] Closure variable capture (copy semantics)
 
 ### Deferred (lower priority for now)
 - Unit tests for lexer/parser/typechecker (integration tests sufficient)

@@ -84,6 +84,9 @@ class TokenType(Enum):
     ARROW = auto()
     DOT = auto()
 
+    # Closure parameters
+    DOLLAR_PARAM = auto()   # $0, $1, etc. for shorthand closures
+
     # Special
     NEWLINE = auto()
     EOF = auto()
@@ -362,6 +365,17 @@ class Lexer:
                 else:
                     self.add_token(TokenType.DOT, '.')
                     self.advance()
+            elif ch == '$':
+                start_col = self.column
+                self.advance()  # consume '$'
+                if self.peek() and self.peek().isdigit():
+                    num = []
+                    while self.peek() and self.peek().isdigit():
+                        num.append(self.advance())
+                    value = '$' + ''.join(num)
+                    self.tokens.append(Token(TokenType.DOLLAR_PARAM, value, self.line, start_col))
+                else:
+                    self.error("Expected number after '$' for shorthand closure parameter")
             else:
                 self.error(f"Unexpected character: {ch}")
 

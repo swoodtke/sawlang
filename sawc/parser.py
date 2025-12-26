@@ -19,7 +19,8 @@ from ast_nodes import (
     Enum, EnumVariant, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
     Interface, InterfaceMethod, AssociatedType, TypeAssignment, TypeDefinition,
-    SawType, TypeKind, Argument, TypeParameter
+    SawType, TypeKind, Argument, TypeParameter,
+    ClosureExpr, ClosureParam
 )
 
 
@@ -172,7 +173,7 @@ class Parser:
             self.expect(TokenType.RBRACKET, "Expected ']' after array type")
             return SawType(TypeKind.ARRAY, array_element_type=element_type, array_size=size)
         elif token.type == TokenType.LPAREN:
-            # Tuple type: (Type, Type, ...)
+            # Could be tuple type: (Type, Type, ...) or function type: (Type, Type) -> ReturnType
             self.advance()
             element_types = []
             if not self.match(TokenType.RPAREN):
@@ -181,7 +182,14 @@ class Parser:
                     self.advance()
                     element_types.append(self.parse_type())
             self.expect(TokenType.RPAREN)
-            return SawType(TypeKind.TUPLE, element_types=element_types)
+
+            # Check for arrow to distinguish function type from tuple
+            if self.match(TokenType.ARROW):
+                self.advance()
+                return_type = self.parse_type()
+                return SawType(TypeKind.FUNCTION, param_types=element_types, func_return_type=return_type)
+            else:
+                return SawType(TypeKind.TUPLE, element_types=element_types)
         elif token.type == TokenType.IDENT:
             # Could be a struct, enum, or type parameter
             # The type checker will disambiguate
@@ -1157,6 +1165,16 @@ class Parser:
             self.expect(TokenType.RBRACKET, "Expected ']' after array elements")
             return ArrayLiteral(elements=elements, line=start.line, column=start.column)
 
+        elif self.match(TokenType.LBRACE):
+            # Closure expression: { x in x * 2 } or { $0 * 2 }
+            return self._parse_closure_expression()
+
+        elif self.match(TokenType.DOLLAR_PARAM):
+            # Shorthand parameter reference outside of closure (will be validated by typechecker)
+            param_token = self.current()
+            self.advance()
+            return Identifier(name=param_token.value, line=param_token.line, column=param_token.column)
+
         else:
             self.error(f"Unexpected token: {token.type.name}")
 
@@ -1362,3 +1380,212 @@ class Parser:
             line=start.line,
             column=start.column
         )
+
+    # === Closure Parsing ===
+
+    def _parse_closure_expression(self) -> ClosureExpr:
+        """Parse a closure expression: { x in x * 2 } or { $0 * 2 }"""
+        start = self.current()
+        self.advance()  # consume '{'
+        self.skip_newlines()
+
+        # Check for named params: { x in ... } or { x, y in ... } or { x: Type in ... }
+        params = []
+        if self._is_closure_with_named_params():
+            params = self._parse_closure_params()
+            self.expect(TokenType.IN, "Expected 'in' after closure parameters")
+            self.skip_newlines()
+
+        # Parse body as block-like content
+        body = self._parse_closure_body()
+        self.expect(TokenType.RBRACE, "Expected '}' at end of closure")
+
+        # Count $N parameters if no named params
+        shorthand_count = 0
+        if not params:
+            shorthand_count = self._count_shorthand_params(body)
+
+        return ClosureExpr(
+            parameters=params,
+            body=body,
+            shorthand_param_count=shorthand_count,
+            line=start.line,
+            column=start.column
+        )
+
+    def _is_closure_with_named_params(self) -> bool:
+        """Look ahead to check for pattern: IDENT (':' Type)? (',' IDENT (':' Type)?)* 'in'"""
+        saved_pos = self.pos
+        try:
+            # Must start with identifier
+            if not self.match(TokenType.IDENT):
+                return False
+
+            # Scan ahead for 'in' keyword
+            # Keep track of nesting for type annotations
+            depth = 0
+            while True:
+                token = self.current()
+                if token.type == TokenType.EOF or token.type == TokenType.RBRACE:
+                    return False
+                if token.type == TokenType.IN and depth == 0:
+                    return True
+                if token.type == TokenType.LT or token.type == TokenType.LPAREN:
+                    depth += 1
+                if token.type == TokenType.GT or token.type == TokenType.RPAREN:
+                    depth -= 1
+                # If we see operators or statements, this isn't a param list
+                if depth == 0 and token.type in (
+                    TokenType.PLUS, TokenType.MINUS, TokenType.STAR, TokenType.SLASH,
+                    TokenType.EQ, TokenType.NEQ, TokenType.LET, TokenType.VAR,
+                    TokenType.RETURN, TokenType.IF, TokenType.WHILE,
+                    TokenType.ASSIGN, TokenType.SEMICOLON
+                ):
+                    return False
+                self.advance()
+        finally:
+            self.pos = saved_pos
+
+    def _parse_closure_params(self) -> List[ClosureParam]:
+        """Parse closure parameters: x, y: Int, z"""
+        params = []
+
+        while True:
+            param_token = self.expect(TokenType.IDENT, "Expected parameter name")
+
+            # Check for optional type annotation
+            type_ann = None
+            if self.match(TokenType.COLON):
+                self.advance()
+                type_ann = self.parse_type()
+
+            params.append(ClosureParam(
+                name=param_token.value,
+                type_annotation=type_ann,
+                line=param_token.line,
+                column=param_token.column
+            ))
+
+            if not self.match(TokenType.COMMA):
+                break
+            self.advance()
+            self.skip_newlines()
+
+        return params
+
+    def _parse_closure_body(self) -> Block:
+        """Parse closure body as a block (statements + optional final expression)."""
+        statements = []
+        final_expr = None
+        start = self.current()
+
+        while not self.match(TokenType.RBRACE) and not self.match(TokenType.EOF):
+            self.skip_newlines()
+            if self.match(TokenType.RBRACE):
+                break
+
+            # Try to parse a statement
+            stmt = self._parse_closure_statement()
+            if stmt:
+                statements.append(stmt)
+            self.skip_newlines()
+
+        # Check if last statement is expression (implicit return)
+        if statements and isinstance(statements[-1], ExpressionStatement):
+            last = statements.pop()
+            final_expr = last.expression
+
+        return Block(
+            statements=statements,
+            final_expr=final_expr,
+            line=start.line,
+            column=start.column
+        )
+
+    def _parse_closure_statement(self) -> Optional[Statement]:
+        """Parse a single statement in a closure body."""
+        if self.match(TokenType.LET):
+            return self.parse_let_statement()
+        elif self.match(TokenType.VAR):
+            return self.parse_let_statement()
+        elif self.match(TokenType.RETURN):
+            start = self.current()
+            self.advance()
+            value = None
+            if not self.match(TokenType.NEWLINE) and not self.match(TokenType.RBRACE):
+                value = self.parse_expression()
+            return ReturnStatement(value=value, line=start.line, column=start.column)
+        else:
+            # Expression statement
+            expr = self.parse_expression()
+            return ExpressionStatement(expression=expr, line=expr.line, column=expr.column)
+
+    def _count_shorthand_params(self, body: Block) -> int:
+        """Count the maximum $N parameter index used in the closure body."""
+        max_index = -1
+
+        def visit_expr(expr):
+            nonlocal max_index
+            if expr is None:
+                return
+
+            if isinstance(expr, Identifier):
+                if expr.name.startswith('$') and expr.name[1:].isdigit():
+                    index = int(expr.name[1:])
+                    max_index = max(max_index, index)
+            elif isinstance(expr, BinaryOp):
+                visit_expr(expr.left)
+                visit_expr(expr.right)
+            elif isinstance(expr, UnaryOp):
+                visit_expr(expr.operand)
+            elif isinstance(expr, FunctionCall):
+                for arg in expr.arguments:
+                    visit_expr(arg.value)
+            elif isinstance(expr, MethodCall):
+                visit_expr(expr.object)
+                for arg in expr.arguments:
+                    visit_expr(arg.value)
+            elif isinstance(expr, IfExpr):
+                visit_expr(expr.condition)
+                visit_block(expr.then_branch)
+                if expr.else_branch:
+                    visit_block(expr.else_branch)
+            elif isinstance(expr, TupleLiteral):
+                for elem in expr.elements:
+                    visit_expr(elem)
+            elif isinstance(expr, ArrayLiteral):
+                for elem in expr.elements:
+                    visit_expr(elem)
+            elif isinstance(expr, ArrayIndex):
+                visit_expr(expr.array_expr)
+                visit_expr(expr.index)
+            elif isinstance(expr, MemberAccess):
+                visit_expr(expr.object)
+            elif isinstance(expr, ForceUnwrap):
+                visit_expr(expr.expr)
+            elif isinstance(expr, NilCoalesce):
+                visit_expr(expr.expr)
+                visit_expr(expr.default)
+            elif isinstance(expr, OptionalChain):
+                visit_expr(expr.expr)
+            elif isinstance(expr, ClosureExpr):
+                # Don't recurse into nested closures - they have their own params
+                pass
+
+        def visit_block(block):
+            if block is None:
+                return
+            for stmt in block.statements:
+                if isinstance(stmt, ExpressionStatement):
+                    visit_expr(stmt.expression)
+                elif isinstance(stmt, LetStatement):
+                    visit_expr(stmt.value)
+                elif isinstance(stmt, AssignStatement):
+                    visit_expr(stmt.value)
+                elif isinstance(stmt, ReturnStatement):
+                    visit_expr(stmt.value)
+            if block.final_expr:
+                visit_expr(block.final_expr)
+
+        visit_block(body)
+        return max_index + 1 if max_index >= 0 else 0

@@ -1,0 +1,13 @@
+// Shorthand closure test: using $0 syntax
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+
+func apply(x: Int, f: (Int) -> Int) -> Int {
+    f(x)
+}
+
+func main() {
+    let result = apply(5, { $0 * 2 })
+    print(result)
+}

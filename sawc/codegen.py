@@ -18,7 +18,8 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    SawType, TypeKind, Argument, TypeParameter, TypeDefinition
+    SawType, TypeKind, Argument, TypeParameter, TypeDefinition,
+    ClosureExpr
 )
 import copy
 
@@ -76,6 +77,12 @@ class CodeGenerator:
 
         # Type aliases: name -> SawType
         self.type_aliases: dict[str, SawType] = {}
+
+        # Closure counter for unique names
+        self.closure_counter = 0
+
+        # Variable types for closure captures (name -> SawType)
+        self.variable_types: dict[str, SawType] = {}
 
         # Interface info for associated types
         # interfaces: name -> list of associated type names
@@ -162,6 +169,19 @@ class CodeGenerator:
                 raise ValueError("Array type missing element type or size")
             elem_type = self._get_llvm_type(saw_type.array_element_type)
             return ir.ArrayType(elem_type, saw_type.array_size)
+        elif saw_type.kind == TypeKind.FUNCTION:
+            # Closures are { fn_ptr, env_ptr } where fn_ptr takes (env_ptr, params...) -> ret
+            param_types = [self._get_llvm_type(t) for t in (saw_type.param_types or [])]
+            if saw_type.func_return_type and saw_type.func_return_type.kind != TypeKind.VOID:
+                ret_type = self._get_llvm_type(saw_type.func_return_type)
+            else:
+                ret_type = ir.VoidType()
+            # Function takes env_ptr (i8*) as first parameter
+            env_ptr_type = ir.PointerType(ir.IntType(8))
+            fn_type = ir.FunctionType(ret_type, [env_ptr_type] + param_types)
+            fn_ptr_type = ir.PointerType(fn_type)
+            # Closure struct: { fn_ptr, env_ptr }
+            return ir.LiteralStructType([fn_ptr_type, env_ptr_type])
         else:
             raise ValueError(f"Unknown type: {saw_type}")
 
@@ -1555,6 +1575,9 @@ class CodeGenerator:
         elif isinstance(expr, ForLoop):
             return self._generate_for_loop_value(expr)
 
+        elif isinstance(expr, ClosureExpr):
+            return self._generate_closure(expr)
+
         else:
             raise ValueError(f"Unknown expression type: {type(expr)}")
 
@@ -1736,6 +1759,18 @@ class CodeGenerator:
         # Handle built-in print function
         if expr.name == "print":
             return self._generate_print(expr.arguments)
+
+        # Check if the name refers to a closure variable
+        if expr.name in self.variables:
+            closure_ptr = self.variables[expr.name]
+            closure_val = self.builder.load(closure_ptr, name="closure")
+            # Check if it's a closure struct (has fn_ptr and env_ptr fields)
+            if isinstance(closure_val.type, ir.LiteralStructType) and len(closure_val.type.elements) == 2:
+                # Call the closure
+                fn_ptr = self.builder.extract_value(closure_val, 0, name="fn_ptr")
+                env_ptr = self.builder.extract_value(closure_val, 1, name="env_ptr")
+                arg_vals = [self._generate_expression(arg.value) for arg in expr.arguments]
+                return self.builder.call(fn_ptr, [env_ptr] + arg_vals, name="closure_call")
 
         # Check if this is a call to a generic function
         if expr.name in self.generic_functions:
@@ -2630,6 +2665,160 @@ class CodeGenerator:
         else:
             # Match doesn't produce a value
             return None
+
+    def _generate_closure(self, expr: ClosureExpr):
+        """Generate code for a closure expression."""
+        # Determine closure parameter and return types
+        param_types = []
+        param_names = []
+
+        if expr.parameters:
+            for param in expr.parameters:
+                if param.type_annotation:
+                    param_types.append(self._get_llvm_type(param.type_annotation))
+                else:
+                    # Type should have been inferred by typechecker
+                    # For now, use Int as fallback
+                    param_types.append(ir.IntType(64))
+                param_names.append(param.name)
+        elif expr.shorthand_param_count > 0:
+            # Shorthand params - types should be inferred
+            for i in range(expr.shorthand_param_count):
+                param_types.append(ir.IntType(64))  # Fallback type
+                param_names.append(f"${i}")
+
+        # Get return type from body (we'll determine during generation)
+        # For now, assume Int or Void based on whether body has final_expr
+        if expr.body.final_expr:
+            ret_type = ir.IntType(64)  # Default return type
+        else:
+            ret_type = ir.VoidType()
+
+        # Create environment struct type for captures
+        env_ptr_type = ir.PointerType(ir.IntType(8))
+        captures = expr.captures or []
+
+        if captures:
+            # Build environment struct with captured variables
+            env_field_types = []
+            for cap_name in captures:
+                if cap_name in self.variable_types:
+                    cap_type = self._get_llvm_type(self.variable_types[cap_name])
+                elif cap_name in self.variables:
+                    # Get type from the alloca
+                    alloca = self.variables[cap_name]
+                    cap_type = alloca.type.pointee
+                else:
+                    cap_type = ir.IntType(64)  # Fallback
+                env_field_types.append(cap_type)
+            env_struct_type = ir.LiteralStructType(env_field_types)
+        else:
+            env_struct_type = None
+
+        # Create unique name for closure function
+        closure_name = f"__closure_{self.closure_counter}"
+        self.closure_counter += 1
+
+        # Create closure function type: (env_ptr, params...) -> ret
+        fn_param_types = [env_ptr_type] + param_types
+        fn_type = ir.FunctionType(ret_type, fn_param_types)
+
+        # Create the closure function
+        closure_fn = ir.Function(self.module, fn_type, name=closure_name)
+
+        # Save current builder and variables
+        saved_builder = self.builder
+        saved_variables = self.variables.copy()
+        saved_variable_types = self.variable_types.copy()
+
+        # Generate closure body
+        entry = closure_fn.append_basic_block(name="entry")
+        self.builder = ir.IRBuilder(entry)
+        self.variables = {}
+        self.variable_types = {}
+
+        # Set up environment access if there are captures
+        if captures and env_struct_type:
+            env_ptr_arg = closure_fn.args[0]
+            typed_env_ptr = self.builder.bitcast(
+                env_ptr_arg,
+                ir.PointerType(env_struct_type),
+                name="env_typed"
+            )
+            for i, cap_name in enumerate(captures):
+                field_ptr = self.builder.gep(
+                    typed_env_ptr,
+                    [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)],
+                    name=f"cap_{cap_name}_ptr"
+                )
+                # Load the captured value
+                cap_value = self.builder.load(field_ptr, name=f"cap_{cap_name}")
+                # Store in a local alloca so it can be used like a variable
+                alloca = self.builder.alloca(cap_value.type, name=cap_name)
+                self.builder.store(cap_value, alloca)
+                self.variables[cap_name] = alloca
+
+        # Set up parameter access
+        for i, param_name in enumerate(param_names):
+            llvm_param = closure_fn.args[i + 1]  # +1 for env_ptr
+            alloca = self.builder.alloca(param_types[i], name=param_name)
+            self.builder.store(llvm_param, alloca)
+            self.variables[param_name] = alloca
+
+        # Generate body
+        result = self._generate_block(expr.body)
+
+        # Return
+        if ret_type == ir.VoidType():
+            if not self.builder.block.is_terminated:
+                self.builder.ret_void()
+        else:
+            if not self.builder.block.is_terminated:
+                if result is not None:
+                    self.builder.ret(result)
+                else:
+                    self.builder.ret(ir.Constant(ret_type, 0))
+
+        # Restore context
+        self.builder = saved_builder
+        self.variables = saved_variables
+        self.variable_types = saved_variable_types
+
+        # Create environment struct on stack and copy captured values
+        if captures and env_struct_type:
+            env_alloca = self.builder.alloca(env_struct_type, name="closure_env")
+            for i, cap_name in enumerate(captures):
+                if cap_name in self.variables:
+                    cap_value = self.builder.load(self.variables[cap_name], name=f"load_{cap_name}")
+                    field_ptr = self.builder.gep(
+                        env_alloca,
+                        [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)],
+                        name=f"env_field_{i}"
+                    )
+                    self.builder.store(cap_value, field_ptr)
+            env_ptr_val = self.builder.bitcast(env_alloca, env_ptr_type, name="env_ptr")
+        else:
+            env_ptr_val = ir.Constant(env_ptr_type, None)
+
+        # Create closure struct: { fn_ptr, env_ptr }
+        closure_type = ir.LiteralStructType([ir.PointerType(fn_type), env_ptr_type])
+        closure_val = ir.Constant(closure_type, ir.Undefined)
+        closure_val = self.builder.insert_value(closure_val, closure_fn, 0, name="closure_fn")
+        closure_val = self.builder.insert_value(closure_val, env_ptr_val, 1, name="closure_env")
+
+        return closure_val
+
+    def _generate_closure_call(self, closure_val, arguments):
+        """Generate code for calling a closure stored in a variable."""
+        # Extract fn_ptr and env_ptr from closure struct
+        fn_ptr = self.builder.extract_value(closure_val, 0, name="fn_ptr")
+        env_ptr = self.builder.extract_value(closure_val, 1, name="env_ptr")
+
+        # Generate argument values
+        arg_vals = [self._generate_expression(arg) for arg in arguments]
+
+        # Call: fn_ptr(env_ptr, arg1, arg2, ...)
+        return self.builder.call(fn_ptr, [env_ptr] + arg_vals, name="closure_call")
 
     def compile_to_object(self, output_path: str):
         """Compile the module to an object file."""
