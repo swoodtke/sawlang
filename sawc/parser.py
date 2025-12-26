@@ -28,6 +28,8 @@ class Parser:
     def __init__(self, tokens: List[Token]):
         self.tokens = tokens
         self.pos = 0
+        # Flag to control trailing closure parsing (disabled in if/while/guard conditions)
+        self.allow_trailing_closure = True
 
     def error(self, msg: str):
         token = self.current()
@@ -671,7 +673,11 @@ class Parser:
 
         name_token = self.expect(TokenType.IDENT, "Expected variable name after 'guard let/var'")
         self.expect(TokenType.ASSIGN, "Expected '=' in guard binding")
+        # Disable trailing closures - guard is followed by else { }
+        saved_trailing = self.allow_trailing_closure
+        self.allow_trailing_closure = False
         optional_expr = self.parse_expression()
+        self.allow_trailing_closure = saved_trailing
 
         self.skip_newlines()
         self.expect(TokenType.ELSE, "Expected 'else' in guard statement")
@@ -756,7 +762,11 @@ class Parser:
         # Condition is optional - if we see '{', it's an infinite loop
         condition = None
         if not self.match(TokenType.LBRACE):
+            # Disable trailing closures - the { is part of the while body
+            saved_trailing = self.allow_trailing_closure
+            self.allow_trailing_closure = False
             condition = self.parse_expression()
+            self.allow_trailing_closure = saved_trailing
 
         self.skip_newlines()
         body = self.parse_block()
@@ -779,7 +789,11 @@ class Parser:
         self.expect(TokenType.IN, "Expected 'in' after for loop variable")
 
         # Parse iterable expression (usually a range like 0..10)
+        # Disable trailing closures - the { is part of the for body
+        saved_trailing = self.allow_trailing_closure
+        self.allow_trailing_closure = False
         iterable = self.parse_expression()
+        self.allow_trailing_closure = saved_trailing
 
         self.skip_newlines()
         body = self.parse_block()
@@ -986,6 +1000,22 @@ class Parser:
                         self.advance()  # consume '('
                         arguments = self.parse_arguments()
 
+                        # Check for trailing closure: obj.method(args) { ... }
+                        if self.allow_trailing_closure and self.match(TokenType.LBRACE):
+                            trailing_closure = self._parse_closure_expression()
+                            arguments.append(Argument(value=trailing_closure, name=None))
+
+                        expr = MethodCall(
+                            object=expr,
+                            method_name=member_name,
+                            arguments=arguments,
+                            line=dot_token.line,
+                            column=dot_token.column
+                        )
+                    elif self.allow_trailing_closure and self.match(TokenType.LBRACE):
+                        # Method call with only trailing closure: obj.method { ... }
+                        trailing_closure = self._parse_closure_expression()
+                        arguments = [Argument(value=trailing_closure, name=None)]
                         expr = MethodCall(
                             object=expr,
                             method_name=member_name,
@@ -1218,6 +1248,11 @@ class Parser:
         self.expect(TokenType.LPAREN)
         arguments = self.parse_arguments()
 
+        # Check for trailing closure: func(args) { ... }
+        if self.allow_trailing_closure and self.match(TokenType.LBRACE):
+            trailing_closure = self._parse_closure_expression()
+            arguments.append(Argument(value=trailing_closure, name=None))
+
         return FunctionCall(
             name=name_token.value,
             arguments=arguments,
@@ -1269,7 +1304,11 @@ class Parser:
 
             name_token = self.expect(TokenType.IDENT, "Expected variable name after 'if let/var'")
             self.expect(TokenType.ASSIGN, "Expected '=' in optional binding")
+            # Disable trailing closures - the { is part of the if block
+            saved_trailing = self.allow_trailing_closure
+            self.allow_trailing_closure = False
             optional_expr = self.parse_expression()
+            self.allow_trailing_closure = saved_trailing
 
             self.skip_newlines()
             then_branch = self.parse_block()
@@ -1291,8 +1330,11 @@ class Parser:
                 column=start.column
             )
 
-        # Regular if expression
+        # Regular if expression - disable trailing closures
+        saved_trailing = self.allow_trailing_closure
+        self.allow_trailing_closure = False
         condition = self.parse_expression()
+        self.allow_trailing_closure = saved_trailing
         self.skip_newlines()
         then_branch = self.parse_block()
 
@@ -1315,8 +1357,11 @@ class Parser:
         """Parse match expression: match value { case Variant -> expr, ... }"""
         start = self.advance()  # consume 'match'
 
-        # Parse the expression being matched
+        # Parse the expression being matched - disable trailing closures
+        saved_trailing = self.allow_trailing_closure
+        self.allow_trailing_closure = False
         matched_expr = self.parse_expression()
+        self.allow_trailing_closure = saved_trailing
 
         self.skip_newlines()
         self.expect(TokenType.LBRACE, "Expected '{' after match expression")

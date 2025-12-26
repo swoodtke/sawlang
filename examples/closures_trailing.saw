@@ -1,0 +1,44 @@
+// Trailing closure test: closure as last parameter outside parentheses
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 15
+// 12
+// 25
+
+func apply(x: Int, f: (Int) -> Int) -> Int {
+    f(x)
+}
+
+func combine(a: Int, b: Int, f: (Int, Int) -> Int) -> Int {
+    f(a, b)
+}
+
+struct Calc {
+    value: Int
+}
+
+extension Calc {
+    func transform(self, f: (Int) -> Int) -> Int {
+        f(self.value)
+    }
+}
+
+func main() {
+    // Trailing closure syntax
+    let result1 = apply(5) { x in x * 2 }
+    print(result1)
+
+    // With shorthand
+    let result2 = apply(5) { $0 * 3 }
+    print(result2)
+
+    // Multi-param trailing closure
+    let result3 = combine(5, 7) { a, b in a + b }
+    print(result3)
+
+    // Method call with trailing closure (no parentheses needed)
+    let calc = Calc(value: 5)
+    let result4 = calc.transform { x: Int in x * 5 }
+    print(result4)
+}
