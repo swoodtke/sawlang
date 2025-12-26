@@ -1,0 +1,5 @@
+// EXPECT-ERROR-CONTAINS: cannot assign `STRING` to array element of type `INT`
+func main() {
+    var arr = [1, 2, 3]
+    arr[0] = "hello"  // Error: expected Int, got String
+}

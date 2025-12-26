@@ -711,8 +711,8 @@ class Parser:
             self.advance()  # consume '='
             value_expr = self.parse_expression()
 
-            # Validate that target is assignable (Identifier or MemberAccess)
-            if not isinstance(target_expr, (Identifier, MemberAccess)):
+            # Validate that target is assignable (Identifier, MemberAccess, or ArrayIndex)
+            if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex)):
                 self.error("Invalid assignment target")
 
             return AssignStatement(

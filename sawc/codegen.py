@@ -1019,6 +1019,26 @@ class CodeGenerator:
             # Store value to field
             self.builder.store(value, field_ptr)
 
+        elif isinstance(stmt.target, ArrayIndex):
+            # Array element assignment: arr[i] = value
+            array_expr = stmt.target.array_expr
+            index_val = self._generate_expression(stmt.target.index)
+
+            # Get pointer to the array
+            if isinstance(array_expr, Identifier):
+                if array_expr.name not in self.variables:
+                    raise ValueError(f"Undefined variable: {array_expr.name}")
+                array_ptr = self.variables[array_expr.name]
+            else:
+                raise ValueError(f"Unsupported array expression in assignment: {type(array_expr)}")
+
+            # Generate GEP to get pointer to element
+            zero = ir.Constant(ir.IntType(64), 0)
+            elem_ptr = self.builder.gep(array_ptr, [zero, index_val], name="elem_ptr")
+
+            # Store value to element
+            self.builder.store(value, elem_ptr)
+
         else:
             raise ValueError(f"Invalid assignment target: {type(stmt.target)}")
 

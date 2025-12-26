@@ -900,6 +900,53 @@ class TypeChecker:
                     stmt.line, stmt.column
                 )
 
+        elif isinstance(stmt.target, ArrayIndex):
+            # Array element assignment: arr[i] = value
+            # Check mutability if the array is a variable
+            if isinstance(stmt.target.array_expr, Identifier):
+                var_info = self.current_scope.lookup(stmt.target.array_expr.name)
+                if var_info and not var_info.mutable:
+                    self.reporter.error(
+                        ErrorKind.IMMUTABLE_ASSIGNMENT,
+                        f"cannot assign to element of immutable array `{stmt.target.array_expr.name}`",
+                        stmt.line, stmt.column,
+                        hint="consider using `var` instead of `let` to make it mutable"
+                    )
+
+            array_type = self._check_expression(stmt.target.array_expr)
+            if not array_type:
+                return
+
+            # Must be an array type
+            if array_type.kind != TypeKind.ARRAY:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot index into non-array type `{array_type}`",
+                    stmt.target.line, stmt.target.column
+                )
+                return
+
+            # Check index type
+            index_type = self._check_expression(stmt.target.index)
+            if index_type:
+                index_underlying = self._get_underlying_type(index_type)
+                if index_underlying.kind != TypeKind.INT:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"array index must be Int, got `{index_type}`",
+                        stmt.target.index.line, stmt.target.index.column
+                    )
+
+            # Check value type matches element type
+            value_type = self._check_expression(stmt.value)
+            if value_type and array_type.array_element_type:
+                if not self._types_compatible(value_type, array_type.array_element_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"cannot assign `{value_type}` to array element of type `{array_type.array_element_type}`",
+                        stmt.line, stmt.column
+                    )
+
         else:
             self.reporter.error(
                 ErrorKind.TYPE_MISMATCH,

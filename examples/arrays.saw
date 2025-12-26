@@ -69,4 +69,29 @@ func main() {
         sum = sum + arr[j]
     }
     print(sum)  // 15
+
+    // Mutable arrays
+    print("Mutable arrays:")
+    var mutable_arr = [1, 2, 3, 4, 5]
+    print(mutable_arr[0])   // 1
+    mutable_arr[0] = 100
+    print(mutable_arr[0])   // 100
+
+    // Modify multiple elements
+    mutable_arr[1] = 200
+    mutable_arr[2] = 300
+    print(mutable_arr[1])   // 200
+    print(mutable_arr[2])   // 300
+
+    // Modify with dynamic index
+    let modify_idx = 3
+    mutable_arr[modify_idx] = 400
+    print(mutable_arr[3])   // 400
+
+    // Modify in a loop
+    for k in 0..5 {
+        mutable_arr[k] = mutable_arr[k] * 2
+    }
+    print(mutable_arr[0])   // 200
+    print(mutable_arr[4])   // 10 (5 * 2)
 }

@@ -1,0 +1,5 @@
+// EXPECT-ERROR-CONTAINS: cannot assign to element of immutable array
+func main() {
+    let arr = [1, 2, 3]
+    arr[0] = 10  // Error: arr is immutable
+}
