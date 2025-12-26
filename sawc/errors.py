@@ -24,6 +24,8 @@ class ErrorKind(Enum):
     WRONG_ARGUMENT_COUNT = auto()
     IMMUTABLE_ASSIGNMENT = auto()
     INVALID_BREAK_CONTINUE = auto()
+    CANNOT_COPY = auto()
+    USE_AFTER_MOVE = auto()
 
     # Warnings
     UNUSED_VARIABLE = auto()

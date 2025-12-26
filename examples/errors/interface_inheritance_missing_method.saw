@@ -1,0 +1,27 @@
+// Test error: interface inheritance requires implementing parent methods
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not implement required method `getValue`
+
+interface Base {
+    func getValue(self) -> Int
+}
+
+interface Child: Base {
+    func doubled(self) -> Int
+}
+
+struct Number {
+    value: Int
+}
+
+// This should error - missing getValue() from Base
+extension Number: Child {
+    func doubled(self) -> Int {
+        self.value * 2
+    }
+}
+
+func main() {
+    let n = Number(value: 21)
+    print(n.doubled())
+}

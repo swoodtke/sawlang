@@ -1,6 +1,31 @@
 // Saw Language Built-in Definitions
 // This file is automatically included by the compiler.
 
+// =============================================================================
+// Resource Management Interfaces
+// =============================================================================
+
+// Deinit interface - called automatically when a value goes out of scope
+interface Deinit {
+    func deinit(var self)
+}
+
+// CustomCopy interface - use copy() instead of memcpy when assigning
+// Implementing CustomCopy requires also implementing Deinit
+interface CustomCopy: Deinit {
+    func copy(self) -> Self
+}
+
+// NoCopy interface - marker for move-only types that cannot be copied
+// Implementing NoCopy requires also implementing Deinit
+interface NoCopy: Deinit {
+    // Marker interface - no additional methods
+}
+
+// =============================================================================
+// Iterator Support
+// =============================================================================
+
 // Iterator interface for for-loop support
 interface Iterator {
     type Item

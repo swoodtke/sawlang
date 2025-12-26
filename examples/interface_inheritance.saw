@@ -1,0 +1,28 @@
+// Test interface inheritance parsing
+
+interface Base {
+    func getValue(self) -> Int
+}
+
+interface Child: Base {
+    func doubled(self) -> Int
+}
+
+struct Number {
+    value: Int
+}
+
+extension Number: Child {
+    func getValue(self) -> Int {
+        self.value
+    }
+
+    func doubled(self) -> Int {
+        self.value * 2
+    }
+}
+
+func main() {
+    let n = Number(value: 21)
+    print(n.doubled())
+}

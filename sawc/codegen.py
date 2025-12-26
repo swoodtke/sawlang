@@ -10,7 +10,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop, RangeExpr,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
-    BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
+    BinaryOp, UnaryOp, MoveExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
@@ -70,6 +70,9 @@ class CodeGenerator:
         self.generic_structs: dict[str, Struct] = {}
         # Stores original AST of generic enums for later instantiation
         self.generic_enums: dict[str, Enum] = {}
+
+        # Self type context - the struct name when generating extension methods
+        self.self_type_context: Optional[str] = None
         # Stores original AST of generic extensions for later instantiation
         self.generic_extensions: dict[str, Extension] = {}
         # Tracks which monomorphized functions have been generated
@@ -91,6 +94,14 @@ class CodeGenerator:
         self.type_conformances: dict[str, list[str]] = {}
         # type_assignments: (type_name, interface) -> {assoc_type_name -> SawType}
         self.type_assignments: dict[tuple[str, str], dict[str, SawType]] = {}
+
+        # Resource management: variable lifetime tracking
+        # Stack of scopes, each scope is a list of (var_name, saw_type) for variables needing cleanup
+        self.cleanup_stack: List[List[tuple[str, SawType]]] = []
+        # Cache: type_name -> cleanup behavior ('none', 'deinit', 'custom_copy', 'no_copy')
+        self.type_cleanup_behavior: dict[str, str] = {}
+        # Track moved variables - these should not be cleaned up or accessed
+        self.moved_variables: set[str] = set()
 
         # Declare external functions (printf for print)
         self._declare_external_functions()
@@ -182,8 +193,130 @@ class CodeGenerator:
             fn_ptr_type = ir.PointerType(fn_type)
             # Closure struct: { fn_ptr, env_ptr }
             return ir.LiteralStructType([fn_ptr_type, env_ptr_type])
+        elif saw_type.kind == TypeKind.SELF:
+            # Self type - resolve to current struct context
+            if self.self_type_context is None:
+                raise ValueError("Self type used outside of extension context")
+            if self.self_type_context not in self.struct_types:
+                raise ValueError(f"Self type refers to undefined struct: {self.self_type_context}")
+            return self.struct_types[self.self_type_context][0]
         else:
             raise ValueError(f"Unknown type: {saw_type}")
+
+    # =========================================================================
+    # Resource Management Helpers
+    # =========================================================================
+
+    def _get_type_name_for_conformance(self, saw_type: SawType) -> Optional[str]:
+        """Get the type name for conformance lookup."""
+        if saw_type.kind == TypeKind.STRUCT:
+            if saw_type.type_args:
+                # Generic instantiation: Box<Int> -> Box$Int
+                args = "_".join(self._get_type_name_for_conformance(arg) or "unknown"
+                               for arg in saw_type.type_args)
+                return f"{saw_type.struct_name}${args}"
+            return saw_type.struct_name
+        elif saw_type.kind == TypeKind.ENUM:
+            if saw_type.type_args:
+                args = "_".join(self._get_type_name_for_conformance(arg) or "unknown"
+                               for arg in saw_type.type_args)
+                return f"{saw_type.enum_name}${args}"
+            return saw_type.enum_name
+        return None
+
+    def _get_cleanup_behavior(self, saw_type: SawType) -> str:
+        """Determine cleanup behavior for a type: 'none', 'deinit', 'custom_copy', 'no_copy'."""
+        type_name = self._get_type_name_for_conformance(saw_type)
+        if type_name is None:
+            return "none"
+
+        # Check cache
+        if type_name in self.type_cleanup_behavior:
+            return self.type_cleanup_behavior[type_name]
+
+        # Check conformances
+        conformances = self.type_conformances.get(type_name, [])
+
+        if "NoCopy" in conformances:
+            behavior = "no_copy"
+        elif "CustomCopy" in conformances:
+            behavior = "custom_copy"
+        elif "Deinit" in conformances:
+            behavior = "deinit"
+        else:
+            behavior = "none"
+
+        self.type_cleanup_behavior[type_name] = behavior
+        return behavior
+
+    def _needs_cleanup(self, saw_type: SawType) -> bool:
+        """Check if a type needs cleanup (implements Deinit, CustomCopy, or NoCopy)."""
+        return self._get_cleanup_behavior(saw_type) != "none"
+
+    def _generate_deinit_call(self, var_name: str, saw_type: SawType):
+        """Generate a call to deinit() for a variable."""
+        type_name = self._get_type_name_for_conformance(saw_type)
+        if type_name is None:
+            return
+
+        deinit_method_name = self._mangle_method_name(type_name, "deinit")
+
+        if deinit_method_name not in self.functions:
+            # No deinit method found - this shouldn't happen if type tracking is correct
+            return
+
+        deinit_fn = self.functions[deinit_method_name]
+        var_ptr = self.variables.get(var_name)
+        if var_ptr is None:
+            return
+
+        # deinit takes var self (pointer)
+        self.builder.call(deinit_fn, [var_ptr])
+
+    def _generate_copy(self, value, saw_type: SawType):
+        """Generate a copy of a value, calling copy() for CustomCopy types.
+
+        Returns the copied value (which may be the original for non-CustomCopy types).
+        """
+        behavior = self._get_cleanup_behavior(saw_type)
+
+        if behavior == "no_copy":
+            # NoCopy types cannot be copied - this should be caught by typechecker
+            raise ValueError(f"Cannot copy NoCopy type: {saw_type}")
+
+        if behavior != "custom_copy":
+            # Regular types just use the value as-is (bitwise copy)
+            return value
+
+        # CustomCopy: call the copy() method
+        type_name = self._get_type_name_for_conformance(saw_type)
+        if type_name is None:
+            return value
+
+        copy_method_name = self._mangle_method_name(type_name, "copy")
+
+        if copy_method_name not in self.functions:
+            # No copy method found - fall back to bitwise copy
+            return value
+
+        copy_fn = self.functions[copy_method_name]
+
+        # copy(self) takes self by value (immutable), returns Self
+        return self.builder.call(copy_fn, [value], name="copy_result")
+
+    def _cleanup_scope(self, scope_vars: List[tuple[str, SawType]]):
+        """Generate cleanup code for all variables in a scope (in reverse declaration order)."""
+        for var_name, saw_type in reversed(scope_vars):
+            # Skip moved variables - ownership has been transferred
+            if var_name in self.moved_variables:
+                continue
+            if var_name in self.variables:
+                self._generate_deinit_call(var_name, saw_type)
+
+    def _cleanup_all_scopes(self):
+        """Generate cleanup code for all scopes (for early return)."""
+        for scope_vars in reversed(self.cleanup_stack):
+            self._cleanup_scope(scope_vars)
 
     def _create_string_constant(self, value: str) -> ir.GlobalVariable:
         if value in self.string_constants:
@@ -442,6 +575,8 @@ class CodeGenerator:
         # Save current state (we might be in the middle of generating another function)
         saved_builder = self.builder
         saved_variables = self.variables.copy()
+        saved_variable_types = self.variable_types.copy()
+        saved_cleanup_stack = self.cleanup_stack[:]
         old_context = self.type_param_context.copy()
 
         # Build type parameter mapping
@@ -477,6 +612,8 @@ class CodeGenerator:
             self.type_param_context = old_context
             self.builder = saved_builder
             self.variables = saved_variables
+            self.variable_types = saved_variable_types
+            self.cleanup_stack = saved_cleanup_stack
 
         return mangled_name
 
@@ -650,6 +787,8 @@ class CodeGenerator:
         # Save current state - we may be in the middle of generating another function
         saved_builder = self.builder
         saved_variables = self.variables
+        saved_variable_types = self.variable_types.copy() if self.variable_types else {}
+        saved_cleanup_stack = self.cleanup_stack[:] if self.cleanup_stack else []
 
         # Set type param context
         old_context = self.type_param_context
@@ -701,6 +840,8 @@ class CodeGenerator:
         self.type_param_context = old_context
         self.builder = saved_builder
         self.variables = saved_variables
+        self.variable_types = saved_variable_types
+        self.cleanup_stack = saved_cleanup_stack
 
     def _generate_method_generic(self, struct_name: str, method: Method, type_mapping: dict[str, SawType]):
         """Generate code for a method with type substitution."""
@@ -799,6 +940,10 @@ class CodeGenerator:
             self.generic_extensions[extension.struct_name] = extension
             return
 
+        # Set Self type context for this extension
+        old_self_context = self.self_type_context
+        self.self_type_context = extension.struct_name
+
         for method in extension.methods:
             # Create mangled name
             if method.is_init:
@@ -833,17 +978,27 @@ class CodeGenerator:
             # Store in functions table
             self.functions[mangled_name] = llvm_func
 
+        # Restore Self type context
+        self.self_type_context = old_self_context
+
     def _generate_extension_methods(self, extension: Extension):
         """Generate code for all methods in an extension."""
         # Skip generic extensions - they'll be monomorphized when the struct is used
         if extension.type_params:
             return
 
+        # Set Self type context for this extension
+        old_self_context = self.self_type_context
+        self.self_type_context = extension.struct_name
+
         for method in extension.methods:
             if method.is_init:
                 self._generate_init_method(extension.struct_name, method)
             else:
                 self._generate_method(extension.struct_name, method)
+
+        # Restore Self type context
+        self.self_type_context = old_self_context
 
     def _generate_method(self, struct_name: str, method: Method):
         """Generate code for a single method."""
@@ -854,8 +1009,10 @@ class CodeGenerator:
         block = llvm_func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
 
-        # Clear variables for this method
+        # Clear variables and cleanup stack for this method
         self.variables = {}
+        self.variable_types = {}
+        self.cleanup_stack = []
 
         # Create allocas for parameters (including self)
         for i, param in enumerate(method.parameters):
@@ -867,6 +1024,7 @@ class CodeGenerator:
                 alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
                 self.builder.store(llvm_func.args[i], alloca)
                 self.variables[param.name] = alloca
+            self.variable_types[param.name] = param.type
 
         # Generate method body
         result = self._generate_block(method.body)
@@ -894,8 +1052,10 @@ class CodeGenerator:
         block = llvm_func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
 
-        # Clear variables for this method
+        # Clear variables and cleanup stack for this method
         self.variables = {}
+        self.variable_types = {}
+        self.cleanup_stack = []
 
         # Create allocas for parameters (no self for init methods)
         for i, param in enumerate(method.parameters):
@@ -903,6 +1063,7 @@ class CodeGenerator:
             alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
             self.builder.store(llvm_func.args[i], alloca)
             self.variables[param.name] = alloca
+            self.variable_types[param.name] = param.type
 
         # Generate method body - must return a struct value
         result = self._generate_block(method.body)
@@ -927,22 +1088,32 @@ class CodeGenerator:
         block = llvm_func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
 
-        # Clear variables for this function
+        # Clear variables and cleanup stack for this function
         self.variables = {}
+        self.variable_types = {}
+        self.cleanup_stack = []
 
-        # Create allocas for parameters
+        # Create allocas for parameters and track for cleanup
+        # Push a scope for function parameters (cleaned up when function returns)
+        self.cleanup_stack.append([])
         for i, param in enumerate(func.parameters):
             llvm_func.args[i].name = param.name
             alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
             self.builder.store(llvm_func.args[i], alloca)
             self.variables[param.name] = alloca
+            self.variable_types[param.name] = param.type
+            # Track parameter for cleanup if it needs it
+            if self._needs_cleanup(param.type):
+                self.cleanup_stack[-1].append((param.name, param.type))
 
-        # Generate function body
+        # Generate function body (block manages its own cleanup scope)
         result = self._generate_block(func.body)
 
-        # Handle return
+        # Handle return - cleanup parameter scope before returning
         if func.return_type.kind == TypeKind.VOID:
             if not self.builder.block.is_terminated:
+                # Cleanup parameter scope before return
+                self._cleanup_all_scopes()
                 # For main(), return 0 instead of void
                 if func.name == "main":
                     self.builder.ret(ir.Constant(ir.IntType(32), 0))
@@ -950,6 +1121,8 @@ class CodeGenerator:
                     self.builder.ret_void()
         else:
             if not self.builder.block.is_terminated:
+                # Cleanup parameter scope before return
+                self._cleanup_all_scopes()
                 if result is not None:
                     self.builder.ret(result)
                 else:
@@ -957,16 +1130,36 @@ class CodeGenerator:
                     default = ir.Constant(self._get_llvm_type(func.return_type), 0)
                     self.builder.ret(default)
 
-    def _generate_block(self, block: Block):
+    def _generate_block(self, block: Block, manage_cleanup: bool = True):
+        """Generate code for a block.
+
+        Args:
+            block: The block to generate code for
+            manage_cleanup: If True, push/pop a cleanup scope for this block.
+                          Set to False when the caller manages cleanup (e.g., functions).
+        """
+        # Push new cleanup scope for this block
+        if manage_cleanup:
+            self.cleanup_stack.append([])
+
         result = None
 
         for stmt in block.statements:
             self._generate_statement(stmt)
             if self.builder.block.is_terminated:
+                # Early exit (return/break) already handled cleanup
+                if manage_cleanup:
+                    self.cleanup_stack.pop()
                 return None
 
         if block.final_expr is not None:
             result = self._generate_expression(block.final_expr)
+
+        # Cleanup variables declared in this block
+        if manage_cleanup:
+            scope_vars = self.cleanup_stack.pop()
+            if not self.builder.block.is_terminated:
+                self._cleanup_scope(scope_vars)
 
         return result
 
@@ -997,6 +1190,15 @@ class CodeGenerator:
 
         # Resolve type alias in annotation
         resolved_annotation = self._resolve_type_alias(stmt.type_annotation) if stmt.type_annotation else None
+
+        # Determine the variable type early for copy behavior
+        var_type = resolved_annotation if resolved_annotation else self._infer_saw_type(stmt.value)
+
+        # Apply copy behavior for CustomCopy types when initializing from an existing value
+        # (not for fresh struct/enum construction which doesn't need copying)
+        # Skip copy for move expressions - ownership is transferred, not copied
+        if var_type and isinstance(stmt.value, Identifier) and not isinstance(stmt.value, MoveExpr):
+            value = self._generate_copy(value, var_type)
 
         # Check if we need to wrap the value in an optional
         if resolved_annotation and resolved_annotation.kind == TypeKind.OPTIONAL:
@@ -1040,6 +1242,39 @@ class CodeGenerator:
         self.builder.store(value, alloca)
         self.variables[stmt.name] = alloca
 
+        # Track variable type for resource management
+        if var_type:
+            self.variable_types[stmt.name] = var_type
+            # Track for cleanup if type implements Deinit/CustomCopy/NoCopy
+            if self.cleanup_stack and self._needs_cleanup(var_type):
+                self.cleanup_stack[-1].append((stmt.name, var_type))
+
+    def _infer_saw_type(self, expr) -> Optional[SawType]:
+        """Infer the SawType of an expression (basic inference for common cases)."""
+        if isinstance(expr, IntLiteral):
+            return SawType(TypeKind.INT)
+        elif isinstance(expr, FloatLiteral):
+            return SawType(TypeKind.FLOAT)
+        elif isinstance(expr, BoolLiteral):
+            return SawType(TypeKind.BOOL)
+        elif isinstance(expr, StringLiteral):
+            return SawType(TypeKind.STRING)
+        elif isinstance(expr, StructInit):
+            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args)
+        elif isinstance(expr, EnumInit):
+            return SawType(TypeKind.ENUM, enum_name=expr.enum_name, type_args=expr.type_args)
+        elif isinstance(expr, Identifier):
+            # Look up variable type
+            return self.variable_types.get(expr.name)
+        elif isinstance(expr, MoveExpr):
+            # Look up the moved variable's type
+            return self.variable_types.get(expr.variable)
+        elif isinstance(expr, MethodCall):
+            # For method calls on structs, we'd need to look up the return type
+            # For now, return None and rely on type annotations
+            return None
+        return None
+
     def _generate_assign_statement(self, stmt: AssignStatement):
         value = self._generate_expression(stmt.value)
 
@@ -1047,6 +1282,19 @@ class CodeGenerator:
             # Simple variable assignment
             if stmt.target.name not in self.variables:
                 raise ValueError(f"Undefined variable: {stmt.target.name}")
+
+            # Get the variable's type for resource management
+            var_type = self.variable_types.get(stmt.target.name)
+
+            if var_type:
+                # Call deinit on the old value before overwriting
+                if self._needs_cleanup(var_type):
+                    self._generate_deinit_call(stmt.target.name, var_type)
+
+                # Apply copy behavior for CustomCopy types
+                if isinstance(stmt.value, Identifier):
+                    value = self._generate_copy(value, var_type)
+
             self.builder.store(value, self.variables[stmt.target.name])
 
         elif isinstance(stmt.target, MemberAccess):
@@ -1125,8 +1373,17 @@ class CodeGenerator:
             raise ValueError(f"Invalid assignment target: {type(stmt.target)}")
 
     def _generate_return_statement(self, stmt: ReturnStatement):
+        # Generate return value first (before cleanup, in case it uses local vars)
         if stmt.value is not None:
             value = self._generate_expression(stmt.value)
+        else:
+            value = None
+
+        # Cleanup all scopes before returning
+        self._cleanup_all_scopes()
+
+        # Now return
+        if value is not None:
             self.builder.ret(value)
         else:
             self.builder.ret_void()
@@ -1518,6 +1775,9 @@ class CodeGenerator:
         elif isinstance(expr, UnaryOp):
             return self._generate_unary_op(expr)
 
+        elif isinstance(expr, MoveExpr):
+            return self._generate_move_expr(expr)
+
         elif isinstance(expr, FunctionCall):
             return self._generate_function_call(expr)
 
@@ -1754,6 +2014,20 @@ class CodeGenerator:
 
         else:
             raise ValueError(f"Unknown unary operator: {expr.op}")
+
+    def _generate_move_expr(self, expr: MoveExpr):
+        """Generate code for move expression - transfers ownership without copying."""
+        var_name = expr.variable
+        if var_name not in self.variables:
+            raise ValueError(f"Undefined variable: {var_name}")
+
+        # Load the value
+        value = self.builder.load(self.variables[var_name], name=f"{var_name}_moved")
+
+        # Mark as moved - skip deinit and prevent further use
+        self.moved_variables.add(var_name)
+
+        return value
 
     def _generate_function_call(self, expr: FunctionCall):
         # Handle built-in print function
@@ -2730,12 +3004,14 @@ class CodeGenerator:
         saved_builder = self.builder
         saved_variables = self.variables.copy()
         saved_variable_types = self.variable_types.copy()
+        saved_cleanup_stack = self.cleanup_stack[:]
 
         # Generate closure body
         entry = closure_fn.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(entry)
         self.variables = {}
         self.variable_types = {}
+        self.cleanup_stack = []
 
         # Set up environment access if there are captures
         if captures and env_struct_type:
@@ -2783,6 +3059,7 @@ class CodeGenerator:
         self.builder = saved_builder
         self.variables = saved_variables
         self.variable_types = saved_variable_types
+        self.cleanup_stack = saved_cleanup_stack
 
         # Create environment struct on stack and copy captured values
         if captures and env_struct_type:

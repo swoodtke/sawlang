@@ -1,0 +1,21 @@
+// Test automatic deinit calls at scope exit
+// EXPECT: 3
+// EXPECT: 2
+// EXPECT: 1
+
+struct Counter {
+    id: Int
+}
+
+extension Counter: Deinit {
+    func deinit(var self) {
+        print(self.id)
+    }
+}
+
+func main() {
+    let c1 = Counter(id: 1)
+    let c2 = Counter(id: 2)
+    let c3 = Counter(id: 3)
+    // deinit should be called in reverse order: 3, 2, 1
+}

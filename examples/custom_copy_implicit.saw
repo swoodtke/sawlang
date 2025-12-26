@@ -1,0 +1,24 @@
+// Test implicit copy() calls for CustomCopy types
+// EXPECT: copy called
+// EXPECT: 84
+
+struct RefCounted {
+    value: Int
+}
+
+extension RefCounted: CustomCopy {
+    func copy(self) -> RefCounted {
+        print("copy called")
+        RefCounted(value: self.value)
+    }
+
+    func deinit(var self) {
+        // In a real implementation, this would decrement refcount
+    }
+}
+
+func main() {
+    let r1 = RefCounted(value: 42)
+    let r2 = r1  // Should implicitly call copy()
+    print(r1.value + r2.value)
+}

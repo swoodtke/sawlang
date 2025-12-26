@@ -20,6 +20,7 @@ class TypeKind(Enum):
     TYPE_PARAM = auto()  # For generic type parameters like T, U
     ARRAY = auto()       # For fixed-size arrays [T; N]
     FUNCTION = auto()    # For function types like (Int) -> Int
+    SELF = auto()        # For Self type in interface methods
 
 
 @dataclass
@@ -67,6 +68,8 @@ class SawType:
         if self.kind == TypeKind.FUNCTION:
             params = ", ".join(str(t) for t in (self.param_types or []))
             return f"({params}) -> {self.func_return_type}"
+        if self.kind == TypeKind.SELF:
+            return "Self"
         return self.kind.name
 
 
@@ -151,6 +154,14 @@ class BinaryOp(Expression):
 class UnaryOp(Expression):
     op: str
     operand: Expression
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class MoveExpr(Expression):
+    """Move expression: move variable - transfers ownership without copying."""
+    variable: str  # The variable name being moved
     line: int = 0
     column: int = 0
 
@@ -515,11 +526,12 @@ class AssociatedType(ASTNode):
 
 @dataclass
 class Interface(ASTNode):
-    """Interface declaration: interface Iterator { type Item; func next(var self) -> Item? }"""
+    """Interface declaration: interface CustomCopy: Deinit { func copy(self) -> Self }"""
     name: str
     methods: List[InterfaceMethod]  # Required method signatures
     associated_types: List[AssociatedType] = field(default_factory=list)
     type_params: List[TypeParameter] = field(default_factory=list)
+    parent_interfaces: List[str] = field(default_factory=list)  # Inherited interfaces
     line: int = 0
     column: int = 0
 

@@ -64,6 +64,7 @@ class TokenType(Enum):
     AND = auto()            # && for logical and
     OR = auto()             # || for logical or
     NOT = auto()            # 'not' keyword for logical not
+    MOVE = auto()           # 'move' keyword for ownership transfer
     ASSIGN = auto()
     QUESTION = auto()       # ? for optional types
     DOUBLE_QUESTION = auto() # ?? for nil coalescing
@@ -126,6 +127,7 @@ KEYWORDS = {
     'in': TokenType.IN,
     'type': TokenType.TYPE,
     'not': TokenType.NOT,
+    'move': TokenType.MOVE,
     'Int': TokenType.INT_TYPE,
     'Float': TokenType.FLOAT_TYPE,
     'Bool': TokenType.BOOL_TYPE,

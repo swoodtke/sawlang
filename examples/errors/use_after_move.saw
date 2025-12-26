@@ -1,0 +1,18 @@
+// Error: use of moved variable
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(var self) {
+    }
+}
+
+func main() {
+    let f1 = FileHandle(fd: 42)
+    let f2 = move f1
+    print(f1.fd)  // Error: f1 was moved
+}

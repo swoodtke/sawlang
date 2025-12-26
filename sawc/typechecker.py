@@ -10,7 +10,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop, RangeExpr,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
-    BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
+    BinaryOp, UnaryOp, MoveExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
@@ -90,6 +90,7 @@ class InterfaceInfo:
     name: str
     methods: Dict[str, InterfaceMethodInfo]  # method_name -> info
     associated_types: List[str] = field(default_factory=list)  # Associated type names (e.g., ["Item"])
+    parent_interfaces: List[str] = field(default_factory=list)  # Parent interface names
 
 
 class Scope:
@@ -144,6 +145,8 @@ class TypeChecker:
         self.type_assignments: Dict[Tuple[str, str], Dict[str, SawType]] = {}
         # Type aliases: name -> SawType
         self.type_aliases: Dict[str, SawType] = {}
+        # Track moved variables for use-after-move detection
+        self.moved_variables: set[str] = set()
 
         # Register built-in functions
         self._register_builtins()
@@ -152,6 +155,9 @@ class TypeChecker:
         """Register built-in functions."""
         # print can take any single argument
         # We'll handle it specially in check_function_call
+        #
+        # Note: Built-in interfaces (Deinit, CustomCopy, NoCopy) are defined
+        # in builtin.saw and loaded automatically by the compiler.
         pass
 
     def _register_type_definition(self, type_def: TypeDefinition):
@@ -196,6 +202,25 @@ class TypeChecker:
             return saw_type
         else:
             return saw_type
+
+    def _is_no_copy_type(self, saw_type: SawType) -> bool:
+        """Check if a type implements NoCopy (cannot be copied)."""
+        if saw_type is None:
+            return False
+
+        # Get the type name for conformance lookup
+        type_name = None
+        if saw_type.kind == TypeKind.STRUCT:
+            type_name = saw_type.struct_name
+        elif saw_type.kind == TypeKind.ENUM:
+            type_name = saw_type.enum_name
+
+        if type_name is None:
+            return False
+
+        # Check if type conforms to NoCopy
+        conformances = self.type_conformances.get(type_name, [])
+        return "NoCopy" in conformances
 
     def check(self, program: Program) -> bool:
         """Type check the entire program. Returns True if no errors."""
@@ -319,7 +344,7 @@ class TypeChecker:
         )
 
     def _register_interface(self, interface: Interface):
-        """Register an interface definition."""
+        """Register an interface definition with inheritance support."""
         if interface.name in self.interfaces:
             self.reporter.error(
                 ErrorKind.DUPLICATE_FUNCTION,
@@ -328,8 +353,28 @@ class TypeChecker:
             )
             return
 
-        # Build method info map
-        methods = {}
+        # Validate and collect inherited methods from parent interfaces
+        inherited_methods = {}
+        inherited_assoc_types = []
+        for parent_name in interface.parent_interfaces:
+            if parent_name not in self.interfaces:
+                self.reporter.error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"unknown parent interface `{parent_name}`",
+                    interface.line, interface.column
+                )
+                continue
+            parent_info = self.interfaces[parent_name]
+            # Inherit all methods from parent
+            for method_name, method_info in parent_info.methods.items():
+                inherited_methods[method_name] = method_info
+            # Inherit associated types
+            for assoc_type in parent_info.associated_types:
+                if assoc_type not in inherited_assoc_types:
+                    inherited_assoc_types.append(assoc_type)
+
+        # Build method info map from this interface's own methods
+        methods = dict(inherited_methods)  # Start with inherited
         for method in interface.methods:
             # Collect parameter info (excluding self placeholder type)
             param_names = []
@@ -351,13 +396,17 @@ class TypeChecker:
                 self_mutable=method.self_mutable
             )
 
-        # Collect associated type names
-        assoc_type_names = [at.name for at in interface.associated_types]
+        # Collect associated type names (own + inherited)
+        assoc_type_names = list(inherited_assoc_types)
+        for at in interface.associated_types:
+            if at.name not in assoc_type_names:
+                assoc_type_names.append(at.name)
 
         self.interfaces[interface.name] = InterfaceInfo(
             name=interface.name,
             methods=methods,
-            associated_types=assoc_type_names
+            associated_types=assoc_type_names,
+            parent_interfaces=interface.parent_interfaces
         )
 
     def _register_function(self, func: Function):
@@ -589,10 +638,10 @@ class TypeChecker:
     def _resolve_interface_type(self, iface_type: SawType, self_type_name: str,
                                   iface_name: str = None) -> SawType:
         """Resolve Self and associated types in an interface type."""
+        # Handle Self type (TypeKind.SELF)
+        if iface_type.kind == TypeKind.SELF:
+            return SawType(TypeKind.STRUCT, struct_name=self_type_name)
         if iface_type.kind == TypeKind.STRUCT and iface_type.struct_name:
-            # Handle Self type
-            if iface_type.struct_name == "Self":
-                return SawType(TypeKind.STRUCT, struct_name=self_type_name)
             # Handle associated types
             if iface_name and (self_type_name, iface_name) in self.type_assignments:
                 type_assigns = self.type_assignments[(self_type_name, iface_name)]
@@ -772,6 +821,18 @@ class TypeChecker:
         else:
             var_type = value_type
 
+        # Check for NoCopy types - cannot copy from another variable (but move is OK)
+        if isinstance(stmt.value, Identifier) and self._is_no_copy_type(value_type):
+            self.reporter.error(
+                ErrorKind.CANNOT_COPY,
+                f"cannot copy value of type `{value_type}` which implements NoCopy",
+                stmt.line, stmt.column,
+                hint="use `move` to transfer ownership instead"
+            )
+        # MoveExpr is allowed - mark the source variable as moved
+        elif isinstance(stmt.value, MoveExpr):
+            self.moved_variables.add(stmt.value.variable)
+
         # Add to scope
         if var_type:
             info = VariableInfo(var_type, stmt.mutable, stmt.line, stmt.column)
@@ -861,6 +922,18 @@ class TypeChecker:
                     f"cannot assign `{value_type}` to variable of type `{var_info.type}`",
                     stmt.line, stmt.column
                 )
+
+            # Check for NoCopy types - cannot copy from another variable (but move is OK)
+            if isinstance(stmt.value, Identifier) and self._is_no_copy_type(value_type):
+                self.reporter.error(
+                    ErrorKind.CANNOT_COPY,
+                    f"cannot copy value of type `{value_type}` which implements NoCopy",
+                    stmt.line, stmt.column,
+                    hint="use `move` to transfer ownership instead"
+                )
+            # MoveExpr is allowed - mark the source variable as moved
+            elif isinstance(stmt.value, MoveExpr):
+                self.moved_variables.add(stmt.value.variable)
 
         elif isinstance(stmt.target, MemberAccess):
             # Field assignment: obj.field = value
@@ -1277,6 +1350,9 @@ class TypeChecker:
         elif isinstance(expr, UnaryOp):
             return self._check_unary_op(expr)
 
+        elif isinstance(expr, MoveExpr):
+            return self._check_move_expr(expr)
+
         elif isinstance(expr, FunctionCall):
             return self._check_function_call(expr)
 
@@ -1344,6 +1420,16 @@ class TypeChecker:
 
     def _check_identifier(self, expr: Identifier) -> Optional[SawType]:
         """Check an identifier reference."""
+        # Check for use-after-move
+        if expr.name in self.moved_variables:
+            self.reporter.error(
+                ErrorKind.USE_AFTER_MOVE,
+                f"use of moved variable `{expr.name}`",
+                expr.line, expr.column,
+                hint="value was moved and can no longer be used"
+            )
+            return None
+
         var_info = self.current_scope.lookup(expr.name)
         if not var_info:
             self.reporter.error(
@@ -1352,6 +1438,31 @@ class TypeChecker:
                 expr.line, expr.column
             )
             return None
+        return var_info.type
+
+    def _check_move_expr(self, expr: MoveExpr) -> Optional[SawType]:
+        """Check a move expression."""
+        # Check for use-after-move (can't move already-moved variable)
+        if expr.variable in self.moved_variables:
+            self.reporter.error(
+                ErrorKind.USE_AFTER_MOVE,
+                f"use of moved variable `{expr.variable}`",
+                expr.line, expr.column,
+                hint="value was already moved and can no longer be used"
+            )
+            return None
+
+        var_info = self.current_scope.lookup(expr.variable)
+        if not var_info:
+            self.reporter.error(
+                ErrorKind.UNDEFINED_VARIABLE,
+                f"undefined variable `{expr.variable}`",
+                expr.line, expr.column
+            )
+            return None
+
+        # Note: We don't mark as moved here - that's done in _check_let/assign_statement
+        # This allows us to properly type-check the expression first
         return var_info.type
 
     def _check_binary_op(self, expr: BinaryOp) -> Optional[SawType]:

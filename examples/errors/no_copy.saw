@@ -1,0 +1,19 @@
+// Error: cannot copy NoCopy type
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(var self) {
+        // Close the file descriptor
+    }
+}
+
+func main() {
+    let f1 = FileHandle(fd: 1)
+    let f2 = f1  // Error: cannot copy NoCopy type
+    print(f2.fd)
+}

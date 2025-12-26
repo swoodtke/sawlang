@@ -10,7 +10,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
-    BinaryOp, UnaryOp, FunctionCall, IfExpr, IfLetExpr,
+    BinaryOp, UnaryOp, MoveExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
@@ -193,10 +193,13 @@ class Parser:
             else:
                 return SawType(TypeKind.TUPLE, element_types=element_types)
         elif token.type == TokenType.IDENT:
-            # Could be a struct, enum, or type parameter
-            # The type checker will disambiguate
+            # Could be a struct, enum, type parameter, or Self
             self.advance()
             name = token.value
+
+            # Special case for Self type (used in interface method return types)
+            if name == "Self":
+                return SawType(TypeKind.SELF)
 
             # Check for type arguments: Box<Int>, Pair<A, B>
             type_args = None
@@ -358,7 +361,7 @@ class Parser:
         )
 
     def parse_interface(self) -> Interface:
-        """Parse interface declaration: interface Iterator { type Item; func next(var self) -> Item? }"""
+        """Parse interface declaration: interface CustomCopy: Deinit { func copy(self) -> Self }"""
         start = self.current()
         self.expect(TokenType.INTERFACE)
 
@@ -367,6 +370,19 @@ class Parser:
 
         # Parse optional type parameters
         type_params = self.parse_type_params()
+
+        # Parse optional parent interfaces: `: ParentInterface, AnotherInterface`
+        parent_interfaces = []
+        if self.match(TokenType.COLON):
+            self.advance()
+            # Parse first parent interface
+            parent_token = self.expect(TokenType.IDENT, "Expected parent interface name")
+            parent_interfaces.append(parent_token.value)
+            # Parse additional parent interfaces (comma-separated)
+            while self.match(TokenType.COMMA):
+                self.advance()
+                parent_token = self.expect(TokenType.IDENT, "Expected parent interface name")
+                parent_interfaces.append(parent_token.value)
 
         self.skip_newlines()
         self.expect(TokenType.LBRACE)
@@ -393,6 +409,7 @@ class Parser:
             methods=methods,
             associated_types=associated_types,
             type_params=type_params,
+            parent_interfaces=parent_interfaces,
             line=start.line,
             column=start.column
         )
@@ -965,6 +982,18 @@ class Parser:
                 operand=operand,
                 line=op_token.line,
                 column=op_token.column
+            )
+
+        if self.match(TokenType.MOVE):
+            move_token = self.advance()
+            # move must be followed by an identifier
+            if not self.match(TokenType.IDENT):
+                raise SyntaxError(f"Expected identifier after 'move' at line {move_token.line}")
+            var_token = self.advance()
+            return MoveExpr(
+                variable=var_token.value,
+                line=move_token.line,
+                column=move_token.column
             )
 
         return self.parse_postfix()
