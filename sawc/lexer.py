@@ -38,6 +38,7 @@ class TokenType(Enum):
     WHILE = auto()
     BREAK = auto()
     CONTINUE = auto()
+    INTERFACE = auto()
 
     # Types
     INT_TYPE = auto()
@@ -106,6 +107,7 @@ KEYWORDS = {
     'continue': TokenType.CONTINUE,
     'case': TokenType.CASE,
     'match': TokenType.MATCH,
+    'interface': TokenType.INTERFACE,
     'Int': TokenType.INT_TYPE,
     'Float': TokenType.FLOAT_TYPE,
     'Bool': TokenType.BOOL_TYPE,

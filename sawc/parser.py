@@ -17,6 +17,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
+    Interface, InterfaceMethod,
     SawType, TypeKind, Argument, TypeParameter
 )
 
@@ -100,6 +101,7 @@ class Parser:
         functions = []
         extensions = []
         enums = []
+        interfaces = []
         self.skip_newlines()
 
         while not self.match(TokenType.EOF):
@@ -107,15 +109,17 @@ class Parser:
                 structs.append(self.parse_struct())
             elif self.match(TokenType.ENUM):
                 enums.append(self.parse_enum())
+            elif self.match(TokenType.INTERFACE):
+                interfaces.append(self.parse_interface())
             elif self.match(TokenType.EXTENSION):
                 extensions.append(self.parse_extension())
             elif self.match(TokenType.FUNC):
                 functions.append(self.parse_function())
             else:
-                self.error(f"Expected struct, enum, extension, or function declaration, got {self.current().type.name}")
+                self.error(f"Expected struct, enum, interface, extension, or function declaration, got {self.current().type.name}")
             self.skip_newlines()
 
-        return Program(structs=structs, functions=functions, extensions=extensions, enums=enums)
+        return Program(structs=structs, functions=functions, extensions=extensions, enums=enums, interfaces=interfaces)
 
     def parse_type(self) -> SawType:
         # Parse base type
@@ -311,13 +315,84 @@ class Parser:
             column=start.column
         )
 
+    def parse_interface(self) -> Interface:
+        """Parse interface declaration: interface Name { func method(self) -> Type }"""
+        start = self.current()
+        self.expect(TokenType.INTERFACE)
+
+        name_token = self.expect(TokenType.IDENT, "Expected interface name")
+        name = name_token.value
+
+        # Parse optional type parameters
+        type_params = self.parse_type_params()
+
+        self.skip_newlines()
+        self.expect(TokenType.LBRACE)
+        self.skip_newlines()
+
+        methods = []
+        while not self.match(TokenType.RBRACE, TokenType.EOF):
+            method = self.parse_interface_method()
+            methods.append(method)
+            self.skip_newlines()
+
+        self.expect(TokenType.RBRACE)
+
+        return Interface(
+            name=name,
+            methods=methods,
+            type_params=type_params,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_interface_method(self) -> InterfaceMethod:
+        """Parse method signature in interface: func name(self, params...) -> Type"""
+        start = self.current()
+        self.expect(TokenType.FUNC, "Expected 'func' in interface method")
+
+        name_token = self.expect(TokenType.IDENT, "Expected method name")
+        name = name_token.value
+
+        self.expect(TokenType.LPAREN)
+        parameters, self_mutable = self.parse_parameters()
+        self.expect(TokenType.RPAREN)
+
+        # Return type (optional, defaults to void)
+        return_type = SawType(TypeKind.VOID)
+        if self.match(TokenType.ARROW):
+            self.advance()
+            return_type = self.parse_type()
+
+        return InterfaceMethod(
+            name=name,
+            parameters=parameters,
+            return_type=return_type,
+            self_mutable=self_mutable,
+            line=start.line,
+            column=start.column
+        )
+
     def parse_extension(self) -> Extension:
-        """Parse extension declaration: extension StructName { methods... }"""
+        """Parse extension declaration: extension StructName: Interface1, Interface2 { methods... }"""
         start = self.current()
         self.expect(TokenType.EXTENSION)
 
         name_token = self.expect(TokenType.IDENT, "Expected struct name after 'extension'")
         struct_name = name_token.value
+
+        # Parse optional interface conformances: `: Interface1, Interface2`
+        conformances = []
+        if self.match(TokenType.COLON):
+            self.advance()
+            # Parse first interface name
+            iface_token = self.expect(TokenType.IDENT, "Expected interface name after ':'")
+            conformances.append(iface_token.value)
+            # Parse additional interfaces
+            while self.match(TokenType.COMMA):
+                self.advance()
+                iface_token = self.expect(TokenType.IDENT, "Expected interface name after ','")
+                conformances.append(iface_token.value)
 
         self.skip_newlines()
         self.expect(TokenType.LBRACE)
@@ -334,6 +409,7 @@ class Parser:
         return Extension(
             struct_name=struct_name,
             methods=methods,
+            conformances=conformances,
             line=start.line,
             column=start.column
         )

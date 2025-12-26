@@ -246,16 +246,18 @@ class Extension:
 
 ### 2.6 Implementation Steps
 
-1. [ ] Add `INTERFACE` token to lexer
-2. [ ] Add `Interface` and `InterfaceMethod` AST nodes
-3. [ ] Parse interface definitions
-4. [ ] Update `Extension` to support `: InterfaceName` syntax
-5. [ ] Store interface info in type checker
-6. [ ] Implement conformance checking
-7. [ ] Handle `Self` type in interfaces
-8. [ ] Add tests for interface definition
-9. [ ] Add tests for interface implementation
-10. [ ] Add tests for interface method calls
+1. [x] Add `INTERFACE` token to lexer
+2. [x] Add `Interface` and `InterfaceMethod` AST nodes
+3. [x] Parse interface definitions
+4. [x] Update `Extension` to support `: InterfaceName` syntax
+5. [x] Store interface info in type checker
+6. [x] Implement conformance checking
+7. [x] Handle `Self` type in interfaces
+8. [x] Add tests for interface definition
+9. [x] Add tests for interface implementation
+10. [x] Add tests for interface method calls
+
+**Status**: Complete (commit pending). Interface definitions, conformance checking, and error detection working.
 
 ---
 
@@ -661,9 +663,18 @@ Option 1 is simpler and reuses existing while loop code.
   - Codegen implements monomorphization (e.g., `identity<Int>` → `identity$Int`)
   - 2 test files: `generics_simple.saw`, `generics_multi_param.saw`
 
+- **2024-12-25**: Phase 2 interfaces complete (commit pending)
+  - Added INTERFACE token and Interface/InterfaceMethod AST nodes
+  - Parser handles `interface Name { ... }` and `extension Type: Interface { ... }`
+  - Type checker registers interfaces and checks conformance
+  - Detects missing methods and signature mismatches
+  - 2 test files: `interface_simple.saw`, `interface_missing_method.saw`
+
 ## Next Steps
 
 1. ~~Start with Phase 1: Basic Generics~~ ✓ (functions done)
 2. ~~Begin with generic functions (simpler than generic types)~~ ✓
-3. Phase 2: Interfaces - needed for Iterator trait
-4. Alternative: Implement simplified for-loop over built-in Range without full interface system
+3. ~~Phase 2: Interfaces~~ ✓
+4. Phase 3: Interface bounds (T: Interface)
+5. Phase 4: Associated types (type Item)
+6. Alternative: Implement simplified for-loop over built-in Range without full trait system

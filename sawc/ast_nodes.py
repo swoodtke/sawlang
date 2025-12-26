@@ -412,10 +412,32 @@ class Enum(ASTNode):
 
 
 @dataclass
+class InterfaceMethod(ASTNode):
+    """Method signature in an interface (no body)."""
+    name: str
+    parameters: List[Parameter]  # includes self
+    return_type: SawType
+    self_mutable: bool = False  # True for 'var self'
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class Interface(ASTNode):
+    """Interface declaration: interface Display { func display(self) -> String }"""
+    name: str
+    methods: List[InterfaceMethod]  # Required method signatures
+    type_params: List[TypeParameter] = field(default_factory=list)
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class Extension(ASTNode):
-    """Extension declaration: extension StructName { ... }"""
+    """Extension declaration: extension StructName: Interface1, Interface2 { ... }"""
     struct_name: str
     methods: List['Method']
+    conformances: List[str] = field(default_factory=list)  # Interface names
     line: int = 0
     column: int = 0
 
@@ -450,5 +472,6 @@ class Program(ASTNode):
     functions: List[Function]
     extensions: List[Extension] = field(default_factory=list)
     enums: List[Enum] = field(default_factory=list)
+    interfaces: List[Interface] = field(default_factory=list)
     line: int = 0
     column: int = 0

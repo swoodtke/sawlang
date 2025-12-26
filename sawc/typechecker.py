@@ -17,6 +17,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
+    Interface, InterfaceMethod,
     SawType, TypeKind, Parameter, Argument, TypeParameter
 )
 from errors import ErrorReporter, ErrorKind
@@ -69,6 +70,23 @@ class MethodInfo:
     is_init: bool = False
 
 
+@dataclass
+class InterfaceMethodInfo:
+    """Information about a method signature in an interface."""
+    name: str
+    param_types: List[SawType]  # Includes self
+    return_type: SawType
+    param_names: List[str]
+    self_mutable: bool = False  # True if 'var self'
+
+
+@dataclass
+class InterfaceInfo:
+    """Information about an interface."""
+    name: str
+    methods: Dict[str, InterfaceMethodInfo]  # method_name -> info
+
+
 class Scope:
     """A lexical scope containing variable bindings."""
 
@@ -103,6 +121,7 @@ class TypeChecker:
         self.reporter = reporter
         self.structs: Dict[str, StructInfo] = {}
         self.enums: Dict[str, EnumInfo] = {}
+        self.interfaces: Dict[str, InterfaceInfo] = {}
         self.functions: Dict[str, FunctionInfo] = {}
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
@@ -114,6 +133,8 @@ class TypeChecker:
         # Track break value types for each loop level
         # Each entry is (expected_type: Optional[SawType], is_infinite: bool, has_break: bool)
         self.loop_break_info: List[Tuple[Optional[SawType], bool, bool]] = []
+        # Track which types implement which interfaces
+        self.type_conformances: Dict[str, List[str]] = {}  # type_name -> [interface_names]
 
         # Register built-in functions
         self._register_builtins()
@@ -134,11 +155,15 @@ class TypeChecker:
         for enum in program.enums:
             self._register_enum(enum)
 
-        # Third pass: register extensions and their methods
+        # Third pass: collect interface definitions
+        for interface in program.interfaces:
+            self._register_interface(interface)
+
+        # Fourth pass: register extensions and their methods
         for extension in program.extensions:
             self._register_extension(extension)
 
-        # Fourth pass: collect function signatures
+        # Fifth pass: collect function signatures
         for func in program.functions:
             self._register_function(func)
 
@@ -233,6 +258,44 @@ class TypeChecker:
             name=enum.name,
             variants=variants,
             variant_order=variant_order
+        )
+
+    def _register_interface(self, interface: Interface):
+        """Register an interface definition."""
+        if interface.name in self.interfaces:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"interface `{interface.name}` is defined multiple times",
+                interface.line, interface.column
+            )
+            return
+
+        # Build method info map
+        methods = {}
+        for method in interface.methods:
+            # Collect parameter info (excluding self placeholder type)
+            param_names = []
+            param_types = []
+
+            for param in method.parameters:
+                if param.name == "self":
+                    # self has the type of the implementing type (handled during conformance)
+                    param_types.append(SawType(TypeKind.VOID))  # Placeholder
+                else:
+                    param_names.append(param.name)
+                    param_types.append(param.type)
+
+            methods[method.name] = InterfaceMethodInfo(
+                name=method.name,
+                param_types=param_types,
+                return_type=method.return_type,
+                param_names=param_names,
+                self_mutable=method.self_mutable
+            )
+
+        self.interfaces[interface.name] = InterfaceInfo(
+            name=interface.name,
+            methods=methods
         )
 
     def _register_function(self, func: Function):
@@ -363,6 +426,79 @@ class TypeChecker:
             )
 
             struct_info.methods[method_key] = method_info
+
+        # Check interface conformances
+        for iface_name in extension.conformances:
+            if iface_name not in self.interfaces:
+                self.reporter.error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"unknown interface `{iface_name}`",
+                    extension.line, extension.column
+                )
+                continue
+
+            iface_info = self.interfaces[iface_name]
+            self._check_interface_conformance(extension.struct_name, iface_info, struct_info, extension)
+
+            # Track the conformance
+            if extension.struct_name not in self.type_conformances:
+                self.type_conformances[extension.struct_name] = []
+            self.type_conformances[extension.struct_name].append(iface_name)
+
+    def _check_interface_conformance(self, type_name: str, iface_info: InterfaceInfo,
+                                      struct_info: StructInfo, extension: Extension):
+        """Check that a type conforms to an interface by implementing all required methods."""
+        for method_name, iface_method in iface_info.methods.items():
+            if method_name not in struct_info.methods:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"type `{type_name}` does not implement required method `{method_name}` from interface `{iface_info.name}`",
+                    extension.line, extension.column
+                )
+                continue
+
+            impl_method = struct_info.methods[method_name]
+
+            # Check self mutability matches
+            if iface_method.self_mutable != impl_method.self_mutable:
+                if iface_method.self_mutable:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"method `{method_name}` should have `var self` to conform to interface `{iface_info.name}`",
+                        extension.line, extension.column
+                    )
+                else:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"method `{method_name}` should have immutable `self` to conform to interface `{iface_info.name}`",
+                        extension.line, extension.column
+                    )
+
+            # Check return type matches (allow Self -> concrete type)
+            if not self._types_compatible_for_interface(iface_method.return_type, impl_method.return_type, type_name):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"method `{method_name}` has return type `{impl_method.return_type}` but interface `{iface_info.name}` expects `{iface_method.return_type}`",
+                    extension.line, extension.column
+                )
+
+            # Check parameter count (excluding self)
+            iface_param_count = len(iface_method.param_types) - 1  # Exclude self placeholder
+            impl_param_count = len(impl_method.param_types) - 1    # Exclude self
+            if iface_param_count != impl_param_count:
+                self.reporter.error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"method `{method_name}` takes {impl_param_count} parameter(s) but interface `{iface_info.name}` expects {iface_param_count}",
+                    extension.line, extension.column
+                )
+
+    def _types_compatible_for_interface(self, iface_type: SawType, impl_type: SawType, self_type_name: str) -> bool:
+        """Check if implementation type matches interface type, with Self substitution."""
+        # Handle Self type (parsed as STRUCT with struct_name="Self")
+        if iface_type.kind == TypeKind.STRUCT and iface_type.struct_name == "Self":
+            # Self should match the implementing type
+            return impl_type.kind == TypeKind.STRUCT and impl_type.struct_name == self_type_name
+        return self._types_compatible(iface_type, impl_type)
 
     def _check_extension(self, extension: Extension):
         """Type check all methods in an extension."""

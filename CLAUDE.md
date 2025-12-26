@@ -128,7 +128,7 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 49 tests including success cases and error validation
+**Test Coverage:** 51 tests including success cases and error validation
 
 ## Current Features
 
@@ -160,6 +160,12 @@ The compiler currently supports:
 - Custom `init` methods with overloading
 - Method calls: `obj.method(args)`
 - `self` keyword in method bodies
+
+### Interfaces
+- Interface definitions: `interface Name { func method(self) -> Type }`
+- Interface conformance: `extension Type: Interface { ... }`
+- Conformance checking (missing methods, signature mismatches)
+- Multiple interface conformance: `extension Type: A, B { ... }`
 
 ## Example Code
 
@@ -273,6 +279,29 @@ func main() {
     let y = identity<Bool>(true)  // Returns true
     let z = first<Int, Bool>(10, false)  // Returns 10
     print(x)
+}
+```
+
+### Interfaces
+```saw
+interface Describable {
+    func describe(self) -> Int
+}
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point: Describable {
+    func describe(self) -> Int {
+        self.x + self.y
+    }
+}
+
+func main() {
+    let p = Point(x: 3, y: 4)
+    print(p.describe())  // 7
 }
 ```
 
