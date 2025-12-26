@@ -1,17 +1,17 @@
 # For Loops Implementation Plan
 
-This document outlines the implementation plan for adding for loops to Saw, which requires first implementing generics and traits.
+This document outlines the implementation plan for adding for loops to Saw, which requires first implementing generics and interfaces.
 
 ## Overview
 
-**Goal**: Implement `for item in collection { ... }` loops using a proper Iterator trait.
+**Goal**: Implement `for item in collection { ... }` loops using a proper Iterator interface.
 
 **Dependencies** (in order):
 1. Basic Generics
-2. Traits
-3. Trait Bounds
+2. Interfaces
+3. Interface Bounds
 4. Associated Types
-5. Iterator/Iterable Traits
+5. Iterator/Iterable Interfaces
 6. Range Types
 7. For Loop Syntax
 
@@ -138,21 +138,21 @@ class SawType:
 
 ---
 
-## Phase 2: Traits
+## Phase 2: Interfaces
 
 ### 2.1 Syntax Design
 
 ```saw
-// Trait definition
-trait Display {
+// Interface definition
+interface Display {
     func display(self) -> String
 }
 
-trait Clone {
+interface Clone {
     func clone(self) -> Self
 }
 
-// Trait implementation via extension
+// Interface implementation via extension
 extension Int: Display {
     func display(self) -> String {
         // ... convert to string
@@ -169,8 +169,8 @@ extension Point: Display, Clone {
     }
 }
 
-// Default implementations in traits
-trait Greet {
+// Default implementations in interfaces
+interface Greet {
     func name(self) -> String
 
     func greet(self) -> String {
@@ -182,25 +182,25 @@ trait Greet {
 ### 2.2 Lexer Changes
 
 Add new keyword:
-- `TRAIT` for `trait`
+- `INTERFACE` for `interface`
 
-Note: We reuse `extension` with `: TraitName` syntax for implementations.
+Note: We reuse `extension` with `: InterfaceName` syntax for implementations.
 
 ### 2.3 Parser Changes
 
 **New AST nodes**:
 ```python
 @dataclass
-class Trait:
+class Interface:
     name: str
     type_params: List[TypeParameter]
-    methods: List[TraitMethod]  # Required methods
+    methods: List[InterfaceMethod]  # Required methods
     default_methods: List[Method]  # Methods with default impl
     line: int = 0
     column: int = 0
 
 @dataclass
-class TraitMethod:
+class InterfaceMethod:
     name: str
     params: List[Parameter]  # includes self
     return_type: SawType
@@ -214,7 +214,7 @@ class TraitMethod:
 class Extension:
     type_name: str
     type_params: List[TypeParameter]  # For generic extensions
-    conformances: List[str]  # Trait names this extension implements
+    conformances: List[str]  # Interface names this extension implements
     methods: List[Method]
     init_methods: List[Method]
     line: int = 0
@@ -223,41 +223,41 @@ class Extension:
 
 ### 2.4 Type Checker Changes
 
-**Trait registration**:
-- Store trait definitions with their required methods
-- Track which types implement which traits
+**Interface registration**:
+- Store interface definitions with their required methods
+- Track which types implement which interfaces
 
 **Conformance checking**:
-- When extension declares `: TraitName`, verify all required methods present
-- Check method signatures match trait requirements
+- When extension declares `: InterfaceName`, verify all required methods present
+- Check method signatures match interface requirements
 - Handle `Self` type in return positions
 
-**Trait method lookup**:
-- When calling a method, check both direct methods and trait methods
+**Interface method lookup**:
+- When calling a method, check both direct methods and interface methods
 
 ### 2.5 Codegen Changes
 
 **Static dispatch**:
 - For now, use static dispatch (no vtables)
-- Trait method calls resolve to concrete implementations at compile time
+- Interface method calls resolve to concrete implementations at compile time
 - This works with monomorphization
 
 ### 2.6 Implementation Steps
 
-1. [ ] Add `TRAIT` token to lexer
-2. [ ] Add `Trait` and `TraitMethod` AST nodes
-3. [ ] Parse trait definitions
-4. [ ] Update `Extension` to support `: TraitName` syntax
-5. [ ] Store trait info in type checker
+1. [ ] Add `INTERFACE` token to lexer
+2. [ ] Add `Interface` and `InterfaceMethod` AST nodes
+3. [ ] Parse interface definitions
+4. [ ] Update `Extension` to support `: InterfaceName` syntax
+5. [ ] Store interface info in type checker
 6. [ ] Implement conformance checking
-7. [ ] Handle `Self` type in traits
-8. [ ] Add tests for trait definition
-9. [ ] Add tests for trait implementation
-10. [ ] Add tests for trait method calls
+7. [ ] Handle `Self` type in interfaces
+8. [ ] Add tests for interface definition
+9. [ ] Add tests for interface implementation
+10. [ ] Add tests for interface method calls
 
 ---
 
-## Phase 3: Trait Bounds
+## Phase 3: Interface Bounds
 
 ### 3.1 Syntax Design
 
@@ -288,7 +288,7 @@ where T: Display + Clone,
 @dataclass
 class TypeParameter:
     name: str
-    bounds: List[str]  # Trait names
+    bounds: List[str]  # Interface names
     line: int = 0
     column: int = 0
 ```
@@ -299,7 +299,7 @@ parse_type_param() -> TypeParameter:
     name = expect(IDENT)
     bounds = []
     if match(':'):
-        bounds.append(expect(IDENT))  # First trait
+        bounds.append(expect(IDENT))  # First interface
         while match('+'):
             bounds.append(expect(IDENT))
     return TypeParameter(name, bounds)
@@ -312,17 +312,17 @@ parse_type_param() -> TypeParameter:
 - `print_all<Int>` → verify Int: Display
 
 **Method availability**:
-- Within a generic function, only allow calling methods from bounded traits
+- Within a generic function, only allow calling methods from bounded interfaces
 - `T: Display` means `x.display()` is valid
 
 ### 3.4 Implementation Steps
 
-1. [ ] Update parser to handle `: Trait` bounds
+1. [ ] Update parser to handle `: Interface` bounds
 2. [ ] Update parser to handle `+` for multiple bounds
 3. [ ] Verify bounds during type instantiation
-4. [ ] Allow trait method calls on bounded type parameters
+4. [ ] Allow interface method calls on bounded type parameters
 5. [ ] Add error messages for unsatisfied bounds
-6. [ ] Add tests for trait bounds
+6. [ ] Add tests for interface bounds
 
 ---
 
@@ -331,7 +331,7 @@ parse_type_param() -> TypeParameter:
 ### 4.1 Syntax Design
 
 ```saw
-trait Iterator {
+interface Iterator {
     type Item
 
     func next(var self) -> Item?
@@ -355,7 +355,7 @@ where I.Item: Add
 
 ### 4.2 Parser Changes
 
-**Add AssociatedType to Trait**:
+**Add AssociatedType to Interface**:
 ```python
 @dataclass
 class AssociatedType:
@@ -365,7 +365,7 @@ class AssociatedType:
     column: int = 0
 
 @dataclass
-class Trait:
+class Interface:
     # ... existing fields ...
     associated_types: List[AssociatedType]
 ```
@@ -382,14 +382,14 @@ class TypeAssignment:
 
 ### 4.3 Type Checker Changes
 
-- Track associated type assignments in trait implementations
+- Track associated type assignments in interface implementations
 - Resolve `I.Item` to concrete type when I is known
 - Verify associated types are defined in implementations
 
 ### 4.4 Implementation Steps
 
 1. [ ] Add `AssociatedType` AST node
-2. [ ] Parse `type Name` in traits
+2. [ ] Parse `type Name` in interfaces
 3. [ ] Add `TypeAssignment` AST node
 4. [ ] Parse `type Name = ConcreteType` in extensions
 5. [ ] Resolve associated types in type checker
@@ -397,20 +397,20 @@ class TypeAssignment:
 
 ---
 
-## Phase 5: Iterator Trait
+## Phase 5: Iterator Interface
 
-### 5.1 Define Core Traits
+### 5.1 Define Core Interfaces
 
 ```saw
-// The core iterator trait
-trait Iterator {
+// The core iterator interface
+interface Iterator {
     type Item
 
     func next(var self) -> Item?
 }
 
 // Types that can produce an iterator
-trait IntoIterator {
+interface IntoIterator {
     type Item
     type IntoIter: Iterator  // where IntoIter.Item == Item
 
@@ -453,8 +453,8 @@ extension Vec<T>: IntoIterator {
 
 ### 5.3 Implementation Steps
 
-1. [ ] Define Iterator trait in standard library
-2. [ ] Define IntoIterator trait
+1. [ ] Define Iterator interface in standard library
+2. [ ] Define IntoIterator interface
 3. [ ] Implement for Vec<T> (once we have vectors)
 4. [ ] Add tests
 
@@ -601,17 +601,17 @@ Option 1 is simpler and reuses existing while loop code.
 ### Unit Tests
 - Generic function instantiation
 - Generic struct creation
-- Trait definition and implementation
-- Trait bound checking
+- Interface definition and implementation
+- Interface bound checking
 - Associated type resolution
 - Iterator implementation
 - Range creation and iteration
 - For loop with various iterables
 
 ### Error Tests
-- Missing trait implementation
-- Unsatisfied trait bounds
-- Incorrect method signature in trait impl
+- Missing interface implementation
+- Unsatisfied interface bounds
+- Incorrect method signature in interface impl
 - Missing associated type
 - For loop on non-iterable type
 
@@ -628,10 +628,10 @@ Option 1 is simpler and reuses existing while loop code.
 | Phase | Estimated Time | Dependencies |
 |-------|---------------|--------------|
 | Phase 1: Basic Generics | 4-6 hours | None |
-| Phase 2: Traits | 3-4 hours | Phase 1 |
-| Phase 3: Trait Bounds | 2-3 hours | Phase 2 |
+| Phase 2: Interfaces | 3-4 hours | Phase 1 |
+| Phase 3: Interface Bounds | 2-3 hours | Phase 2 |
 | Phase 4: Associated Types | 2-3 hours | Phase 3 |
-| Phase 5: Iterator Trait | 1-2 hours | Phase 4 + Collections |
+| Phase 5: Iterator Interface | 1-2 hours | Phase 4 + Collections |
 | Phase 6: Range Types | 2-3 hours | Phase 5 |
 | Phase 7: For Loop | 2-3 hours | Phase 6 |
 
@@ -641,11 +641,11 @@ Option 1 is simpler and reuses existing while loop code.
 
 ## Open Questions
 
-1. **Syntax for trait bounds**: Use `:` like Rust, or something else?
+1. **Syntax for interface bounds**: Use `:` like Rust, or something else?
 2. **Where clauses**: Support them, or keep bounds inline only?
-3. **Self type**: How to handle `Self` in trait method returns?
+3. **Self type**: How to handle `Self` in interface method returns?
 4. **Generic inference**: How much type inference for generics?
-5. **Orphan rules**: Allow implementing external traits for external types?
+5. **Orphan rules**: Allow implementing external interfaces for external types?
 6. **Collections first?**: Should we implement Vec<T> before or in parallel with generics?
 
 ---

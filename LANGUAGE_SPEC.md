@@ -268,28 +268,28 @@ guard let value = maybe else {
 }
 ```
 
-### Traits (Interfaces)
+### Interfaces
 
 ```saw
-trait Display {
+interface Display {
     func display(self) -> String
 }
 
-trait Debug {
+interface Debug {
     func debug(self) -> String {
         // Default implementation
         "<opaque>"
     }
 }
 
-// Trait implementation
-extension Display for Point {
+// Interface implementation via extension
+extension Point: Display {
     func display(self) -> String {
         "({self.x}, {self.y})"
     }
 }
 
-// Trait bounds
+// Interface bounds
 func print_all<T: Display>(items: [T]) {
     for item in items {
         print(item.display())
@@ -300,12 +300,12 @@ func print_all<T: Display>(items: [T]) {
 func process<T: Display + Debug + Clone>(item: T)
 
 // Associated types
-trait Iterator {
+interface Iterator {
     type Item
     func next(var self) -> Self.Item?
 }
 
-// Trait objects (dynamic dispatch)
+// Interface objects (dynamic dispatch)
 func render(shapes: [dyn Shape]) {
     for shape in shapes {
         shape.draw()
@@ -389,7 +389,7 @@ let p3 = Point(polar: 10.0, angle: 1.57)  // Another custom init
 //     var is_empty: Bool { self.len() == 0 }
 // }
 
-// Future: Trait conformance via extension (not yet implemented)
+// Future: Interface conformance via extension (not yet implemented)
 // extension Point: Display {
 //     func display(self) -> String { "({self.x}, {self.y})" }
 // }
@@ -600,7 +600,7 @@ enum ParseError {
     EndOfInput,
 }
 
-extension Error for ParseError {
+extension ParseError: Error {
     func message(self) -> String {
         match self {
             InvalidSyntax(line, col) => "Syntax error at {line}:{col}",
@@ -671,14 +671,14 @@ let (tx, rx) = channel.buffered<Int>(100)
 
 See [Synchronized Access](#synchronized-access) in Memory Management for `Mutex` and `RwLock` usage with `Arc` for thread-safe shared state.
 
-### Send and Sync Traits
+### Send and Sync Interfaces
 
 ```saw
 // Types that can be sent between threads
-trait Send {}
+interface Send {}
 
 // Types that can be safely shared between threads
-trait Sync {}
+interface Sync {}
 
 // Compiler enforces thread safety
 func spawn<F: FnOnce() + Send>(f: F) -> JoinHandle
@@ -945,8 +945,8 @@ unsafe func dangerous() {
     // Accessing mutable statics
 }
 
-// Unsafe traits
-unsafe trait GlobalAlloc {
+// Unsafe interfaces
+unsafe interface GlobalAlloc {
     unsafe func alloc(layout: Layout) -> *var Void
     unsafe func dealloc(ptr: *var Void, layout: Layout)
 }
@@ -973,12 +973,12 @@ unsafe trait GlobalAlloc {
 and         as          async       await       break
 const       continue    defer       do          dyn
 else        enum        extension   extern      false
-func          for         guard       if          impl
-import      in          init        let         loop
-macro       match       module      move        none
-not         or          package     parent      public
-ref         return      self        Self        some
-static      struct      trait       true        type
+func        for         guard       if          impl
+import      in          init        interface   let
+loop        macro       match       module      move
+none        not         or          package     parent
+public      ref         return      self        Self
+some        static      struct      true        type
 unsafe      var         where       while
 ```
 

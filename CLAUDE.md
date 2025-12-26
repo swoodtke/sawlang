@@ -26,8 +26,8 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 
 ### Type System
 - Algebraic data types (enums with data)
-- Traits for polymorphism
-- Generics with trait bounds
+- Interfaces for polymorphism
+- Generics with interface bounds
 - No null - `T?` optionals (postfix syntax like Swift)
 - `Result<T, E>` for error handling
 - Type extensions for adding methods to existing types
@@ -66,7 +66,7 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 ### Concurrency
 - Async/await
 - Channels for message passing
-- `Send`/`Sync` traits for thread safety
+- `Send`/`Sync` interfaces for thread safety
 
 ## Open Questions
 

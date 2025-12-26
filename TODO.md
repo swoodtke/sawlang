@@ -241,17 +241,17 @@
 
 ---
 
-## Priority 6: Traits & Polymorphism
+## Priority 6: Interfaces & Polymorphism
 
-### Traits
-- [ ] Trait declarations
+### Interfaces
+- [ ] Interface declarations
 - [ ] Default method implementations
-- [ ] `impl Trait for Type`
-- [ ] Trait bounds: `<T: Display>`
+- [ ] `extension Type: Interface` for conformance
+- [ ] Interface bounds: `<T: Display>`
 - [ ] Multiple bounds: `<T: Display + Debug>`
 - [ ] Associated types
 
-### Built-in Traits
+### Built-in Interfaces
 - [ ] `Copy` - implicit copy
 - [ ] `Clone` - explicit clone
 - [ ] `Display` - string representation
@@ -423,7 +423,7 @@ Source (.saw) → Lexer → Tokens → Parser → AST → Type Checker → Typed
 - Features are ordered by dependency (later features often depend on earlier ones)
 - Type system comes before collections because structs/enums are needed to build them
 - Control flow (loops) is essential for writing practical programs
-- Traits enable the standard library design (`Copy`, `Clone`, `Iterator`, etc.)
+- Interfaces enable the standard library design (`Copy`, `Clone`, `Iterator`, etc.)
 - Concurrency and metaprogramming can wait until the core language is solid
 
 ## Quick Wins (Low effort, high value)
