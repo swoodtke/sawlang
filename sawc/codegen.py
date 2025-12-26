@@ -1970,8 +1970,13 @@ class CodeGenerator:
     def _generate_none_literal(self, expr: NoneLiteral):
         """Generate code for None literal."""
         # Create an optional with is_some = false
-        # We use i64 as a placeholder type since None can be any optional type
-        optional_type = ir.LiteralStructType([ir.IntType(1), ir.IntType(64)])
+        # Use resolved_type if available (from typechecker), otherwise use i64 as placeholder
+        if expr.resolved_type and expr.resolved_type.inner_type:
+            inner_llvm_type = self._get_llvm_type(expr.resolved_type.inner_type)
+        else:
+            inner_llvm_type = ir.IntType(64)
+
+        optional_type = ir.LiteralStructType([ir.IntType(1), inner_llvm_type])
         optional_val = ir.Constant(optional_type, ir.Undefined)
 
         # Set is_some to false

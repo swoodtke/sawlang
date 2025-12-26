@@ -1,0 +1,45 @@
+// Test custom iterator returning struct values
+// EXPECT: 1
+// EXPECT: 2
+// EXPECT: 3
+// EXPECT: 4
+// EXPECT: 5
+// EXPECT: 6
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+struct PointList {
+    index: Int
+}
+
+extension PointList: Iterator {
+    type Item = Point
+
+    func next(var self) -> Point? {
+        if self.index < 3 {
+            let i = self.index
+            self.index = self.index + 1
+            if i == 0 {
+                Point(x: 1, y: 2)
+            } else {
+                if i == 1 {
+                    Point(x: 3, y: 4)
+                } else {
+                    Point(x: 5, y: 6)
+                }
+            }
+        } else {
+            None
+        }
+    }
+}
+
+func main() {
+    for p in PointList(index: 0) {
+        print(p.x)
+        print(p.y)
+    }
+}

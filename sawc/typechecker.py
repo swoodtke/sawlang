@@ -1525,10 +1525,16 @@ class TypeChecker:
             if then_type and else_type:
                 if else_type.kind == TypeKind.OPTIONAL and else_type.inner_type is None:
                     # else is None, result is Optional<then_type>
-                    return SawType(TypeKind.OPTIONAL, inner_type=then_type)
+                    result_type = SawType(TypeKind.OPTIONAL, inner_type=then_type)
+                    # Annotate the None literal with its resolved type
+                    self._annotate_none_in_block(expr.else_branch, result_type)
+                    return result_type
                 if then_type.kind == TypeKind.OPTIONAL and then_type.inner_type is None:
                     # then is None, result is Optional<else_type>
-                    return SawType(TypeKind.OPTIONAL, inner_type=else_type)
+                    result_type = SawType(TypeKind.OPTIONAL, inner_type=else_type)
+                    # Annotate the None literal with its resolved type
+                    self._annotate_none_in_block(expr.then_branch, result_type)
+                    return result_type
 
             return then_type or else_type
         else:
@@ -1834,6 +1840,22 @@ class TypeChecker:
         """Check None literal - returns a special 'None' type that can unify with any T?."""
         # None has a special type that's compatible with any optional
         return SawType(TypeKind.OPTIONAL, inner_type=None)
+
+    def _annotate_none_in_block(self, block: Block, resolved_type: SawType):
+        """Annotate any NoneLiteral in the block's final expression with its resolved type."""
+        if block.final_expr is not None:
+            self._annotate_none_in_expr(block.final_expr, resolved_type)
+
+    def _annotate_none_in_expr(self, expr: Expression, resolved_type: SawType):
+        """Recursively find and annotate NoneLiteral nodes with their resolved type."""
+        if isinstance(expr, NoneLiteral):
+            expr.resolved_type = resolved_type
+        elif isinstance(expr, IfExpr):
+            # Check both branches of if expressions
+            if expr.then_branch.final_expr:
+                self._annotate_none_in_expr(expr.then_branch.final_expr, resolved_type)
+            if expr.else_branch and expr.else_branch.final_expr:
+                self._annotate_none_in_expr(expr.else_branch.final_expr, resolved_type)
 
     def _check_force_unwrap(self, expr: ForceUnwrap) -> Optional[SawType]:
         """Check force unwrap: expr! - unwraps T? to T."""

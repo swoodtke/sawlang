@@ -201,6 +201,7 @@ class NoneLiteral(Expression):
     """The None literal for optionals."""
     line: int = 0
     column: int = 0
+    resolved_type: Optional['SawType'] = None  # Filled in by typechecker
 
 
 @dataclass

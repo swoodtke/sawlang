@@ -1,9 +1,9 @@
 # Saw Language - Implementation Roadmap
 
-## Current Status (MVP Complete + Core Types)
+## Current Status (MVP Complete + Core Types + Generics/Interfaces)
 
-**Compiler Stats:** ~5,100 lines of Python across 7 modules
-- Lexer: 316 LOC | Parser: 993 LOC | Type Checker: 1,556 LOC | Codegen: 1,454 LOC
+**Compiler Stats:** ~6,500 lines of Python across 7 modules
+**Test Coverage:** 69 tests
 
 **Completed Features:**
 - [x] Basic functions with parameters and return types
@@ -22,6 +22,12 @@
 - [x] Struct extensions with methods and custom init
 - [x] Mutable methods (`var self`)
 - [x] While loops with `break` and `continue`
+- [x] For loops with ranges (`for i in 0..10`) and custom iterators
+- [x] Generic functions and structs with monomorphization
+- [x] Interfaces with conformance checking
+- [x] Interface bounds on generics (`<T: Iterator>`)
+- [x] Associated types in interfaces
+- [x] Distinct type definitions (`type UserId = Int`)
 
 ---
 
@@ -155,13 +161,16 @@
 - [x] Multiple return values
 
 ### Type Definitions
-- [ ] `type` keyword for distinct types
-- [ ] Type wrapping: `type UserId = Int64`
+- [x] `type` keyword for distinct types
+- [x] Type wrapping: `type UserId = Int`
 - [ ] `.value` access to underlying value
 
-### Generics (Basic)
-- [ ] Generic functions: `fn identity<T>(x: T) -> T`
-- [ ] Generic structs: `struct Box<T> { value: T }`
+### Generics
+- [x] Generic functions: `func identity<T>(x: T) -> T`
+- [x] Generic structs: `struct Box<T> { value: T }`
+- [x] Interface bounds: `<T: Iterator>`
+- [x] Multiple bounds: `<T: A + B>`
+- [x] Associated types in interfaces
 - [ ] Generic enums: `enum Option<T> { Some(T), None }`
 
 ---
@@ -173,8 +182,11 @@
 - [x] `break` statement (with optional value)
 - [x] `continue` statement
 - [x] While loops as expressions (conditional → `T?`, infinite → `T`)
-- [ ] `for item in collection` loops
+- [x] `for i in start..end` range loops
+- [x] `for item in iterator` custom iterator loops
+- [x] For loops as expressions with `break value` returning `T?`
 - [ ] `for (index, item) in collection.enumerate()`
+- [ ] `..=` inclusive range syntax
 
 ### Pattern Matching
 - [x] `match` expression on enums
@@ -193,7 +205,8 @@
 - [ ] Modulo: `%`
 - [ ] Compound assignment: `+=`, `-=`, `*=`, `/=`
 - [ ] Bitwise: `&`, `|`, `^`, `~`, `<<`, `>>`
-- [ ] Range: `..`, `..=`
+- [x] Range: `..` (exclusive end)
+- [ ] Inclusive range: `..=`
 
 ---
 
@@ -244,12 +257,13 @@
 ## Priority 6: Interfaces & Polymorphism
 
 ### Interfaces
-- [ ] Interface declarations
+- [x] Interface declarations: `interface Name { func method(self) -> Type }`
 - [ ] Default method implementations
-- [ ] `extension Type: Interface` for conformance
-- [ ] Interface bounds: `<T: Display>`
-- [ ] Multiple bounds: `<T: Display + Debug>`
-- [ ] Associated types
+- [x] `extension Type: Interface` for conformance
+- [x] Interface bounds: `<T: Display>`
+- [x] Multiple bounds: `<T: Display + Debug>`
+- [x] Associated types: `type Item` in interfaces
+- [x] Conformance checking (missing methods, signature mismatches)
 
 ### Built-in Interfaces
 - [ ] `Copy` - implicit copy
@@ -258,7 +272,7 @@
 - [ ] `Debug` - debug output
 - [ ] `Eq`, `PartialEq` - equality
 - [ ] `Ord`, `PartialOrd` - ordering
-- [ ] `Iterator` - iteration protocol
+- [x] `Iterator` - iteration protocol (builtin for ranges and custom types)
 
 ### Type Extensions
 - [x] `extension Type { }` syntax
