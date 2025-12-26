@@ -128,7 +128,7 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 65 tests including success cases and error validation
+**Test Coverage:** 76 tests including success cases and error validation
 
 ## Current Features
 
@@ -138,6 +138,7 @@ The compiler currently supports:
 - Functions with parameters and return types
 - Generic functions: `func identity<T>(x: T) -> T`
 - Generic structs: `struct Box<T> { value: T }`
+- Generic enums: `enum Maybe<T> { case Just(value: T), case Nothing }`
 - Basic types: Int, Float, Bool, String
 - Variables: `let` (immutable) and `var` (mutable)
 - Arithmetic: `+`, `-`, `*`, `/`, `%` (modulo)
@@ -342,6 +343,47 @@ extension Point: Describable {
 func main() {
     let p = Point(x: 3, y: 4)
     print(p.describe())  // 7
+}
+```
+
+### Generic Enums
+```saw
+// Generic enum - similar to Option<T> in Rust
+// Note: 'None' is a keyword in Saw, so we use Maybe instead of Option
+enum Maybe<T> {
+    case Just(value: T),
+    case Nothing
+}
+
+func main() {
+    // Create Maybe<Int> values
+    let some_int = Maybe<Int>.Just(value: 42)
+    let none_int = Maybe<Int>.Nothing
+
+    // Match on Just variant
+    match some_int {
+        case Just(n) -> print(n),      // 42
+        case Nothing -> print(0)
+    }
+
+    // Match on Nothing variant
+    match none_int {
+        case Just(n) -> print(n),
+        case Nothing -> print(999)     // 999
+    }
+
+    // Works with any type
+    let some_bool = Maybe<Bool>.Just(value: true)
+    match some_bool {
+        case Just(b) -> {
+            if b {
+                print(1)               // 1
+            } else {
+                print(0)
+            }
+        },
+        case Nothing -> print(-1)
+    }
 }
 ```
 

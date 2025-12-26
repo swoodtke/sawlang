@@ -126,6 +126,7 @@ class StringLiteral(Expression):
 @dataclass
 class Identifier(Expression):
     name: str
+    type_args: Optional[List['SawType']] = None  # For generic type access: Option<Int>
     line: int = 0
     column: int = 0
 
@@ -300,6 +301,7 @@ class GuardLetStatement(ASTNode):
 @dataclass
 class EnumInit(Expression):
     """Enum variant initialization: Status.Success or Status.Error(code: 404)
+    or Option<Int>.Some(value: 42) for generic enums.
 
     Created by the type checker from MethodCall when the base is an enum type.
     Arguments can be positional or named.
@@ -307,6 +309,7 @@ class EnumInit(Expression):
     enum_name: str
     variant_name: str
     arguments: List[Argument]
+    type_args: Optional[List['SawType']] = None  # For generic enums: Option<Int> has type_args=[Int]
     line: int = 0
     column: int = 0
 

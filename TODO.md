@@ -2,8 +2,8 @@
 
 ## Current Status (MVP Complete + Core Types + Generics/Interfaces)
 
-**Compiler Stats:** ~6,800 lines of Python across 7 modules
-**Test Coverage:** 71 tests
+**Compiler Stats:** ~7,000 lines of Python across 7 modules
+**Test Coverage:** 76 tests
 
 ---
 
@@ -19,8 +19,8 @@
 - [x] Array indexing: `arr[0]`
 - [x] Unified `[index]` syntax works for both arrays and tuples
 
-### Phase 3: Complete Generics
-- [ ] Generic enums: `enum Option<T> { Some(T), None }`
+### Phase 3: Complete Generics (In Progress)
+- [x] Generic enums: `enum Maybe<T> { case Just(value: T), case Nothing }`
 - [ ] Match exhaustiveness checking
 
 ### Phase 4: Functional Patterns
@@ -201,7 +201,7 @@
 - [x] Interface bounds: `<T: Iterator>`
 - [x] Multiple bounds: `<T: A + B>`
 - [x] Associated types in interfaces
-- [ ] Generic enums: `enum Option<T> { Some(T), None }`
+- [x] Generic enums: `enum Maybe<T> { case Just(value: T), case Nothing }`
 
 ---
 

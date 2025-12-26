@@ -67,6 +67,8 @@ class CodeGenerator:
         self.generic_functions: dict[str, Function] = {}
         # Stores original AST of generic structs for later instantiation
         self.generic_structs: dict[str, Struct] = {}
+        # Stores original AST of generic enums for later instantiation
+        self.generic_enums: dict[str, Enum] = {}
         # Stores original AST of generic extensions for later instantiation
         self.generic_extensions: dict[str, Extension] = {}
         # Tracks which monomorphized functions have been generated
@@ -140,6 +142,10 @@ class CodeGenerator:
             # Look up the enum type
             if saw_type.enum_name is None:
                 raise ValueError("Enum type missing name")
+            # Handle generic enum with type_args
+            if saw_type.type_args:
+                mangled_name = self._ensure_monomorphized_enum(saw_type.enum_name, saw_type.type_args)
+                return self.enum_types[mangled_name][0]
             if saw_type.enum_name not in self.enum_types:
                 raise ValueError(f"Undefined enum: {saw_type.enum_name}")
             return self.enum_types[saw_type.enum_name][0]  # Return LLVM type
@@ -278,12 +284,21 @@ class CodeGenerator:
         """Register an enum type with LLVM.
         Enums are represented as tagged unions: { i32 tag, [N x i8] payload }
         or just i32 if all variants have no associated values."""
+        # Skip generic enums - they'll be monomorphized when used
+        if enum.type_params:
+            self.generic_enums[enum.name] = enum
+            return
+
+        self._register_concrete_enum(enum.name, enum.variants)
+
+    def _register_concrete_enum(self, name: str, variants: List[EnumVariant]):
+        """Register a concrete (non-generic or monomorphized) enum type with LLVM."""
         # Assign tag values to variants (0, 1, 2, ...)
         variant_tags = {}
         variant_info = {}
         max_payload_size = 0
 
-        for i, variant in enumerate(enum.variants):
+        for i, variant in enumerate(variants):
             variant_tags[variant.name] = i
             variant_info[variant.name] = variant.associated_types
 
@@ -311,7 +326,7 @@ class CodeGenerator:
             llvm_enum_type = ir.IntType(32)
 
         # Store enum info
-        self.enum_types[enum.name] = (llvm_enum_type, variant_tags, variant_info)
+        self.enum_types[name] = (llvm_enum_type, variant_tags, variant_info)
 
     def _estimate_type_size(self, llvm_type: ir.Type) -> int:
         """Estimate the size of an LLVM type in bytes (conservative estimate)."""
@@ -502,6 +517,9 @@ class CodeGenerator:
                 return SawType(TypeKind.TUPLE, element_types=new_elements)
             return saw_type
         elif saw_type.kind == TypeKind.STRUCT:
+            # Check if this is actually a type parameter (parsed as STRUCT)
+            if saw_type.struct_name in type_mapping:
+                return type_mapping[saw_type.struct_name]
             if saw_type.type_args:
                 new_type_args = [self._substitute_saw_type(t, type_mapping) for t in saw_type.type_args]
                 return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=new_type_args)
@@ -557,6 +575,50 @@ class CodeGenerator:
         # If there's a generic extension for this struct, also monomorphize its methods
         if struct_name in self.generic_extensions:
             self._monomorphize_extension(struct_name, type_args, mangled_name, type_mapping)
+
+        return mangled_name
+
+    def _ensure_monomorphized_enum(self, enum_name: str, type_args: List[SawType]) -> str:
+        """Ensure a monomorphized version of a generic enum exists.
+        Returns the mangled name of the monomorphized enum."""
+        mangled_name = self._mangle_generic_struct_name(enum_name, type_args)
+
+        # Already generated
+        if mangled_name in self.enum_types:
+            return mangled_name
+
+        # Get the generic enum
+        if enum_name not in self.generic_enums:
+            raise ValueError(f"Unknown generic enum: {enum_name}")
+        generic_enum = self.generic_enums[enum_name]
+
+        # Build type mapping: T -> Int, etc.
+        type_mapping = {}
+        for i, type_param in enumerate(generic_enum.type_params):
+            if i < len(type_args):
+                type_mapping[type_param.name] = type_args[i]
+
+        # Set type param context for _get_llvm_type
+        old_context = self.type_param_context
+        self.type_param_context = type_mapping
+
+        # Create substituted variants
+        substituted_variants = []
+        for variant in generic_enum.variants:
+            substituted_types = []
+            for param_name, param_type in variant.associated_types:
+                substituted = self._substitute_saw_type(param_type, type_mapping)
+                substituted_types.append((param_name, substituted))
+            substituted_variants.append(EnumVariant(
+                name=variant.name,
+                associated_types=substituted_types
+            ))
+
+        # Restore context before registering (registration will use _get_llvm_type)
+        self.type_param_context = old_context
+
+        # Register the monomorphized enum
+        self._register_concrete_enum(mangled_name, substituted_variants)
 
         return mangled_name
 
@@ -2080,16 +2142,21 @@ class CodeGenerator:
     def _generate_member_access(self, expr: MemberAccess):
         """Generate code for member access on structs or enum variant access."""
         # Special case: EnumName.VariantName (simple variant with no associated values)
-        if isinstance(expr.object, Identifier) and expr.object.name in self.enum_types:
-            # This is an enum variant access - convert to EnumInit
-            enum_init = EnumInit(
-                enum_name=expr.object.name,
-                variant_name=expr.member,
-                arguments=[],
-                line=expr.line,
-                column=expr.column
-            )
-            return self._generate_enum_init(enum_init)
+        # Check both concrete enums and generic enums
+        if isinstance(expr.object, Identifier):
+            is_enum = expr.object.name in self.enum_types
+            is_generic_enum = expr.object.name in self.generic_enums
+            if is_enum or is_generic_enum:
+                # This is an enum variant access - convert to EnumInit
+                enum_init = EnumInit(
+                    enum_name=expr.object.name,
+                    variant_name=expr.member,
+                    arguments=[],
+                    type_args=expr.object.type_args,  # Pass type_args for generic enums
+                    line=expr.line,
+                    column=expr.column
+                )
+                return self._generate_enum_init(enum_init)
 
         obj_val = self._generate_expression(expr.object)
 
@@ -2272,16 +2339,21 @@ class CodeGenerator:
         based on whether 'object' is an Identifier that matches an enum name.
         """
         # Check if this is actually an enum initialization
-        if isinstance(expr.object, Identifier) and expr.object.name in self.enum_types:
-            # Convert to EnumInit and generate it
-            enum_init = EnumInit(
-                enum_name=expr.object.name,
-                variant_name=expr.method_name,
-                arguments=expr.arguments,
-                line=expr.line,
-                column=expr.column
-            )
-            return self._generate_enum_init(enum_init)
+        # Check both concrete enums and generic enums
+        if isinstance(expr.object, Identifier):
+            is_enum = expr.object.name in self.enum_types
+            is_generic_enum = expr.object.name in self.generic_enums
+            if is_enum or is_generic_enum:
+                # Convert to EnumInit and generate it
+                enum_init = EnumInit(
+                    enum_name=expr.object.name,
+                    variant_name=expr.method_name,
+                    arguments=expr.arguments,
+                    type_args=expr.object.type_args,  # Pass type_args for generic enums
+                    line=expr.line,
+                    column=expr.column
+                )
+                return self._generate_enum_init(enum_init)
 
         # Otherwise, it's a method call
         # Get mangled method name first to check if method expects mutable self
@@ -2355,10 +2427,15 @@ class CodeGenerator:
 
     def _generate_enum_init(self, expr: EnumInit):
         """Generate code for enum variant initialization."""
-        if expr.enum_name not in self.enum_types:
-            raise ValueError(f"Undefined enum: {expr.enum_name}")
+        # Handle generic enum with type_args
+        enum_name = expr.enum_name
+        if expr.type_args:
+            enum_name = self._ensure_monomorphized_enum(expr.enum_name, expr.type_args)
 
-        llvm_enum_type, variant_tags, variant_info = self.enum_types[expr.enum_name]
+        if enum_name not in self.enum_types:
+            raise ValueError(f"Undefined enum: {enum_name}")
+
+        llvm_enum_type, variant_tags, variant_info = self.enum_types[enum_name]
         tag_value = variant_tags[expr.variant_name]
         variant_params = variant_info[expr.variant_name]
 

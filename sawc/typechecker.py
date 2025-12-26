@@ -1825,13 +1825,31 @@ class TypeChecker:
             # Check if it's an enum name
             if expr.object.name in self.enums:
                 enum_info = self.enums[expr.object.name]
+
+                # Check type arguments for generic enums
+                type_args = expr.object.type_args
+                if enum_info.type_params:
+                    if not type_args:
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"generic enum `{expr.object.name}` requires type arguments",
+                            expr.line, expr.column,
+                            hint=f"use `{expr.object.name}<...>.{expr.member}`"
+                        )
+                    elif len(type_args) != len(enum_info.type_params):
+                        self.reporter.error(
+                            ErrorKind.WRONG_ARGUMENT_COUNT,
+                            f"expected {len(enum_info.type_params)} type argument(s), got {len(type_args)}",
+                            expr.line, expr.column
+                        )
+
                 # Check if the member is a valid variant
                 if expr.member in enum_info.variants:
                     variant_params = enum_info.variants[expr.member]
                     # Only simple variants (no associated values) can be accessed this way
                     if len(variant_params) == 0:
                         # This is a simple enum variant
-                        return SawType(TypeKind.ENUM, enum_name=expr.object.name)
+                        return SawType(TypeKind.ENUM, enum_name=expr.object.name, type_args=type_args)
                     else:
                         self.reporter.error(
                             ErrorKind.TYPE_MISMATCH,
@@ -1887,20 +1905,31 @@ class TypeChecker:
             return saw_type
         elif saw_type.kind == TypeKind.OPTIONAL:
             # Substitute in inner type
-            inner = self._substitute_type(saw_type.inner_type, type_mapping)
-            return SawType(TypeKind.OPTIONAL, inner_type=inner)
+            if saw_type.inner_type:
+                inner = self._substitute_type(saw_type.inner_type, type_mapping)
+                return SawType(TypeKind.OPTIONAL, inner_type=inner)
+            return saw_type
         elif saw_type.kind == TypeKind.TUPLE:
             # Substitute in element types
-            element_types = [self._substitute_type(t, type_mapping) for t in saw_type.element_types]
-            return SawType(TypeKind.TUPLE, element_types=element_types)
-        elif saw_type.kind == TypeKind.STRUCT and saw_type.type_args:
-            # Substitute in type arguments
-            type_args = [self._substitute_type(t, type_mapping) for t in saw_type.type_args]
-            return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=type_args)
-        elif saw_type.kind == TypeKind.ENUM and saw_type.type_args:
-            # Substitute in type arguments
-            type_args = [self._substitute_type(t, type_mapping) for t in saw_type.type_args]
-            return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=type_args)
+            if saw_type.element_types:
+                element_types = [self._substitute_type(t, type_mapping) for t in saw_type.element_types]
+                return SawType(TypeKind.TUPLE, element_types=element_types)
+            return saw_type
+        elif saw_type.kind == TypeKind.STRUCT:
+            # Check if this is actually a type parameter (parsed as STRUCT)
+            if saw_type.struct_name in type_mapping:
+                return type_mapping[saw_type.struct_name]
+            if saw_type.type_args:
+                # Substitute in type arguments
+                type_args = [self._substitute_type(t, type_mapping) for t in saw_type.type_args]
+                return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=type_args)
+            return saw_type
+        elif saw_type.kind == TypeKind.ENUM:
+            if saw_type.type_args:
+                # Substitute in type arguments
+                type_args = [self._substitute_type(t, type_mapping) for t in saw_type.type_args]
+                return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=type_args)
+            return saw_type
         return saw_type
 
     def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
@@ -2140,10 +2169,12 @@ class TypeChecker:
         # This happens when object is an Identifier that matches an enum name
         if isinstance(expr.object, Identifier) and expr.object.name in self.enums:
             # Convert to EnumInit and check it
+            # Pass type_args from the Identifier (for generic enums like Option<Int>.Some)
             enum_init = EnumInit(
                 enum_name=expr.object.name,
                 variant_name=expr.method_name,
                 arguments=expr.arguments,
+                type_args=expr.object.type_args,
                 line=expr.line,
                 column=expr.column
             )
@@ -2238,6 +2269,7 @@ class TypeChecker:
         """Check enum variant initialization.
 
         Supports both named arguments (value: 42) and positional arguments (42).
+        Also supports generic enums like Option<Int>.Some(value: 42).
         """
         # Verify enum exists
         if expr.enum_name not in self.enums:
@@ -2250,6 +2282,27 @@ class TypeChecker:
 
         enum_info = self.enums[expr.enum_name]
 
+        # Build type mapping for generic enums
+        type_mapping: Dict[str, SawType] = {}
+        if enum_info.type_params:
+            if not expr.type_args:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"generic enum `{expr.enum_name}` requires type arguments",
+                    expr.line, expr.column,
+                    hint=f"use `{expr.enum_name}<...>.{expr.variant_name}(...)`"
+                )
+            elif len(expr.type_args) != len(enum_info.type_params):
+                self.reporter.error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"expected {len(enum_info.type_params)} type argument(s), got {len(expr.type_args)}",
+                    expr.line, expr.column
+                )
+            else:
+                # Create type mapping: T -> Int, etc.
+                for type_param, type_arg in zip(enum_info.type_params, expr.type_args):
+                    type_mapping[type_param.name] = type_arg
+
         # Verify variant exists
         if expr.variant_name not in enum_info.variants:
             self.reporter.error(
@@ -2260,6 +2313,11 @@ class TypeChecker:
             return None
 
         expected_params = enum_info.variants[expr.variant_name]
+
+        # Apply type substitution to expected param types for generic enums
+        if type_mapping:
+            expected_params = [(name, self._substitute_type(typ, type_mapping))
+                               for name, typ in expected_params]
 
         # Check argument count
         if len(expr.arguments) != len(expected_params):
@@ -2308,8 +2366,8 @@ class TypeChecker:
                         arg.value.line, arg.value.column
                     )
 
-        # Return enum type
-        return SawType(TypeKind.ENUM, enum_name=expr.enum_name)
+        # Return enum type with type_args for generic enums
+        return SawType(TypeKind.ENUM, enum_name=expr.enum_name, type_args=expr.type_args)
 
     def _check_match_expr(self, expr: MatchExpr) -> Optional[SawType]:
         """Check match expression."""
@@ -2331,6 +2389,12 @@ class TypeChecker:
         if enum_info is None:
             return None  # Error already reported
 
+        # Build type mapping for generic enums
+        type_mapping: Dict[str, SawType] = {}
+        if enum_info.type_params and matched_type.type_args:
+            for type_param, type_arg in zip(enum_info.type_params, matched_type.type_args):
+                type_mapping[type_param.name] = type_arg
+
         # Type check each arm
         arm_types = []
         for arm in expr.arms:
@@ -2345,6 +2409,11 @@ class TypeChecker:
 
             variant_params = enum_info.variants[arm.variant_name]
 
+            # Apply type substitution for generic enums
+            if type_mapping:
+                variant_params = [(name, self._substitute_type(typ, type_mapping))
+                                  for name, typ in variant_params]
+
             # Check binding count
             if len(arm.bindings) != len(variant_params):
                 self.reporter.error(
@@ -2358,7 +2427,7 @@ class TypeChecker:
             old_scope = self.current_scope
             self.current_scope = Scope(parent=old_scope)
 
-            # Add bindings to scope
+            # Add bindings to scope (with substituted types for generic enums)
             for binding_name, (_, param_type) in zip(arm.bindings, variant_params):
                 var_info = VariableInfo(
                     type=param_type,

@@ -1,0 +1,38 @@
+// Generic enum example - Maybe<T>
+// Note: 'None' is a keyword in Saw, so we use Maybe instead of Option
+
+enum Maybe<T> {
+    case Just(value: T),
+    case Nothing
+}
+
+func main() {
+    // Create Maybe<Int> values
+    let some_int = Maybe<Int>.Just(value: 42)
+    let none_int = Maybe<Int>.Nothing
+
+    // Match on Just variant
+    match some_int {
+        case Just(n) -> print(n),
+        case Nothing -> print(0)
+    }
+
+    // Match on Nothing variant
+    match none_int {
+        case Just(n) -> print(n),
+        case Nothing -> print(999)
+    }
+
+    // Multiple type instantiations
+    let some_bool = Maybe<Bool>.Just(value: true)
+    match some_bool {
+        case Just(b) -> {
+            if b {
+                print(1)
+            } else {
+                print(0)
+            }
+        },
+        case Nothing -> print(-1)
+    }
+}

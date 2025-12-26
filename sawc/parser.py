@@ -1068,19 +1068,20 @@ class Parser:
 
         elif self.match(TokenType.IDENT):
             self.advance()
-            # Check for generic function call: name<Type>(args)
+            # Check for generic type/function: name<Type>
             # We need to carefully handle the ambiguity between:
-            #   foo<Int>(x)  - generic call
-            #   foo < bar    - comparison
+            #   foo<Int>(x)    - generic call
+            #   foo<Int>.Bar   - generic enum variant access
+            #   foo < bar      - comparison
             type_args = None
             if self.match(TokenType.LT):
                 # Try to parse as type arguments using backtracking
                 saved_pos = self.pos
                 try:
                     type_args = self._parse_type_args()
-                    # Only keep type_args if followed by '(' (function call)
-                    if not self.match(TokenType.LPAREN):
-                        # Not a function call, restore position
+                    # Keep type_args if followed by '(' (function call) or '.' (member access)
+                    if not self.match(TokenType.LPAREN) and not self.match(TokenType.DOT):
+                        # Not a function call or member access, restore position
                         self.pos = saved_pos
                         type_args = None
                 except SyntaxError:
@@ -1095,7 +1096,7 @@ class Parser:
                     return self.parse_struct_init(token, type_args)
                 else:
                     return self.parse_function_call(token, type_args)
-            return Identifier(name=token.value, line=token.line, column=token.column)
+            return Identifier(name=token.value, type_args=type_args, line=token.line, column=token.column)
 
         elif self.match(TokenType.LPAREN):
             start = self.current()
