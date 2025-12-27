@@ -66,6 +66,15 @@ extension Vector<T> {
         }
     }
 
+    // Set element at index (no-op if out of bounds)
+    func set(var self, index: Int, value: T) {
+        if index >= 0 && index < self.length {
+            if let buf = self.buffer {
+                buf[index] = value
+            }
+        }
+    }
+
     // Add an element to the end
     func push(var self, value: T) {
         // Grow if needed

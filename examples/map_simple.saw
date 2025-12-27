@@ -1,0 +1,44 @@
+// Simple Map<K, V> test
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 100
+// 2
+// 200
+// 1
+// 300
+
+func main() {
+    // Create empty map
+    var m = Map<Int, Int>()
+    print(m.len())  // 0
+
+    // Insert one element
+    m.insert(1, 100)
+    print(m.len())  // 1
+
+    // Get element
+    if let v = m.get(1) {
+        print(v)  // 100
+    }
+
+    // Insert another
+    m.insert(2, 200)
+    print(m.len())  // 2
+
+    // Get second element
+    if let v = m.get(2) {
+        print(v)  // 200
+    }
+
+    // Remove first element
+    m.remove(1)
+    print(m.len())  // 1
+
+    // Update existing key
+    m.insert(2, 300)
+    if let v = m.get(2) {
+        print(v)  // 300
+    }
+}

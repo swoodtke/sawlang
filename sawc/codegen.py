@@ -3230,6 +3230,10 @@ class CodeGenerator:
                     self_arg = self_ptr
                 else:
                     self_arg = self_ptr  # It's an alloca, pass it
+            elif isinstance(expr.object, MemberAccess):
+                # Handle nested mutable access like self.keys.push(...)
+                # We need a pointer to the field, not a copy
+                self_arg = self._get_member_pointer(expr.object)
             else:
                 # Otherwise create a temporary
                 self_alloca = self.builder.alloca(obj_val.type, name="self_temp")
@@ -3243,6 +3247,57 @@ class CodeGenerator:
 
         # Call the method
         return self.builder.call(method_func, args, name="methodcall")
+
+    def _get_member_pointer(self, expr: MemberAccess):
+        """Get a pointer to a struct field for mutable access.
+
+        For expressions like self.keys where we need to mutate keys in place,
+        this returns a GEP pointer to the field rather than extracting a copy.
+        """
+        # Get pointer to the base object
+        if isinstance(expr.object, Identifier) and expr.object.name in self.variables:
+            base_ptr = self.variables[expr.object.name]
+        elif isinstance(expr.object, SelfExpr) and "self" in self.variables:
+            base_ptr = self.variables["self"]
+        elif isinstance(expr.object, MemberAccess):
+            # Recursive case: nested member access like a.b.c
+            base_ptr = self._get_member_pointer(expr.object)
+        else:
+            # Fallback: create temporary (won't propagate changes back)
+            base_val = self._generate_expression(expr.object)
+            base_ptr = self.builder.alloca(base_val.type, name="member_temp")
+            self.builder.store(base_val, base_ptr)
+
+        # Determine the struct type
+        ptr_type = base_ptr.type
+        if isinstance(ptr_type, ir.PointerType):
+            struct_type = ptr_type.pointee
+        else:
+            raise ValueError(f"Expected pointer type, got {ptr_type}")
+
+        # Find struct name
+        struct_name = None
+        if hasattr(struct_type, 'name') and struct_type.name in self.struct_types:
+            struct_name = struct_type.name
+        else:
+            for name, (llvm_type, _) in self.struct_types.items():
+                if str(struct_type) == str(llvm_type):
+                    struct_name = name
+                    break
+
+        if struct_name is None:
+            raise ValueError(f"Cannot find struct type for member access: {expr.member}")
+
+        # Get field index
+        _, field_order = self.struct_types[struct_name]
+        if expr.member not in field_order:
+            raise ValueError(f"Unknown field: {struct_name}.{expr.member}")
+        field_index = field_order.index(expr.member)
+
+        # GEP to get pointer to the field
+        zero = ir.Constant(ir.IntType(32), 0)
+        field_idx = ir.Constant(ir.IntType(32), field_index)
+        return self.builder.gep(base_ptr, [zero, field_idx], name=f"{expr.member}_ptr")
 
     def _generate_self_expr(self, expr: SelfExpr):
         """Generate code for 'self' keyword."""

@@ -1,0 +1,138 @@
+// Map<K, V> - Key-Value Map implementation
+// Part of the Saw standard library
+//
+// Current implementation: Linear search with parallel arrays
+// TODO: Upgrade to hash table with Hashable interface
+
+// =============================================================================
+// Vector extension for swap_remove (used internally by Map)
+// =============================================================================
+
+extension Vector<T> {
+    // Remove element at index by swapping with last element (O(1))
+    // Returns the removed element, or None if out of bounds
+    func swap_remove(var self, index: Int) -> T? {
+        if index < 0 || index >= self.length {
+            None
+        } else {
+            if let buf = self.buffer {
+                let removed = buf[index]
+                // Move last element to this position (if not already last)
+                if index < self.length - 1 {
+                    buf[index] = buf[self.length - 1]
+                }
+                self.length = self.length - 1
+                removed
+            } else {
+                None
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Map<K, V> - A key-value map
+// =============================================================================
+
+struct Map<K, V> {
+    keys: Vector<K>
+    values: Vector<V>
+}
+
+extension Map<K, V> {
+    // Create an empty map
+    init() -> Map<K, V> {
+        Map<K, V>(keys: Vector<K>(), values: Vector<V>())
+    }
+
+    // Get the number of key-value pairs
+    func len(self) -> Int {
+        self.keys.len()
+    }
+
+    // Check if the map is empty
+    func is_empty(self) -> Bool {
+        self.keys.is_empty()
+    }
+
+    // Insert or update a key-value pair
+    // Returns the old value if key existed, None otherwise
+    func insert(var self, key: K, value: V) -> V? {
+        // Search for existing key
+        var i = 0
+        while i < self.keys.len() {
+            if let existing_key = self.keys.get(i) {
+                if existing_key == key {
+                    // Key exists - update value and return old
+                    let old_value = self.values.get(i)
+                    self.values.set(i, value)
+                    return old_value
+                }
+            }
+            i = i + 1
+        }
+        // Key doesn't exist - append new pair
+        self.keys.push(key)
+        self.values.push(value)
+        None
+    }
+
+    // Get value for a key
+    func get(self, key: K) -> V? {
+        var i = 0
+        while i < self.keys.len() {
+            if let existing_key = self.keys.get(i) {
+                if existing_key == key {
+                    return self.values.get(i)
+                }
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    // Check if map contains a key
+    func contains_key(self, key: K) -> Bool {
+        var i = 0
+        while i < self.keys.len() {
+            if let existing_key = self.keys.get(i) {
+                if existing_key == key {
+                    return true
+                }
+            }
+            i = i + 1
+        }
+        false
+    }
+
+    // Remove a key and return its value
+    func remove(var self, key: K) -> V? {
+        var i = 0
+        while i < self.keys.len() {
+            if let existing_key = self.keys.get(i) {
+                if existing_key == key {
+                    // Found - remove by swapping with last element
+                    let result = self.values.get(i)
+                    self.keys.swap_remove(i)
+                    self.values.swap_remove(i)
+                    return result
+                }
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    // Remove all entries
+    func clear(var self) {
+        self.keys.clear()
+        self.values.clear()
+    }
+}
+
+// Map is NoCopy because it contains Vectors (which are NoCopy)
+extension Map<K, V>: NoCopy {
+    func deinit(var self) {
+        // Vectors will be cleaned up automatically via their deinit
+    }
+}
