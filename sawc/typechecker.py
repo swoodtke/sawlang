@@ -21,13 +21,14 @@ from ast_nodes import (
     Interface, InterfaceMethod, AssociatedType, TypeAssignment, TypeDefinition,
     ExternFunction, ExternBlock,
     SawType, TypeKind, Parameter, Argument, TypeParameter,
-    ClosureExpr, ClosureParam
+    ClosureExpr, ClosureParam,
+    ImportDecl
 )
 from errors import ErrorReporter, ErrorKind
 from namespace import (
     Namespace, SymbolKind,
     FunctionSymbol, StructSymbol, EnumSymbol, InterfaceSymbol, TypeAliasSymbol,
-    InterfaceMethodSymbol
+    InterfaceMethodSymbol, ModuleNamespace, ImportedSymbol
 )
 
 
@@ -162,6 +163,13 @@ class TypeChecker:
         # Unified namespace (Phase 0 of module system)
         # Populated in parallel with legacy dicts during migration
         self.namespace = Namespace()
+
+        # Module-aware namespace (Phase 2 of module system)
+        # Used when compiling multi-module programs
+        self.module_namespace = ModuleNamespace()
+
+        # Current module path during multi-module type checking
+        self.current_module_path: Tuple[str, ...] = ()
 
         # Register built-in functions
         self._register_builtins()
@@ -483,6 +491,392 @@ class TypeChecker:
             self._check_extension(extension)
 
         return not self.reporter.has_errors()
+
+    def check_modules(self, modules: List['ModuleInfo'], builtins: Optional[Program] = None) -> bool:
+        """
+        Type check multiple modules with import resolution.
+
+        This is the entry point for multi-module compilation (Phase 2+).
+
+        Args:
+            modules: List of ModuleInfo in dependency order (dependencies first)
+            builtins: Optional builtin program (interfaces, std library)
+
+        Returns:
+            True if no errors
+        """
+        from module_resolver import ModuleInfo
+
+        # Initialize module namespace
+        self.module_namespace = ModuleNamespace()
+
+        # If we have builtins, register them in the root namespace
+        if builtins:
+            self._register_builtins_to_namespace(builtins)
+
+        # Pass 1: Register all type definitions from all modules
+        for mod_info in modules:
+            if mod_info.ast is None:
+                continue
+            module_path = tuple(mod_info.path)
+            ns = self.module_namespace.get_or_create_module(module_path)
+            self.current_module_path = module_path
+
+            for type_def in mod_info.ast.type_definitions:
+                ns.register_type_alias(type_def.name, TypeAliasSymbol(
+                    aliased_type=type_def.defined_type
+                ))
+                # Also register in legacy dict for compatibility
+                self.type_aliases[type_def.name] = type_def.defined_type
+
+        # Pass 2: Register all structs from all modules
+        for mod_info in modules:
+            if mod_info.ast is None:
+                continue
+            module_path = tuple(mod_info.path)
+            ns = self.module_namespace.get_or_create_module(module_path)
+            self.current_module_path = module_path
+
+            for struct in mod_info.ast.structs:
+                fields = {f.name: f.type for f in struct.fields}
+                field_order = [f.name for f in struct.fields]
+                ns.register_struct(struct.name, StructSymbol(
+                    fields=fields,
+                    field_order=field_order,
+                    type_params=struct.type_params,
+                    line=struct.line,
+                    column=struct.column,
+                    ast_node=struct if struct.type_params else None
+                ))
+                # Legacy dict
+                self.structs[struct.name] = StructInfo(
+                    name=struct.name,
+                    fields=fields,
+                    field_order=field_order,
+                    line=struct.line,
+                    column=struct.column,
+                    type_params=struct.type_params
+                )
+
+        # Pass 3: Register all enums from all modules
+        for mod_info in modules:
+            if mod_info.ast is None:
+                continue
+            module_path = tuple(mod_info.path)
+            ns = self.module_namespace.get_or_create_module(module_path)
+            self.current_module_path = module_path
+
+            for enum in mod_info.ast.enums:
+                variants = {}
+                variant_order = []
+                for variant in enum.variants:
+                    variant_order.append(variant.name)
+                    variants[variant.name] = [(at.name, at.type) for at in variant.associated_types]
+                ns.register_enum(enum.name, EnumSymbol(
+                    variants=variants,
+                    variant_order=variant_order,
+                    type_params=enum.type_params,
+                    ast_node=enum if enum.type_params else None
+                ))
+                # Legacy dict
+                self.enums[enum.name] = EnumInfo(
+                    name=enum.name,
+                    variants=variants,
+                    variant_order=variant_order,
+                    type_params=enum.type_params
+                )
+
+        # Pass 4: Register all interfaces from all modules
+        for mod_info in modules:
+            if mod_info.ast is None:
+                continue
+            module_path = tuple(mod_info.path)
+            ns = self.module_namespace.get_or_create_module(module_path)
+            self.current_module_path = module_path
+
+            for iface in mod_info.ast.interfaces:
+                methods = {}
+                assoc_types = []
+                for m in iface.methods:
+                    param_types = [p.type for p in m.parameters]
+                    param_names = [p.name for p in m.parameters]
+                    methods[m.name] = InterfaceMethodSymbol(
+                        name=m.name,
+                        param_types=param_types,
+                        param_names=param_names,
+                        return_type=m.return_type,
+                        self_mutable=m.self_mutable
+                    )
+                for at in iface.associated_types:
+                    assoc_types.append(at.name)
+                ns.register_interface(iface.name, InterfaceSymbol(
+                    methods=methods,
+                    associated_types=assoc_types,
+                    parent_interfaces=iface.parent_interfaces if hasattr(iface, 'parent_interfaces') else []
+                ))
+
+        # Pass 5: Register function signatures (before imports so we can resolve function imports)
+        for mod_info in modules:
+            if mod_info.ast is None:
+                continue
+            module_path = tuple(mod_info.path)
+            ns = self.module_namespace.get_or_create_module(module_path)
+            self.current_module_path = module_path
+
+            for func in mod_info.ast.functions:
+                self._register_function(func)
+                # Also register in module namespace
+                param_types = [p.type for p in func.parameters]
+                param_names = [p.name for p in func.parameters]
+                ns.register_function(func.name, FunctionSymbol(
+                    param_types=param_types,
+                    param_names=param_names,
+                    return_type=func.return_type,
+                    type_params=func.type_params,
+                    ast_node=func if func.type_params else None
+                ))
+
+        # Pass 6: Register extensions
+        for mod_info in modules:
+            if mod_info.ast is None:
+                continue
+            module_path = tuple(mod_info.path)
+            ns = self.module_namespace.get_or_create_module(module_path)
+            self.current_module_path = module_path
+
+            for extension in mod_info.ast.extensions:
+                self._register_extension(extension)
+
+        # Pass 7: Process imports for each module (after all symbols registered)
+        for mod_info in modules:
+            if mod_info.ast is None:
+                continue
+            module_path = tuple(mod_info.path)
+            self.current_module_path = module_path
+
+            for imp in getattr(mod_info.ast, 'imports', []):
+                self._process_import(imp, module_path)
+
+        # Check for main function (only in entry module)
+        if modules:
+            entry_module = modules[-1]  # Entry module is last in dependency order
+            if entry_module.ast:
+                has_main = any(f.name == "main" for f in entry_module.ast.functions)
+                if not has_main:
+                    self.reporter.error(
+                        ErrorKind.UNDEFINED_FUNCTION,
+                        "no `main` function found",
+                        1, 1,
+                        hint="add a `fn main() { }` function as the entry point"
+                    )
+
+        # Pass 8: Type check function bodies
+        for mod_info in modules:
+            if mod_info.ast is None:
+                continue
+            module_path = tuple(mod_info.path)
+            self.current_module_path = module_path
+            self.module_namespace.current_module = module_path
+
+            for func in mod_info.ast.functions:
+                self._check_function(func)
+
+        # Pass 9: Type check extension method bodies
+        for mod_info in modules:
+            if mod_info.ast is None:
+                continue
+            module_path = tuple(mod_info.path)
+            self.current_module_path = module_path
+            self.module_namespace.current_module = module_path
+
+            for extension in mod_info.ast.extensions:
+                self._check_extension(extension)
+
+        # Copy module namespace to regular namespace for codegen compatibility
+        # (Codegen still uses the legacy namespace)
+        self.namespace = self.module_namespace.root
+
+        return not self.reporter.has_errors()
+
+    def _register_builtins_to_namespace(self, builtins: Program):
+        """Register builtin definitions to the root namespace."""
+        root = self.module_namespace.root
+
+        # Type definitions
+        for type_def in builtins.type_definitions:
+            root.register_type_alias(type_def.name, TypeAliasSymbol(
+                aliased_type=type_def.defined_type
+            ))
+            self.type_aliases[type_def.name] = type_def.defined_type
+
+        # Structs
+        for struct in builtins.structs:
+            fields = {f.name: f.type for f in struct.fields}
+            field_order = [f.name for f in struct.fields]
+            root.register_struct(struct.name, StructSymbol(
+                fields=fields,
+                field_order=field_order,
+                type_params=struct.type_params,
+                line=struct.line,
+                column=struct.column,
+                ast_node=struct if struct.type_params else None
+            ))
+            self.structs[struct.name] = StructInfo(
+                name=struct.name,
+                fields=fields,
+                field_order=field_order,
+                line=struct.line,
+                column=struct.column,
+                type_params=struct.type_params
+            )
+
+        # Enums
+        for enum in builtins.enums:
+            variants = {}
+            variant_order = []
+            for variant in enum.variants:
+                variant_order.append(variant.name)
+                variants[variant.name] = [(at.name, at.type) for at in variant.associated_types]
+            root.register_enum(enum.name, EnumSymbol(
+                variants=variants,
+                variant_order=variant_order,
+                type_params=enum.type_params,
+                ast_node=enum if enum.type_params else None
+            ))
+            self.enums[enum.name] = EnumInfo(
+                name=enum.name,
+                variants=variants,
+                variant_order=variant_order,
+                type_params=enum.type_params
+            )
+
+        # Interfaces
+        for iface in builtins.interfaces:
+            methods = {}
+            legacy_methods = {}
+            assoc_types = []
+            for m in iface.methods:
+                param_types = [p.type for p in m.parameters]
+                param_names = [p.name for p in m.parameters]
+                methods[m.name] = InterfaceMethodSymbol(
+                    name=m.name,
+                    param_types=param_types,
+                    param_names=param_names,
+                    return_type=m.return_type,
+                    self_mutable=m.self_mutable
+                )
+                legacy_methods[m.name] = InterfaceMethodInfo(
+                    name=m.name,
+                    param_types=param_types,
+                    return_type=m.return_type,
+                    param_names=param_names,
+                    self_mutable=m.self_mutable
+                )
+            for at in iface.associated_types:
+                assoc_types.append(at.name)
+            root.register_interface(iface.name, InterfaceSymbol(
+                methods=methods,
+                associated_types=assoc_types
+            ))
+            # Also register in legacy dict
+            self.interfaces[iface.name] = InterfaceInfo(
+                name=iface.name,
+                methods=legacy_methods,
+                associated_types=assoc_types,
+                parent_interfaces=iface.parent_interfaces if hasattr(iface, 'parent_interfaces') else []
+            )
+
+        # Extensions
+        for extension in builtins.extensions:
+            self._register_extension(extension)
+
+        # Functions
+        for func in builtins.functions:
+            self._register_function(func)
+            param_types = [p.type for p in func.parameters]
+            param_names = [p.name for p in func.parameters]
+            root.register_function(func.name, FunctionSymbol(
+                param_types=param_types,
+                param_names=param_names,
+                return_type=func.return_type,
+                type_params=func.type_params,
+                ast_node=func if func.type_params else None
+            ))
+
+    def _process_import(self, imp: ImportDecl, current_module: Tuple[str, ...]):
+        """
+        Process an import declaration and register imported symbols.
+
+        Handles:
+        - import std.io                    -> module import (io.File, io.open, etc.)
+        - import std.io.File               -> single symbol import
+        - import std.io.{File, Directory}  -> multiple symbol import
+        - import std.io as fileio          -> aliased module import
+        - import foo.*                     -> glob import
+        - import package.utils             -> package-relative import
+        - import parent.helpers            -> parent-relative import
+        """
+        # Resolve the module path (handles package/parent)
+        resolved_path = self.module_namespace.resolve_module_path(imp.path, current_module)
+
+        if imp.is_glob:
+            # Glob import: import foo.*
+            self.module_namespace.register_glob_import(current_module, resolved_path)
+
+        elif imp.symbols:
+            # Symbol-level import: import std.io.{File, Directory}
+            for symbol_name in imp.symbols:
+                # Determine symbol kind by looking it up in the source module
+                source_ns = self.module_namespace.modules.get(resolved_path)
+                if source_ns:
+                    kind = self._get_symbol_kind(source_ns, symbol_name)
+                    if kind:
+                        self.module_namespace.register_import(
+                            current_module, resolved_path, symbol_name, kind
+                        )
+                    else:
+                        self.reporter.error(
+                            ErrorKind.UNDEFINED_FUNCTION,
+                            f"symbol `{symbol_name}` not found in module `{'.'.join(resolved_path)}`",
+                            imp.line, imp.column
+                        )
+                else:
+                    # Module not found - might be a single symbol import
+                    # e.g., import std.io.File where std.io is the module and File is the symbol
+                    if len(resolved_path) > 1:
+                        parent_path = resolved_path[:-1]
+                        symbol_name_from_path = resolved_path[-1]
+                        parent_ns = self.module_namespace.modules.get(parent_path)
+                        if parent_ns:
+                            kind = self._get_symbol_kind(parent_ns, symbol_name_from_path)
+                            if kind:
+                                self.module_namespace.register_import(
+                                    current_module, parent_path, symbol_name_from_path, kind
+                                )
+                            else:
+                                self.reporter.error(
+                                    ErrorKind.UNDEFINED_FUNCTION,
+                                    f"module `{'.'.join(resolved_path)}` not found",
+                                    imp.line, imp.column
+                                )
+
+        else:
+            # Module import: import std.io or import std.io as io
+            self.module_namespace.register_module_import(
+                current_module, resolved_path, imp.alias
+            )
+
+    def _get_symbol_kind(self, namespace: Namespace, name: str) -> Optional[SymbolKind]:
+        """Determine what kind of symbol a name refers to in a namespace."""
+        if namespace.lookup_struct(name):
+            return SymbolKind.STRUCT
+        if namespace.lookup_enum(name):
+            return SymbolKind.ENUM
+        if namespace.lookup_function(name):
+            return SymbolKind.FUNCTION
+        if namespace.lookup_interface(name):
+            return SymbolKind.INTERFACE
+        return None
 
     def _register_struct(self, struct: Struct):
         """Register a struct definition."""
@@ -2158,12 +2552,21 @@ class TypeChecker:
 
             return return_type
 
-        # Look up function
+        # Look up function - check accessibility through namespace first
         func_info = self.functions.get(expr.name)
+        if func_info and not self.namespace.is_accessible(expr.name):
+            # Function exists but isn't directly accessible (need qualified access)
+            self.reporter.error(
+                ErrorKind.UNDEFINED_FUNCTION,
+                f"function `{expr.name}` is not directly accessible",
+                expr.line, expr.column,
+                hint=f"use qualified access (e.g., `module_name.{expr.name}`) or import it directly"
+            )
+            return None
         if not func_info:
             # Check if this is actually a struct init call (e.g., Vector<Int>())
             # This happens when parser sees empty parens and treats it as function call
-            if expr.name in self.structs:
+            if expr.name in self.structs and self.namespace.is_accessible(expr.name):
                 # Convert FunctionCall to StructInit and check that instead
                 from ast_nodes import StructInit, Argument
                 # Convert arguments to field inits (name: value pairs)
@@ -2581,10 +2984,48 @@ class TypeChecker:
             return None
 
     def _check_member_access(self, expr: MemberAccess) -> Optional[SawType]:
-        """Check member access for struct fields or enum variant access."""
-        # Special case: EnumName.VariantName (simple variant with no associated values)
-        # This is parsed as MemberAccess where object is an Identifier
+        """Check member access for struct fields, enum variants, or module symbols."""
+        # Special case: module.Symbol (qualified access to imported module)
         if isinstance(expr.object, Identifier):
+            # Check if it's a module name
+            module_sym = self.namespace.modules.get(expr.object.name)
+            if module_sym and module_sym.namespace:
+                # Resolve the member in the module's namespace
+                symbol = module_sym.namespace.resolve(expr.member)
+                if symbol is None:
+                    self.reporter.error(
+                        ErrorKind.UNDEFINED_VARIABLE,
+                        f"module `{expr.object.name}` has no symbol `{expr.member}`",
+                        expr.line, expr.column
+                    )
+                    return None
+
+                # Return appropriate type based on symbol kind
+                from namespace import SymbolKind
+                if symbol.kind == SymbolKind.STRUCT:
+                    # For struct access like utils.Point, we need to mark this
+                    # as a qualified struct reference. Store for later use.
+                    expr.resolved_struct_name = expr.member
+                    expr.resolved_module = expr.object.name
+                    return SawType(TypeKind.STRUCT, struct_name=expr.member)
+                elif symbol.kind == SymbolKind.ENUM:
+                    return SawType(TypeKind.ENUM, enum_name=expr.member)
+                elif symbol.kind == SymbolKind.FUNCTION:
+                    # For function access like utils.double, return function type
+                    # This will be handled specially in function call checking
+                    expr.resolved_function_name = expr.member
+                    expr.resolved_module = expr.object.name
+                    return SawType(TypeKind.FUNCTION,
+                                 param_types=symbol.param_types,
+                                 func_return_type=symbol.return_type)
+                else:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"cannot use `{expr.member}` as an expression",
+                        expr.line, expr.column
+                    )
+                    return None
+
             # Check if it's an enum name
             if expr.object.name in self.enums:
                 enum_info = self.enums[expr.object.name]
@@ -2922,13 +3363,78 @@ class TypeChecker:
         return SawType(TypeKind.OPTIONAL, inner_type=field_type)
 
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
-        """Check a method call, static method call, or enum initialization.
+        """Check a method call, static method call, enum initialization, or module function call.
 
         The parser creates MethodCall for all these cases:
         - object.method(args) - instance method call
         - StructName.method(args) - static method call
         - EnumType.Variant(args) - enum variant initialization
+        - ModuleName.function(args) - module function call (Phase 2)
         """
+        # Check if this is a module function call: ModuleName.function(args)
+        if isinstance(expr.object, Identifier):
+            module_sym = self.namespace.modules.get(expr.object.name)
+            if module_sym and module_sym.namespace:
+                # Look up the function in the module's namespace
+                from namespace import SymbolKind
+                symbol = module_sym.namespace.resolve(expr.method_name)
+                if symbol is None:
+                    self.reporter.error(
+                        ErrorKind.UNDEFINED_FUNCTION,
+                        f"module `{expr.object.name}` has no function `{expr.method_name}`",
+                        expr.line, expr.column
+                    )
+                    return None
+
+                if symbol.kind == SymbolKind.FUNCTION:
+                    # Check the function call using the merged namespace's function info
+                    # (The function exists in the main namespace because we merged all modules)
+                    func_info = self.functions.get(expr.method_name)
+                    if func_info:
+                        return self._check_module_function_call(expr, func_info)
+                    else:
+                        # Shouldn't happen if merge was done correctly
+                        self.reporter.error(
+                            ErrorKind.UNDEFINED_FUNCTION,
+                            f"function `{expr.method_name}` not found",
+                            expr.line, expr.column
+                        )
+                        return None
+
+                elif symbol.kind == SymbolKind.STRUCT:
+                    # utils.Point(x: 1, y: 2) - struct initialization through module
+                    struct_init = StructInit(
+                        struct_name=expr.method_name,
+                        field_inits=[(arg.name, arg.value) for arg in expr.arguments if arg.name],
+                        type_args=None,
+                        line=expr.line,
+                        column=expr.column
+                    )
+                    # Handle positional args for struct init (field order)
+                    if all(arg.name is None for arg in expr.arguments):
+                        struct_info = self.structs.get(expr.method_name)
+                        if struct_info:
+                            field_inits = []
+                            for arg, field_name in zip(expr.arguments, struct_info.field_order):
+                                field_inits.append((field_name, arg.value))
+                            struct_init.field_inits = field_inits
+                    return self._check_struct_init(struct_init)
+
+                elif symbol.kind == SymbolKind.ENUM:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"use `{expr.object.name}.{expr.method_name}.Variant(...)` to create enum values",
+                        expr.line, expr.column
+                    )
+                    return None
+                else:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`{expr.method_name}` is not callable",
+                        expr.line, expr.column
+                    )
+                    return None
+
         # Check if this is a static method call: StructName.method(args)
         if isinstance(expr.object, Identifier) and expr.object.name in self.structs:
             struct_name = expr.object.name
@@ -3058,6 +3564,30 @@ class TypeChecker:
         if type_subst:
             return_type = return_type.substitute(type_subst)
         return return_type
+
+    def _check_module_function_call(self, expr: MethodCall, func_info: FunctionInfo) -> Optional[SawType]:
+        """Check a module function call: ModuleName.function(args)"""
+        # Check argument count
+        if len(expr.arguments) != len(func_info.param_types):
+            self.reporter.error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"function `{expr.method_name}` takes {len(func_info.param_types)} argument(s), "
+                f"but {len(expr.arguments)} were given",
+                expr.line, expr.column
+            )
+            return func_info.return_type
+
+        # Check argument types
+        for i, (arg, expected_type) in enumerate(zip(expr.arguments, func_info.param_types)):
+            arg_type = self._check_expression(arg.value)
+            if arg_type and not self._types_compatible(arg_type, expected_type):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
+                    arg.value.line, arg.value.column
+                )
+
+        return func_info.return_type
 
     def _check_static_method_call(self, expr: MethodCall, struct_name: str,
                                    struct_info, method_info: MethodInfo) -> Optional[SawType]:

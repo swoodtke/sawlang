@@ -3582,13 +3582,28 @@ class CodeGenerator:
         return phi
 
     def _generate_method_call(self, expr: MethodCall):
-        """Generate code for method call, static method call, or enum initialization.
+        """Generate code for method call, static method call, enum initialization, or module function call.
 
         The parser creates MethodCall for all these cases:
         - object.method(args) - instance method call
         - StructName.method(args) - static method call
         - EnumType.Variant(args) - enum variant initialization
+        - ModuleName.function(args) - module function call (Phase 2)
         """
+        # Check if this is a module function call or struct init: ModuleName.symbol(args)
+        if isinstance(expr.object, Identifier):
+            if expr.object.name in self.namespace.modules:
+                module_sym = self.namespace.modules[expr.object.name]
+                if module_sym.namespace:
+                    from namespace import SymbolKind
+                    symbol = module_sym.namespace.resolve(expr.method_name)
+                    if symbol and symbol.kind == SymbolKind.FUNCTION:
+                        # Generate a direct function call (all modules are merged)
+                        return self._generate_module_function_call(expr)
+                    elif symbol and symbol.kind == SymbolKind.STRUCT:
+                        # Generate struct initialization
+                        return self._generate_module_struct_init(expr)
+
         # Check if this is a static method call: StructName.method(args) (use namespace)
         if isinstance(expr.object, Identifier):
             struct_name = expr.object.name
@@ -3732,6 +3747,57 @@ class CodeGenerator:
                     args.append(self._generate_expression(defaults[i]))
 
         return self.builder.call(method_func, args, name="static_methodcall")
+
+    def _generate_module_function_call(self, expr: MethodCall):
+        """Generate a module function call: ModuleName.function(args)
+
+        Since all modules are merged, we can call the function directly.
+        """
+        func_name = expr.method_name
+
+        if func_name not in self.functions:
+            raise ValueError(f"Undefined function in module: {expr.object.name}.{func_name}")
+
+        func = self.functions[func_name]
+
+        # Generate arguments
+        args = []
+        for arg in expr.arguments:
+            args.append(self._generate_expression(arg.value))
+
+        return self.builder.call(func, args, name="module_call")
+
+    def _generate_module_struct_init(self, expr: MethodCall):
+        """Generate a module struct initialization: ModuleName.StructName(args)
+
+        Since all modules are merged, the struct exists in the global namespace.
+        """
+        struct_name = expr.method_name
+
+        # Convert MethodCall to StructInit
+        struct_init = StructInit(
+            struct_name=struct_name,
+            field_inits=[],
+            type_args=None,
+            line=expr.line,
+            column=expr.column
+        )
+
+        # Handle arguments
+        # struct_types[name] = (llvm_type, field_order) where field_order is a list
+        if struct_name in self.struct_types:
+            _, field_order = self.struct_types[struct_name]
+
+            # Map arguments to fields
+            for i, arg in enumerate(expr.arguments):
+                if arg.name:
+                    # Named argument
+                    struct_init.field_inits.append((arg.name, arg.value))
+                elif i < len(field_order):
+                    # Positional argument - map to field by order
+                    struct_init.field_inits.append((field_order[i], arg.value))
+
+        return self._generate_struct_init(struct_init)
 
     def _get_member_pointer(self, expr: MemberAccess):
         """Get a pointer to a struct field for mutable access.

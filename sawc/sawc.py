@@ -117,6 +117,225 @@ def uses_modules(ast) -> bool:
     return bool(getattr(ast, 'imports', []) or getattr(ast, 'module_decls', []))
 
 
+def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_source: str, verbose: bool = False):
+    """
+    Compile a program that uses the module system.
+
+    This implements Phase 2 multi-module compilation:
+    1. Resolve all module imports to their source files
+    2. Parse imported modules
+    3. Build module map for qualified access
+    4. Merge all modules with builtins for code generation
+    5. Type check with module-aware symbol resolution
+    6. Generate code
+    7. Link to executable
+    """
+    from module_resolver import ModuleInfo
+    from ast_nodes import Program
+
+    if verbose:
+        print("  Resolving module dependencies...")
+
+    # Create resolver with search paths
+    source_dir = os.path.dirname(os.path.abspath(source_path))
+    resolver = ModuleResolver([source_dir])
+
+    # Resolve all imports and collect module ASTs
+    # module_map: module_path_tuple -> AST (for qualified access)
+    module_map = {}
+    resolved_modules = set()
+    pending_imports = list(getattr(entry_ast, 'imports', []))
+
+    while pending_imports:
+        imp = pending_imports.pop(0)
+        module_path = tuple(imp.path)
+
+        # Skip package/parent prefix for resolution
+        if imp.path and imp.path[0] in ('package', 'parent'):
+            resolved_path = resolver.resolve_import_path(imp.path, [])
+            module_path = tuple(resolved_path)
+
+        if module_path in resolved_modules:
+            continue
+
+        # Try to resolve the module
+        mod_info = resolver.resolve_module(list(module_path), source_path)
+        if mod_info:
+            # Load and parse the module
+            resolver.load_module_source(mod_info)
+            mod_ast = parse_source(mod_info.source, mod_info.source_path, verbose)
+
+            if verbose:
+                print(f"    Resolved: {'.'.join(module_path)} -> {mod_info.source_path}")
+
+            module_map[module_path] = mod_ast
+            resolved_modules.add(module_path)
+
+            # Add this module's imports to pending
+            for sub_imp in getattr(mod_ast, 'imports', []):
+                pending_imports.append(sub_imp)
+        else:
+            # Module not found - report error
+            print(f"\033[1;31merror\033[0m: module `{'.'.join(module_path)}` not found", file=sys.stderr)
+            sys.exit(1)
+
+    if verbose:
+        print(f"    Resolved {len(module_map)} imported module(s)")
+
+    # Load builtins
+    builtin_ast = load_builtins(verbose)
+
+    # Separate imports by type:
+    # - Module imports (import foo) -> only accessible via qualified name (foo.X)
+    # - Glob imports (import foo.*) -> all symbols directly accessible
+    # - Symbol imports (import foo.{A,B}) -> specific symbols directly accessible
+    module_imports = []      # import foo.bar
+    glob_imports = []        # import foo.*
+    symbol_imports = []      # import foo.{A, B}
+
+    for imp in entry_ast.imports:
+        if imp.is_glob:
+            glob_imports.append(imp)
+        elif imp.symbols:
+            symbol_imports.append(imp)
+        else:
+            module_imports.append(imp)
+
+    # Build merged AST for code generation and type checking
+    # Start with builtins
+    merged_ast = builtin_ast
+
+    # Merge ALL imported modules (needed for codegen - symbols must exist)
+    for mod_ast in module_map.values():
+        merged_ast = merge_programs(merged_ast, mod_ast)
+
+    # Add entry module
+    merged_ast = merge_programs(merged_ast, entry_ast)
+
+    if verbose:
+        print(f"    Merged {len(merged_ast.functions)} functions total")
+
+    # Type check
+    if verbose:
+        print("  Type checking...")
+    reporter = ErrorReporter(entry_source, source_path)
+    typechecker = TypeChecker(reporter)
+
+    # Enable import-based accessibility checking
+    typechecker.namespace.enable_import_checking()
+
+    # Mark builtins as directly accessible
+    for struct in builtin_ast.structs:
+        typechecker.namespace.make_accessible(struct.name)
+    for enum in builtin_ast.enums:
+        typechecker.namespace.make_accessible(enum.name)
+    for func in builtin_ast.functions:
+        typechecker.namespace.make_accessible(func.name)
+    for iface in builtin_ast.interfaces:
+        typechecker.namespace.make_accessible(iface.name)
+    for type_def in builtin_ast.type_definitions:
+        typechecker.namespace.make_accessible(type_def.name)
+    for extern_block in builtin_ast.extern_blocks:
+        for extern_func in extern_block.functions:
+            typechecker.namespace.make_accessible(extern_func.name)
+
+    # Mark entry module's own symbols as accessible
+    for struct in entry_ast.structs:
+        typechecker.namespace.make_accessible(struct.name)
+    for enum in entry_ast.enums:
+        typechecker.namespace.make_accessible(enum.name)
+    for func in entry_ast.functions:
+        typechecker.namespace.make_accessible(func.name)
+    for iface in entry_ast.interfaces:
+        typechecker.namespace.make_accessible(iface.name)
+    for type_def in entry_ast.type_definitions:
+        typechecker.namespace.make_accessible(type_def.name)
+
+    # Process imports to set up accessibility
+    for imp in module_imports:
+        # import foo.bar -> register module, accessible as 'bar' (qualified only)
+        mod_path = tuple(imp.path)
+        if mod_path in module_map:
+            alias = imp.alias or imp.path[-1]
+            typechecker.namespace.register_module_from_ast(
+                alias, module_map[mod_path], list(mod_path)
+            )
+
+    for imp in glob_imports:
+        # import foo.* -> all symbols from module are directly accessible
+        mod_path = tuple(imp.path[:-1]) if imp.path[-1] == '*' else tuple(imp.path)
+        if mod_path in module_map:
+            mod_ast = module_map[mod_path]
+            for struct in mod_ast.structs:
+                typechecker.namespace.make_accessible(struct.name)
+            for enum in mod_ast.enums:
+                typechecker.namespace.make_accessible(enum.name)
+            for func in mod_ast.functions:
+                typechecker.namespace.make_accessible(func.name)
+            for iface in mod_ast.interfaces:
+                typechecker.namespace.make_accessible(iface.name)
+
+    for imp in symbol_imports:
+        # import foo.{A, B} -> only A and B are directly accessible
+        mod_path = tuple(imp.path)
+        if mod_path in module_map:
+            for sym_name in imp.symbols:
+                typechecker.namespace.make_accessible(sym_name)
+
+    if not typechecker.check(merged_ast):
+        reporter.print_all()
+        sys.exit(1)
+
+    if verbose:
+        print("    Type check passed")
+
+    # Code generation
+    if verbose:
+        print("  Generating LLVM IR...")
+    codegen = CodeGenerator(typechecker.namespace)
+    llvm_ir = codegen.generate(merged_ast)
+
+    if verbose:
+        print("  Generated LLVM IR")
+
+    # Write LLVM IR to temp file (for debugging)
+    ir_path = output_path + ".ll"
+    with open(ir_path, 'w') as f:
+        f.write(llvm_ir)
+
+    if verbose:
+        print(f"  Wrote IR to {ir_path}")
+
+    # Compile to object file
+    if verbose:
+        print("  Compiling to object code...")
+    obj_path = output_path + ".o"
+    codegen.compile_to_object(obj_path)
+
+    # Link with system linker
+    if verbose:
+        print("  Linking...")
+
+    link_cmd = ["clang", obj_path, "-o", output_path]
+
+    try:
+        result = subprocess.run(link_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"Linking failed: {result.stderr}", file=sys.stderr)
+            sys.exit(1)
+    except FileNotFoundError:
+        print("Error: clang not found. Please install LLVM/clang.", file=sys.stderr)
+        sys.exit(1)
+
+    # Clean up object file
+    os.remove(obj_path)
+
+    if verbose:
+        print(f"  Output: {output_path}")
+
+    print(f"Compiled {source_path} -> {output_path}")
+
+
 def compile_saw(source_path: str, output_path: str, verbose: bool = False):
     """Compile a Saw source file to an executable."""
 
@@ -142,11 +361,10 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False):
             for mod in user_ast.module_decls:
                 print(f"    module {mod.name}")
 
-        # For Phase 1, we note that modules are detected but still use legacy path
-        # Phase 2+ will add full multi-module compilation
-        if verbose:
-            print("  (Using legacy compilation path for now)")
+        # Use multi-module compilation path
+        return compile_with_modules(source_path, output_path, user_ast, source, verbose)
 
+    # Legacy single-file compilation path
     # Load builtins
     builtin_ast = load_builtins(verbose)
 

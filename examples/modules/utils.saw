@@ -1,0 +1,27 @@
+// A simple utility module for testing imports
+// This is a library module, not meant to be compiled standalone
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: no `main` function found
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point {
+    func add(self, other: Point) -> Point {
+        Point(x: self.x + other.x, y: self.y + other.y)
+    }
+
+    func magnitude(self) -> Int {
+        self.x + self.y
+    }
+}
+
+func double(n: Int) -> Int {
+    n * 2
+}
+
+func triple(n: Int) -> Int {
+    n * 3
+}
