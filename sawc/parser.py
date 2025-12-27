@@ -21,7 +21,8 @@ from ast_nodes import (
     Interface, InterfaceMethod, AssociatedType, TypeAssignment, TypeDefinition,
     ExternFunction, ExternBlock,
     SawType, TypeKind, Argument, TypeParameter,
-    ClosureExpr, ClosureParam
+    ClosureExpr, ClosureParam,
+    ImportDecl, ModuleDecl
 )
 
 
@@ -119,10 +120,23 @@ class Parser:
         interfaces = []
         type_definitions = []
         extern_blocks = []
+        imports = []
+        module_decls = []
         self.skip_newlines()
 
         while not self.match(TokenType.EOF):
-            if self.match(TokenType.STRUCT):
+            if self.match(TokenType.IMPORT):
+                imports.append(self.parse_import())
+            elif self.match(TokenType.PUBLIC):
+                # Could be public module or public struct/func etc. (Phase 3)
+                if self.peek(1).type == TokenType.MODULE:
+                    module_decls.append(self.parse_module_decl())
+                else:
+                    # TODO: Handle public declarations in Phase 3
+                    self.error("public declarations not yet supported at top level")
+            elif self.match(TokenType.MODULE):
+                module_decls.append(self.parse_module_decl())
+            elif self.match(TokenType.STRUCT):
                 structs.append(self.parse_struct())
             elif self.match(TokenType.ENUM):
                 enums.append(self.parse_enum())
@@ -137,12 +151,170 @@ class Parser:
             elif self.match(TokenType.EXTERN):
                 extern_blocks.append(self.parse_extern_block())
             else:
-                self.error(f"Expected struct, enum, interface, extension, type, extern, or function declaration, got {self.current().type.name}")
+                self.error(f"Expected import, module, struct, enum, interface, extension, type, extern, or function declaration, got {self.current().type.name}")
             self.skip_newlines()
 
         return Program(structs=structs, functions=functions, extensions=extensions,
                        enums=enums, interfaces=interfaces, type_definitions=type_definitions,
-                       extern_blocks=extern_blocks)
+                       extern_blocks=extern_blocks, imports=imports, module_decls=module_decls)
+
+    def parse_import(self) -> ImportDecl:
+        """Parse import declaration: import path.to.module or import path.{A, B}"""
+        start = self.current()
+        self.expect(TokenType.IMPORT)
+
+        # Parse the module path
+        path = []
+
+        # First component: regular identifier or 'package'/'parent' for relative imports
+        # Note: 'package' and 'parent' are NOT keywords to avoid conflicts with user code
+        first = self.expect(TokenType.IDENT, "Expected module name after 'import'")
+        path.append(first.value)
+
+        # Parse remaining path segments
+        while self.match(TokenType.DOT):
+            self.advance()
+
+            # Check for glob import: import foo.*
+            if self.match(TokenType.STAR):
+                self.advance()
+                return ImportDecl(
+                    path=path,
+                    symbols=None,
+                    alias=None,
+                    is_glob=True,
+                    line=start.line,
+                    column=start.column
+                )
+
+            # Check for symbol set: import foo.{A, B}
+            if self.match(TokenType.LBRACE):
+                self.advance()
+                symbols = []
+                if not self.match(TokenType.RBRACE):
+                    sym = self.expect(TokenType.IDENT, "Expected symbol name in import")
+                    symbols.append(sym.value)
+                    while self.match(TokenType.COMMA):
+                        self.advance()
+                        if self.match(TokenType.RBRACE):
+                            break
+                        sym = self.expect(TokenType.IDENT, "Expected symbol name in import")
+                        symbols.append(sym.value)
+                self.expect(TokenType.RBRACE)
+                return ImportDecl(
+                    path=path,
+                    symbols=symbols,
+                    alias=None,
+                    is_glob=False,
+                    line=start.line,
+                    column=start.column
+                )
+
+            # Regular path component
+            component = self.expect(TokenType.IDENT, "Expected module name after '.'")
+            path.append(component.value)
+
+        # Check for alias: import foo.bar as baz
+        alias = None
+        if self.match(TokenType.AS):
+            self.advance()
+            alias_token = self.expect(TokenType.IDENT, "Expected alias name after 'as'")
+            alias = alias_token.value
+
+        return ImportDecl(
+            path=path,
+            symbols=None,
+            alias=alias,
+            is_glob=False,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_module_decl(self) -> ModuleDecl:
+        """Parse module declaration: module name or public module name"""
+        start = self.current()
+
+        # Check for 'public' modifier
+        is_public = False
+        if self.match(TokenType.PUBLIC):
+            is_public = True
+            self.advance()
+
+        self.expect(TokenType.MODULE)
+        name_token = self.expect(TokenType.IDENT, "Expected module name")
+
+        # Check for inline module: module name { ... }
+        is_inline = False
+        body = None
+        self.skip_newlines()
+        if self.match(TokenType.LBRACE):
+            is_inline = True
+            self.advance()
+            self.skip_newlines()
+            # Parse inline module body as a Program
+            # For now, we'll parse the contents manually
+            structs = []
+            functions = []
+            extensions = []
+            enums = []
+            interfaces = []
+            type_definitions = []
+            extern_blocks = []
+            imports = []
+            module_decls = []
+
+            while not self.match(TokenType.RBRACE, TokenType.EOF):
+                if self.match(TokenType.IMPORT):
+                    imports.append(self.parse_import())
+                elif self.match(TokenType.PUBLIC):
+                    # Could be public module or public struct/func etc.
+                    if self.peek(1).type == TokenType.MODULE:
+                        module_decls.append(self.parse_module_decl())
+                    else:
+                        # TODO: Handle public declarations in Phase 3
+                        self.error("public declarations not yet supported in inline modules")
+                elif self.match(TokenType.MODULE):
+                    module_decls.append(self.parse_module_decl())
+                elif self.match(TokenType.STRUCT):
+                    structs.append(self.parse_struct())
+                elif self.match(TokenType.ENUM):
+                    enums.append(self.parse_enum())
+                elif self.match(TokenType.INTERFACE):
+                    interfaces.append(self.parse_interface())
+                elif self.match(TokenType.EXTENSION):
+                    extensions.append(self.parse_extension())
+                elif self.match(TokenType.FUNC):
+                    functions.append(self.parse_function())
+                elif self.match(TokenType.TYPE):
+                    type_definitions.append(self.parse_type_definition())
+                elif self.match(TokenType.EXTERN):
+                    extern_blocks.append(self.parse_extern_block())
+                else:
+                    self.error(f"Unexpected token in module: {self.current().type.name}")
+                self.skip_newlines()
+
+            self.expect(TokenType.RBRACE)
+
+            body = Program(
+                structs=structs,
+                functions=functions,
+                extensions=extensions,
+                enums=enums,
+                interfaces=interfaces,
+                type_definitions=type_definitions,
+                extern_blocks=extern_blocks,
+                imports=imports,
+                module_decls=module_decls
+            )
+
+        return ModuleDecl(
+            name=name_token.value,
+            is_public=is_public,
+            is_inline=is_inline,
+            body=body,
+            line=start.line,
+            column=start.column
+        )
 
     def parse_type(self) -> SawType:
         # Parse base type

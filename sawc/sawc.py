@@ -20,6 +20,7 @@ from parser import Parser
 from codegen import CodeGenerator
 from errors import ErrorReporter
 from typechecker import TypeChecker
+from module_resolver import ModuleResolver
 
 
 def parse_source(source: str, source_path: str, verbose: bool = False):
@@ -101,9 +102,19 @@ def merge_programs(builtin_ast, user_ast):
         interfaces=builtin_ast.interfaces + user_ast.interfaces,
         type_definitions=builtin_ast.type_definitions + user_ast.type_definitions,
         extern_blocks=builtin_ast.extern_blocks + user_ast.extern_blocks,
+        # Preserve user imports and module declarations (builtins don't have these)
+        imports=getattr(user_ast, 'imports', []),
+        module_decls=getattr(user_ast, 'module_decls', []),
+        source_path=getattr(user_ast, 'source_path', None),
+        module_path=getattr(user_ast, 'module_path', None),
         line=user_ast.line,
         column=user_ast.column
     )
+
+
+def uses_modules(ast) -> bool:
+    """Check if the program uses the module system (has imports or module declarations)."""
+    return bool(getattr(ast, 'imports', []) or getattr(ast, 'module_decls', []))
 
 
 def compile_saw(source_path: str, output_path: str, verbose: bool = False):
@@ -116,13 +127,28 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False):
     if verbose:
         print(f"Compiling {source_path}...")
 
-    # Load builtins
-    builtin_ast = load_builtins(verbose)
-
-    # Parse user source
+    # Parse user source first to check for modules
     if verbose:
         print("  Parsing...")
     user_ast = parse_source(source, source_path, verbose)
+    user_ast.source_path = os.path.abspath(source_path)
+
+    # Check if this program uses the module system
+    if uses_modules(user_ast):
+        if verbose:
+            print("  Module system detected:")
+            for imp in user_ast.imports:
+                print(f"    import {'.'.join(imp.path)}")
+            for mod in user_ast.module_decls:
+                print(f"    module {mod.name}")
+
+        # For Phase 1, we note that modules are detected but still use legacy path
+        # Phase 2+ will add full multi-module compilation
+        if verbose:
+            print("  (Using legacy compilation path for now)")
+
+    # Load builtins
+    builtin_ast = load_builtins(verbose)
 
     # Merge builtins with user program
     ast = merge_programs(builtin_ast, user_ast)

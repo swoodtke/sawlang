@@ -205,6 +205,36 @@ class TypeParameter:
     column: int = 0
 
 
+class Visibility(Enum):
+    """Visibility modifier for declarations."""
+    PRIVATE = auto()   # Default - only visible in current module
+    PUBLIC = auto()    # Visible everywhere
+    PACKAGE = auto()   # public(package) - visible within the package
+    PARENT = auto()    # public(parent) - visible to parent module
+
+
+@dataclass
+class ImportDecl:
+    """Import declaration: import std.io or import std.io.{File, Directory}"""
+    path: List[str]                    # ["std", "io"]
+    symbols: Optional[List[str]]       # ["File", "Directory"] or None for module import
+    alias: Optional[str]               # For 'as name' syntax
+    is_glob: bool = False              # For import foo.*
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ModuleDecl:
+    """Module declaration: module parser or public module runtime"""
+    name: str
+    is_public: bool = False
+    is_inline: bool = False            # True for inline module { ... }
+    body: Optional['Program'] = None   # For inline modules
+    line: int = 0
+    column: int = 0
+
+
 # Base AST Node - no default values to avoid inheritance issues
 @dataclass
 class ASTNode:
@@ -771,5 +801,10 @@ class Program(ASTNode):
     interfaces: List[Interface] = field(default_factory=list)
     type_definitions: List[TypeDefinition] = field(default_factory=list)
     extern_blocks: List[ExternBlock] = field(default_factory=list)
+    # Module system
+    imports: List['ImportDecl'] = field(default_factory=list)
+    module_decls: List['ModuleDecl'] = field(default_factory=list)
+    source_path: Optional[str] = None      # Path to source file
+    module_path: Optional[List[str]] = None  # Fully qualified module path
     line: int = 0
     column: int = 0

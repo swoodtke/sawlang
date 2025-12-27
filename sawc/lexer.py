@@ -46,6 +46,13 @@ class TokenType(Enum):
     EXTERN = auto()  # 'extern' for FFI declarations
     AS = auto()      # 'as' for type casting
 
+    # Module system keywords
+    MODULE = auto()   # 'module' for module declarations
+    IMPORT = auto()   # 'import' for imports
+    PUBLIC = auto()   # 'public' visibility modifier
+    PACKAGE = auto()  # 'package' for package-relative imports
+    PARENT = auto()   # 'parent' for parent-relative imports
+
     # Types
     INT_TYPE = auto()
     FLOAT_TYPE = auto()
@@ -143,6 +150,13 @@ KEYWORDS = {
     'not': TokenType.NOT,
     'move': TokenType.MOVE,
     'as': TokenType.AS,
+    # Module system
+    'module': TokenType.MODULE,
+    'import': TokenType.IMPORT,
+    'public': TokenType.PUBLIC,
+    # Note: 'package' and 'parent' are NOT keywords - they are handled
+    # specially by the parser only in import contexts to avoid conflicts
+    # with user code (e.g., a method named 'parent')
     'Int': TokenType.INT_TYPE,
     'Float': TokenType.FLOAT_TYPE,
     'Bool': TokenType.BOOL_TYPE,
