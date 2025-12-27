@@ -748,6 +748,7 @@ class ExternFunction(ASTNode):
     name: str
     parameters: List[Parameter]
     return_type: 'SawType'
+    is_variadic: bool = False  # True for functions like printf, open that take ...
     line: int = 0
     column: int = 0
 

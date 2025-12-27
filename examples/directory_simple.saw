@@ -1,0 +1,35 @@
+// EXPECT: success
+// EXPECT-OUTPUT: Current directory exists
+// EXPECT-OUTPUT: Created test directory
+// EXPECT-OUTPUT: Removed test directory
+
+// Test basic directory operations
+
+func main() {
+    // Get and display current directory
+    if let cwd = Directory.current() {
+        print("Current directory exists")
+    } else {
+        print("Could not get current directory")
+    }
+
+    // Create a test directory
+    let test_dir = "/tmp/saw_test_dir"
+
+    // Remove if it exists from previous run
+    Directory.remove(test_dir)
+
+    // Create directory
+    if Directory.create(test_dir) {
+        print("Created test directory")
+    } else {
+        print("Could not create test directory")
+    }
+
+    // Remove directory
+    if Directory.remove(test_dir) {
+        print("Removed test directory")
+    } else {
+        print("Could not remove test directory")
+    }
+}

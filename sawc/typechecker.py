@@ -42,6 +42,7 @@ class FunctionInfo:
     return_type: SawType
     param_names: List[str]
     type_params: List[TypeParameter] = field(default_factory=list)  # For generic functions
+    is_variadic: bool = False  # True for variadic functions like printf, open
 
 
 @dataclass
@@ -254,6 +255,34 @@ class TypeChecker:
         # Check if type conforms to NoCopy
         conformances = self.type_conformances.get(type_name, [])
         return "NoCopy" in conformances
+
+    def _check_no_copy_return(self, return_type: SawType, final_expr: Optional[Expression],
+                               context_name: str, line: int, column: int):
+        """Check that NoCopy types are moved when returned, not copied.
+
+        If a function/method returns a NoCopy type and the return expression
+        is a variable reference, it must be wrapped in `move` to avoid
+        implicit copying followed by deinit of the original.
+        """
+        if final_expr is None:
+            return
+
+        # Check if return type is NoCopy
+        if not self._is_no_copy_type(return_type):
+            return
+
+        # If the expression is a MoveExpr, that's fine
+        if isinstance(final_expr, MoveExpr):
+            return
+
+        # If the expression is an Identifier (variable reference), it needs move
+        if isinstance(final_expr, Identifier):
+            self.reporter.error(
+                ErrorKind.CANNOT_COPY,
+                f"cannot return NoCopy type `{return_type}` without `move` in {context_name}",
+                line, column,
+                hint=f"use `move {final_expr.name}` to transfer ownership"
+            )
 
     def _check_integer_literal_range(self, literal: IntLiteral, target_type: SawType):
         """Check if an integer literal fits in the target fixed-width integer type."""
@@ -608,7 +637,8 @@ class TypeChecker:
         param_types = [self._resolve_type(p.type) for p in extern_func.parameters]
         param_names = [p.name for p in extern_func.parameters]
         resolved_return_type = self._resolve_type(extern_func.return_type)
-        info = FunctionInfo(param_types, resolved_return_type, param_names)
+        info = FunctionInfo(param_types, resolved_return_type, param_names,
+                           is_variadic=extern_func.is_variadic)
 
         if extern_func.name in self.functions:
             # Allow duplicate extern declarations with the same signature
@@ -943,6 +973,14 @@ class TypeChecker:
                     method.line, method.column
                 )
 
+        # Check NoCopy return - must use move for variable references
+        # Check both the return type and the inner type if optional
+        check_type = expected_return
+        if expected_return.is_optional() and expected_return.inner_type:
+            check_type = expected_return.inner_type
+        self._check_no_copy_return(check_type, method.body.final_expr,
+                                    f"method `{method.name}`", method.line, method.column)
+
         self.current_method = None
 
     def _check_function(self, func: Function):
@@ -990,6 +1028,14 @@ class TypeChecker:
                     f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
                     func.line, func.column
                 )
+
+        # Check NoCopy return - must use move for variable references
+        # Check both the return type and the inner type if optional
+        check_type = resolved_return_type
+        if resolved_return_type.is_optional() and resolved_return_type.inner_type:
+            check_type = resolved_return_type.inner_type
+        self._check_no_copy_return(check_type, func.body.final_expr,
+                                    f"function `{func.name}`", func.line, func.column)
 
         self.current_function = None
 
@@ -2140,16 +2186,27 @@ class TypeChecker:
             return_type = func_info.return_type
 
         # Check argument count
-        if len(expr.arguments) != len(param_types):
-            self.reporter.error(
-                ErrorKind.WRONG_ARGUMENT_COUNT,
-                f"function `{expr.name}` takes {len(param_types)} argument(s), "
-                f"but {len(expr.arguments)} were given",
-                expr.line, expr.column
-            )
-            return return_type
+        # For variadic functions, we only require at least the declared parameters
+        if func_info.is_variadic:
+            if len(expr.arguments) < len(param_types):
+                self.reporter.error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"function `{expr.name}` takes at least {len(param_types)} argument(s), "
+                    f"but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+                return return_type
+        else:
+            if len(expr.arguments) != len(param_types):
+                self.reporter.error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"function `{expr.name}` takes {len(param_types)} argument(s), "
+                    f"but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+                return return_type
 
-        # Check argument types
+        # Check argument types (only for declared parameters)
         for i, (arg, expected_type) in enumerate(zip(expr.arguments, param_types)):
             # Special handling for closures - pass expected type for inference
             if isinstance(arg.value, ClosureExpr):

@@ -1,0 +1,70 @@
+// EXPECT: success
+// EXPECT-OUTPUT: Writing to file...
+// EXPECT-OUTPUT: Write successful: 13 bytes
+// EXPECT-OUTPUT: Reading file...
+// EXPECT-OUTPUT: Read 13 bytes
+// EXPECT-OUTPUT: Byte 0: 72
+// EXPECT-OUTPUT: File exists: true
+// EXPECT-OUTPUT: File removed: true
+// EXPECT-OUTPUT: File exists after remove: false
+
+// Test basic file operations using Data
+
+func main() {
+    let test_file = "/tmp/saw_test_file.txt"
+
+    // Create and write to a file
+    print("Writing to file...")
+    if let f = File.create(test_file) {
+        // Create Data with "Hello, World!" bytes
+        var data = Data()
+        data.push(72 as UInt8)   // H
+        data.push(101 as UInt8)  // e
+        data.push(108 as UInt8)  // l
+        data.push(108 as UInt8)  // l
+        data.push(111 as UInt8)  // o
+        data.push(44 as UInt8)   // ,
+        data.push(32 as UInt8)   // space
+        data.push(87 as UInt8)   // W
+        data.push(111 as UInt8)  // o
+        data.push(114 as UInt8)  // r
+        data.push(108 as UInt8)  // l
+        data.push(100 as UInt8)  // d
+        data.push(33 as UInt8)   // !
+
+        if let bytes = f.write(data) {
+            print("Write successful: {bytes} bytes")
+        } else {
+            print("Write failed")
+        }
+    } else {
+        print("Could not create file")
+    }
+
+    // Read the file back
+    print("Reading file...")
+    if let f = File.open(test_file) {
+        if let data = f.read() {
+            print("Read {data.len()} bytes")
+            if let b = data.get(0) {
+                print("Byte 0: {b as Int}")  // Should be 72 (H)
+            }
+        } else {
+            print("Read failed")
+        }
+    } else {
+        print("Could not open file")
+    }
+
+    // Check if file exists
+    let exists = File.exists(test_file)
+    print("File exists: {exists}")
+
+    // Remove the file
+    let removed = File.remove(test_file)
+    print("File removed: {removed}")
+
+    // Verify it's gone
+    let exists_after = File.exists(test_file)
+    print("File exists after remove: {exists_after}")
+}

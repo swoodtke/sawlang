@@ -83,6 +83,7 @@ class TokenType(Enum):
     EXCLAIM = auto()        # ! for force unwrap
     QUESTION_DOT = auto()   # ?. for optional chaining
     DOTDOT = auto()         # .. for ranges
+    ELLIPSIS = auto()       # ... for variadic functions
 
     # Delimiters
     LPAREN = auto()
@@ -412,7 +413,12 @@ class Lexer:
                 self.add_token(TokenType.COLON, ':')
                 self.advance()
             elif ch == '.':
-                if self.peek(1) == '.':
+                if self.peek(1) == '.' and self.peek(2) == '.':
+                    self.add_token(TokenType.ELLIPSIS, '...')
+                    self.advance()
+                    self.advance()
+                    self.advance()
+                elif self.peek(1) == '.':
                     self.add_token(TokenType.DOTDOT, '..')
                     self.advance()
                     self.advance()

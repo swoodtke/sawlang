@@ -621,7 +621,7 @@ class Parser:
         )
 
     def parse_extern_function(self) -> ExternFunction:
-        """Parse external function declaration: func name(params) -> ReturnType"""
+        """Parse external function declaration: func name(params, ...) -> ReturnType"""
         start = self.current()
         self.expect(TokenType.FUNC, "Expected 'func' in extern block")
 
@@ -630,6 +630,19 @@ class Parser:
 
         self.expect(TokenType.LPAREN)
         parameters, _ = self.parse_parameters()
+
+        # Check for variadic marker (...)
+        is_variadic = False
+        if self.match(TokenType.ELLIPSIS):
+            is_variadic = True
+            self.advance()
+        elif self.match(TokenType.COMMA):
+            # Handle: func open(path: P, flags: I, ...) case
+            self.advance()
+            if self.match(TokenType.ELLIPSIS):
+                is_variadic = True
+                self.advance()
+
         self.expect(TokenType.RPAREN)
 
         # Return type (optional, defaults to void)
@@ -642,6 +655,7 @@ class Parser:
             name=name,
             parameters=parameters,
             return_type=return_type,
+            is_variadic=is_variadic,
             line=start.line,
             column=start.column
         )
@@ -752,6 +766,10 @@ class Parser:
             if not self.match(TokenType.COMMA):
                 break
             self.advance()  # consume comma
+
+            # Check for variadic marker (...) - stop parsing parameters
+            if self.match(TokenType.ELLIPSIS):
+                break
 
         return params, self_mutable
 

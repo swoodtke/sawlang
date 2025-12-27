@@ -1,0 +1,27 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type
+
+// Test that returning a NoCopy type without move is an error
+
+struct Resource {
+    value: Int
+}
+
+extension Resource: NoCopy {
+    func deinit(var self) {
+        // Cleanup
+    }
+}
+
+extension Resource {
+    // This should error - returning NoCopy without move
+    init(v: Int) -> Resource {
+        var r = Resource(value: v)
+        r  // ERROR: should use `move r`
+    }
+}
+
+func main() {
+    let r = Resource(v: 42)
+    print(r.value)
+}

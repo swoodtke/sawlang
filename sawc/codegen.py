@@ -499,9 +499,17 @@ class CodeGenerator:
             else:
                 self._declare_function(func)
 
-        # Declare extension methods
+        # First pass: store generic extensions (needed for monomorphization)
         for extension in program.extensions:
-            self._declare_extension_methods(extension)
+            if extension.type_params:
+                if extension.struct_name not in self.generic_extensions:
+                    self.generic_extensions[extension.struct_name] = []
+                self.generic_extensions[extension.struct_name].append(extension)
+
+        # Second pass: declare non-generic extension methods
+        for extension in program.extensions:
+            if not extension.type_params:
+                self._declare_extension_methods(extension)
 
         # Fifth pass: generate function bodies (skip generic functions)
         for func in program.functions:
@@ -661,7 +669,7 @@ class CodeGenerator:
         else:
             return_type = self._get_llvm_type(saw_return_type)
 
-        func_type = ir.FunctionType(return_type, param_types)
+        func_type = ir.FunctionType(return_type, param_types, var_arg=extern_func.is_variadic)
         llvm_func = ir.Function(self.module, func_type, name=extern_func.name)
         # Set external linkage (default for declarations)
         llvm_func.linkage = 'external'
@@ -1126,11 +1134,8 @@ class CodeGenerator:
 
     def _declare_extension_methods(self, extension: Extension):
         """Declare all methods in an extension."""
-        # Skip generic extensions - they'll be monomorphized when the struct is used
+        # Generic extensions are already stored and will be monomorphized when used
         if extension.type_params:
-            if extension.struct_name not in self.generic_extensions:
-                self.generic_extensions[extension.struct_name] = []
-            self.generic_extensions[extension.struct_name].append(extension)
             return
 
         # Set Self type context for this extension
@@ -1640,7 +1645,14 @@ class CodeGenerator:
                 return self.function_return_types[expr.name]
             return None
         elif isinstance(expr, MethodCall):
-            # Look up the method return type
+            # Check for static method call: StructName.method()
+            if isinstance(expr.object, Identifier):
+                struct_name = expr.object.name
+                if (struct_name, expr.method_name) in self.static_methods:
+                    return_type = self.method_return_types.get((struct_name, expr.method_name))
+                    if return_type:
+                        return return_type
+            # Look up the method return type for instance methods
             obj_type = self._infer_saw_type(expr.object)
             if obj_type and obj_type.kind == TypeKind.STRUCT:
                 struct_name = obj_type.struct_name
@@ -3034,26 +3046,69 @@ class CodeGenerator:
                 self.builder.position_at_start(merge_bb)
                 return self.builder.load(result_alloca, name="if_let_tmp")
 
-        # Normal case - add branches if not terminated
-        if not then_terminated:
+        # Use alloca-based storage for if-let result values when we have values
+        # (avoids phi node dominance issues with nested if-let expressions)
+        # The value from nested control flow might not dominate the merge block
+
+        if then_val is not None and else_val is not None and then_val.type == else_val.type:
+            # Both branches produce values of the same type
+            # Create alloca for result at function entry
+            self.builder.position_at_start(func.entry_basic_block)
+            result_alloca = self.builder.alloca(then_val.type, name="if_let_result")
+
+            # Store then value at end of then branch
             self.builder.position_at_end(then_bb_end)
-            self.builder.branch(merge_bb)
-        if not else_terminated:
+            if not then_terminated:
+                self.builder.store(then_val, result_alloca)
+                self.builder.branch(merge_bb)
+
+            # Store else value at end of else branch
             self.builder.position_at_end(else_bb_end)
-            self.builder.branch(merge_bb)
+            if not else_terminated:
+                self.builder.store(else_val, result_alloca)
+                self.builder.branch(merge_bb)
 
-        # Merge block
-        self.builder.position_at_start(merge_bb)
+            # Load result at merge
+            self.builder.position_at_start(merge_bb)
+            return self.builder.load(result_alloca, name="if_let_tmp")
 
-        # If both branches produce values of the same type, create a phi node
-        if then_val is not None and else_val is not None:
-            if then_val.type == else_val.type:
-                phi = self.builder.phi(then_val.type, name="if_let_result")
-                phi.add_incoming(then_val, then_bb_end)
-                phi.add_incoming(else_val, else_bb_end)
-                return phi
+        elif then_val is not None and else_val is None and not isinstance(then_val.type, ir.VoidType):
+            # Only then branch produces a non-void value - use alloca to ensure dominance
+            # Create alloca for result at function entry and initialize to zero
+            self.builder.position_at_start(func.entry_basic_block)
+            result_alloca = self.builder.alloca(then_val.type, name="if_let_result")
+            # Initialize to zero/null in case else path is taken
+            zero_val = ir.Constant(then_val.type, 0 if isinstance(then_val.type, ir.IntType) else None)
+            self.builder.store(zero_val, result_alloca)
 
-        return then_val
+            # Store then value at end of then branch
+            self.builder.position_at_end(then_bb_end)
+            if not then_terminated:
+                self.builder.store(then_val, result_alloca)
+                self.builder.branch(merge_bb)
+
+            # Else branch doesn't produce a value, just branch to merge
+            self.builder.position_at_end(else_bb_end)
+            if not else_terminated:
+                self.builder.branch(merge_bb)
+
+            # Load result at merge
+            self.builder.position_at_start(merge_bb)
+            return self.builder.load(result_alloca, name="if_let_tmp")
+
+        else:
+            # Normal case - add branches if not terminated
+            if not then_terminated:
+                self.builder.position_at_end(then_bb_end)
+                self.builder.branch(merge_bb)
+            if not else_terminated:
+                self.builder.position_at_end(else_bb_end)
+                self.builder.branch(merge_bb)
+
+            # Merge block
+            self.builder.position_at_start(merge_bb)
+
+            return then_val
 
     def _generate_guard_let_statement(self, stmt: GuardLetStatement):
         """Generate code for guard let/var optional binding."""
@@ -3604,6 +3659,14 @@ class CodeGenerator:
         # Arguments are Argument objects with .value
         for arg in expr.arguments:
             args.append(self._generate_expression(arg.value))
+
+        # Fill in default values for missing arguments
+        if mangled_name in self.method_defaults:
+            defaults = self.method_defaults[mangled_name]
+            # defaults includes self, so adjust index: args[0] is self, defaults[0] is self
+            for i in range(len(args), len(defaults)):
+                if defaults[i] is not None:
+                    args.append(self._generate_expression(defaults[i]))
 
         # Call the method
         return self.builder.call(method_func, args, name="methodcall")

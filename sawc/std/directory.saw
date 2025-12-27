@@ -1,0 +1,132 @@
+// Directory - Directory operations for the Saw standard library
+// Part of the Saw standard library
+//
+// Provides directory listing, creation, and manipulation using POSIX system calls.
+
+// =============================================================================
+// FFI declarations for directory operations
+// =============================================================================
+
+extern "C" {
+    // Directory operations
+    func opendir(name: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+    func readdir(dirp: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+    func closedir(dirp: UnsafePointer<Int8>) -> Int32
+
+    // Directory manipulation
+    func mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int32
+    func rmdir(path: UnsafePointer<Int8>) -> Int32
+    func chdir(path: UnsafePointer<Int8>) -> Int32
+    func getcwd(buf: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
+
+    // Memory
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
+    func strlen(s: UnsafePointer<Int8>) -> Int
+}
+
+// =============================================================================
+// Directory - Static methods for directory operations
+// =============================================================================
+// Note: Directory is a marker struct for static methods only
+
+struct Directory {
+    _unused: Int
+}
+
+extension Directory {
+    // =========================================================================
+    // Directory listing
+    // =========================================================================
+
+    // List files in a directory (not including . and ..)
+    // Returns a Vector of filenames, or None if directory cannot be opened
+    func list(path: String) -> Vector<String>? {
+        let path_ptr = path as UnsafePointer<Int8>
+        if let dir = opendir(path_ptr) {
+            var result = Vector<String>()
+
+            // Read entries until we get None
+            var done = false
+            while not done {
+                if let entry = readdir(dir) {
+                    // On macOS, d_name starts at offset 21 in struct dirent
+                    let name_ptr = entry + 21
+                    let name = name_ptr as String
+
+                    // Skip . and ..
+                    let first_char = name_ptr[0]
+                    if first_char == (46 as Int8) {  // '.'
+                        let second_char = name_ptr[1]
+                        if second_char == (0 as Int8) {  // "."
+                            continue
+                        }
+                        if second_char == (46 as Int8) && name_ptr[2] == (0 as Int8) {  // ".."
+                            continue
+                        }
+                    }
+
+                    result.push(name)
+                } else {
+                    done = true
+                }
+            }
+
+            closedir(dir)
+            move result
+        } else {
+            None
+        }
+    }
+
+    // =========================================================================
+    // Directory manipulation
+    // =========================================================================
+
+    // Create a directory with default permissions (0755)
+    // Returns true if successful
+    func create(path: String) -> Bool {
+        let path_ptr = path as UnsafePointer<Int8>
+        mkdir(path_ptr, 493) == (0 as Int32)  // 0755 = 493 decimal
+    }
+
+    // Remove an empty directory
+    // Returns true if successful
+    func remove(path: String) -> Bool {
+        let path_ptr = path as UnsafePointer<Int8>
+        rmdir(path_ptr) == (0 as Int32)
+    }
+
+    // Check if a path exists (works for both files and directories)
+    // Note: Uses access() from file.saw
+    func exists(path: String) -> Bool {
+        // access() is declared in file.saw
+        let ptr = path as UnsafePointer<Int8>
+        access(ptr, 0 as Int32) == (0 as Int32)
+    }
+
+    // =========================================================================
+    // Working directory
+    // =========================================================================
+
+    // Get the current working directory
+    func current() -> String? {
+        if let buf = malloc(1024) {
+            if let result = getcwd(buf, 1024) {
+                result as String
+            } else {
+                free(buf)
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    // Change the current working directory
+    // Returns true if successful
+    func set_current(path: String) -> Bool {
+        let path_ptr = path as UnsafePointer<Int8>
+        chdir(path_ptr) == (0 as Int32)
+    }
+}

@@ -75,7 +75,7 @@ extension Data {
     init(capacity: Int) -> Data {
         var data = Data(inner: None, offset: 0, length: 0)
         data.ensure_capacity(capacity)
-        data
+        move data
     }
 
     // =========================================================================
