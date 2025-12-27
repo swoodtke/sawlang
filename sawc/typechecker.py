@@ -10,7 +10,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop, RangeExpr,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
-    BinaryOp, UnaryOp, MoveExpr, FunctionCall, IfExpr, IfLetExpr,
+    BinaryOp, UnaryOp, MoveExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
@@ -19,6 +19,7 @@ from ast_nodes import (
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
     Interface, InterfaceMethod, AssociatedType, TypeAssignment, TypeDefinition,
+    ExternFunction, ExternBlock,
     SawType, TypeKind, Parameter, Argument, TypeParameter,
     ClosureExpr, ClosureParam
 )
@@ -243,6 +244,32 @@ class TypeChecker:
         conformances = self.type_conformances.get(type_name, [])
         return "NoCopy" in conformances
 
+    def _check_integer_literal_range(self, literal: IntLiteral, target_type: SawType):
+        """Check if an integer literal fits in the target fixed-width integer type."""
+        # Define ranges for each fixed-width integer type
+        ranges = {
+            TypeKind.INT8: (-128, 127),
+            TypeKind.INT16: (-32768, 32767),
+            TypeKind.INT32: (-2147483648, 2147483647),
+            TypeKind.INT64: (-9223372036854775808, 9223372036854775807),
+            TypeKind.UINT8: (0, 255),
+            TypeKind.UINT16: (0, 65535),
+            TypeKind.UINT32: (0, 4294967295),
+            TypeKind.UINT64: (0, 18446744073709551615),
+        }
+
+        if target_type.kind not in ranges:
+            return  # Not a fixed-width type, no range check needed
+
+        min_val, max_val = ranges[target_type.kind]
+        if literal.value < min_val or literal.value > max_val:
+            type_name = target_type.kind.name
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"integer literal {literal.value} out of range for {type_name} ({min_val} to {max_val})",
+                literal.line, literal.column
+            )
+
     def _is_custom_copy_type(self, saw_type: SawType) -> bool:
         """Check if a type implements CustomCopy."""
         if saw_type is None:
@@ -368,6 +395,11 @@ class TypeChecker:
         self._check_no_copy_containment()
         self._check_custom_copy_containment()
         self._check_deinit_containment()
+
+        # Register extern functions (FFI)
+        for extern_block in program.extern_blocks:
+            for extern_func in extern_block.functions:
+                self._register_extern_function(extern_func)
 
         # Sixth pass: collect function signatures
         for func in program.functions:
@@ -558,6 +590,23 @@ class TypeChecker:
             resolved_return_type = self._resolve_type(func.return_type)
             info = FunctionInfo(param_types, resolved_return_type, param_names)
         self.functions[func.name] = info
+
+    def _register_extern_function(self, extern_func: ExternFunction):
+        """Register an external (FFI) function signature."""
+        if extern_func.name in self.functions:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"function `{extern_func.name}` is defined multiple times",
+                extern_func.line, extern_func.column
+            )
+            return
+
+        # Resolve types for extern functions
+        param_types = [self._resolve_type(p.type) for p in extern_func.parameters]
+        param_names = [p.name for p in extern_func.parameters]
+        resolved_return_type = self._resolve_type(extern_func.return_type)
+        info = FunctionInfo(param_types, resolved_return_type, param_names)
+        self.functions[extern_func.name] = info
 
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
@@ -962,6 +1011,9 @@ class TypeChecker:
                     f"cannot assign `{value_type}` to variable of type `{stmt.type_annotation}`",
                     stmt.line, stmt.column
                 )
+            # Check integer literal range for fixed-width types
+            if isinstance(stmt.value, IntLiteral):
+                self._check_integer_literal_range(stmt.value, resolved_type)
             var_type = resolved_type
         else:
             var_type = value_type
@@ -1126,27 +1178,38 @@ class TypeChecker:
                 )
 
         elif isinstance(stmt.target, ArrayIndex):
-            # Array element assignment: arr[i] = value
-            # Check mutability if the array is a variable
-            if isinstance(stmt.target.array_expr, Identifier):
-                var_info = self.current_scope.lookup(stmt.target.array_expr.name)
-                if var_info and not var_info.mutable:
-                    self.reporter.error(
-                        ErrorKind.IMMUTABLE_ASSIGNMENT,
-                        f"cannot assign to element of immutable array `{stmt.target.array_expr.name}`",
-                        stmt.line, stmt.column,
-                        hint="consider using `var` instead of `let` to make it mutable"
-                    )
-
-            array_type = self._check_expression(stmt.target.array_expr)
-            if not array_type:
+            # Array or pointer element assignment: arr[i] = value or ptr[i] = value
+            container_type = self._check_expression(stmt.target.array_expr)
+            if not container_type:
                 return
 
-            # Must be an array type
-            if array_type.kind != TypeKind.ARRAY:
+            # Must be an array or pointer type
+            if container_type.kind == TypeKind.ARRAY:
+                element_type = container_type.array_element_type
+                # For arrays, check binding mutability
+                if isinstance(stmt.target.array_expr, Identifier):
+                    var_info = self.current_scope.lookup(stmt.target.array_expr.name)
+                    if var_info and not var_info.mutable:
+                        self.reporter.error(
+                            ErrorKind.IMMUTABLE_ASSIGNMENT,
+                            f"cannot assign to element of immutable array `{stmt.target.array_expr.name}`",
+                            stmt.line, stmt.column,
+                            hint="consider using `var` instead of `let` to make it mutable"
+                        )
+            elif container_type.kind == TypeKind.POINTER:
+                # For pointers, check pointer mutability (UnsafePointer vs UnsafeConstPointer)
+                if not container_type.pointer_mutable:
+                    self.reporter.error(
+                        ErrorKind.IMMUTABLE_ASSIGNMENT,
+                        f"cannot write through UnsafeConstPointer (use UnsafePointer for mutable access)",
+                        stmt.line, stmt.column
+                    )
+                    return
+                element_type = container_type.inner_type
+            else:
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"cannot index into non-array type `{array_type}`",
+                    f"cannot index into type `{container_type}`",
                     stmt.target.line, stmt.target.column
                 )
                 return
@@ -1158,17 +1221,17 @@ class TypeChecker:
                 if index_underlying.kind != TypeKind.INT:
                     self.reporter.error(
                         ErrorKind.TYPE_MISMATCH,
-                        f"array index must be Int, got `{index_type}`",
+                        f"index must be Int, got `{index_type}`",
                         stmt.target.index.line, stmt.target.index.column
                     )
 
             # Check value type matches element type
             value_type = self._check_expression(stmt.value)
-            if value_type and array_type.array_element_type:
-                if not self._types_compatible(value_type, array_type.array_element_type):
+            if value_type and element_type:
+                if not self._types_compatible(value_type, element_type):
                     self.reporter.error(
                         ErrorKind.TYPE_MISMATCH,
-                        f"cannot assign `{value_type}` to array element of type `{array_type.array_element_type}`",
+                        f"cannot assign `{value_type}` to element of type `{element_type}`",
                         stmt.line, stmt.column
                     )
 
@@ -1519,6 +1582,9 @@ class TypeChecker:
     def visit_MoveExpr(self, expr: MoveExpr) -> Optional[SawType]:
         return self._check_move_expr(expr)
 
+    def visit_CastExpr(self, expr: CastExpr) -> Optional[SawType]:
+        return self._check_cast_expr(expr)
+
     def visit_FunctionCall(self, expr: FunctionCall) -> Optional[SawType]:
         return self._check_function_call(expr)
 
@@ -1629,6 +1695,35 @@ class TypeChecker:
         # This allows us to properly type-check the expression first
         return var_info.type
 
+    def _check_cast_expr(self, expr: CastExpr) -> Optional[SawType]:
+        """Check a type cast expression: expr as Type"""
+        from_type = self._check_expression(expr.expr)
+        if from_type is None:
+            return None
+
+        to_type = self._resolve_type(expr.target_type)
+
+        # Define valid integer kinds
+        int_kinds = {
+            TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+            TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
+        }
+
+        # Integer to integer cast
+        if from_type.kind in int_kinds and to_type.kind in int_kinds:
+            return to_type
+
+        # Pointer to pointer cast
+        if from_type.kind == TypeKind.POINTER and to_type.kind == TypeKind.POINTER:
+            return to_type
+
+        self.reporter.error(
+            ErrorKind.TYPE_MISMATCH,
+            f"cannot cast `{from_type}` to `{to_type}`",
+            expr.line, expr.column
+        )
+        return None
+
     def _check_binary_op(self, expr: BinaryOp) -> Optional[SawType]:
         """Check a binary operation."""
         left_type = self._check_expression(expr.left)
@@ -1643,7 +1738,18 @@ class TypeChecker:
 
         # Arithmetic operators
         if expr.op in ['+', '-', '*', '/']:
-            if left_underlying.kind == TypeKind.INT and right_underlying.kind == TypeKind.INT:
+            # Pointer arithmetic: ptr + int or ptr - int
+            if expr.op in ['+', '-'] and left_underlying.kind == TypeKind.POINTER:
+                if right_underlying.kind == TypeKind.INT:
+                    return left_type  # Returns same pointer type
+                else:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"pointer arithmetic requires Int offset, got `{right_type}`",
+                        expr.line, expr.column
+                    )
+                    return None
+            elif left_underlying.kind == TypeKind.INT and right_underlying.kind == TypeKind.INT:
                 # Return the original left type (preserves distinct types)
                 return left_type
             elif left_underlying.kind in [TypeKind.INT, TypeKind.FLOAT] and \
@@ -2125,6 +2231,10 @@ class TypeChecker:
                 return None
 
             return container_type.element_types[index]
+
+        # Handle pointer indexing: ptr[i] returns the pointee type
+        elif container_type.kind == TypeKind.POINTER:
+            return container_type.inner_type
 
         else:
             self.reporter.error(
@@ -3037,6 +3147,20 @@ class TypeChecker:
             # Always allow if 'a' is the same distinct type
             if a.is_struct() and a.struct_name == b.struct_name:
                 return True
+
+        # Allow integer literal (INT) to be compatible with any integer type
+        # This enables: let x: Int8 = 42
+        int_kinds = {TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+                     TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}
+        if a.kind in int_kinds and b.kind in int_kinds:
+            return True
+
+        # Allow String to be passed where UnsafePointer<Int8> is expected (for FFI)
+        # Saw strings are null-terminated C strings internally
+        if (a.kind == TypeKind.STRING and
+            b.kind == TypeKind.POINTER and
+            b.inner_type and b.inner_type.kind == TypeKind.INT8):
+            return True
 
         if a.kind != b.kind:
             return False

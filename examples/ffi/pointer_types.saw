@@ -1,0 +1,17 @@
+// Test pointer type declarations
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+
+func test_ptr(p: UnsafePointer<Int8>) -> Int {
+    1
+}
+
+func test_const_ptr(p: UnsafeConstPointer<Int8>) -> Int {
+    1
+}
+
+func main() {
+    // Just test that the types parse and compile
+    print(1)
+}

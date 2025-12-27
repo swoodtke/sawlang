@@ -1,0 +1,12 @@
+// Test String -> UnsafePointer<Int8> conversion for FFI
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Hello from FFI!
+
+extern "C" {
+    func puts(s: UnsafePointer<Int8>) -> Int32
+}
+
+func main() {
+    puts("Hello from FFI!")
+}

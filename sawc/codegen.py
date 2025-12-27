@@ -10,7 +10,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop, RangeExpr,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
-    BinaryOp, UnaryOp, MoveExpr, FunctionCall, IfExpr, IfLetExpr,
+    BinaryOp, UnaryOp, MoveExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
@@ -19,6 +19,7 @@ from ast_nodes import (
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
     SawType, TypeKind, Argument, TypeParameter, TypeDefinition,
+    ExternFunction, ExternBlock,
     ClosureExpr
 )
 import copy
@@ -105,6 +106,10 @@ class CodeGenerator:
         # Struct field types: struct_name -> {field_name: SawType}
         self.struct_field_types: dict[str, dict[str, SawType]] = {}
 
+        # Extern functions that return optionals (need NULL check at call site)
+        # Maps function name -> inner SawType (unwrapped from optional)
+        self.extern_optional_returns: dict[str, SawType] = {}
+
         # Declare external functions (printf for print)
         self._declare_external_functions()
 
@@ -130,6 +135,29 @@ class CodeGenerator:
             return ir.IntType(1)
         elif saw_type.kind == TypeKind.STRING:
             return ir.PointerType(ir.IntType(8))
+        # Fixed-width integers
+        elif saw_type.kind == TypeKind.INT8:
+            return ir.IntType(8)
+        elif saw_type.kind == TypeKind.INT16:
+            return ir.IntType(16)
+        elif saw_type.kind == TypeKind.INT32:
+            return ir.IntType(32)
+        elif saw_type.kind == TypeKind.INT64:
+            return ir.IntType(64)
+        elif saw_type.kind == TypeKind.UINT8:
+            return ir.IntType(8)
+        elif saw_type.kind == TypeKind.UINT16:
+            return ir.IntType(16)
+        elif saw_type.kind == TypeKind.UINT32:
+            return ir.IntType(32)
+        elif saw_type.kind == TypeKind.UINT64:
+            return ir.IntType(64)
+        elif saw_type.kind == TypeKind.POINTER:
+            # Raw pointer type: UnsafePointer<T> or UnsafeConstPointer<T>
+            if saw_type.inner_type is None:
+                raise ValueError("Pointer type missing inner type")
+            pointee_type = self._get_llvm_type(saw_type.inner_type)
+            return ir.PointerType(pointee_type)
         elif saw_type.kind == TypeKind.VOID:
             return ir.VoidType()
         elif saw_type.kind == TypeKind.TUPLE:
@@ -408,6 +436,11 @@ class CodeGenerator:
                         assignments[type_assign.name] = type_assign.assigned_type
                     self.type_assignments[(extension.struct_name, iface_name)] = assignments
 
+        # Declare extern functions (FFI)
+        for extern_block in program.extern_blocks:
+            for extern_func in extern_block.functions:
+                self._declare_extern_function(extern_func)
+
         # Fourth pass: declare all functions (skip generic functions)
         for func in program.functions:
             if func.type_params:
@@ -556,6 +589,26 @@ class CodeGenerator:
         func_type = ir.FunctionType(return_type, param_types)
         llvm_func = ir.Function(self.module, func_type, name=func_name)
         self.functions[func_name] = llvm_func
+
+    def _declare_extern_function(self, extern_func: ExternFunction):
+        """Declare an external C function (no body, just LLVM declare)."""
+        param_types = [self._get_llvm_type(p.type) for p in extern_func.parameters]
+
+        # For extern functions, unwrap optionals from return type for C ABI
+        # C functions return raw pointers which can be NULL
+        saw_return_type = extern_func.return_type
+        if saw_return_type.kind == TypeKind.OPTIONAL and saw_return_type.inner_type:
+            # Store that this extern returns optional (for wrapping at call site)
+            self.extern_optional_returns[extern_func.name] = saw_return_type.inner_type
+            return_type = self._get_llvm_type(saw_return_type.inner_type)
+        else:
+            return_type = self._get_llvm_type(saw_return_type)
+
+        func_type = ir.FunctionType(return_type, param_types)
+        llvm_func = ir.Function(self.module, func_type, name=extern_func.name)
+        # Set external linkage (default for declarations)
+        llvm_func.linkage = 'external'
+        self.functions[extern_func.name] = llvm_func
 
     def _mangle_generic_name(self, func_name: str, type_args: List[SawType]) -> str:
         """Generate mangled name for generic instantiation: identity$Int or swap$Int_String"""
@@ -1385,6 +1438,9 @@ class CodeGenerator:
         elif isinstance(expr, MoveExpr):
             # Look up the moved variable's type
             return self.variable_types.get(expr.variable)
+        elif isinstance(expr, CastExpr):
+            # Cast expression returns the target type
+            return expr.target_type
         elif isinstance(expr, MethodCall):
             # For method calls on structs, we'd need to look up the return type
             # For now, return None and rely on type annotations
@@ -1466,21 +1522,40 @@ class CodeGenerator:
             self.builder.store(value, field_ptr)
 
         elif isinstance(stmt.target, ArrayIndex):
-            # Array element assignment: arr[i] = value
-            array_expr = stmt.target.array_expr
+            # Array or pointer element assignment: arr[i] = value or ptr[i] = value
+            container_expr = stmt.target.array_expr
             index_val = self._generate_expression(stmt.target.index)
 
-            # Get pointer to the array
-            if isinstance(array_expr, Identifier):
-                if array_expr.name not in self.variables:
-                    raise ValueError(f"Undefined variable: {array_expr.name}")
-                array_ptr = self.variables[array_expr.name]
-            else:
-                raise ValueError(f"Unsupported array expression in assignment: {type(array_expr)}")
+            # Get pointer to the container
+            if isinstance(container_expr, Identifier):
+                if container_expr.name not in self.variables:
+                    raise ValueError(f"Undefined variable: {container_expr.name}")
+                container_ptr = self.variables[container_expr.name]
 
-            # Generate GEP to get pointer to element
-            zero = ir.Constant(ir.IntType(64), 0)
-            elem_ptr = self.builder.gep(array_ptr, [zero, index_val], name="elem_ptr")
+                # Load the container value to check its type
+                container_val = self.builder.load(container_ptr, name="container")
+
+                if isinstance(container_val.type, ir.ArrayType):
+                    # Array: GEP with two indices [0, index]
+                    zero = ir.Constant(ir.IntType(64), 0)
+                    elem_ptr = self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
+                elif isinstance(container_val.type, ir.PointerType):
+                    # Pointer: GEP with single index
+                    elem_ptr = self.builder.gep(container_val, [index_val], name="ptr_elem")
+                else:
+                    raise ValueError(f"Cannot index into type: {container_val.type}")
+            else:
+                raise ValueError(f"Unsupported container expression in assignment: {type(container_expr)}")
+
+            # Coerce value type if needed (e.g., Int -> Int8)
+            elem_type = elem_ptr.type.pointee
+            if isinstance(value.type, ir.IntType) and isinstance(elem_type, ir.IntType):
+                if value.type.width > elem_type.width:
+                    # Truncate larger int to smaller
+                    value = self.builder.trunc(value, elem_type, name="trunc")
+                elif value.type.width < elem_type.width:
+                    # Extend smaller int to larger (sign extend)
+                    value = self.builder.sext(value, elem_type, name="sext")
 
             # Store value to element
             self.builder.store(value, elem_ptr)
@@ -1918,6 +1993,9 @@ class CodeGenerator:
     def visit_MoveExpr(self, expr: MoveExpr):
         return self._generate_move_expr(expr)
 
+    def visit_CastExpr(self, expr: CastExpr):
+        return self._generate_cast_expr(expr)
+
     def visit_FunctionCall(self, expr: FunctionCall):
         return self._generate_function_call(expr)
 
@@ -1992,11 +2070,18 @@ class CodeGenerator:
         is_float = isinstance(left.type, ir.DoubleType)
 
         if expr.op == '+':
+            if isinstance(left.type, ir.PointerType):
+                # Pointer arithmetic: ptr + offset
+                return self.builder.gep(left, [right], name="ptr_add")
             if is_float:
                 return self.builder.fadd(left, right, name="addtmp")
             return self.builder.add(left, right, name="addtmp")
 
         elif expr.op == '-':
+            if isinstance(left.type, ir.PointerType):
+                # Pointer arithmetic: ptr - offset (negate offset and add)
+                neg_right = self.builder.neg(right, name="neg_offset")
+                return self.builder.gep(left, [neg_right], name="ptr_sub")
             if is_float:
                 return self.builder.fsub(left, right, name="subtmp")
             return self.builder.sub(left, right, name="subtmp")
@@ -2166,6 +2251,42 @@ class CodeGenerator:
 
         return value
 
+    def _generate_cast_expr(self, expr: CastExpr):
+        """Generate code for type cast: expr as Type"""
+        value = self._generate_expression(expr.expr)
+        from_saw_type = self._infer_saw_type(expr.expr)
+        to_type = expr.target_type
+        to_llvm = self._get_llvm_type(to_type)
+
+        # Get actual LLVM bit widths from the values (more reliable than Saw types
+        # because integer literals are always i64 in LLVM)
+        if isinstance(value.type, ir.IntType) and isinstance(to_llvm, ir.IntType):
+            from_bits = value.type.width
+            to_bits = to_llvm.width
+
+            # Determine signedness from Saw type
+            signed_kinds = {TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64}
+            from_signed = from_saw_type and from_saw_type.kind in signed_kinds
+
+            if to_bits > from_bits:
+                # Widening - use sign extension or zero extension based on source signedness
+                if from_signed:
+                    return self.builder.sext(value, to_llvm, name="sext")
+                else:
+                    return self.builder.zext(value, to_llvm, name="zext")
+            elif to_bits < from_bits:
+                # Narrowing - truncate
+                return self.builder.trunc(value, to_llvm, name="trunc")
+            else:
+                # Same size - no conversion needed
+                return value
+
+        # Pointer to pointer conversion
+        if isinstance(value.type, ir.PointerType) and isinstance(to_llvm, ir.PointerType):
+            return self.builder.bitcast(value, to_llvm, name="ptrcast")
+
+        raise ValueError(f"Cannot cast from {value.type} to {to_llvm}")
+
     def _generate_function_call(self, expr: FunctionCall):
         # Handle built-in print function
         if expr.name == "print":
@@ -2201,7 +2322,22 @@ class CodeGenerator:
 
         # Arguments are now Argument objects with .value
         args = [self._generate_expression(arg.value) for arg in expr.arguments]
-        return self.builder.call(func, args, name="calltmp")
+        result = self.builder.call(func, args, name="calltmp")
+
+        # Wrap result in optional for extern functions that return nullable pointers
+        if expr.name in self.extern_optional_returns:
+            inner_type = self.extern_optional_returns[expr.name]
+            optional_type = self._get_llvm_type(SawType(TypeKind.OPTIONAL, inner_type=inner_type))
+            # Check if pointer is NULL
+            null_ptr = ir.Constant(result.type, None)
+            is_not_null = self.builder.icmp_unsigned('!=', result, null_ptr, name="is_not_null")
+            # Build optional struct: {i1 is_some, T value}
+            opt_val = ir.Constant(optional_type, ir.Undefined)
+            opt_val = self.builder.insert_value(opt_val, is_not_null, 0, name="opt_flag")
+            opt_val = self.builder.insert_value(opt_val, result, 1, name="opt_val")
+            return opt_val
+
+        return result
 
     def _generate_print(self, arguments: List[Argument]):
         if not arguments:
@@ -2232,10 +2368,19 @@ class CodeGenerator:
                 str_ptr = self.builder.select(value, true_ptr, false_ptr)
                 return self.builder.call(self.printf, [fmt_ptr, str_ptr])
             else:
-                # Integer
+                # Integer - extend to i64 for printf %lld format
                 fmt = self._create_string_constant("%lld\n")
                 zero = ir.Constant(ir.IntType(32), 0)
                 fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
+                # Extend smaller integers to i64 for printf
+                if value.type.width < 64:
+                    # Use zext for unsigned types, sext for signed types
+                    saw_type = self._infer_saw_type(arg.value)
+                    unsigned_kinds = {TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}
+                    if saw_type and saw_type.kind in unsigned_kinds:
+                        value = self.builder.zext(value, ir.IntType(64), name="print_ext")
+                    else:
+                        value = self.builder.sext(value, ir.IntType(64), name="print_ext")
                 return self.builder.call(self.printf, [fmt_ptr, value])
 
         elif isinstance(value.type, ir.DoubleType):
@@ -2539,6 +2684,12 @@ class CodeGenerator:
                 return self.builder.extract_value(container_val, index, name="tuple_elem")
             else:
                 raise ValueError("Tuple index must be a compile-time constant")
+
+        elif isinstance(container_val.type, ir.PointerType):
+            # Pointer indexing: ptr[i] - use GEP to offset and load
+            index_val = self._generate_expression(expr.index)
+            elem_ptr = self.builder.gep(container_val, [index_val], name="ptr_idx")
+            return self.builder.load(elem_ptr, name="ptr_elem")
 
         else:
             raise ValueError(f"Cannot index into type: {container_val.type}")

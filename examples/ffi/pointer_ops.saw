@@ -1,0 +1,29 @@
+// Test pointer operations - using malloc/free from libc
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 65
+// 66
+// 67
+
+extern "C" {
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
+}
+
+func main() {
+    // Allocate memory
+    if let ptr = malloc(100) {
+        // Write values using pointer indexing
+        ptr[0] = 65  // 'A'
+        ptr[1] = 66  // 'B'
+        ptr[2] = 67  // 'C'
+
+        // Read values back
+        print(ptr[0])
+        print(ptr[1])
+        print(ptr[2])
+
+        // Free memory
+        free(ptr)
+    }
+}

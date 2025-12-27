@@ -70,6 +70,7 @@ def merge_programs(builtin_ast, user_ast):
         enums=builtin_ast.enums + user_ast.enums,
         interfaces=builtin_ast.interfaces + user_ast.interfaces,
         type_definitions=builtin_ast.type_definitions + user_ast.type_definitions,
+        extern_blocks=builtin_ast.extern_blocks + user_ast.extern_blocks,
         line=user_ast.line,
         column=user_ast.column
     )

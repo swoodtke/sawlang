@@ -298,9 +298,13 @@ def main():
     print(f"{Colors.BLUE}{Colors.BOLD}Discovering tests...{Colors.RESET}")
     tests = discover_tests(examples_dir)
 
-    # Filter tests if requested
+    # Filter tests if requested (match against relative path or name)
     if args.filter:
-        tests = [t for t in tests if args.filter in t.name]
+        def matches_filter(test):
+            # Get relative path from examples dir (e.g., "ffi/casting")
+            rel_path = str(test.path.relative_to(examples_dir).with_suffix(''))
+            return args.filter in rel_path or args.filter in test.name
+        tests = [t for t in tests if matches_filter(t)]
 
     print(f"Found {len(tests)} test(s)\n")
 

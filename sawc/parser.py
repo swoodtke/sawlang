@@ -10,7 +10,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
-    BinaryOp, UnaryOp, MoveExpr, FunctionCall, IfExpr, IfLetExpr,
+    BinaryOp, UnaryOp, MoveExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
@@ -19,6 +19,7 @@ from ast_nodes import (
     Enum, EnumVariant, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
     Interface, InterfaceMethod, AssociatedType, TypeAssignment, TypeDefinition,
+    ExternFunction, ExternBlock,
     SawType, TypeKind, Argument, TypeParameter,
     ClosureExpr, ClosureParam
 )
@@ -117,6 +118,7 @@ class Parser:
         enums = []
         interfaces = []
         type_definitions = []
+        extern_blocks = []
         self.skip_newlines()
 
         while not self.match(TokenType.EOF):
@@ -132,12 +134,15 @@ class Parser:
                 functions.append(self.parse_function())
             elif self.match(TokenType.TYPE):
                 type_definitions.append(self.parse_type_definition())
+            elif self.match(TokenType.EXTERN):
+                extern_blocks.append(self.parse_extern_block())
             else:
-                self.error(f"Expected struct, enum, interface, extension, type, or function declaration, got {self.current().type.name}")
+                self.error(f"Expected struct, enum, interface, extension, type, extern, or function declaration, got {self.current().type.name}")
             self.skip_newlines()
 
         return Program(structs=structs, functions=functions, extensions=extensions,
-                       enums=enums, interfaces=interfaces, type_definitions=type_definitions)
+                       enums=enums, interfaces=interfaces, type_definitions=type_definitions,
+                       extern_blocks=extern_blocks)
 
     def parse_type(self) -> SawType:
         # Parse base type
@@ -165,6 +170,31 @@ class Parser:
         elif token.type == TokenType.STRING_TYPE:
             self.advance()
             return SawType(TypeKind.STRING)
+        # Fixed-width integers
+        elif token.type == TokenType.INT8_TYPE:
+            self.advance()
+            return SawType(TypeKind.INT8)
+        elif token.type == TokenType.INT16_TYPE:
+            self.advance()
+            return SawType(TypeKind.INT16)
+        elif token.type == TokenType.INT32_TYPE:
+            self.advance()
+            return SawType(TypeKind.INT32)
+        elif token.type == TokenType.INT64_TYPE:
+            self.advance()
+            return SawType(TypeKind.INT64)
+        elif token.type == TokenType.UINT8_TYPE:
+            self.advance()
+            return SawType(TypeKind.UINT8)
+        elif token.type == TokenType.UINT16_TYPE:
+            self.advance()
+            return SawType(TypeKind.UINT16)
+        elif token.type == TokenType.UINT32_TYPE:
+            self.advance()
+            return SawType(TypeKind.UINT32)
+        elif token.type == TokenType.UINT64_TYPE:
+            self.advance()
+            return SawType(TypeKind.UINT64)
         elif token.type == TokenType.LBRACKET:
             # Array type: [Type; Size]
             self.advance()  # consume '['
@@ -193,13 +223,25 @@ class Parser:
             else:
                 return SawType(TypeKind.TUPLE, element_types=element_types)
         elif token.type == TokenType.IDENT:
-            # Could be a struct, enum, type parameter, or Self
+            # Could be a struct, enum, type parameter, Self, or pointer type
             self.advance()
             name = token.value
 
             # Special case for Self type (used in interface method return types)
             if name == "Self":
                 return SawType(TypeKind.SELF)
+
+            # Special case for pointer types
+            if name == "UnsafePointer":
+                type_args = self._parse_type_args()
+                if len(type_args) != 1:
+                    self.error("UnsafePointer requires exactly one type argument")
+                return SawType(TypeKind.POINTER, inner_type=type_args[0], pointer_mutable=True)
+            if name == "UnsafeConstPointer":
+                type_args = self._parse_type_args()
+                if len(type_args) != 1:
+                    self.error("UnsafeConstPointer requires exactly one type argument")
+                return SawType(TypeKind.POINTER, inner_type=type_args[0], pointer_mutable=False)
 
             # Check for type arguments: Box<Int>, Pair<A, B>
             type_args = None
@@ -538,6 +580,61 @@ class Parser:
         return TypeDefinition(
             name=name_token.value,
             defined_type=defined_type,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_extern_block(self) -> ExternBlock:
+        """Parse extern "C" { func declarations... }"""
+        start = self.current()
+        self.expect(TokenType.EXTERN)
+
+        # Expect ABI string (only "C" supported for now)
+        abi_token = self.expect(TokenType.STRING, "Expected ABI string after 'extern'")
+        abi = abi_token.value
+        if abi != "C":
+            self.error(f"Unsupported ABI: '{abi}' (only 'C' is supported)")
+
+        self.skip_newlines()
+        self.expect(TokenType.LBRACE)
+        self.skip_newlines()
+
+        functions = []
+        while not self.match(TokenType.RBRACE, TokenType.EOF):
+            functions.append(self.parse_extern_function())
+            self.skip_newlines()
+
+        self.expect(TokenType.RBRACE)
+
+        return ExternBlock(
+            abi=abi,
+            functions=functions,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_extern_function(self) -> ExternFunction:
+        """Parse external function declaration: func name(params) -> ReturnType"""
+        start = self.current()
+        self.expect(TokenType.FUNC, "Expected 'func' in extern block")
+
+        name_token = self.expect(TokenType.IDENT, "Expected function name")
+        name = name_token.value
+
+        self.expect(TokenType.LPAREN)
+        parameters, _ = self.parse_parameters()
+        self.expect(TokenType.RPAREN)
+
+        # Return type (optional, defaults to void)
+        return_type = SawType(TypeKind.VOID)
+        if self.match(TokenType.ARROW):
+            self.advance()
+            return_type = self.parse_type()
+
+        return ExternFunction(
+            name=name,
+            parameters=parameters,
+            return_type=return_type,
             line=start.line,
             column=start.column
         )
@@ -996,7 +1093,23 @@ class Parser:
                 column=move_token.column
             )
 
-        return self.parse_postfix()
+        return self.parse_cast()
+
+    def parse_cast(self) -> Expression:
+        """Parse type cast: expr as Type"""
+        expr = self.parse_postfix()
+
+        while self.match(TokenType.AS):
+            as_token = self.advance()
+            target_type = self.parse_type()
+            expr = CastExpr(
+                expr=expr,
+                target_type=target_type,
+                line=as_token.line,
+                column=as_token.column
+            )
+
+        return expr
 
     def parse_postfix(self) -> Expression:
         expr = self.parse_primary()

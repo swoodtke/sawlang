@@ -42,12 +42,23 @@ class TokenType(Enum):
     FOR = auto()
     IN = auto()
     TYPE = auto()  # 'type' keyword for associated types
+    EXTERN = auto()  # 'extern' for FFI declarations
+    AS = auto()      # 'as' for type casting
 
     # Types
     INT_TYPE = auto()
     FLOAT_TYPE = auto()
     BOOL_TYPE = auto()
     STRING_TYPE = auto()
+    # Fixed-width integer types
+    INT8_TYPE = auto()
+    INT16_TYPE = auto()
+    INT32_TYPE = auto()
+    INT64_TYPE = auto()
+    UINT8_TYPE = auto()
+    UINT16_TYPE = auto()
+    UINT32_TYPE = auto()
+    UINT64_TYPE = auto()
 
     # Operators
     PLUS = auto()
@@ -126,12 +137,23 @@ KEYWORDS = {
     'for': TokenType.FOR,
     'in': TokenType.IN,
     'type': TokenType.TYPE,
+    'extern': TokenType.EXTERN,
     'not': TokenType.NOT,
     'move': TokenType.MOVE,
+    'as': TokenType.AS,
     'Int': TokenType.INT_TYPE,
     'Float': TokenType.FLOAT_TYPE,
     'Bool': TokenType.BOOL_TYPE,
     'String': TokenType.STRING_TYPE,
+    # Fixed-width integers
+    'Int8': TokenType.INT8_TYPE,
+    'Int16': TokenType.INT16_TYPE,
+    'Int32': TokenType.INT32_TYPE,
+    'Int64': TokenType.INT64_TYPE,
+    'UInt8': TokenType.UINT8_TYPE,
+    'UInt16': TokenType.UINT16_TYPE,
+    'UInt32': TokenType.UINT32_TYPE,
+    'UInt64': TokenType.UINT64_TYPE,
 }
 
 

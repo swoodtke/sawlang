@@ -1,0 +1,15 @@
+// Test extern "C" block parsing (without calling)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+
+extern "C" {
+    func exit(status: Int32)
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
+}
+
+func main() {
+    // Just test that extern declarations compile
+    print(42)
+}

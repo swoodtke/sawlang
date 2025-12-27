@@ -21,6 +21,16 @@ class TypeKind(Enum):
     ARRAY = auto()       # For fixed-size arrays [T; N]
     FUNCTION = auto()    # For function types like (Int) -> Int
     SELF = auto()        # For Self type in interface methods
+    POINTER = auto()     # For raw pointers: UnsafePointer<T>, UnsafeMutablePointer<T>
+    # Fixed-width integers
+    INT8 = auto()
+    INT16 = auto()
+    INT32 = auto()
+    INT64 = auto()
+    UINT8 = auto()
+    UINT16 = auto()
+    UINT32 = auto()
+    UINT64 = auto()
 
 
 @dataclass
@@ -44,6 +54,8 @@ class SawType:
     # For function types, this holds the parameter types and return type
     param_types: Optional[List['SawType']] = None
     func_return_type: Optional['SawType'] = None
+    # For pointer types (POINTER), True = UnsafePointer (mutable), False = UnsafeConstPointer
+    pointer_mutable: Optional[bool] = None
 
     def __repr__(self):
         if self.kind == TypeKind.TUPLE and self.element_types:
@@ -70,6 +82,9 @@ class SawType:
             return f"({params}) -> {self.func_return_type}"
         if self.kind == TypeKind.SELF:
             return "Self"
+        if self.kind == TypeKind.POINTER and self.inner_type:
+            ptr_name = "UnsafePointer" if self.pointer_mutable else "UnsafeConstPointer"
+            return f"{ptr_name}<{self.inner_type}>"
         return self.kind.name
 
     # ===== Predicate Methods =====
@@ -265,6 +280,15 @@ class UnaryOp(Expression):
 class MoveExpr(Expression):
     """Move expression: move variable - transfers ownership without copying."""
     variable: str  # The variable name being moved
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class CastExpr(Expression):
+    """Type cast expression: expr as Type."""
+    expr: Expression
+    target_type: 'SawType'
     line: int = 0
     column: int = 0
 
@@ -696,6 +720,25 @@ class TypeDefinition(ASTNode):
 
 
 @dataclass
+class ExternFunction(ASTNode):
+    """External function declaration (no body) for FFI."""
+    name: str
+    parameters: List[Parameter]
+    return_type: 'SawType'
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ExternBlock(ASTNode):
+    """extern "C" { ... } block for FFI declarations."""
+    abi: str  # "C" for now
+    functions: List[ExternFunction]
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class Program(ASTNode):
     structs: List[Struct]
     functions: List[Function]
@@ -703,5 +746,6 @@ class Program(ASTNode):
     enums: List[Enum] = field(default_factory=list)
     interfaces: List[Interface] = field(default_factory=list)
     type_definitions: List[TypeDefinition] = field(default_factory=list)
+    extern_blocks: List[ExternBlock] = field(default_factory=list)
     line: int = 0
     column: int = 0

@@ -1,0 +1,8 @@
+// Test integer overflow detection
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 1000 out of range for INT8
+
+func main() {
+    let x: Int8 = 1000
+    print(x)
+}
