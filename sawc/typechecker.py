@@ -1126,6 +1126,9 @@ class TypeChecker:
             # Check integer literal range for fixed-width types
             if isinstance(stmt.value, IntLiteral):
                 self._check_integer_literal_range(stmt.value, resolved_type)
+            # Propagate expected type to None literals
+            if value_type and value_type.is_none_literal() and resolved_type.is_optional():
+                self._propagate_optional_type(stmt.value, resolved_type)
             var_type = resolved_type
         else:
             var_type = value_type

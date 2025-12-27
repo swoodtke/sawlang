@@ -1,0 +1,244 @@
+// Process - Command execution for the Saw standard library
+// Part of the Saw standard library
+//
+// Provides process spawning and command execution.
+// Currently targets macOS/Linux using POSIX APIs.
+
+// =============================================================================
+// FFI declarations for process operations
+// =============================================================================
+
+extern "C" {
+    // Process execution
+    func system(command: UnsafePointer<Int8>) -> Int32
+    func popen(command: UnsafePointer<Int8>, mode: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+    func pclose(stream: UnsafePointer<Int8>) -> Int32
+    func fread(ptr: UnsafePointer<Int8>, size: Int, count: Int, stream: UnsafePointer<Int8>) -> Int
+    func feof(stream: UnsafePointer<Int8>) -> Int32
+
+    // Memory
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+    func realloc(ptr: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
+    func strlen(s: UnsafePointer<Int8>) -> Int
+
+    // String operations (BSD safe versions)
+    func strlcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, size: Int) -> Int
+    func strlcat(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, size: Int) -> Int
+}
+
+// =============================================================================
+// CommandOutput - Result of running a command with output capture
+// =============================================================================
+
+struct CommandOutput {
+    stdout: String
+    exit_code: Int32
+}
+
+extension CommandOutput {
+    // Check if the command succeeded (exit code 0)
+    func success(self) -> Bool {
+        self.exit_code == (0 as Int32)
+    }
+}
+
+// =============================================================================
+// Command - Builder for spawning processes
+// =============================================================================
+
+struct Command {
+    program: String
+    args_buffer: UnsafePointer<Int8>?
+    args_len: Int
+    args_cap: Int
+}
+
+extension Command {
+    // Create a new Command for the given program
+    init(program: String) -> Command {
+        Command(program: program, args_buffer: None, args_len: 0, args_cap: 0)
+    }
+
+    // Add a single argument
+    func arg(var self, argument: String) {
+        self.append_arg(argument)
+    }
+
+    // Internal: append an argument to the buffer
+    func append_arg(var self, argument: String) {
+        let arg_ptr = argument as UnsafePointer<Int8>
+        let arg_len = strlen(arg_ptr)
+
+        // Need space for: existing args + space + new arg + null
+        let needed = self.args_len + 1 + arg_len + 1
+
+        if self.args_cap < needed {
+            // Grow buffer
+            var new_cap = if self.args_cap == 0 { 256 } else { self.args_cap * 2 }
+            while new_cap < needed {
+                new_cap = new_cap * 2
+            }
+
+            if let old_buf = self.args_buffer {
+                if let new_buf = realloc(old_buf, new_cap) {
+                    self.args_buffer = new_buf
+                    self.args_cap = new_cap
+                }
+            } else {
+                if let new_buf = malloc(new_cap) {
+                    new_buf[0] = 0 as Int8  // Start with empty string
+                    self.args_buffer = new_buf
+                    self.args_cap = new_cap
+                }
+            }
+        }
+
+        // Append the argument
+        if let buf = self.args_buffer {
+            // Add space if not first arg
+            if self.args_len > 0 {
+                buf[self.args_len] = 32 as Int8  // ' '
+                self.args_len = self.args_len + 1
+            }
+
+            // Copy argument
+            var i = 0
+            while i < arg_len {
+                buf[self.args_len + i] = arg_ptr[i]
+                i = i + 1
+            }
+            self.args_len = self.args_len + arg_len
+            buf[self.args_len] = 0 as Int8  // null terminate
+        }
+    }
+
+    // Build the full command string
+    func build_command(self) -> String {
+        // Calculate total length: program + space + args + null
+        let prog_ptr = self.program as UnsafePointer<Int8>
+        let prog_len = strlen(prog_ptr)
+
+        var total_len = prog_len
+        if self.args_len > 0 {
+            total_len = total_len + 1 + self.args_len  // + space + args
+        }
+
+        let buf_size = total_len + 1
+        if let cmd_buf = malloc(buf_size) {
+            // Copy program
+            strlcpy(cmd_buf, prog_ptr, buf_size)
+
+            // Append args if any
+            if let args = self.args_buffer {
+                if self.args_len > 0 {
+                    // Append space and args
+                    let space = " " as UnsafePointer<Int8>
+                    strlcat(cmd_buf, space, buf_size)
+                    strlcat(cmd_buf, args, buf_size)
+                }
+            }
+
+            cmd_buf as String
+        } else {
+            self.program
+        }
+    }
+
+    // Run the command, inheriting stdin/stdout/stderr
+    // Returns the exit code
+    func run(self) -> Int32 {
+        let cmd = self.build_command()
+        let cmd_ptr = cmd as UnsafePointer<Int8>
+        let result = system(cmd_ptr)
+        // On macOS, system() returns the full wait status
+        // The exit code is in bits 8-15
+        result / (256 as Int32)
+    }
+
+    // Run the command and capture its output
+    // Returns CommandOutput with stdout and exit code
+    func output(self) -> CommandOutput? {
+        let cmd = self.build_command()
+        let cmd_ptr = cmd as UnsafePointer<Int8>
+        let mode = "r" as UnsafePointer<Int8>
+
+        if let stream = popen(cmd_ptr, mode) {
+            // Read output into a buffer
+            var output_buf: UnsafePointer<Int8>? = None
+            var output_len = 0
+            var output_cap = 0
+
+            if let read_buf = malloc(1024) {
+                var done = false
+                while not done {
+                    let bytes_read = fread(read_buf, 1, 1024, stream)
+                    if bytes_read > 0 {
+                        // Ensure capacity
+                        let needed = output_len + bytes_read + 1
+                        if output_cap < needed {
+                            var new_cap = if output_cap == 0 { 1024 } else { output_cap * 2 }
+                            while new_cap < needed {
+                                new_cap = new_cap * 2
+                            }
+
+                            if let old = output_buf {
+                                if let new_buf = realloc(old, new_cap) {
+                                    output_buf = new_buf
+                                    output_cap = new_cap
+                                }
+                            } else {
+                                if let new_buf = malloc(new_cap) {
+                                    output_buf = new_buf
+                                    output_cap = new_cap
+                                }
+                            }
+                        }
+
+                        // Copy bytes
+                        if let out = output_buf {
+                            var i = 0
+                            while i < bytes_read {
+                                out[output_len + i] = read_buf[i]
+                                i = i + 1
+                            }
+                            output_len = output_len + bytes_read
+                            out[output_len] = 0 as Int8  // null terminate
+                        }
+                    }
+
+                    if feof(stream) != (0 as Int32) || bytes_read == 0 {
+                        done = true
+                    }
+                }
+                free(read_buf)
+            }
+
+            // Get exit status
+            let status = pclose(stream)
+            let exit_code = status / (256 as Int32)
+
+            // Convert output to string
+            let stdout_str = if let out = output_buf {
+                let s = out as String
+                free(out)
+                s
+            } else {
+                ""
+            }
+
+            CommandOutput(stdout: stdout_str, exit_code: exit_code)
+        } else {
+            None
+        }
+    }
+}
+
+// Command needs cleanup for the args buffer
+extension Command: NoCopy {
+    func deinit(var self) {
+        if let buf = self.args_buffer {
+            free(buf)
+        }
+    }
+}

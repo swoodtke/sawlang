@@ -1367,6 +1367,10 @@ class CodeGenerator:
         self.variable_types = {}
         self.cleanup_stack = []
 
+        # Set current return type for None literal generation
+        old_return_type = self.current_return_type
+        self.current_return_type = method.return_type
+
         # Create allocas for parameters (no self for init methods)
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
@@ -1389,6 +1393,9 @@ class CodeGenerator:
                 default = ir.Constant(struct_type, ir.Undefined)
                 self.builder.ret(default)
 
+        # Restore previous return type
+        self.current_return_type = old_return_type
+
     def _generate_static_method(self, struct_name: str, method: Method):
         """Generate code for a static method (no self parameter)."""
         mangled_name = self._mangle_method_name(struct_name, method.name)
@@ -1402,6 +1409,10 @@ class CodeGenerator:
         self.variables = {}
         self.variable_types = {}
         self.cleanup_stack = []
+
+        # Set current return type for None literal generation
+        old_return_type = self.current_return_type
+        self.current_return_type = method.return_type
 
         # Create allocas for parameters (no self for static methods)
         for i, param in enumerate(method.parameters):
@@ -1419,9 +1430,18 @@ class CodeGenerator:
             if method.return_type.kind == TypeKind.VOID:
                 self.builder.ret_void()
             elif result is not None:
+                # Check if we need to wrap in Some (T -> T?)
+                expected_type = self._get_llvm_type(method.return_type)
+                if (method.return_type.is_optional() and
+                    self._is_optional_type(expected_type) and
+                    not self._is_optional_type(result.type)):
+                    result = self._wrap_in_optional(result)
                 self.builder.ret(result)
             else:
                 self.builder.ret_void()
+
+        # Restore previous return type
+        self.current_return_type = old_return_type
 
     def _generate_function(self, func: Function, name_override: str = None):
         """Generate a function body. If name_override is provided, use it instead of func.name."""
@@ -1436,6 +1456,10 @@ class CodeGenerator:
         self.variables = {}
         self.variable_types = {}
         self.cleanup_stack = []
+
+        # Set current return type for None literal generation
+        old_return_type = self.current_return_type
+        self.current_return_type = func.return_type
 
         # Create allocas for parameters and track for cleanup
         # Push a scope for function parameters (cleaned up when function returns)
@@ -1468,11 +1492,21 @@ class CodeGenerator:
                 # Cleanup parameter scope before return
                 self._cleanup_all_scopes()
                 if result is not None:
+                    # Check if we need to wrap in Some (T -> T?)
+                    expected_type = self._get_llvm_type(func.return_type)
+                    if (func.return_type.is_optional() and
+                        self._is_optional_type(expected_type) and
+                        not self._is_optional_type(result.type)):
+                        # Wrap in Some
+                        result = self._wrap_in_optional(result)
                     self.builder.ret(result)
                 else:
                     # Return default value
                     default = ir.Constant(self._get_llvm_type(func.return_type), 0)
                     self.builder.ret(default)
+
+        # Restore previous return type
+        self.current_return_type = old_return_type
 
     def _generate_block(self, block: Block, manage_cleanup: bool = True):
         """Generate code for a block.
@@ -1545,7 +1579,8 @@ class CodeGenerator:
         self._generate_continue_statement(stmt)
 
     def visit_ExpressionStatement(self, stmt: ExpressionStatement):
-        self._generate_expression(stmt.expression)
+        # Expression used as statement - we don't need its result value
+        self._generate_expression(stmt.expression, need_result=False)
 
     def _generate_let_statement(self, stmt: LetStatement):
         value = self._generate_expression(stmt.value)
@@ -1714,6 +1749,13 @@ class CodeGenerator:
                 # Apply copy behavior for CustomCopy types
                 if isinstance(stmt.value, Identifier):
                     value = self._generate_copy(value, var_type)
+
+                # Wrap in optional if assigning T to T?
+                expected_type = self._get_llvm_type(var_type)
+                if (var_type.is_optional() and
+                    self._is_optional_type(expected_type) and
+                    not self._is_optional_type(value.type)):
+                    value = self._wrap_in_optional(value)
 
             self.builder.store(value, self.variables[stmt.target.name])
 
@@ -2232,13 +2274,26 @@ class CodeGenerator:
         continue_block, _, _ = self.loop_stack[-1]
         self.builder.branch(continue_block)
 
-    def _generate_expression(self, expr: Expression):
-        """Generate code for an expression."""
+    def _generate_expression(self, expr: Expression, need_result: bool = True):
+        """Generate code for an expression.
+
+        Args:
+            expr: The expression to generate code for
+            need_result: If False, we don't need the expression's value (statement context).
+                        This allows skipping result-capturing logic in if/if-let.
+        """
+        # Store the flag so nested calls can access it
+        old_need_result = getattr(self, '_need_result', True)
+        self._need_result = need_result
+
         method_name = f'visit_{expr.__class__.__name__}'
         visitor = getattr(self, method_name, None)
         if visitor is None:
             raise ValueError(f"Unknown expression type: {type(expr)}")
-        return visitor(expr)
+        result = visitor(expr)
+
+        self._need_result = old_need_result
+        return result
 
     # ===== Expression Visitor Methods =====
 
@@ -2834,6 +2889,19 @@ class CodeGenerator:
         else_bb_end = self.builder.block
         else_terminated = self.builder.block.is_terminated
 
+        # If we don't need the result (statement context), skip result-capturing logic
+        need_result = getattr(self, '_need_result', True)
+        if not need_result:
+            # Just add branches without capturing result values
+            if not then_terminated:
+                self.builder.position_at_end(then_bb_end)
+                self.builder.branch(merge_bb)
+            if not else_terminated:
+                self.builder.position_at_end(else_bb_end)
+                self.builder.branch(merge_bb)
+            self.builder.position_at_start(merge_bb)
+            return None
+
         # Determine result type and wrap values if needed
         result_alloca = None
         if then_val is not None and else_val is not None:
@@ -2984,6 +3052,19 @@ class CodeGenerator:
             return (isinstance(t, ir.LiteralStructType) and
                     len(t.elements) == 2 and
                     t.elements[0] == ir.IntType(1))
+
+        # If we don't need the result (statement context), skip result-capturing logic
+        need_result = getattr(self, '_need_result', True)
+        if not need_result:
+            # Just add branches without capturing result values
+            if not then_terminated:
+                self.builder.position_at_end(then_bb_end)
+                self.builder.branch(merge_bb)
+            if not else_terminated:
+                self.builder.position_at_end(else_bb_end)
+                self.builder.branch(merge_bb)
+            self.builder.position_at_start(merge_bb)
+            return None
 
         # Handle type mismatch (optional wrapping needed)
         if then_val is not None and else_val is not None and then_val.type != else_val.type:
@@ -3399,7 +3480,12 @@ class CodeGenerator:
                 inner_llvm_type = self._get_llvm_type(inner_type)
 
         if inner_llvm_type is None:
-            inner_llvm_type = ir.IntType(64)  # Last resort fallback
+            # No fallback - fail loudly so we can fix the root cause
+            raise ValueError(
+                f"None literal at line {expr.line} has no type information. "
+                f"resolved_type={expr.resolved_type}, "
+                f"current_return_type={self.current_return_type}"
+            )
 
         optional_type = ir.LiteralStructType([ir.IntType(1), inner_llvm_type])
         optional_val = ir.Constant(optional_type, ir.Undefined)
