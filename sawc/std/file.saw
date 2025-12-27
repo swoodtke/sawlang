@@ -21,9 +21,6 @@ extern "C" {
     func unlink(path: UnsafePointer<Int8>) -> Int32
     func rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) -> Int32
 
-    // String operations
-    func strlen(s: UnsafePointer<Int8>) -> Int
-
     // Memory
     func malloc(size: Int) -> UnsafePointer<Int8>?
     func free(ptr: UnsafePointer<Int8>)
@@ -43,8 +40,8 @@ extension File {
     // =========================================================================
 
     // Open a file for reading
-    func open(path: String) -> File? {
-        let path_ptr = path as UnsafePointer<Int8>
+    func open(path: Path) -> File? {
+        let path_ptr = path.as_str() as UnsafePointer<Int8>
         let fd = open(path_ptr, 0 as Int32, 0 as Int32)  // O_RDONLY
 
         if fd < (0 as Int32) {
@@ -55,8 +52,8 @@ extension File {
     }
 
     // Create a file for writing (truncates if exists)
-    func create(path: String) -> File? {
-        let path_ptr = path as UnsafePointer<Int8>
+    func create(path: Path) -> File? {
+        let path_ptr = path.as_str() as UnsafePointer<Int8>
         // O_WRONLY | O_CREAT | O_TRUNC = 1 | 64 | 512 = 577
         let fd = open(path_ptr, 577 as Int32, 420)  // 0644
 
@@ -68,8 +65,8 @@ extension File {
     }
 
     // Open a file for appending
-    func open_append(path: String) -> File? {
-        let path_ptr = path as UnsafePointer<Int8>
+    func open_append(path: Path) -> File? {
+        let path_ptr = path.as_str() as UnsafePointer<Int8>
         // O_WRONLY | O_CREAT | O_APPEND = 1 | 64 | 1024 = 1089
         let fd = open(path_ptr, 1089 as Int32, 420)
 
@@ -192,19 +189,19 @@ extension File {
     // Static utility methods
     // =========================================================================
 
-    func exists(path: String) -> Bool {
-        let ptr = path as UnsafePointer<Int8>
+    func exists(path: Path) -> Bool {
+        let ptr = path.as_str() as UnsafePointer<Int8>
         access(ptr, 0 as Int32) == (0 as Int32)
     }
 
-    func remove(path: String) -> Bool {
-        let ptr = path as UnsafePointer<Int8>
+    func remove(path: Path) -> Bool {
+        let ptr = path.as_str() as UnsafePointer<Int8>
         unlink(ptr) == (0 as Int32)
     }
 
-    func rename(from_path: String, to_path: String) -> Bool {
-        let from_ptr = from_path as UnsafePointer<Int8>
-        let to_ptr = to_path as UnsafePointer<Int8>
+    func rename(from_path: Path, to_path: Path) -> Bool {
+        let from_ptr = from_path.as_str() as UnsafePointer<Int8>
+        let to_ptr = to_path.as_str() as UnsafePointer<Int8>
         rename(from_ptr, to_ptr) == (0 as Int32)
     }
 }

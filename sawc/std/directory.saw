@@ -22,7 +22,6 @@ extern "C" {
     // Memory
     func malloc(size: Int) -> UnsafePointer<Int8>?
     func free(ptr: UnsafePointer<Int8>)
-    func strlen(s: UnsafePointer<Int8>) -> Int
 }
 
 // =============================================================================
@@ -40,11 +39,11 @@ extension Directory {
     // =========================================================================
 
     // List files in a directory (not including . and ..)
-    // Returns a Vector of filenames, or None if directory cannot be opened
-    func list(path: String) -> Vector<String>? {
-        let path_ptr = path as UnsafePointer<Int8>
+    // Returns a Vector of Paths, or None if directory cannot be opened
+    func list(path: Path) -> Vector<Path>? {
+        let path_ptr = path.as_str() as UnsafePointer<Int8>
         if let dir = opendir(path_ptr) {
-            var result = Vector<String>()
+            var result = Vector<Path>()
 
             // Read entries until we get None
             var done = false
@@ -66,7 +65,9 @@ extension Directory {
                         }
                     }
 
-                    result.push(name)
+                    // Create full path by joining with the directory path
+                    let full_path = path.join(name)
+                    result.push(full_path)
                 } else {
                     done = true
                 }
@@ -85,23 +86,22 @@ extension Directory {
 
     // Create a directory with default permissions (0755)
     // Returns true if successful
-    func create(path: String) -> Bool {
-        let path_ptr = path as UnsafePointer<Int8>
+    func create(path: Path) -> Bool {
+        let path_ptr = path.as_str() as UnsafePointer<Int8>
         mkdir(path_ptr, 493) == (0 as Int32)  // 0755 = 493 decimal
     }
 
     // Remove an empty directory
     // Returns true if successful
-    func remove(path: String) -> Bool {
-        let path_ptr = path as UnsafePointer<Int8>
+    func remove(path: Path) -> Bool {
+        let path_ptr = path.as_str() as UnsafePointer<Int8>
         rmdir(path_ptr) == (0 as Int32)
     }
 
     // Check if a path exists (works for both files and directories)
     // Note: Uses access() from file.saw
-    func exists(path: String) -> Bool {
-        // access() is declared in file.saw
-        let ptr = path as UnsafePointer<Int8>
+    func exists(path: Path) -> Bool {
+        let ptr = path.as_str() as UnsafePointer<Int8>
         access(ptr, 0 as Int32) == (0 as Int32)
     }
 
@@ -110,10 +110,10 @@ extension Directory {
     // =========================================================================
 
     // Get the current working directory
-    func current() -> String? {
+    func current() -> Path? {
         if let buf = malloc(1024) {
             if let result = getcwd(buf, 1024) {
-                result as String
+                Path(s: result as String)
             } else {
                 free(buf)
                 None
@@ -125,8 +125,8 @@ extension Directory {
 
     // Change the current working directory
     // Returns true if successful
-    func set_current(path: String) -> Bool {
-        let path_ptr = path as UnsafePointer<Int8>
+    func set_current(path: Path) -> Bool {
+        let path_ptr = path.as_str() as UnsafePointer<Int8>
         chdir(path_ptr) == (0 as Int32)
     }
 }

@@ -3,7 +3,7 @@
 // EXPECT-OUTPUT: Created test directory
 // EXPECT-OUTPUT: Removed test directory
 
-// Test basic directory operations
+// Test basic directory operations using Path
 
 func main() {
     // Get and display current directory
@@ -14,7 +14,7 @@ func main() {
     }
 
     // Create a test directory
-    let test_dir = "/tmp/saw_test_dir"
+    let test_dir = Path(s: "/tmp/saw_test_dir")
 
     // Remove if it exists from previous run
     Directory.remove(test_dir)

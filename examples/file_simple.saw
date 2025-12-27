@@ -8,10 +8,10 @@
 // EXPECT-OUTPUT: File removed: true
 // EXPECT-OUTPUT: File exists after remove: false
 
-// Test basic file operations using Data
+// Test basic file operations using Data and Path
 
 func main() {
-    let test_file = "/tmp/saw_test_file.txt"
+    let test_file = Path(s: "/tmp/saw_test_file.txt")
 
     // Create and write to a file
     print("Writing to file...")

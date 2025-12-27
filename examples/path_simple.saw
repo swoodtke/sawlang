@@ -1,0 +1,42 @@
+// EXPECT: success
+// EXPECT-OUTPUT: Path: /home/user/docs/file.txt
+// EXPECT-OUTPUT: Parent: /home/user/docs
+// EXPECT-OUTPUT: File name: file.txt
+// EXPECT-OUTPUT: Stem: file
+// EXPECT-OUTPUT: Extension: txt
+// EXPECT-OUTPUT: Is absolute: true
+// EXPECT-OUTPUT: Joined: /home/user/docs/subdir
+
+func main() {
+    let p = Path(s: "/home/user/docs/file.txt")
+
+    print("Path: {p.as_str()}")
+
+    if let parent = p.parent() {
+        print("Parent: {parent.as_str()}")
+    }
+
+    if let name = p.file_name() {
+        print("File name: {name}")
+    }
+
+    if let stem = p.stem() {
+        print("Stem: {stem}")
+    }
+
+    if let ext = p.ext() {
+        print("Extension: {ext}")
+    }
+
+    if p.is_absolute() {
+        print("Is absolute: true")
+    } else {
+        print("Is absolute: false")
+    }
+
+    // Test join
+    if let parent = p.parent() {
+        let joined = parent.join("subdir")
+        print("Joined: {joined.as_str()}")
+    }
+}
