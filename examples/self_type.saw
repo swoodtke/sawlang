@@ -1,21 +1,20 @@
 // Test Self type in interface method return types
-// EXPECT: 84
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 84
 
 interface Copyable {
     func copy(self) -> Self
 }
-
 struct Point {
     x: Int
     y: Int
 }
-
 extension Point: Copyable {
     func copy(self) -> Point {
         Point(x: self.x, y: self.y)
     }
 }
-
 func main() {
     let p1 = Point(x: 42, y: 0)
     let p2 = p1.copy()

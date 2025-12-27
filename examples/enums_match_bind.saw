@@ -1,3 +1,12 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 404
+// 42
+// 404
+// 1
+// 0
+
 // Match with bindings to extract associated values
 enum Result {
     case Success(value: Int),

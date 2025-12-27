@@ -33,7 +33,7 @@ class TestCase:
     """Represents a single test case"""
     path: Path
     name: str
-    expect_type: ExpectType
+    expect_type: Optional[ExpectType]  # None if not specified
     expected_output: List[str]
     expected_error_contains: List[str]
 
@@ -51,7 +51,7 @@ class Colors:
 def parse_test_metadata(file_path: Path) -> TestCase:
     """Parse test metadata from comments in a .saw file"""
     name = file_path.stem
-    expect_type = ExpectType.SUCCESS  # Default
+    expect_type = None  # Must be explicitly set
     expected_output = []
     expected_error_contains = []
 
@@ -85,16 +85,15 @@ def parse_test_metadata(file_path: Path) -> TestCase:
                 expected_error_contains.append(error_text)
                 in_output_block = False
 
-            elif in_output_block and line.strip().startswith('//'):
-                # Continuation of output block
-                output_line = line.strip()[2:].strip()
-                if output_line or expected_output:  # Allow empty lines in output
-                    expected_output.append(output_line)
-
-    # Auto-detect error cases from file path
-    if 'error' in str(file_path) or 'test_error' in name:
-        if expect_type == ExpectType.SUCCESS:  # Only override if not explicitly set
-            expect_type = ExpectType.ERROR
+            elif in_output_block:
+                if line.strip().startswith('//'):
+                    # Continuation of output block
+                    output_line = line.strip()[2:].strip()
+                    if output_line or expected_output:  # Allow empty lines in output
+                        expected_output.append(output_line)
+                elif line.strip() == '':
+                    # Blank line ends output block
+                    in_output_block = False
 
     return TestCase(
         path=file_path,
@@ -153,6 +152,16 @@ def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
 
     Returns: (passed, message)
     """
+    # Require explicit EXPECT: directive
+    if test.expect_type is None:
+        return False, "Missing '// EXPECT: success' or '// EXPECT: error' directive"
+
+    # Require at least one output expectation
+    if test.expect_type == ExpectType.SUCCESS and not test.expected_output:
+        return False, "Success test must have '// EXPECT-OUTPUT:' with expected output"
+    if test.expect_type == ExpectType.ERROR and not test.expected_error_contains:
+        return False, "Error test must have at least one '// EXPECT-ERROR-CONTAINS:' directive"
+
     with tempfile.TemporaryDirectory() as tmpdir:
         exe_path = Path(tmpdir) / test.name
 
@@ -163,13 +172,6 @@ def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
             # Should fail to compile
             if compile_success:
                 return False, "Expected compilation to fail, but it succeeded"
-
-            # Require at least one EXPECT-ERROR-CONTAINS directive
-            if not test.expected_error_contains:
-                return False, (
-                    "Error test must have at least one EXPECT-ERROR-CONTAINS directive.\n"
-                    f"Actual error: {(compile_stdout + compile_stderr)[:200]}"
-                )
 
             # Check error message contains expected text
             combined_output = compile_stdout + compile_stderr

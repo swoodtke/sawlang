@@ -1,3 +1,4 @@
+// EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot assign to element of immutable array
 func main() {
     let arr = [1, 2, 3]

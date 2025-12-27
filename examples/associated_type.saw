@@ -1,40 +1,34 @@
 // Test associated types in interfaces
-// EXPECT: 42
-// EXPECT: hello
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// hello
 
 interface Container {
     type Item
     func get(self) -> Item
 }
-
 struct IntBox {
     value: Int
 }
-
 extension IntBox: Container {
     type Item = Int
-
     func get(self) -> Int {
         self.value
     }
 }
-
 struct StringBox {
     value: String
 }
-
 extension StringBox: Container {
     type Item = String
-
     func get(self) -> String {
         self.value
     }
 }
-
 func main() {
     let ib = IntBox(value: 42)
     print(ib.get())
-
     let sb = StringBox(value: "hello")
     print(sb.get())
 }

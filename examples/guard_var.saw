@@ -1,3 +1,8 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// -1
+
 // Test guard var optional binding (mutable)
 
 func process(x: Int?) -> Int {

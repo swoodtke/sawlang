@@ -1,3 +1,9 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 10
+// 5
+
 // Test optional types
 
 func main() {

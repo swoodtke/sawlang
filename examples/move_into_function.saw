@@ -1,24 +1,25 @@
 // Test moving a NoCopy object into a function
-// EXPECT: using fd 42
-// EXPECT: deinit 42
+// EXPECT: success
+// EXPECT-OUTPUT:
+// using fd
+// 42
+// deinit
+// 42
 
 struct FileHandle {
     fd: Int
 }
-
 extension FileHandle: NoCopy {
     func deinit(var self) {
         print("deinit")
         print(self.fd)
     }
 }
-
 func useFile(f: FileHandle) {
     print("using fd")
     print(f.fd)
     // f.deinit() called when function returns
 }
-
 func main() {
     let f = FileHandle(fd: 42)
     useFile(move f)  // Transfer ownership to function

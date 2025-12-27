@@ -1,14 +1,14 @@
 // Test Iterator interface with manual iteration
-// EXPECT: 0
-// EXPECT: 1
-// EXPECT: 2
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 2
 
 // Uses built-in Iterator interface and Range struct from builtin.saw
-
 func main() {
     // Use built-in Range (current, end fields)
     var iter = Range(current: 0, end: 3)
-
     // Manual iteration using infinite loop with if let
     while {
         if let value = iter.next() {

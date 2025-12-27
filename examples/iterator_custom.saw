@@ -1,20 +1,19 @@
 // Test custom iterator with non-trivial logic
-// EXPECT: 10
-// EXPECT: 20
-// EXPECT: 30
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 20
+// 30
 
 // Uses built-in Iterator interface from builtin.saw
-
 // Define a custom multiplying iterator
 struct Multiplier {
     current: Int
     count: Int
     factor: Int
 }
-
 extension Multiplier: Iterator {
     type Item = Int
-
     func next(var self) -> Int? {
         if self.current < self.count {
             self.current = self.current + 1
@@ -24,7 +23,6 @@ extension Multiplier: Iterator {
         }
     }
 }
-
 func main() {
     // Use custom iterator in for loop
     // Multiplier yields: 1*10, 2*10, 3*10 = 10, 20, 30

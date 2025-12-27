@@ -1,5 +1,7 @@
 // Test: non-exhaustive match error
+// EXPECT: error
 // EXPECT-ERROR-CONTAINS: match is not exhaustive
+// EXPECT: error
 // EXPECT-ERROR-CONTAINS: missing variants: `Pending`
 
 enum Status {

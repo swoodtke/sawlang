@@ -1,3 +1,4 @@
+// EXPECT: error
 // EXPECT-ERROR-CONTAINS: index must be Int
 func main() {
     let arr = [1, 2, 3]

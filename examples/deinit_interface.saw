@@ -1,17 +1,17 @@
 // Test implementing the built-in Deinit interface
-// EXPECT: 42
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
 
 struct Resource {
     value: Int
 }
-
 extension Resource: Deinit {
     func deinit(var self) {
         // In a real implementation, this would release resources
         print(self.value)
     }
 }
-
 func main() {
     let r = Resource(value: 42)
     // deinit is called automatically when r goes out of scope

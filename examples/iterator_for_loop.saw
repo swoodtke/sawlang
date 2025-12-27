@@ -1,26 +1,24 @@
 // Test custom iterator in a for loop
-// EXPECT: 4
-// EXPECT: 3
-// EXPECT: 2
-// EXPECT: 1
-// EXPECT: 0
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4
+// 3
+// 2
+// 1
+// 0
 
 // Uses built-in Iterator interface from builtin.saw
-
 // Define a custom Countdown iterator
 struct Countdown {
     current: Int
 }
-
 extension Countdown {
     init(from: Int) -> Countdown {
         Countdown(current: from)
     }
 }
-
 extension Countdown: Iterator {
     type Item = Int
-
     func next(var self) -> Int? {
         if self.current > 0 {
             self.current = self.current - 1
@@ -30,7 +28,6 @@ extension Countdown: Iterator {
         }
     }
 }
-
 func main() {
     // Use custom iterator in a for loop
     for i in Countdown(from: 5) {

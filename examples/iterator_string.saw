@@ -1,14 +1,14 @@
 // Test custom iterator returning String values
-// EXPECT: hello
-// EXPECT: world
+// EXPECT: success
+// EXPECT-OUTPUT:
+// hello
+// world
 
 struct Words {
     index: Int
 }
-
 extension Words: Iterator {
     type Item = String
-
     func next(var self) -> String? {
         if self.index < 2 {
             self.index = self.index + 1
@@ -22,7 +22,6 @@ extension Words: Iterator {
         }
     }
 }
-
 func main() {
     for word in Words(index: 0) {
         print(word)

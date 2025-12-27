@@ -74,11 +74,15 @@ func main() {
 | `// EXPECT-OUTPUT:` | Lines following are expected stdout (one line per `//`) |
 | `// EXPECT-ERROR-CONTAINS: text` | Error message must contain "text" |
 
-### Auto-Detection
+### Required Directives
 
-If no `EXPECT:` directive is specified:
-- Files in `examples/errors/` or with `test_error` prefix → treated as error tests
-- All other files → treated as success tests
+All tests **must** have explicit directives:
+
+1. **`// EXPECT: success`** or **`// EXPECT: error`** - Required for all tests
+2. **`// EXPECT-OUTPUT:`** - Required for success tests (at least one output line)
+3. **`// EXPECT-ERROR-CONTAINS:`** - Required for error tests (at least one)
+
+Tests without these directives will fail with a clear error message.
 
 ## Examples
 

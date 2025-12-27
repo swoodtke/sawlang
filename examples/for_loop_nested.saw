@@ -1,10 +1,12 @@
 // Test nested for loops
-// EXPECT: 0
-// EXPECT: 1
-// EXPECT: 2
-// EXPECT: 10
-// EXPECT: 11
-// EXPECT: 12
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 2
+// 10
+// 11
+// 12
 
 func main() {
     for i in 0..2 {

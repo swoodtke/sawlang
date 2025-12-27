@@ -1,3 +1,7 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+
 // Debug optional chaining
 
 struct Point {

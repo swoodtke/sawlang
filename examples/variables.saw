@@ -1,3 +1,16 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Pi:
+// 3.141590
+// Counter:
+// 2
+// Absolute value of -42:
+// 42
+// Max of 10 and 25:
+// 25
+// 10 > 0:
+// true
+
 // Variables and control flow in Saw
 
 func abs(n: Int) -> Int {

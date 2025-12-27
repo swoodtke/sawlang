@@ -1,3 +1,12 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+// 5
+// 6
+
 // Comprehensive enum equality tests
 enum Color {
     case Red,

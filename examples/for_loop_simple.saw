@@ -1,9 +1,11 @@
 // Test basic for loop with range
-// EXPECT: 0
-// EXPECT: 1
-// EXPECT: 2
-// EXPECT: 3
-// EXPECT: 4
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 2
+// 3
+// 4
 
 func main() {
     for i in 0..5 {

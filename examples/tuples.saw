@@ -1,3 +1,9 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 20
+// 30
+
 func main() -> Int {
     let point = (10, 20, 30)
     let x = point.0

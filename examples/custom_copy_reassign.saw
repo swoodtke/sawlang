@@ -1,24 +1,28 @@
 // Test that deinit is called before reassignment
-// EXPECT: deinit 10
-// EXPECT: copy called
-// EXPECT: 42
+// EXPECT: success
+// EXPECT-OUTPUT:
+// deinit
+// 10
+// copy called
+// 42
+// deinit
+// 42
+// deinit
+// 42
 
 struct RefCounted {
     value: Int
 }
-
 extension RefCounted: CustomCopy {
     func copy(self) -> RefCounted {
         print("copy called")
         RefCounted(value: self.value)
     }
-
     func deinit(var self) {
         print("deinit")
         print(self.value)
     }
 }
-
 func main() {
     let source = RefCounted(value: 42)
     var target = RefCounted(value: 10)

@@ -1,18 +1,19 @@
 // Test basic move semantics with NoCopy type
-// EXPECT: 42
-// EXPECT: deinit 42
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// deinit
+// 42
 
 struct FileHandle {
     fd: Int
 }
-
 extension FileHandle: NoCopy {
     func deinit(var self) {
         print("deinit")
         print(self.fd)
     }
 }
-
 func main() {
     let f1 = FileHandle(fd: 42)
     let f2 = move f1  // Transfer ownership - f1 no longer valid

@@ -1,3 +1,4 @@
+// EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot assign `STRING` to array element of type `INT`
 func main() {
     var arr = [1, 2, 3]

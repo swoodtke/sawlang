@@ -1,24 +1,23 @@
 // Test automatic deinit on early return
-// EXPECT: 2
-// EXPECT: 1
-// EXPECT: 99
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 1
+// 99
 
 struct Counter {
     id: Int
 }
-
 extension Counter: Deinit {
     func deinit(var self) {
         print(self.id)
     }
 }
-
 func test() -> Int {
     let c1 = Counter(id: 1)
     let c2 = Counter(id: 2)
     return 99  // c2 and c1 should be cleaned up before return
 }
-
 func main() {
     let result = test()
     print(result)

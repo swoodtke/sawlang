@@ -1,21 +1,20 @@
 // Test generic struct with type parameter
-// EXPECT: 42
-// EXPECT: hello
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// hello
 
 struct Box<T> {
     value: T
 }
-
 extension Box<T> {
     func get(self) -> T {
         self.value
     }
 }
-
 func main() {
     let intBox = Box<Int>(value: 42)
     print(intBox.get())
-
     let strBox = Box<String>(value: "hello")
     print(strBox.get())
 }
