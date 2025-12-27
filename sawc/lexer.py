@@ -14,6 +14,7 @@ class TokenType(Enum):
     INT = auto()
     FLOAT = auto()
     STRING = auto()
+    INTERP_STRING = auto()  # String with {expr} interpolation
     BOOL = auto()
 
     # Identifiers and keywords
@@ -193,9 +194,17 @@ class Lexer:
             while self.peek() and self.peek() != '\n':
                 self.advance()
 
-    def read_string(self) -> str:
+    def read_string(self) -> tuple:
+        """Read a string literal, detecting interpolation markers.
+
+        Returns: (string_value, has_interpolation)
+        - For plain strings: ("hello", False)
+        - For interpolated: ("hello {name}!", True) - braces preserved
+        """
         self.advance()  # consume opening quote
         result = []
+        has_interpolation = False
+
         while self.peek() and self.peek() != '"':
             if self.peek() == '\\':
                 self.advance()
@@ -208,14 +217,34 @@ class Lexer:
                     result.append('"')
                 elif ch == '\\':
                     result.append('\\')
+                elif ch == '{':
+                    result.append('{')  # Escaped brace - literal {
+                elif ch == '}':
+                    result.append('}')  # Escaped brace - literal }
                 else:
                     result.append(ch)
+            elif self.peek() == '{':
+                # Interpolation detected - preserve braces for parser
+                has_interpolation = True
+                result.append(self.advance())  # Keep {
+                # Read until matching }, tracking nested braces
+                brace_depth = 1
+                while self.peek() and brace_depth > 0:
+                    ch = self.peek()
+                    if ch == '{':
+                        brace_depth += 1
+                    elif ch == '}':
+                        brace_depth -= 1
+                    result.append(self.advance())
+                if brace_depth > 0:
+                    self.error("Unterminated interpolation in string")
             else:
                 result.append(self.advance())
+
         if not self.peek():
             self.error("Unterminated string")
         self.advance()  # consume closing quote
-        return ''.join(result)
+        return (''.join(result), has_interpolation)
 
     def read_number(self) -> Token:
         start_col = self.column
@@ -267,8 +296,9 @@ class Lexer:
                 self.advance()
             elif ch == '"':
                 start_col = self.column
-                value = self.read_string()
-                self.tokens.append(Token(TokenType.STRING, value, self.line, start_col))
+                value, has_interpolation = self.read_string()
+                token_type = TokenType.INTERP_STRING if has_interpolation else TokenType.STRING
+                self.tokens.append(Token(token_type, value, self.line, start_col))
             elif ch.isdigit():
                 self.tokens.append(self.read_number())
             elif ch.isalpha() or ch == '_':

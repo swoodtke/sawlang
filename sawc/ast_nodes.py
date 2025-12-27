@@ -257,6 +257,19 @@ class StringLiteral(Expression):
 
 
 @dataclass
+class StringInterpolation(Expression):
+    """String with interpolated expressions: "Hello {name}!"
+
+    parts[0] + expressions[0] + parts[1] + expressions[1] + ... + parts[n]
+    len(parts) == len(expressions) + 1
+    """
+    parts: List[str]           # String literals between expressions
+    expressions: List['Expression']  # Interpolated expressions
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class Identifier(Expression):
     name: str
     type_args: Optional[List['SawType']] = None  # For generic type access: Option<Int>

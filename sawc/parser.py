@@ -9,7 +9,7 @@ from ast_nodes import (
     Program, Function, Parameter, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop,
-    IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
+    IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation, Identifier,
     BinaryOp, UnaryOp, MoveExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
@@ -1253,6 +1253,10 @@ class Parser:
             self.advance()
             return StringLiteral(value=token.value, line=token.line, column=token.column)
 
+        elif self.match(TokenType.INTERP_STRING):
+            self.advance()
+            return self._parse_interpolated_string(token.value, token.line, token.column)
+
         elif self.match(TokenType.IDENT):
             self.advance()
             # Check for generic type/function: name<Type>
@@ -1735,6 +1739,63 @@ class Parser:
             # Expression statement
             expr = self.parse_expression()
             return ExpressionStatement(expression=expr, line=expr.line, column=expr.column)
+
+    def _parse_interpolated_string(self, raw_value: str, line: int, column: int) -> StringInterpolation:
+        """Parse a string with {expr} interpolations into parts and expressions.
+
+        The raw_value contains the string with braces preserved, e.g. "Hello {name}!"
+        Returns a StringInterpolation node with parts and expressions separated.
+        """
+        from lexer import Lexer
+
+        parts = []
+        expressions = []
+        current_part = []
+        i = 0
+
+        while i < len(raw_value):
+            if raw_value[i] == '{':
+                # Save current string part
+                parts.append(''.join(current_part))
+                current_part = []
+
+                # Extract expression text between { and }
+                i += 1  # skip {
+                brace_depth = 1
+                expr_chars = []
+                while i < len(raw_value) and brace_depth > 0:
+                    ch = raw_value[i]
+                    if ch == '{':
+                        brace_depth += 1
+                    elif ch == '}':
+                        brace_depth -= 1
+                    if brace_depth > 0:
+                        expr_chars.append(ch)
+                    i += 1
+
+                # Parse the expression using a sub-lexer and sub-parser
+                expr_str = ''.join(expr_chars)
+                expr = self._parse_expression_from_string(expr_str, line, column)
+                expressions.append(expr)
+            else:
+                current_part.append(raw_value[i])
+                i += 1
+
+        # Final string part (after last expression or entire string if no expressions)
+        parts.append(''.join(current_part))
+
+        return StringInterpolation(parts=parts, expressions=expressions, line=line, column=column)
+
+    def _parse_expression_from_string(self, expr_str: str, line: int, column: int) -> Expression:
+        """Parse a string as an expression using a sub-lexer/parser."""
+        from lexer import Lexer
+
+        sub_lexer = Lexer(expr_str)
+        sub_tokens = sub_lexer.tokenize()
+
+        # Create a sub-parser with these tokens
+        sub_parser = Parser(sub_tokens)
+        return sub_parser.parse_expression()
 
     def _count_shorthand_params(self, body: Block) -> int:
         """Count the maximum $N parameter index used in the closure body."""

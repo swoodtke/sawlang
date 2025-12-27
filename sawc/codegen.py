@@ -9,7 +9,7 @@ from ast_nodes import (
     Program, Function, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop, RangeExpr,
-    IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
+    IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation, Identifier,
     BinaryOp, UnaryOp, MoveExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
@@ -131,6 +131,28 @@ class CodeGenerator:
         # Declare abort for runtime panics
         abort_type = ir.FunctionType(ir.VoidType(), [])
         self.abort = ir.Function(self.module, abort_type, name="abort")
+
+        # Declare snprintf for string formatting
+        snprintf_type = ir.FunctionType(
+            ir.IntType(32),
+            [ir.PointerType(ir.IntType(8)), ir.IntType(64), ir.PointerType(ir.IntType(8))],
+            var_arg=True
+        )
+        self.snprintf = ir.Function(self.module, snprintf_type, name="snprintf")
+
+        # Declare strcpy for string copying
+        strcpy_type = ir.FunctionType(
+            ir.PointerType(ir.IntType(8)),
+            [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]
+        )
+        self.strcpy = ir.Function(self.module, strcpy_type, name="strcpy")
+
+        # Declare strcat for string concatenation
+        strcat_type = ir.FunctionType(
+            ir.PointerType(ir.IntType(8)),
+            [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]
+        )
+        self.strcat = ir.Function(self.module, strcat_type, name="strcat")
 
     def _get_llvm_type(self, saw_type: SawType) -> ir.Type:
         if saw_type.kind == TypeKind.INT:
@@ -1512,6 +1534,8 @@ class CodeGenerator:
             return SawType(TypeKind.BOOL)
         elif isinstance(expr, StringLiteral):
             return SawType(TypeKind.STRING)
+        elif isinstance(expr, StringInterpolation):
+            return SawType(TypeKind.STRING)
         elif isinstance(expr, StructInit):
             return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args)
         elif isinstance(expr, EnumInit):
@@ -1529,6 +1553,29 @@ class CodeGenerator:
             # For method calls on structs, we'd need to look up the return type
             # For now, return None and rely on type annotations
             return None
+        elif isinstance(expr, BinaryOp):
+            # Infer type from binary operations
+            if expr.op in ('==', '!=', '<', '>', '<=', '>=', '&&', '||'):
+                return SawType(TypeKind.BOOL)
+            elif expr.op in ('+', '-', '*', '/', '%'):
+                left_type = self._infer_saw_type(expr.left)
+                right_type = self._infer_saw_type(expr.right)
+                # Float takes precedence
+                if left_type and left_type.kind == TypeKind.FLOAT:
+                    return SawType(TypeKind.FLOAT)
+                if right_type and right_type.kind == TypeKind.FLOAT:
+                    return SawType(TypeKind.FLOAT)
+                # Default to Int for arithmetic
+                if left_type:
+                    return left_type
+                if right_type:
+                    return right_type
+                return SawType(TypeKind.INT)
+            return None
+        elif isinstance(expr, UnaryOp):
+            if expr.op == 'not':
+                return SawType(TypeKind.BOOL)
+            return self._infer_saw_type(expr.operand)
         return None
 
     def _generate_assign_statement(self, stmt: AssignStatement):
@@ -2069,6 +2116,100 @@ class CodeGenerator:
         global_str = self._create_string_constant(expr.value)
         zero = ir.Constant(ir.IntType(32), 0)
         return self.builder.gep(global_str, [zero, zero], inbounds=True)
+
+    def visit_StringInterpolation(self, expr: StringInterpolation):
+        """Generate code for string interpolation: "Hello {name}!"
+
+        Strategy: Allocate a buffer, copy/concatenate parts and converted expressions.
+        """
+        zero = ir.Constant(ir.IntType(32), 0)
+
+        # Allocate a buffer for the result (1024 bytes should be enough for most cases)
+        buf_size = 1024
+        buf = self.builder.alloca(ir.ArrayType(ir.IntType(8), buf_size), name="interp_buf")
+        buf_ptr = self.builder.gep(buf, [zero, zero], inbounds=True)
+
+        # Initialize buffer with first part
+        if expr.parts[0]:
+            first = self._create_string_constant(expr.parts[0])
+            first_ptr = self.builder.gep(first, [zero, zero], inbounds=True)
+            self.builder.call(self.strcpy, [buf_ptr, first_ptr])
+        else:
+            # Empty first part - set null terminator
+            self.builder.store(ir.Constant(ir.IntType(8), 0), buf_ptr)
+
+        # Append each expression and following part
+        for i, sub_expr in enumerate(expr.expressions):
+            # Get expression value and convert to string
+            value = self._generate_expression(sub_expr)
+            saw_type = self._infer_saw_type(sub_expr)
+            str_ptr = self._value_to_string(value, saw_type)
+
+            # Append expression string
+            self.builder.call(self.strcat, [buf_ptr, str_ptr])
+
+            # Append following string part (if non-empty)
+            if expr.parts[i + 1]:
+                part = self._create_string_constant(expr.parts[i + 1])
+                part_ptr = self.builder.gep(part, [zero, zero], inbounds=True)
+                self.builder.call(self.strcat, [buf_ptr, part_ptr])
+
+        return buf_ptr
+
+    def _value_to_string(self, value, saw_type: SawType):
+        """Convert an LLVM value to a string pointer using snprintf."""
+        zero = ir.Constant(ir.IntType(32), 0)
+
+        if saw_type is None:
+            # Fallback for unknown types
+            fallback = self._create_string_constant("<?>")
+            return self.builder.gep(fallback, [zero, zero], inbounds=True)
+
+        if saw_type.kind == TypeKind.STRING:
+            return value  # Already a string
+
+        # Allocate buffer for number-to-string conversion (64 bytes is enough)
+        buf_size = 64
+        buf = self.builder.alloca(ir.ArrayType(ir.IntType(8), buf_size), name="fmt_buf")
+        buf_ptr = self.builder.gep(buf, [zero, zero], inbounds=True)
+        size = ir.Constant(ir.IntType(64), buf_size)
+
+        if saw_type.kind == TypeKind.BOOL:
+            # Bool: use select for "true"/"false"
+            true_str = self._create_string_constant("true")
+            false_str = self._create_string_constant("false")
+            true_ptr = self.builder.gep(true_str, [zero, zero], inbounds=True)
+            false_ptr = self.builder.gep(false_str, [zero, zero], inbounds=True)
+            return self.builder.select(value, true_ptr, false_ptr)
+
+        elif saw_type.kind in {TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64}:
+            fmt = self._create_string_constant("%lld")
+            fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
+            # Extend to i64 if needed
+            if value.type.width < 64:
+                value = self.builder.sext(value, ir.IntType(64), name="sext_fmt")
+            self.builder.call(self.snprintf, [buf_ptr, size, fmt_ptr, value])
+            return buf_ptr
+
+        elif saw_type.kind in {TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}:
+            fmt = self._create_string_constant("%llu")
+            fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
+            # Extend to i64 if needed
+            if value.type.width < 64:
+                value = self.builder.zext(value, ir.IntType(64), name="zext_fmt")
+            self.builder.call(self.snprintf, [buf_ptr, size, fmt_ptr, value])
+            return buf_ptr
+
+        elif saw_type.kind == TypeKind.FLOAT:
+            fmt = self._create_string_constant("%g")
+            fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
+            self.builder.call(self.snprintf, [buf_ptr, size, fmt_ptr, value])
+            return buf_ptr
+
+        else:
+            # Fallback for unknown types
+            fallback = self._create_string_constant("<?>")
+            return self.builder.gep(fallback, [zero, zero], inbounds=True)
 
     def visit_Identifier(self, expr: Identifier):
         if expr.name not in self.variables:

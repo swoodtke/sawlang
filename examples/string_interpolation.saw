@@ -1,0 +1,47 @@
+// EXPECT: success
+// EXPECT-OUTPUT: Hello, World!
+// EXPECT-OUTPUT: The answer is 42
+// EXPECT-OUTPUT: 10 + 20 = 30
+// EXPECT-OUTPUT: Pi is approximately 3.14159
+// EXPECT-OUTPUT: Flag is true
+// EXPECT-OUTPUT: Double: 84
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 4242
+// EXPECT-OUTPUT: Just a plain string
+
+// String interpolation test
+
+func main() {
+    // Basic string interpolation
+    let name = "World"
+    let greeting = "Hello, {name}!"
+    print(greeting)
+
+    // Integer interpolation
+    let x = 42
+    print("The answer is {x}")
+
+    // Multiple interpolations
+    let a = 10
+    let b = 20
+    print("{a} + {b} = {a + b}")
+
+    // Float interpolation
+    let pi = 3.14159
+    print("Pi is approximately {pi}")
+
+    // Boolean interpolation
+    let flag = true
+    print("Flag is {flag}")
+
+    // Expression in interpolation
+    print("Double: {x * 2}")
+
+    // Empty parts
+    print("{x}")
+    print("{x}{x}")
+
+    // Plain string (no interpolation) still works
+    let plain = "Just a plain string"
+    print(plain)
+}

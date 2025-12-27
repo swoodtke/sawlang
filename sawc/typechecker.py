@@ -9,7 +9,7 @@ from ast_nodes import (
     Program, Function, Block, Statement, Expression,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop, RangeExpr,
-    IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, Identifier,
+    IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation, Identifier,
     BinaryOp, UnaryOp, MoveExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
@@ -1618,6 +1618,27 @@ class TypeChecker:
         return SawType(TypeKind.BOOL)
 
     def visit_StringLiteral(self, expr: StringLiteral) -> Optional[SawType]:
+        return SawType(TypeKind.STRING)
+
+    def visit_StringInterpolation(self, expr: StringInterpolation) -> Optional[SawType]:
+        """Type check string interpolation expressions.
+
+        All interpolated expressions must be of printable types (Int, Float, Bool, String).
+        """
+        allowed_kinds = {
+            TypeKind.INT, TypeKind.FLOAT, TypeKind.BOOL, TypeKind.STRING,
+            TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+            TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
+        }
+
+        for sub_expr in expr.expressions:
+            expr_type = self._check_expression(sub_expr)
+            if expr_type is None:
+                return None
+            if expr_type.kind not in allowed_kinds:
+                self.error(f"Cannot interpolate type '{expr_type}' in string; only primitive types are allowed", sub_expr)
+                return None
+
         return SawType(TypeKind.STRING)
 
     def visit_Identifier(self, expr: Identifier) -> Optional[SawType]:
