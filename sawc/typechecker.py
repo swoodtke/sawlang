@@ -1897,15 +1897,15 @@ class TypeChecker:
 
             # If one branch is None literal, the result type is Optional<other>
             if then_type and else_type:
-                if else_type.kind == TypeKind.OPTIONAL and else_type.inner_type is None:
+                if else_type.is_none_literal():
                     # else is None, result is Optional<then_type>
-                    result_type = SawType(TypeKind.OPTIONAL, inner_type=then_type)
+                    result_type = then_type.wrap_optional()
                     # Annotate the None literal with its resolved type
                     self._annotate_none_in_block(expr.else_branch, result_type)
                     return result_type
-                if then_type.kind == TypeKind.OPTIONAL and then_type.inner_type is None:
+                if then_type.is_none_literal():
                     # then is None, result is Optional<else_type>
-                    result_type = SawType(TypeKind.OPTIONAL, inner_type=else_type)
+                    result_type = else_type.wrap_optional()
                     # Annotate the None literal with its resolved type
                     self._annotate_none_in_block(expr.then_branch, result_type)
                     return result_type
@@ -3037,49 +3037,45 @@ class TypeChecker:
         if a is None or b is None:
             return True  # Assume compatible if we couldn't determine types
 
-        # None literal (OPTIONAL with inner_type=None) is compatible with any optional
-        if a.kind == TypeKind.OPTIONAL and a.inner_type is None and b.kind == TypeKind.OPTIONAL:
+        # None literal is compatible with any optional
+        if a.is_none_literal() and b.is_optional():
             return True
-        if b.kind == TypeKind.OPTIONAL and b.inner_type is None and a.kind == TypeKind.OPTIONAL:
+        if b.is_none_literal() and a.is_optional():
             return True
 
         # None literal is compatible with any type that can be wrapped in optional
         # This allows: if cond { value } else { None } to work
-        if b.kind == TypeKind.OPTIONAL and b.inner_type is None:
-            # None can match any type (the result will be Optional<a>)
-            return True
-        if a.kind == TypeKind.OPTIONAL and a.inner_type is None:
-            # None can match any type (the result will be Optional<b>)
+        if b.is_none_literal() or a.is_none_literal():
             return True
 
         # Allow implicit wrapping: T is compatible with T?
-        if b.kind == TypeKind.OPTIONAL and b.inner_type is not None:
-            if self._types_compatible(a, b.inner_type, allow_literal_to_distinct):
+        if b.is_optional() and not a.is_optional():
+            if self._types_compatible(a, b.unwrap_optional(), allow_literal_to_distinct):
                 return True
 
         # Check if b is a distinct type (STRUCT with name in type_aliases)
-        if b.kind == TypeKind.STRUCT and b.struct_name in self.type_aliases:
+        if b.is_struct() and b.struct_name in self.type_aliases:
             # Allow primitive types to initialize distinct type wrappers
             # Only in initialization context (allow_literal_to_distinct=True)
             if allow_literal_to_distinct:
                 underlying = self._get_underlying_type(b)
-                if a.kind in [TypeKind.INT, TypeKind.FLOAT, TypeKind.BOOL, TypeKind.STRING]:
+                if a.is_primitive():
                     if a.kind == underlying.kind:
                         return True
                     # Also handle distinct optional types: OptInt = Int?
                     # Allow Int to be implicitly wrapped into OptInt
-                    if underlying.kind == TypeKind.OPTIONAL and underlying.inner_type:
+                    if underlying.is_optional() and underlying.inner_type:
                         if a.kind == underlying.inner_type.kind:
                             return True
             # Always allow if 'a' is the same distinct type
-            if a.kind == TypeKind.STRUCT and a.struct_name == b.struct_name:
+            if a.is_struct() and a.struct_name == b.struct_name:
                 return True
 
         if a.kind != b.kind:
             return False
 
         # For tuple types, check element types match
-        if a.kind == TypeKind.TUPLE:
+        if a.is_tuple():
             if a.element_types is None or b.element_types is None:
                 return True
             if len(a.element_types) != len(b.element_types):
@@ -3088,7 +3084,7 @@ class TypeChecker:
                       for at, bt in zip(a.element_types, b.element_types))
 
         # For struct types, check struct names match
-        if a.kind == TypeKind.STRUCT:
+        if a.is_struct():
             if a.struct_name == b.struct_name:
                 return True
             # Check if b is an interface that a conforms to
@@ -3099,17 +3095,17 @@ class TypeChecker:
             return False
 
         # For enum types, check enum names match
-        if a.kind == TypeKind.ENUM:
+        if a.is_enum():
             return a.enum_name == b.enum_name
 
         # For optional types, check inner types match
-        if a.kind == TypeKind.OPTIONAL:
+        if a.is_optional():
             if a.inner_type is None or b.inner_type is None:
                 return True
             return self._types_compatible(a.inner_type, b.inner_type)
 
         # For function types, check param types and return type match
-        if a.kind == TypeKind.FUNCTION:
+        if a.is_function():
             a_params = a.param_types or []
             b_params = b.param_types or []
             if len(a_params) != len(b_params):

@@ -72,6 +72,52 @@ class SawType:
             return "Self"
         return self.kind.name
 
+    # ===== Predicate Methods =====
+
+    def is_optional(self) -> bool:
+        """Check if this is an optional type (T?)."""
+        return self.kind == TypeKind.OPTIONAL
+
+    def is_none_literal(self) -> bool:
+        """Check if this is a None literal (untyped optional)."""
+        return self.kind == TypeKind.OPTIONAL and self.inner_type is None
+
+    def is_function(self) -> bool:
+        """Check if this is a function type."""
+        return self.kind == TypeKind.FUNCTION
+
+    def is_primitive(self) -> bool:
+        """Check if this is a primitive type (Int, Float, Bool, String)."""
+        return self.kind in (TypeKind.INT, TypeKind.FLOAT, TypeKind.BOOL, TypeKind.STRING)
+
+    def is_struct(self) -> bool:
+        """Check if this is a struct type."""
+        return self.kind == TypeKind.STRUCT
+
+    def is_enum(self) -> bool:
+        """Check if this is an enum type."""
+        return self.kind == TypeKind.ENUM
+
+    def is_tuple(self) -> bool:
+        """Check if this is a tuple type."""
+        return self.kind == TypeKind.TUPLE
+
+    def is_array(self) -> bool:
+        """Check if this is an array type."""
+        return self.kind == TypeKind.ARRAY
+
+    # ===== Transformation Methods =====
+
+    def unwrap_optional(self) -> 'SawType':
+        """Get the inner type of an optional, or self if not optional."""
+        if self.kind == TypeKind.OPTIONAL and self.inner_type:
+            return self.inner_type
+        return self
+
+    def wrap_optional(self) -> 'SawType':
+        """Wrap this type in an optional (T -> T?)."""
+        return SawType(TypeKind.OPTIONAL, inner_type=self)
+
 
 @dataclass
 class TypeParameter:
