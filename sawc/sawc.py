@@ -145,7 +145,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False):
     # Code generation
     if verbose:
         print("  Generating LLVM IR...")
-    codegen = CodeGenerator()
+    codegen = CodeGenerator(typechecker.namespace)
     llvm_ir = codegen.generate(ast)
 
     if verbose:
@@ -282,7 +282,7 @@ Examples:
             reporter.print_all()
             sys.exit(1)
 
-        codegen = CodeGenerator()
+        codegen = CodeGenerator(typechecker.namespace)
         llvm_ir = codegen.generate(ast)
 
         ir_output = output_path + ".ll"

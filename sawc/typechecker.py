@@ -24,6 +24,11 @@ from ast_nodes import (
     ClosureExpr, ClosureParam
 )
 from errors import ErrorReporter, ErrorKind
+from namespace import (
+    Namespace, SymbolKind,
+    FunctionSymbol, StructSymbol, EnumSymbol, InterfaceSymbol, TypeAliasSymbol,
+    InterfaceMethodSymbol
+)
 
 
 @dataclass
@@ -154,6 +159,10 @@ class TypeChecker:
         # Track moved variables for use-after-move detection
         self.moved_variables: set[str] = set()
 
+        # Unified namespace (Phase 0 of module system)
+        # Populated in parallel with legacy dicts during migration
+        self.namespace = Namespace()
+
         # Register built-in functions
         self._register_builtins()
 
@@ -174,6 +183,13 @@ class TypeChecker:
             line=0,
             column=0
         )
+        # Also register in namespace
+        self.namespace.register_struct("String", StructSymbol(
+            fields={},
+            field_order=[],
+            line=0,
+            column=0
+        ))
 
     def _block_has_early_exit(self, block: Block) -> bool:
         """Check if a block definitely exits early (return, break, continue).
@@ -207,6 +223,10 @@ class TypeChecker:
         # Resolve the defined type (it might reference other type aliases)
         resolved_type = self._resolve_type_alias(type_def.defined_type)
         self.type_aliases[type_def.name] = resolved_type
+        # Also register in namespace
+        self.namespace.register_type_alias(type_def.name, TypeAliasSymbol(
+            aliased_type=resolved_type
+        ))
 
     def _resolve_type_alias(self, saw_type: SawType) -> SawType:
         """Resolve any type aliases in a SawType."""
@@ -499,6 +519,15 @@ class TypeChecker:
             column=struct.column,
             type_params=struct.type_params
         )
+        # Also register in namespace
+        self.namespace.register_struct(struct.name, StructSymbol(
+            fields=fields,
+            field_order=field_order,
+            type_params=struct.type_params,
+            line=struct.line,
+            column=struct.column,
+            ast_node=struct if struct.type_params else None
+        ))
 
     def _register_enum(self, enum: Enum):
         """Register an enum definition."""
@@ -541,6 +570,13 @@ class TypeChecker:
             variant_order=variant_order,
             type_params=enum.type_params
         )
+        # Also register in namespace
+        self.namespace.register_enum(enum.name, EnumSymbol(
+            variants=variants,
+            variant_order=variant_order,
+            type_params=enum.type_params,
+            ast_node=enum if enum.type_params else None
+        ))
 
     def _register_interface(self, interface: Interface):
         """Register an interface definition with inheritance support."""
@@ -607,6 +643,21 @@ class TypeChecker:
             associated_types=assoc_type_names,
             parent_interfaces=interface.parent_interfaces
         )
+        # Also register in namespace
+        ns_methods = {}
+        for name, method_info in methods.items():
+            ns_methods[name] = InterfaceMethodSymbol(
+                name=name,
+                param_types=method_info.param_types,
+                param_names=method_info.param_names,
+                return_type=method_info.return_type,
+                self_mutable=method_info.self_mutable
+            )
+        self.namespace.register_interface(interface.name, InterfaceSymbol(
+            methods=ns_methods,
+            associated_types=assoc_type_names,
+            parent_interfaces=interface.parent_interfaces
+        ))
 
     def _register_function(self, func: Function):
         """Register a function signature."""
@@ -630,6 +681,14 @@ class TypeChecker:
             resolved_return_type = self._resolve_type(func.return_type)
             info = FunctionInfo(param_types, resolved_return_type, param_names)
         self.functions[func.name] = info
+        # Also register in namespace
+        self.namespace.register_function(func.name, FunctionSymbol(
+            param_types=info.param_types,
+            param_names=info.param_names,
+            return_type=info.return_type,
+            type_params=info.type_params,
+            ast_node=func if func.type_params else None
+        ))
 
     def _register_extern_function(self, extern_func: ExternFunction):
         """Register an external (FFI) function signature."""
@@ -656,6 +715,13 @@ class TypeChecker:
             return
 
         self.functions[extern_func.name] = info
+        # Also register in namespace
+        self.namespace.register_function(extern_func.name, FunctionSymbol(
+            param_types=param_types,
+            param_names=param_names,
+            return_type=resolved_return_type,
+            is_variadic=extern_func.is_variadic
+        ))
 
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
@@ -785,6 +851,23 @@ class TypeChecker:
 
             struct_info.methods[method_key] = method_info
 
+            # Also register in namespace
+            method_symbol = FunctionSymbol(
+                kind=SymbolKind.METHOD,
+                param_types=param_types,
+                param_names=param_names,
+                return_type=return_type,
+                defaults=default_values,
+                is_static=method.is_static,
+                is_init=method.is_init,
+                self_mutable=self_mutable,
+                ast_node=method
+            )
+            if method.is_init:
+                self.namespace.register_init_method(extension.struct_name, method_symbol)
+            else:
+                self.namespace.register_method(extension.struct_name, method.name, method_symbol)
+
         # Process type assignments for interface conformances
         for iface_name in extension.conformances:
             if iface_name not in self.interfaces:
@@ -815,6 +898,10 @@ class TypeChecker:
             if extension.struct_name not in self.type_conformances:
                 self.type_conformances[extension.struct_name] = []
             self.type_conformances[extension.struct_name].append(iface_name)
+
+            # Also register in namespace
+            type_assigns = self.type_assignments.get((extension.struct_name, iface_name), {})
+            self.namespace.register_conformance(extension.struct_name, iface_name, type_assigns)
 
     def _check_interface_conformance(self, type_name: str, iface_info: InterfaceInfo,
                                       struct_info: StructInfo, extension: Extension):

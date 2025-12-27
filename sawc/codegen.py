@@ -22,11 +22,15 @@ from ast_nodes import (
     ExternFunction, ExternBlock,
     ClosureExpr
 )
+from namespace import Namespace
 import copy
 
 
 class CodeGenerator:
-    def __init__(self):
+    def __init__(self, namespace: Namespace):
+        # Unified namespace from type checker (Phase 0 of module system)
+        self.namespace = namespace
+
         # Initialize LLVM
         binding.initialize()
         binding.initialize_native_target()
@@ -85,25 +89,11 @@ class CodeGenerator:
         # Tracks which monomorphized functions have been generated
         self.generated_instantiations: set[str] = set()
 
-        # Type aliases: name -> SawType
-        self.type_aliases: dict[str, SawType] = {}
-
         # Closure counter for unique names
         self.closure_counter = 0
 
         # Variable types for closure captures (name -> SawType)
         self.variable_types: dict[str, SawType] = {}
-
-        # Interface info for associated types
-        # interfaces: name -> list of associated type names
-        self.interfaces: dict[str, list[str]] = {}
-        # type_conformances: type_name -> list of interfaces it conforms to
-        self.type_conformances: dict[str, list[str]] = {}
-        # type_assignments: (type_name, interface) -> {assoc_type_name -> SawType}
-        self.type_assignments: dict[tuple[str, str], dict[str, SawType]] = {}
-
-        # Static methods: (struct_name, method_name) -> True
-        self.static_methods: set[tuple[str, str]] = set()
 
         # Default parameter values: mangled_name -> list of default Expression (or None)
         self.method_defaults: dict[str, list] = {}
@@ -115,8 +105,6 @@ class CodeGenerator:
         self.type_cleanup_behavior: dict[str, str] = {}
         # Track moved variables - these should not be cleaned up or accessed
         self.moved_variables: set[str] = set()
-        # Struct field types: struct_name -> {field_name: SawType}
-        self.struct_field_types: dict[str, dict[str, SawType]] = {}
 
         # Extern functions that return optionals (need NULL check at call site)
         # Maps function name -> inner SawType (unwrapped from optional)
@@ -124,12 +112,6 @@ class CodeGenerator:
 
         # Current return type (for implicit optional wrapping)
         self.current_return_type: Optional[SawType] = None
-
-        # Method return types: (struct_name, method_name) -> SawType
-        self.method_return_types: dict[tuple[str, str], SawType] = {}
-
-        # Function return types: function_name -> SawType
-        self.function_return_types: dict[str, SawType] = {}
 
         # Declare external functions (printf for print)
         self._declare_external_functions()
@@ -213,9 +195,10 @@ class CodeGenerator:
             # Look up the struct type (might actually be an enum, type param, or type alias)
             if saw_type.struct_name is None:
                 raise ValueError("Struct type missing name")
-            # Check if it's a type alias
-            if saw_type.struct_name in self.type_aliases:
-                return self._get_llvm_type(self.type_aliases[saw_type.struct_name])
+            # Check if it's a type alias (use namespace)
+            alias_sym = self.namespace.lookup_type_alias(saw_type.struct_name)
+            if alias_sym and alias_sym.aliased_type:
+                return self._get_llvm_type(alias_sym.aliased_type)
             # Check if it's a type parameter in the current context
             if saw_type.struct_name in self.type_param_context:
                 return self._get_llvm_type(self.type_param_context[saw_type.struct_name])
@@ -318,8 +301,8 @@ class CodeGenerator:
         if type_name in self.type_cleanup_behavior:
             return self.type_cleanup_behavior[type_name]
 
-        # Check conformances
-        conformances = self.type_conformances.get(type_name, [])
+        # Check conformances (use namespace)
+        conformances = self.namespace.get_conformances(type_name)
 
         if "NoCopy" in conformances:
             behavior = "no_copy"
@@ -457,11 +440,9 @@ class CodeGenerator:
         return global_str
 
     def generate(self, program: Program) -> str:
-        # First pass: register type aliases
-        for type_def in program.type_definitions:
-            self._register_type_alias(type_def)
+        # Type aliases are already in namespace from typechecker
 
-        # Second pass: register struct types
+        # First pass: register struct types
         for struct in program.structs:
             self._register_struct(struct)
 
@@ -469,22 +450,7 @@ class CodeGenerator:
         for enum in program.enums:
             self._register_enum(enum)
 
-        # Register interfaces and their associated types
-        for interface in program.interfaces:
-            self.interfaces[interface.name] = [at.name for at in interface.associated_types]
-
-        # Register type conformances and associated type assignments from extensions
-        for extension in program.extensions:
-            if extension.conformances:
-                if extension.struct_name not in self.type_conformances:
-                    self.type_conformances[extension.struct_name] = []
-                for iface_name in extension.conformances:
-                    self.type_conformances[extension.struct_name].append(iface_name)
-                    # Collect type assignments for this conformance
-                    assignments = {}
-                    for type_assign in extension.type_assignments:
-                        assignments[type_assign.name] = type_assign.assigned_type
-                    self.type_assignments[(extension.struct_name, iface_name)] = assignments
+        # Interfaces, type conformances, and type assignments are in namespace from typechecker
 
         # Declare extern functions (FFI)
         for extern_block in program.extern_blocks:
@@ -522,17 +488,13 @@ class CodeGenerator:
 
         return str(self.module)
 
-    def _register_type_alias(self, type_def: TypeDefinition):
-        """Register a type alias."""
-        # Resolve the type (in case it references other aliases)
-        resolved = self._resolve_type_alias(type_def.defined_type)
-        self.type_aliases[type_def.name] = resolved
-
     def _resolve_type_alias(self, saw_type: SawType) -> SawType:
         """Resolve type aliases in a SawType."""
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
-            if saw_type.struct_name in self.type_aliases:
-                return self.type_aliases[saw_type.struct_name]
+            # Use namespace for type alias lookup
+            alias_sym = self.namespace.lookup_type_alias(saw_type.struct_name)
+            if alias_sym and alias_sym.aliased_type:
+                return alias_sym.aliased_type
             if saw_type.type_args:
                 resolved_args = [self._resolve_type_alias(t) for t in saw_type.type_args]
                 return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=resolved_args)
@@ -564,9 +526,7 @@ class CodeGenerator:
         # Store the type and field order for later use
         field_order = [field.name for field in struct.fields]
         self.struct_types[struct.name] = (llvm_struct_type, field_order)
-
-        # Store field types (SawType) for resource management
-        self.struct_field_types[struct.name] = {field.name: field.type for field in struct.fields}
+        # Struct field types are in namespace
 
     def _register_enum(self, enum: Enum):
         """Register an enum type with LLVM.
@@ -647,9 +607,7 @@ class CodeGenerator:
         func_type = ir.FunctionType(return_type, param_types)
         llvm_func = ir.Function(self.module, func_type, name=func_name)
         self.functions[func_name] = llvm_func
-
-        # Store function return type for type inference
-        self.function_return_types[func_name] = func.return_type
+        # Function return types are now in namespace
 
     def _declare_extern_function(self, extern_func: ExternFunction):
         """Declare an external C function (no body, just LLVM declare)."""
@@ -775,10 +733,11 @@ class CodeGenerator:
                     concrete_type_name = type_arg.enum_name
 
                 if concrete_type_name:
-                    # Get the associated type assignments for this (type, interface) pair
-                    type_assigns = self.type_assignments.get((concrete_type_name, bound), {})
-                    for assoc_name, assoc_type in type_assigns.items():
-                        self.type_param_context[assoc_name] = assoc_type
+                    # Get the associated type assignments for this (type, interface) pair (use namespace)
+                    if concrete_type_name in self.namespace.conformances:
+                        type_assigns = self.namespace.conformances[concrete_type_name].get(bound, {})
+                        for assoc_name, assoc_type in type_assigns.items():
+                            self.type_param_context[assoc_name] = assoc_type
 
         try:
             # Declare the instantiated function
@@ -1192,13 +1151,7 @@ class CodeGenerator:
 
             # Store in functions table
             self.functions[mangled_name] = llvm_func
-
-            # Store method return type for type inference
-            self.method_return_types[(extension.struct_name, method.name)] = method.return_type
-
-            # Track static methods
-            if method.is_static:
-                self.static_methods.add((extension.struct_name, method.name))
+            # Method return types and static method info are in namespace
 
             # Track default parameter values
             defaults = [p.default_value for p in method.parameters]
@@ -1308,10 +1261,10 @@ class CodeGenerator:
         Called at the end of a deinit method to ensure nested resources are cleaned up.
         Fields are cleaned up in reverse declaration order.
         """
-        if struct_name not in self.struct_field_types:
+        # Use namespace for struct field types
+        field_types = self.namespace.get_struct_fields(struct_name)
+        if not field_types:
             return
-
-        field_types = self.struct_field_types[struct_name]
         _, field_order = self.struct_types[struct_name]
 
         # Get self pointer
@@ -1675,35 +1628,35 @@ class CodeGenerator:
             # Check if this is a struct init (parser treats Struct() as function call)
             if expr.name in self.struct_types or expr.name in self.generic_structs:
                 return SawType(TypeKind.STRUCT, struct_name=expr.name, type_args=expr.type_args)
-            # Check if it's a known function
-            if expr.name in self.function_return_types:
-                return self.function_return_types[expr.name]
+            # Check if it's a known function (use namespace)
+            return_type = self.namespace.get_return_type(expr.name)
+            if return_type:
+                return return_type
             return None
         elif isinstance(expr, MethodCall):
-            # Check for static method call: StructName.method()
+            # Check for static method call: StructName.method() (use namespace)
             if isinstance(expr.object, Identifier):
                 struct_name = expr.object.name
-                if (struct_name, expr.method_name) in self.static_methods:
-                    return_type = self.method_return_types.get((struct_name, expr.method_name))
+                if self.namespace.is_static_method(struct_name, expr.method_name):
+                    return_type = self.namespace.get_method_return_type(struct_name, expr.method_name)
                     if return_type:
                         return return_type
-            # Look up the method return type for instance methods
+            # Look up the method return type for instance methods (use namespace)
             obj_type = self._infer_saw_type(expr.object)
             if obj_type and obj_type.kind == TypeKind.STRUCT:
                 struct_name = obj_type.struct_name
-                return_type = self.method_return_types.get((struct_name, expr.method_name))
+                return_type = self.namespace.get_method_return_type(struct_name, expr.method_name)
                 if return_type:
                     return return_type
             return None
         elif isinstance(expr, MemberAccess):
-            # Look up struct field type
+            # Look up struct field type (use namespace)
             obj_type = self._infer_saw_type(expr.object)
             if obj_type and obj_type.kind == TypeKind.STRUCT:
                 struct_name = obj_type.struct_name
-                if struct_name in self.struct_field_types:
-                    field_types = self.struct_field_types[struct_name]
-                    if expr.member in field_types:
-                        return field_types[expr.member]
+                field_types = self.namespace.get_struct_fields(struct_name)
+                if field_types and expr.member in field_types:
+                    return field_types[expr.member]
             return None
         elif isinstance(expr, BinaryOp):
             # Infer type from binary operations
@@ -3349,8 +3302,8 @@ class CodeGenerator:
         # Field initialization (original behavior)
         llvm_struct_type, field_order = self.struct_types[struct_name]
 
-        # Get field types for CustomCopy handling
-        field_types = self.struct_field_types.get(struct_name, {})
+        # Get field types for CustomCopy handling (use namespace)
+        field_types = self.namespace.get_struct_fields(struct_name) or {}
 
         # Create a map from field name to value, handling CustomCopy
         field_values = {}
@@ -3636,10 +3589,10 @@ class CodeGenerator:
         - StructName.method(args) - static method call
         - EnumType.Variant(args) - enum variant initialization
         """
-        # Check if this is a static method call: StructName.method(args)
+        # Check if this is a static method call: StructName.method(args) (use namespace)
         if isinstance(expr.object, Identifier):
             struct_name = expr.object.name
-            if (struct_name, expr.method_name) in self.static_methods:
+            if self.namespace.is_static_method(struct_name, expr.method_name):
                 return self._generate_static_method_call(expr, struct_name)
 
         # Check if this is actually an enum initialization
