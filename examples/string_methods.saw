@@ -1,0 +1,48 @@
+// String methods test
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 13
+// false
+// true
+// false
+// true
+// false
+// true
+// true
+// false
+// hello
+// HELLO
+// hello
+// Hellx, Wxrld!
+
+func main() {
+    let s = "Hello, World!"
+
+    // len and is_empty
+    print(s.len())           // 13
+    print(s.is_empty())      // false
+
+    // starts_with
+    print(s.starts_with("Hello"))   // true
+    print(s.starts_with("World"))   // false
+
+    // ends_with
+    print(s.ends_with("!"))         // true
+    print(s.ends_with("Hello"))     // false
+
+    // contains
+    print(s.contains("World"))      // true
+    print(s.contains(", "))         // true
+    print(s.contains("xyz"))        // false
+
+    // trim
+    let padded = "  hello  "
+    print(padded.trim())            // hello
+
+    // case conversion
+    print("hello".to_uppercase())   // HELLO
+    print("HELLO".to_lowercase())   // hello
+
+    // replace
+    print(s.replace("o", "x"))      // Hellx, Wxrld!
+}

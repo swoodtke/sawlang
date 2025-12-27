@@ -241,6 +241,9 @@ class CodeGenerator:
             # Self type - resolve to current struct context
             if self.self_type_context is None:
                 raise ValueError("Self type used outside of extension context")
+            # Special handling for primitive type extensions
+            if self.self_type_context == "String":
+                return ir.IntType(8).as_pointer()  # String is i8*
             if self.self_type_context not in self.struct_types:
                 raise ValueError(f"Self type refers to undefined struct: {self.self_type_context}")
             return self.struct_types[self.self_type_context][0]
@@ -1106,15 +1109,28 @@ class CodeGenerator:
             # Build parameter types
             if method.is_init:
                 # Init methods take parameters (no self) and return the struct
+                # Primitive type extensions (String) don't support init methods
+                if extension.struct_name == "String":
+                    raise ValueError("Cannot define init methods on String")
                 param_types = [self._get_llvm_type(p.type) for p in method.parameters]
                 # Return type is the struct being initialized
                 struct_type, _ = self.struct_types[extension.struct_name]
                 return_type = struct_type
             else:
                 # Regular methods include self as first parameter
+                # Determine the Self type for this extension
+                if extension.struct_name == "String":
+                    self_llvm_type = ir.IntType(8).as_pointer()  # String is i8*
+                else:
+                    self_llvm_type = self.struct_types[extension.struct_name][0]
+
                 param_types = []
                 for i, p in enumerate(method.parameters):
-                    llvm_type = self._get_llvm_type(p.type)
+                    # Handle 'self' parameter specially - its type is VOID placeholder
+                    if p.name == "self":
+                        llvm_type = self_llvm_type
+                    else:
+                        llvm_type = self._get_llvm_type(p.type)
                     # If first param is self and it's mutable, make it a pointer
                     if i == 0 and p.name == "self" and method.self_mutable:
                         llvm_type = llvm_type.as_pointer()
@@ -1164,17 +1180,32 @@ class CodeGenerator:
         self.variable_types = {}
         self.cleanup_stack = []
 
+        # Determine the Self type for this extension
+        if struct_name == "String":
+            self_llvm_type = ir.IntType(8).as_pointer()  # String is i8*
+            self_saw_type = SawType(TypeKind.STRING)
+        else:
+            self_llvm_type = self.struct_types[struct_name][0]
+            self_saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+
         # Create allocas for parameters (including self)
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
             # For mutable self, it's already a pointer - just store it directly
             if i == 0 and param.name == "self" and method.self_mutable:
                 self.variables[param.name] = llvm_func.args[i]
+                self.variable_types[param.name] = self_saw_type
+            elif param.name == "self":
+                # Handle 'self' parameter - use the Self type
+                alloca = self.builder.alloca(self_llvm_type, name=param.name)
+                self.builder.store(llvm_func.args[i], alloca)
+                self.variables[param.name] = alloca
+                self.variable_types[param.name] = self_saw_type
             else:
                 alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
                 self.builder.store(llvm_func.args[i], alloca)
                 self.variables[param.name] = alloca
-            self.variable_types[param.name] = param.type
+                self.variable_types[param.name] = param.type
 
         # Generate method body
         result = self._generate_block(method.body)
@@ -3202,6 +3233,14 @@ class CodeGenerator:
                     struct_name = name
                     break
 
+        # Check for primitive type extensions (String)
+        if struct_name is None:
+            # String is i8* (pointer to i8)
+            if isinstance(obj_type, ir.PointerType):
+                pointee = obj_type.pointee
+                if isinstance(pointee, ir.IntType) and pointee.width == 8:
+                    struct_name = "String"
+
         if struct_name is None:
             raise ValueError(f"Cannot determine struct type for method call to {expr.method_name}")
 
@@ -3215,9 +3254,25 @@ class CodeGenerator:
         method_func = self.functions[mangled_name]
 
         # Generate arguments: [self, arg1, arg2, ...]
-        # Check if method expects mutable self (pointer)
+        # Check if method expects mutable self (pointer to the value)
+        # For String: immutable self is i8*, mutable self is i8**
+        # For structs: immutable self is struct, mutable self is struct*
         self_arg = obj_val
-        if method_func.args and isinstance(method_func.args[0].type, ir.PointerType):
+        is_mutable_self = False
+        if method_func.args:
+            first_arg_type = method_func.args[0].type
+            if struct_name == "String":
+                # String is already i8*, so mutable self is i8** (pointer to pointer)
+                if isinstance(first_arg_type, ir.PointerType):
+                    pointee = first_arg_type.pointee
+                    if isinstance(pointee, ir.PointerType):
+                        is_mutable_self = True
+            else:
+                # Struct: mutable self is pointer to struct
+                if isinstance(first_arg_type, ir.PointerType):
+                    is_mutable_self = True
+
+        if is_mutable_self:
             # Method expects pointer to self
             # If object is a variable, pass its alloca directly
             if isinstance(expr.object, Identifier) and expr.object.name in self.variables:

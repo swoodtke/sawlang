@@ -161,7 +161,16 @@ class TypeChecker:
         #
         # Note: Built-in interfaces (Deinit, CustomCopy, NoCopy) are defined
         # in builtin.saw and loaded automatically by the compiler.
-        pass
+
+        # Register String as a pseudo-struct so it can be extended
+        # String is a primitive type (i8*) but we want to add methods to it
+        self.structs["String"] = StructInfo(
+            name="String",
+            fields={},  # No fields - it's a primitive
+            field_order=[],
+            line=0,
+            column=0
+        )
 
     def _block_has_early_exit(self, block: Block) -> bool:
         """Check if a block definitely exits early (return, break, continue).
@@ -702,13 +711,29 @@ class TypeChecker:
                     )
 
             # Register method
-            param_types = [p.type for p in method.parameters]
+            # Determine the Self type for this extension
+            if extension.struct_name == "String":
+                self_type = SawType(TypeKind.STRING)
+            else:
+                self_type = SawType(TypeKind.STRUCT, struct_name=extension.struct_name)
+
+            # Resolve Self types in parameter types
+            # Note: 'self' parameter has VOID as placeholder from parser
+            param_types = []
+            for p in method.parameters:
+                if p.name == "self" or p.type.kind == TypeKind.SELF:
+                    param_types.append(self_type)
+                else:
+                    param_types.append(p.type)
             param_names = [p.name for p in method.parameters]
 
             # For init methods, override return type to be the struct type
+            # For non-init methods, resolve Self in return type
             return_type = method.return_type
+            if return_type.kind == TypeKind.SELF:
+                return_type = self_type
             if method.is_init:
-                return_type = SawType(TypeKind.STRUCT, struct_name=extension.struct_name)
+                return_type = self_type
 
             method_info = MethodInfo(
                 struct_name=extension.struct_name,
@@ -824,6 +849,9 @@ class TypeChecker:
         """Resolve Self and associated types in an interface type."""
         # Handle Self type (TypeKind.SELF)
         if iface_type.kind == TypeKind.SELF:
+            # Special case: String is a primitive type, not a struct
+            if self_type_name == "String":
+                return SawType(TypeKind.STRING)
             return SawType(TypeKind.STRUCT, struct_name=self_type_name)
         if iface_type.kind == TypeKind.STRUCT and iface_type.struct_name:
             # Handle associated types
@@ -862,9 +890,20 @@ class TypeChecker:
         # Create new scope for method
         self.current_scope = Scope()
 
+        # Determine the Self type for this extension
+        if struct_name == "String":
+            self_type = SawType(TypeKind.STRING)
+        else:
+            self_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+
         # Add parameters to scope
         for param in method.parameters:
-            info = VariableInfo(param.type, mutable=False, line=method.line, column=method.column)
+            # Resolve Self type to concrete type
+            param_type = param.type
+            # 'self' parameter has VOID as placeholder - replace with actual Self type
+            if param.name == "self" or param_type.kind == TypeKind.SELF:
+                param_type = self_type
+            info = VariableInfo(param_type, mutable=False, line=method.line, column=method.column)
             self.current_scope.define(param.name, info)
 
         # Check body
@@ -872,8 +911,11 @@ class TypeChecker:
 
         # For init methods, check return type
         expected_return = method.return_type
+        # Resolve Self in return type
+        if expected_return.kind == TypeKind.SELF:
+            expected_return = self_type
         if method.is_init:
-            expected_return = SawType(TypeKind.STRUCT, struct_name=struct_name)
+            expected_return = self_type
 
         if expected_return.kind != TypeKind.VOID:
             if body_type is None and not self.found_return_with_value:
@@ -1753,24 +1795,33 @@ class TypeChecker:
         left_underlying = self._get_underlying_type(left_type)
         right_underlying = self._get_underlying_type(right_type)
 
+        # All integer type kinds
+        int_kinds = {
+            TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+            TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
+        }
+
         # Arithmetic operators
         if expr.op in ['+', '-', '*', '/']:
             # Pointer arithmetic: ptr + int or ptr - int
             if expr.op in ['+', '-'] and left_underlying.kind == TypeKind.POINTER:
-                if right_underlying.kind == TypeKind.INT:
+                if right_underlying.kind in int_kinds:
                     return left_type  # Returns same pointer type
                 else:
                     self.reporter.error(
                         ErrorKind.TYPE_MISMATCH,
-                        f"pointer arithmetic requires Int offset, got `{right_type}`",
+                        f"pointer arithmetic requires integer offset, got `{right_type}`",
                         expr.line, expr.column
                     )
                     return None
-            elif left_underlying.kind == TypeKind.INT and right_underlying.kind == TypeKind.INT:
-                # Return the original left type (preserves distinct types)
+            elif left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
+                # Same integer type: return that type
+                if left_underlying.kind == right_underlying.kind:
+                    return left_type
+                # Mixed integer types: return the left type
                 return left_type
-            elif left_underlying.kind in [TypeKind.INT, TypeKind.FLOAT] and \
-                 right_underlying.kind in [TypeKind.INT, TypeKind.FLOAT]:
+            elif left_underlying.kind in (int_kinds | {TypeKind.FLOAT}) and \
+                 right_underlying.kind in (int_kinds | {TypeKind.FLOAT}):
                 return SawType(TypeKind.FLOAT)
             else:
                 self.reporter.error(
@@ -1782,7 +1833,7 @@ class TypeChecker:
 
         # Modulo operator (integers only)
         elif expr.op == '%':
-            if left_underlying.kind == TypeKind.INT and right_underlying.kind == TypeKind.INT:
+            if left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
                 return left_type  # Preserve distinct type
             else:
                 self.reporter.error(
@@ -2648,8 +2699,13 @@ class TypeChecker:
         if obj_type is None:
             return None
 
-        # Must be a struct type
-        if obj_type.kind != TypeKind.STRUCT:
+        # Determine struct name for method lookup
+        # String is a primitive type but can have methods via extensions
+        if obj_type.kind == TypeKind.STRING:
+            struct_name = "String"
+        elif obj_type.kind == TypeKind.STRUCT:
+            struct_name = obj_type.struct_name
+        else:
             self.reporter.error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot call method on non-struct type `{obj_type}`",
@@ -2657,10 +2713,10 @@ class TypeChecker:
             )
             return None
 
-        if obj_type.struct_name is None:
+        if struct_name is None:
             return None
 
-        struct_info = self.structs.get(obj_type.struct_name)
+        struct_info = self.structs.get(struct_name)
         if struct_info is None:
             return None
 
@@ -2675,7 +2731,7 @@ class TypeChecker:
         if expr.method_name not in struct_info.methods:
             self.reporter.error(
                 ErrorKind.UNDEFINED_FUNCTION,
-                f"struct `{obj_type.struct_name}` has no method `{expr.method_name}`",
+                f"type `{struct_name}` has no method `{expr.method_name}`",
                 expr.line, expr.column,
                 hint=f"available methods: {', '.join(struct_info.methods.keys())}" if struct_info.methods else "no methods defined"
             )

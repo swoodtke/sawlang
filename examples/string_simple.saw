@@ -1,0 +1,9 @@
+// Simple String extension test
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+
+func main() {
+    let s = "hello"
+    print(s.len())
+}

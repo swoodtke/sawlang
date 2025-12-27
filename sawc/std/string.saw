@@ -1,0 +1,324 @@
+// String Methods - Extensions on the String primitive type
+// Part of the Saw standard library
+
+// =============================================================================
+// FFI declarations
+// =============================================================================
+
+extern "C" {
+    func strlen(s: UnsafePointer<Int8>) -> Int
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+}
+
+// =============================================================================
+// String Extension - Methods on String values
+// =============================================================================
+
+extension String {
+    // Get the length of the string in bytes
+    func len(self) -> Int {
+        let ptr = self as UnsafePointer<Int8>
+        strlen(ptr)
+    }
+
+    // Check if the string is empty
+    func is_empty(self) -> Bool {
+        self.len() == 0
+    }
+
+    // Get the byte at a given index (no bounds checking)
+    func byte_at(self, index: Int) -> Int8 {
+        let ptr = self as UnsafePointer<Int8>
+        ptr[index]
+    }
+
+    // Check if the string starts with the given prefix
+    func starts_with(self, prefix: String) -> Bool {
+        let self_len = self.len()
+        let prefix_len = prefix.len()
+
+        if prefix_len > self_len {
+            false
+        } else {
+            var i = 0
+            var matches = true
+            while i < prefix_len && matches {
+                if self.byte_at(i) != prefix.byte_at(i) {
+                    matches = false
+                }
+                i = i + 1
+            }
+            matches
+        }
+    }
+
+    // Check if the string ends with the given suffix
+    func ends_with(self, suffix: String) -> Bool {
+        let self_len = self.len()
+        let suffix_len = suffix.len()
+
+        if suffix_len > self_len {
+            false
+        } else {
+            let offset = self_len - suffix_len
+            var i = 0
+            var matches = true
+            while i < suffix_len && matches {
+                if self.byte_at(offset + i) != suffix.byte_at(i) {
+                    matches = false
+                }
+                i = i + 1
+            }
+            matches
+        }
+    }
+
+    // Check if the string contains the given substring
+    func contains(self, needle: String) -> Bool {
+        let self_len = self.len()
+        let needle_len = needle.len()
+
+        if needle_len == 0 {
+            true
+        } else if needle_len > self_len {
+            false
+        } else {
+            var found = false
+            var i = 0
+            while i <= self_len - needle_len && not found {
+                var j = 0
+                var matches = true
+                while j < needle_len && matches {
+                    if self.byte_at(i + j) != needle.byte_at(j) {
+                        matches = false
+                    }
+                    j = j + 1
+                }
+                if matches {
+                    found = true
+                }
+                i = i + 1
+            }
+            found
+        }
+    }
+
+    // Check if a byte is ASCII whitespace (space, tab, newline, carriage return)
+    func _is_whitespace(self, b: Int8) -> Bool {
+        b == (32 as Int8) || b == (9 as Int8) || b == (10 as Int8) || b == (13 as Int8)
+    }
+
+    // Trim whitespace from the start of the string
+    func trim_start(self) -> String {
+        let len = self.len()
+        if len == 0 {
+            self
+        } else {
+            var start = 0
+            while start < len && self._is_whitespace(self.byte_at(start)) {
+                start = start + 1
+            }
+            if start == 0 {
+                self
+            } else if start == len {
+                ""
+            } else {
+                self._substring(start, len - start)
+            }
+        }
+    }
+
+    // Trim whitespace from the end of the string
+    func trim_end(self) -> String {
+        let len = self.len()
+        if len == 0 {
+            self
+        } else {
+            var end = len
+            while end > 0 && self._is_whitespace(self.byte_at(end - 1)) {
+                end = end - 1
+            }
+            if end == len {
+                self
+            } else if end == 0 {
+                ""
+            } else {
+                self._substring(0, end)
+            }
+        }
+    }
+
+    // Trim whitespace from both ends
+    func trim(self) -> String {
+        self.trim_start().trim_end()
+    }
+
+    // Create a substring (allocates new memory)
+    func _substring(self, start: Int, length: Int) -> String {
+        if length <= 0 {
+            ""
+        } else {
+            if let new_ptr = malloc(length + 1) {
+                var i = 0
+                while i < length {
+                    new_ptr[i] = self.byte_at(start + i)
+                    i = i + 1
+                }
+                new_ptr[length] = 0 as Int8  // null terminate
+                new_ptr as String
+            } else {
+                ""
+            }
+        }
+    }
+
+    // Convert to uppercase (ASCII only)
+    func to_uppercase(self) -> String {
+        let len = self.len()
+        if len == 0 {
+            self
+        } else {
+            if let new_ptr = malloc(len + 1) {
+                var i = 0
+                while i < len {
+                    let c = self.byte_at(i)
+                    // 'a' = 97, 'z' = 122
+                    if c >= (97 as Int8) && c <= (122 as Int8) {
+                        new_ptr[i] = c - (32 as Int8)
+                    } else {
+                        new_ptr[i] = c
+                    }
+                    i = i + 1
+                }
+                new_ptr[len] = 0 as Int8
+                new_ptr as String
+            } else {
+                self
+            }
+        }
+    }
+
+    // Convert to lowercase (ASCII only)
+    func to_lowercase(self) -> String {
+        let len = self.len()
+        if len == 0 {
+            self
+        } else {
+            if let new_ptr = malloc(len + 1) {
+                var i = 0
+                while i < len {
+                    let c = self.byte_at(i)
+                    // 'A' = 65, 'Z' = 90
+                    if c >= (65 as Int8) && c <= (90 as Int8) {
+                        new_ptr[i] = c + (32 as Int8)
+                    } else {
+                        new_ptr[i] = c
+                    }
+                    i = i + 1
+                }
+                new_ptr[len] = 0 as Int8
+                new_ptr as String
+            } else {
+                self
+            }
+        }
+    }
+
+    // Replace all occurrences of old with new
+    func replace(self, old: String, new: String) -> String {
+        let self_len = self.len()
+        let old_len = old.len()
+        let new_len = new.len()
+
+        if old_len == 0 || self_len == 0 {
+            self
+        } else {
+            // First count occurrences
+            var count = 0
+            var i = 0
+            while i <= self_len - old_len {
+                var j = 0
+                var matches = true
+                while j < old_len && matches {
+                    if self.byte_at(i + j) != old.byte_at(j) {
+                        matches = false
+                    }
+                    j = j + 1
+                }
+                if matches {
+                    count = count + 1
+                    i = i + old_len
+                } else {
+                    i = i + 1
+                }
+            }
+
+            if count == 0 {
+                self
+            } else {
+                // Calculate new size
+                let new_size = self_len - (count * old_len) + (count * new_len)
+
+                if let new_ptr = malloc(new_size + 1) {
+                    var src_i = 0
+                    var dst_i = 0
+
+                    while src_i < self_len {
+                        // Check for match
+                        var matches = false
+                        if src_i <= self_len - old_len {
+                            matches = true
+                            var j = 0
+                            while j < old_len && matches {
+                                if self.byte_at(src_i + j) != old.byte_at(j) {
+                                    matches = false
+                                }
+                                j = j + 1
+                            }
+                        }
+
+                        if matches {
+                            // Copy replacement
+                            var k = 0
+                            while k < new_len {
+                                new_ptr[dst_i] = new.byte_at(k)
+                                dst_i = dst_i + 1
+                                k = k + 1
+                            }
+                            src_i = src_i + old_len
+                        } else {
+                            new_ptr[dst_i] = self.byte_at(src_i)
+                            dst_i = dst_i + 1
+                            src_i = src_i + 1
+                        }
+                    }
+
+                    new_ptr[new_size] = 0 as Int8
+                    new_ptr as String
+                } else {
+                    self
+                }
+            }
+        }
+    }
+
+    // Compare two strings for equality
+    func equals(self, other: String) -> Bool {
+        let self_len = self.len()
+        let other_len = other.len()
+
+        if self_len != other_len {
+            false
+        } else {
+            var i = 0
+            var equal = true
+            while i < self_len && equal {
+                if self.byte_at(i) != other.byte_at(i) {
+                    equal = false
+                }
+                i = i + 1
+            }
+            equal
+        }
+    }
+}

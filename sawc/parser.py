@@ -503,8 +503,15 @@ class Parser:
         start = self.current()
         self.expect(TokenType.EXTENSION)
 
-        name_token = self.expect(TokenType.IDENT, "Expected struct name after 'extension'")
-        struct_name = name_token.value
+        # Accept identifiers or built-in type names (String, Int, etc.)
+        if self.match(TokenType.IDENT):
+            name_token = self.advance()
+            struct_name = name_token.value
+        elif self.match(TokenType.STRING_TYPE):
+            self.advance()
+            struct_name = "String"
+        else:
+            self.error("Expected type name after 'extension'")
 
         # Parse optional type parameters: <T, U>
         type_params = self.parse_type_params()
@@ -1460,7 +1467,18 @@ class Parser:
             if self.match(TokenType.ELSE):
                 self.advance()
                 self.skip_newlines()
-                else_branch = self.parse_block()
+                # Check for 'else if' - parse as nested if expression
+                if self.match(TokenType.IF):
+                    nested_if = self.parse_if_expression()
+                    # Wrap the nested if in a Block with it as the final expression
+                    else_branch = Block(
+                        statements=[],
+                        final_expr=nested_if,
+                        line=nested_if.line,
+                        column=nested_if.column
+                    )
+                else:
+                    else_branch = self.parse_block()
 
             return IfLetExpr(
                 name=name_token.value,
@@ -1485,7 +1503,18 @@ class Parser:
         if self.match(TokenType.ELSE):
             self.advance()
             self.skip_newlines()
-            else_branch = self.parse_block()
+            # Check for 'else if' - parse as nested if expression
+            if self.match(TokenType.IF):
+                nested_if = self.parse_if_expression()
+                # Wrap the nested if in a Block with it as the final expression
+                else_branch = Block(
+                    statements=[],
+                    final_expr=nested_if,
+                    line=nested_if.line,
+                    column=nested_if.column
+                )
+            else:
+                else_branch = self.parse_block()
 
         return IfExpr(
             condition=condition,
