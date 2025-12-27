@@ -36,6 +36,11 @@ class CodeGenerator:
         self.module = ir.Module(name="saw_module")
         self.module.triple = binding.get_default_triple()
 
+        # Create target data for sizeof calculations
+        target = binding.Target.from_triple(binding.get_default_triple())
+        target_machine = target.create_target_machine()
+        self.target_data = binding.create_target_data(str(target_machine.target_data))
+
         # Builder will be set when generating function bodies
         self.builder: ir.IRBuilder = None
 
@@ -75,7 +80,8 @@ class CodeGenerator:
         # Self type context - the struct name when generating extension methods
         self.self_type_context: Optional[str] = None
         # Stores original AST of generic extensions for later instantiation
-        self.generic_extensions: dict[str, Extension] = {}
+        # Multiple extensions can exist for the same struct (methods + conformances)
+        self.generic_extensions: dict[str, List[Extension]] = {}
         # Tracks which monomorphized functions have been generated
         self.generated_instantiations: set[str] = set()
 
@@ -179,6 +185,10 @@ class CodeGenerator:
             # Check if it's actually an enum
             if saw_type.struct_name in self.enum_types:
                 return self.enum_types[saw_type.struct_name][0]  # Return LLVM type
+            # Handle generic struct with type arguments (e.g., VectorIterator<Int>)
+            if saw_type.type_args:
+                mangled_name = self._ensure_monomorphized_struct(saw_type.struct_name, saw_type.type_args)
+                return self.struct_types[mangled_name][0]
             if saw_type.struct_name not in self.struct_types:
                 raise ValueError(f"Undefined struct: {saw_type.struct_name}")
             return self.struct_types[saw_type.struct_name][0]  # Return LLVM type
@@ -592,6 +602,10 @@ class CodeGenerator:
 
     def _declare_extern_function(self, extern_func: ExternFunction):
         """Declare an external C function (no body, just LLVM declare)."""
+        # Skip if already declared (can happen with std library and user code both declaring)
+        if extern_func.name in self.functions:
+            return
+
         param_types = [self._get_llvm_type(p.type) for p in extern_func.parameters]
 
         # For extern functions, unwrap optionals from return type for C ABI
@@ -621,6 +635,22 @@ class CodeGenerator:
         """Convert a SawType to a string representation for name mangling."""
         if saw_type.kind == TypeKind.INT:
             return "Int"
+        elif saw_type.kind == TypeKind.INT8:
+            return "Int8"
+        elif saw_type.kind == TypeKind.INT16:
+            return "Int16"
+        elif saw_type.kind == TypeKind.INT32:
+            return "Int32"
+        elif saw_type.kind == TypeKind.INT64:
+            return "Int64"
+        elif saw_type.kind == TypeKind.UINT8:
+            return "UInt8"
+        elif saw_type.kind == TypeKind.UINT16:
+            return "UInt16"
+        elif saw_type.kind == TypeKind.UINT32:
+            return "UInt32"
+        elif saw_type.kind == TypeKind.UINT64:
+            return "UInt64"
         elif saw_type.kind == TypeKind.FLOAT:
             return "Float"
         elif saw_type.kind == TypeKind.BOOL:
@@ -629,6 +659,10 @@ class CodeGenerator:
             return "String"
         elif saw_type.kind == TypeKind.VOID:
             return "Void"
+        elif saw_type.kind == TypeKind.POINTER:
+            if saw_type.inner_type:
+                return f"Ptr_{self._type_to_string(saw_type.inner_type)}"
+            return "Ptr"
         elif saw_type.kind == TypeKind.TUPLE:
             if saw_type.element_types:
                 inner = "_".join(self._type_to_string(t) for t in saw_type.element_types)
@@ -765,6 +799,11 @@ class CodeGenerator:
                 new_inner = self._substitute_saw_type(saw_type.inner_type, type_mapping)
                 return SawType(TypeKind.OPTIONAL, inner_type=new_inner)
             return saw_type
+        elif saw_type.kind == TypeKind.POINTER:
+            if saw_type.inner_type:
+                new_inner = self._substitute_saw_type(saw_type.inner_type, type_mapping)
+                return SawType(TypeKind.POINTER, inner_type=new_inner, pointer_mutable=saw_type.pointer_mutable)
+            return saw_type
         elif saw_type.kind == TypeKind.TUPLE:
             if saw_type.element_types:
                 new_elements = [self._substitute_saw_type(e, type_mapping) for e in saw_type.element_types]
@@ -816,15 +855,17 @@ class CodeGenerator:
             substituted = self._substitute_saw_type(field.type, type_mapping)
             field_types.append(self._get_llvm_type(substituted))
 
-        # Restore context
-        self.type_param_context = old_context
-
-        # Create LLVM struct type
-        llvm_struct_type = ir.LiteralStructType(field_types)
+        # Create identified struct type (unique identity even if same field types)
+        llvm_struct_type = self.module.context.get_identified_type(mangled_name)
+        llvm_struct_type.set_body(*field_types)
 
         # Store the type and field order
         field_order = [field.name for field in generic_struct.fields]
         self.struct_types[mangled_name] = (llvm_struct_type, field_order)
+
+        # Restore context before generating extensions
+        # (extensions will set their own context)
+        self.type_param_context = old_context
 
         # If there's a generic extension for this struct, also monomorphize its methods
         if struct_name in self.generic_extensions:
@@ -879,7 +920,13 @@ class CodeGenerator:
     def _monomorphize_extension(self, struct_name: str, type_args: List[SawType],
                                  mangled_struct_name: str, type_mapping: dict[str, SawType]):
         """Generate monomorphized version of extension methods for a generic struct."""
-        generic_ext = self.generic_extensions[struct_name]
+        # Process all extensions for this struct
+        for generic_ext in self.generic_extensions[struct_name]:
+            self._monomorphize_single_extension(generic_ext, type_args, mangled_struct_name, type_mapping)
+
+    def _monomorphize_single_extension(self, generic_ext: Extension, type_args: List[SawType],
+                                        mangled_struct_name: str, type_mapping: dict[str, SawType]):
+        """Generate monomorphized version of a single extension's methods."""
 
         # Save current state - we may be in the middle of generating another function
         saved_builder = self.builder
@@ -891,6 +938,8 @@ class CodeGenerator:
         old_context = self.type_param_context
         self.type_param_context = type_mapping
 
+        # First pass: register all methods (so methods can call each other)
+        methods_to_generate = []
         for method in generic_ext.methods:
             # Create mangled name using the monomorphized struct name
             if method.is_init:
@@ -922,12 +971,14 @@ class CodeGenerator:
                 substituted_return = self._substitute_saw_type(method.return_type, type_mapping)
                 return_type = self._get_llvm_type(substituted_return)
 
-            # Create function type
+            # Create function type and register
             func_type = ir.FunctionType(return_type, param_types)
             llvm_func = ir.Function(self.module, func_type, name=mangled_name)
             self.functions[mangled_name] = llvm_func
+            methods_to_generate.append(method)
 
-            # Generate the method body
+        # Second pass: generate method bodies
+        for method in methods_to_generate:
             if method.is_init:
                 self._generate_init_method_generic(mangled_struct_name, method, type_mapping)
             else:
@@ -1034,7 +1085,9 @@ class CodeGenerator:
         """Declare all methods in an extension."""
         # Skip generic extensions - they'll be monomorphized when the struct is used
         if extension.type_params:
-            self.generic_extensions[extension.struct_name] = extension
+            if extension.struct_name not in self.generic_extensions:
+                self.generic_extensions[extension.struct_name] = []
+            self.generic_extensions[extension.struct_name].append(extension)
             return
 
         # Set Self type context for this extension
@@ -1517,6 +1570,13 @@ class CodeGenerator:
                 ir.Constant(ir.IntType(32), 0),
                 ir.Constant(ir.IntType(32), field_index)
             ], name=f"{stmt.target.member}_ptr")
+
+            # Check if we need to wrap in optional (non-optional value for optional field)
+            expected_field_type = field_ptr.type.pointee
+            if isinstance(expected_field_type, ir.LiteralStructType) and len(expected_field_type.elements) == 2:
+                # Expected is optional {i1, T}, check if value needs wrapping
+                if not isinstance(value.type, ir.LiteralStructType):
+                    value = self._wrap_in_optional(value)
 
             # Store value to field
             self.builder.store(value, field_ptr)
@@ -2292,6 +2352,10 @@ class CodeGenerator:
         if expr.name == "print":
             return self._generate_print(expr.arguments)
 
+        # Handle built-in sizeof<T>() function
+        if expr.name == "sizeof":
+            return self._generate_sizeof(expr)
+
         # Check if the name refers to a closure variable
         if expr.name in self.variables:
             closure_ptr = self.variables[expr.name]
@@ -2303,6 +2367,22 @@ class CodeGenerator:
                 env_ptr = self.builder.extract_value(closure_val, 1, name="env_ptr")
                 arg_vals = [self._generate_expression(arg.value) for arg in expr.arguments]
                 return self.builder.call(fn_ptr, [env_ptr] + arg_vals, name="closure_call")
+
+        # Check if this is actually a struct init (parser treats empty parens as function call)
+        if expr.name in self.generic_structs or expr.name in self.struct_types:
+            # Convert to struct init and generate that instead
+            field_inits = [(arg.name, arg.value) for arg in expr.arguments if arg.name]
+            struct_init = StructInit(
+                struct_name=expr.name,
+                field_inits=field_inits,
+                type_args=expr.type_args,
+                line=expr.line,
+                column=expr.column
+            )
+            # Copy resolved_init_params if it was set during typechecking
+            if hasattr(expr, 'resolved_init_params'):
+                struct_init.resolved_init_params = expr.resolved_init_params
+            return self._generate_struct_init(struct_init)
 
         # Check if this is a call to a generic function
         if expr.name in self.generic_functions:
@@ -2398,6 +2478,20 @@ class CodeGenerator:
 
         else:
             raise ValueError(f"Cannot print type: {value.type}")
+
+    def _generate_sizeof(self, expr: FunctionCall):
+        """Generate code for sizeof<T>() - returns the size in bytes of type T."""
+        # Get the type argument
+        if not expr.type_args or len(expr.type_args) != 1:
+            raise ValueError("sizeof requires exactly one type argument")
+
+        saw_type = expr.type_args[0]
+        # Resolve type parameters if in a generic context
+        if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name in self.type_param_context:
+            saw_type = self.type_param_context[saw_type.struct_name]
+        llvm_type = self._get_llvm_type(saw_type)
+        size = llvm_type.get_abi_size(self.target_data)
+        return ir.Constant(ir.IntType(64), size)
 
     def _generate_if_expression(self, expr: IfExpr):
         cond = self._generate_expression(expr.condition)
@@ -2553,9 +2647,9 @@ class CodeGenerator:
         # Remove the bound variable from scope after the block
         del self.variables[expr.name]
 
-        if not self.builder.block.is_terminated:
-            self.builder.branch(merge_bb)
-        then_bb = self.builder.block
+        # Capture state before adding terminator
+        then_terminated = self.builder.block.is_terminated
+        then_bb_end = self.builder.block
 
         # Generate else branch
         self.builder.position_at_start(else_bb)
@@ -2563,9 +2657,83 @@ class CodeGenerator:
             else_val = self._generate_block(expr.else_branch)
         else:
             else_val = None
-        if not self.builder.block.is_terminated:
+        else_terminated = self.builder.block.is_terminated
+        else_bb_end = self.builder.block
+
+        # Helper to check if a type is an optional struct
+        def is_optional_struct(t):
+            return (isinstance(t, ir.LiteralStructType) and
+                    len(t.elements) == 2 and
+                    t.elements[0] == ir.IntType(1))
+
+        # Handle type mismatch (optional wrapping needed)
+        if then_val is not None and else_val is not None and then_val.type != else_val.type:
+            then_is_optional = is_optional_struct(then_val.type)
+            else_is_optional = is_optional_struct(else_val.type)
+
+            if else_is_optional and then_val.type == else_val.type.elements[1]:
+                # then is T, else is T? - wrap then in Some
+                optional_type = else_val.type
+
+                # Create alloca for result at entry
+                self.builder.position_at_start(func.entry_basic_block)
+                result_alloca = self.builder.alloca(optional_type, name="if_let_result")
+                self.builder.position_at_end(func.entry_basic_block)
+
+                # Wrap then value and store
+                self.builder.position_at_end(then_bb_end)
+                if not then_terminated:
+                    wrapped_then = ir.Constant(optional_type, ir.Undefined)
+                    wrapped_then = self.builder.insert_value(wrapped_then, ir.Constant(ir.IntType(1), 1), 0)
+                    wrapped_then = self.builder.insert_value(wrapped_then, then_val, 1, name="some_then")
+                    self.builder.store(wrapped_then, result_alloca)
+                    self.builder.branch(merge_bb)
+
+                # Store else value directly
+                self.builder.position_at_end(else_bb_end)
+                if not else_terminated:
+                    self.builder.store(else_val, result_alloca)
+                    self.builder.branch(merge_bb)
+
+                # Load result at merge
+                self.builder.position_at_start(merge_bb)
+                return self.builder.load(result_alloca, name="if_let_tmp")
+
+            elif then_is_optional and else_val.type == then_val.type.elements[1]:
+                # then is T?, else is T - wrap else in Some
+                optional_type = then_val.type
+
+                # Create alloca for result at entry
+                self.builder.position_at_start(func.entry_basic_block)
+                result_alloca = self.builder.alloca(optional_type, name="if_let_result")
+                self.builder.position_at_end(func.entry_basic_block)
+
+                # Store then value directly
+                self.builder.position_at_end(then_bb_end)
+                if not then_terminated:
+                    self.builder.store(then_val, result_alloca)
+                    self.builder.branch(merge_bb)
+
+                # Wrap else value and store
+                self.builder.position_at_end(else_bb_end)
+                if not else_terminated:
+                    wrapped_else = ir.Constant(optional_type, ir.Undefined)
+                    wrapped_else = self.builder.insert_value(wrapped_else, ir.Constant(ir.IntType(1), 1), 0)
+                    wrapped_else = self.builder.insert_value(wrapped_else, else_val, 1, name="some_else")
+                    self.builder.store(wrapped_else, result_alloca)
+                    self.builder.branch(merge_bb)
+
+                # Load result at merge
+                self.builder.position_at_start(merge_bb)
+                return self.builder.load(result_alloca, name="if_let_tmp")
+
+        # Normal case - add branches if not terminated
+        if not then_terminated:
+            self.builder.position_at_end(then_bb_end)
             self.builder.branch(merge_bb)
-        else_bb = self.builder.block
+        if not else_terminated:
+            self.builder.position_at_end(else_bb_end)
+            self.builder.branch(merge_bb)
 
         # Merge block
         self.builder.position_at_start(merge_bb)
@@ -2574,8 +2742,8 @@ class CodeGenerator:
         if then_val is not None and else_val is not None:
             if then_val.type == else_val.type:
                 phi = self.builder.phi(then_val.type, name="if_let_result")
-                phi.add_incoming(then_val, then_bb)
-                phi.add_incoming(else_val, else_bb)
+                phi.add_incoming(then_val, then_bb_end)
+                phi.add_incoming(else_val, else_bb_end)
                 return phi
 
         return then_val
@@ -2699,8 +2867,17 @@ class CodeGenerator:
         # Handle generic struct instantiation
         struct_name = expr.struct_name
         if expr.type_args:
+            # Substitute type parameters in type args if we're in a generic context
+            # e.g., Vector<T>(...) inside Vector<Int>.init() should become Vector<Int>(...)
+            resolved_type_args = []
+            for type_arg in expr.type_args:
+                if self.type_param_context:
+                    resolved = type_arg.substitute(self.type_param_context)
+                    resolved_type_args.append(resolved)
+                else:
+                    resolved_type_args.append(type_arg)
             # This is a generic struct - ensure monomorphized version exists
-            struct_name = self._ensure_monomorphized_struct(expr.struct_name, expr.type_args)
+            struct_name = self._ensure_monomorphized_struct(expr.struct_name, resolved_type_args)
 
         if struct_name not in self.struct_types:
             raise ValueError(f"Undefined struct: {struct_name}")
@@ -2743,7 +2920,15 @@ class CodeGenerator:
         struct_val = ir.Constant(llvm_struct_type, ir.Undefined)
         for i, field_name in enumerate(field_order):
             if field_name in field_values:
-                struct_val = self.builder.insert_value(struct_val, field_values[field_name], i)
+                val = field_values[field_name]
+                # Check if we need to wrap in optional (non-optional value for optional field)
+                expected_field_type = llvm_struct_type.elements[i]
+                if isinstance(expected_field_type, ir.LiteralStructType) and len(expected_field_type.elements) == 2:
+                    # Expected is optional {i1, T}, check if value needs wrapping
+                    if not isinstance(val.type, ir.LiteralStructType):
+                        # Value is not optional, wrap it
+                        val = self._wrap_in_optional(val)
+                struct_val = self.builder.insert_value(struct_val, val, i)
 
         return struct_val
 
@@ -2776,6 +2961,13 @@ class CodeGenerator:
         # For now, assume the object is a struct and find which one based on its LLVM type
         obj_type = obj_val.type
 
+        # Handle pointer to struct (e.g., var self methods)
+        is_pointer = isinstance(obj_type, ir.PointerType)
+        if is_pointer:
+            # Load the struct value from the pointer
+            obj_val = self.builder.load(obj_val, name="deref")
+            obj_type = obj_val.type
+
         # For identified types, get name directly
         struct_name = None
         if hasattr(obj_type, 'name') and obj_type.name in self.struct_types:
@@ -2791,8 +2983,12 @@ class CodeGenerator:
             _, field_order = self.struct_types[struct_name]
             if expr.member in field_order:
                 field_index = field_order.index(expr.member)
-                return self.builder.extract_value(obj_val, field_index)
+                result = self.builder.extract_value(obj_val, field_index)
+                return result
 
+        # Debug: print available struct types
+        for name, (llvm_type, fields) in self.struct_types.items():
+            print(f"  {name}: {llvm_type} -> {fields}")
         raise ValueError(f"Cannot find field {expr.member} in struct with type {obj_type}")
 
     def _wrap_in_optional(self, value):
@@ -2814,7 +3010,11 @@ class CodeGenerator:
         # Create an optional with is_some = false
         # Use resolved_type if available (from typechecker), otherwise use i64 as placeholder
         if expr.resolved_type and expr.resolved_type.inner_type:
-            inner_llvm_type = self._get_llvm_type(expr.resolved_type.inner_type)
+            # Substitute type params if we're in a generic context
+            inner_type = expr.resolved_type.inner_type
+            if self.type_param_context:
+                inner_type = inner_type.substitute(self.type_param_context)
+            inner_llvm_type = self._get_llvm_type(inner_type)
         else:
             inner_llvm_type = ir.IntType(64)
 

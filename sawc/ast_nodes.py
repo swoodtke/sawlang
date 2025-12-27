@@ -171,6 +171,11 @@ class SawType:
             substituted_inner = self.inner_type.substitute(type_map)
             return SawType(TypeKind.OPTIONAL, inner_type=substituted_inner)
 
+        # Handle pointer types
+        if self.kind == TypeKind.POINTER and self.inner_type:
+            substituted_inner = self.inner_type.substitute(type_map)
+            return SawType(TypeKind.POINTER, inner_type=substituted_inner, pointer_mutable=self.pointer_mutable)
+
         # Handle tuple types
         if self.kind == TypeKind.TUPLE and self.element_types:
             substituted_elements = [t.substitute(type_map) for t in self.element_types]

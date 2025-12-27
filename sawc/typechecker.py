@@ -593,19 +593,27 @@ class TypeChecker:
 
     def _register_extern_function(self, extern_func: ExternFunction):
         """Register an external (FFI) function signature."""
-        if extern_func.name in self.functions:
-            self.reporter.error(
-                ErrorKind.DUPLICATE_FUNCTION,
-                f"function `{extern_func.name}` is defined multiple times",
-                extern_func.line, extern_func.column
-            )
-            return
-
         # Resolve types for extern functions
         param_types = [self._resolve_type(p.type) for p in extern_func.parameters]
         param_names = [p.name for p in extern_func.parameters]
         resolved_return_type = self._resolve_type(extern_func.return_type)
         info = FunctionInfo(param_types, resolved_return_type, param_names)
+
+        if extern_func.name in self.functions:
+            # Allow duplicate extern declarations with the same signature
+            # This enables library code (like std/) to declare externs that
+            # user code may also declare
+            existing = self.functions[extern_func.name]
+            if (existing.param_types == param_types and
+                existing.return_type == resolved_return_type):
+                return  # Same signature, allow it
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"function `{extern_func.name}` is defined multiple times with different signatures",
+                extern_func.line, extern_func.column
+            )
+            return
+
         self.functions[extern_func.name] = info
 
     def _register_extension(self, extension: Extension):
@@ -1860,6 +1868,27 @@ class TypeChecker:
                 self._check_expression(arg.value)
             return SawType(TypeKind.VOID)
 
+        # Handle built-in sizeof<T>() function
+        if expr.name == "sizeof":
+            if len(expr.arguments) != 0:
+                self.reporter.error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`sizeof` takes no arguments, but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+            if not expr.type_args or len(expr.type_args) != 1:
+                self.reporter.error(
+                    ErrorKind.TYPE_ERROR,
+                    "`sizeof` requires exactly one type argument: sizeof<T>()",
+                    expr.line, expr.column
+                )
+                return None
+            # Resolve the type argument to validate it exists
+            resolved_type = self._resolve_type(expr.type_args[0])
+            if resolved_type is None:
+                return None
+            return SawType(TypeKind.INT)
+
         # Check if this is a call to a function-typed variable (closure)
         var_info = self.current_scope.lookup(expr.name)
         if var_info and var_info.type.kind == TypeKind.FUNCTION:
@@ -1896,6 +1925,37 @@ class TypeChecker:
         # Look up function
         func_info = self.functions.get(expr.name)
         if not func_info:
+            # Check if this is actually a struct init call (e.g., Vector<Int>())
+            # This happens when parser sees empty parens and treats it as function call
+            if expr.name in self.structs:
+                # Convert FunctionCall to StructInit and check that instead
+                from ast_nodes import StructInit, Argument
+                # Convert arguments to field inits (name: value pairs)
+                field_inits = []
+                for arg in expr.arguments:
+                    if arg.name:
+                        field_inits.append((arg.name, arg.value))
+                    else:
+                        # Positional argument - not supported for struct init
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"struct initialization requires named arguments",
+                            arg.value.line, arg.value.column
+                        )
+                        return None
+                struct_init = StructInit(
+                    struct_name=expr.name,
+                    field_inits=field_inits,
+                    type_args=expr.type_args,
+                    line=expr.line,
+                    column=expr.column
+                )
+                result = self._check_struct_init(struct_init)
+                # Copy resolved_init_params back to the FunctionCall for codegen
+                if hasattr(struct_init, 'resolved_init_params'):
+                    expr.resolved_init_params = struct_init.resolved_init_params
+                return result
+
             self.reporter.error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 f"undefined function `{expr.name}`",
@@ -2407,6 +2467,9 @@ class TypeChecker:
                 if type_mapping:
                     expected_type = expected_type.substitute(type_mapping)
                 actual_type = self._check_expression(field_value)
+                # Annotate None literals with expected type for codegen
+                if expected_type.kind == TypeKind.OPTIONAL and isinstance(field_value, NoneLiteral):
+                    field_value.resolved_type = expected_type
                 if actual_type and not self._types_compatible(actual_type, expected_type):
                     self.reporter.error(
                         ErrorKind.TYPE_MISMATCH,
@@ -2592,6 +2655,13 @@ class TypeChecker:
         if struct_info is None:
             return None
 
+        # Build type substitution map for generic structs
+        # e.g., for Vector<Int>, map T -> Int
+        type_subst: Dict[str, SawType] = {}
+        if struct_info.type_params and obj_type.type_args:
+            for type_param, type_arg in zip(struct_info.type_params, obj_type.type_args):
+                type_subst[type_param.name] = type_arg
+
         # Look up method
         if expr.method_name not in struct_info.methods:
             self.reporter.error(
@@ -2634,6 +2704,9 @@ class TypeChecker:
         for i, arg in enumerate(expr.arguments):
             arg_type = self._check_expression(arg.value)
             expected_type = method_info.param_types[i + param_offset]
+            # Substitute type parameters for generic structs
+            if type_subst:
+                expected_type = expected_type.substitute(type_subst)
             if arg_type and not self._types_compatible(arg_type, expected_type):
                 param_name = method_info.param_names[i + param_offset]
                 self.reporter.error(
@@ -2642,7 +2715,11 @@ class TypeChecker:
                     arg.value.line, arg.value.column
                 )
 
-        return method_info.return_type
+        # Substitute type parameters in return type
+        return_type = method_info.return_type
+        if type_subst:
+            return_type = return_type.substitute(type_subst)
+        return return_type
 
     def _check_self_expr(self, expr: SelfExpr) -> Optional[SawType]:
         """Check 'self' keyword usage."""

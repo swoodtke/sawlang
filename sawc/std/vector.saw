@@ -1,0 +1,167 @@
+// Vector<T> - Dynamic array implementation
+// Part of the Saw standard library
+
+// =============================================================================
+// FFI declarations for memory management
+// =============================================================================
+
+extern "C" {
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+    func realloc(ptr: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
+}
+
+// =============================================================================
+// Vector<T> - A dynamically-sized array
+// =============================================================================
+
+struct Vector<T> {
+    buffer: UnsafePointer<T>?
+    length: Int
+    capacity: Int
+}
+
+extension Vector<T> {
+    // Create an empty vector
+    init() -> Vector<T> {
+        Vector<T>(buffer: None, length: 0, capacity: 0)
+    }
+
+    // Create a vector with pre-allocated capacity
+    init(capacity: Int) -> Vector<T> {
+        if capacity <= 0 {
+            Vector<T>(buffer: None, length: 0, capacity: 0)
+        } else {
+            let byte_size = capacity * sizeof<T>()
+            if let raw_ptr = malloc(byte_size) {
+                let typed_ptr = raw_ptr as UnsafePointer<T>
+                Vector<T>(buffer: typed_ptr, length: 0, capacity: capacity)
+            } else {
+                // Allocation failed, return empty vector
+                Vector<T>(buffer: None, length: 0, capacity: 0)
+            }
+        }
+    }
+
+    // Get the number of elements
+    func len(self) -> Int {
+        self.length
+    }
+
+    // Check if the vector is empty
+    func is_empty(self) -> Bool {
+        self.length == 0
+    }
+
+    // Get element at index (returns None if out of bounds)
+    func get(self, index: Int) -> T? {
+        if index < 0 || index >= self.length {
+            None
+        } else {
+            if let buf = self.buffer {
+                buf[index]
+            } else {
+                None
+            }
+        }
+    }
+
+    // Add an element to the end
+    func push(var self, value: T) {
+        // Grow if needed
+        if self.length >= self.capacity {
+            self.grow()
+        }
+        // Add the element
+        if let buf = self.buffer {
+            buf[self.length] = value
+            self.length = self.length + 1
+        }
+    }
+
+    // Remove and return the last element
+    func pop(var self) -> T? {
+        if self.length == 0 {
+            None
+        } else {
+            self.length = self.length - 1
+            if let buf = self.buffer {
+                buf[self.length]
+            } else {
+                None
+            }
+        }
+    }
+
+    // Remove all elements (keeps capacity)
+    func clear(var self) {
+        self.length = 0
+    }
+
+    // Internal: grow the buffer capacity
+    func grow(var self) {
+        let new_capacity = if self.capacity == 0 { 4 } else { self.capacity * 2 }
+        let new_byte_size = new_capacity * sizeof<T>()
+
+        if let buf = self.buffer {
+            // Reallocate existing buffer
+            let raw_ptr = buf as UnsafePointer<Int8>
+            if let new_raw = realloc(raw_ptr, new_byte_size) {
+                self.buffer = new_raw as UnsafePointer<T>
+                self.capacity = new_capacity
+            }
+        } else {
+            // First allocation
+            if let raw_ptr = malloc(new_byte_size) {
+                self.buffer = raw_ptr as UnsafePointer<T>
+                self.capacity = new_capacity
+            }
+        }
+    }
+
+    // Create an iterator for this vector
+    func iter(self) -> VectorIterator<T> {
+        VectorIterator<T>(buffer: self.buffer, length: self.length, index: 0)
+    }
+}
+
+// Vector is NoCopy - cannot be implicitly copied (would cause double-free)
+// Use move semantics or implement explicit .clone() if deep copy is needed
+extension Vector<T>: NoCopy {
+    func deinit(var self) {
+        if let buf = self.buffer {
+            let raw_ptr = buf as UnsafePointer<Int8>
+            free(raw_ptr)
+        }
+    }
+}
+
+// =============================================================================
+// VectorIterator<T> - Iterator over vector elements
+// =============================================================================
+
+// Iterator holds a pointer and length, not the Vector itself
+// This allows Vector to be NoCopy while still supporting iteration
+struct VectorIterator<T> {
+    buffer: UnsafePointer<T>?
+    length: Int
+    index: Int
+}
+
+extension VectorIterator<T>: Iterator {
+    type Item = T
+
+    func next(var self) -> T? {
+        if self.index < self.length {
+            let idx = self.index
+            self.index = self.index + 1
+            if let buf = self.buffer {
+                buf[idx]
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}

@@ -1,0 +1,21 @@
+// Simple Vector<T> test
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 10
+
+func main() {
+    // Create empty vector
+    var v = Vector<Int>()
+    print(v.len())  // 0
+
+    // Push one element
+    v.push(10)
+    print(v.len())  // 1
+
+    // Get element
+    if let x = v.get(0) {
+        print(x)  // 10
+    }
+}

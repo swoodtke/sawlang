@@ -1,0 +1,40 @@
+// Test Vector<T> from std library
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 3
+// 10
+// 20
+// 30
+// 30
+// 2
+// 10
+// 20
+
+func main() {
+    // Create empty vector
+    var v = Vector<Int>()
+    print(v.len())  // 0
+
+    // Push some elements
+    v.push(10)
+    v.push(20)
+    v.push(30)
+    print(v.len())  // 3
+
+    // Get elements
+    if let x = v.get(0) { print(x) }  // 10
+    if let y = v.get(1) { print(y) }  // 20
+    if let z = v.get(2) { print(z) }  // 30
+
+    // Pop element
+    if let last = v.pop() {
+        print(last)  // 30
+    }
+    print(v.len())  // 2
+
+    // Iterate
+    for item in v.iter() {
+        print(item)  // 10, 20
+    }
+}

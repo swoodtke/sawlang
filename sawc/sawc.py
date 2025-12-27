@@ -42,18 +42,48 @@ def parse_source(source: str, source_path: str, verbose: bool = False):
 
 
 def load_builtins(verbose: bool = False):
-    """Load and parse the builtin.saw file."""
-    builtin_path = os.path.join(os.path.dirname(__file__), 'builtin.saw')
-    if not os.path.exists(builtin_path):
-        return None
+    """Load and parse the builtin.saw file and all std/*.saw files."""
+    from ast_nodes import Program
 
-    with open(builtin_path, 'r') as f:
-        builtin_source = f.read()
+    sawc_dir = os.path.dirname(__file__)
+    combined_ast = None
 
-    if verbose:
-        print("  Loading builtins...")
+    # Load builtin.saw first (core interfaces)
+    builtin_path = os.path.join(sawc_dir, 'builtin.saw')
+    if os.path.exists(builtin_path):
+        with open(builtin_path, 'r') as f:
+            builtin_source = f.read()
+        if verbose:
+            print("  Loading builtins...")
+        combined_ast = parse_source(builtin_source, builtin_path, verbose)
 
-    return parse_source(builtin_source, builtin_path, verbose)
+    # Load all files from std/ directory
+    std_dir = os.path.join(sawc_dir, 'std')
+    if os.path.isdir(std_dir):
+        std_files = sorted([f for f in os.listdir(std_dir) if f.endswith('.saw')])
+        for filename in std_files:
+            filepath = os.path.join(std_dir, filename)
+            with open(filepath, 'r') as f:
+                source = f.read()
+            if verbose:
+                print(f"  Loading std/{filename}...")
+            file_ast = parse_source(source, filepath, verbose)
+            if combined_ast is None:
+                combined_ast = file_ast
+            else:
+                combined_ast = Program(
+                    structs=combined_ast.structs + file_ast.structs,
+                    functions=combined_ast.functions + file_ast.functions,
+                    extensions=combined_ast.extensions + file_ast.extensions,
+                    enums=combined_ast.enums + file_ast.enums,
+                    interfaces=combined_ast.interfaces + file_ast.interfaces,
+                    type_definitions=combined_ast.type_definitions + file_ast.type_definitions,
+                    extern_blocks=combined_ast.extern_blocks + file_ast.extern_blocks,
+                    line=combined_ast.line,
+                    column=combined_ast.column
+                )
+
+    return combined_ast
 
 
 def merge_programs(builtin_ast, user_ast):
