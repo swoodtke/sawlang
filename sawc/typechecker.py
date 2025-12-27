@@ -1725,6 +1725,15 @@ class TypeChecker:
         if from_type.kind == TypeKind.POINTER and to_type.kind == TypeKind.POINTER:
             return to_type
 
+        # String to/from UnsafePointer<Int8> cast
+        # String is represented as i8* at runtime, so this is safe
+        if from_type.kind == TypeKind.STRING and to_type.kind == TypeKind.POINTER:
+            if to_type.inner_type and to_type.inner_type.kind == TypeKind.INT8:
+                return to_type
+        if from_type.kind == TypeKind.POINTER and to_type.kind == TypeKind.STRING:
+            if from_type.inner_type and from_type.inner_type.kind == TypeKind.INT8:
+                return to_type
+
         self.reporter.error(
             ErrorKind.TYPE_MISMATCH,
             f"cannot cast `{from_type}` to `{to_type}`",

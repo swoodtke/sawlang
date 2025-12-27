@@ -1,0 +1,142 @@
+// StringBuilder - Mutable string buffer
+// Part of the Saw standard library
+
+// =============================================================================
+// FFI declarations
+// =============================================================================
+
+extern "C" {
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+    func realloc(ptr: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
+    func strlen(s: UnsafePointer<Int8>) -> Int
+}
+
+// =============================================================================
+// StringBuilder - A mutable string buffer
+// =============================================================================
+
+struct StringBuilder {
+    buffer: UnsafePointer<Int8>?
+    length: Int
+    capacity: Int
+}
+
+extension StringBuilder {
+    // Create an empty string builder
+    init() -> StringBuilder {
+        StringBuilder(buffer: None, length: 0, capacity: 0)
+    }
+
+    // Create with initial capacity
+    init(capacity: Int) -> StringBuilder {
+        if capacity <= 0 {
+            StringBuilder(buffer: None, length: 0, capacity: 0)
+        } else {
+            if let ptr = malloc(capacity) {
+                StringBuilder(buffer: ptr, length: 0, capacity: capacity)
+            } else {
+                StringBuilder(buffer: None, length: 0, capacity: 0)
+            }
+        }
+    }
+
+    // Get current length
+    func len(self) -> Int {
+        self.length
+    }
+
+    // Check if empty
+    func is_empty(self) -> Bool {
+        self.length == 0
+    }
+
+    // Append a string
+    func append(var self, s: String) {
+        let s_ptr = s as UnsafePointer<Int8>
+        let s_len = strlen(s_ptr)
+
+        if s_len == 0 {
+            return
+        }
+
+        // Ensure capacity
+        let needed = self.length + s_len + 1  // +1 for null terminator
+        if needed > self.capacity {
+            self.grow(needed)
+        }
+
+        // Copy string bytes one at a time
+        if let buf = self.buffer {
+            var i = 0
+            while i < s_len {
+                buf[self.length + i] = s_ptr[i]
+                i = i + 1
+            }
+            self.length = self.length + s_len
+            // Add null terminator
+            buf[self.length] = 0
+        }
+    }
+
+    // Append a single character (as Int8)
+    func append_char(var self, c: Int8) {
+        let needed = self.length + 2  // +1 for char, +1 for null
+        if needed > self.capacity {
+            self.grow(needed)
+        }
+
+        if let buf = self.buffer {
+            buf[self.length] = c
+            self.length = self.length + 1
+            buf[self.length] = 0
+        }
+    }
+
+    // Clear the buffer (keep capacity)
+    func clear(var self) {
+        self.length = 0
+        if let buf = self.buffer {
+            buf[0] = 0
+        }
+    }
+
+    // Convert to String (returns pointer to internal buffer - valid while StringBuilder exists)
+    func as_str(self) -> String {
+        if let buf = self.buffer {
+            buf as String
+        } else {
+            ""
+        }
+    }
+
+    // Internal: grow buffer to at least min_capacity
+    func grow(var self, min_capacity: Int) {
+        var new_capacity = if self.capacity == 0 { 16 } else { self.capacity * 2 }
+        while new_capacity < min_capacity {
+            new_capacity = new_capacity * 2
+        }
+
+        if let buf = self.buffer {
+            if let new_buf = realloc(buf, new_capacity) {
+                self.buffer = new_buf
+                self.capacity = new_capacity
+            }
+        } else {
+            if let new_buf = malloc(new_capacity) {
+                self.buffer = new_buf
+                self.capacity = new_capacity
+                new_buf[0] = 0  // Initialize with null terminator
+            }
+        }
+    }
+}
+
+// StringBuilder is NoCopy
+extension StringBuilder: NoCopy {
+    func deinit(var self) {
+        if let buf = self.buffer {
+            free(buf)
+        }
+    }
+}

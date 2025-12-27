@@ -1,0 +1,22 @@
+// Simple StringBuilder test
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 5
+// Hello
+// 13
+// Hello, World!
+
+func main() {
+    var sb = StringBuilder()
+    print(sb.len())  // 0
+
+    sb.append("Hello")
+    print(sb.len())  // 5
+    print(sb.as_str())  // Hello
+
+    sb.append(", ")
+    sb.append("World!")
+    print(sb.len())  // 13
+    print(sb.as_str())  // Hello, World!
+}
