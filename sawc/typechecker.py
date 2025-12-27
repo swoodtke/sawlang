@@ -879,24 +879,42 @@ class TypeChecker:
 
     def _check_statement(self, stmt: Statement):
         """Check a statement."""
-        if isinstance(stmt, LetStatement):
-            self._check_let_statement(stmt)
-        elif isinstance(stmt, AssignStatement):
-            self._check_assign_statement(stmt)
-        elif isinstance(stmt, ReturnStatement):
-            self._check_return_statement(stmt)
-        elif isinstance(stmt, GuardLetStatement):
-            self._check_guard_let_statement(stmt)
-        elif isinstance(stmt, WhileExpr):
+        # Handle dual-purpose nodes (Expressions used as Statements)
+        if isinstance(stmt, WhileExpr):
             self._check_while_expr(stmt)
-        elif isinstance(stmt, ForLoop):
+            return
+        if isinstance(stmt, ForLoop):
             self._check_for_loop(stmt)
-        elif isinstance(stmt, BreakStatement):
-            self._check_break_statement(stmt)
-        elif isinstance(stmt, ContinueStatement):
-            self._check_continue_statement(stmt)
-        elif isinstance(stmt, ExpressionStatement):
-            self._check_expression(stmt.expression)
+            return
+
+        # Visitor dispatch for all other statements
+        method_name = f'visit_{stmt.__class__.__name__}'
+        visitor = getattr(self, method_name, None)
+        if visitor:
+            visitor(stmt)
+
+    # ===== Statement Visitor Methods =====
+
+    def visit_LetStatement(self, stmt: LetStatement):
+        self._check_let_statement(stmt)
+
+    def visit_AssignStatement(self, stmt: AssignStatement):
+        self._check_assign_statement(stmt)
+
+    def visit_ReturnStatement(self, stmt: ReturnStatement):
+        self._check_return_statement(stmt)
+
+    def visit_GuardLetStatement(self, stmt: GuardLetStatement):
+        self._check_guard_let_statement(stmt)
+
+    def visit_BreakStatement(self, stmt: BreakStatement):
+        self._check_break_statement(stmt)
+
+    def visit_ContinueStatement(self, stmt: ContinueStatement):
+        self._check_continue_statement(stmt)
+
+    def visit_ExpressionStatement(self, stmt: ExpressionStatement):
+        self._check_expression(stmt.expression)
 
     def _check_let_statement(self, stmt: LetStatement):
         """Check a let/var statement."""
@@ -1437,94 +1455,100 @@ class TypeChecker:
 
     def _check_expression(self, expr: Expression) -> Optional[SawType]:
         """Check an expression and return its type."""
-        if isinstance(expr, IntLiteral):
-            return SawType(TypeKind.INT)
+        method_name = f'visit_{expr.__class__.__name__}'
+        visitor = getattr(self, method_name, None)
+        if visitor is None:
+            return None
+        return visitor(expr)
 
-        elif isinstance(expr, FloatLiteral):
-            return SawType(TypeKind.FLOAT)
+    # ===== Expression Visitor Methods =====
 
-        elif isinstance(expr, BoolLiteral):
-            return SawType(TypeKind.BOOL)
+    def visit_IntLiteral(self, expr: IntLiteral) -> Optional[SawType]:
+        return SawType(TypeKind.INT)
 
-        elif isinstance(expr, StringLiteral):
-            return SawType(TypeKind.STRING)
+    def visit_FloatLiteral(self, expr: FloatLiteral) -> Optional[SawType]:
+        return SawType(TypeKind.FLOAT)
 
-        elif isinstance(expr, Identifier):
-            return self._check_identifier(expr)
+    def visit_BoolLiteral(self, expr: BoolLiteral) -> Optional[SawType]:
+        return SawType(TypeKind.BOOL)
 
-        elif isinstance(expr, BinaryOp):
-            return self._check_binary_op(expr)
+    def visit_StringLiteral(self, expr: StringLiteral) -> Optional[SawType]:
+        return SawType(TypeKind.STRING)
 
-        elif isinstance(expr, UnaryOp):
-            return self._check_unary_op(expr)
+    def visit_Identifier(self, expr: Identifier) -> Optional[SawType]:
+        return self._check_identifier(expr)
 
-        elif isinstance(expr, MoveExpr):
-            return self._check_move_expr(expr)
+    def visit_BinaryOp(self, expr: BinaryOp) -> Optional[SawType]:
+        return self._check_binary_op(expr)
 
-        elif isinstance(expr, FunctionCall):
-            return self._check_function_call(expr)
+    def visit_UnaryOp(self, expr: UnaryOp) -> Optional[SawType]:
+        return self._check_unary_op(expr)
 
-        elif isinstance(expr, IfExpr):
-            return self._check_if_expr(expr)
+    def visit_MoveExpr(self, expr: MoveExpr) -> Optional[SawType]:
+        return self._check_move_expr(expr)
 
-        elif isinstance(expr, IfLetExpr):
-            return self._check_if_let_expr(expr)
+    def visit_FunctionCall(self, expr: FunctionCall) -> Optional[SawType]:
+        return self._check_function_call(expr)
 
-        elif isinstance(expr, TupleLiteral):
-            return self._check_tuple_literal(expr)
+    def visit_IfExpr(self, expr: IfExpr) -> Optional[SawType]:
+        return self._check_if_expr(expr)
 
-        elif isinstance(expr, TupleIndex):
-            return self._check_tuple_index(expr)
+    def visit_IfLetExpr(self, expr: IfLetExpr) -> Optional[SawType]:
+        return self._check_if_let_expr(expr)
 
-        elif isinstance(expr, ArrayLiteral):
-            return self._check_array_literal(expr)
+    def visit_TupleLiteral(self, expr: TupleLiteral) -> Optional[SawType]:
+        return self._check_tuple_literal(expr)
 
-        elif isinstance(expr, ArrayIndex):
-            return self._check_array_index(expr)
+    def visit_TupleIndex(self, expr: TupleIndex) -> Optional[SawType]:
+        return self._check_tuple_index(expr)
 
-        elif isinstance(expr, MemberAccess):
-            return self._check_member_access(expr)
+    def visit_ArrayLiteral(self, expr: ArrayLiteral) -> Optional[SawType]:
+        return self._check_array_literal(expr)
 
-        elif isinstance(expr, StructInit):
-            return self._check_struct_init(expr)
+    def visit_ArrayIndex(self, expr: ArrayIndex) -> Optional[SawType]:
+        return self._check_array_index(expr)
 
-        elif isinstance(expr, NoneLiteral):
-            return self._check_none_literal(expr)
+    def visit_MemberAccess(self, expr: MemberAccess) -> Optional[SawType]:
+        return self._check_member_access(expr)
 
-        elif isinstance(expr, ForceUnwrap):
-            return self._check_force_unwrap(expr)
+    def visit_StructInit(self, expr: StructInit) -> Optional[SawType]:
+        return self._check_struct_init(expr)
 
-        elif isinstance(expr, NilCoalesce):
-            return self._check_nil_coalesce(expr)
+    def visit_NoneLiteral(self, expr: NoneLiteral) -> Optional[SawType]:
+        return self._check_none_literal(expr)
 
-        elif isinstance(expr, OptionalChain):
-            return self._check_optional_chain(expr)
+    def visit_ForceUnwrap(self, expr: ForceUnwrap) -> Optional[SawType]:
+        return self._check_force_unwrap(expr)
 
-        elif isinstance(expr, MethodCall):
-            return self._check_method_call(expr)
+    def visit_NilCoalesce(self, expr: NilCoalesce) -> Optional[SawType]:
+        return self._check_nil_coalesce(expr)
 
-        elif isinstance(expr, SelfExpr):
-            return self._check_self_expr(expr)
+    def visit_OptionalChain(self, expr: OptionalChain) -> Optional[SawType]:
+        return self._check_optional_chain(expr)
 
-        elif isinstance(expr, EnumInit):
-            return self._check_enum_init(expr)
+    def visit_MethodCall(self, expr: MethodCall) -> Optional[SawType]:
+        return self._check_method_call(expr)
 
-        elif isinstance(expr, MatchExpr):
-            return self._check_match_expr(expr)
+    def visit_SelfExpr(self, expr: SelfExpr) -> Optional[SawType]:
+        return self._check_self_expr(expr)
 
-        elif isinstance(expr, WhileExpr):
-            return self._check_while_expr_as_expression(expr)
+    def visit_EnumInit(self, expr: EnumInit) -> Optional[SawType]:
+        return self._check_enum_init(expr)
 
-        elif isinstance(expr, RangeExpr):
-            return self._check_range_expr(expr)
+    def visit_MatchExpr(self, expr: MatchExpr) -> Optional[SawType]:
+        return self._check_match_expr(expr)
 
-        elif isinstance(expr, ForLoop):
-            return self._check_for_loop_as_expression(expr)
+    def visit_WhileExpr(self, expr: WhileExpr) -> Optional[SawType]:
+        return self._check_while_expr_as_expression(expr)
 
-        elif isinstance(expr, ClosureExpr):
-            return self._check_closure(expr)
+    def visit_RangeExpr(self, expr: RangeExpr) -> Optional[SawType]:
+        return self._check_range_expr(expr)
 
-        return None
+    def visit_ForLoop(self, expr: ForLoop) -> Optional[SawType]:
+        return self._check_for_loop_as_expression(expr)
+
+    def visit_ClosureExpr(self, expr: ClosureExpr) -> Optional[SawType]:
+        return self._check_closure(expr)
 
     def _check_identifier(self, expr: Identifier) -> Optional[SawType]:
         """Check an identifier reference."""

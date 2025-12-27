@@ -1258,26 +1258,44 @@ class CodeGenerator:
         return result
 
     def _generate_statement(self, stmt: Statement):
-        if isinstance(stmt, LetStatement):
-            self._generate_let_statement(stmt)
-        elif isinstance(stmt, AssignStatement):
-            self._generate_assign_statement(stmt)
-        elif isinstance(stmt, ReturnStatement):
-            self._generate_return_statement(stmt)
-        elif isinstance(stmt, GuardLetStatement):
-            self._generate_guard_let_statement(stmt)
-        elif isinstance(stmt, WhileExpr):
+        """Generate code for a statement."""
+        # Handle dual-purpose nodes (Expressions used as Statements)
+        if isinstance(stmt, WhileExpr):
             self._generate_while_expr(stmt)
-        elif isinstance(stmt, ForLoop):
+            return
+        if isinstance(stmt, ForLoop):
             self._generate_for_loop(stmt)
-        elif isinstance(stmt, BreakStatement):
-            self._generate_break_statement(stmt)
-        elif isinstance(stmt, ContinueStatement):
-            self._generate_continue_statement(stmt)
-        elif isinstance(stmt, ExpressionStatement):
-            self._generate_expression(stmt.expression)
-        else:
+            return
+
+        # Visitor dispatch for all other statements
+        method_name = f'visit_{stmt.__class__.__name__}'
+        visitor = getattr(self, method_name, None)
+        if visitor is None:
             raise ValueError(f"Unknown statement type: {type(stmt)}")
+        visitor(stmt)
+
+    # ===== Statement Visitor Methods =====
+
+    def visit_LetStatement(self, stmt: LetStatement):
+        self._generate_let_statement(stmt)
+
+    def visit_AssignStatement(self, stmt: AssignStatement):
+        self._generate_assign_statement(stmt)
+
+    def visit_ReturnStatement(self, stmt: ReturnStatement):
+        self._generate_return_statement(stmt)
+
+    def visit_GuardLetStatement(self, stmt: GuardLetStatement):
+        self._generate_guard_let_statement(stmt)
+
+    def visit_BreakStatement(self, stmt: BreakStatement):
+        self._generate_break_statement(stmt)
+
+    def visit_ContinueStatement(self, stmt: ContinueStatement):
+        self._generate_continue_statement(stmt)
+
+    def visit_ExpressionStatement(self, stmt: ExpressionStatement):
+        self._generate_expression(stmt.expression)
 
     def _generate_let_statement(self, stmt: LetStatement):
         value = self._generate_expression(stmt.value)
@@ -1844,96 +1862,102 @@ class CodeGenerator:
         self.builder.branch(continue_block)
 
     def _generate_expression(self, expr: Expression):
-        if isinstance(expr, IntLiteral):
-            return ir.Constant(ir.IntType(64), expr.value)
-
-        elif isinstance(expr, FloatLiteral):
-            return ir.Constant(ir.DoubleType(), expr.value)
-
-        elif isinstance(expr, BoolLiteral):
-            return ir.Constant(ir.IntType(1), 1 if expr.value else 0)
-
-        elif isinstance(expr, StringLiteral):
-            global_str = self._create_string_constant(expr.value)
-            zero = ir.Constant(ir.IntType(32), 0)
-            return self.builder.gep(global_str, [zero, zero], inbounds=True)
-
-        elif isinstance(expr, Identifier):
-            if expr.name not in self.variables:
-                raise ValueError(f"Undefined variable: {expr.name}")
-            return self.builder.load(self.variables[expr.name], name=expr.name)
-
-        elif isinstance(expr, BinaryOp):
-            return self._generate_binary_op(expr)
-
-        elif isinstance(expr, UnaryOp):
-            return self._generate_unary_op(expr)
-
-        elif isinstance(expr, MoveExpr):
-            return self._generate_move_expr(expr)
-
-        elif isinstance(expr, FunctionCall):
-            return self._generate_function_call(expr)
-
-        elif isinstance(expr, IfExpr):
-            return self._generate_if_expression(expr)
-
-        elif isinstance(expr, IfLetExpr):
-            return self._generate_if_let_expression(expr)
-
-        elif isinstance(expr, TupleLiteral):
-            return self._generate_tuple_literal(expr)
-
-        elif isinstance(expr, TupleIndex):
-            return self._generate_tuple_index(expr)
-
-        elif isinstance(expr, ArrayLiteral):
-            return self._generate_array_literal(expr)
-
-        elif isinstance(expr, ArrayIndex):
-            return self._generate_array_index(expr)
-
-        elif isinstance(expr, MemberAccess):
-            return self._generate_member_access(expr)
-
-        elif isinstance(expr, StructInit):
-            return self._generate_struct_init(expr)
-
-        elif isinstance(expr, NoneLiteral):
-            return self._generate_none_literal(expr)
-
-        elif isinstance(expr, ForceUnwrap):
-            return self._generate_force_unwrap(expr)
-
-        elif isinstance(expr, NilCoalesce):
-            return self._generate_nil_coalesce(expr)
-
-        elif isinstance(expr, OptionalChain):
-            return self._generate_optional_chain(expr)
-
-        elif isinstance(expr, MethodCall):
-            return self._generate_method_call(expr)
-
-        elif isinstance(expr, SelfExpr):
-            return self._generate_self_expr(expr)
-
-        elif isinstance(expr, EnumInit):
-            return self._generate_enum_init(expr)
-
-        elif isinstance(expr, MatchExpr):
-            return self._generate_match_expr(expr)
-
-        elif isinstance(expr, WhileExpr):
-            return self._generate_while_expr_value(expr)
-
-        elif isinstance(expr, ForLoop):
-            return self._generate_for_loop_value(expr)
-
-        elif isinstance(expr, ClosureExpr):
-            return self._generate_closure(expr)
-
-        else:
+        """Generate code for an expression."""
+        method_name = f'visit_{expr.__class__.__name__}'
+        visitor = getattr(self, method_name, None)
+        if visitor is None:
             raise ValueError(f"Unknown expression type: {type(expr)}")
+        return visitor(expr)
+
+    # ===== Expression Visitor Methods =====
+
+    def visit_IntLiteral(self, expr: IntLiteral):
+        return ir.Constant(ir.IntType(64), expr.value)
+
+    def visit_FloatLiteral(self, expr: FloatLiteral):
+        return ir.Constant(ir.DoubleType(), expr.value)
+
+    def visit_BoolLiteral(self, expr: BoolLiteral):
+        return ir.Constant(ir.IntType(1), 1 if expr.value else 0)
+
+    def visit_StringLiteral(self, expr: StringLiteral):
+        global_str = self._create_string_constant(expr.value)
+        zero = ir.Constant(ir.IntType(32), 0)
+        return self.builder.gep(global_str, [zero, zero], inbounds=True)
+
+    def visit_Identifier(self, expr: Identifier):
+        if expr.name not in self.variables:
+            raise ValueError(f"Undefined variable: {expr.name}")
+        return self.builder.load(self.variables[expr.name], name=expr.name)
+
+    def visit_BinaryOp(self, expr: BinaryOp):
+        return self._generate_binary_op(expr)
+
+    def visit_UnaryOp(self, expr: UnaryOp):
+        return self._generate_unary_op(expr)
+
+    def visit_MoveExpr(self, expr: MoveExpr):
+        return self._generate_move_expr(expr)
+
+    def visit_FunctionCall(self, expr: FunctionCall):
+        return self._generate_function_call(expr)
+
+    def visit_IfExpr(self, expr: IfExpr):
+        return self._generate_if_expression(expr)
+
+    def visit_IfLetExpr(self, expr: IfLetExpr):
+        return self._generate_if_let_expression(expr)
+
+    def visit_TupleLiteral(self, expr: TupleLiteral):
+        return self._generate_tuple_literal(expr)
+
+    def visit_TupleIndex(self, expr: TupleIndex):
+        return self._generate_tuple_index(expr)
+
+    def visit_ArrayLiteral(self, expr: ArrayLiteral):
+        return self._generate_array_literal(expr)
+
+    def visit_ArrayIndex(self, expr: ArrayIndex):
+        return self._generate_array_index(expr)
+
+    def visit_MemberAccess(self, expr: MemberAccess):
+        return self._generate_member_access(expr)
+
+    def visit_StructInit(self, expr: StructInit):
+        return self._generate_struct_init(expr)
+
+    def visit_NoneLiteral(self, expr: NoneLiteral):
+        return self._generate_none_literal(expr)
+
+    def visit_ForceUnwrap(self, expr: ForceUnwrap):
+        return self._generate_force_unwrap(expr)
+
+    def visit_NilCoalesce(self, expr: NilCoalesce):
+        return self._generate_nil_coalesce(expr)
+
+    def visit_OptionalChain(self, expr: OptionalChain):
+        return self._generate_optional_chain(expr)
+
+    def visit_MethodCall(self, expr: MethodCall):
+        return self._generate_method_call(expr)
+
+    def visit_SelfExpr(self, expr: SelfExpr):
+        return self._generate_self_expr(expr)
+
+    def visit_EnumInit(self, expr: EnumInit):
+        return self._generate_enum_init(expr)
+
+    def visit_MatchExpr(self, expr: MatchExpr):
+        return self._generate_match_expr(expr)
+
+    def visit_WhileExpr(self, expr: WhileExpr):
+        return self._generate_while_expr_value(expr)
+
+    def visit_ForLoop(self, expr: ForLoop):
+        return self._generate_for_loop_value(expr)
+
+    def visit_ClosureExpr(self, expr: ClosureExpr):
+        return self._generate_closure(expr)
 
     def _generate_binary_op(self, expr: BinaryOp):
         # Handle short-circuit logical operators specially
