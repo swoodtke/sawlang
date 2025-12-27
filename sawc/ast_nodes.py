@@ -3,7 +3,7 @@ Saw Language AST Node Definitions
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Dict
 from enum import Enum, auto
 
 
@@ -117,6 +117,63 @@ class SawType:
     def wrap_optional(self) -> 'SawType':
         """Wrap this type in an optional (T -> T?)."""
         return SawType(TypeKind.OPTIONAL, inner_type=self)
+
+    def substitute(self, type_map: Dict[str, 'SawType']) -> 'SawType':
+        """Substitute type parameters with concrete types.
+
+        Args:
+            type_map: Mapping from type parameter names to concrete types
+
+        Returns:
+            A new SawType with type parameters replaced by their concrete types
+        """
+        # Handle type parameters (T, U, etc.)
+        if self.kind == TypeKind.TYPE_PARAM and self.type_param_name:
+            if self.type_param_name in type_map:
+                return type_map[self.type_param_name]
+            return self
+
+        # Handle struct types (may have type args, or name might be a type param)
+        if self.kind == TypeKind.STRUCT and self.struct_name:
+            # Check if struct name is actually a type parameter
+            if self.struct_name in type_map:
+                return type_map[self.struct_name]
+            # Substitute in type arguments
+            if self.type_args:
+                substituted_args = [t.substitute(type_map) for t in self.type_args]
+                return SawType(TypeKind.STRUCT, struct_name=self.struct_name, type_args=substituted_args)
+            return self
+
+        # Handle enum types (may have type args)
+        if self.kind == TypeKind.ENUM and self.enum_name:
+            if self.type_args:
+                substituted_args = [t.substitute(type_map) for t in self.type_args]
+                return SawType(TypeKind.ENUM, enum_name=self.enum_name, type_args=substituted_args)
+            return self
+
+        # Handle optional types
+        if self.kind == TypeKind.OPTIONAL and self.inner_type:
+            substituted_inner = self.inner_type.substitute(type_map)
+            return SawType(TypeKind.OPTIONAL, inner_type=substituted_inner)
+
+        # Handle tuple types
+        if self.kind == TypeKind.TUPLE and self.element_types:
+            substituted_elements = [t.substitute(type_map) for t in self.element_types]
+            return SawType(TypeKind.TUPLE, element_types=substituted_elements)
+
+        # Handle array types
+        if self.kind == TypeKind.ARRAY and self.array_element_type:
+            substituted_element = self.array_element_type.substitute(type_map)
+            return SawType(TypeKind.ARRAY, array_element_type=substituted_element, array_size=self.array_size)
+
+        # Handle function types
+        if self.kind == TypeKind.FUNCTION:
+            substituted_params = [t.substitute(type_map) for t in (self.param_types or [])]
+            substituted_return = self.func_return_type.substitute(type_map) if self.func_return_type else None
+            return SawType(TypeKind.FUNCTION, param_types=substituted_params, func_return_type=substituted_return)
+
+        # Primitives and other types don't need substitution
+        return self
 
 
 @dataclass

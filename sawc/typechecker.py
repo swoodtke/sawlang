@@ -1828,8 +1828,8 @@ class TypeChecker:
                                 type_map[assoc_name] = assoc_type
 
             # Substitute type parameters in param types and return type
-            param_types = [self._substitute_type(t, type_map) for t in func_info.param_types]
-            return_type = self._substitute_type(func_info.return_type, type_map)
+            param_types = [t.substitute(type_map) for t in func_info.param_types]
+            return_type = func_info.return_type.substitute(type_map)
         else:
             # Non-generic function
             if expr.type_args:
@@ -2181,42 +2181,6 @@ class TypeChecker:
 
         return struct_info.fields[expr.member]
 
-    def _substitute_type(self, saw_type: SawType, type_mapping: Dict[str, SawType]) -> SawType:
-        """Substitute type parameters with concrete types."""
-        if saw_type.kind == TypeKind.TYPE_PARAM:
-            # This is a type parameter like T - replace with concrete type
-            if saw_type.type_param_name in type_mapping:
-                return type_mapping[saw_type.type_param_name]
-            return saw_type
-        elif saw_type.kind == TypeKind.OPTIONAL:
-            # Substitute in inner type
-            if saw_type.inner_type:
-                inner = self._substitute_type(saw_type.inner_type, type_mapping)
-                return SawType(TypeKind.OPTIONAL, inner_type=inner)
-            return saw_type
-        elif saw_type.kind == TypeKind.TUPLE:
-            # Substitute in element types
-            if saw_type.element_types:
-                element_types = [self._substitute_type(t, type_mapping) for t in saw_type.element_types]
-                return SawType(TypeKind.TUPLE, element_types=element_types)
-            return saw_type
-        elif saw_type.kind == TypeKind.STRUCT:
-            # Check if this is actually a type parameter (parsed as STRUCT)
-            if saw_type.struct_name in type_mapping:
-                return type_mapping[saw_type.struct_name]
-            if saw_type.type_args:
-                # Substitute in type arguments
-                type_args = [self._substitute_type(t, type_mapping) for t in saw_type.type_args]
-                return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=type_args)
-            return saw_type
-        elif saw_type.kind == TypeKind.ENUM:
-            if saw_type.type_args:
-                # Substitute in type arguments
-                type_args = [self._substitute_type(t, type_mapping) for t in saw_type.type_args]
-                return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=type_args)
-            return saw_type
-        return saw_type
-
     def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
         """Check struct initialization with parameter-based resolution."""
         # Check if struct exists
@@ -2299,7 +2263,7 @@ class TypeChecker:
                 expected_type = struct_info.fields[field_name]
                 # Substitute type parameters with concrete types
                 if type_mapping:
-                    expected_type = self._substitute_type(expected_type, type_mapping)
+                    expected_type = expected_type.substitute(type_mapping)
                 actual_type = self._check_expression(field_value)
                 if actual_type and not self._types_compatible(actual_type, expected_type):
                     self.reporter.error(
@@ -2319,7 +2283,7 @@ class TypeChecker:
                 expected_type = method_info.param_types[param_idx]
                 # Substitute type parameters with concrete types
                 if type_mapping:
-                    expected_type = self._substitute_type(expected_type, type_mapping)
+                    expected_type = expected_type.substitute(type_mapping)
                 actual_type = self._check_expression(field_value)
                 if actual_type and not self._types_compatible(actual_type, expected_type):
                     self.reporter.error(
@@ -2611,7 +2575,7 @@ class TypeChecker:
 
         # Apply type substitution to expected param types for generic enums
         if type_mapping:
-            expected_params = [(name, self._substitute_type(typ, type_mapping))
+            expected_params = [(name, typ.substitute(type_mapping))
                                for name, typ in expected_params]
 
         # Check argument count
@@ -2728,7 +2692,7 @@ class TypeChecker:
 
             # Apply type substitution for generic enums
             if type_mapping:
-                variant_params = [(name, self._substitute_type(typ, type_mapping))
+                variant_params = [(name, typ.substitute(type_mapping))
                                   for name, typ in variant_params]
 
             # Check binding count
@@ -2993,35 +2957,6 @@ class TypeChecker:
         elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
             resolved_inner = self._get_underlying_type(saw_type.inner_type)
             return SawType(TypeKind.OPTIONAL, inner_type=resolved_inner)
-        return saw_type
-
-    def _substitute_type(self, saw_type: SawType, type_map: Dict[str, SawType]) -> SawType:
-        """Substitute type parameters with concrete types.
-
-        Args:
-            saw_type: The type that may contain type parameters
-            type_map: Mapping from type parameter names to concrete types
-        """
-        if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
-            # Check if this is a type parameter
-            if saw_type.struct_name in type_map:
-                return type_map[saw_type.struct_name]
-            # Check for generic type with type args
-            if saw_type.type_args:
-                substituted_args = [self._substitute_type(t, type_map) for t in saw_type.type_args]
-                return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=substituted_args)
-        elif saw_type.kind == TypeKind.TYPE_PARAM and saw_type.type_param_name:
-            # Type parameter - substitute if we have a mapping
-            if saw_type.type_param_name in type_map:
-                return type_map[saw_type.type_param_name]
-        elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
-            # Recursively substitute in optional inner type
-            substituted_inner = self._substitute_type(saw_type.inner_type, type_map)
-            return SawType(TypeKind.OPTIONAL, inner_type=substituted_inner)
-        elif saw_type.kind == TypeKind.TUPLE and saw_type.element_types:
-            # Recursively substitute in tuple element types
-            substituted_elements = [self._substitute_type(t, type_map) for t in saw_type.element_types]
-            return SawType(TypeKind.TUPLE, element_types=substituted_elements)
         return saw_type
 
     def _types_compatible(self, a: Optional[SawType], b: Optional[SawType],
