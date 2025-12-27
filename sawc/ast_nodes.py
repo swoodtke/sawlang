@@ -615,6 +615,7 @@ class Block(ASTNode):
 class Parameter:
     name: str
     type: SawType
+    default_value: Optional['Expression'] = None  # For default parameter values
 
 
 @dataclass
@@ -706,13 +707,17 @@ class Extension(ASTNode):
 
 @dataclass
 class Method(ASTNode):
-    """Method definition: func name(self, ...) -> Type { ... }"""
+    """Method definition: func name(self, ...) -> Type { ... }
+
+    Static methods have no 'self' parameter and are called as StructName.method().
+    """
     name: str
     parameters: List[Parameter]
     return_type: SawType
     body: Block
     is_init: bool = False  # True for 'init' methods
     self_mutable: bool = False  # True for 'var self'
+    is_static: bool = False  # True for methods without 'self' parameter
     line: int = 0
     column: int = 0
 

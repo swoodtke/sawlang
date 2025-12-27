@@ -75,6 +75,8 @@ class MethodInfo:
     param_names: List[str]
     self_mutable: bool  # True if 'var self'
     is_init: bool = False
+    is_static: bool = False  # True for methods without 'self' parameter
+    default_values: List[Optional['Expression']] = field(default_factory=list)  # Default values for params
 
 
 @dataclass
@@ -663,9 +665,9 @@ class TypeChecker:
                     )
                 continue
 
-            # For instance methods (not init), validate 'self' parameter
+            # For instance methods (not init and not static), validate 'self' parameter
             self_mutable = False
-            if not method.is_init:
+            if not method.is_init and not method.is_static:
                 if len(method.parameters) == 0:
                     self.reporter.error(
                         ErrorKind.WRONG_ARGUMENT_COUNT,
@@ -724,7 +726,8 @@ class TypeChecker:
                 if p.name == "self" or p.type.kind == TypeKind.SELF:
                     param_types.append(self_type)
                 else:
-                    param_types.append(p.type)
+                    # Resolve type aliases and enum types
+                    param_types.append(self._resolve_type(p.type))
             param_names = [p.name for p in method.parameters]
 
             # For init methods, override return type to be the struct type
@@ -735,6 +738,9 @@ class TypeChecker:
             if method.is_init:
                 return_type = self_type
 
+            # Collect default values for parameters
+            default_values = [p.default_value for p in method.parameters]
+
             method_info = MethodInfo(
                 struct_name=extension.struct_name,
                 method_name=method.name,
@@ -742,7 +748,9 @@ class TypeChecker:
                 return_type=return_type,
                 param_names=param_names,
                 self_mutable=self_mutable,
-                is_init=method.is_init
+                is_init=method.is_init,
+                is_static=method.is_static,
+                default_values=default_values
             )
 
             struct_info.methods[method_key] = method_info
@@ -906,16 +914,20 @@ class TypeChecker:
             info = VariableInfo(param_type, mutable=False, line=method.line, column=method.column)
             self.current_scope.define(param.name, info)
 
-        # Check body
-        body_type = self._check_block(method.body)
-
-        # For init methods, check return type
+        # Determine expected return type first (needed for None propagation)
         expected_return = method.return_type
         # Resolve Self in return type
         if expected_return.kind == TypeKind.SELF:
             expected_return = self_type
         if method.is_init:
             expected_return = self_type
+
+        # Check body
+        body_type = self._check_block(method.body)
+
+        # Propagate expected type to body for None annotation
+        if expected_return.is_optional() and method.body.final_expr:
+            self._propagate_optional_type(method.body.final_expr, expected_return)
 
         if expected_return.kind != TypeKind.VOID:
             if body_type is None and not self.found_return_with_value:
@@ -951,11 +963,15 @@ class TypeChecker:
             info = VariableInfo(resolved_type, mutable=False, line=func.line, column=func.column)
             self.current_scope.define(param.name, info)
 
+        # Resolve return type first (needed for None propagation)
+        resolved_return_type = self._resolve_type(func.return_type)
+
         # Check body
         body_type = self._check_block(func.body)
 
-        # Resolve return type
-        resolved_return_type = self._resolve_type(func.return_type)
+        # Propagate expected type to body for None annotation
+        if resolved_return_type.is_optional() and func.body.final_expr:
+            self._propagate_optional_type(func.body.final_expr, resolved_return_type)
 
         # Check return type matches
         if resolved_return_type.kind != TypeKind.VOID:
@@ -1323,6 +1339,9 @@ class TypeChecker:
             else:
                 # Mark that we found a valid return statement with a value
                 self.found_return_with_value = True
+                # Annotate None literals with the expected type
+                if value_type and value_type.is_none_literal() and expected.is_optional():
+                    self._annotate_none_in_expr(stmt.value, expected)
 
     def _check_while_expr(self, stmt: WhileExpr):
         """Check a while loop used as a statement (no return value expected)."""
@@ -2175,19 +2194,26 @@ class TypeChecker:
                 )
 
             # If one branch is None literal, the result type is Optional<other>
+            # Only wrap if the other branch is not already optional
             if then_type and else_type:
-                if else_type.is_none_literal():
-                    # else is None, result is Optional<then_type>
+                if else_type.is_none_literal() and not then_type.is_optional():
+                    # else is None, then is not optional - wrap to Optional<then_type>
                     result_type = then_type.wrap_optional()
-                    # Annotate the None literal with its resolved type
                     self._annotate_none_in_block(expr.else_branch, result_type)
                     return result_type
-                if then_type.is_none_literal():
-                    # then is None, result is Optional<else_type>
+                if else_type.is_none_literal() and then_type.is_optional():
+                    # else is None, then is already optional - use then_type directly
+                    self._annotate_none_in_block(expr.else_branch, then_type)
+                    return then_type
+                if then_type.is_none_literal() and not else_type.is_optional():
+                    # then is None, else is not optional - wrap to Optional<else_type>
                     result_type = else_type.wrap_optional()
-                    # Annotate the None literal with its resolved type
                     self._annotate_none_in_block(expr.then_branch, result_type)
                     return result_type
+                if then_type.is_none_literal() and else_type.is_optional():
+                    # then is None, else is already optional - use else_type directly
+                    self._annotate_none_in_block(expr.then_branch, else_type)
+                    return else_type
 
             return then_type or else_type
         else:
@@ -2248,6 +2274,28 @@ class TypeChecker:
                     f"`if let` branches have incompatible types: `{then_type}` vs `{else_type}`",
                     expr.line, expr.column
                 )
+
+            # Handle None annotation (like in _check_if_expr)
+            # Only wrap if the other branch is not already optional
+            if then_type and else_type:
+                if else_type.is_none_literal() and not then_type.is_optional():
+                    # else is None, result is Optional<then_type>
+                    result_type = then_type.wrap_optional()
+                    self._annotate_none_in_block(expr.else_branch, result_type)
+                    return result_type
+                if else_type.is_none_literal() and then_type.is_optional():
+                    # else is None, then is already optional - annotate None with then_type
+                    self._annotate_none_in_block(expr.else_branch, then_type)
+                    return then_type
+                if then_type.is_none_literal() and not else_type.is_optional():
+                    # then is None, result is Optional<else_type>
+                    result_type = else_type.wrap_optional()
+                    self._annotate_none_in_block(expr.then_branch, result_type)
+                    return result_type
+                if then_type.is_none_literal() and else_type.is_optional():
+                    # then is None, else is already optional - annotate None with else_type
+                    self._annotate_none_in_block(expr.then_branch, else_type)
+                    return else_type
 
             return then_type or else_type
         else:
@@ -2585,21 +2633,53 @@ class TypeChecker:
         # None has a special type that's compatible with any optional
         return SawType(TypeKind.OPTIONAL, inner_type=None)
 
+    def _propagate_optional_type(self, expr: Expression, expected_type: SawType):
+        """Propagate expected optional type to None literals in an expression tree.
+
+        This is the single point where None literals get their concrete type.
+        Call this whenever an expression is used in a context where we know the expected type.
+        """
+        if expr is None:
+            return
+
+        if isinstance(expr, NoneLiteral):
+            # This is the key annotation - give None its concrete type
+            expr.resolved_type = expected_type
+
+        elif isinstance(expr, IfExpr):
+            # Propagate to both branches
+            if expr.then_branch and expr.then_branch.final_expr:
+                self._propagate_optional_type(expr.then_branch.final_expr, expected_type)
+            if expr.else_branch and expr.else_branch.final_expr:
+                self._propagate_optional_type(expr.else_branch.final_expr, expected_type)
+
+        elif isinstance(expr, IfLetExpr):
+            # Propagate to both branches
+            if expr.then_branch and expr.then_branch.final_expr:
+                self._propagate_optional_type(expr.then_branch.final_expr, expected_type)
+            if expr.else_branch and expr.else_branch.final_expr:
+                self._propagate_optional_type(expr.else_branch.final_expr, expected_type)
+
+        elif isinstance(expr, MatchExpr):
+            # Propagate to all match arms
+            for arm in expr.arms:
+                if arm.body and arm.body.final_expr:
+                    self._propagate_optional_type(arm.body.final_expr, expected_type)
+
+        elif isinstance(expr, Block):
+            # Propagate to block's final expression
+            if expr.final_expr:
+                self._propagate_optional_type(expr.final_expr, expected_type)
+
+    # Keep old names as aliases for compatibility
     def _annotate_none_in_block(self, block: Block, resolved_type: SawType):
         """Annotate any NoneLiteral in the block's final expression with its resolved type."""
         if block.final_expr is not None:
-            self._annotate_none_in_expr(block.final_expr, resolved_type)
+            self._propagate_optional_type(block.final_expr, resolved_type)
 
     def _annotate_none_in_expr(self, expr: Expression, resolved_type: SawType):
         """Recursively find and annotate NoneLiteral nodes with their resolved type."""
-        if isinstance(expr, NoneLiteral):
-            expr.resolved_type = resolved_type
-        elif isinstance(expr, IfExpr):
-            # Check both branches of if expressions
-            if expr.then_branch.final_expr:
-                self._annotate_none_in_expr(expr.then_branch.final_expr, resolved_type)
-            if expr.else_branch and expr.else_branch.final_expr:
-                self._annotate_none_in_expr(expr.else_branch.final_expr, resolved_type)
+        self._propagate_optional_type(expr, resolved_type)
 
     def _check_force_unwrap(self, expr: ForceUnwrap) -> Optional[SawType]:
         """Check force unwrap: expr! - unwraps T? to T."""
@@ -2695,11 +2775,25 @@ class TypeChecker:
         return SawType(TypeKind.OPTIONAL, inner_type=field_type)
 
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
-        """Check a method call or enum initialization: object.method(args) or Enum.Variant(args).
+        """Check a method call, static method call, or enum initialization.
 
-        The parser creates MethodCall for both cases. This method disambiguates based on
-        whether the object refers to an enum type.
+        The parser creates MethodCall for all these cases:
+        - object.method(args) - instance method call
+        - StructName.method(args) - static method call
+        - EnumType.Variant(args) - enum variant initialization
         """
+        # Check if this is a static method call: StructName.method(args)
+        if isinstance(expr.object, Identifier) and expr.object.name in self.structs:
+            struct_name = expr.object.name
+            struct_info = self.structs[struct_name]
+
+            # Check if this method exists and is static
+            if expr.method_name in struct_info.methods:
+                method_info = struct_info.methods[expr.method_name]
+                if method_info.is_static:
+                    return self._check_static_method_call(expr, struct_name, struct_info, method_info)
+            # If not a static method, fall through to regular method checking
+
         # Check if this is actually an enum initialization
         # This happens when object is an Identifier that matches an enum name
         if isinstance(expr.object, Identifier) and expr.object.name in self.enums:
@@ -2771,14 +2865,26 @@ class TypeChecker:
             return None
 
         # Check argument count (excluding 'self' which is implicit in method calls)
-        expected_arg_count = len(method_info.param_types) - 1  # -1 for self
-        if method_info.is_init:
-            expected_arg_count = len(method_info.param_types)  # init has no self
+        param_offset = 1 if not method_info.is_init else 0  # 1 for self in instance methods
+        total_params = len(method_info.param_types) - param_offset
 
-        if len(expr.arguments) != expected_arg_count:
+        # Count required parameters (those without defaults, excluding self)
+        defaults_for_params = method_info.default_values[param_offset:] if method_info.default_values else []
+        required_count = sum(1 for dv in defaults_for_params if dv is None) if defaults_for_params else total_params
+
+        if len(expr.arguments) < required_count:
             self.reporter.error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
-                f"method `{expr.method_name}` takes {expected_arg_count} argument(s), "
+                f"method `{expr.method_name}` takes at least {required_count} argument(s), "
+                f"but {len(expr.arguments)} were given",
+                expr.line, expr.column
+            )
+            return method_info.return_type
+
+        if len(expr.arguments) > total_params:
+            self.reporter.error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"method `{expr.method_name}` takes at most {total_params} argument(s), "
                 f"but {len(expr.arguments)} were given",
                 expr.line, expr.column
             )
@@ -2786,7 +2892,6 @@ class TypeChecker:
 
         # Check argument types (skip first param which is self for non-init methods)
         # Arguments are now Argument objects with .value and optional .name
-        param_offset = 1 if not method_info.is_init else 0
         for i, arg in enumerate(expr.arguments):
             arg_type = self._check_expression(arg.value)
             expected_type = method_info.param_types[i + param_offset]
@@ -2806,6 +2911,44 @@ class TypeChecker:
         if type_subst:
             return_type = return_type.substitute(type_subst)
         return return_type
+
+    def _check_static_method_call(self, expr: MethodCall, struct_name: str,
+                                   struct_info, method_info: MethodInfo) -> Optional[SawType]:
+        """Check a static method call: StructName.method(args)"""
+        # Count required parameters (those without defaults)
+        required_count = sum(1 for dv in method_info.default_values if dv is None)
+
+        if len(expr.arguments) < required_count:
+            self.reporter.error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"static method `{struct_name}.{expr.method_name}` takes at least {required_count} argument(s), "
+                f"but {len(expr.arguments)} were given",
+                expr.line, expr.column
+            )
+            return method_info.return_type
+
+        if len(expr.arguments) > len(method_info.param_types):
+            self.reporter.error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"static method `{struct_name}.{expr.method_name}` takes at most {len(method_info.param_types)} argument(s), "
+                f"but {len(expr.arguments)} were given",
+                expr.line, expr.column
+            )
+            return method_info.return_type
+
+        # Check argument types
+        for i, arg in enumerate(expr.arguments):
+            arg_type = self._check_expression(arg.value)
+            expected_type = method_info.param_types[i]
+            if arg_type and not self._types_compatible(arg_type, expected_type):
+                param_name = method_info.param_names[i]
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
+                    arg.value.line, arg.value.column
+                )
+
+        return method_info.return_type
 
     def _check_self_expr(self, expr: SelfExpr) -> Optional[SawType]:
         """Check 'self' keyword usage."""

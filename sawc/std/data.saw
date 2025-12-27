@@ -1,0 +1,411 @@
+// Data - Raw byte buffer type with reference-counted storage
+// Part of the Saw standard library
+//
+// =============================================================================
+// TODO: Known Issues to Investigate
+// =============================================================================
+//
+// 1. memcpy causes segfaults when used in copy()
+//    - Using memcpy to copy bytes from one Data to another causes crashes
+//    - Workaround: copy() uses manual byte-by-byte loop instead
+//    - Need to investigate: pointer arithmetic issues? Type casting issues?
+//    - The memcpy in append() may have the same issue (untested)
+//
+// 2. make_unique() copy-on-write causes segfaults
+//    - When set() detects shared buffer (refcount > 1), calling make_unique()
+//      to copy before modifying causes crashes
+//    - Likely issue: ownership transfer when assigning old_data.inner to self.inner
+//      while old_data is still in scope and will have deinit called
+//    - Workaround: set() now directly modifies shared buffer (no COW)
+//    - Users must call copy() explicitly before modifying if they need isolation
+//
+// 3. DataIterator doesn't hold a reference
+//    - Iterator copies the inner pointer but doesn't increment refcount
+//    - This means iterators can become invalid if source Data is deallocated
+//    - For safety, should increment refcount in iter() and decrement in deinit
+//
+// =============================================================================
+
+// =============================================================================
+// FFI declarations for memory management
+// =============================================================================
+
+extern "C" {
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+    func realloc(ptr: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
+    func memcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, n: Int) -> UnsafePointer<Int8>
+}
+
+// =============================================================================
+// DataBuffer - Internal refcounted buffer storage
+// =============================================================================
+
+struct DataBuffer {
+    buffer: UnsafePointer<UInt8>
+    capacity: Int
+    refcount: Int
+}
+
+// =============================================================================
+// Data - A dynamically-sized byte buffer with slice support
+// =============================================================================
+//
+// Data uses a reference-counted internal buffer, allowing efficient slicing
+// without copying. The buffer is freed when the last Data referencing it
+// is deinitialized.
+
+struct Data {
+    inner: UnsafePointer<DataBuffer>?
+    offset: Int   // Start offset within buffer (for slices)
+    length: Int   // Length of this view
+}
+
+extension Data {
+    // =========================================================================
+    // Constructors
+    // =========================================================================
+
+    // Create an empty Data buffer
+    init() -> Data {
+        Data(inner: None, offset: 0, length: 0)
+    }
+
+    // Create Data with a specific initial capacity
+    init(capacity: Int) -> Data {
+        var data = Data(inner: None, offset: 0, length: 0)
+        data.ensure_capacity(capacity)
+        data
+    }
+
+    // =========================================================================
+    // Basic Properties
+    // =========================================================================
+
+    // Get the number of bytes
+    func len(self) -> Int {
+        self.length
+    }
+
+    // Check if the buffer is empty
+    func is_empty(self) -> Bool {
+        self.length == 0
+    }
+
+    // Get the capacity of the underlying buffer
+    func capacity(self) -> Int {
+        if let inner = self.inner {
+            inner[0].capacity
+        } else {
+            0
+        }
+    }
+
+    // =========================================================================
+    // Element Access
+    // =========================================================================
+
+    // Get byte at index (returns None if out of bounds)
+    func get(self, index: Int) -> UInt8? {
+        if index < 0 || index >= self.length {
+            return None
+        }
+        guard let inner = self.inner else {
+            return None
+        }
+        let buf = inner[0].buffer
+        buf[self.offset + index]
+    }
+
+    // Set byte at index (no-op if out of bounds)
+    // Note: If buffer is shared, this will modify the shared buffer!
+    // Use copy() first if you need copy-on-write semantics.
+    // Returns true if successful, false otherwise
+    func set(var self, index: Int, value: UInt8) -> Bool {
+        if index < 0 || index >= self.length {
+            return false
+        }
+        guard let inner = self.inner else {
+            return false
+        }
+        let buf = inner[0].buffer
+        buf[self.offset + index] = value
+        true
+    }
+
+    // =========================================================================
+    // Modification Operations
+    // =========================================================================
+
+    // Add a byte to the end
+    func push(var self, value: UInt8) {
+        // Ensure we have exclusive ownership and space
+        self.ensure_unique_capacity(self.length + 1)
+
+        if let inner = self.inner {
+            let buf = inner[0].buffer
+            buf[self.offset + self.length] = value
+            self.length = self.length + 1
+        }
+    }
+
+    // Remove and return the last byte (returns None if empty)
+    func pop(var self) -> UInt8? {
+        if self.length == 0 {
+            return None
+        }
+        guard let inner = self.inner else {
+            return None
+        }
+        let buf = inner[0].buffer
+        let value = buf[self.offset + self.length - 1]
+        self.length = self.length - 1
+        value
+    }
+
+    // Clear all bytes (keeps capacity)
+    func clear(var self) {
+        self.length = 0
+    }
+
+    // Append all bytes from another Data
+    // TODO: This uses memcpy which may have the same issues as copy() - needs testing
+    func append(var self, other: Data) {
+        if other.length == 0 {
+            return
+        }
+
+        self.ensure_unique_capacity(self.length + other.length)
+
+        if let self_inner = self.inner {
+            if let other_inner = other.inner {
+                let dest = self_inner[0].buffer as UnsafePointer<Int8>
+                let src = other_inner[0].buffer as UnsafePointer<Int8>
+                let dest_offset = dest + self.offset + self.length
+                let src_offset = src + other.offset
+                memcpy(dest_offset, src_offset, other.length)
+                self.length = self.length + other.length
+            }
+        }
+    }
+
+    // =========================================================================
+    // Slicing
+    // =========================================================================
+
+    // Create a slice of this Data (shares underlying buffer)
+    // Returns None if bounds are invalid
+    func slice(var self, start: Int, end: Int) -> Data? {
+        if start < 0 || end < start || end > self.length {
+            return None
+        }
+
+        // Handle empty data case
+        if self.length == 0 {
+            if start == 0 && end == 0 {
+                return Data()
+            }
+            return None
+        }
+
+        guard let inner = self.inner else {
+            return None
+        }
+
+        // Increment refcount
+        inner[0].refcount = inner[0].refcount + 1
+
+        Data(inner: self.inner, offset: self.offset + start, length: end - start)
+    }
+
+    // Create an independent copy of this Data
+    // TODO: Using manual byte-by-byte copy because memcpy version causes segfaults
+    // Original memcpy-based implementation:
+    //   let dest = new_inner[0].buffer as UnsafePointer<Int8>
+    //   let src = self_inner[0].buffer as UnsafePointer<Int8>
+    //   memcpy(dest, src + self.offset, self.length)
+    func copy(self) -> Data {
+        if self.length == 0 {
+            return Data()
+        }
+
+        // Allocate new buffer
+        var new_data = Data()
+        new_data.ensure_capacity(self.length)
+        new_data.length = self.length
+
+        // Copy bytes manually (memcpy causes segfaults - see TODO at top of file)
+        var i = 0
+        while i < self.length {
+            if let b = self.get(i) {
+                new_data.set(i, b)
+            }
+            i = i + 1
+        }
+
+        move new_data
+    }
+
+    // =========================================================================
+    // Iteration
+    // =========================================================================
+
+    // Create an iterator over the bytes
+    // TODO: Iterator doesn't increment refcount, so it can become invalid if
+    // source Data is deallocated. Should add refcount management to be safe.
+    func iter(self) -> DataIterator {
+        DataIterator(inner: self.inner, offset: self.offset, length: self.length, index: 0)
+    }
+
+    // =========================================================================
+    // Internal Helper Methods
+    // =========================================================================
+
+    // Ensure the buffer has at least the given capacity
+    func ensure_capacity(var self, min_capacity: Int) {
+        let current_cap = self.capacity()
+        if current_cap >= min_capacity {
+            return
+        }
+
+        // Calculate new capacity (grow by doubling)
+        var new_capacity = if current_cap == 0 { 16 } else { current_cap }
+        while new_capacity < min_capacity {
+            new_capacity = new_capacity * 2
+        }
+
+        if let inner = self.inner {
+            // Reallocate existing buffer
+            let raw = inner[0].buffer as UnsafePointer<Int8>
+            if let new_raw = realloc(raw, new_capacity) {
+                inner[0].buffer = new_raw as UnsafePointer<UInt8>
+                inner[0].capacity = new_capacity
+            }
+        } else {
+            // Allocate new buffer and DataBuffer
+            self.allocate_buffer(new_capacity)
+        }
+    }
+
+    // Ensure we have exclusive ownership (copy if shared)
+    // TODO: This method causes segfaults and is currently unused
+    // The issue is likely with ownership transfer: when we assign old_data.inner
+    // to self.inner, old_data still exists and its deinit will be called at scope
+    // end, causing double-free or use-after-free issues despite refcount manipulation.
+    // Need to investigate proper ownership transfer patterns in Saw.
+    func make_unique(var self) {
+        guard let inner = self.inner else {
+            return
+        }
+
+        if inner[0].refcount > 1 {
+            // We're sharing - need to copy
+            let old_data = self.copy()
+
+            // Decrement old refcount
+            inner[0].refcount = inner[0].refcount - 1
+
+            // Take ownership of the copy's buffer
+            self.inner = old_data.inner
+            self.offset = old_data.offset
+            self.length = old_data.length
+
+            // Prevent old_data's deinit from freeing the buffer we just took
+            // by incrementing refcount (it will be decremented in old_data's deinit)
+            if let new_inner = self.inner {
+                new_inner[0].refcount = new_inner[0].refcount + 1
+            }
+        }
+    }
+
+    // Ensure exclusive ownership and sufficient capacity
+    func ensure_unique_capacity(var self, min_capacity: Int) {
+        // First ensure we have exclusive ownership
+        if let inner = self.inner {
+            if inner[0].refcount > 1 {
+                self.make_unique()
+            }
+        }
+
+        // Then ensure capacity
+        self.ensure_capacity(min_capacity)
+    }
+
+    // Allocate a new buffer with given capacity
+    func allocate_buffer(var self, capacity: Int) {
+        // Allocate the DataBuffer struct (size = pointer + 2 ints)
+        let buffer_struct_size = 24  // sizeof(UnsafePointer) + sizeof(Int) + sizeof(Int)
+        if let inner_raw = malloc(buffer_struct_size) {
+            let inner = inner_raw as UnsafePointer<DataBuffer>
+
+            // Allocate the actual byte buffer
+            if let buf_raw = malloc(capacity) {
+                let buf = buf_raw as UnsafePointer<UInt8>
+                inner[0].buffer = buf
+                inner[0].capacity = capacity
+                inner[0].refcount = 1
+                self.inner = inner
+                self.offset = 0
+            } else {
+                // Failed to allocate buffer, free the struct
+                free(inner_raw)
+            }
+        }
+    }
+}
+
+// Data uses reference counting for memory management
+extension Data: NoCopy {
+    func deinit(var self) {
+        if let inner = self.inner {
+            inner[0].refcount = inner[0].refcount - 1
+
+            if inner[0].refcount == 0 {
+                // We're the last reference - free everything
+                let buf = inner[0].buffer as UnsafePointer<Int8>
+                free(buf)
+
+                let inner_raw = inner as UnsafePointer<Int8>
+                free(inner_raw)
+            }
+        }
+    }
+}
+
+// =============================================================================
+// DataIterator - Iterator over Data bytes
+// =============================================================================
+
+struct DataIterator {
+    inner: UnsafePointer<DataBuffer>?
+    offset: Int
+    length: Int
+    index: Int
+}
+
+extension DataIterator: Iterator {
+    type Item = UInt8
+
+    func next(var self) -> UInt8? {
+        if self.index >= self.length {
+            return None
+        }
+        guard let inner = self.inner else {
+            return None
+        }
+        let buf = inner[0].buffer
+        let value = buf[self.offset + self.index]
+        self.index = self.index + 1
+        value
+    }
+}
+
+// DataIterator also needs to manage refcount
+extension DataIterator: NoCopy {
+    func deinit(var self) {
+        // Note: We don't increment refcount when creating iterator,
+        // so we don't decrement here. The source Data object owns the reference.
+        // This means iterators should not outlive their source Data.
+        // For safety, we could add refcounting to iterators too.
+    }
+}

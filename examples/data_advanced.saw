@@ -1,0 +1,65 @@
+// EXPECT: success
+// EXPECT-OUTPUT: Original: 5 bytes
+// EXPECT-OUTPUT: Byte 0: 72
+// EXPECT-OUTPUT: Slice length: 3
+// EXPECT-OUTPUT: Slice byte 0: 101
+// EXPECT-OUTPUT: After set: 88
+// EXPECT-OUTPUT: Copy length: 5
+// EXPECT-OUTPUT: Copy byte 0: 72
+// EXPECT-OUTPUT: Iterator: 72
+// EXPECT-OUTPUT: Iterator: 101
+// EXPECT-OUTPUT: Iterator: 108
+
+// Test Data with slices, set, copy, and iterator
+
+func main() {
+    // Create and populate Data
+    var data = Data()
+    data.push(72 as UInt8)   // H
+    data.push(101 as UInt8)  // e
+    data.push(108 as UInt8)  // l
+    data.push(108 as UInt8)  // l
+    data.push(111 as UInt8)  // o
+
+    print("Original: {data.len()} bytes")
+    if let b = data.get(0) {
+        print("Byte 0: {b as Int}")
+    }
+
+    // Test slicing
+    if let slice = data.slice(1, 4) {
+        print("Slice length: {slice.len()}")
+        if let b = slice.get(0) {
+            print("Slice byte 0: {b as Int}")  // Should be 101 (e)
+        }
+    }
+
+    // Test set() - modifies in place
+    data.set(1, 88 as UInt8)  // Change e to X
+    if let b = data.get(1) {
+        print("After set: {b as Int}")  // Should be 88 (X)
+    }
+
+    // Test copy
+    let data_copy = data.copy()
+    print("Copy length: {data_copy.len()}")
+    if let b = data_copy.get(0) {
+        print("Copy byte 0: {b as Int}")
+    }
+
+    // Test iterator
+    var data2 = Data()
+    data2.push(72 as UInt8)   // H
+    data2.push(101 as UInt8)  // e
+    data2.push(108 as UInt8)  // l
+
+    var iter = data2.iter()
+    var done = false
+    while not done {
+        if let byte = iter.next() {
+            print("Iterator: {byte as Int}")
+        } else {
+            done = true
+        }
+    }
+}

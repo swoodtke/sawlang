@@ -102,6 +102,12 @@ class CodeGenerator:
         # type_assignments: (type_name, interface) -> {assoc_type_name -> SawType}
         self.type_assignments: dict[tuple[str, str], dict[str, SawType]] = {}
 
+        # Static methods: (struct_name, method_name) -> True
+        self.static_methods: set[tuple[str, str]] = set()
+
+        # Default parameter values: mangled_name -> list of default Expression (or None)
+        self.method_defaults: dict[str, list] = {}
+
         # Resource management: variable lifetime tracking
         # Stack of scopes, each scope is a list of (var_name, saw_type) for variables needing cleanup
         self.cleanup_stack: List[List[tuple[str, SawType]]] = []
@@ -115,6 +121,15 @@ class CodeGenerator:
         # Extern functions that return optionals (need NULL check at call site)
         # Maps function name -> inner SawType (unwrapped from optional)
         self.extern_optional_returns: dict[str, SawType] = {}
+
+        # Current return type (for implicit optional wrapping)
+        self.current_return_type: Optional[SawType] = None
+
+        # Method return types: (struct_name, method_name) -> SawType
+        self.method_return_types: dict[tuple[str, str], SawType] = {}
+
+        # Function return types: function_name -> SawType
+        self.function_return_types: dict[str, SawType] = {}
 
         # Declare external functions (printf for print)
         self._declare_external_functions()
@@ -624,6 +639,9 @@ class CodeGenerator:
         func_type = ir.FunctionType(return_type, param_types)
         llvm_func = ir.Function(self.module, func_type, name=func_name)
         self.functions[func_name] = llvm_func
+
+        # Store function return type for type inference
+        self.function_return_types[func_name] = func.return_type
 
     def _declare_extern_function(self, extern_func: ExternFunction):
         """Declare an external C function (no body, just LLVM declare)."""
@@ -1138,8 +1156,12 @@ class CodeGenerator:
                 # Return type is the struct being initialized
                 struct_type, _ = self.struct_types[extension.struct_name]
                 return_type = struct_type
+            elif method.is_static:
+                # Static methods have no self parameter
+                param_types = [self._get_llvm_type(p.type) for p in method.parameters]
+                return_type = self._get_llvm_type(method.return_type)
             else:
-                # Regular methods include self as first parameter
+                # Regular instance methods include self as first parameter
                 # Determine the Self type for this extension
                 if extension.struct_name == "String":
                     self_llvm_type = ir.IntType(8).as_pointer()  # String is i8*
@@ -1166,6 +1188,18 @@ class CodeGenerator:
             # Store in functions table
             self.functions[mangled_name] = llvm_func
 
+            # Store method return type for type inference
+            self.method_return_types[(extension.struct_name, method.name)] = method.return_type
+
+            # Track static methods
+            if method.is_static:
+                self.static_methods.add((extension.struct_name, method.name))
+
+            # Track default parameter values
+            defaults = [p.default_value for p in method.parameters]
+            if any(d is not None for d in defaults):
+                self.method_defaults[mangled_name] = defaults
+
         # Restore Self type context
         self.self_type_context = old_self_context
 
@@ -1182,6 +1216,8 @@ class CodeGenerator:
         for method in extension.methods:
             if method.is_init:
                 self._generate_init_method(extension.struct_name, method)
+            elif method.is_static:
+                self._generate_static_method(extension.struct_name, method)
             else:
                 self._generate_method(extension.struct_name, method)
 
@@ -1229,6 +1265,10 @@ class CodeGenerator:
                 self.variables[param.name] = alloca
                 self.variable_types[param.name] = param.type
 
+        # Set current return type for implicit optional wrapping
+        old_return_type = self.current_return_type
+        self.current_return_type = method.return_type
+
         # Generate method body
         result = self._generate_block(method.body)
 
@@ -1243,11 +1283,19 @@ class CodeGenerator:
         else:
             if not self.builder.block.is_terminated:
                 if result is not None:
+                    # Check if we need to wrap the result in an optional
+                    expected_type = self._get_llvm_type(method.return_type)
+                    if self._is_optional_type(expected_type) and not self._is_optional_type(result.type):
+                        # Wrap in Some
+                        result = self._wrap_in_optional(result)
                     self.builder.ret(result)
                 else:
                     # Return default value
                     default = ir.Constant(self._get_llvm_type(method.return_type), 0)
                     self.builder.ret(default)
+
+        # Restore return type
+        self.current_return_type = old_return_type
 
     def _generate_field_deinit_calls(self, struct_name: str):
         """Generate deinit calls for all fields that implement Deinit.
@@ -1335,6 +1383,40 @@ class CodeGenerator:
                 struct_type, _ = self.struct_types[struct_name]
                 default = ir.Constant(struct_type, ir.Undefined)
                 self.builder.ret(default)
+
+    def _generate_static_method(self, struct_name: str, method: Method):
+        """Generate code for a static method (no self parameter)."""
+        mangled_name = self._mangle_method_name(struct_name, method.name)
+        llvm_func = self.functions[mangled_name]
+
+        # Create entry block
+        block = llvm_func.append_basic_block(name="entry")
+        self.builder = ir.IRBuilder(block)
+
+        # Clear variables and cleanup stack for this method
+        self.variables = {}
+        self.variable_types = {}
+        self.cleanup_stack = []
+
+        # Create allocas for parameters (no self for static methods)
+        for i, param in enumerate(method.parameters):
+            llvm_func.args[i].name = param.name
+            alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
+            self.builder.store(llvm_func.args[i], alloca)
+            self.variables[param.name] = alloca
+            self.variable_types[param.name] = param.type
+
+        # Generate method body
+        result = self._generate_block(method.body)
+
+        # Handle return
+        if not self.builder.block.is_terminated:
+            if method.return_type.kind == TypeKind.VOID:
+                self.builder.ret_void()
+            elif result is not None:
+                self.builder.ret(result)
+            else:
+                self.builder.ret_void()
 
     def _generate_function(self, func: Function, name_override: str = None):
         """Generate a function body. If name_override is provided, use it instead of func.name."""
@@ -1549,9 +1631,32 @@ class CodeGenerator:
         elif isinstance(expr, CastExpr):
             # Cast expression returns the target type
             return expr.target_type
+        elif isinstance(expr, FunctionCall):
+            # Check if this is a struct init (parser treats Struct() as function call)
+            if expr.name in self.struct_types or expr.name in self.generic_structs:
+                return SawType(TypeKind.STRUCT, struct_name=expr.name, type_args=expr.type_args)
+            # Check if it's a known function
+            if expr.name in self.function_return_types:
+                return self.function_return_types[expr.name]
+            return None
         elif isinstance(expr, MethodCall):
-            # For method calls on structs, we'd need to look up the return type
-            # For now, return None and rely on type annotations
+            # Look up the method return type
+            obj_type = self._infer_saw_type(expr.object)
+            if obj_type and obj_type.kind == TypeKind.STRUCT:
+                struct_name = obj_type.struct_name
+                return_type = self.method_return_types.get((struct_name, expr.method_name))
+                if return_type:
+                    return return_type
+            return None
+        elif isinstance(expr, MemberAccess):
+            # Look up struct field type
+            obj_type = self._infer_saw_type(expr.object)
+            if obj_type and obj_type.kind == TypeKind.STRUCT:
+                struct_name = obj_type.struct_name
+                if struct_name in self.struct_field_types:
+                    field_types = self.struct_field_types[struct_name]
+                    if expr.member in field_types:
+                        return field_types[expr.member]
             return None
         elif isinstance(expr, BinaryOp):
             # Infer type from binary operations
@@ -1614,6 +1719,22 @@ class CodeGenerator:
             elif isinstance(obj_expr, SelfExpr):
                 # self.field = value
                 struct_ptr = self.variables["self"]
+            elif isinstance(obj_expr, ArrayIndex):
+                # Array/pointer indexing: arr[i].field = value or ptr[i].field = value
+                container_val = self._generate_expression(obj_expr.array_expr)
+                index_val = self._generate_expression(obj_expr.index)
+
+                if isinstance(container_val.type, ir.PointerType):
+                    # Pointer indexing: ptr[i].field = value
+                    struct_ptr = self.builder.gep(container_val, [index_val], name="ptr_idx")
+                elif isinstance(container_val.type, ir.ArrayType):
+                    # Array indexing - need to allocate, store, and use GEP
+                    array_ptr = self.builder.alloca(container_val.type, name="arr_tmp")
+                    self.builder.store(container_val, array_ptr)
+                    zero = ir.Constant(ir.IntType(64), 0)
+                    struct_ptr = self.builder.gep(array_ptr, [zero, index_val], name="elem_ptr")
+                else:
+                    raise ValueError(f"Cannot index into type for field assignment: {container_val.type}")
             else:
                 raise ValueError(f"Unsupported object expression in field assignment: {type(obj_expr)}")
 
@@ -1713,6 +1834,12 @@ class CodeGenerator:
 
         # Now return
         if value is not None:
+            # Check if we need to wrap in optional
+            if self.current_return_type and self.current_return_type.is_optional():
+                expected_type = self._get_llvm_type(self.current_return_type)
+                if not self._is_optional_type(value.type):
+                    value = self._wrap_in_optional(value)
+
             self.builder.ret(value)
         else:
             self.builder.ret_void()
@@ -2814,10 +2941,18 @@ class CodeGenerator:
         self.builder.store(inner_val, alloca)
         self.variables[expr.name] = alloca
 
+        # Store the type of the bound variable for type inference
+        # Infer the inner type from the optional expression
+        opt_type = self._infer_saw_type(expr.optional_expr)
+        if opt_type and opt_type.kind == TypeKind.OPTIONAL and opt_type.inner_type:
+            self.variable_types[expr.name] = opt_type.inner_type
+
         then_val = self._generate_block(expr.then_branch)
 
         # Remove the bound variable from scope after the block
         del self.variables[expr.name]
+        if expr.name in self.variable_types:
+            del self.variable_types[expr.name]
 
         # Capture state before adding terminator
         then_terminated = self.builder.block.is_terminated
@@ -2954,6 +3089,11 @@ class CodeGenerator:
         alloca = self.builder.alloca(inner_val.type, name=stmt.name)
         self.builder.store(inner_val, alloca)
         self.variables[stmt.name] = alloca
+
+        # Store the type of the bound variable for type inference
+        opt_type = self._infer_saw_type(stmt.optional_expr)
+        if opt_type and opt_type.kind == TypeKind.OPTIONAL and opt_type.inner_type:
+            self.variable_types[stmt.name] = opt_type.inner_type
 
     def _generate_tuple_literal(self, expr: TupleLiteral):
         """Generate code for a tuple literal."""
@@ -3177,18 +3317,34 @@ class CodeGenerator:
 
         return optional_val
 
+    def _is_optional_type(self, llvm_type) -> bool:
+        """Check if an LLVM type is an optional (struct with i1 flag and value)."""
+        return (isinstance(llvm_type, ir.LiteralStructType) and
+                len(llvm_type.elements) == 2 and
+                llvm_type.elements[0] == ir.IntType(1))
+
     def _generate_none_literal(self, expr: NoneLiteral):
         """Generate code for None literal."""
         # Create an optional with is_some = false
-        # Use resolved_type if available (from typechecker), otherwise use i64 as placeholder
+        # Priority: 1) resolved_type from typechecker, 2) current_return_type, 3) default i64
+        inner_llvm_type = None
+
         if expr.resolved_type and expr.resolved_type.inner_type:
-            # Substitute type params if we're in a generic context
+            # Use type from typechecker annotation
             inner_type = expr.resolved_type.inner_type
             if self.type_param_context:
                 inner_type = inner_type.substitute(self.type_param_context)
             inner_llvm_type = self._get_llvm_type(inner_type)
-        else:
-            inner_llvm_type = ir.IntType(64)
+        elif self.current_return_type and self.current_return_type.is_optional():
+            # Fallback: use current function/method return type
+            inner_type = self.current_return_type.inner_type
+            if inner_type and self.type_param_context:
+                inner_type = inner_type.substitute(self.type_param_context)
+            if inner_type:
+                inner_llvm_type = self._get_llvm_type(inner_type)
+
+        if inner_llvm_type is None:
+            inner_llvm_type = ir.IntType(64)  # Last resort fallback
 
         optional_type = ir.LiteralStructType([ir.IntType(1), inner_llvm_type])
         optional_val = ir.Constant(optional_type, ir.Undefined)
@@ -3332,11 +3488,19 @@ class CodeGenerator:
         return phi
 
     def _generate_method_call(self, expr: MethodCall):
-        """Generate code for method call or enum initialization: object.method(args).
+        """Generate code for method call, static method call, or enum initialization.
 
-        The parser creates MethodCall for both cases. This method disambiguates
-        based on whether 'object' is an Identifier that matches an enum name.
+        The parser creates MethodCall for all these cases:
+        - object.method(args) - instance method call
+        - StructName.method(args) - static method call
+        - EnumType.Variant(args) - enum variant initialization
         """
+        # Check if this is a static method call: StructName.method(args)
+        if isinstance(expr.object, Identifier):
+            struct_name = expr.object.name
+            if (struct_name, expr.method_name) in self.static_methods:
+                return self._generate_static_method_call(expr, struct_name)
+
         # Check if this is actually an enum initialization
         # Check both concrete enums and generic enums
         if isinstance(expr.object, Identifier):
@@ -3443,6 +3607,29 @@ class CodeGenerator:
 
         # Call the method
         return self.builder.call(method_func, args, name="methodcall")
+
+    def _generate_static_method_call(self, expr: MethodCall, struct_name: str):
+        """Generate a static method call: StructName.method(args)"""
+        mangled_name = self._mangle_method_name(struct_name, expr.method_name)
+
+        if mangled_name not in self.functions:
+            raise ValueError(f"Undefined static method: {struct_name}.{expr.method_name}")
+
+        method_func = self.functions[mangled_name]
+
+        # Generate provided arguments
+        args = []
+        for arg in expr.arguments:
+            args.append(self._generate_expression(arg.value))
+
+        # Fill in default values for missing arguments
+        if mangled_name in self.method_defaults:
+            defaults = self.method_defaults[mangled_name]
+            for i in range(len(args), len(defaults)):
+                if defaults[i] is not None:
+                    args.append(self._generate_expression(defaults[i]))
+
+        return self.builder.call(method_func, args, name="static_methodcall")
 
     def _get_member_pointer(self, expr: MemberAccess):
         """Get a pointer to a struct field for mutable access.

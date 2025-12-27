@@ -1,0 +1,27 @@
+// EXPECT: success
+// EXPECT-OUTPUT: Data length: 5
+// EXPECT-OUTPUT: Byte 0: 72
+// EXPECT-OUTPUT: Byte 1: 101
+
+// Test Data type for raw byte handling
+
+func main() {
+    // Create empty Data and push bytes (ASCII for "Hello")
+    var data = Data()
+    data.push(72 as UInt8)   // H
+    data.push(101 as UInt8)  // e
+    data.push(108 as UInt8)  // l
+    data.push(108 as UInt8)  // l
+    data.push(111 as UInt8)  // o
+
+    let data_len = data.len()
+    print("Data length: {data_len}")
+
+    // Get individual bytes
+    if let b = data.get(0) {
+        print("Byte 0: {b as Int}")
+    }
+    if let b = data.get(1) {
+        print("Byte 1: {b as Int}")
+    }
+}

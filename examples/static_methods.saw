@@ -1,0 +1,58 @@
+// EXPECT: success
+// EXPECT-OUTPUT: Hello from static method!
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: x=
+// EXPECT-OUTPUT: 10
+// EXPECT-OUTPUT: y=
+// EXPECT-OUTPUT: 20
+
+// Test static methods
+
+struct Math {
+    _unused: Int
+}
+
+extension Math {
+    // Static method - no self parameter
+    func add(a: Int, b: Int) -> Int {
+        a + b
+    }
+
+    // Another static method
+    func greet() {
+        print("Hello from static method!")
+    }
+}
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point {
+    // Static method to create a point
+    func origin() -> Point {
+        Point(x: 0, y: 0)
+    }
+
+    // Instance method for comparison
+    func show(self) {
+        print("x=")
+        print(self.x)
+        print("y=")
+        print(self.y)
+    }
+}
+
+func main() {
+    // Call static method
+    Math.greet()
+
+    // Static method with args
+    let sum = Math.add(2, 3)
+    print(sum)
+
+    // Create point using init
+    let p = Point(x: 10, y: 20)
+    p.show()
+}

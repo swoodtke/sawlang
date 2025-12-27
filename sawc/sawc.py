@@ -206,6 +206,7 @@ Examples:
     parser.add_argument("-o", "--output", help="Output executable name")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("--emit-ir", action="store_true", help="Only emit LLVM IR, don't compile")
+    parser.add_argument("--emit-ast", action="store_true", help="Dump typed AST for debugging")
 
     args = parser.parse_args()
 
@@ -227,7 +228,40 @@ Examples:
 
         output_path = os.path.join(build_dir, name_without_ext)
 
-    if args.emit_ir:
+    if args.emit_ast:
+        # Dump typed AST
+        from ast_dump import dump_ast
+
+        with open(args.input, 'r') as f:
+            source = f.read()
+
+        # Load builtins
+        builtin_ast = load_builtins(args.verbose)
+
+        try:
+            lexer = Lexer(source)
+            tokens = lexer.tokenize()
+            parser_obj = Parser(tokens)
+            user_ast = parser_obj.parse()
+        except SyntaxError as e:
+            print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        # Merge builtins with user program
+        ast = merge_programs(builtin_ast, user_ast)
+
+        # Type check (this annotates None types, etc.)
+        reporter = ErrorReporter(source, args.input)
+        typechecker = TypeChecker(reporter)
+        if not typechecker.check(ast):
+            reporter.print_all()
+            sys.exit(1)
+
+        # Dump AST
+        ast_output = dump_ast(ast)
+        print(ast_output)
+
+    elif args.emit_ir:
         # Only emit IR
         with open(args.input, 'r') as f:
             source = f.read()

@@ -8,8 +8,31 @@
 // EXPECT-OUTPUT: 42
 // EXPECT-OUTPUT: 4242
 // EXPECT-OUTPUT: Just a plain string
+// EXPECT-OUTPUT: Point: x=5, y=10
+// EXPECT-OUTPUT: Length: 3
 
 // String interpolation test
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point {
+    func get_x(self) -> Int {
+        self.x
+    }
+}
+
+struct Counter {
+    value: Int
+}
+
+extension Counter {
+    func len(self) -> Int {
+        self.value
+    }
+}
 
 func main() {
     // Basic string interpolation
@@ -44,4 +67,12 @@ func main() {
     // Plain string (no interpolation) still works
     let plain = "Just a plain string"
     print(plain)
+
+    // Struct field access in interpolation
+    let p = Point(x: 5, y: 10)
+    print("Point: x={p.x}, y={p.y}")
+
+    // Method call in interpolation
+    let c = Counter(value: 3)
+    print("Length: {c.len()}")
 }

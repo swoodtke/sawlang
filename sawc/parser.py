@@ -665,7 +665,7 @@ class Parser:
             self.error("Expected 'func' or 'init' in extension")
 
         self.expect(TokenType.LPAREN)
-        parameters, self_mutable = self.parse_parameters()
+        parameters, self_mutable, is_static = self.parse_method_parameters()
         self.expect(TokenType.RPAREN)
 
         # Return type (optional, defaults to void)
@@ -684,9 +684,25 @@ class Parser:
             body=body,
             is_init=is_init,
             self_mutable=self_mutable,
+            is_static=is_static,
             line=start.line,
             column=start.column
         )
+
+    def parse_method_parameters(self):
+        """Parse method parameters. Returns (params, self_mutable, is_static).
+
+        - is_static is True if no 'self' parameter is present (static method)
+        - self_mutable is True if 'var self' is used
+        """
+        params, self_mutable = self.parse_parameters()
+
+        # Check if this is a static method (no self parameter)
+        is_static = True
+        if params and params[0].name == 'self':
+            is_static = False
+
+        return params, self_mutable, is_static
 
     def parse_parameters(self):
         """Parse parameters. Returns (params, self_mutable) where self_mutable is True if first param is 'var self'."""
@@ -724,7 +740,14 @@ class Parser:
                     self.error("'var' can only be used with 'self' parameter")
                 self.expect(TokenType.COLON, "Expected ':' after parameter name")
                 param_type = self.parse_type()
-                params.append(Parameter(name=name_token.value, type=param_type))
+
+                # Check for default value: param: Type = expr
+                default_value = None
+                if self.match(TokenType.ASSIGN):
+                    self.advance()  # consume '='
+                    default_value = self.parse_expression()
+
+                params.append(Parameter(name=name_token.value, type=param_type, default_value=default_value))
 
             if not self.match(TokenType.COMMA):
                 break
