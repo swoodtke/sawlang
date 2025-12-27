@@ -533,6 +533,7 @@ class WhileExpr(Expression):
     body: 'Block'
     line: int = 0
     column: int = 0
+    result_type: Optional['SawType'] = None  # Set by typechecker for expression context
 
 
 @dataclass
@@ -556,6 +557,7 @@ class ForLoop(Statement):
     body: 'Block'
     line: int = 0
     column: int = 0
+    result_type: Optional['SawType'] = None  # Set by typechecker for expression context
 
 
 @dataclass

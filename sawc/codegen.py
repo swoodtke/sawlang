@@ -117,6 +117,10 @@ class CodeGenerator:
         )
         self.printf = ir.Function(self.module, printf_type, name="printf")
 
+        # Declare abort for runtime panics
+        abort_type = ir.FunctionType(ir.VoidType(), [])
+        self.abort = ir.Function(self.module, abort_type, name="abort")
+
     def _get_llvm_type(self, saw_type: SawType) -> ir.Type:
         if saw_type.kind == TypeKind.INT:
             return ir.IntType(64)
@@ -1712,13 +1716,17 @@ class CodeGenerator:
             item_type = optional_type.elements[1]
 
         # For loops are conditional, return Optional<T>
-        # For now, assume result type is Int64
-        result_type = ir.IntType(64)
-        optional_result_type = ir.LiteralStructType([ir.IntType(1), result_type])
+        # Get the inner type from typechecker annotation
+        if expr.result_type is not None and expr.result_type.kind == TypeKind.OPTIONAL:
+            inner_type = self._get_llvm_type(expr.result_type.inner_type)
+        else:
+            # Fallback if no type annotation
+            inner_type = ir.IntType(64)
+        optional_result_type = ir.LiteralStructType([ir.IntType(1), inner_type])
         result_alloca = self.builder.alloca(optional_result_type, name="for.result")
 
         # Initialize to None (has_value = false, value = 0)
-        none_value = ir.Constant(optional_result_type, [ir.Constant(ir.IntType(1), 0), ir.Constant(result_type, 0)])
+        none_value = ir.Constant(optional_result_type, [ir.Constant(ir.IntType(1), 0), ir.Constant(inner_type, 0)])
         self.builder.store(none_value, result_alloca)
 
         # Create basic blocks
@@ -1771,24 +1779,35 @@ class CodeGenerator:
         """Generate LLVM IR for a while loop that returns a value (expression context)."""
         func = self.builder.function
 
-        # For now, assume result type is Int64 (we'll improve this later with type annotations)
-        # TODO: Get actual type from type checker or AST annotations
-        result_type = ir.IntType(64)
-
         is_conditional = expr.condition is not None
+
+        # Get the result type from typechecker annotation
+        if expr.result_type is not None:
+            if is_conditional and expr.result_type.kind == TypeKind.OPTIONAL:
+                # Conditional loop: result_type is Optional<T>, extract inner type
+                inner_type = self._get_llvm_type(expr.result_type.inner_type)
+            elif is_conditional:
+                # Fallback for void result
+                inner_type = ir.IntType(64)
+            else:
+                # Infinite loop: result_type is T directly
+                inner_type = self._get_llvm_type(expr.result_type)
+        else:
+            # Fallback if no type annotation
+            inner_type = ir.IntType(64)
 
         if is_conditional:
             # Conditional loop returns Optional<T>
             # Optional is { i1 has_value, T value }
-            optional_type = ir.LiteralStructType([ir.IntType(1), result_type])
+            optional_type = ir.LiteralStructType([ir.IntType(1), inner_type])
             result_alloca = self.builder.alloca(optional_type, name="while.result")
 
             # Initialize to None (has_value = false, value = 0)
-            none_value = ir.Constant(optional_type, [ir.Constant(ir.IntType(1), 0), ir.Constant(result_type, 0)])
+            none_value = ir.Constant(optional_type, [ir.Constant(ir.IntType(1), 0), ir.Constant(inner_type, 0)])
             self.builder.store(none_value, result_alloca)
         else:
             # Infinite loop returns T directly
-            result_alloca = self.builder.alloca(result_type, name="while.result")
+            result_alloca = self.builder.alloca(inner_type, name="while.result")
 
         # Create basic blocks
         cond_block = func.append_basic_block("while.cond")
@@ -2664,10 +2683,29 @@ class CodeGenerator:
         # Extract the is_some flag
         is_some = self.builder.extract_value(optional_val, 0, name="is_some")
 
-        # TODO: Add runtime check - for now, just extract the value
-        # In a full implementation, we'd check is_some and panic if false
+        # Runtime check: panic if None
+        func = self.builder.function
+        unwrap_ok_bb = func.append_basic_block(name="unwrap.ok")
+        unwrap_panic_bb = func.append_basic_block(name="unwrap.panic")
 
-        # Extract and return the value
+        self.builder.cbranch(is_some, unwrap_ok_bb, unwrap_panic_bb)
+
+        # Panic block: print error and abort
+        self.builder.position_at_end(unwrap_panic_bb)
+        panic_msg = f"panic: force unwrap of None at line {expr.line}\n\0"
+        panic_str = ir.Constant(ir.ArrayType(ir.IntType(8), len(panic_msg)),
+                                bytearray(panic_msg.encode('utf-8')))
+        panic_global = ir.GlobalVariable(self.module, panic_str.type, name=f".panic_msg.{id(expr)}")
+        panic_global.global_constant = True
+        panic_global.initializer = panic_str
+        panic_global.linkage = 'private'
+        panic_ptr = self.builder.bitcast(panic_global, ir.PointerType(ir.IntType(8)))
+        self.builder.call(self.printf, [panic_ptr])
+        self.builder.call(self.abort, [])
+        self.builder.unreachable()
+
+        # OK block: extract and return the value
+        self.builder.position_at_end(unwrap_ok_bb)
         return self.builder.extract_value(optional_val, 1, name="unwrapped")
 
     def _generate_nil_coalesce(self, expr: NilCoalesce):

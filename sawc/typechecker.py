@@ -162,6 +162,25 @@ class TypeChecker:
         # in builtin.saw and loaded automatically by the compiler.
         pass
 
+    def _block_has_early_exit(self, block: Block) -> bool:
+        """Check if a block definitely exits early (return, break, continue).
+
+        This checks if the block cannot fall through to the next statement.
+        A block has an early exit if:
+        - It contains a return/break/continue at the top level
+        - It ends with an if-else where both branches have early exits
+        """
+        for stmt in block.statements:
+            if isinstance(stmt, (ReturnStatement, BreakStatement, ContinueStatement)):
+                return True
+            # Check if-else: both branches must have early exits
+            if isinstance(stmt, IfExpr) and stmt.else_branch:
+                then_exits = self._block_has_early_exit(stmt.then_branch)
+                else_exits = self._block_has_early_exit(stmt.else_branch)
+                if then_exits and else_exits:
+                    return True
+        return False
+
     def _register_type_definition(self, type_def: TypeDefinition):
         """Register a type definition (type alias)."""
         if type_def.name in self.type_aliases:
@@ -1009,8 +1028,14 @@ class TypeChecker:
         self._check_block(stmt.else_branch)
         self.current_scope = old_scope
 
-        # TODO: Verify else branch has early exit (return, break, continue)
-        # For now, we trust the programmer
+        # Verify else branch has early exit (return, break, continue)
+        if not self._block_has_early_exit(stmt.else_branch):
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                "'guard' else block must exit the scope (return, break, or continue)",
+                stmt.line, stmt.column,
+                hint="add 'return', 'break', or 'continue' to the else block"
+            )
 
         # Add the bound variable to the current (outer) scope
         # This is the key difference from if-let: the variable is available after the guard
@@ -1247,14 +1272,18 @@ class TypeChecker:
                 )
                 return None
             # Return the break type directly (non-optional)
+            expr.result_type = break_type
             return break_type
         else:
             # Conditional loop: returns Optional<break_type>
             if break_type is None:
                 # No breaks with values, returns Void
+                expr.result_type = SawType(TypeKind.VOID)
                 return SawType(TypeKind.VOID)
             # Wrap break type in Optional
-            return SawType(TypeKind.OPTIONAL, inner_type=break_type)
+            result = SawType(TypeKind.OPTIONAL, inner_type=break_type)
+            expr.result_type = result
+            return result
 
     def _check_for_loop(self, stmt: ForLoop):
         """Check a for loop statement."""
@@ -1336,9 +1365,12 @@ class TypeChecker:
         # For loops are conditional, so return Optional<break_type>
         if break_type is None:
             # No breaks with values, returns Void
+            expr.result_type = SawType(TypeKind.VOID)
             return SawType(TypeKind.VOID)
         # Wrap break type in Optional
-        return SawType(TypeKind.OPTIONAL, inner_type=break_type)
+        result = SawType(TypeKind.OPTIONAL, inner_type=break_type)
+        expr.result_type = result
+        return result
 
     def _get_iterator_item_type(self, iterable_type: Optional[SawType], line: int, column: int) -> Optional[SawType]:
         """Get the Item type for a type that implements Iterator interface.

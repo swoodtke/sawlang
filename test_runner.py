@@ -26,6 +26,7 @@ from enum import Enum
 class ExpectType(Enum):
     SUCCESS = "success"
     ERROR = "error"
+    PANIC = "panic"  # Runtime panic (compiles but aborts at runtime)
 
 
 @dataclass
@@ -36,6 +37,7 @@ class TestCase:
     expect_type: Optional[ExpectType]  # None if not specified
     expected_output: List[str]
     expected_error_contains: List[str]
+    expected_panic_contains: List[str]  # For panic tests
 
 
 class Colors:
@@ -54,6 +56,7 @@ def parse_test_metadata(file_path: Path) -> TestCase:
     expect_type = None  # Must be explicitly set
     expected_output = []
     expected_error_contains = []
+    expected_panic_contains = []
 
     with open(file_path, 'r') as f:
         in_output_block = False
@@ -71,6 +74,8 @@ def parse_test_metadata(file_path: Path) -> TestCase:
                     expect_type = ExpectType.SUCCESS
                 elif directive == 'error':
                     expect_type = ExpectType.ERROR
+                elif directive == 'panic':
+                    expect_type = ExpectType.PANIC
                 in_output_block = False
 
             elif '// EXPECT-OUTPUT:' in line:
@@ -83,6 +88,11 @@ def parse_test_metadata(file_path: Path) -> TestCase:
             elif '// EXPECT-ERROR-CONTAINS:' in line:
                 error_text = line.split('// EXPECT-ERROR-CONTAINS:')[1].strip()
                 expected_error_contains.append(error_text)
+                in_output_block = False
+
+            elif '// EXPECT-PANIC-CONTAINS:' in line:
+                panic_text = line.split('// EXPECT-PANIC-CONTAINS:')[1].strip()
+                expected_panic_contains.append(panic_text)
                 in_output_block = False
 
             elif in_output_block:
@@ -100,7 +110,8 @@ def parse_test_metadata(file_path: Path) -> TestCase:
         name=name,
         expect_type=expect_type,
         expected_output=expected_output,
-        expected_error_contains=expected_error_contains
+        expected_error_contains=expected_error_contains,
+        expected_panic_contains=expected_panic_contains
     )
 
 
@@ -154,13 +165,15 @@ def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
     """
     # Require explicit EXPECT: directive
     if test.expect_type is None:
-        return False, "Missing '// EXPECT: success' or '// EXPECT: error' directive"
+        return False, "Missing '// EXPECT: success', '// EXPECT: error', or '// EXPECT: panic' directive"
 
     # Require at least one output expectation
     if test.expect_type == ExpectType.SUCCESS and not test.expected_output:
         return False, "Success test must have '// EXPECT-OUTPUT:' with expected output"
     if test.expect_type == ExpectType.ERROR and not test.expected_error_contains:
         return False, "Error test must have at least one '// EXPECT-ERROR-CONTAINS:' directive"
+    if test.expect_type == ExpectType.PANIC and not test.expected_panic_contains:
+        return False, "Panic test must have at least one '// EXPECT-PANIC-CONTAINS:' directive"
 
     with tempfile.TemporaryDirectory() as tmpdir:
         exe_path = Path(tmpdir) / test.name
@@ -180,6 +193,26 @@ def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
                     return False, f"Error message should contain '{expected_text}'\nGot: {combined_output[:300]}"
 
             return True, "Failed as expected"
+
+        elif test.expect_type == ExpectType.PANIC:
+            # Should compile successfully but panic at runtime
+            if not compile_success:
+                msg = f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
+                return False, msg
+
+            # Run the executable - expect it to fail (panic)
+            run_success, run_stdout, run_stderr = run_executable(exe_path)
+
+            if run_success:
+                return False, f"Expected runtime panic, but execution succeeded with output:\n{run_stdout[:300]}"
+
+            # Check panic message contains expected text
+            combined_output = run_stdout + run_stderr
+            for expected_text in test.expected_panic_contains:
+                if expected_text not in combined_output:
+                    return False, f"Panic message should contain '{expected_text}'\nGot: {combined_output[:300]}"
+
+            return True, "Panicked as expected"
 
         else:  # ExpectType.SUCCESS
             # Should compile successfully

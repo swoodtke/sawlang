@@ -1,0 +1,8 @@
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic: force unwrap of None
+
+func main() {
+    let x: Int? = None
+    print(x!)  // Should panic here
+    print(999) // Should not reach here
+}
