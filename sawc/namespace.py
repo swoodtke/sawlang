@@ -655,10 +655,58 @@ class Namespace:
         """Check if a generic instantiation has been generated."""
         return mangled_name in self.instantiated
 
+    # =========================================================================
+    # Namespace Merging
+    # =========================================================================
 
-# =============================================================================
-# Module-Qualified Namespace
-# =============================================================================
+    def merge_into(self, other: 'Namespace'):
+        """
+        Merge another namespace's symbols into this one.
+
+        Used for codegen when combining per-module namespaces into a unified
+        namespace. Existing symbols in this namespace are NOT overwritten.
+        """
+        for name, sym in other.structs.items():
+            if name not in self.structs:
+                self.structs[name] = sym
+        for name, sym in other.enums.items():
+            if name not in self.enums:
+                self.enums[name] = sym
+        for name, sym in other.functions.items():
+            if name not in self.functions:
+                self.functions[name] = sym
+        for name, sym in other.interfaces.items():
+            if name not in self.interfaces:
+                self.interfaces[name] = sym
+        for name, sym in other.type_aliases.items():
+            if name not in self.type_aliases:
+                self.type_aliases[name] = sym
+        for name, sym in other.modules.items():
+            if name not in self.modules:
+                self.modules[name] = sym
+        # Merge conformances
+        for type_name, iface_map in other.conformances.items():
+            if type_name not in self.conformances:
+                self.conformances[type_name] = {}
+            for iface_name, assoc_types in iface_map.items():
+                if iface_name not in self.conformances[type_name]:
+                    self.conformances[type_name][iface_name] = assoc_types
+        # Merge generic AST storage
+        for name, ast in other.generic_functions.items():
+            if name not in self.generic_functions:
+                self.generic_functions[name] = ast
+        for name, ast in other.generic_structs.items():
+            if name not in self.generic_structs:
+                self.generic_structs[name] = ast
+        for name, ast in other.generic_enums.items():
+            if name not in self.generic_enums:
+                self.generic_enums[name] = ast
+        for name, exts in other.generic_extensions.items():
+            if name not in self.generic_extensions:
+                self.generic_extensions[name] = exts
+            else:
+                # Extend the list of extensions
+                self.generic_extensions[name].extend(exts)
 
 @dataclass
 class ImportedSymbol:

@@ -886,7 +886,13 @@ let y = mylib.internal.helpers.secret()   // Error
 - `export_outside_init_error.saw` - Verifies export outside init.saw produces error
 - Test package in `examples/modules/test_package/` with Saw.toml and init.saw
 
-**Note:** Per-module type checking (5.0) was deferred. The Phase 4.5 approach of per-module namespace resolution is working well and the full per-module type checking refactor can be done as a future optimization if needed.
+**Note:** Per-module type checking (5.0) is now **IMPLEMENTED**. Each module is type-checked with its own namespace containing:
+- Cloned builtins (all directly accessible)
+- Imported modules (registered for qualified access)
+- Parent module's public symbols (for nested modules)
+- Its own declarations
+
+The new `check_module()` method in TypeChecker handles this, with topological sorting ensuring dependencies are checked first.
 
 **Total tests:** 153
 

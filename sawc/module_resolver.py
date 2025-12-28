@@ -43,6 +43,7 @@ class ModuleInfo:
     source: str = ""          # Source code (loaded lazily)
     ast: Optional['Program'] = None  # Parsed AST (filled after parsing)
     dependencies: List['ModuleInfo'] = field(default_factory=list)
+    namespace: Optional['Namespace'] = None  # Module's namespace after type checking
 
 
 class ModuleResolver:

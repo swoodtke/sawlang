@@ -712,6 +712,237 @@ class TypeChecker:
 
         return not self.reporter.has_errors()
 
+    def check_module(
+        self,
+        module_ast: Program,
+        module_path: Tuple[str, ...],
+        checked_modules: Dict[Tuple[str, ...], Tuple[Program, 'Namespace']],
+        builtin_namespace: 'Namespace',
+        parent_namespace: Optional['Namespace'] = None,
+        is_entry: bool = False
+    ) -> Optional['Namespace']:
+        """
+        Type check a single module with its own namespace.
+
+        This implements per-module type checking where each module is type-checked
+        in isolation with only its imports visible. This is the Phase 5.0 approach.
+
+        Args:
+            module_ast: The parsed Program AST for this module
+            module_path: The module's path as a tuple (e.g., ("std", "io"))
+            checked_modules: Dict of already type-checked modules (path -> (ast, namespace))
+            builtin_namespace: Pre-populated namespace with builtins
+            parent_namespace: Optional parent module's namespace for nested modules
+            is_entry: True if this is the entry module (should check for main)
+
+        Returns:
+            The module's namespace if successful, None on error
+        """
+        from namespace import (
+            Namespace, FunctionSymbol, StructSymbol, EnumSymbol,
+            InterfaceSymbol, TypeAliasSymbol, InterfaceMethodSymbol
+        )
+        from ast_nodes import Visibility
+
+        # Create a fresh namespace for this module
+        ns = Namespace(module_path=module_path)
+        ns.package_root = builtin_namespace.package_root
+
+        # Clone builtins into this module's namespace (all directly accessible)
+        ns.merge_into(builtin_namespace)
+        ns.directly_accessible = set(builtin_namespace.directly_accessible)
+
+        # Inherit from parent if this is a nested module
+        if parent_namespace:
+            for name, sym in parent_namespace.structs.items():
+                if sym.visibility == Visibility.PUBLIC:
+                    if name not in ns.structs:
+                        ns.register_struct(name, sym)
+                    ns.make_accessible(name)
+            for name, sym in parent_namespace.enums.items():
+                if sym.visibility == Visibility.PUBLIC:
+                    if name not in ns.enums:
+                        ns.register_enum(name, sym)
+                    ns.make_accessible(name)
+            for name, sym in parent_namespace.functions.items():
+                if sym.visibility == Visibility.PUBLIC:
+                    if name not in ns.functions:
+                        ns.register_function(name, sym)
+                    ns.make_accessible(name)
+            for name, sym in parent_namespace.interfaces.items():
+                if sym.visibility == Visibility.PUBLIC:
+                    if name not in ns.interfaces:
+                        ns.register_interface(name, sym)
+                    ns.make_accessible(name)
+
+        # Process imports - register imported modules in this namespace
+        for imp in getattr(module_ast, 'imports', []):
+            imp_path = tuple(imp.path)
+            # Handle package/parent prefixes
+            if imp_path and imp_path[0] == 'package':
+                imp_path = imp_path[1:]
+            elif imp_path and imp_path[0] == 'parent':
+                # Resolve relative to current module
+                if len(module_path) > 0:
+                    imp_path = module_path[:-1] + imp_path[1:]
+                else:
+                    imp_path = imp_path[1:]
+
+            if imp.is_glob:
+                # import foo.* -> make all public symbols directly accessible
+                base_path = imp_path[:-1] if imp_path and imp_path[-1] == '*' else imp_path
+                if base_path in checked_modules:
+                    source_ast, source_ns = checked_modules[base_path]
+                    for name, sym in source_ns.structs.items():
+                        if sym.visibility == Visibility.PUBLIC:
+                            ns.make_accessible(name)
+                    for name, sym in source_ns.enums.items():
+                        if sym.visibility == Visibility.PUBLIC:
+                            ns.make_accessible(name)
+                    for name, sym in source_ns.functions.items():
+                        if sym.visibility == Visibility.PUBLIC:
+                            ns.make_accessible(name)
+                    for name, sym in source_ns.interfaces.items():
+                        if sym.visibility == Visibility.PUBLIC:
+                            ns.make_accessible(name)
+            elif imp.symbols:
+                # import foo.{A, B} -> make specific symbols directly accessible
+                if imp_path in checked_modules:
+                    for sym_name in imp.symbols:
+                        ns.make_accessible(sym_name)
+            else:
+                # import foo.bar -> register module for qualified access
+                if imp_path in checked_modules:
+                    alias = imp.alias or (imp.path[-1] if imp.path else "")
+                    _, source_ns = checked_modules[imp_path]
+                    from namespace import ModuleSymbol
+                    ns.modules[alias] = ModuleSymbol(
+                        namespace=source_ns,
+                        path=list(imp_path),
+                        visibility=Visibility.PRIVATE  # Imports are private
+                    )
+
+        # Handle external module declarations (`module foo`)
+        # These are registered for qualified access just like imports
+        for mod_decl in getattr(module_ast, 'module_decls', []):
+            if not mod_decl.is_inline:
+                # External module declaration
+                mod_path = (mod_decl.name,)
+                if mod_path in checked_modules:
+                    _, source_ns = checked_modules[mod_path]
+                    from namespace import ModuleSymbol
+                    mod_visibility = Visibility.PUBLIC if mod_decl.is_public else Visibility.PRIVATE
+                    ns.modules[mod_decl.name] = ModuleSymbol(
+                        namespace=source_ns,
+                        path=list(mod_path),
+                        visibility=mod_visibility
+                    )
+
+        # Register this module's own declarations
+
+        # Save old state
+        old_namespace = self.namespace
+        old_module_path = self.current_module_path
+        self.namespace = ns
+        self.current_module_path = module_path
+
+        # Register type definitions
+        for type_def in module_ast.type_definitions:
+            self._register_type_definition(type_def)
+            ns.make_accessible(type_def.name)
+
+        # Register structs
+        for struct in module_ast.structs:
+            self._register_struct(struct)
+            ns.make_accessible(struct.name)
+
+        # Register enums
+        for enum in module_ast.enums:
+            self._register_enum(enum)
+            ns.make_accessible(enum.name)
+
+        # Register interfaces
+        for interface in module_ast.interfaces:
+            self._register_interface(interface)
+            ns.make_accessible(interface.name)
+
+        # Register extensions
+        for extension in module_ast.extensions:
+            self._register_extension(extension)
+
+        # Check resource containment rules
+        self._check_no_copy_containment()
+        self._check_custom_copy_containment()
+        self._check_deinit_containment()
+
+        # Register extern functions
+        for extern_block in module_ast.extern_blocks:
+            for extern_func in extern_block.functions:
+                self._register_extern_function(extern_func)
+                ns.make_accessible(extern_func.name)
+
+        # Register functions
+        for func in module_ast.functions:
+            self._register_function(func)
+            ns.make_accessible(func.name)
+
+        # Handle inline module declarations BEFORE type-checking function bodies
+        # This ensures that inline modules are available for use in the current module
+        for mod_decl in getattr(module_ast, 'module_decls', []):
+            if mod_decl.is_inline and mod_decl.body:
+                inline_path = module_path + (mod_decl.name,)
+                inline_ns = self.check_module(
+                    mod_decl.body,
+                    inline_path,
+                    checked_modules,
+                    builtin_namespace,
+                    parent_namespace=ns,
+                    is_entry=False
+                )
+                if inline_ns is None:
+                    # Error in inline module
+                    self.namespace = old_namespace
+                    self.current_module_path = old_module_path
+                    return None
+
+                # Register the inline module in this module's namespace
+                from namespace import ModuleSymbol
+                mod_visibility = Visibility.PUBLIC if mod_decl.is_public else Visibility.PRIVATE
+                ns.modules[mod_decl.name] = ModuleSymbol(
+                    namespace=inline_ns,
+                    path=list(inline_path),
+                    visibility=mod_visibility
+                )
+
+        # Check for main function (only for entry module)
+        if is_entry and "main" not in self.functions:
+            self.reporter.error(
+                ErrorKind.UNDEFINED_FUNCTION,
+                "no `main` function found",
+                1, 1,
+                hint="add a `fn main() { }` function as the entry point"
+            )
+
+        # Enable import checking for this module
+        ns.enable_import_checking()
+
+        # Type check function bodies
+        for func in module_ast.functions:
+            self._check_function(func)
+
+        # Type check method bodies
+        for extension in module_ast.extensions:
+            self._check_extension(extension)
+
+        # Restore old state
+        self.namespace = old_namespace
+        self.current_module_path = old_module_path
+
+        if self.reporter.has_errors():
+            return None
+
+        return ns
+
     def _register_builtins_to_namespace(self, builtins: Program):
         """Register builtin definitions to the root namespace."""
         root = self.module_namespace.root
@@ -928,10 +1159,12 @@ class TypeChecker:
             type_params=struct.type_params
         )
         # Also register in namespace
+        from ast_nodes import Visibility
         self.namespace.register_struct(struct.name, StructSymbol(
             fields=fields,
             field_order=field_order,
             type_params=struct.type_params,
+            visibility=getattr(struct, 'visibility', Visibility.PRIVATE),
             line=struct.line,
             column=struct.column,
             ast_node=struct if struct.type_params else None
@@ -979,10 +1212,12 @@ class TypeChecker:
             type_params=enum.type_params
         )
         # Also register in namespace
+        from ast_nodes import Visibility
         self.namespace.register_enum(enum.name, EnumSymbol(
             variants=variants,
             variant_order=variant_order,
             type_params=enum.type_params,
+            visibility=getattr(enum, 'visibility', Visibility.PRIVATE),
             ast_node=enum if enum.type_params else None
         ))
 
@@ -1061,10 +1296,12 @@ class TypeChecker:
                 return_type=method_info.return_type,
                 self_mutable=method_info.self_mutable
             )
+        from ast_nodes import Visibility
         self.namespace.register_interface(interface.name, InterfaceSymbol(
             methods=ns_methods,
             associated_types=assoc_type_names,
-            parent_interfaces=interface.parent_interfaces
+            parent_interfaces=interface.parent_interfaces,
+            visibility=getattr(interface, 'visibility', Visibility.PRIVATE)
         ))
 
     def _register_function(self, func: Function):
@@ -1090,11 +1327,13 @@ class TypeChecker:
             info = FunctionInfo(param_types, resolved_return_type, param_names)
         self.functions[func.name] = info
         # Also register in namespace
+        from ast_nodes import Visibility
         self.namespace.register_function(func.name, FunctionSymbol(
             param_types=info.param_types,
             param_names=info.param_names,
             return_type=info.return_type,
             type_params=info.type_params,
+            visibility=getattr(func, 'visibility', Visibility.PRIVATE),
             ast_node=func if func.type_params else None
         ))
 

@@ -118,6 +118,189 @@ def uses_modules(ast) -> bool:
     return bool(getattr(ast, 'imports', []) or getattr(ast, 'module_decls', []))
 
 
+def create_builtin_namespace(builtin_ast, typechecker):
+    """
+    Create a namespace populated with all builtin symbols.
+
+    This creates a namespace that can be cloned into each module's namespace
+    during per-module type checking. All builtin symbols are marked as
+    directly accessible.
+
+    Args:
+        builtin_ast: The merged AST containing builtin.saw and std/*.saw
+        typechecker: A TypeChecker instance to use for registration
+
+    Returns:
+        A Namespace containing all builtin symbols
+    """
+    from namespace import Namespace, FunctionSymbol, StructSymbol, EnumSymbol, InterfaceSymbol, TypeAliasSymbol, InterfaceMethodSymbol
+    from ast_nodes import Visibility
+
+    ns = Namespace()
+
+    # Register type definitions (aliases)
+    for type_def in builtin_ast.type_definitions:
+        ns.register_type_alias(type_def.name, TypeAliasSymbol(
+            aliased_type=type_def.defined_type,
+            visibility=getattr(type_def, 'visibility', Visibility.PUBLIC)
+        ))
+        ns.make_accessible(type_def.name)
+
+    # Register structs
+    for struct in builtin_ast.structs:
+        fields = {f.name: f.type for f in struct.fields}
+        field_order = [f.name for f in struct.fields]
+        ns.register_struct(struct.name, StructSymbol(
+            fields=fields,
+            field_order=field_order,
+            type_params=struct.type_params,
+            visibility=getattr(struct, 'visibility', Visibility.PUBLIC),
+            line=struct.line,
+            column=struct.column,
+            ast_node=struct if struct.type_params else None
+        ))
+        ns.make_accessible(struct.name)
+        # Store generic struct AST
+        if struct.type_params:
+            ns.generic_structs[struct.name] = struct
+
+    # Register enums
+    for enum in builtin_ast.enums:
+        variants = {}
+        variant_order = []
+        for variant in enum.variants:
+            variant_order.append(variant.name)
+            variants[variant.name] = [(at.name, at.type) for at in variant.associated_types]
+        ns.register_enum(enum.name, EnumSymbol(
+            variants=variants,
+            variant_order=variant_order,
+            type_params=enum.type_params,
+            visibility=getattr(enum, 'visibility', Visibility.PUBLIC),
+            ast_node=enum if enum.type_params else None
+        ))
+        ns.make_accessible(enum.name)
+        # Store generic enum AST
+        if enum.type_params:
+            ns.generic_enums[enum.name] = enum
+
+    # Register interfaces
+    for iface in builtin_ast.interfaces:
+        methods = {}
+        assoc_types = []
+        for m in iface.methods:
+            methods[m.name] = InterfaceMethodSymbol(
+                name=m.name,
+                param_types=[p.type for p in m.parameters],
+                param_names=[p.name for p in m.parameters],
+                return_type=m.return_type,
+                self_mutable=m.self_mutable
+            )
+        for at in iface.associated_types:
+            assoc_types.append(at.name)
+        ns.register_interface(iface.name, InterfaceSymbol(
+            methods=methods,
+            associated_types=assoc_types,
+            parent_interfaces=getattr(iface, 'parent_interfaces', []),
+            visibility=getattr(iface, 'visibility', Visibility.PUBLIC)
+        ))
+        ns.make_accessible(iface.name)
+
+    # Register functions
+    for func in builtin_ast.functions:
+        param_types = [p.type for p in func.parameters]
+        param_names = [p.name for p in func.parameters]
+        ns.register_function(func.name, FunctionSymbol(
+            param_types=param_types,
+            param_names=param_names,
+            return_type=func.return_type,
+            type_params=func.type_params,
+            visibility=getattr(func, 'visibility', Visibility.PUBLIC),
+            ast_node=func if func.type_params else None
+        ))
+        ns.make_accessible(func.name)
+        # Store generic function AST
+        if func.type_params:
+            ns.generic_functions[func.name] = func
+
+    # Register extern functions
+    for extern_block in builtin_ast.extern_blocks:
+        for extern_func in extern_block.functions:
+            param_types = [p.type for p in extern_func.parameters]
+            param_names = [p.name for p in extern_func.parameters]
+            ns.register_function(extern_func.name, FunctionSymbol(
+                param_types=param_types,
+                param_names=param_names,
+                return_type=extern_func.return_type,
+                is_variadic=extern_func.is_variadic,
+                visibility=Visibility.PUBLIC
+            ))
+            ns.make_accessible(extern_func.name)
+
+    return ns
+
+
+def topological_sort_modules(module_map):
+    """
+    Topologically sort modules by their dependencies.
+
+    Modules are sorted so that dependencies come before dependents.
+    This ensures that when type-checking a module, all its imports
+    have already been type-checked.
+
+    Args:
+        module_map: Dict of module_path_tuple -> AST
+
+    Returns:
+        List of module_path_tuple in dependency order
+    """
+    # Build dependency graph
+    # For each module, find what it imports
+    dependencies = {}  # module_path -> set of module_paths it depends on
+    for mod_path, mod_ast in module_map.items():
+        deps = set()
+        for imp in getattr(mod_ast, 'imports', []):
+            imp_path = tuple(imp.path)
+            # Handle package/parent prefixes
+            if imp_path and imp_path[0] == 'package':
+                imp_path = imp_path[1:]
+            elif imp_path and imp_path[0] == 'parent':
+                imp_path = imp_path[1:]
+            if imp_path in module_map:
+                deps.add(imp_path)
+        dependencies[mod_path] = deps
+
+    # Kahn's algorithm for topological sort
+    # Count incoming edges for each node
+    in_degree = {mod: 0 for mod in module_map}
+    for mod, deps in dependencies.items():
+        for dep in deps:
+            if dep in in_degree:
+                in_degree[mod] += 1
+
+    # Start with nodes that have no dependencies
+    queue = [mod for mod, degree in in_degree.items() if degree == 0]
+    result = []
+
+    while queue:
+        mod = queue.pop(0)
+        result.append(mod)
+
+        # For each module that depends on this one, reduce its in-degree
+        for other_mod, deps in dependencies.items():
+            if mod in deps:
+                in_degree[other_mod] -= 1
+                if in_degree[other_mod] == 0:
+                    queue.append(other_mod)
+
+    # Check for cycles
+    if len(result) != len(module_map):
+        # There's a cycle - just return in arbitrary order
+        # The type checker will handle any errors
+        return list(module_map.keys())
+
+    return result
+
+
 def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_source: str, verbose: bool = False):
     """
     Compile a program that uses the module system.
@@ -234,22 +417,6 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     # Load builtins
     builtin_ast = load_builtins(verbose)
 
-    # Separate imports by type:
-    # - Module imports (import foo) -> only accessible via qualified name (foo.X)
-    # - Glob imports (import foo.*) -> all symbols directly accessible
-    # - Symbol imports (import foo.{A,B}) -> specific symbols directly accessible
-    module_imports = []      # import foo.bar
-    glob_imports = []        # import foo.*
-    symbol_imports = []      # import foo.{A, B}
-
-    for imp in entry_ast.imports:
-        if imp.is_glob:
-            glob_imports.append(imp)
-        elif imp.symbols:
-            symbol_imports.append(imp)
-        else:
-            module_imports.append(imp)
-
     # Helper to recursively collect all inline module bodies from an AST
     def collect_inline_module_bodies(ast):
         """Recursively collect all inline module bodies from an AST."""
@@ -261,7 +428,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
                 bodies.extend(collect_inline_module_bodies(mod_decl.body))
         return bodies
 
-    # Build merged AST for code generation and type checking
+    # Build merged AST for code generation (still needed for codegen)
     # Start with builtins
     merged_ast = builtin_ast
 
@@ -285,136 +452,151 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     if verbose:
         print(f"    Merged {len(merged_ast.functions)} functions total")
 
-    # Type check
+    # =========================================================================
+    # Phase 5.0: Per-Module Type Checking
+    # =========================================================================
+    # Type-check each module separately with its own namespace, then merge
+    # namespaces for codegen. This ensures proper import scoping.
+
     if verbose:
-        print("  Type checking...")
+        print("  Type checking (per-module)...")
+
     reporter = ErrorReporter(entry_source, source_path)
     typechecker = TypeChecker(reporter)
 
-    # Enable import-based accessibility checking
-    typechecker.namespace.enable_import_checking()
+    # First, type-check the builtins using the legacy method
+    # This sets resolved_type on expressions in the builtin AST
+    if verbose:
+        print("    Type-checking builtins...")
 
-    # Mark builtins as directly accessible
-    for struct in builtin_ast.structs:
-        typechecker.namespace.make_accessible(struct.name)
-    for enum in builtin_ast.enums:
-        typechecker.namespace.make_accessible(enum.name)
-    for func in builtin_ast.functions:
-        typechecker.namespace.make_accessible(func.name)
-    for iface in builtin_ast.interfaces:
-        typechecker.namespace.make_accessible(iface.name)
+    # Create a temporary error reporter for builtins to avoid polluting user errors
+    builtin_reporter = ErrorReporter("", "builtins")
+    builtin_typechecker = TypeChecker(builtin_reporter)
+
+    # Type-check builtins (this populates the namespace and sets resolved_type)
+    # Use a copy of builtin_ast for checking (we don't want main check errors)
+    builtin_typechecker.namespace.allow_all_access = True  # Allow all access for builtins
     for type_def in builtin_ast.type_definitions:
-        typechecker.namespace.make_accessible(type_def.name)
+        builtin_typechecker._register_type_definition(type_def)
+    for struct in builtin_ast.structs:
+        builtin_typechecker._register_struct(struct)
+    for enum in builtin_ast.enums:
+        builtin_typechecker._register_enum(enum)
+    for interface in builtin_ast.interfaces:
+        builtin_typechecker._register_interface(interface)
+    for extension in builtin_ast.extensions:
+        builtin_typechecker._register_extension(extension)
     for extern_block in builtin_ast.extern_blocks:
         for extern_func in extern_block.functions:
-            typechecker.namespace.make_accessible(extern_func.name)
+            builtin_typechecker._register_extern_function(extern_func)
+    for func in builtin_ast.functions:
+        builtin_typechecker._register_function(func)
 
-    # Mark entry module's own symbols as accessible
-    for struct in entry_ast.structs:
-        typechecker.namespace.make_accessible(struct.name)
-    for enum in entry_ast.enums:
-        typechecker.namespace.make_accessible(enum.name)
-    for func in entry_ast.functions:
-        typechecker.namespace.make_accessible(func.name)
-    for iface in entry_ast.interfaces:
-        typechecker.namespace.make_accessible(iface.name)
-    for type_def in entry_ast.type_definitions:
-        typechecker.namespace.make_accessible(type_def.name)
+    # Type-check the function and method bodies (sets resolved_type on expressions)
+    for func in builtin_ast.functions:
+        builtin_typechecker._check_function(func)
+    for extension in builtin_ast.extensions:
+        builtin_typechecker._check_extension(extension)
 
-    # Helper to register all inline modules from an AST at top level
-    # This is needed so code within imported modules can access their own inline modules
-    from ast_nodes import Visibility
-    def register_inline_modules_from_ast(ast, ns):
-        """Register inline modules from an AST so they're accessible during type checking."""
-        for mod_decl in getattr(ast, 'module_decls', []):
-            if mod_decl.is_inline and mod_decl.body:
-                mod_visibility = Visibility.PUBLIC if mod_decl.is_public else Visibility.PRIVATE
-                ns.register_module_from_ast(
-                    mod_decl.name, mod_decl.body, [mod_decl.name],
-                    visibility=mod_visibility
-                )
-                # Recursively register nested inline modules
-                register_inline_modules_from_ast(mod_decl.body, ns)
+    # Now create the builtin namespace for the per-module type checking
+    builtin_ns = builtin_typechecker.namespace
 
-    # Phase 4.5: Register transitive imports at top level for type-checking
-    # Since all module code is merged and type-checked against the main namespace,
-    # we need each module's imports to be available during type-checking.
-    # These are registered but NOT made directly accessible (require qualified access).
-    for mod_path, mod_ast in module_map.items():
-        for mod_imp in getattr(mod_ast, 'imports', []):
-            imp_path = tuple(mod_imp.path)
-            if imp_path in module_map and imp_path not in typechecker.namespace.modules:
-                imp_alias = mod_imp.alias or mod_imp.path[-1]
-                # Only register if not already registered
-                if imp_alias not in typechecker.namespace.modules:
-                    typechecker.namespace.register_module_from_ast(
-                        imp_alias, module_map[imp_path], list(imp_path),
-                        module_map=module_map
-                    )
+    # Copy type information to the main typechecker for codegen compatibility
+    typechecker.structs = dict(builtin_typechecker.structs)
+    typechecker.enums = dict(builtin_typechecker.enums)
+    typechecker.interfaces = dict(builtin_typechecker.interfaces)
+    typechecker.functions = dict(builtin_typechecker.functions)
+    typechecker.type_aliases = dict(builtin_typechecker.type_aliases)
+    typechecker.type_conformances = dict(builtin_typechecker.type_conformances)
+    typechecker.type_assignments = dict(builtin_typechecker.type_assignments)
 
-    # Process imports to set up accessibility
-    for imp in module_imports:
-        # import foo.bar -> register module, accessible as 'bar' (qualified only)
-        mod_path = tuple(imp.path)
-        if mod_path in module_map:
-            alias = imp.alias or imp.path[-1]
-            mod_ast = module_map[mod_path]
-            typechecker.namespace.register_module_from_ast(
-                alias, mod_ast, list(mod_path),
-                module_map=module_map
-            )
-            # Also register inline modules from imported module at top level
-            # so they're accessible from within the imported module's code
-            register_inline_modules_from_ast(mod_ast, typechecker.namespace)
+    # Topologically sort modules by dependencies
+    ordered_modules = topological_sort_modules(module_map)
 
-    for imp in glob_imports:
-        # import foo.* -> all symbols from module are directly accessible
-        mod_path = tuple(imp.path[:-1]) if imp.path[-1] == '*' else tuple(imp.path)
-        if mod_path in module_map:
-            mod_ast = module_map[mod_path]
-            for struct in mod_ast.structs:
-                typechecker.namespace.make_accessible(struct.name)
-            for enum in mod_ast.enums:
-                typechecker.namespace.make_accessible(enum.name)
-            for func in mod_ast.functions:
-                typechecker.namespace.make_accessible(func.name)
-            for iface in mod_ast.interfaces:
-                typechecker.namespace.make_accessible(iface.name)
+    if verbose:
+        print(f"    Type-checking {len(ordered_modules)} module(s) in dependency order")
 
-    for imp in symbol_imports:
-        # import foo.{A, B} -> only A and B are directly accessible
-        mod_path = tuple(imp.path)
-        if mod_path in module_map:
-            for sym_name in imp.symbols:
-                typechecker.namespace.make_accessible(sym_name)
+    # Type-check each module in dependency order
+    # checked_modules: module_path -> (ast, namespace)
+    checked_modules = {}
 
-    # Process module declarations for qualified access (Phase 4)
+    for mod_path in ordered_modules:
+        mod_ast = module_map[mod_path]
+        if verbose:
+            print(f"      Checking module: {'.'.join(mod_path)}")
+
+        mod_ns = typechecker.check_module(
+            mod_ast,
+            mod_path,
+            checked_modules,
+            builtin_ns,
+            parent_namespace=None,
+            is_entry=False
+        )
+
+        if mod_ns is None:
+            reporter.print_all()
+            sys.exit(1)
+
+        checked_modules[mod_path] = (mod_ast, mod_ns)
+
+    # Type-check external module declarations
     for mod_decl in getattr(entry_ast, 'module_decls', []):
-        # Determine visibility: public module vs module (private)
-        mod_visibility = Visibility.PUBLIC if mod_decl.is_public else Visibility.PRIVATE
-        if mod_decl.is_inline:
-            # Inline module - register body for qualified access
-            typechecker.namespace.register_module_from_ast(
-                mod_decl.name, inline_modules[mod_decl.name], [mod_decl.name],
-                visibility=mod_visibility,
-                module_map=module_map
-            )
-        else:
-            # External module declaration - register for qualified access
+        if not mod_decl.is_inline:
             mod_path = (mod_decl.name,)
-            if mod_path in module_map:
-                typechecker.namespace.register_module_from_ast(
-                    mod_decl.name, module_map[mod_path], [mod_decl.name],
-                    visibility=mod_visibility,
-                    module_map=module_map
+            if mod_path in module_map and mod_path not in checked_modules:
+                mod_ast = module_map[mod_path]
+                if verbose:
+                    print(f"      Checking module: {mod_decl.name}")
+
+                mod_ns = typechecker.check_module(
+                    mod_ast,
+                    mod_path,
+                    checked_modules,
+                    builtin_ns,
+                    parent_namespace=None,
+                    is_entry=False
                 )
 
-    if not typechecker.check(merged_ast):
+                if mod_ns is None:
+                    reporter.print_all()
+                    sys.exit(1)
+
+                checked_modules[mod_path] = (mod_ast, mod_ns)
+
+    # Type-check the entry module
+    if verbose:
+        print("      Checking entry module")
+
+    entry_ns = typechecker.check_module(
+        entry_ast,
+        (),  # Entry module has empty path
+        checked_modules,
+        builtin_ns,
+        parent_namespace=None,
+        is_entry=True
+    )
+
+    if entry_ns is None:
         reporter.print_all()
         sys.exit(1)
 
     if verbose:
         print("    Type check passed")
+
+    # Merge all namespaces for codegen
+    # Start with builtin namespace, then merge all module namespaces
+    from namespace import Namespace
+    merged_ns = Namespace()
+    merged_ns.merge_into(builtin_ns)
+
+    for mod_path, (mod_ast, mod_ns) in checked_modules.items():
+        merged_ns.merge_into(mod_ns)
+
+    merged_ns.merge_into(entry_ns)
+
+    # Set this as the typechecker's namespace for compatibility
+    typechecker.namespace = merged_ns
 
     # Code generation
     if verbose:
