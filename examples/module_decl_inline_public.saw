@@ -1,0 +1,38 @@
+// Test public inline module declaration
+// `public module` makes the module visible to files that import this one
+// EXPECT: success
+// EXPECT-OUTPUT: 100
+// EXPECT-OUTPUT: 25
+
+// Public module - accessible from external importers
+public module api {
+    public func compute(n: Int) -> Int {
+        n * 10
+    }
+
+    public struct Config {
+        value: Int
+    }
+
+    public extension Config {
+        func doubled(self) -> Int {
+            self.value * 2
+        }
+    }
+}
+
+// Private module (default) - only accessible within this file
+module internal {
+    public func helper(n: Int) -> Int {
+        n + 5
+    }
+}
+
+func main() {
+    // Both modules accessible within this file
+    let x = api.compute(10)
+    print(x)  // 100
+
+    let c = api.Config(value: 10)
+    print(internal.helper(c.doubled()))  // helper(20) = 25
+}

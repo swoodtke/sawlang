@@ -1,0 +1,9 @@
+// Library that imports utils internally but does NOT re-export it
+// Importers should NOT be able to access lib_with_import.utils
+// EXPECT: skip
+
+import modules.utils  // Internal dependency
+
+public func lib_double(n: Int) -> Int {
+    utils.double(n)
+}

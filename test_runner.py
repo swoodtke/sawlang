@@ -7,10 +7,13 @@ Test expectations are specified via comments in the source files:
 
     // EXPECT: success        - Should compile and run without error
     // EXPECT: error          - Should fail to compile
+    // EXPECT: panic          - Should compile but panic at runtime
+    // EXPECT: skip           - Skip this file (library modules, etc.)
     // EXPECT-OUTPUT:         - Next lines are expected stdout (until next directive or code)
     // some output
     // more output
     // EXPECT-ERROR-CONTAINS: text  - Error message should contain "text"
+    // EXPECT-PANIC-CONTAINS: text  - Panic message should contain "text"
 """
 
 import os
@@ -52,8 +55,11 @@ class Colors:
     RESET = '\033[0m'
 
 
-def parse_test_metadata(file_path: Path) -> TestCase:
-    """Parse test metadata from comments in a .saw file"""
+def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
+    """Parse test metadata from comments in a .saw file.
+
+    Returns None for files marked with '// EXPECT: skip' (library modules, etc.)
+    """
     name = file_path.stem
     expect_type = None  # Must be explicitly set
     expected_output = []
@@ -78,6 +84,8 @@ def parse_test_metadata(file_path: Path) -> TestCase:
                     expect_type = ExpectType.ERROR
                 elif directive == 'panic':
                     expect_type = ExpectType.PANIC
+                elif directive == 'skip':
+                    return None  # Skip this file entirely
                 in_output_block = False
 
             elif '// EXPECT-OUTPUT:' in line:
@@ -254,7 +262,8 @@ def discover_tests(examples_dir: Path) -> List[TestCase]:
         if any(part in skip_dirs for part in relative_parts[:-1]):
             continue
         test = parse_test_metadata(saw_file)
-        tests.append(test)
+        if test is not None:  # Skip files marked with '// EXPECT: skip'
+            tests.append(test)
     return tests
 
 

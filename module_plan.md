@@ -12,8 +12,9 @@ Add a full module system with file-level namespaces, visibility modifiers, and c
 | 1 | Foundation (Basic Imports) | **COMPLETE** |
 | 2 | Symbol-Level Imports | **COMPLETE** |
 | 3 | Visibility System | **COMPLETE** |
-| 4 | Module Declarations | Pending |
-| 5 | Package Manifest | Pending |
+| 4 | Module Declarations | **COMPLETE** |
+| 4.5 | Per-Module Namespace Resolution | **COMPLETE** |
+| 5 | Package Manifest & Per-Module Type Checking | Pending |
 
 ## Phased Implementation
 
@@ -601,7 +602,7 @@ def _check_visibility(self, visibility: Visibility, symbol_path: List[str]) -> b
 
 ---
 
-### Phase 4: Module Declarations
+### Phase 4: Module Declarations ✅ COMPLETE
 
 **Goal**: User-defined modules, sub-modules
 
@@ -622,9 +623,149 @@ When `module parser` encountered:
 - `package.foo` → from package root
 - `parent.foo` → from parent module
 
-### Phase 5: Package Manifest
+#### 4.3 Implementation Summary (Completed)
 
-**Goal**: Saw.toml support
+**Files modified:**
+- `sawc/sawc.py` - Added module declaration processing in `compile_with_modules()`
+- `sawc/namespace.py` - Added `visibility` field to `ModuleSymbol`, updated `register_module_from_ast()` to accept visibility
+- `test_runner.py` - Added `// EXPECT: skip` support for library modules
+
+**Module declaration syntax supported:**
+| Syntax | Description |
+|--------|-------------|
+| `module name` | External module - loads `name.saw` from source directory |
+| `module name { ... }` | Inline module - symbols accessible as `name.Symbol` |
+| `public module name` | Public module - visible to external importers |
+| `public module name { ... }` | Public inline module |
+
+**Key implementation details:**
+- External modules are loaded from the same directory as the source file
+- Inline module bodies are merged into the main AST for codegen
+- Module symbols are only accessible via qualified access (`module.Symbol`)
+- Direct access to inline module symbols produces helpful error message
+- Module visibility (public vs private) is tracked and enforced
+
+**Tests added:**
+- `module_decl_inline.saw` - Inline module with qualified access
+- `module_decl_inline_public.saw` - Public and private inline modules
+- `module_decl_inline_direct_error.saw` - Verifies direct access is rejected
+- `module_decl_external.saw` - External module declaration (`module name`)
+- `myutils.saw` - Library module with `// EXPECT: skip` marker
+
+**Total tests:** 149 (4 module declaration tests)
+
+---
+
+### Phase 4.5: Per-Module Namespace Resolution ✅ COMPLETE
+
+**Problem**: When module A imports module B, and B has its own imports (e.g., `import utils`), B's code can't resolve its imports because we use a single global namespace for type-checking.
+
+**Example of the bug:**
+```saw
+// lib_with_import.saw
+import modules.utils  // B's own import
+
+public func lib_double(n: Int) -> Int {
+    utils.double(n)  // ERROR: 'utils' not found when lib_with_import is imported
+}
+
+// main.saw
+import modules.lib_with_import  // Importing B causes B's code to fail type-check
+```
+
+**Current architecture (flawed):**
+1. Parse all modules into `module_map`
+2. Merge everything into one big AST
+3. Type-check merged AST with single global namespace
+4. Problem: Each module's imports aren't registered, so their code fails
+
+**Intermediate fix:**
+Pass `module_map` to `register_module_from_ast` so each module's namespace includes its own imports:
+
+```python
+def register_module_from_ast(self, alias, module_ast, path, visibility, module_map):
+    # Create module namespace
+    mod_ns = Namespace(module_path=path)
+
+    # Register module's own symbols (structs, funcs, etc.)
+    # ... existing code ...
+
+    # NEW: Register module's imports in its namespace
+    for imp in module_ast.imports:
+        imp_path = tuple(imp.path)
+        if imp_path in module_map:
+            imp_alias = imp.alias or imp.path[-1]
+            mod_ns.register_module_from_ast(
+                imp_alias, module_map[imp_path], list(imp_path),
+                visibility=Visibility.PRIVATE,  # Imports are private
+                module_map=module_map
+            )
+```
+
+**Result:**
+- Each module can resolve its own imports ✓
+- Imports are NOT exposed to importers (they're private to the module) ✓
+- `lib_with_import.utils` correctly fails (utils not in lib_with_import's public API) ✓
+
+#### 4.5.1 Implementation Summary (Completed)
+
+**Files modified:**
+- `sawc/namespace.py` - Added `module_map` parameter to `register_module_from_ast()`, registers module's imports in its namespace
+- `sawc/namespace.py` - Added visibility checking for modules in `_resolve_parts()`
+- `sawc/sawc.py` - Register transitive imports at top level for type-checking (Phase 4.5 block)
+- `sawc/sawc.py` - Pass `module_map` to all `register_module_from_ast()` calls
+- `sawc/typechecker.py` - Pass `check_visibility=True` when resolving cross-module symbols
+
+**Key implementation details:**
+- Each module's imports are registered in its own namespace with `visibility=Visibility.PRIVATE`
+- Transitive imports are also registered at the top level for type-checking merged code
+- Module visibility is now checked when resolving symbols via `namespace.resolve()`
+- Private modules (including imports) are not accessible from external code
+
+**Tests added:**
+- `reexport_import_error.saw` - Verify imports aren't re-exported ✓
+- `reexport_public_module.saw` - Verify public modules ARE re-exported ✓
+- `reexport_private_module_error.saw` - Verify private modules aren't re-exported ✓
+
+**Total tests:** 152 (3 new module re-export tests)
+
+---
+
+### Phase 5: Package Manifest, Module Facades & Per-Module Type Checking
+
+**Goal**: Saw.toml support, `init.saw` facade modules, and proper per-module type checking
+
+#### 5.0 Per-Module Type Checking (Proper Solution)
+
+**Problem with Phase 4.5**: We still merge all code into one AST and type-check globally. This works but is architecturally messy.
+
+**Proper solution**: Type-check each module separately, then merge for codegen.
+
+```
+Current flow (Phase 4.5):
+  Parse all → Merge AST → Type-check merged → Codegen
+
+Proper flow (Phase 5):
+  Parse all → Type-check each module with its own namespace → Merge for codegen
+```
+
+**Implementation:**
+1. Each `ModuleInfo` gets a `namespace` field populated during parsing
+2. Type-check each module using its own namespace
+3. Module's namespace includes:
+   - Own symbols (structs, funcs, enums, interfaces)
+   - Own imports (resolved from module_map)
+   - Own inline modules
+   - Access to parent module's public symbols (for nested modules)
+4. After all modules type-check, merge for codegen
+
+**Benefits:**
+- Clean separation of concerns
+- Each module is self-contained
+- Errors reported with correct module context
+- Foundation for incremental compilation
+
+#### 5.1 Saw.toml Package Manifest
 
 ```toml
 [package]
@@ -638,6 +779,81 @@ version = "0.1.0"
 Parse Saw.toml to find:
 - Package root directory
 - Package name for `package.` imports
+
+#### 5.2 Module Facade with init.saw
+
+**Problem**: Without a facade, your file structure IS your public API. Refactoring internal files breaks downstream users.
+
+**Solution**: Optional `init.saw` file that defines the public API independently of file structure.
+
+```
+mylib/
+  init.saw              # Optional - defines public API
+  Saw.toml              # Package manifest
+  internal/
+    foobar.saw          # Contains FooImpl, BarImpl
+    helpers.saw         # Internal utilities
+  utils.saw             # Utility functions
+```
+
+**init.saw syntax:**
+
+```saw
+// mylib/init.saw - defines what users see when they `import mylib`
+
+// Re-export with rename (hides internal path)
+export internal.foobar.FooImpl as Foo    // Accessible as mylib.Foo
+export internal.foobar.BarImpl as Bar    // Accessible as mylib.Bar
+
+// Re-export entire module (flattens path)
+export utils                              // Accessible as mylib.utils
+                                          // NOT mylib.internal.utils
+
+// Re-export all public symbols from a module (glob)
+export internal.foobar.*                  // All public symbols at mylib.*
+
+// Re-export with preserved structure
+export internal.helpers as helpers        // Accessible as mylib.helpers
+```
+
+**Behavior:**
+
+| Scenario | Result |
+|----------|--------|
+| `init.saw` exists | Only explicitly exported symbols are visible |
+| `init.saw` missing | All public symbols exposed, file structure = API |
+| `export foo.bar` | Exposed as `pkgname.bar` (path flattened) |
+| `export foo.bar as baz` | Exposed as `pkgname.baz` (renamed) |
+| `export foo.bar.*` | All public symbols from bar at `pkgname.*` |
+
+**Example usage:**
+
+```saw
+// User code
+import mylib
+
+let f = mylib.Foo()           // Works - exported in init.saw
+let b = mylib.Bar()           // Works - exported in init.saw
+let h = mylib.helpers.util()  // Works - exported as helpers
+
+// These FAIL - internal structure hidden:
+let x = mylib.internal.foobar.FooImpl()  // Error
+let y = mylib.internal.helpers.secret()   // Error
+```
+
+#### 5.3 Implementation Notes
+
+**Files to modify:**
+- `sawc/lexer.py` - Add EXPORT token
+- `sawc/ast_nodes.py` - Add ExportDecl node
+- `sawc/parser.py` - Add parse_export()
+- `sawc/module_resolver.py` - Check for init.saw, build facade namespace
+- `sawc/sawc.py` - Integrate facade resolution
+
+**Resolution order:**
+1. Look for `module_name/init.saw`
+2. If exists, build namespace from export statements only
+3. If missing, build namespace from all public symbols (current behavior)
 
 ---
 
@@ -659,15 +875,15 @@ Parse Saw.toml to find:
 
 Current `std/*.saw` files need no changes initially. They're loaded by `load_builtins()` and merged as before.
 
-Future: Restructure to proper module hierarchy:
+Future: Restructure to proper module hierarchy with init.saw facades:
 ```
 sawc/std/
-  module.saw        # public module io, public module collections
+  init.saw          # export io, export collections, etc.
   io/
-    module.saw      # public struct File, etc.
+    init.saw        # export File, export Read, etc.
     file.saw
   collections/
-    module.saw
+    init.saw        # export Vector, export Map, etc.
     vector.saw
     map.saw
 ```

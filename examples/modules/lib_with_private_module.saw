@@ -1,0 +1,13 @@
+// Library with a PRIVATE inline module - should NOT be visible to importers
+// Importers should NOT be able to access lib_with_private_module.internal
+// EXPECT: skip
+
+module internal {  // Private by default
+    public func helper() -> Int {
+        10
+    }
+}
+
+public func lib_func() -> Int {
+    internal.helper() + 5
+}

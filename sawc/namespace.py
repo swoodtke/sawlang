@@ -100,12 +100,14 @@ class TypeAliasSymbol:
 
 @dataclass
 class ModuleSymbol:
-    """Symbol for an imported module."""
+    """Symbol for an imported or declared module."""
     kind: SymbolKind = SymbolKind.MODULE
     # The module's own namespace containing its symbols
     namespace: Optional['Namespace'] = None
     # Original module path (e.g., ["std", "io"])
     path: List[str] = field(default_factory=list)
+    # Visibility of the module itself (public module vs module)
+    visibility: Visibility = Visibility.PRIVATE
 
 
 # Union type for any symbol that can be resolved
@@ -197,6 +199,16 @@ class Namespace:
         if remaining:
             if name in self.modules:
                 module = self.modules[name]
+                # Check module visibility before allowing access
+                if check_visibility and hasattr(module, 'visibility'):
+                    acc_mod = accessor_module if accessor_module is not None else ()
+                    if not self.check_visibility(
+                        module.visibility,
+                        symbol_module=self.module_path,
+                        accessor_module=acc_mod,
+                        package_root=self.package_root
+                    ):
+                        return None  # Module not visible
                 if module.namespace:
                     # Cross-module access - check visibility with accessor context
                     return module.namespace._resolve_parts(
@@ -210,11 +222,6 @@ class Namespace:
             if name not in self.directly_accessible and name not in self.modules:
                 # Name exists but isn't directly accessible
                 return None
-
-        # Check all symbol tables
-        # Order: modules first (for qualified access), then types, then functions
-        if name in self.modules:
-            return self.modules[name]
 
         # Helper to check visibility using proper module paths
         def is_visible(symbol) -> bool:
@@ -230,6 +237,15 @@ class Namespace:
                 accessor_module=acc_mod,
                 package_root=self.package_root
             )
+
+        # Check all symbol tables
+        # Order: modules first (for qualified access), then types, then functions
+        if name in self.modules:
+            module = self.modules[name]
+            # Check module visibility before returning
+            if not is_visible(module):
+                return None  # Module not visible from accessor
+            return module
 
         if name in self.structs:
             sym = self.structs[name]
@@ -309,7 +325,9 @@ class Namespace:
         """Register a module symbol (for imports)."""
         self.modules[alias] = symbol
 
-    def register_module_from_ast(self, alias: str, module_ast: 'Program', path: List[str] = None):
+    def register_module_from_ast(self, alias: str, module_ast: 'Program', path: List[str] = None,
+                                  visibility: Visibility = Visibility.PUBLIC,
+                                  module_map: dict = None):
         """
         Create and register a module from a parsed AST.
 
@@ -320,6 +338,9 @@ class Namespace:
             alias: The local name for the module (e.g., "utils")
             module_ast: The parsed Program AST for the module
             path: The original module path (e.g., ["modules", "utils"])
+            visibility: The visibility of the module itself (PUBLIC for imports,
+                       depends on declaration for module declarations)
+            module_map: Dict of module_path_tuple -> AST for resolving imports
         """
         # Create a namespace for the module with its path
         mod_path = tuple(path) if path else ()
@@ -385,10 +406,43 @@ class Namespace:
                 visibility=iface.visibility
             ))
 
+        # Register inline module declarations (submodules)
+        # Only PUBLIC modules are visible to importers of this module
+        for mod_decl in getattr(module_ast, 'module_decls', []):
+            if mod_decl.is_inline and mod_decl.body:
+                # Determine visibility for the submodule
+                submod_visibility = Visibility.PUBLIC if mod_decl.is_public else Visibility.PRIVATE
+                # Recursively register the inline module in this module's namespace
+                submod_path = list(mod_path) + [mod_decl.name] if mod_path else [mod_decl.name]
+                mod_ns.register_module_from_ast(
+                    mod_decl.name,
+                    mod_decl.body,
+                    submod_path,
+                    visibility=submod_visibility,
+                    module_map=module_map
+                )
+
+        # Register the module's own imports in its namespace (Phase 4.5)
+        # This allows the module's code to resolve its import references
+        # Note: These imports are PRIVATE - not exposed to importers of this module
+        if module_map:
+            for imp in getattr(module_ast, 'imports', []):
+                imp_path = tuple(imp.path)
+                if imp_path in module_map:
+                    imp_alias = imp.alias or imp.path[-1]
+                    mod_ns.register_module_from_ast(
+                        imp_alias,
+                        module_map[imp_path],
+                        list(imp_path),
+                        visibility=Visibility.PRIVATE,  # Imports are private
+                        module_map=module_map
+                    )
+
         # Create and register the module symbol
         self.modules[alias] = ModuleSymbol(
             namespace=mod_ns,
-            path=path or []
+            path=path or [],
+            visibility=visibility
         )
 
     def register_method(self, struct_name: str, method_name: str, symbol: FunctionSymbol):

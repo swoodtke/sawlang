@@ -1,0 +1,21 @@
+// A simple utility module declared via `module myutils` in the main file
+// This file is loaded when a file in the same directory uses `module myutils`
+// EXPECT: skip
+
+public func quadruple(n: Int) -> Int {
+    n * 4
+}
+
+public struct Counter {
+    count: Int
+}
+
+public extension Counter {
+    func next(var self) {
+        self.count = self.count + 1
+    }
+
+    func value(self) -> Int {
+        self.count
+    }
+}

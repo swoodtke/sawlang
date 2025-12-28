@@ -1,0 +1,15 @@
+// Test that private modules are NOT re-exported
+// lib_with_private_module has `module internal` (private), importers CANNOT access it
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no symbol
+
+import modules.lib_with_private_module
+
+func main() {
+    // This should work - lib_func is public
+    let x = lib_with_private_module.lib_func()
+
+    // This should FAIL - internal is a private module
+    let y = lib_with_private_module.internal.helper()
+    print(y)
+}

@@ -3590,6 +3590,20 @@ class CodeGenerator:
         - EnumType.Variant(args) - enum variant initialization
         - ModuleName.function(args) - module function call (Phase 2)
         """
+        # Check if this is a nested module function call: Parent.Child.symbol(args)
+        if isinstance(expr.object, MemberAccess):
+            # Check if it's a chain of module accesses
+            inner_module_sym = self._resolve_module_chain(expr.object)
+            if inner_module_sym and inner_module_sym.namespace:
+                from namespace import SymbolKind
+                symbol = inner_module_sym.namespace.resolve(expr.method_name)
+                if symbol and symbol.kind == SymbolKind.FUNCTION:
+                    # Generate a direct function call (all modules are merged)
+                    return self._generate_module_function_call(expr)
+                elif symbol and symbol.kind == SymbolKind.STRUCT:
+                    # Generate struct initialization
+                    return self._generate_module_struct_init(expr)
+
         # Check if this is a module function call or struct init: ModuleName.symbol(args)
         if isinstance(expr.object, Identifier):
             if expr.object.name in self.namespace.modules:
@@ -3747,6 +3761,24 @@ class CodeGenerator:
                     args.append(self._generate_expression(defaults[i]))
 
         return self.builder.call(method_func, args, name="static_methodcall")
+
+    def _resolve_module_chain(self, expr: MemberAccess):
+        """Resolve a chain of module accesses like Parent.Child to get the final ModuleSymbol.
+
+        Returns the ModuleSymbol if the entire chain is modules, None otherwise.
+        """
+        if isinstance(expr.object, Identifier):
+            # Base case: Parent.Child where Parent is a module
+            if expr.object.name in self.namespace.modules:
+                parent_module = self.namespace.modules[expr.object.name]
+                if parent_module.namespace and expr.member in parent_module.namespace.modules:
+                    return parent_module.namespace.modules[expr.member]
+        elif isinstance(expr.object, MemberAccess):
+            # Recursive case: GrandParent.Parent.Child
+            parent_module = self._resolve_module_chain(expr.object)
+            if parent_module and parent_module.namespace and expr.member in parent_module.namespace.modules:
+                return parent_module.namespace.modules[expr.member]
+        return None
 
     def _generate_module_function_call(self, expr: MethodCall):
         """Generate a module function call: ModuleName.function(args)

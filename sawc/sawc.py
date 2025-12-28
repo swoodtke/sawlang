@@ -182,6 +182,54 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     if verbose:
         print(f"    Resolved {len(module_map)} imported module(s)")
 
+    # Process module declarations (Phase 4)
+    # module_decls can be external (module foo) or inline (module foo { ... })
+    inline_modules = {}  # name -> Program (for inline modules)
+    for mod_decl in getattr(entry_ast, 'module_decls', []):
+        if mod_decl.is_inline:
+            # Inline module - store body for later processing
+            inline_modules[mod_decl.name] = mod_decl.body
+            if verbose:
+                print(f"    Inline module: {mod_decl.name}")
+        else:
+            # External module declaration - load from file
+            # Look for name.saw or name/module.saw in the source directory
+            mod_path = (mod_decl.name,)
+
+            if mod_path not in resolved_modules:
+                # Look in source directory for the module file
+                source_dir = os.path.dirname(os.path.abspath(source_path))
+                mod_file = os.path.join(source_dir, f"{mod_decl.name}.saw")
+                mod_dir_file = os.path.join(source_dir, mod_decl.name, "module.saw")
+
+                if os.path.isfile(mod_file):
+                    with open(mod_file, 'r') as f:
+                        mod_source = f.read()
+                    mod_ast = parse_source(mod_source, mod_file, verbose)
+                    module_map[mod_path] = mod_ast
+                    resolved_modules.add(mod_path)
+                    if verbose:
+                        print(f"    Module: {mod_decl.name} -> {mod_file}")
+
+                    # Also process any imports from this module
+                    for sub_imp in getattr(mod_ast, 'imports', []):
+                        pending_imports.append(sub_imp)
+                elif os.path.isfile(mod_dir_file):
+                    with open(mod_dir_file, 'r') as f:
+                        mod_source = f.read()
+                    mod_ast = parse_source(mod_source, mod_dir_file, verbose)
+                    module_map[mod_path] = mod_ast
+                    resolved_modules.add(mod_path)
+                    if verbose:
+                        print(f"    Module: {mod_decl.name} -> {mod_dir_file}")
+
+                    # Also process any imports from this module
+                    for sub_imp in getattr(mod_ast, 'imports', []):
+                        pending_imports.append(sub_imp)
+                else:
+                    print(f"\033[1;31merror\033[0m: module `{mod_decl.name}` not found at {mod_file} or {mod_dir_file}", file=sys.stderr)
+                    sys.exit(1)
+
     # Load builtins
     builtin_ast = load_builtins(verbose)
 
@@ -201,6 +249,17 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
         else:
             module_imports.append(imp)
 
+    # Helper to recursively collect all inline module bodies from an AST
+    def collect_inline_module_bodies(ast):
+        """Recursively collect all inline module bodies from an AST."""
+        bodies = []
+        for mod_decl in getattr(ast, 'module_decls', []):
+            if mod_decl.is_inline and mod_decl.body:
+                bodies.append(mod_decl.body)
+                # Recursively collect from nested inline modules
+                bodies.extend(collect_inline_module_bodies(mod_decl.body))
+        return bodies
+
     # Build merged AST for code generation and type checking
     # Start with builtins
     merged_ast = builtin_ast
@@ -208,6 +267,16 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     # Merge ALL imported modules (needed for codegen - symbols must exist)
     for mod_ast in module_map.values():
         merged_ast = merge_programs(merged_ast, mod_ast)
+        # Also merge inline module bodies from imported modules
+        for inline_body in collect_inline_module_bodies(mod_ast):
+            merged_ast = merge_programs(merged_ast, inline_body)
+
+    # Merge inline modules from entry file (their symbols need to exist for codegen)
+    for mod_name, mod_body in inline_modules.items():
+        merged_ast = merge_programs(merged_ast, mod_body)
+        # Also recursively merge any nested inline modules
+        for inline_body in collect_inline_module_bodies(mod_body):
+            merged_ast = merge_programs(merged_ast, inline_body)
 
     # Add entry module
     merged_ast = merge_programs(merged_ast, entry_ast)
@@ -251,15 +320,51 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     for type_def in entry_ast.type_definitions:
         typechecker.namespace.make_accessible(type_def.name)
 
+    # Helper to register all inline modules from an AST at top level
+    # This is needed so code within imported modules can access their own inline modules
+    from ast_nodes import Visibility
+    def register_inline_modules_from_ast(ast, ns):
+        """Register inline modules from an AST so they're accessible during type checking."""
+        for mod_decl in getattr(ast, 'module_decls', []):
+            if mod_decl.is_inline and mod_decl.body:
+                mod_visibility = Visibility.PUBLIC if mod_decl.is_public else Visibility.PRIVATE
+                ns.register_module_from_ast(
+                    mod_decl.name, mod_decl.body, [mod_decl.name],
+                    visibility=mod_visibility
+                )
+                # Recursively register nested inline modules
+                register_inline_modules_from_ast(mod_decl.body, ns)
+
+    # Phase 4.5: Register transitive imports at top level for type-checking
+    # Since all module code is merged and type-checked against the main namespace,
+    # we need each module's imports to be available during type-checking.
+    # These are registered but NOT made directly accessible (require qualified access).
+    for mod_path, mod_ast in module_map.items():
+        for mod_imp in getattr(mod_ast, 'imports', []):
+            imp_path = tuple(mod_imp.path)
+            if imp_path in module_map and imp_path not in typechecker.namespace.modules:
+                imp_alias = mod_imp.alias or mod_imp.path[-1]
+                # Only register if not already registered
+                if imp_alias not in typechecker.namespace.modules:
+                    typechecker.namespace.register_module_from_ast(
+                        imp_alias, module_map[imp_path], list(imp_path),
+                        module_map=module_map
+                    )
+
     # Process imports to set up accessibility
     for imp in module_imports:
         # import foo.bar -> register module, accessible as 'bar' (qualified only)
         mod_path = tuple(imp.path)
         if mod_path in module_map:
             alias = imp.alias or imp.path[-1]
+            mod_ast = module_map[mod_path]
             typechecker.namespace.register_module_from_ast(
-                alias, module_map[mod_path], list(mod_path)
+                alias, mod_ast, list(mod_path),
+                module_map=module_map
             )
+            # Also register inline modules from imported module at top level
+            # so they're accessible from within the imported module's code
+            register_inline_modules_from_ast(mod_ast, typechecker.namespace)
 
     for imp in glob_imports:
         # import foo.* -> all symbols from module are directly accessible
@@ -281,6 +386,27 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
         if mod_path in module_map:
             for sym_name in imp.symbols:
                 typechecker.namespace.make_accessible(sym_name)
+
+    # Process module declarations for qualified access (Phase 4)
+    for mod_decl in getattr(entry_ast, 'module_decls', []):
+        # Determine visibility: public module vs module (private)
+        mod_visibility = Visibility.PUBLIC if mod_decl.is_public else Visibility.PRIVATE
+        if mod_decl.is_inline:
+            # Inline module - register body for qualified access
+            typechecker.namespace.register_module_from_ast(
+                mod_decl.name, inline_modules[mod_decl.name], [mod_decl.name],
+                visibility=mod_visibility,
+                module_map=module_map
+            )
+        else:
+            # External module declaration - register for qualified access
+            mod_path = (mod_decl.name,)
+            if mod_path in module_map:
+                typechecker.namespace.register_module_from_ast(
+                    mod_decl.name, module_map[mod_path], [mod_decl.name],
+                    visibility=mod_visibility,
+                    module_map=module_map
+                )
 
     if not typechecker.check(merged_ast):
         reporter.print_all()

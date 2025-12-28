@@ -1,0 +1,40 @@
+// Test inline module declaration with qualified access
+// Symbols inside inline modules should only be accessible via module_name.Symbol
+// EXPECT: success
+// EXPECT-OUTPUT: 30
+// EXPECT-OUTPUT: 6
+// EXPECT-OUTPUT: 15
+
+module math {
+    public func add(a: Int, b: Int) -> Int {
+        a + b
+    }
+
+    public func multiply(a: Int, b: Int) -> Int {
+        a * b
+    }
+
+    public struct Point {
+        x: Int
+        y: Int
+    }
+
+    public extension Point {
+        func sum(self) -> Int {
+            self.x + self.y
+        }
+    }
+}
+
+func main() {
+    // Qualified access to inline module functions
+    let sum = math.add(10, 20)
+    print(sum)  // 30
+
+    let product = math.multiply(2, 3)
+    print(product)  // 6
+
+    // Qualified access to inline module struct
+    let p = math.Point(x: 5, y: 10)
+    print(p.sum())  // 15
+}

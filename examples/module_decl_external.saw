@@ -1,0 +1,21 @@
+// Test external module declaration
+// `module name` loads name.saw from the same directory
+// EXPECT: success
+// EXPECT-OUTPUT: 40
+// EXPECT-OUTPUT: 3
+
+// Declare an external module - loads myutils.saw
+module myutils
+
+func main() {
+    // Access via qualified name
+    let x = myutils.quadruple(10)
+    print(x)  // 40
+
+    // Use struct from external module
+    var c = myutils.Counter(count: 0)
+    c.next()
+    c.next()
+    c.next()
+    print(c.value())  // 3
+}

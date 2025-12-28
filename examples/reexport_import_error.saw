@@ -1,0 +1,15 @@
+// Test that imports are NOT re-exported
+// lib_with_import imports utils internally, but importers cannot access it
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no symbol
+
+import modules.lib_with_import
+
+func main() {
+    // This should work - lib_double is public
+    let x = lib_with_import.lib_double(5)
+
+    // This should FAIL - utils was imported by lib_with_import, not re-exported
+    let y = lib_with_import.utils.double(10)
+    print(y)
+}

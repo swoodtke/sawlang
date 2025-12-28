@@ -2985,13 +2985,61 @@ class TypeChecker:
 
     def _check_member_access(self, expr: MemberAccess) -> Optional[SawType]:
         """Check member access for struct fields, enum variants, or module symbols."""
+        # Special case: nested module access (a.b.c where a.b resolved to MODULE)
+        if isinstance(expr.object, MemberAccess):
+            # First, type-check the object to see if it's a module
+            obj_type = self._check_member_access(expr.object)
+            if obj_type and obj_type.kind == TypeKind.MODULE:
+                # Get the resolved module symbol from the inner expression
+                inner_module_sym = getattr(expr.object, 'resolved_module_symbol', None)
+                if inner_module_sym and inner_module_sym.namespace:
+                    # Resolve the member in the nested module's namespace with visibility checking
+                    from namespace import SymbolKind
+                    symbol = inner_module_sym.namespace.resolve(
+                        expr.member, check_visibility=True, accessor_module=()
+                    )
+                    if symbol is None:
+                        self.reporter.error(
+                            ErrorKind.UNDEFINED_VARIABLE,
+                            f"module `{obj_type.module_name}` has no symbol `{expr.member}`",
+                            expr.line, expr.column
+                        )
+                        return None
+
+                    # Return appropriate type based on symbol kind
+                    if symbol.kind == SymbolKind.STRUCT:
+                        expr.resolved_struct_name = expr.member
+                        expr.resolved_module = obj_type.module_name
+                        return SawType(TypeKind.STRUCT, struct_name=expr.member)
+                    elif symbol.kind == SymbolKind.ENUM:
+                        return SawType(TypeKind.ENUM, enum_name=expr.member)
+                    elif symbol.kind == SymbolKind.FUNCTION:
+                        expr.resolved_function_name = expr.member
+                        expr.resolved_module = obj_type.module_name
+                        return SawType(TypeKind.FUNCTION,
+                                     param_types=symbol.param_types,
+                                     func_return_type=symbol.return_type)
+                    elif symbol.kind == SymbolKind.MODULE:
+                        expr.resolved_module_symbol = symbol
+                        return SawType(TypeKind.MODULE, module_name=expr.member)
+                    else:
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"cannot use `{expr.member}` as an expression",
+                            expr.line, expr.column
+                        )
+                        return None
+
         # Special case: module.Symbol (qualified access to imported module)
         if isinstance(expr.object, Identifier):
             # Check if it's a module name
             module_sym = self.namespace.modules.get(expr.object.name)
             if module_sym and module_sym.namespace:
-                # Resolve the member in the module's namespace
-                symbol = module_sym.namespace.resolve(expr.member)
+                # Resolve the member in the module's namespace with visibility checking
+                # accessor_module is empty tuple (main module) when accessing from entry file
+                symbol = module_sym.namespace.resolve(
+                    expr.member, check_visibility=True, accessor_module=()
+                )
                 if symbol is None:
                     self.reporter.error(
                         ErrorKind.UNDEFINED_VARIABLE,
@@ -3018,6 +3066,11 @@ class TypeChecker:
                     return SawType(TypeKind.FUNCTION,
                                  param_types=symbol.param_types,
                                  func_return_type=symbol.return_type)
+                elif symbol.kind == SymbolKind.MODULE:
+                    # Nested module access - return MODULE type for further resolution
+                    # Store the resolved module for later chained access
+                    expr.resolved_module_symbol = symbol
+                    return SawType(TypeKind.MODULE, module_name=expr.member)
                 else:
                     self.reporter.error(
                         ErrorKind.TYPE_MISMATCH,
@@ -3370,7 +3423,66 @@ class TypeChecker:
         - StructName.method(args) - static method call
         - EnumType.Variant(args) - enum variant initialization
         - ModuleName.function(args) - module function call (Phase 2)
+        - ParentModule.ChildModule.function(args) - nested module function call (Phase 4)
         """
+        # Check if this is a nested module function call: Parent.Child.function(args)
+        if isinstance(expr.object, MemberAccess):
+            # Type-check the object to see if it resolves to a module
+            obj_type = self._check_member_access(expr.object)
+            if obj_type and obj_type.kind == TypeKind.MODULE:
+                # Get the resolved module symbol
+                inner_module_sym = getattr(expr.object, 'resolved_module_symbol', None)
+                if inner_module_sym and inner_module_sym.namespace:
+                    from namespace import SymbolKind
+                    symbol = inner_module_sym.namespace.resolve(
+                        expr.method_name,
+                        check_visibility=True,
+                        accessor_module=self.namespace.module_path
+                    )
+                    if symbol is None:
+                        self.reporter.error(
+                            ErrorKind.UNDEFINED_FUNCTION,
+                            f"module `{obj_type.module_name}` has no function `{expr.method_name}`",
+                            expr.line, expr.column
+                        )
+                        return None
+
+                    if symbol.kind == SymbolKind.FUNCTION:
+                        func_info = self.functions.get(expr.method_name)
+                        if func_info:
+                            return self._check_module_function_call(expr, func_info)
+                        else:
+                            self.reporter.error(
+                                ErrorKind.UNDEFINED_FUNCTION,
+                                f"function `{expr.method_name}` not found",
+                                expr.line, expr.column
+                            )
+                            return None
+                    elif symbol.kind == SymbolKind.STRUCT:
+                        # Nested module struct init: Parent.Child.Point(x: 1, y: 2)
+                        struct_init = StructInit(
+                            struct_name=expr.method_name,
+                            field_inits=[(arg.name, arg.value) for arg in expr.arguments if arg.name],
+                            type_args=None,
+                            line=expr.line,
+                            column=expr.column
+                        )
+                        if all(arg.name is None for arg in expr.arguments):
+                            struct_info = self.structs.get(expr.method_name)
+                            if struct_info:
+                                field_inits = []
+                                for arg, field_name in zip(expr.arguments, struct_info.field_order):
+                                    field_inits.append((field_name, arg.value))
+                                struct_init.field_inits = field_inits
+                        return self._check_struct_init(struct_init)
+                    else:
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"`{expr.method_name}` is not callable",
+                            expr.line, expr.column
+                        )
+                        return None
+
         # Check if this is a module function call: ModuleName.function(args)
         if isinstance(expr.object, Identifier):
             module_sym = self.namespace.modules.get(expr.object.name)

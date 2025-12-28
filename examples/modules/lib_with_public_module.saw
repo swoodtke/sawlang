@@ -1,0 +1,17 @@
+// Library with a PUBLIC inline module - should be visible to importers
+// Importers should be able to access lib_with_public_module.submod
+// EXPECT: skip
+
+public module submod {
+    public func subfunc() -> Int {
+        99
+    }
+
+    public struct SubStruct {
+        value: Int
+    }
+}
+
+public func lib_func() -> Int {
+    submod.subfunc()
+}

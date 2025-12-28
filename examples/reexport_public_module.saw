@@ -1,0 +1,17 @@
+// Test that public modules ARE re-exported
+// lib_with_public_module has `public module submod`, importers CAN access it
+// EXPECT: success
+// EXPECT-OUTPUT: 99
+// EXPECT-OUTPUT: 42
+
+import modules.lib_with_public_module
+
+func main() {
+    // Access the public submodule
+    let x = lib_with_public_module.submod.subfunc()
+    print(x)  // 99
+
+    // Access struct from public submodule
+    let s = lib_with_public_module.submod.SubStruct(value: 42)
+    print(s.value)  // 42
+}

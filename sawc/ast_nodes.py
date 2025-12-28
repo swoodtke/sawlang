@@ -22,6 +22,7 @@ class TypeKind(Enum):
     FUNCTION = auto()    # For function types like (Int) -> Int
     SELF = auto()        # For Self type in interface methods
     POINTER = auto()     # For raw pointers: UnsafePointer<T>, UnsafeMutablePointer<T>
+    MODULE = auto()      # For module references during qualified access
     # Fixed-width integers
     INT8 = auto()
     INT16 = auto()
@@ -56,6 +57,8 @@ class SawType:
     func_return_type: Optional['SawType'] = None
     # For pointer types (POINTER), True = UnsafePointer (mutable), False = UnsafeConstPointer
     pointer_mutable: Optional[bool] = None
+    # For module types (during qualified access)
+    module_name: Optional[str] = None
 
     def __repr__(self):
         if self.kind == TypeKind.TUPLE and self.element_types:
