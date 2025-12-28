@@ -19,9 +19,9 @@ This document outlines the Saw language features required to implement `blade`, 
 - ~~StringBuilder~~ ✅ Done
 - ~~String methods (len, trim, contains, etc.)~~ ✅ Mostly done (split/join pending)
 - ~~File I/O~~ ✅ Done (File, Directory, Data structs)
-- Process spawning
-- Module system
-- Command-line argument parsing
+- ~~Process spawning~~ ✅ Done (Command struct)
+- ~~Module system~~ ✅ Done (imports, visibility, packages)
+- ~~Command-line argument parsing~~ ✅ Done (Env.args)
 
 ---
 
@@ -416,12 +416,12 @@ match result {
 
 ---
 
-## Phase 7: Module System
+## Phase 7: Module System ✅ COMPLETE
 
 *Goal: Split blade into multiple files.*
 
-### 7.1 Imports & Modules
-**Priority: CRITICAL for blade**
+### 7.1 Imports & Modules ✅
+**Priority: CRITICAL for blade** - COMPLETED
 
 ```saw
 // In src/main.saw
@@ -447,33 +447,42 @@ func private_helper() {
 ```
 
 **Tasks:**
-- [ ] `import module_name` syntax
-- [ ] `import module.{Symbol1, Symbol2}` selective imports
-- [ ] `module name` declaration at file top
-- [ ] `public` visibility modifier
-- [ ] File-to-module name mapping
-- [ ] Compiler multi-file compilation
-- [ ] Dependency ordering (topological sort)
-- [ ] Circular import detection
+- [x] `import module_name` syntax
+- [x] `import module.{Symbol1, Symbol2}` selective imports
+- [x] `import foo.*` glob imports
+- [x] `module name` declaration at file top
+- [x] `public` visibility modifier
+- [x] `public(package)` and `public(parent)` visibility
+- [x] File-to-module name mapping
+- [x] Compiler multi-file compilation
+- [x] Dependency ordering (topological sort)
+- [x] Circular import detection
+- [x] Per-module namespace resolution
+- [x] Visibility enforcement across modules
 
-### 7.2 Package Structure
-**Priority: MEDIUM**
+### 7.2 Package Structure ✅
+**Priority: MEDIUM** - COMPLETED
 
 ```
 my-package/
+├── Saw.toml         # Package manifest
+├── init.saw         # Optional facade (defines public API)
 ├── src/
 │   ├── lib.saw      # Library entry point
 │   ├── main.saw     # Binary entry point
 │   └── utils/
-│       ├── mod.saw  # Module index
+│       ├── init.saw # Module facade
 │       └── parse.saw
 ```
 
 **Tasks:**
-- [ ] `src/lib.saw` as library root
-- [ ] `src/main.saw` as binary root
-- [ ] Subdirectory modules with `mod.saw`
-- [ ] `import package.submodule` syntax
+- [x] `Saw.toml` package manifest parsing
+- [x] `init.saw` facade files for defining public API
+- [x] `export` statements for re-exporting symbols
+- [x] Subdirectory modules
+- [x] `import package.submodule` syntax
+- [x] Inline modules: `module name { ... }`
+- [x] External modules: `module name` (loads name.saw)
 
 ---
 
@@ -530,13 +539,17 @@ my-package/
 - Variadic FFI support for system calls
 - NoCopy return safety check in typechecker
 
-**Milestone 3: Run External Commands** (Phase 5) ⬅️ NEXT
-- Spawn sawc, capture output
+**Milestone 3: Run External Commands** ✅ COMPLETE (Phase 5)
+- Command struct with arg(), run(), output()
+- Env struct with argc, arg, args, get, set, cwd
 
-**Milestone 4: Multi-File Projects** (Phase 7)
-- Import system, compile multiple .saw files
+**Milestone 4: Multi-File Projects** ✅ COMPLETE (Phase 7)
+- Import system with module, public, export keywords
+- Visibility: public, public(package), public(parent), private (default)
+- Saw.toml package manifest and init.saw facades
+- Per-module namespace resolution and type checking
 
-**Milestone 5: Minimal blade** (Phase 8.1-8.4)
+**Milestone 5: Minimal blade** (Phase 8.1-8.4) ⬅️ NEXT
 - `blade build` for local projects
 - No network, no lock file
 
