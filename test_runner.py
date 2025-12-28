@@ -243,9 +243,16 @@ def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
 
 
 def discover_tests(examples_dir: Path) -> List[TestCase]:
-    """Discover all .saw test files"""
+    """Discover all .saw test files, skipping library modules"""
+    # Directories containing library modules (not standalone tests)
+    skip_dirs = {'modules'}
+
     tests = []
     for saw_file in sorted(examples_dir.rglob('*.saw')):
+        # Skip files in library module directories
+        relative_parts = saw_file.relative_to(examples_dir).parts
+        if any(part in skip_dirs for part in relative_parts[:-1]):
+            continue
         test = parse_test_metadata(saw_file)
         tests.append(test)
     return tests

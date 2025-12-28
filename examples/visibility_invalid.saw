@@ -1,0 +1,13 @@
+// Test that invalid visibility modifiers are rejected
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Unknown visibility modifier
+
+public(invalid) struct Point {
+    x: Int
+    y: Int
+}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    print(p.x)
+}

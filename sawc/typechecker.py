@@ -3376,8 +3376,13 @@ class TypeChecker:
             module_sym = self.namespace.modules.get(expr.object.name)
             if module_sym and module_sym.namespace:
                 # Look up the function in the module's namespace
+                # Use check_visibility=True with accessor_module for proper visibility checking
                 from namespace import SymbolKind
-                symbol = module_sym.namespace.resolve(expr.method_name)
+                symbol = module_sym.namespace.resolve(
+                    expr.method_name,
+                    check_visibility=True,
+                    accessor_module=self.namespace.module_path
+                )
                 if symbol is None:
                     self.reporter.error(
                         ErrorKind.UNDEFINED_FUNCTION,

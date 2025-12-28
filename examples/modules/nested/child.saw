@@ -1,0 +1,15 @@
+// Child module with public(parent) symbols
+// These should be accessible from modules.nested but not from main
+
+public(parent) func parent_only(n: Int) -> Int {
+    n * 7
+}
+
+public(parent) struct ParentOnlyData {
+    value: Int
+}
+
+// This is public, so accessible from anywhere
+public func child_public(n: Int) -> Int {
+    n + 1
+}

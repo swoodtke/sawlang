@@ -1,0 +1,10 @@
+// Test that private structs cannot be accessed from other modules
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no function `InternalData`
+import modules.utils
+
+func main() {
+    // Try to access private struct - should fail
+    let data = utils.InternalData(secret: 42)
+    print(data.secret)
+}

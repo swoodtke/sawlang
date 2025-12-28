@@ -6,7 +6,7 @@ Unified symbol table for all declarations.
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Tuple, Set, Union
 from enum import Enum, auto
-from ast_nodes import SawType, TypeKind, Function, Struct, Enum as SawEnum, Extension, TypeParameter
+from ast_nodes import SawType, TypeKind, Function, Struct, Enum as SawEnum, Extension, TypeParameter, Visibility
 
 
 class SymbolKind(Enum):
@@ -32,6 +32,7 @@ class FunctionSymbol:
     is_init: bool = False
     self_mutable: bool = False
     is_variadic: bool = False
+    visibility: Visibility = Visibility.PRIVATE
     ast_node: Optional[Any] = None  # Function or Method AST node
     # Filled by codegen:
     llvm_func: Optional[Any] = None
@@ -47,6 +48,7 @@ class StructSymbol:
     methods: Dict[str, FunctionSymbol] = field(default_factory=dict)
     init_methods: List[FunctionSymbol] = field(default_factory=list)
     conformances: List[str] = field(default_factory=list)
+    visibility: Visibility = Visibility.PRIVATE
     line: int = 0
     column: int = 0
     ast_node: Optional[Struct] = None
@@ -61,6 +63,7 @@ class EnumSymbol:
     variants: Dict[str, List[Tuple[str, SawType]]] = field(default_factory=dict)
     variant_order: List[str] = field(default_factory=list)
     type_params: List[TypeParameter] = field(default_factory=list)
+    visibility: Visibility = Visibility.PRIVATE
     ast_node: Optional[SawEnum] = None
     # Filled by codegen:
     llvm_type: Optional[Any] = None
@@ -84,6 +87,7 @@ class InterfaceSymbol:
     methods: Dict[str, InterfaceMethodSymbol] = field(default_factory=dict)
     associated_types: List[str] = field(default_factory=list)
     parent_interfaces: List[str] = field(default_factory=list)
+    visibility: Visibility = Visibility.PRIVATE
 
 
 @dataclass
@@ -91,6 +95,7 @@ class TypeAliasSymbol:
     """Symbol for a type alias."""
     kind: SymbolKind = SymbolKind.TYPE_ALIAS
     aliased_type: Optional[SawType] = None
+    visibility: Visibility = Visibility.PRIVATE
 
 
 @dataclass
@@ -114,7 +119,13 @@ class Namespace:
     source of truth that both the type checker and code generator use.
     """
 
-    def __init__(self):
+    def __init__(self, module_path: Tuple[str, ...] = ()):
+        # Module path this namespace belongs to (e.g., ("modules", "utils"))
+        self.module_path: Tuple[str, ...] = module_path
+
+        # Package root for public(package) visibility (e.g., () for top-level)
+        self.package_root: Tuple[str, ...] = ()
+
         # Core symbol tables
         self.functions: Dict[str, FunctionSymbol] = {}
         self.structs: Dict[str, StructSymbol] = {}
@@ -145,7 +156,9 @@ class Namespace:
     # Unified Resolution
     # =========================================================================
 
-    def resolve(self, path: str, check_access: bool = True) -> Optional['Symbol']:
+    def resolve(self, path: str, check_access: bool = True,
+                check_visibility: bool = False,
+                accessor_module: Optional[Tuple[str, ...]] = None) -> Optional['Symbol']:
         """
         Resolve a symbol path to its definition.
 
@@ -154,15 +167,26 @@ class Namespace:
         Args:
             path: A symbol path, either simple ("foo") or dotted ("mod.foo")
             check_access: If True, verify the symbol is accessible (respects imports)
+            check_visibility: If True, check visibility rules for cross-module access
+            accessor_module: The module path of the code doing the lookup (for visibility)
 
         Returns:
             The resolved Symbol, or None if not found or not accessible
         """
         parts = path.split('.') if '.' in path else [path]
-        return self._resolve_parts(parts, check_access)
+        return self._resolve_parts(parts, check_access, check_visibility, accessor_module)
 
-    def _resolve_parts(self, parts: List[str], check_access: bool = True) -> Optional['Symbol']:
-        """Resolve a list of path components to a symbol."""
+    def _resolve_parts(self, parts: List[str], check_access: bool = True,
+                       check_visibility: bool = False,
+                       accessor_module: Optional[Tuple[str, ...]] = None) -> Optional['Symbol']:
+        """Resolve a list of path components to a symbol.
+
+        Args:
+            parts: Path components to resolve
+            check_access: If True, verify the symbol is directly accessible (import checking)
+            check_visibility: If True, check visibility rules for cross-module access
+            accessor_module: The module path of the code doing the lookup
+        """
         if not parts:
             return None
 
@@ -174,11 +198,14 @@ class Namespace:
             if name in self.modules:
                 module = self.modules[name]
                 if module.namespace:
-                    # Qualified access through module is always allowed
-                    return module.namespace._resolve_parts(remaining, check_access=False)
+                    # Cross-module access - check visibility with accessor context
+                    return module.namespace._resolve_parts(
+                        remaining, check_access=False, check_visibility=True,
+                        accessor_module=accessor_module or self.module_path
+                    )
             return None
 
-        # Single name - check accessibility
+        # Single name - check accessibility (import-based)
         if check_access and not self.allow_all_access:
             if name not in self.directly_accessible and name not in self.modules:
                 # Name exists but isn't directly accessible
@@ -188,16 +215,37 @@ class Namespace:
         # Order: modules first (for qualified access), then types, then functions
         if name in self.modules:
             return self.modules[name]
+
+        # Helper to check visibility using proper module paths
+        def is_visible(symbol) -> bool:
+            if not check_visibility:
+                return True
+            if not hasattr(symbol, 'visibility'):
+                return True
+            # Use the full visibility checking with module paths
+            acc_mod = accessor_module if accessor_module is not None else ()
+            return self.check_visibility(
+                symbol.visibility,
+                symbol_module=self.module_path,
+                accessor_module=acc_mod,
+                package_root=self.package_root
+            )
+
         if name in self.structs:
-            return self.structs[name]
+            sym = self.structs[name]
+            return sym if is_visible(sym) else None
         if name in self.enums:
-            return self.enums[name]
+            sym = self.enums[name]
+            return sym if is_visible(sym) else None
         if name in self.interfaces:
-            return self.interfaces[name]
+            sym = self.interfaces[name]
+            return sym if is_visible(sym) else None
         if name in self.type_aliases:
-            return self.type_aliases[name]
+            sym = self.type_aliases[name]
+            return sym if is_visible(sym) else None
         if name in self.functions:
-            return self.functions[name]
+            sym = self.functions[name]
+            return sym if is_visible(sym) else None
 
         return None
 
@@ -273,8 +321,10 @@ class Namespace:
             module_ast: The parsed Program AST for the module
             path: The original module path (e.g., ["modules", "utils"])
         """
-        # Create a namespace for the module
-        mod_ns = Namespace()
+        # Create a namespace for the module with its path
+        mod_path = tuple(path) if path else ()
+        mod_ns = Namespace(module_path=mod_path)
+        mod_ns.package_root = self.package_root  # Inherit package root
 
         # Register all symbols from the module AST
         for struct in module_ast.structs:
@@ -284,6 +334,7 @@ class Namespace:
                 fields=fields,
                 field_order=field_order,
                 type_params=struct.type_params,
+                visibility=struct.visibility,
                 line=struct.line,
                 column=struct.column,
                 ast_node=struct if struct.type_params else None
@@ -299,6 +350,7 @@ class Namespace:
                 variants=variants,
                 variant_order=variant_order,
                 type_params=enum.type_params,
+                visibility=enum.visibility,
                 ast_node=enum if enum.type_params else None
             ))
 
@@ -310,6 +362,7 @@ class Namespace:
                 param_names=param_names,
                 return_type=func.return_type,
                 type_params=func.type_params,
+                visibility=func.visibility,
                 ast_node=func if func.type_params else None
             ))
 
@@ -328,7 +381,8 @@ class Namespace:
                 assoc_types.append(at.name)
             mod_ns.register_interface(iface.name, InterfaceSymbol(
                 methods=methods,
-                associated_types=assoc_types
+                associated_types=assoc_types,
+                visibility=iface.visibility
             ))
 
         # Create and register the module symbol
@@ -472,6 +526,68 @@ class Namespace:
     def has_interface(self, name: str) -> bool:
         """Check if an interface exists."""
         return name in self.interfaces
+
+    # =========================================================================
+    # Visibility Checking
+    # =========================================================================
+
+    def check_visibility(self, visibility: Visibility,
+                        symbol_module: Tuple[str, ...],
+                        accessor_module: Tuple[str, ...],
+                        package_root: Tuple[str, ...] = ()) -> bool:
+        """
+        Check if a symbol is accessible from another module.
+
+        Args:
+            visibility: The symbol's visibility modifier
+            symbol_module: Module path where the symbol is defined
+            accessor_module: Module path that is trying to access the symbol
+            package_root: The root of the current package (for public(package))
+
+        Returns:
+            True if access is allowed, False otherwise
+        """
+        # Public symbols are always accessible
+        if visibility == Visibility.PUBLIC:
+            return True
+
+        # Private symbols are only accessible within the same module
+        if visibility == Visibility.PRIVATE:
+            return symbol_module == accessor_module
+
+        # public(package) - accessible within the same package
+        if visibility == Visibility.PACKAGE:
+            # Check if both modules share the same package root
+            if not package_root:
+                # If no package root defined, assume same package
+                return True
+            # Both must be under the package root
+            return (symbol_module[:len(package_root)] == package_root and
+                    accessor_module[:len(package_root)] == package_root)
+
+        # public(parent) - accessible to parent module only
+        if visibility == Visibility.PARENT:
+            # accessor_module must be the parent of symbol_module
+            if len(symbol_module) < 1:
+                return False
+            parent = symbol_module[:-1]
+            return accessor_module == parent
+
+        return False
+
+    def get_symbol_visibility(self, name: str) -> Optional[Visibility]:
+        """Get the visibility of a symbol by name."""
+        if name in self.structs:
+            return self.structs[name].visibility
+        if name in self.enums:
+            return self.enums[name].visibility
+        if name in self.functions:
+            return self.functions[name].visibility
+        if name in self.interfaces:
+            return self.interfaces[name].visibility
+        if name in self.type_aliases:
+            return self.type_aliases[name].visibility
+        return None
 
     # =========================================================================
     # Generic Instantiation Tracking
@@ -681,15 +797,27 @@ class ModuleNamespace:
         return self.root.lookup_interface(name)
 
     def lookup_qualified(self, qualifier: str, name: str,
-                        in_module: Optional[Tuple[str, ...]] = None) -> Optional[Any]:
+                        in_module: Optional[Tuple[str, ...]] = None,
+                        check_visibility: bool = True) -> Optional[Any]:
         """
         Look up a qualified symbol (e.g., io.File, collections.Map).
 
         The qualifier is resolved as:
         1. A module alias (from `import std.io as io`)
         2. A module name (from `import std.io` -> accessible as `io.File`)
+
+        Args:
+            qualifier: The module name/alias (e.g., "io")
+            name: The symbol name (e.g., "File")
+            in_module: The module context for the lookup
+            check_visibility: If True, only return PUBLIC symbols
         """
         module_path = in_module or self.current_module
+
+        def is_visible(symbol) -> bool:
+            if not check_visibility:
+                return True
+            return hasattr(symbol, 'visibility') and symbol.visibility == Visibility.PUBLIC
 
         # Check module aliases
         if module_path in self.module_aliases:
@@ -697,15 +825,19 @@ class ModuleNamespace:
                 target_module = self.module_aliases[module_path][qualifier]
                 if target_module in self.modules:
                     ns = self.modules[target_module]
-                    # Try each symbol type
+                    # Try each symbol type, checking visibility
                     if result := ns.lookup_struct(name):
-                        return result
+                        if is_visible(result):
+                            return result
                     if result := ns.lookup_enum(name):
-                        return result
+                        if is_visible(result):
+                            return result
                     if result := ns.lookup_function(name):
-                        return result
+                        if is_visible(result):
+                            return result
                     if result := ns.lookup_interface(name):
-                        return result
+                        if is_visible(result):
+                            return result
 
         return None
 

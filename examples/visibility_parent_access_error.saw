@@ -1,0 +1,10 @@
+// Test that public(parent) symbols cannot be accessed from non-parent modules
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no function `parent_only`
+import modules.nested.child
+
+func main() {
+    // public(parent) function should NOT be accessible from main (not the parent)
+    let result = child.parent_only(6)
+    print(result)
+}

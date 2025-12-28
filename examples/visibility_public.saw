@@ -1,0 +1,49 @@
+// Test public visibility modifier parsing
+// EXPECT: success
+// EXPECT-OUTPUT: 15
+// EXPECT-OUTPUT: 100
+// EXPECT-OUTPUT: 10
+
+public struct Point {
+    x: Int
+    y: Int
+}
+
+public extension Point {
+    func sum(self) -> Int {
+        self.x + self.y
+    }
+}
+
+public enum Status {
+    case Active,
+    case Inactive
+}
+
+public interface Describable {
+    func describe(self) -> Int
+}
+
+extension Point: Describable {
+    func describe(self) -> Int {
+        self.sum()
+    }
+}
+
+public func add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+public type Coordinate = Int
+
+func main() {
+    let p = Point(x: 5, y: 10)
+    print(p.sum())  // 15
+
+    print(add(40, 60))  // 100
+
+    match Status.Active {
+        case Active -> print(10),
+        case Inactive -> print(0)
+    }
+}

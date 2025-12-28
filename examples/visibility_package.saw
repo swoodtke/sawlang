@@ -1,0 +1,33 @@
+// Test public(package) visibility modifier parsing
+// EXPECT: success
+// EXPECT-OUTPUT: 25
+// EXPECT-OUTPUT: 300
+
+public(package) struct Rectangle {
+    width: Int
+    height: Int
+}
+
+public(package) extension Rectangle {
+    func area(self) -> Int {
+        self.width * self.height
+    }
+}
+
+public(package) enum Shape {
+    case Circle(radius: Int),
+    case Square(side: Int)
+}
+
+public(package) func multiply(a: Int, b: Int) -> Int {
+    a * b
+}
+
+public(package) type Size = Int
+
+func main() {
+    let r = Rectangle(width: 5, height: 5)
+    print(r.area())  // 25
+
+    print(multiply(15, 20))  // 300
+}

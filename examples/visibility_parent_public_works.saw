@@ -1,0 +1,10 @@
+// Test that public symbols in nested modules ARE accessible
+// EXPECT: success
+// EXPECT-OUTPUT: 11
+import modules.nested.child
+
+func main() {
+    // public function should be accessible from anywhere
+    let result = child.child_public(10)
+    print(result)  // 10 + 1 = 11
+}

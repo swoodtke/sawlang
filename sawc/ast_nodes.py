@@ -661,6 +661,7 @@ class Struct(ASTNode):
     name: str
     fields: List[StructField]
     type_params: List['TypeParameter'] = field(default_factory=list)
+    visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
 
@@ -678,6 +679,7 @@ class Enum(ASTNode):
     name: str
     variants: List[EnumVariant]
     type_params: List['TypeParameter'] = field(default_factory=list)
+    visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
 
@@ -710,6 +712,7 @@ class Interface(ASTNode):
     associated_types: List[AssociatedType] = field(default_factory=list)
     type_params: List[TypeParameter] = field(default_factory=list)
     parent_interfaces: List[str] = field(default_factory=list)  # Inherited interfaces
+    visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
 
@@ -731,6 +734,7 @@ class Extension(ASTNode):
     type_params: List['TypeParameter'] = field(default_factory=list)  # For generic extensions
     conformances: List[str] = field(default_factory=list)  # Interface names
     type_assignments: List[TypeAssignment] = field(default_factory=list)  # Associated type assignments
+    visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
 
@@ -759,6 +763,7 @@ class Function(ASTNode):
     return_type: SawType
     body: Block
     type_params: List[TypeParameter] = field(default_factory=list)  # Generic type parameters
+    visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
 
@@ -768,6 +773,7 @@ class TypeDefinition(ASTNode):
     """Type definition: type MyInt = Int"""
     name: str
     defined_type: 'SawType'
+    visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
 

@@ -22,7 +22,7 @@ from ast_nodes import (
     ExternFunction, ExternBlock,
     SawType, TypeKind, Argument, TypeParameter,
     ClosureExpr, ClosureParam,
-    ImportDecl, ModuleDecl
+    ImportDecl, ModuleDecl, Visibility
 )
 
 
@@ -87,6 +87,33 @@ class Parser:
         self.expect(TokenType.GT, "Expected '>' after type parameters")
         return params
 
+    def _parse_visibility(self) -> Visibility:
+        """Parse optional visibility modifier: public, public(package), public(parent)."""
+        if not self.match(TokenType.PUBLIC):
+            return Visibility.PRIVATE
+
+        self.advance()  # consume 'public'
+
+        # Check for public(package) or public(parent)
+        if self.match(TokenType.LPAREN):
+            self.advance()  # consume '('
+            if not self.match(TokenType.IDENT):
+                self.error("Expected 'package' or 'parent' after 'public('")
+            modifier = self.current().value
+            self.advance()
+
+            if modifier == "package":
+                visibility = Visibility.PACKAGE
+            elif modifier == "parent":
+                visibility = Visibility.PARENT
+            else:
+                self.error(f"Unknown visibility modifier: public({modifier}). Expected 'package' or 'parent'")
+
+            self.expect(TokenType.RPAREN, "Expected ')' after visibility modifier")
+            return visibility
+
+        return Visibility.PUBLIC
+
     def _parse_single_type_param(self) -> TypeParameter:
         """Parse a single type parameter: T or T: Bound + OtherBound"""
         start = self.current()
@@ -128,12 +155,26 @@ class Parser:
             if self.match(TokenType.IMPORT):
                 imports.append(self.parse_import())
             elif self.match(TokenType.PUBLIC):
-                # Could be public module or public struct/func etc. (Phase 3)
+                # Could be public module or public declaration
                 if self.peek(1).type == TokenType.MODULE:
                     module_decls.append(self.parse_module_decl())
                 else:
-                    # TODO: Handle public declarations in Phase 3
-                    self.error("public declarations not yet supported at top level")
+                    # Parse visibility and then the declaration
+                    visibility = self._parse_visibility()
+                    if self.match(TokenType.STRUCT):
+                        structs.append(self.parse_struct(visibility))
+                    elif self.match(TokenType.ENUM):
+                        enums.append(self.parse_enum(visibility))
+                    elif self.match(TokenType.INTERFACE):
+                        interfaces.append(self.parse_interface(visibility))
+                    elif self.match(TokenType.EXTENSION):
+                        extensions.append(self.parse_extension(visibility))
+                    elif self.match(TokenType.FUNC):
+                        functions.append(self.parse_function(visibility))
+                    elif self.match(TokenType.TYPE):
+                        type_definitions.append(self.parse_type_definition(visibility))
+                    else:
+                        self.error(f"Expected struct, enum, interface, extension, func, or type after visibility modifier")
             elif self.match(TokenType.MODULE):
                 module_decls.append(self.parse_module_decl())
             elif self.match(TokenType.STRUCT):
@@ -267,12 +308,26 @@ class Parser:
                 if self.match(TokenType.IMPORT):
                     imports.append(self.parse_import())
                 elif self.match(TokenType.PUBLIC):
-                    # Could be public module or public struct/func etc.
+                    # Could be public module or public declaration
                     if self.peek(1).type == TokenType.MODULE:
                         module_decls.append(self.parse_module_decl())
                     else:
-                        # TODO: Handle public declarations in Phase 3
-                        self.error("public declarations not yet supported in inline modules")
+                        # Parse visibility and then the declaration
+                        visibility = self._parse_visibility()
+                        if self.match(TokenType.STRUCT):
+                            structs.append(self.parse_struct(visibility))
+                        elif self.match(TokenType.ENUM):
+                            enums.append(self.parse_enum(visibility))
+                        elif self.match(TokenType.INTERFACE):
+                            interfaces.append(self.parse_interface(visibility))
+                        elif self.match(TokenType.EXTENSION):
+                            extensions.append(self.parse_extension(visibility))
+                        elif self.match(TokenType.FUNC):
+                            functions.append(self.parse_function(visibility))
+                        elif self.match(TokenType.TYPE):
+                            type_definitions.append(self.parse_type_definition(visibility))
+                        else:
+                            self.error(f"Expected struct, enum, interface, extension, func, or type after visibility modifier")
                 elif self.match(TokenType.MODULE):
                     module_decls.append(self.parse_module_decl())
                 elif self.match(TokenType.STRUCT):
@@ -442,7 +497,7 @@ class Parser:
         self.expect(TokenType.GT, "Expected '>' after type arguments")
         return type_args
 
-    def parse_function(self) -> Function:
+    def parse_function(self, visibility: Visibility = Visibility.PRIVATE) -> Function:
         start = self.current()
         self.expect(TokenType.FUNC)
 
@@ -471,11 +526,12 @@ class Parser:
             return_type=return_type,
             body=body,
             type_params=type_params,
+            visibility=visibility,
             line=start.line,
             column=start.column
         )
 
-    def parse_struct(self) -> Struct:
+    def parse_struct(self, visibility: Visibility = Visibility.PRIVATE) -> Struct:
         """Parse a struct declaration: struct Name { field: Type } or struct Box<T> { value: T }"""
         start = self.current()
         self.expect(TokenType.STRUCT)
@@ -509,11 +565,12 @@ class Parser:
             name=name,
             fields=fields,
             type_params=type_params,
+            visibility=visibility,
             line=start.line,
             column=start.column
         )
 
-    def parse_enum(self) -> Enum:
+    def parse_enum(self, visibility: Visibility = Visibility.PRIVATE) -> Enum:
         """Parse an enum declaration: enum Name { case Variant1 } or enum Option<T> { case Some(value: T) }"""
         start = self.current()
         self.expect(TokenType.ENUM)
@@ -570,11 +627,12 @@ class Parser:
             name=name,
             variants=variants,
             type_params=type_params,
+            visibility=visibility,
             line=start.line,
             column=start.column
         )
 
-    def parse_interface(self) -> Interface:
+    def parse_interface(self, visibility: Visibility = Visibility.PRIVATE) -> Interface:
         """Parse interface declaration: interface CustomCopy: Deinit { func copy(self) -> Self }"""
         start = self.current()
         self.expect(TokenType.INTERFACE)
@@ -624,6 +682,7 @@ class Parser:
             associated_types=associated_types,
             type_params=type_params,
             parent_interfaces=parent_interfaces,
+            visibility=visibility,
             line=start.line,
             column=start.column
         )
@@ -670,7 +729,7 @@ class Parser:
             column=start.column
         )
 
-    def parse_extension(self) -> Extension:
+    def parse_extension(self, visibility: Visibility = Visibility.PRIVATE) -> Extension:
         """Parse extension declaration: extension Box<T>: Interface { type Item = Int; func... }"""
         start = self.current()
         self.expect(TokenType.EXTENSION)
@@ -727,6 +786,7 @@ class Parser:
             type_params=type_params,
             conformances=conformances,
             type_assignments=type_assignments,
+            visibility=visibility,
             line=start.line,
             column=start.column
         )
@@ -747,7 +807,7 @@ class Parser:
             column=start.column
         )
 
-    def parse_type_definition(self) -> TypeDefinition:
+    def parse_type_definition(self, visibility: Visibility = Visibility.PRIVATE) -> TypeDefinition:
         """Parse top-level type definition: type MyInt = Int"""
         start = self.current()
         self.expect(TokenType.TYPE)
@@ -759,6 +819,7 @@ class Parser:
         return TypeDefinition(
             name=name_token.value,
             defined_type=defined_type,
+            visibility=visibility,
             line=start.line,
             column=start.column
         )

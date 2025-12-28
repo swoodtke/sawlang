@@ -1,0 +1,10 @@
+// Test that private symbols cannot be accessed from other modules
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no function `internal_helper`
+import modules.utils
+
+func main() {
+    // Try to access private function - should fail
+    let result = utils.internal_helper(5)
+    print(result)
+}

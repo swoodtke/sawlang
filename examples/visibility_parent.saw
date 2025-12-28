@@ -1,0 +1,33 @@
+// Test public(parent) visibility modifier parsing
+// EXPECT: success
+// EXPECT-OUTPUT: 12
+// EXPECT-OUTPUT: 7
+
+public(parent) struct Counter {
+    value: Int
+}
+
+public(parent) extension Counter {
+    func increment(self) -> Counter {
+        Counter(value: self.value + 1)
+    }
+}
+
+public(parent) enum Option {
+    case Some(value: Int),
+    case Nothing
+}
+
+public(parent) func subtract(a: Int, b: Int) -> Int {
+    a - b
+}
+
+public(parent) type Count = Int
+
+func main() {
+    let c = Counter(value: 11)
+    let c2 = c.increment()
+    print(c2.value)  // 12
+
+    print(subtract(10, 3))  // 7
+}

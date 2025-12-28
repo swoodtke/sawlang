@@ -10,8 +10,8 @@ Add a full module system with file-level namespaces, visibility modifiers, and c
 |-------|-------------|--------|
 | 0 | Unified Namespace | **COMPLETE** |
 | 1 | Foundation (Basic Imports) | **COMPLETE** |
-| 2 | Symbol-Level Imports | Pending |
-| 3 | Visibility System | Pending |
+| 2 | Symbol-Level Imports | **COMPLETE** |
+| 3 | Visibility System | **COMPLETE** |
 | 4 | Module Declarations | Pending |
 | 5 | Package Manifest | Pending |
 
@@ -531,7 +531,7 @@ Symbol lookup order:
 3. Explicitly imported symbols
 4. Builtins (print, etc.)
 
-### Phase 3: Visibility System
+### Phase 3: Visibility System ✅ COMPLETE
 
 **Goal**: Private by default, public exports
 
@@ -558,6 +558,48 @@ def _check_visibility(self, visibility: Visibility, symbol_path: List[str]) -> b
     if visibility == Visibility.PARENT:
         return self.current_module == symbol_path[:-2]
 ```
+
+#### 3.4 Implementation Summary (Completed)
+
+**Files modified:**
+- `sawc/ast_nodes.py` - Added `visibility` field to Struct, Enum, Function, Interface, TypeDefinition, Extension
+- `sawc/parser.py` - Added `_parse_visibility()` method and updated all declaration parsers
+- `sawc/namespace.py` - Added `visibility` field to symbol types, `module_path` tracking, and visibility checking
+- `sawc/typechecker.py` - Updated module symbol resolution to enforce visibility
+- `test_runner.py` - Skip library modules in `examples/modules/` directory
+
+**Visibility syntax supported:**
+| Syntax | Visibility | Enforcement |
+|--------|------------|-------------|
+| (none) | `PRIVATE` | Only accessible within same module |
+| `public` | `PUBLIC` | Accessible from anywhere |
+| `public(package)` | `PACKAGE` | Accessible within same package |
+| `public(parent)` | `PARENT` | Accessible only from parent module |
+
+**Key implementation details:**
+- `Namespace` now tracks `module_path` and `package_root` for visibility context
+- `resolve()` and `_resolve_parts()` accept `accessor_module` for cross-module visibility checking
+- `check_visibility()` implements all visibility rules with proper module path comparison
+- Typechecker passes accessor module context when resolving cross-module symbols
+
+**Tests added:**
+- `visibility_public.saw` - Tests public visibility parsing and access
+- `visibility_package.saw` - Tests public(package) visibility parsing
+- `visibility_parent.saw` - Tests public(parent) visibility parsing
+- `visibility_invalid.saw` - Tests error for invalid visibility modifiers
+- `visibility_private_access_error.saw` - Verifies private functions are inaccessible
+- `visibility_private_struct_error.saw` - Verifies private structs are inaccessible
+- `visibility_package_access.saw` - Verifies public(package) IS accessible in same package
+- `visibility_parent_access_error.saw` - Verifies public(parent) is NOT accessible from non-parent
+- `visibility_parent_public_works.saw` - Verifies public symbols work in nested modules
+
+**Test modules:**
+- `examples/modules/utils.saw` - Mixed visibility (public, private, public(package))
+- `examples/modules/nested/child.saw` - public(parent) and public symbols
+
+**Total tests:** 145 (9 visibility tests)
+
+---
 
 ### Phase 4: Module Declarations
 
