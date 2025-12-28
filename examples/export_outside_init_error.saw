@@ -1,0 +1,9 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `export` statements are only allowed in init.saw files
+// Test that export statements outside init.saw produce an error
+
+export utils.double
+
+func main() {
+    print(0)
+}

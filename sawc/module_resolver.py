@@ -5,9 +5,34 @@ Resolves module imports and builds dependency graphs for multi-file compilation.
 """
 
 import os
+import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict, Set, Any
 from pathlib import Path
+
+
+@dataclass
+class PackageManifest:
+    """Parsed Saw.toml package manifest."""
+    name: str = ""
+    version: str = ""
+    root_dir: str = ""           # Directory containing Saw.toml
+    dependencies: Dict[str, str] = field(default_factory=dict)  # Future: package deps
+
+
+@dataclass
+class ExportInfo:
+    """Information about an exported symbol in init.saw."""
+    source_path: List[str]  # Internal path to the symbol (e.g., ["internal", "foobar", "FooImpl"])
+    export_name: str        # Name it's exported as (e.g., "Foo")
+    is_glob: bool = False   # True for export foo.*
+
+
+@dataclass
+class FacadeInfo:
+    """Parsed init.saw facade for a module/package."""
+    exports: List[ExportInfo] = field(default_factory=list)
+    has_init_saw: bool = False  # True if init.saw exists (even if empty)
 
 
 @dataclass
@@ -57,6 +82,9 @@ class ModuleResolver:
 
         # Cache of resolved modules: path tuple -> ModuleInfo
         self._cache: Dict[tuple, ModuleInfo] = {}
+
+        # Cache of parsed package manifests: directory -> PackageManifest
+        self._package_cache: Dict[str, PackageManifest] = {}
 
     def resolve_module(self, path: List[str], from_file: Optional[str] = None) -> Optional[ModuleInfo]:
         """
@@ -158,6 +186,162 @@ class ModuleResolver:
                 # Reached filesystem root
                 return None
             current = parent
+
+    def get_package_manifest(self, from_file: str) -> Optional[PackageManifest]:
+        """
+        Get the PackageManifest for the package containing the given file.
+
+        Args:
+            from_file: Path to a file in the package
+
+        Returns:
+            PackageManifest if Saw.toml found, None otherwise
+        """
+        file_dir = os.path.dirname(os.path.abspath(from_file))
+        package_root = self._find_package_root(file_dir)
+
+        if package_root is None:
+            return None
+
+        # Check cache
+        if package_root in self._package_cache:
+            return self._package_cache[package_root]
+
+        # Parse the manifest
+        manifest_path = os.path.join(package_root, "Saw.toml")
+        manifest = self._parse_saw_toml(manifest_path)
+        if manifest:
+            manifest.root_dir = package_root
+            self._package_cache[package_root] = manifest
+
+        return manifest
+
+    def _parse_saw_toml(self, path: str) -> Optional[PackageManifest]:
+        """
+        Parse a Saw.toml file.
+
+        Supports a minimal TOML subset:
+        - [section] headers
+        - key = "value" string assignments
+        - key = value bare values
+        - # comments
+
+        Args:
+            path: Path to the Saw.toml file
+
+        Returns:
+            PackageManifest with parsed values
+        """
+        try:
+            with open(path, 'r') as f:
+                content = f.read()
+        except IOError:
+            return None
+
+        manifest = PackageManifest()
+        current_section = None
+
+        for line in content.split('\n'):
+            line = line.strip()
+
+            # Skip empty lines and comments
+            if not line or line.startswith('#'):
+                continue
+
+            # Section header: [package], [dependencies]
+            if line.startswith('[') and line.endswith(']'):
+                current_section = line[1:-1].strip()
+                continue
+
+            # Key = value
+            if '=' in line:
+                key, _, value = line.partition('=')
+                key = key.strip()
+                value = value.strip()
+
+                # Remove quotes from string values
+                if value.startswith('"') and value.endswith('"'):
+                    value = value[1:-1]
+                elif value.startswith("'") and value.endswith("'"):
+                    value = value[1:-1]
+
+                # Store based on section
+                if current_section == 'package':
+                    if key == 'name':
+                        manifest.name = value
+                    elif key == 'version':
+                        manifest.version = value
+                elif current_section == 'dependencies':
+                    manifest.dependencies[key] = value
+
+        return manifest
+
+    def get_facade_info(self, module_dir: str) -> FacadeInfo:
+        """
+        Get the facade info for a module directory.
+
+        Checks for init.saw and parses its export statements.
+
+        Args:
+            module_dir: Directory to check for init.saw
+
+        Returns:
+            FacadeInfo with export information
+        """
+        init_path = os.path.join(module_dir, "init.saw")
+
+        if not os.path.isfile(init_path):
+            return FacadeInfo(has_init_saw=False)
+
+        # Parse init.saw to extract exports
+        return self._parse_init_saw(init_path)
+
+    def _parse_init_saw(self, path: str) -> FacadeInfo:
+        """
+        Parse an init.saw file to extract export declarations.
+
+        Uses the full parser to parse the file, then extracts ExportDecl nodes.
+
+        Args:
+            path: Path to init.saw
+
+        Returns:
+            FacadeInfo with parsed exports
+        """
+        try:
+            with open(path, 'r') as f:
+                source = f.read()
+        except IOError:
+            return FacadeInfo(has_init_saw=False)
+
+        # Import parser components
+        from lexer import Lexer
+        from parser import Parser
+
+        try:
+            lexer = Lexer(source)
+            tokens = lexer.tokenize()
+            parser = Parser(tokens)
+            ast = parser.parse()
+        except SyntaxError:
+            # If parsing fails, treat as no facade
+            return FacadeInfo(has_init_saw=True)
+
+        # Extract exports from the AST
+        exports = []
+        for export_decl in getattr(ast, 'exports', []):
+            export_name = export_decl.alias or (export_decl.path[-1] if export_decl.path else "")
+            exports.append(ExportInfo(
+                source_path=export_decl.path,
+                export_name=export_name,
+                is_glob=export_decl.is_glob
+            ))
+
+        return FacadeInfo(exports=exports, has_init_saw=True)
+
+    def has_init_saw(self, module_dir: str) -> bool:
+        """Check if a module directory has an init.saw file."""
+        return os.path.isfile(os.path.join(module_dir, "init.saw"))
 
     def load_module_source(self, info: ModuleInfo) -> str:
         """Load the source code for a module."""

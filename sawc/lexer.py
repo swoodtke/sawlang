@@ -50,6 +50,7 @@ class TokenType(Enum):
     MODULE = auto()   # 'module' for module declarations
     IMPORT = auto()   # 'import' for imports
     PUBLIC = auto()   # 'public' visibility modifier
+    EXPORT = auto()   # 'export' for init.saw re-exports
     PACKAGE = auto()  # 'package' for package-relative imports
     PARENT = auto()   # 'parent' for parent-relative imports
 
@@ -154,6 +155,7 @@ KEYWORDS = {
     'module': TokenType.MODULE,
     'import': TokenType.IMPORT,
     'public': TokenType.PUBLIC,
+    'export': TokenType.EXPORT,
     # Note: 'package' and 'parent' are NOT keywords - they are handled
     # specially by the parser only in import contexts to avoid conflicts
     # with user code (e.g., a method named 'parent')

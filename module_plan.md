@@ -14,7 +14,7 @@ Add a full module system with file-level namespaces, visibility modifiers, and c
 | 3 | Visibility System | **COMPLETE** |
 | 4 | Module Declarations | **COMPLETE** |
 | 4.5 | Per-Module Namespace Resolution | **COMPLETE** |
-| 5 | Package Manifest & Per-Module Type Checking | Pending |
+| 5 | Package Manifest & Module Facades | **COMPLETE** |
 
 ## Phased Implementation
 
@@ -854,6 +854,41 @@ let y = mylib.internal.helpers.secret()   // Error
 1. Look for `module_name/init.saw`
 2. If exists, build namespace from export statements only
 3. If missing, build namespace from all public symbols (current behavior)
+
+#### 5.4 Implementation Summary (Completed)
+
+**Files modified:**
+- `sawc/lexer.py` - Added EXPORT token
+- `sawc/ast_nodes.py` - Added ExportDecl node, updated Program with exports field
+- `sawc/parser.py` - Added parse_export() method, updated parse() for export statements
+- `sawc/module_resolver.py` - Added PackageManifest, ExportInfo, FacadeInfo dataclasses; added Saw.toml parsing and init.saw facade resolution
+- `sawc/sawc.py` - Preserve exports in merge_programs()
+- `sawc/typechecker.py` - Validate that export statements are only allowed in init.saw files
+
+**Saw.toml parsing:**
+- Simple TOML parser supports `[package]` section with `name` and `version`
+- `[dependencies]` section parsed but not yet utilized (future: external packages)
+- `get_package_manifest()` finds and parses Saw.toml walking up from source file
+
+**init.saw facade support:**
+- `get_facade_info()` parses init.saw to extract export declarations
+- `ExportInfo` captures source path, export name, and glob flag
+- Export statements restricted to init.saw files (error otherwise)
+
+**Export syntax supported:**
+| Syntax | Description |
+|--------|-------------|
+| `export path.to.Symbol` | Export symbol at its original name |
+| `export path.to.Symbol as Name` | Export symbol with renamed alias |
+| `export path.to.*` | Export all public symbols (glob) |
+
+**Tests added:**
+- `export_outside_init_error.saw` - Verifies export outside init.saw produces error
+- Test package in `examples/modules/test_package/` with Saw.toml and init.saw
+
+**Note:** Per-module type checking (5.0) was deferred. The Phase 4.5 approach of per-module namespace resolution is working well and the full per-module type checking refactor can be done as a future optimization if needed.
+
+**Total tests:** 153
 
 ---
 

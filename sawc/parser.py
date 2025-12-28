@@ -22,7 +22,7 @@ from ast_nodes import (
     ExternFunction, ExternBlock,
     SawType, TypeKind, Argument, TypeParameter,
     ClosureExpr, ClosureParam,
-    ImportDecl, ModuleDecl, Visibility
+    ImportDecl, ModuleDecl, ExportDecl, Visibility
 )
 
 
@@ -149,11 +149,14 @@ class Parser:
         extern_blocks = []
         imports = []
         module_decls = []
+        exports = []
         self.skip_newlines()
 
         while not self.match(TokenType.EOF):
             if self.match(TokenType.IMPORT):
                 imports.append(self.parse_import())
+            elif self.match(TokenType.EXPORT):
+                exports.append(self.parse_export())
             elif self.match(TokenType.PUBLIC):
                 # Could be public module or public declaration
                 if self.peek(1).type == TokenType.MODULE:
@@ -192,12 +195,13 @@ class Parser:
             elif self.match(TokenType.EXTERN):
                 extern_blocks.append(self.parse_extern_block())
             else:
-                self.error(f"Expected import, module, struct, enum, interface, extension, type, extern, or function declaration, got {self.current().type.name}")
+                self.error(f"Expected import, export, module, struct, enum, interface, extension, type, extern, or function declaration, got {self.current().type.name}")
             self.skip_newlines()
 
         return Program(structs=structs, functions=functions, extensions=extensions,
                        enums=enums, interfaces=interfaces, type_definitions=type_definitions,
-                       extern_blocks=extern_blocks, imports=imports, module_decls=module_decls)
+                       extern_blocks=extern_blocks, imports=imports, module_decls=module_decls,
+                       exports=exports)
 
     def parse_import(self) -> ImportDecl:
         """Parse import declaration: import path.to.module or import path.{A, B}"""
@@ -271,6 +275,56 @@ class Parser:
             column=start.column
         )
 
+    def parse_export(self) -> ExportDecl:
+        """Parse export declaration for init.saw facades.
+
+        Syntax:
+        - export path.to.Symbol
+        - export path.to.Symbol as AliasName
+        - export path.to.*
+        """
+        start = self.current()
+        self.expect(TokenType.EXPORT)
+
+        # Parse the path
+        path = []
+        first = self.expect(TokenType.IDENT, "Expected path after 'export'")
+        path.append(first.value)
+
+        # Parse remaining path segments
+        while self.match(TokenType.DOT):
+            self.advance()
+
+            # Check for glob export: export foo.*
+            if self.match(TokenType.STAR):
+                self.advance()
+                return ExportDecl(
+                    path=path,
+                    alias=None,
+                    is_glob=True,
+                    line=start.line,
+                    column=start.column
+                )
+
+            # Regular path component
+            component = self.expect(TokenType.IDENT, "Expected name after '.'")
+            path.append(component.value)
+
+        # Check for alias: export foo.bar as baz
+        alias = None
+        if self.match(TokenType.AS):
+            self.advance()
+            alias_token = self.expect(TokenType.IDENT, "Expected alias name after 'as'")
+            alias = alias_token.value
+
+        return ExportDecl(
+            path=path,
+            alias=alias,
+            is_glob=False,
+            line=start.line,
+            column=start.column
+        )
+
     def parse_module_decl(self) -> ModuleDecl:
         """Parse module declaration: module name or public module name"""
         start = self.current()
@@ -303,10 +357,13 @@ class Parser:
             extern_blocks = []
             imports = []
             module_decls = []
+            exports = []
 
             while not self.match(TokenType.RBRACE, TokenType.EOF):
                 if self.match(TokenType.IMPORT):
                     imports.append(self.parse_import())
+                elif self.match(TokenType.EXPORT):
+                    exports.append(self.parse_export())
                 elif self.match(TokenType.PUBLIC):
                     # Could be public module or public declaration
                     if self.peek(1).type == TokenType.MODULE:
@@ -359,7 +416,8 @@ class Parser:
                 type_definitions=type_definitions,
                 extern_blocks=extern_blocks,
                 imports=imports,
-                module_decls=module_decls
+                module_decls=module_decls,
+                exports=exports
             )
 
         return ModuleDecl(

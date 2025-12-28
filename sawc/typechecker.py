@@ -439,6 +439,20 @@ class TypeChecker:
 
     def check(self, program: Program) -> bool:
         """Type check the entire program. Returns True if no errors."""
+        # Validate: exports are only allowed in init.saw files
+        exports = getattr(program, 'exports', [])
+        if exports:
+            source_path = getattr(program, 'source_path', None)
+            is_init_saw = source_path and source_path.endswith('init.saw')
+            if not is_init_saw:
+                for exp in exports:
+                    self.reporter.error(
+                        ErrorKind.SYNTAX,
+                        "`export` statements are only allowed in init.saw files",
+                        exp.line, exp.column,
+                        hint="use `public` visibility modifier to expose symbols from regular modules"
+                    )
+
         # First pass: register type definitions (aliases)
         for type_def in program.type_definitions:
             self._register_type_definition(type_def)

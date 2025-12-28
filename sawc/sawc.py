@@ -102,9 +102,10 @@ def merge_programs(builtin_ast, user_ast):
         interfaces=builtin_ast.interfaces + user_ast.interfaces,
         type_definitions=builtin_ast.type_definitions + user_ast.type_definitions,
         extern_blocks=builtin_ast.extern_blocks + user_ast.extern_blocks,
-        # Preserve user imports and module declarations (builtins don't have these)
+        # Preserve user imports, module declarations, and exports (builtins don't have these)
         imports=getattr(user_ast, 'imports', []),
         module_decls=getattr(user_ast, 'module_decls', []),
+        exports=getattr(user_ast, 'exports', []),
         source_path=getattr(user_ast, 'source_path', None),
         module_path=getattr(user_ast, 'module_path', None),
         line=user_ast.line,

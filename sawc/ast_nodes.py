@@ -238,6 +238,22 @@ class ModuleDecl:
     column: int = 0
 
 
+@dataclass
+class ExportDecl:
+    """Export declaration in init.saw facade files.
+
+    Syntax:
+    - export internal.foobar.FooImpl as Foo  # Re-export with rename
+    - export utils                            # Re-export module
+    - export internal.foobar.*               # Re-export all public symbols
+    """
+    path: List[str]                    # Path to symbol/module being exported
+    alias: Optional[str] = None        # Name to export as (None = use last component)
+    is_glob: bool = False              # True for export foo.*
+    line: int = 0
+    column: int = 0
+
+
 # Base AST Node - no default values to avoid inheritance issues
 @dataclass
 class ASTNode:
@@ -813,6 +829,7 @@ class Program(ASTNode):
     # Module system
     imports: List['ImportDecl'] = field(default_factory=list)
     module_decls: List['ModuleDecl'] = field(default_factory=list)
+    exports: List['ExportDecl'] = field(default_factory=list)  # For init.saw facades
     source_path: Optional[str] = None      # Path to source file
     module_path: Optional[List[str]] = None  # Fully qualified module path
     line: int = 0
