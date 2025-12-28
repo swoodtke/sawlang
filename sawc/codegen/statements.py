@@ -1,0 +1,393 @@
+"""
+Statement generation for the Saw code generator.
+
+This module provides mixin methods for generating LLVM IR code for statements
+including let bindings, assignments, and return statements.
+
+Usage:
+    class CodeGenerator(StatementsMixin, ...):
+        pass
+"""
+
+from typing import Optional
+from llvmlite import ir
+from ast_nodes import (
+    Statement, LetStatement, AssignStatement, ReturnStatement,
+    GuardLetStatement, BreakStatement, ContinueStatement, ExpressionStatement,
+    WhileExpr, ForLoop, Identifier, MemberAccess, ArrayIndex, SelfExpr,
+    IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation,
+    StructInit, EnumInit, MoveExpr, CastExpr, FunctionCall, MethodCall,
+    BinaryOp, UnaryOp, SawType, TypeKind
+)
+
+
+class StatementsMixin:
+    """Mixin providing statement generation methods for CodeGenerator.
+
+    Methods:
+        _generate_statement: Dispatch to appropriate statement generator
+        _generate_let_statement: Generate let binding
+        _infer_saw_type: Infer SawType from expression
+        _generate_assign_statement: Generate assignment
+        _generate_return_statement: Generate return statement
+    """
+
+    def _generate_statement(self, stmt: Statement):
+        """Generate code for a statement."""
+        # Handle dual-purpose nodes (Expressions used as Statements)
+        if isinstance(stmt, WhileExpr):
+            self._generate_while_expr(stmt)
+            return
+        if isinstance(stmt, ForLoop):
+            self._generate_for_loop(stmt)
+            return
+
+        # Visitor dispatch for all other statements
+        method_name = f'visit_{stmt.__class__.__name__}'
+        visitor = getattr(self, method_name, None)
+        if visitor is None:
+            raise ValueError(f"Unknown statement type: {type(stmt)}")
+        visitor(stmt)
+
+    # ===== Statement Visitor Methods =====
+
+    def visit_LetStatement(self, stmt: LetStatement):
+        self._generate_let_statement(stmt)
+
+    def visit_AssignStatement(self, stmt: AssignStatement):
+        self._generate_assign_statement(stmt)
+
+    def visit_ReturnStatement(self, stmt: ReturnStatement):
+        self._generate_return_statement(stmt)
+
+    def visit_GuardLetStatement(self, stmt: GuardLetStatement):
+        self._generate_guard_let_statement(stmt)
+
+    def visit_BreakStatement(self, stmt: BreakStatement):
+        self._generate_break_statement(stmt)
+
+    def visit_ContinueStatement(self, stmt: ContinueStatement):
+        self._generate_continue_statement(stmt)
+
+    def visit_ExpressionStatement(self, stmt: ExpressionStatement):
+        # Expression used as statement - we don't need its result value
+        self._generate_expression(stmt.expression, need_result=False)
+
+    def _generate_let_statement(self, stmt: LetStatement):
+        """Generate code for a let binding."""
+        value = self._generate_expression(stmt.value)
+
+        # Resolve type alias in annotation
+        resolved_annotation = self._resolve_type_alias(stmt.type_annotation) if stmt.type_annotation else None
+
+        # Determine the variable type early for copy behavior
+        var_type = resolved_annotation if resolved_annotation else self._infer_saw_type(stmt.value)
+
+        # Apply copy behavior for CustomCopy types when initializing from an existing value
+        # (not for fresh struct/enum construction which doesn't need copying)
+        # Skip copy for move expressions - ownership is transferred, not copied
+        if var_type and isinstance(stmt.value, Identifier) and not isinstance(stmt.value, MoveExpr):
+            value = self._generate_copy(value, var_type)
+
+        # Check if we need to wrap the value in an optional
+        if resolved_annotation and resolved_annotation.kind == TypeKind.OPTIONAL:
+            # Check if value is not already optional
+            # An optional is a struct with first element being i1 (is_some flag)
+            is_already_optional = (isinstance(value.type, ir.LiteralStructType) and
+                                   len(value.type.elements) == 2 and
+                                   isinstance(value.type.elements[0], ir.IntType) and
+                                   value.type.elements[0].width == 1)
+
+            if not is_already_optional:
+                # Wrap the value in an optional
+                value = self._wrap_in_optional(value)
+            else:
+                # Value is already optional, but check if it's a None literal with i64 placeholder
+                # that needs to be converted to match a different expected type
+                current_inner_type = value.type.elements[1]
+                target_inner_type = self._get_llvm_type(resolved_annotation.inner_type)
+
+                # Only convert if current is i64 (None literal placeholder) and target is something else
+                needs_conversion = (isinstance(current_inner_type, ir.IntType) and
+                                    current_inner_type.width == 64 and
+                                    not (isinstance(target_inner_type, ir.IntType) and
+                                         target_inner_type.width == 64))
+
+                if needs_conversion:
+                    # This is a None literal (i64 placeholder) being assigned to a different optional type
+                    correct_optional_type = ir.LiteralStructType([ir.IntType(1), target_inner_type])
+
+                    # Extract is_some flag (should be false for None)
+                    is_some = self.builder.extract_value(value, 0, name="is_some")
+
+                    # Create new optional with correct type
+                    new_optional = ir.Constant(correct_optional_type, ir.Undefined)
+                    new_optional = self.builder.insert_value(new_optional, is_some, 0)
+                    # Don't set the value - it's undef for None anyway
+
+                    value = new_optional
+
+        alloca = self.builder.alloca(value.type, name=stmt.name)
+        self.builder.store(value, alloca)
+        self.variables[stmt.name] = alloca
+
+        # Track variable type for resource management
+        if var_type:
+            self.variable_types[stmt.name] = var_type
+            # Track for cleanup if type implements Deinit/CustomCopy/NoCopy
+            if self.cleanup_stack and self._needs_cleanup(var_type):
+                self.cleanup_stack[-1].append((stmt.name, var_type))
+
+    def _infer_saw_type(self, expr) -> Optional[SawType]:
+        """Infer the SawType of an expression (basic inference for common cases)."""
+        if isinstance(expr, IntLiteral):
+            return SawType(TypeKind.INT)
+        elif isinstance(expr, FloatLiteral):
+            return SawType(TypeKind.FLOAT)
+        elif isinstance(expr, BoolLiteral):
+            return SawType(TypeKind.BOOL)
+        elif isinstance(expr, StringLiteral):
+            return SawType(TypeKind.STRING)
+        elif isinstance(expr, StringInterpolation):
+            return SawType(TypeKind.STRING)
+        elif isinstance(expr, StructInit):
+            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args)
+        elif isinstance(expr, EnumInit):
+            return SawType(TypeKind.ENUM, enum_name=expr.enum_name, type_args=expr.type_args)
+        elif isinstance(expr, Identifier):
+            # Look up variable type
+            return self.variable_types.get(expr.name)
+        elif isinstance(expr, MoveExpr):
+            # Look up the moved variable's type
+            return self.variable_types.get(expr.variable)
+        elif isinstance(expr, CastExpr):
+            # Cast expression returns the target type
+            return expr.target_type
+        elif isinstance(expr, FunctionCall):
+            # Check if this is a struct init (parser treats Struct() as function call)
+            if expr.name in self.struct_types or expr.name in self.generic_structs:
+                return SawType(TypeKind.STRUCT, struct_name=expr.name, type_args=expr.type_args)
+            # Check if it's a known function (use namespace)
+            return_type = self.namespace.get_return_type(expr.name)
+            if return_type:
+                return return_type
+            return None
+        elif isinstance(expr, MethodCall):
+            # Check for static method call: StructName.method() (use namespace)
+            if isinstance(expr.object, Identifier):
+                struct_name = expr.object.name
+                if self.namespace.is_static_method(struct_name, expr.method_name):
+                    return_type = self.namespace.get_method_return_type(struct_name, expr.method_name)
+                    if return_type:
+                        return return_type
+            # Look up the method return type for instance methods (use namespace)
+            obj_type = self._infer_saw_type(expr.object)
+            if obj_type and obj_type.kind == TypeKind.STRUCT:
+                struct_name = obj_type.struct_name
+                return_type = self.namespace.get_method_return_type(struct_name, expr.method_name)
+                if return_type:
+                    return return_type
+            return None
+        elif isinstance(expr, MemberAccess):
+            # Look up struct field type (use namespace)
+            obj_type = self._infer_saw_type(expr.object)
+            if obj_type and obj_type.kind == TypeKind.STRUCT:
+                struct_name = obj_type.struct_name
+                field_types = self.namespace.get_struct_fields(struct_name)
+                if field_types and expr.member in field_types:
+                    return field_types[expr.member]
+            return None
+        elif isinstance(expr, BinaryOp):
+            # Infer type from binary operations
+            if expr.op in ('==', '!=', '<', '>', '<=', '>=', '&&', '||'):
+                return SawType(TypeKind.BOOL)
+            elif expr.op in ('+', '-', '*', '/', '%'):
+                left_type = self._infer_saw_type(expr.left)
+                right_type = self._infer_saw_type(expr.right)
+                # Float takes precedence
+                if left_type and left_type.kind == TypeKind.FLOAT:
+                    return SawType(TypeKind.FLOAT)
+                if right_type and right_type.kind == TypeKind.FLOAT:
+                    return SawType(TypeKind.FLOAT)
+                # Default to Int for arithmetic
+                if left_type:
+                    return left_type
+                if right_type:
+                    return right_type
+                return SawType(TypeKind.INT)
+            return None
+        elif isinstance(expr, UnaryOp):
+            if expr.op == 'not':
+                return SawType(TypeKind.BOOL)
+            return self._infer_saw_type(expr.operand)
+        return None
+
+    def _generate_assign_statement(self, stmt: AssignStatement):
+        """Generate code for an assignment statement."""
+        value = self._generate_expression(stmt.value)
+
+        if isinstance(stmt.target, Identifier):
+            # Simple variable assignment
+            if stmt.target.name not in self.variables:
+                raise ValueError(f"Undefined variable: {stmt.target.name}")
+
+            # Get the variable's type for resource management
+            var_type = self.variable_types.get(stmt.target.name)
+
+            if var_type:
+                # Call deinit on the old value before overwriting
+                if self._needs_cleanup(var_type):
+                    self._generate_deinit_call(stmt.target.name, var_type)
+
+                # Apply copy behavior for CustomCopy types
+                if isinstance(stmt.value, Identifier):
+                    value = self._generate_copy(value, var_type)
+
+                # Wrap in optional if assigning T to T?
+                expected_type = self._get_llvm_type(var_type)
+                if (var_type.is_optional() and
+                    self._is_optional_type(expected_type) and
+                    not self._is_optional_type(value.type)):
+                    value = self._wrap_in_optional(value)
+
+            self.builder.store(value, self.variables[stmt.target.name])
+
+        elif isinstance(stmt.target, MemberAccess):
+            # Field assignment: obj.field = value
+            # We need to get a pointer to the object first
+            obj_expr = stmt.target.object
+
+            # Get pointer to the struct
+            if isinstance(obj_expr, Identifier):
+                # Direct variable reference: p.x = value
+                if obj_expr.name not in self.variables:
+                    raise ValueError(f"Undefined variable: {obj_expr.name}")
+                struct_ptr = self.variables[obj_expr.name]
+            elif isinstance(obj_expr, SelfExpr):
+                # self.field = value
+                struct_ptr = self.variables["self"]
+            elif isinstance(obj_expr, ArrayIndex):
+                # Array/pointer indexing: arr[i].field = value or ptr[i].field = value
+                container_val = self._generate_expression(obj_expr.array_expr)
+                index_val = self._generate_expression(obj_expr.index)
+
+                if isinstance(container_val.type, ir.PointerType):
+                    # Pointer indexing: ptr[i].field = value
+                    struct_ptr = self.builder.gep(container_val, [index_val], name="ptr_idx")
+                elif isinstance(container_val.type, ir.ArrayType):
+                    # Array indexing - need to allocate, store, and use GEP
+                    array_ptr = self.builder.alloca(container_val.type, name="arr_tmp")
+                    self.builder.store(container_val, array_ptr)
+                    zero = ir.Constant(ir.IntType(64), 0)
+                    struct_ptr = self.builder.gep(array_ptr, [zero, index_val], name="elem_ptr")
+                else:
+                    raise ValueError(f"Cannot index into type for field assignment: {container_val.type}")
+            else:
+                raise ValueError(f"Unsupported object expression in field assignment: {type(obj_expr)}")
+
+            # Determine struct type and field index
+            # Get the actual struct type (dereference if it's a pointer)
+            pointee_type = struct_ptr.type.pointee
+
+            # Find which struct this is
+            struct_name = None
+            if hasattr(pointee_type, 'name') and pointee_type.name in self.struct_types:
+                # Identified type - name is directly available
+                struct_name = pointee_type.name
+            else:
+                # Fallback to string comparison for literal types
+                for name, (st, _) in self.struct_types.items():
+                    if str(st) == str(pointee_type):
+                        struct_name = name
+                        break
+
+            if not struct_name:
+                raise ValueError("Cannot determine struct type for field assignment")
+
+            # Get field index
+            _, field_order = self.struct_types[struct_name]
+            if stmt.target.member not in field_order:
+                raise ValueError(f"Struct {struct_name} has no field {stmt.target.member}")
+
+            field_index = field_order.index(stmt.target.member)
+
+            # Generate GEP to get pointer to field
+            field_ptr = self.builder.gep(struct_ptr, [
+                ir.Constant(ir.IntType(32), 0),
+                ir.Constant(ir.IntType(32), field_index)
+            ], name=f"{stmt.target.member}_ptr")
+
+            # Check if we need to wrap in optional (non-optional value for optional field)
+            expected_field_type = field_ptr.type.pointee
+            if isinstance(expected_field_type, ir.LiteralStructType) and len(expected_field_type.elements) == 2:
+                # Expected is optional {i1, T}, check if value needs wrapping
+                if not isinstance(value.type, ir.LiteralStructType):
+                    value = self._wrap_in_optional(value)
+
+            # Store value to field
+            self.builder.store(value, field_ptr)
+
+        elif isinstance(stmt.target, ArrayIndex):
+            # Array or pointer element assignment: arr[i] = value or ptr[i] = value
+            container_expr = stmt.target.array_expr
+            index_val = self._generate_expression(stmt.target.index)
+
+            # Get pointer to the container
+            if isinstance(container_expr, Identifier):
+                if container_expr.name not in self.variables:
+                    raise ValueError(f"Undefined variable: {container_expr.name}")
+                container_ptr = self.variables[container_expr.name]
+
+                # Load the container value to check its type
+                container_val = self.builder.load(container_ptr, name="container")
+
+                if isinstance(container_val.type, ir.ArrayType):
+                    # Array: GEP with two indices [0, index]
+                    zero = ir.Constant(ir.IntType(64), 0)
+                    elem_ptr = self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
+                elif isinstance(container_val.type, ir.PointerType):
+                    # Pointer: GEP with single index
+                    elem_ptr = self.builder.gep(container_val, [index_val], name="ptr_elem")
+                else:
+                    raise ValueError(f"Cannot index into type: {container_val.type}")
+            else:
+                raise ValueError(f"Unsupported container expression in assignment: {type(container_expr)}")
+
+            # Coerce value type if needed (e.g., Int -> Int8)
+            elem_type = elem_ptr.type.pointee
+            if isinstance(value.type, ir.IntType) and isinstance(elem_type, ir.IntType):
+                if value.type.width > elem_type.width:
+                    # Truncate larger int to smaller
+                    value = self.builder.trunc(value, elem_type, name="trunc")
+                elif value.type.width < elem_type.width:
+                    # Extend smaller int to larger (sign extend)
+                    value = self.builder.sext(value, elem_type, name="sext")
+
+            # Store value to element
+            self.builder.store(value, elem_ptr)
+
+        else:
+            raise ValueError(f"Invalid assignment target: {type(stmt.target)}")
+
+    def _generate_return_statement(self, stmt: ReturnStatement):
+        """Generate code for a return statement."""
+        # Generate return value first (before cleanup, in case it uses local vars)
+        if stmt.value is not None:
+            value = self._generate_expression(stmt.value)
+        else:
+            value = None
+
+        # Cleanup all scopes before returning
+        self._cleanup_all_scopes()
+
+        # Now return
+        if value is not None:
+            # Check if we need to wrap in optional
+            if self.current_return_type and self.current_return_type.is_optional():
+                expected_type = self._get_llvm_type(self.current_return_type)
+                if not self._is_optional_type(value.type):
+                    value = self._wrap_in_optional(value)
+
+            self.builder.ret(value)
+        else:
+            self.builder.ret_void()
