@@ -1,0 +1,146 @@
+"""
+Type parsing methods for the Saw parser.
+
+This module provides mixin methods for parsing type annotations including
+primitive types, optional types, array types, tuple types, function types,
+pointer types, and generic type arguments.
+
+Usage:
+    class Parser(TypeParsingMixin, ...):
+        pass
+"""
+
+from typing import List
+from lexer import TokenType
+from ast_nodes import SawType, TypeKind
+
+
+class TypeParsingMixin:
+    """Mixin providing type parsing methods for Parser."""
+
+    def parse_type(self) -> SawType:
+        """Parse a type annotation, including optional suffix."""
+        # Parse base type
+        base_type = self._parse_base_type()
+
+        # Check for optional suffix (?)
+        if self.match(TokenType.QUESTION):
+            self.advance()
+            return SawType(TypeKind.OPTIONAL, inner_type=base_type)
+
+        return base_type
+
+    def _parse_base_type(self) -> SawType:
+        """Parse a non-optional base type."""
+        token = self.current()
+        if token.type == TokenType.INT_TYPE:
+            self.advance()
+            return SawType(TypeKind.INT)
+        elif token.type == TokenType.FLOAT_TYPE:
+            self.advance()
+            return SawType(TypeKind.FLOAT)
+        elif token.type == TokenType.BOOL_TYPE:
+            self.advance()
+            return SawType(TypeKind.BOOL)
+        elif token.type == TokenType.STRING_TYPE:
+            self.advance()
+            return SawType(TypeKind.STRING)
+        # Fixed-width integers
+        elif token.type == TokenType.INT8_TYPE:
+            self.advance()
+            return SawType(TypeKind.INT8)
+        elif token.type == TokenType.INT16_TYPE:
+            self.advance()
+            return SawType(TypeKind.INT16)
+        elif token.type == TokenType.INT32_TYPE:
+            self.advance()
+            return SawType(TypeKind.INT32)
+        elif token.type == TokenType.INT64_TYPE:
+            self.advance()
+            return SawType(TypeKind.INT64)
+        elif token.type == TokenType.UINT8_TYPE:
+            self.advance()
+            return SawType(TypeKind.UINT8)
+        elif token.type == TokenType.UINT16_TYPE:
+            self.advance()
+            return SawType(TypeKind.UINT16)
+        elif token.type == TokenType.UINT32_TYPE:
+            self.advance()
+            return SawType(TypeKind.UINT32)
+        elif token.type == TokenType.UINT64_TYPE:
+            self.advance()
+            return SawType(TypeKind.UINT64)
+        elif token.type == TokenType.LBRACKET:
+            # Array type: [Type; Size]
+            self.advance()  # consume '['
+            element_type = self.parse_type()
+            self.expect(TokenType.SEMICOLON, "Expected ';' in array type")
+            size_token = self.expect(TokenType.INT, "Expected array size")
+            size = int(size_token.value)
+            self.expect(TokenType.RBRACKET, "Expected ']' after array type")
+            return SawType(TypeKind.ARRAY, array_element_type=element_type, array_size=size)
+        elif token.type == TokenType.LPAREN:
+            # Could be tuple type: (Type, Type, ...) or function type: (Type, Type) -> ReturnType
+            self.advance()
+            element_types = []
+            if not self.match(TokenType.RPAREN):
+                element_types.append(self.parse_type())
+                while self.match(TokenType.COMMA):
+                    self.advance()
+                    element_types.append(self.parse_type())
+            self.expect(TokenType.RPAREN)
+
+            # Check for arrow to distinguish function type from tuple
+            if self.match(TokenType.ARROW):
+                self.advance()
+                return_type = self.parse_type()
+                return SawType(TypeKind.FUNCTION, param_types=element_types, func_return_type=return_type)
+            else:
+                return SawType(TypeKind.TUPLE, element_types=element_types)
+        elif token.type == TokenType.IDENT:
+            # Could be a struct, enum, type parameter, Self, or pointer type
+            self.advance()
+            name = token.value
+
+            # Special case for Self type (used in interface method return types)
+            if name == "Self":
+                return SawType(TypeKind.SELF)
+
+            # Special case for pointer types
+            if name == "UnsafePointer":
+                type_args = self._parse_type_args()
+                if len(type_args) != 1:
+                    self.error("UnsafePointer requires exactly one type argument")
+                return SawType(TypeKind.POINTER, inner_type=type_args[0], pointer_mutable=True)
+            if name == "UnsafeConstPointer":
+                type_args = self._parse_type_args()
+                if len(type_args) != 1:
+                    self.error("UnsafeConstPointer requires exactly one type argument")
+                return SawType(TypeKind.POINTER, inner_type=type_args[0], pointer_mutable=False)
+
+            # Check for type arguments: Box<Int>, Pair<A, B>
+            type_args = None
+            if self.match(TokenType.LT):
+                type_args = self._parse_type_args()
+
+            # For now, parse as STRUCT - type checker will determine if it's
+            # actually a type parameter or enum
+            return SawType(TypeKind.STRUCT, struct_name=name, type_args=type_args)
+        else:
+            self.error(f"Expected type, got {token.type.name}")
+
+    def _parse_type_args(self) -> List[SawType]:
+        """Parse type arguments: <Int, String, ...>"""
+        self.expect(TokenType.LT)
+        type_args = []
+
+        # Parse first type argument
+        type_args.append(self.parse_type())
+
+        # Parse additional type arguments
+        while self.match(TokenType.COMMA):
+            self.advance()
+            type_args.append(self.parse_type())
+
+        self.expect(TokenType.GT, "Expected '>' after type arguments")
+        return type_args

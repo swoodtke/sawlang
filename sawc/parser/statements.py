@@ -1,0 +1,241 @@
+"""
+Statement parsing methods for the Saw parser.
+
+This module provides mixin methods for parsing statements including blocks,
+let/var bindings, assignments, control flow (while, for, break, continue),
+guard statements, and return statements.
+
+Usage:
+    class Parser(StatementsMixin, ...):
+        pass
+"""
+
+from lexer import TokenType
+from ast_nodes import (
+    Block, Statement,
+    LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
+    GuardLetStatement,
+    WhileExpr, ForLoop, BreakStatement, ContinueStatement,
+    Identifier, MemberAccess, ArrayIndex
+)
+
+
+class StatementsMixin:
+    """Mixin providing statement parsing methods for Parser."""
+
+    def parse_block(self) -> Block:
+        start = self.current()
+        self.expect(TokenType.LBRACE)
+        self.skip_newlines()
+
+        statements = []
+        final_expr = None
+
+        while not self.match(TokenType.RBRACE, TokenType.EOF):
+            stmt = self.parse_statement()
+            statements.append(stmt)
+            self.skip_newlines()
+
+        self.expect(TokenType.RBRACE)
+
+        # Check if last statement is an expression (implicit return)
+        if statements and isinstance(statements[-1], ExpressionStatement):
+            last = statements.pop()
+            final_expr = last.expression
+
+        return Block(
+            statements=statements,
+            final_expr=final_expr,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_statement(self) -> Statement:
+        if self.match(TokenType.LET):
+            return self.parse_let_statement(mutable=False)
+        elif self.match(TokenType.VAR):
+            return self.parse_let_statement(mutable=True)
+        elif self.match(TokenType.GUARD):
+            return self.parse_guard_statement()
+        elif self.match(TokenType.RETURN):
+            return self.parse_return_statement()
+        elif self.match(TokenType.WHILE):
+            return self.parse_while_statement()
+        elif self.match(TokenType.FOR):
+            return self.parse_for_statement()
+        elif self.match(TokenType.BREAK):
+            return self.parse_break_statement()
+        elif self.match(TokenType.CONTINUE):
+            return self.parse_continue_statement()
+        else:
+            # Try to parse assignment or expression statement
+            # We need to parse the target expression first to handle both
+            # simple assignments (x = value) and field assignments (obj.field = value)
+            return self.parse_assignment_or_expression_statement()
+
+    def parse_guard_statement(self) -> GuardLetStatement:
+        start = self.advance()  # consume 'guard'
+
+        # Expect 'let' or 'var'
+        if not (self.match(TokenType.LET) or self.match(TokenType.VAR)):
+            self.error("Expected 'let' or 'var' after 'guard'")
+
+        mutable = self.current().type == TokenType.VAR
+        self.advance()  # consume 'let' or 'var'
+
+        name_token = self.expect(TokenType.IDENT, "Expected variable name after 'guard let/var'")
+        self.expect(TokenType.ASSIGN, "Expected '=' in guard binding")
+        # Disable trailing closures - guard is followed by else { }
+        saved_trailing = self.allow_trailing_closure
+        self.allow_trailing_closure = False
+        optional_expr = self.parse_expression()
+        self.allow_trailing_closure = saved_trailing
+
+        self.skip_newlines()
+        self.expect(TokenType.ELSE, "Expected 'else' in guard statement")
+        self.skip_newlines()
+        else_branch = self.parse_block()
+
+        return GuardLetStatement(
+            name=name_token.value,
+            optional_expr=optional_expr,
+            mutable=mutable,
+            else_branch=else_branch,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_let_statement(self, mutable: bool) -> LetStatement:
+        start = self.advance()  # consume let/var
+        name_token = self.expect(TokenType.IDENT, "Expected variable name")
+
+        # Optional type annotation
+        type_annotation = None
+        if self.match(TokenType.COLON):
+            self.advance()
+            type_annotation = self.parse_type()
+
+        self.expect(TokenType.ASSIGN, "Expected '=' in variable declaration")
+        value = self.parse_expression()
+
+        return LetStatement(
+            name=name_token.value,
+            type_annotation=type_annotation,
+            value=value,
+            mutable=mutable,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_assignment_or_expression_statement(self) -> Statement:
+        """Parse either an assignment (x = value, obj.field = value) or expression statement."""
+        start_pos = self.pos
+        target_expr = self.parse_expression()
+
+        # Check if this is an assignment
+        if self.match(TokenType.ASSIGN):
+            self.advance()  # consume '='
+            value_expr = self.parse_expression()
+
+            # Validate that target is assignable (Identifier, MemberAccess, or ArrayIndex)
+            if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex)):
+                self.error("Invalid assignment target")
+
+            return AssignStatement(
+                target=target_expr,
+                value=value_expr,
+                line=target_expr.line,
+                column=target_expr.column
+            )
+        else:
+            # It's just an expression statement
+            return ExpressionStatement(
+                expression=target_expr,
+                line=target_expr.line,
+                column=target_expr.column
+            )
+
+    def parse_return_statement(self) -> ReturnStatement:
+        start = self.advance()  # consume return
+
+        value = None
+        if not self.match(TokenType.NEWLINE, TokenType.RBRACE, TokenType.EOF):
+            value = self.parse_expression()
+
+        return ReturnStatement(
+            value=value,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_while_statement(self) -> WhileExpr:
+        start = self.advance()  # consume 'while'
+
+        # Condition is optional - if we see '{', it's an infinite loop
+        condition = None
+        if not self.match(TokenType.LBRACE):
+            # Disable trailing closures - the { is part of the while body
+            saved_trailing = self.allow_trailing_closure
+            self.allow_trailing_closure = False
+            condition = self.parse_expression()
+            self.allow_trailing_closure = saved_trailing
+
+        self.skip_newlines()
+        body = self.parse_block()
+
+        return WhileExpr(
+            condition=condition,
+            body=body,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_for_statement(self) -> ForLoop:
+        """Parse for loop: for variable in iterable { body }"""
+        start = self.advance()  # consume 'for'
+
+        # Parse loop variable
+        var_token = self.expect(TokenType.IDENT, "Expected variable name after 'for'")
+
+        # Expect 'in' keyword
+        self.expect(TokenType.IN, "Expected 'in' after for loop variable")
+
+        # Parse iterable expression (usually a range like 0..10)
+        # Disable trailing closures - the { is part of the for body
+        saved_trailing = self.allow_trailing_closure
+        self.allow_trailing_closure = False
+        iterable = self.parse_expression()
+        self.allow_trailing_closure = saved_trailing
+
+        self.skip_newlines()
+        body = self.parse_block()
+
+        return ForLoop(
+            variable=var_token.value,
+            iterable=iterable,
+            body=body,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_break_statement(self) -> BreakStatement:
+        start = self.advance()  # consume 'break'
+
+        # Check if there's a value to break with
+        value = None
+        if not self.match(TokenType.NEWLINE, TokenType.RBRACE, TokenType.EOF):
+            value = self.parse_expression()
+
+        return BreakStatement(
+            value=value,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_continue_statement(self) -> ContinueStatement:
+        start = self.advance()  # consume 'continue'
+
+        return ContinueStatement(
+            line=start.line,
+            column=start.column
+        )
