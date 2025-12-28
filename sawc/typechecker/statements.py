@@ -1,0 +1,806 @@
+"""
+Statement checking methods for the Saw type checker.
+
+This module provides mixin methods for checking statements, blocks, functions,
+methods, and control flow (while loops, for loops, break, continue, return).
+
+Usage:
+    class TypeChecker(StatementsMixin, ...):
+        pass
+"""
+
+from typing import Optional
+from ast_nodes import (
+    Extension, Method, Function, Block, Statement,
+    LetStatement, AssignStatement, ReturnStatement, GuardLetStatement,
+    BreakStatement, ContinueStatement, ExpressionStatement,
+    WhileExpr, ForLoop, RangeExpr,
+    Identifier, MemberAccess, ArrayIndex, MoveExpr, IntLiteral,
+    SawType, TypeKind
+)
+from errors import ErrorKind
+
+
+class StatementsMixin:
+    """Mixin providing statement checking methods for TypeChecker.
+
+    These methods check statement-level constructs including variable bindings,
+    assignments, control flow, and function/method bodies.
+
+    Methods:
+        _check_extension: Type check all methods in an extension
+        _check_method: Type check a method body
+        _check_function: Type check a function body
+        _check_block: Check a block and return its type
+        _check_statement: Check a statement (dispatch)
+        _check_let_statement: Check let/var variable binding
+        _check_guard_let_statement: Check guard let/var for optional binding
+        _check_assign_statement: Check assignment statement
+        _check_return_statement: Check return statement
+        _check_while_expr: Check while loop as statement
+        _check_while_expr_as_expression: Check while loop as expression
+        _check_for_loop: Check for loop as statement
+        _check_for_loop_as_expression: Check for loop as expression
+        _get_iterator_item_type: Get Item type for Iterator implementors
+        _check_range_expr: Check range expression (start..end)
+        _check_break_statement: Check break statement
+        _check_continue_statement: Check continue statement
+    """
+
+    def _check_extension(self, extension: Extension):
+        """Type check all methods in an extension."""
+        for method in extension.methods:
+            self._check_method(extension.struct_name, method)
+
+    def _check_method(self, struct_name: str, method: Method):
+        """Type check a method body."""
+        from .core import VariableInfo, Scope
+        self.current_method = method
+        self.found_return_with_value = False
+
+        # Create new scope for method
+        self.current_scope = Scope()
+
+        # Determine the Self type for this extension
+        if struct_name == "String":
+            self_type = SawType(TypeKind.STRING)
+        else:
+            self_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+
+        # Add parameters to scope
+        for param in method.parameters:
+            # Resolve Self type to concrete type
+            param_type = param.type
+            # 'self' parameter has VOID as placeholder - replace with actual Self type
+            if param.name == "self" or param_type.kind == TypeKind.SELF:
+                param_type = self_type
+            info = VariableInfo(param_type, mutable=False, line=method.line, column=method.column)
+            self.current_scope.define(param.name, info)
+
+        # Determine expected return type first (needed for None propagation)
+        expected_return = method.return_type
+        # Resolve Self in return type
+        if expected_return.kind == TypeKind.SELF:
+            expected_return = self_type
+        if method.is_init:
+            expected_return = self_type
+
+        # Check body
+        body_type = self._check_block(method.body)
+
+        # Propagate expected type to body for None annotation
+        if expected_return.is_optional() and method.body.final_expr:
+            self._propagate_optional_type(method.body.final_expr, expected_return)
+
+        if expected_return.kind != TypeKind.VOID:
+            if body_type is None and not self.found_return_with_value:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"method `{method.name}` should return `{expected_return}` but body has no value",
+                    method.line, method.column
+                )
+            elif body_type is not None and not self._types_compatible(body_type, expected_return):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
+                    method.line, method.column
+                )
+
+        # Check NoCopy return - must use move for variable references
+        # Check both the return type and the inner type if optional
+        check_type = expected_return
+        if expected_return.is_optional() and expected_return.inner_type:
+            check_type = expected_return.inner_type
+        self._check_no_copy_return(check_type, method.body.final_expr,
+                                    f"method `{method.name}`", method.line, method.column)
+
+        self.current_method = None
+
+    def _check_function(self, func: Function):
+        """Type check a function body."""
+        from .core import VariableInfo, Scope
+        # Skip type checking generic function bodies - they'll be checked at instantiation
+        if func.type_params:
+            return
+
+        self.current_function = func
+        self.found_return_with_value = False  # Reset for each function
+
+        # Create new scope for function
+        self.current_scope = Scope()
+
+        # Add parameters to scope (resolve types first)
+        for param in func.parameters:
+            resolved_type = self._resolve_type(param.type)
+            info = VariableInfo(resolved_type, mutable=False, line=func.line, column=func.column)
+            self.current_scope.define(param.name, info)
+
+        # Resolve return type first (needed for None propagation)
+        resolved_return_type = self._resolve_type(func.return_type)
+
+        # Check body
+        body_type = self._check_block(func.body)
+
+        # Propagate expected type to body for None annotation
+        if resolved_return_type.is_optional() and func.body.final_expr:
+            self._propagate_optional_type(func.body.final_expr, resolved_return_type)
+
+        # Check return type matches
+        if resolved_return_type.kind != TypeKind.VOID:
+            # Function can return a value via either:
+            # 1. An explicit return statement (found_return_with_value)
+            # 2. A final expression in the body (body_type)
+            if body_type is None and not self.found_return_with_value:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"function `{func.name}` should return `{resolved_return_type}` but body has no value",
+                    func.line, func.column
+                )
+            elif body_type is not None and not self._types_compatible(body_type, resolved_return_type):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
+                    func.line, func.column
+                )
+
+        # Check NoCopy return - must use move for variable references
+        # Check both the return type and the inner type if optional
+        check_type = resolved_return_type
+        if resolved_return_type.is_optional() and resolved_return_type.inner_type:
+            check_type = resolved_return_type.inner_type
+        self._check_no_copy_return(check_type, func.body.final_expr,
+                                    f"function `{func.name}`", func.line, func.column)
+
+        self.current_function = None
+
+    def _check_block(self, block: Block) -> Optional[SawType]:
+        """Check a block and return its type (from final expression)."""
+        from .core import Scope
+        # Create new scope for block
+        old_scope = self.current_scope
+        self.current_scope = Scope(parent=old_scope)
+
+        for stmt in block.statements:
+            self._check_statement(stmt)
+
+        result_type = None
+        if block.final_expr is not None:
+            result_type = self._check_expression(block.final_expr)
+
+        # Restore scope
+        self.current_scope = old_scope
+
+        return result_type
+
+    def _check_statement(self, stmt: Statement):
+        """Check a statement."""
+        # Handle dual-purpose nodes (Expressions used as Statements)
+        if isinstance(stmt, WhileExpr):
+            self._check_while_expr(stmt)
+            return
+        if isinstance(stmt, ForLoop):
+            self._check_for_loop(stmt)
+            return
+
+        # Visitor dispatch for all other statements
+        method_name = f'visit_{stmt.__class__.__name__}'
+        visitor = getattr(self, method_name, None)
+        if visitor:
+            visitor(stmt)
+
+    # ===== Statement Visitor Methods =====
+
+    def visit_LetStatement(self, stmt: LetStatement):
+        self._check_let_statement(stmt)
+
+    def visit_AssignStatement(self, stmt: AssignStatement):
+        self._check_assign_statement(stmt)
+
+    def visit_ReturnStatement(self, stmt: ReturnStatement):
+        self._check_return_statement(stmt)
+
+    def visit_GuardLetStatement(self, stmt: GuardLetStatement):
+        self._check_guard_let_statement(stmt)
+
+    def visit_BreakStatement(self, stmt: BreakStatement):
+        self._check_break_statement(stmt)
+
+    def visit_ContinueStatement(self, stmt: ContinueStatement):
+        self._check_continue_statement(stmt)
+
+    def visit_ExpressionStatement(self, stmt: ExpressionStatement):
+        self._check_expression(stmt.expression)
+
+    def _check_let_statement(self, stmt: LetStatement):
+        """Check a let/var statement."""
+        from .core import VariableInfo
+        # Check for duplicate in current scope
+        existing = self.current_scope.lookup_local(stmt.name)
+        if existing:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_VARIABLE,
+                f"variable `{stmt.name}` is already defined in this scope",
+                stmt.line, stmt.column,
+                hint=f"previous definition was at line {existing.line}"
+            )
+            return
+
+        # Infer or check type
+        value_type = self._check_expression(stmt.value)
+
+        if stmt.type_annotation:
+            # Resolve type aliases in the annotation
+            resolved_type = self._resolve_type(stmt.type_annotation)
+            # allow_literal_to_distinct=True because let/var initialization allows primitives to
+            # initialize distinct types (e.g., `let x: MyInt = 21`)
+            if not self._types_compatible(value_type, resolved_type, allow_literal_to_distinct=True):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot assign `{value_type}` to variable of type `{stmt.type_annotation}`",
+                    stmt.line, stmt.column
+                )
+            # Check integer literal range for fixed-width types
+            if isinstance(stmt.value, IntLiteral):
+                self._check_integer_literal_range(stmt.value, resolved_type)
+            # Propagate expected type to None literals
+            if value_type and value_type.is_none_literal() and resolved_type.is_optional():
+                self._propagate_optional_type(stmt.value, resolved_type)
+            var_type = resolved_type
+        else:
+            var_type = value_type
+
+        # Check for NoCopy types - cannot copy from another variable (but move is OK)
+        if isinstance(stmt.value, Identifier) and self._is_no_copy_type(value_type):
+            self.reporter.error(
+                ErrorKind.CANNOT_COPY,
+                f"cannot copy value of type `{value_type}` which implements NoCopy",
+                stmt.line, stmt.column,
+                hint="use `move` to transfer ownership instead"
+            )
+        # MoveExpr is allowed - mark the source variable as moved
+        elif isinstance(stmt.value, MoveExpr):
+            self.moved_variables.add(stmt.value.variable)
+
+        # Add to scope
+        if var_type:
+            info = VariableInfo(var_type, stmt.mutable, stmt.line, stmt.column)
+            self.current_scope.define(stmt.name, info)
+
+    def _check_guard_let_statement(self, stmt: GuardLetStatement):
+        """Check a guard let/var statement for optional binding."""
+        from .core import VariableInfo, Scope
+        # Check for duplicate in current scope
+        existing = self.current_scope.lookup_local(stmt.name)
+        if existing:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_VARIABLE,
+                f"variable `{stmt.name}` is already defined in this scope",
+                stmt.line, stmt.column,
+                hint=f"previous definition was at line {existing.line}"
+            )
+            return
+
+        # Check the optional expression
+        optional_type = self._check_expression(stmt.optional_expr)
+
+        if optional_type is None:
+            return
+
+        # Must be an optional type
+        if optional_type.kind != TypeKind.OPTIONAL:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"'guard let' requires an optional type, got `{optional_type}`",
+                stmt.line, stmt.column
+            )
+            return
+
+        # Get the unwrapped type
+        inner_type = optional_type.inner_type
+        if inner_type is None:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot determine type of bound variable from None literal",
+                stmt.line, stmt.column
+            )
+            return
+
+        # Check the else branch (should contain early exit)
+        # Create a temporary scope for the else branch
+        old_scope = self.current_scope
+        self.current_scope = Scope(parent=old_scope)
+        self._check_block(stmt.else_branch)
+        self.current_scope = old_scope
+
+        # Verify else branch has early exit (return, break, continue)
+        if not self._block_has_early_exit(stmt.else_branch):
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                "'guard' else block must exit the scope (return, break, or continue)",
+                stmt.line, stmt.column,
+                hint="add 'return', 'break', or 'continue' to the else block"
+            )
+
+        # Add the bound variable to the current (outer) scope
+        # This is the key difference from if-let: the variable is available after the guard
+        info = VariableInfo(inner_type, stmt.mutable, stmt.line, stmt.column)
+        self.current_scope.define(stmt.name, info)
+
+    def _check_assign_statement(self, stmt: AssignStatement):
+        """Check an assignment statement."""
+        # Handle both simple variable assignment and field assignment
+        if isinstance(stmt.target, Identifier):
+            # Simple variable assignment: x = value
+            var_info = self.current_scope.lookup(stmt.target.name)
+            if not var_info:
+                self.reporter.error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"undefined variable `{stmt.target.name}`",
+                    stmt.line, stmt.column
+                )
+                return
+
+            # Check mutability
+            if not var_info.mutable:
+                self.reporter.error(
+                    ErrorKind.IMMUTABLE_ASSIGNMENT,
+                    f"cannot assign to immutable variable `{stmt.target.name}`",
+                    stmt.line, stmt.column,
+                    hint="consider using `var` instead of `let` to make it mutable"
+                )
+
+            # Check type
+            value_type = self._check_expression(stmt.value)
+            if value_type and not self._types_compatible(value_type, var_info.type):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot assign `{value_type}` to variable of type `{var_info.type}`",
+                    stmt.line, stmt.column
+                )
+
+            # Check for NoCopy types - cannot copy from another variable (but move is OK)
+            if isinstance(stmt.value, Identifier) and self._is_no_copy_type(value_type):
+                self.reporter.error(
+                    ErrorKind.CANNOT_COPY,
+                    f"cannot copy value of type `{value_type}` which implements NoCopy",
+                    stmt.line, stmt.column,
+                    hint="use `move` to transfer ownership instead"
+                )
+            # MoveExpr is allowed - mark the source variable as moved
+            elif isinstance(stmt.value, MoveExpr):
+                self.moved_variables.add(stmt.value.variable)
+
+        elif isinstance(stmt.target, MemberAccess):
+            # Field assignment: obj.field = value
+            obj_type = self._check_expression(stmt.target.object)
+            if not obj_type:
+                return
+
+            # Must be a struct type
+            if obj_type.kind != TypeKind.STRUCT:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot access field on non-struct type `{obj_type}`",
+                    stmt.target.line, stmt.target.column
+                )
+                return
+
+            # Check if field exists
+            struct_info = self.structs.get(obj_type.struct_name)
+            if not struct_info:
+                return
+
+            if stmt.target.member not in struct_info.fields:
+                self.reporter.error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"struct `{obj_type.struct_name}` has no field `{stmt.target.member}`",
+                    stmt.target.line, stmt.target.column
+                )
+                return
+
+            field_type = struct_info.fields[stmt.target.member]
+
+            # Check value type
+            value_type = self._check_expression(stmt.value)
+            if value_type and not self._types_compatible(value_type, field_type):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot assign `{value_type}` to field of type `{field_type}`",
+                    stmt.line, stmt.column
+                )
+
+        elif isinstance(stmt.target, ArrayIndex):
+            # Array or pointer element assignment: arr[i] = value or ptr[i] = value
+            container_type = self._check_expression(stmt.target.array_expr)
+            if not container_type:
+                return
+
+            # Must be an array or pointer type
+            if container_type.kind == TypeKind.ARRAY:
+                element_type = container_type.array_element_type
+                # For arrays, check binding mutability
+                if isinstance(stmt.target.array_expr, Identifier):
+                    var_info = self.current_scope.lookup(stmt.target.array_expr.name)
+                    if var_info and not var_info.mutable:
+                        self.reporter.error(
+                            ErrorKind.IMMUTABLE_ASSIGNMENT,
+                            f"cannot assign to element of immutable array `{stmt.target.array_expr.name}`",
+                            stmt.line, stmt.column,
+                            hint="consider using `var` instead of `let` to make it mutable"
+                        )
+            elif container_type.kind == TypeKind.POINTER:
+                # For pointers, check pointer mutability (UnsafePointer vs UnsafeConstPointer)
+                if not container_type.pointer_mutable:
+                    self.reporter.error(
+                        ErrorKind.IMMUTABLE_ASSIGNMENT,
+                        f"cannot write through UnsafeConstPointer (use UnsafePointer for mutable access)",
+                        stmt.line, stmt.column
+                    )
+                    return
+                element_type = container_type.inner_type
+            else:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot index into type `{container_type}`",
+                    stmt.target.line, stmt.target.column
+                )
+                return
+
+            # Check index type
+            index_type = self._check_expression(stmt.target.index)
+            if index_type:
+                index_underlying = self._get_underlying_type(index_type)
+                if index_underlying.kind != TypeKind.INT:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"index must be Int, got `{index_type}`",
+                        stmt.target.index.line, stmt.target.index.column
+                    )
+
+            # Check value type matches element type
+            value_type = self._check_expression(stmt.value)
+            if value_type and element_type:
+                if not self._types_compatible(value_type, element_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"cannot assign `{value_type}` to element of type `{element_type}`",
+                        stmt.line, stmt.column
+                    )
+
+        else:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                "invalid assignment target",
+                stmt.line, stmt.column
+            )
+
+    def _check_return_statement(self, stmt: ReturnStatement):
+        """Check a return statement."""
+        if self.current_function is None:
+            return
+
+        expected = self.current_function.return_type
+
+        if stmt.value is None:
+            if expected.kind != TypeKind.VOID:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"function should return `{expected}` but return has no value",
+                    stmt.line, stmt.column
+                )
+        else:
+            value_type = self._check_expression(stmt.value)
+            if value_type and expected.kind == TypeKind.VOID:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"function returns void but return has a value of type `{value_type}`",
+                    stmt.line, stmt.column
+                )
+            elif value_type and not self._types_compatible(value_type, expected):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"expected return type `{expected}` but got `{value_type}`",
+                    stmt.line, stmt.column
+                )
+            else:
+                # Mark that we found a valid return statement with a value
+                self.found_return_with_value = True
+                # Annotate None literals with the expected type
+                if value_type and value_type.is_none_literal() and expected.is_optional():
+                    self._annotate_none_in_expr(stmt.value, expected)
+
+    def _check_while_expr(self, stmt: WhileExpr):
+        """Check a while loop used as a statement (no return value expected)."""
+        # If condition is present, it must be a Bool
+        if stmt.condition:
+            cond_type = self._check_expression(stmt.condition)
+            if cond_type and cond_type.kind != TypeKind.BOOL:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"while condition must be Bool, got `{cond_type}`",
+                    stmt.line, stmt.column
+                )
+
+        # Check body with increased loop depth but NO break type tracking
+        # (statements don't need to return values)
+        self.loop_depth += 1
+        self._check_block(stmt.body)
+        self.loop_depth -= 1
+
+    def _check_while_expr_as_expression(self, expr: WhileExpr) -> Optional[SawType]:
+        """Check a while loop expression and return its type."""
+        # If condition is present, it must be a Bool
+        if expr.condition:
+            cond_type = self._check_expression(expr.condition)
+            if cond_type and cond_type.kind != TypeKind.BOOL:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"while condition must be Bool, got `{cond_type}`",
+                    expr.line, expr.column
+                )
+
+        is_infinite = expr.condition is None
+
+        # Push loop info onto stack: (break_type, is_infinite, has_break)
+        # break_type will be determined by the first break statement
+        self.loop_break_info.append((None, is_infinite, False))
+
+        # Check body with increased loop depth
+        self.loop_depth += 1
+        self._check_block(expr.body)
+        self.loop_depth -= 1
+
+        # Pop loop info and determine return type
+        break_type, _, has_break = self.loop_break_info.pop()
+
+        if is_infinite:
+            # Infinite loop: must have at least one break with value
+            if not has_break:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "infinite while loop used as expression must have at least one `break` statement",
+                    expr.line, expr.column
+                )
+                return None
+            if break_type is None:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "infinite while loop used as expression must `break` with a value",
+                    expr.line, expr.column
+                )
+                return None
+            # Return the break type directly (non-optional)
+            expr.result_type = break_type
+            return break_type
+        else:
+            # Conditional loop: returns Optional<break_type>
+            if break_type is None:
+                # No breaks with values, returns Void
+                expr.result_type = SawType(TypeKind.VOID)
+                return SawType(TypeKind.VOID)
+            # Wrap break type in Optional
+            result = SawType(TypeKind.OPTIONAL, inner_type=break_type)
+            expr.result_type = result
+            return result
+
+    def _check_for_loop(self, stmt: ForLoop):
+        """Check a for loop statement."""
+        from .core import VariableInfo, Scope
+        # Check the iterable expression
+        iterable_type = self._check_expression(stmt.iterable)
+
+        # Determine the loop variable type based on the iterable
+        loop_var_type: Optional[SawType] = None
+
+        if isinstance(stmt.iterable, RangeExpr):
+            # Range expression - loop variable is Int
+            loop_var_type = SawType(TypeKind.INT)
+        else:
+            # Check if the type implements Iterator interface
+            loop_var_type = self._get_iterator_item_type(iterable_type, stmt.line, stmt.column)
+            if loop_var_type is None:
+                loop_var_type = SawType(TypeKind.INT)  # Default to Int on error
+
+        # Create new scope for loop body with loop variable
+        old_scope = self.current_scope
+        self.current_scope = Scope(parent=old_scope)
+
+        # Add loop variable to scope (immutable by default)
+        self.current_scope.define(
+            stmt.variable,
+            VariableInfo(loop_var_type, mutable=False, line=stmt.line, column=stmt.column)
+        )
+
+        # Check body with increased loop depth
+        self.loop_depth += 1
+        self._check_block(stmt.body)
+        self.loop_depth -= 1
+
+        # Restore scope
+        self.current_scope = old_scope
+
+    def _check_for_loop_as_expression(self, expr: ForLoop) -> Optional[SawType]:
+        """Check a for loop expression and return its type (Optional<T> from break values)."""
+        from .core import VariableInfo, Scope
+        # Check the iterable expression
+        iterable_type = self._check_expression(expr.iterable)
+
+        # Determine the loop variable type based on the iterable
+        loop_var_type: Optional[SawType] = None
+
+        if isinstance(expr.iterable, RangeExpr):
+            # Range expression - loop variable is Int
+            loop_var_type = SawType(TypeKind.INT)
+        else:
+            # Check if the type implements Iterator interface
+            loop_var_type = self._get_iterator_item_type(iterable_type, expr.line, expr.column)
+            if loop_var_type is None:
+                loop_var_type = SawType(TypeKind.INT)  # Default to Int on error
+
+        # For loops are always conditional (have a finite range), so return Optional<T>
+        # Push loop info onto stack: (break_type, is_infinite=False, has_break)
+        self.loop_break_info.append((None, False, False))
+
+        # Create new scope for loop body with loop variable
+        old_scope = self.current_scope
+        self.current_scope = Scope(parent=old_scope)
+
+        # Add loop variable to scope (immutable by default)
+        self.current_scope.define(
+            expr.variable,
+            VariableInfo(loop_var_type, mutable=False, line=expr.line, column=expr.column)
+        )
+
+        # Check body with increased loop depth
+        self.loop_depth += 1
+        self._check_block(expr.body)
+        self.loop_depth -= 1
+
+        # Restore scope
+        self.current_scope = old_scope
+
+        # Pop loop info and determine return type
+        break_type, _, has_break = self.loop_break_info.pop()
+
+        # For loops are conditional, so return Optional<break_type>
+        if break_type is None:
+            # No breaks with values, returns Void
+            expr.result_type = SawType(TypeKind.VOID)
+            return SawType(TypeKind.VOID)
+        # Wrap break type in Optional
+        result = SawType(TypeKind.OPTIONAL, inner_type=break_type)
+        expr.result_type = result
+        return result
+
+    def _get_iterator_item_type(self, iterable_type: Optional[SawType], line: int, column: int) -> Optional[SawType]:
+        """Get the Item type for a type that implements Iterator interface.
+
+        Returns None if the type doesn't implement Iterator, and reports an error.
+        """
+        if iterable_type is None:
+            return None
+
+        # The type must be a struct
+        if iterable_type.kind != TypeKind.STRUCT:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"for loop requires an Iterator, got `{iterable_type}`",
+                line, column,
+                hint="use `for i in start..end {{ ... }}` for range iteration"
+            )
+            return None
+
+        type_name = iterable_type.struct_name
+
+        # Check if the type conforms to Iterator
+        conformances = self.type_conformances.get(type_name, [])
+        if "Iterator" not in conformances:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"type `{type_name}` does not implement Iterator",
+                line, column,
+                hint="add `extension {}: Iterator {{ type Item = ...; func next(var self) -> Item? {{ ... }} }}`".format(type_name)
+            )
+            return None
+
+        # Get the Item associated type
+        type_assigns = self.type_assignments.get((type_name, "Iterator"), {})
+        if "Item" not in type_assigns:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"Iterator implementation for `{type_name}` is missing associated type `Item`",
+                line, column
+            )
+            return None
+
+        return type_assigns["Item"]
+
+    def _check_range_expr(self, expr: RangeExpr) -> Optional[SawType]:
+        """Check a range expression: start..end"""
+        start_type = self._check_expression(expr.start)
+        end_type = self._check_expression(expr.end)
+
+        if start_type is None or end_type is None:
+            return None
+
+        # Both start and end must be Int
+        if start_type.kind != TypeKind.INT:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"range start must be Int, got `{start_type}`",
+                expr.line, expr.column
+            )
+
+        if end_type.kind != TypeKind.INT:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"range end must be Int, got `{end_type}`",
+                expr.line, expr.column
+            )
+
+        # Return a special "Range" type - for now just use VOID as placeholder
+        # The for loop handles ranges specially
+        return SawType(TypeKind.VOID)
+
+    def _check_break_statement(self, stmt: BreakStatement):
+        """Check a break statement."""
+        if self.loop_depth == 0:
+            self.reporter.error(
+                ErrorKind.INVALID_BREAK_CONTINUE,
+                "`break` can only be used inside a loop",
+                stmt.line, stmt.column
+            )
+            return
+
+        # Type check the break value if present
+        value_type = None
+        if stmt.value:
+            value_type = self._check_expression(stmt.value)
+
+        # Update loop break info if we're tracking it
+        if self.loop_break_info:
+            existing_type, is_infinite, _ = self.loop_break_info[-1]
+
+            # Mark that we found a break
+            self.loop_break_info[-1] = (existing_type or value_type, is_infinite, True)
+
+            # If there's an existing break type, validate compatibility
+            if existing_type and value_type:
+                if not self._types_compatible(value_type, existing_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"break value type `{value_type}` incompatible with expected type `{existing_type}`",
+                        stmt.line, stmt.column
+                    )
+            elif not existing_type and value_type:
+                # First break with a value sets the type
+                self.loop_break_info[-1] = (value_type, is_infinite, True)
+
+    def _check_continue_statement(self, stmt: ContinueStatement):
+        """Check a continue statement."""
+        if self.loop_depth == 0:
+            self.reporter.error(
+                ErrorKind.INVALID_BREAK_CONTINUE,
+                "`continue` can only be used inside a loop",
+                stmt.line, stmt.column
+            )

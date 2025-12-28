@@ -1,0 +1,634 @@
+"""
+Registration methods for the Saw type checker.
+
+This module provides mixin methods for registering type definitions, structs,
+enums, interfaces, functions, and extensions during the first pass of type checking.
+
+Usage:
+    class TypeChecker(RegistrationMixin, ...):
+        pass
+"""
+
+from typing import Dict
+from ast_nodes import (
+    TypeDefinition, Struct, Enum, Interface, Function, Extension, Method,
+    SawType, TypeKind, Visibility,
+    Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr
+)
+from errors import ErrorKind
+from namespace import (
+    SymbolKind, FunctionSymbol, StructSymbol, EnumSymbol, InterfaceSymbol,
+    TypeAliasSymbol, InterfaceMethodSymbol
+)
+
+
+class RegistrationMixin:
+    """Mixin providing registration methods for TypeChecker.
+
+    These methods are used in the first pass of type checking to collect
+    all type definitions before checking function/method bodies.
+
+    Methods:
+        _register_builtins: Register built-in functions and types
+        _block_has_early_exit: Check if a block definitely exits early
+        _register_type_definition: Register a type alias
+        _register_struct: Register a struct definition
+        _register_enum: Register an enum definition
+        _register_interface: Register an interface definition
+        _register_function: Register a function signature
+        _register_extern_function: Register an external (FFI) function
+        _register_extension: Register methods from an extension
+        _check_interface_conformance: Verify type implements interface
+        _types_compatible_for_interface: Check type compatibility for interfaces
+        _resolve_interface_type: Resolve Self and associated types in interface
+    """
+
+    def _register_builtins(self):
+        """Register built-in functions."""
+        # print can take any single argument
+        # We'll handle it specially in check_function_call
+        #
+        # Note: Built-in interfaces (Deinit, CustomCopy, NoCopy) are defined
+        # in builtin.saw and loaded automatically by the compiler.
+
+        # Register String as a pseudo-struct so it can be extended
+        # String is a primitive type (i8*) but we want to add methods to it
+        from .core import StructInfo
+        self.structs["String"] = StructInfo(
+            name="String",
+            fields={},  # No fields - it's a primitive
+            field_order=[],
+            line=0,
+            column=0
+        )
+        # Also register in namespace
+        self.namespace.register_struct("String", StructSymbol(
+            fields={},
+            field_order=[],
+            line=0,
+            column=0
+        ))
+
+    def _block_has_early_exit(self, block: Block) -> bool:
+        """Check if a block definitely exits early (return, break, continue).
+
+        This checks if the block cannot fall through to the next statement.
+        A block has an early exit if:
+        - It contains a return/break/continue at the top level
+        - It ends with an if-else where both branches have early exits
+        """
+        for stmt in block.statements:
+            if isinstance(stmt, (ReturnStatement, BreakStatement, ContinueStatement)):
+                return True
+            # Check if-else: both branches must have early exits
+            if isinstance(stmt, IfExpr) and stmt.else_branch:
+                then_exits = self._block_has_early_exit(stmt.then_branch)
+                else_exits = self._block_has_early_exit(stmt.else_branch)
+                if then_exits and else_exits:
+                    return True
+        return False
+
+    def _register_type_definition(self, type_def: TypeDefinition):
+        """Register a type definition (type alias)."""
+        if type_def.name in self.type_aliases:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"type `{type_def.name}` is defined multiple times",
+                type_def.line, type_def.column
+            )
+            return
+
+        # Resolve the defined type (it might reference other type aliases)
+        resolved_type = self._resolve_type_alias(type_def.defined_type)
+        self.type_aliases[type_def.name] = resolved_type
+        # Also register in namespace
+        self.namespace.register_type_alias(type_def.name, TypeAliasSymbol(
+            aliased_type=resolved_type
+        ))
+
+    def _register_struct(self, struct: Struct):
+        """Register a struct definition."""
+        from .core import StructInfo
+        if struct.name in self.structs:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,  # We can reuse this error kind
+                f"struct `{struct.name}` is defined multiple times",
+                struct.line, struct.column
+            )
+            return
+
+        # Check for duplicate fields
+        fields = {}
+        field_order = []
+        seen_fields = set()
+
+        for field in struct.fields:
+            if field.name in seen_fields:
+                self.reporter.error(
+                    ErrorKind.DUPLICATE_VARIABLE,  # Reuse this
+                    f"field `{field.name}` is defined multiple times in struct `{struct.name}`",
+                    struct.line, struct.column
+                )
+            else:
+                seen_fields.add(field.name)
+                fields[field.name] = field.type
+                field_order.append(field.name)
+
+        self.structs[struct.name] = StructInfo(
+            name=struct.name,
+            fields=fields,
+            field_order=field_order,
+            line=struct.line,
+            column=struct.column,
+            type_params=struct.type_params
+        )
+        # Also register in namespace
+        self.namespace.register_struct(struct.name, StructSymbol(
+            fields=fields,
+            field_order=field_order,
+            type_params=struct.type_params,
+            visibility=getattr(struct, 'visibility', Visibility.PRIVATE),
+            line=struct.line,
+            column=struct.column,
+            ast_node=struct if struct.type_params else None
+        ))
+
+    def _register_enum(self, enum: Enum):
+        """Register an enum definition."""
+        from .core import EnumInfo
+        if enum.name in self.enums:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,  # Reuse this error kind
+                f"enum `{enum.name}` is defined multiple times",
+                enum.line, enum.column
+            )
+            return
+
+        if enum.name in self.structs:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"enum `{enum.name}` conflicts with existing struct name",
+                enum.line, enum.column
+            )
+            return
+
+        # Check for duplicate variants
+        variants = {}
+        variant_order = []
+        seen_variants = set()
+
+        for variant in enum.variants:
+            if variant.name in seen_variants:
+                self.reporter.error(
+                    ErrorKind.DUPLICATE_VARIABLE,  # Reuse this
+                    f"variant `{variant.name}` is defined multiple times in enum `{enum.name}`",
+                    enum.line, enum.column
+                )
+            else:
+                seen_variants.add(variant.name)
+                variants[variant.name] = variant.associated_types
+                variant_order.append(variant.name)
+
+        self.enums[enum.name] = EnumInfo(
+            name=enum.name,
+            variants=variants,
+            variant_order=variant_order,
+            type_params=enum.type_params
+        )
+        # Also register in namespace
+        self.namespace.register_enum(enum.name, EnumSymbol(
+            variants=variants,
+            variant_order=variant_order,
+            type_params=enum.type_params,
+            visibility=getattr(enum, 'visibility', Visibility.PRIVATE),
+            ast_node=enum if enum.type_params else None
+        ))
+
+    def _register_interface(self, interface: Interface):
+        """Register an interface definition with inheritance support."""
+        from .core import InterfaceInfo, InterfaceMethodInfo
+        if interface.name in self.interfaces:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"interface `{interface.name}` is defined multiple times",
+                interface.line, interface.column
+            )
+            return
+
+        # Validate and collect inherited methods from parent interfaces
+        inherited_methods = {}
+        inherited_assoc_types = []
+        for parent_name in interface.parent_interfaces:
+            if parent_name not in self.interfaces:
+                self.reporter.error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"unknown parent interface `{parent_name}`",
+                    interface.line, interface.column
+                )
+                continue
+            parent_info = self.interfaces[parent_name]
+            # Inherit all methods from parent
+            for method_name, method_info in parent_info.methods.items():
+                inherited_methods[method_name] = method_info
+            # Inherit associated types
+            for assoc_type in parent_info.associated_types:
+                if assoc_type not in inherited_assoc_types:
+                    inherited_assoc_types.append(assoc_type)
+
+        # Build method info map from this interface's own methods
+        methods = dict(inherited_methods)  # Start with inherited
+        for method in interface.methods:
+            # Collect parameter info (excluding self placeholder type)
+            param_names = []
+            param_types = []
+
+            for param in method.parameters:
+                if param.name == "self":
+                    # self has the type of the implementing type (handled during conformance)
+                    param_types.append(SawType(TypeKind.VOID))  # Placeholder
+                else:
+                    param_names.append(param.name)
+                    param_types.append(param.type)
+
+            methods[method.name] = InterfaceMethodInfo(
+                name=method.name,
+                param_types=param_types,
+                return_type=method.return_type,
+                param_names=param_names,
+                self_mutable=method.self_mutable
+            )
+
+        # Collect associated type names (own + inherited)
+        assoc_type_names = list(inherited_assoc_types)
+        for at in interface.associated_types:
+            if at.name not in assoc_type_names:
+                assoc_type_names.append(at.name)
+
+        self.interfaces[interface.name] = InterfaceInfo(
+            name=interface.name,
+            methods=methods,
+            associated_types=assoc_type_names,
+            parent_interfaces=interface.parent_interfaces
+        )
+        # Also register in namespace
+        ns_methods = {}
+        for name, method_info in methods.items():
+            ns_methods[name] = InterfaceMethodSymbol(
+                name=name,
+                param_types=method_info.param_types,
+                param_names=method_info.param_names,
+                return_type=method_info.return_type,
+                self_mutable=method_info.self_mutable
+            )
+        self.namespace.register_interface(interface.name, InterfaceSymbol(
+            methods=ns_methods,
+            associated_types=assoc_type_names,
+            parent_interfaces=interface.parent_interfaces,
+            visibility=getattr(interface, 'visibility', Visibility.PRIVATE)
+        ))
+
+    def _register_function(self, func: Function):
+        """Register a function signature."""
+        from .core import FunctionInfo
+        if func.name in self.functions:
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"function `{func.name}` is defined multiple times",
+                func.line, func.column
+            )
+            return
+
+        # For generic functions, don't resolve types yet (they may contain type params)
+        if func.type_params:
+            param_types = [p.type for p in func.parameters]
+            param_names = [p.name for p in func.parameters]
+            info = FunctionInfo(param_types, func.return_type, param_names, func.type_params)
+        else:
+            # Resolve types before registering
+            param_types = [self._resolve_type(p.type) for p in func.parameters]
+            param_names = [p.name for p in func.parameters]
+            resolved_return_type = self._resolve_type(func.return_type)
+            info = FunctionInfo(param_types, resolved_return_type, param_names)
+        self.functions[func.name] = info
+        # Also register in namespace
+        self.namespace.register_function(func.name, FunctionSymbol(
+            param_types=info.param_types,
+            param_names=info.param_names,
+            return_type=info.return_type,
+            type_params=info.type_params,
+            visibility=getattr(func, 'visibility', Visibility.PRIVATE),
+            ast_node=func if func.type_params else None
+        ))
+
+    def _register_extern_function(self, extern_func):
+        """Register an external (FFI) function signature."""
+        from .core import FunctionInfo
+        # Resolve types for extern functions
+        param_types = [self._resolve_type(p.type) for p in extern_func.parameters]
+        param_names = [p.name for p in extern_func.parameters]
+        resolved_return_type = self._resolve_type(extern_func.return_type)
+        info = FunctionInfo(param_types, resolved_return_type, param_names,
+                           is_variadic=extern_func.is_variadic)
+
+        if extern_func.name in self.functions:
+            # Allow duplicate extern declarations with the same signature
+            # This enables library code (like std/) to declare externs that
+            # user code may also declare
+            existing = self.functions[extern_func.name]
+            if (existing.param_types == param_types and
+                existing.return_type == resolved_return_type):
+                return  # Same signature, allow it
+            self.reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"function `{extern_func.name}` is defined multiple times with different signatures",
+                extern_func.line, extern_func.column
+            )
+            return
+
+        self.functions[extern_func.name] = info
+        # Also register in namespace
+        self.namespace.register_function(extern_func.name, FunctionSymbol(
+            param_types=param_types,
+            param_names=param_names,
+            return_type=resolved_return_type,
+            is_variadic=extern_func.is_variadic
+        ))
+
+    def _register_extension(self, extension: Extension):
+        """Register methods from an extension."""
+        from .core import MethodInfo
+        # Verify the struct exists
+        if extension.struct_name not in self.structs:
+            self.reporter.error(
+                ErrorKind.UNDEFINED_VARIABLE,
+                f"cannot extend undefined struct `{extension.struct_name}`",
+                extension.line, extension.column
+            )
+            return
+
+        struct_info = self.structs[extension.struct_name]
+
+        for method in extension.methods:
+            # For init methods, allow multiple with different parameter signatures
+            # Use parameter names in the key to distinguish them
+            if method.is_init:
+                param_names = tuple(p.name for p in method.parameters)
+                method_key = f"init:{','.join(param_names)}"
+            else:
+                method_key = method.name
+
+            # Check for duplicate methods
+            if method_key in struct_info.methods:
+                if method.is_init:
+                    self.reporter.error(
+                        ErrorKind.DUPLICATE_FUNCTION,
+                        f"init method with parameters ({', '.join(p.name for p in method.parameters)}) is already defined for struct `{extension.struct_name}`",
+                        method.line, method.column
+                    )
+                else:
+                    self.reporter.error(
+                        ErrorKind.DUPLICATE_FUNCTION,
+                        f"method `{method.name}` is already defined for struct `{extension.struct_name}`",
+                        method.line, method.column
+                    )
+                continue
+
+            # For instance methods (not init and not static), validate 'self' parameter
+            self_mutable = False
+            if not method.is_init and not method.is_static:
+                if len(method.parameters) == 0:
+                    self.reporter.error(
+                        ErrorKind.WRONG_ARGUMENT_COUNT,
+                        f"method `{method.name}` must have 'self' as first parameter",
+                        method.line, method.column
+                    )
+                    continue
+
+                first_param = method.parameters[0]
+                if first_param.name != "self":
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"first parameter of method must be named 'self', got `{first_param.name}`",
+                        method.line, method.column
+                    )
+                    continue
+
+                # Get self mutability from the method's AST node
+                self_mutable = method.self_mutable
+
+                # Fill in the self parameter type (if it's the placeholder VOID from parser)
+                expected_self_type = SawType(TypeKind.STRUCT, struct_name=extension.struct_name)
+                if first_param.type.kind == TypeKind.VOID:
+                    # Replace placeholder with actual type
+                    first_param.type = expected_self_type
+                elif not self._types_compatible(first_param.type, expected_self_type):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"'self' parameter must have type `{extension.struct_name}`, got `{first_param.type}`",
+                        method.line, method.column
+                    )
+
+            # For init methods, check parameter names don't conflict with field names
+            if method.is_init:
+                param_names_set = {p.name for p in method.parameters}
+                field_names_set = set(struct_info.fields.keys())
+                if param_names_set == field_names_set:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"init method parameters match field names exactly - this is ambiguous with field initialization",
+                        method.line, method.column,
+                        hint="use different parameter names to distinguish from field init"
+                    )
+
+            # Register method
+            # Determine the Self type for this extension
+            if extension.struct_name == "String":
+                self_type = SawType(TypeKind.STRING)
+            else:
+                self_type = SawType(TypeKind.STRUCT, struct_name=extension.struct_name)
+
+            # Resolve Self types in parameter types
+            # Note: 'self' parameter has VOID as placeholder from parser
+            param_types = []
+            for p in method.parameters:
+                if p.name == "self" or p.type.kind == TypeKind.SELF:
+                    param_types.append(self_type)
+                else:
+                    # Resolve type aliases and enum types
+                    param_types.append(self._resolve_type(p.type))
+            param_names = [p.name for p in method.parameters]
+
+            # For init methods, override return type to be the struct type
+            # For non-init methods, resolve Self in return type
+            return_type = method.return_type
+            if return_type.kind == TypeKind.SELF:
+                return_type = self_type
+            if method.is_init:
+                return_type = self_type
+
+            # Collect default values for parameters
+            default_values = [p.default_value for p in method.parameters]
+
+            method_info = MethodInfo(
+                struct_name=extension.struct_name,
+                method_name=method.name,
+                param_types=param_types,
+                return_type=return_type,
+                param_names=param_names,
+                self_mutable=self_mutable,
+                is_init=method.is_init,
+                is_static=method.is_static,
+                default_values=default_values
+            )
+
+            struct_info.methods[method_key] = method_info
+
+            # Also register in namespace
+            method_symbol = FunctionSymbol(
+                kind=SymbolKind.METHOD,
+                param_types=param_types,
+                param_names=param_names,
+                return_type=return_type,
+                defaults=default_values,
+                is_static=method.is_static,
+                is_init=method.is_init,
+                self_mutable=self_mutable,
+                ast_node=method
+            )
+            if method.is_init:
+                self.namespace.register_init_method(extension.struct_name, method_symbol)
+            else:
+                self.namespace.register_method(extension.struct_name, method.name, method_symbol)
+
+        # Process type assignments for interface conformances
+        for iface_name in extension.conformances:
+            if iface_name not in self.interfaces:
+                continue  # Error will be reported below
+
+            # Collect type assignments for this interface
+            assignments: Dict[str, SawType] = {}
+            for type_assign in extension.type_assignments:
+                assignments[type_assign.name] = type_assign.assigned_type
+
+            # Store the assignments
+            self.type_assignments[(extension.struct_name, iface_name)] = assignments
+
+        # Check interface conformances
+        for iface_name in extension.conformances:
+            if iface_name not in self.interfaces:
+                self.reporter.error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"unknown interface `{iface_name}`",
+                    extension.line, extension.column
+                )
+                continue
+
+            iface_info = self.interfaces[iface_name]
+            self._check_interface_conformance(extension.struct_name, iface_info, struct_info, extension)
+
+            # Track the conformance
+            if extension.struct_name not in self.type_conformances:
+                self.type_conformances[extension.struct_name] = []
+            self.type_conformances[extension.struct_name].append(iface_name)
+
+            # Also register in namespace
+            type_assigns = self.type_assignments.get((extension.struct_name, iface_name), {})
+            self.namespace.register_conformance(extension.struct_name, iface_name, type_assigns)
+
+    def _check_interface_conformance(self, type_name: str, iface_info, struct_info, extension: Extension):
+        """Check that a type conforms to an interface by implementing all required methods."""
+        for method_name, iface_method in iface_info.methods.items():
+            if method_name not in struct_info.methods:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"type `{type_name}` does not implement required method `{method_name}` from interface `{iface_info.name}`",
+                    extension.line, extension.column
+                )
+                continue
+
+            impl_method = struct_info.methods[method_name]
+
+            # Check self mutability matches
+            if iface_method.self_mutable != impl_method.self_mutable:
+                if iface_method.self_mutable:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"method `{method_name}` should have `var self` to conform to interface `{iface_info.name}`",
+                        extension.line, extension.column
+                    )
+                else:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"method `{method_name}` should have immutable `self` to conform to interface `{iface_info.name}`",
+                        extension.line, extension.column
+                    )
+
+            # Check return type matches (allow Self and associated types -> concrete types)
+            if not self._types_compatible_for_interface(iface_method.return_type, impl_method.return_type,
+                                                         type_name, iface_info.name):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"method `{method_name}` has return type `{impl_method.return_type}` but interface `{iface_info.name}` expects `{iface_method.return_type}`",
+                    extension.line, extension.column
+                )
+
+            # Check parameter count (excluding self)
+            iface_param_count = len(iface_method.param_types) - 1  # Exclude self placeholder
+            impl_param_count = len(impl_method.param_types) - 1    # Exclude self
+            if iface_param_count != impl_param_count:
+                self.reporter.error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"method `{method_name}` takes {impl_param_count} parameter(s) but interface `{iface_info.name}` expects {iface_param_count}",
+                    extension.line, extension.column
+                )
+
+        # Check that all required associated types are provided
+        type_assigns = self.type_assignments.get((type_name, iface_info.name), {})
+        for assoc_type_name in iface_info.associated_types:
+            if assoc_type_name not in type_assigns:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"type `{type_name}` does not provide required associated type `{assoc_type_name}` from interface `{iface_info.name}`",
+                    extension.line, extension.column,
+                    hint=f"add `type {assoc_type_name} = SomeType` to the extension"
+                )
+
+    def _types_compatible_for_interface(self, iface_type: SawType, impl_type: SawType,
+                                         self_type_name: str, iface_name: str = None) -> bool:
+        """Check if implementation type matches interface type, with Self and associated type substitution."""
+        # Resolve the interface type by substituting Self and associated types
+        resolved_iface_type = self._resolve_interface_type(iface_type, self_type_name, iface_name)
+        return self._types_compatible(resolved_iface_type, impl_type)
+
+    def _resolve_interface_type(self, iface_type: SawType, self_type_name: str,
+                                  iface_name: str = None) -> SawType:
+        """Resolve Self and associated types in an interface type."""
+        # Handle Self type (TypeKind.SELF)
+        if iface_type.kind == TypeKind.SELF:
+            # Special case: String is a primitive type, not a struct
+            if self_type_name == "String":
+                return SawType(TypeKind.STRING)
+            return SawType(TypeKind.STRUCT, struct_name=self_type_name)
+        if iface_type.kind == TypeKind.STRUCT and iface_type.struct_name:
+            # Handle associated types
+            if iface_name and (self_type_name, iface_name) in self.type_assignments:
+                type_assigns = self.type_assignments[(self_type_name, iface_name)]
+                if iface_type.struct_name in type_assigns:
+                    return type_assigns[iface_type.struct_name]
+            # Recursively resolve type args
+            if iface_type.type_args:
+                resolved_args = [self._resolve_interface_type(t, self_type_name, iface_name)
+                                 for t in iface_type.type_args]
+                return SawType(TypeKind.STRUCT, struct_name=iface_type.struct_name, type_args=resolved_args)
+        elif iface_type.kind == TypeKind.OPTIONAL and iface_type.inner_type:
+            resolved_inner = self._resolve_interface_type(iface_type.inner_type, self_type_name, iface_name)
+            return SawType(TypeKind.OPTIONAL, inner_type=resolved_inner)
+        elif iface_type.kind == TypeKind.TUPLE and iface_type.element_types:
+            resolved_elems = [self._resolve_interface_type(t, self_type_name, iface_name)
+                              for t in iface_type.element_types]
+            return SawType(TypeKind.TUPLE, element_types=resolved_elems)
+        elif iface_type.kind == TypeKind.ENUM and iface_type.type_args:
+            resolved_args = [self._resolve_interface_type(t, self_type_name, iface_name)
+                             for t in iface_type.type_args]
+            return SawType(TypeKind.ENUM, enum_name=iface_type.enum_name, type_args=resolved_args)
+        return iface_type
