@@ -68,6 +68,19 @@ class Parser:
         while self.match(TokenType.NEWLINE):
             self.advance()
 
+    def match_ident(self, value: str) -> bool:
+        """Check if current token is IDENT with the given value (for context-sensitive keywords)."""
+        return self.current().type == TokenType.IDENT and self.current().value == value
+
+    def expect_ident(self, value: str, msg: str = None) -> Token:
+        """Expect an IDENT token with the given value (for context-sensitive keywords)."""
+        if not self.match_ident(value):
+            if msg:
+                self.error(msg)
+            else:
+                self.error(f"Expected '{value}', got {self.current().type.name}")
+        return self.advance()
+
     def parse_type_params(self) -> List[TypeParameter]:
         """Parse optional type parameters: <T, U, ...>"""
         if not self.match(TokenType.LT):
@@ -153,13 +166,13 @@ class Parser:
         self.skip_newlines()
 
         while not self.match(TokenType.EOF):
-            if self.match(TokenType.IMPORT):
+            if self.match_ident("import"):
                 imports.append(self.parse_import())
-            elif self.match(TokenType.EXPORT):
+            elif self.match_ident("export"):
                 exports.append(self.parse_export())
             elif self.match(TokenType.PUBLIC):
                 # Could be public module or public declaration
-                if self.peek(1).type == TokenType.MODULE:
+                if self.peek(1).type == TokenType.IDENT and self.peek(1).value == "module":
                     module_decls.append(self.parse_module_decl())
                 else:
                     # Parse visibility and then the declaration
@@ -178,7 +191,7 @@ class Parser:
                         type_definitions.append(self.parse_type_definition(visibility))
                     else:
                         self.error(f"Expected struct, enum, interface, extension, func, or type after visibility modifier")
-            elif self.match(TokenType.MODULE):
+            elif self.match_ident("module"):
                 module_decls.append(self.parse_module_decl())
             elif self.match(TokenType.STRUCT):
                 structs.append(self.parse_struct())
@@ -206,7 +219,7 @@ class Parser:
     def parse_import(self) -> ImportDecl:
         """Parse import declaration: import path.to.module or import path.{A, B}"""
         start = self.current()
-        self.expect(TokenType.IMPORT)
+        self.expect_ident("import")
 
         # Parse the module path
         path = []
@@ -284,7 +297,7 @@ class Parser:
         - export path.to.*
         """
         start = self.current()
-        self.expect(TokenType.EXPORT)
+        self.expect_ident("export")
 
         # Parse the path
         path = []
@@ -335,7 +348,7 @@ class Parser:
             is_public = True
             self.advance()
 
-        self.expect(TokenType.MODULE)
+        self.expect_ident("module")
         name_token = self.expect(TokenType.IDENT, "Expected module name")
 
         # Check for inline module: module name { ... }
@@ -360,13 +373,13 @@ class Parser:
             exports = []
 
             while not self.match(TokenType.RBRACE, TokenType.EOF):
-                if self.match(TokenType.IMPORT):
+                if self.match_ident("import"):
                     imports.append(self.parse_import())
-                elif self.match(TokenType.EXPORT):
+                elif self.match_ident("export"):
                     exports.append(self.parse_export())
                 elif self.match(TokenType.PUBLIC):
                     # Could be public module or public declaration
-                    if self.peek(1).type == TokenType.MODULE:
+                    if self.peek(1).type == TokenType.IDENT and self.peek(1).value == "module":
                         module_decls.append(self.parse_module_decl())
                     else:
                         # Parse visibility and then the declaration
@@ -385,7 +398,7 @@ class Parser:
                             type_definitions.append(self.parse_type_definition(visibility))
                         else:
                             self.error(f"Expected struct, enum, interface, extension, func, or type after visibility modifier")
-                elif self.match(TokenType.MODULE):
+                elif self.match_ident("module"):
                     module_decls.append(self.parse_module_decl())
                 elif self.match(TokenType.STRUCT):
                     structs.append(self.parse_struct())

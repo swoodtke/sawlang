@@ -152,10 +152,10 @@ KEYWORDS = {
     'move': TokenType.MOVE,
     'as': TokenType.AS,
     # Module system
-    'module': TokenType.MODULE,
-    'import': TokenType.IMPORT,
+    # Note: 'module', 'import', and 'export' are NOT keywords - they are handled
+    # specially by the parser only in specific syntactic positions to avoid
+    # conflicts with user code (like 'package' and 'parent').
     'public': TokenType.PUBLIC,
-    'export': TokenType.EXPORT,
     # Note: 'package' and 'parent' are NOT keywords - they are handled
     # specially by the parser only in import contexts to avoid conflicts
     # with user code (e.g., a method named 'parent')
