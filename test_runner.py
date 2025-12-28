@@ -21,6 +21,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional
 from enum import Enum
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 
 class ExpectType(Enum):
@@ -286,11 +288,21 @@ def print_summary(results: List[tuple[TestCase, bool, str]], verbose: bool):
     return failed == 0
 
 
+def run_test_wrapper(test: TestCase, verbose: bool) -> tuple[TestCase, bool, str]:
+    """Wrapper to run a test and return all needed info for results"""
+    passed, msg = run_test(test, verbose)
+    return (test, passed, msg)
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Run Saw language tests')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
     parser.add_argument('-f', '--filter', help='Run only tests matching this pattern')
+    parser.add_argument('-j', '--jobs', type=int, default=None,
+                        help='Number of parallel jobs (default: CPU count)')
+    parser.add_argument('--sequential', action='store_true',
+                        help='Run tests sequentially (no parallelism)')
     args = parser.parse_args()
 
     examples_dir = Path(__file__).parent / 'examples'
@@ -312,22 +324,65 @@ def main():
         print("No tests found!")
         return 1
 
-    # Run tests
-    results = []
-    for i, test in enumerate(tests, 1):
-        status = f"[{i}/{len(tests)}]"
-        print(f"{status} Running {test.name}...", end=' ', flush=True)
+    if args.sequential:
+        # Sequential execution (original behavior)
+        results = []
+        for i, test in enumerate(tests, 1):
+            status = f"[{i}/{len(tests)}]"
+            print(f"{status} Running {test.name}...", end=' ', flush=True)
 
-        passed, msg = run_test(test, args.verbose)
-        results.append((test, passed, msg))
+            passed, msg = run_test(test, args.verbose)
+            results.append((test, passed, msg))
 
-        if passed:
-            print(f"{Colors.GREEN}✓{Colors.RESET}")
-        else:
-            print(f"{Colors.RED}✗{Colors.RESET}")
-            if not args.verbose:
-                # Show error immediately in non-verbose mode
-                print(f"  {msg}")
+            if passed:
+                print(f"{Colors.GREEN}✓{Colors.RESET}")
+            else:
+                print(f"{Colors.RED}✗{Colors.RESET}")
+                if not args.verbose:
+                    print(f"  {msg}")
+    else:
+        # Parallel execution
+        num_workers = args.jobs if args.jobs else os.cpu_count()
+        print(f"Running tests in parallel ({num_workers} workers)...\n")
+
+        results = []
+        completed = 0
+        passed_count = 0
+        failed_count = 0
+        print_lock = threading.Lock()
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # Submit all tests
+            future_to_test = {
+                executor.submit(run_test_wrapper, test, args.verbose): test
+                for test in tests
+            }
+
+            # Process results as they complete
+            for future in as_completed(future_to_test):
+                test, passed, msg = future.result()
+                results.append((test, passed, msg))
+
+                with print_lock:
+                    completed += 1
+                    if passed:
+                        passed_count += 1
+                        symbol = f"{Colors.GREEN}✓{Colors.RESET}"
+                    else:
+                        failed_count += 1
+                        symbol = f"{Colors.RED}✗{Colors.RESET}"
+
+                    # Show progress with test name
+                    progress = f"[{completed}/{len(tests)}]"
+                    print(f"{progress} {symbol} {test.name}")
+
+                    # Show error immediately for failed tests
+                    if not passed and not args.verbose:
+                        for line in msg.split('\n'):
+                            print(f"      {line}")
+
+        # Sort results by test name for consistent summary output
+        results.sort(key=lambda r: r[0].name)
 
     # Print summary
     all_passed = print_summary(results, args.verbose)
