@@ -154,7 +154,8 @@ class TypeUtilsMixin:
 
         # Allow integer literal (INT) to be compatible with any integer type
         # This enables: let x: Int8 = 42
-        int_kinds = {TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        int_kinds = {TypeKind.INT, TypeKind.UINT,
+                     TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
                      TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}
         if a.kind in int_kinds and b.kind in int_kinds:
             return True
@@ -300,8 +301,11 @@ class TypeUtilsMixin:
 
     def _check_integer_literal_range(self, literal: IntLiteral, target_type: SawType):
         """Check if an integer literal fits in the target fixed-width integer type."""
-        # Define ranges for each fixed-width integer type
+        # Define ranges for each integer type
+        # INT and UINT are system-width (64-bit on most platforms)
         ranges = {
+            TypeKind.INT: (-9223372036854775808, 9223372036854775807),
+            TypeKind.UINT: (0, 18446744073709551615),
             TypeKind.INT8: (-128, 127),
             TypeKind.INT16: (-32768, 32767),
             TypeKind.INT32: (-2147483648, 2147483647),

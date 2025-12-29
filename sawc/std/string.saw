@@ -364,4 +364,116 @@ extension String {
         }
         None
     }
+
+    // Split the string by a separator, returning a Vector of substrings
+    func split(self, separator: String) -> Vector<String> {
+        var result = Vector<String>()
+        let self_len = self.len()
+        let sep_len = separator.len()
+
+        if sep_len == 0 || self_len == 0 {
+            // Empty separator or empty string - return single element
+            result.push(self)
+            result
+        } else {
+            var start = 0
+            var i = 0
+
+            while i <= self_len - sep_len {
+                // Check for match at position i
+                var matches = true
+                var j = 0
+                while j < sep_len && matches {
+                    if self.byte_at(i + j) != separator.byte_at(j) {
+                        matches = false
+                    }
+                    j = j + 1
+                }
+
+                if matches {
+                    // Found separator - extract substring from start to i
+                    let part = self._substring(start, i - start)
+                    result.push(part)
+                    start = i + sep_len
+                    i = start
+                } else {
+                    i = i + 1
+                }
+            }
+
+            // Add the remaining part after the last separator
+            let remaining = self._substring(start, self_len - start)
+            result.push(remaining)
+
+            result
+        }
+    }
+}
+
+// =============================================================================
+// Vector<String> Extension - Specialized methods for string vectors
+// =============================================================================
+
+extension Vector<String> {
+    // Join all strings in the vector with a separator
+    func join(self, separator: String) -> String {
+        let count = self.len()
+
+        if count == 0 {
+            ""
+        } else if count == 1 {
+            if let first = self.get(0) {
+                first
+            } else {
+                ""
+            }
+        } else {
+            // Calculate total length needed
+            let sep_len = separator.len()
+            var total_len = 0
+            var i = 0
+            while i < count {
+                if let s = self.get(i) {
+                    total_len = total_len + s.len()
+                }
+                i = i + 1
+            }
+            // Add separator lengths (count - 1 separators)
+            total_len = total_len + (sep_len * (count - 1))
+
+            // Allocate buffer and build result
+            if let buf = malloc(total_len + 1) {
+                var pos = 0
+                var idx = 0
+                while idx < count {
+                    // Add separator before all but first element
+                    if idx > 0 {
+                        var k = 0
+                        while k < sep_len {
+                            buf[pos] = separator.byte_at(k)
+                            pos = pos + 1
+                            k = k + 1
+                        }
+                    }
+
+                    // Copy the string
+                    if let s = self.get(idx) {
+                        let s_len = s.len()
+                        var j = 0
+                        while j < s_len {
+                            buf[pos] = s.byte_at(j)
+                            pos = pos + 1
+                            j = j + 1
+                        }
+                    }
+                    idx = idx + 1
+                }
+
+                buf[total_len] = 0 as Int8  // null terminate
+                buf as String
+            } else {
+                ""
+            }
+        }
+    }
 }

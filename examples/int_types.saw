@@ -1,0 +1,133 @@
+// Comprehensive test of all integer types and casting
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Int: 100
+// UInt: 200
+// Int8: 50
+// Int16: 1000
+// Int32: 50000
+// Int64: 1000000
+// UInt8: 250
+// UInt16: 60000
+// UInt32: 3000000000
+// UInt64: 10000000000
+// Cast Int->UInt: 42
+// Cast UInt->Int: 99
+// Cast Int->Int8: 127
+// Cast Int8->Int: -50
+// Cast Int->Int16: 1000
+// Cast Int16->Int: -1000
+// Cast Int->Int32: 50000
+// Cast Int32->Int: -50000
+// Cast Int->Int64: 999999
+// Cast Int64->Int: -999999
+// Cast UInt->UInt8: 255
+// Cast UInt8->UInt: 200
+// Cast UInt->UInt16: 65000
+// Cast UInt16->UInt: 40000
+// Cast UInt->UInt32: 3000000
+// Cast UInt32->UInt: 2000000
+// Cast UInt->UInt64: 5000000000
+// Cast UInt64->UInt: 8000000000
+// Cross sign Int8->UInt8: 100
+// Cross sign UInt8->Int8: 50
+
+func main() {
+    // Test all integer types with literals
+    let i: Int = 100
+    let u: UInt = 200
+    let i8: Int8 = 50
+    let i16: Int16 = 1000
+    let i32: Int32 = 50000
+    let i64: Int64 = 1000000
+    let u8: UInt8 = 250
+    let u16: UInt16 = 60000
+    let u32: UInt32 = 3000000000
+    let u64: UInt64 = 10000000000
+
+    print("Int: {i}")
+    print("UInt: {u}")
+    print("Int8: {i8}")
+    print("Int16: {i16}")
+    print("Int32: {i32}")
+    print("Int64: {i64}")
+    print("UInt8: {u8}")
+    print("UInt16: {u16}")
+    print("UInt32: {u32}")
+    print("UInt64: {u64}")
+
+    // Casting between Int and UInt
+    let int_to_uint = 42 as UInt
+    print("Cast Int->UInt: {int_to_uint}")
+
+    let uint_val: UInt = 99
+    let uint_to_int = uint_val as Int
+    print("Cast UInt->Int: {uint_to_int}")
+
+    // Casting Int to/from fixed-width signed
+    let int_to_i8 = 127 as Int8
+    print("Cast Int->Int8: {int_to_i8}")
+
+    let i8_neg: Int8 = -50
+    let i8_to_int = i8_neg as Int
+    print("Cast Int8->Int: {i8_to_int}")
+
+    let int_to_i16 = 1000 as Int16
+    print("Cast Int->Int16: {int_to_i16}")
+
+    let i16_neg: Int16 = -1000
+    let i16_to_int = i16_neg as Int
+    print("Cast Int16->Int: {i16_to_int}")
+
+    let int_to_i32 = 50000 as Int32
+    print("Cast Int->Int32: {int_to_i32}")
+
+    let i32_neg: Int32 = -50000
+    let i32_to_int = i32_neg as Int
+    print("Cast Int32->Int: {i32_to_int}")
+
+    let int_to_i64 = 999999 as Int64
+    print("Cast Int->Int64: {int_to_i64}")
+
+    let i64_neg: Int64 = -999999
+    let i64_to_int = i64_neg as Int
+    print("Cast Int64->Int: {i64_to_int}")
+
+    // Casting UInt to/from fixed-width unsigned
+    let uint_to_u8 = 255 as UInt8
+    print("Cast UInt->UInt8: {uint_to_u8}")
+
+    let u8_val: UInt8 = 200
+    let u8_to_uint = u8_val as UInt
+    print("Cast UInt8->UInt: {u8_to_uint}")
+
+    let uint_to_u16 = 65000 as UInt16
+    print("Cast UInt->UInt16: {uint_to_u16}")
+
+    let u16_val: UInt16 = 40000
+    let u16_to_uint = u16_val as UInt
+    print("Cast UInt16->UInt: {u16_to_uint}")
+
+    let uint_to_u32 = 3000000 as UInt32
+    print("Cast UInt->UInt32: {uint_to_u32}")
+
+    let u32_val: UInt32 = 2000000
+    let u32_to_uint = u32_val as UInt
+    print("Cast UInt32->UInt: {u32_to_uint}")
+
+    let uint_to_u64 = 5000000000 as UInt64
+    print("Cast UInt->UInt64: {uint_to_u64}")
+
+    let u64_val: UInt64 = 8000000000
+    let u64_to_uint = u64_val as UInt
+    print("Cast UInt64->UInt: {u64_to_uint}")
+
+    // Cross-sign casting (signed <-> unsigned of same width)
+    let i8_pos: Int8 = 100
+    let i8_to_u8 = i8_pos as UInt8
+    print("Cross sign Int8->UInt8: {i8_to_u8}")
+
+    let u8_small: UInt8 = 50
+    let u8_to_i8 = u8_small as Int8
+    print("Cross sign UInt8->Int8: {u8_to_i8}")
+}

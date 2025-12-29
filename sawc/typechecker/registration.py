@@ -354,6 +354,40 @@ class RegistrationMixin:
             is_variadic=extern_func.is_variadic
         ))
 
+    # Built-in type names that indicate specialization when used in extension type params
+    BUILTIN_TYPE_NAMES = {
+        'Int', 'UInt', 'Float', 'Bool', 'String',
+        'Int8', 'Int16', 'Int32', 'Int64',
+        'UInt8', 'UInt16', 'UInt32', 'UInt64',
+    }
+
+    def _is_known_type(self, name: str) -> bool:
+        """Check if a name refers to a known type (built-in or user-defined)."""
+        return (name in self.BUILTIN_TYPE_NAMES or
+                name in self.structs or
+                name in self.enums or
+                name in self.type_aliases)
+
+    def _get_specialization_key(self, extension: Extension) -> tuple:
+        """Check if extension is a specialization and return the type args key.
+
+        Returns tuple of type arg names if specialized (e.g., ("String",)),
+        or empty tuple if it's a generic extension.
+        """
+        if not extension.type_params:
+            return ()
+
+        # Check if any type param is actually a known type (specialization)
+        type_args = []
+        for tp in extension.type_params:
+            if self._is_known_type(tp.name):
+                type_args.append(tp.name)
+            else:
+                # If any param is NOT a known type, this is a generic extension
+                return ()
+
+        return tuple(type_args)
+
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
         from .core import MethodInfo
@@ -368,6 +402,18 @@ class RegistrationMixin:
 
         struct_info = self.structs[extension.struct_name]
 
+        # Check if this is a specialized extension (e.g., extension Vector<String>)
+        specialization_key = self._get_specialization_key(extension)
+        is_specialized = len(specialization_key) > 0
+
+        # Get the target method dict (either main methods or specialized)
+        if is_specialized:
+            if specialization_key not in struct_info.specialized_methods:
+                struct_info.specialized_methods[specialization_key] = {}
+            target_methods = struct_info.specialized_methods[specialization_key]
+        else:
+            target_methods = struct_info.methods
+
         for method in extension.methods:
             # For init methods, allow multiple with different parameter signatures
             # Use parameter names in the key to distinguish them
@@ -377,8 +423,8 @@ class RegistrationMixin:
             else:
                 method_key = method.name
 
-            # Check for duplicate methods
-            if method_key in struct_info.methods:
+            # Check for duplicate methods in target dict
+            if method_key in target_methods:
                 if method.is_init:
                     self.reporter.error(
                         ErrorKind.DUPLICATE_FUNCTION,
@@ -481,9 +527,9 @@ class RegistrationMixin:
                 default_values=default_values
             )
 
-            struct_info.methods[method_key] = method_info
+            target_methods[method_key] = method_info
 
-            # Also register in namespace
+            # Also register in namespace (for non-specialized methods)
             method_symbol = FunctionSymbol(
                 kind=SymbolKind.METHOD,
                 param_types=param_types,

@@ -9,7 +9,7 @@ Usage:
         pass
 """
 
-from typing import List, Optional
+from typing import List, Optional, Tuple, Union
 from lexer import TokenType
 from ast_nodes import (
     Function, Parameter, Struct, StructField,
@@ -17,7 +17,7 @@ from ast_nodes import (
     Trait, TraitMethod, AssociatedType,
     Extension, Method, TypeAssignment, TypeDefinition,
     ExternBlock, ExternFunction,
-    SawType, TypeKind, Visibility
+    SawType, TypeKind, Visibility, TypeParameter
 )
 
 
@@ -255,22 +255,33 @@ class DeclarationsMixin:
         )
 
     def parse_extension(self, visibility: Visibility = Visibility.PRIVATE) -> Extension:
-        """Parse extension declaration: extension Box<T>: Trait { type Item = Int; func... }"""
+        """Parse extension declaration: extension Box<T>: Trait { type Item = Int; func... }
+
+        For generic extensions like `extension Vector<T>`, the typechecker will determine
+        that T is not a known type and treat it as a type parameter.
+        For specialized extensions like `extension Vector<String>`, String is a known type
+        so it's treated as a type argument (specialization).
+        """
         start = self.current()
         self.expect(TokenType.EXTENSION)
 
-        # Accept identifiers or built-in type names (String, Int, etc.)
+        # Accept identifiers (type names like String, Int, Vector are all identifiers now)
         if self.match(TokenType.IDENT):
             name_token = self.advance()
             struct_name = name_token.value
-        elif self.match(TokenType.STRING_TYPE):
-            self.advance()
-            struct_name = "String"
         else:
             self.error("Expected type name after 'extension'")
 
-        # Parse optional type parameters: <T, U>
-        type_params = self.parse_type_params()
+        # Parse optional type parameters or type arguments: <T, U> or <String, Int>
+        # We parse as type_params first (existing behavior), but also try to parse as types.
+        # The typechecker will determine which interpretation is correct based on namespace lookup.
+        type_params = []
+        type_args = []
+
+        if self.match(TokenType.LT):
+            # Try to parse - could be type params (T, U) or type args (String, Int)
+            # We use a hybrid approach: parse with bounds support for type params
+            type_params = self.parse_type_params()
 
         # Parse optional trait conformances: `: Trait1, Trait2`
         conformances = []

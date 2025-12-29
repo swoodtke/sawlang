@@ -100,8 +100,14 @@ class CodeGenerator(MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, Oper
         # Stores original AST of generic extensions for later instantiation
         # Multiple extensions can exist for the same struct (methods + conformances)
         self.generic_extensions: dict[str, List[Extension]] = {}
+        # Stores specialized extensions keyed by (struct_name, type_args_tuple)
+        # e.g., ("Vector", ("String",)) -> [Extension for Vector<String>]
+        self.specialized_extensions: dict[tuple, List[Extension]] = {}
         # Tracks which monomorphized functions have been generated
         self.generated_instantiations: set[str] = set()
+        # Queue for pending method body generation: (mangled_struct_name, method, type_mapping, is_init)
+        # Bodies are generated after all signatures are declared
+        self.pending_method_bodies: List[tuple] = []
 
         # Closure counter for unique names
         self.closure_counter = 0
@@ -129,6 +135,33 @@ class CodeGenerator(MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, Oper
 
         # Declare external functions (printf for print)
         self._declare_external_functions()
+
+    # Built-in type names for detecting specialized extensions
+    BUILTIN_TYPE_NAMES = {
+        'Int', 'UInt', 'Float', 'Bool', 'String',
+        'Int8', 'Int16', 'Int32', 'Int64',
+        'UInt8', 'UInt16', 'UInt32', 'UInt64',
+    }
+
+    def _get_extension_specialization(self, extension: Extension) -> tuple:
+        """Get the specialization key for an extension, or empty tuple if generic.
+
+        Returns tuple of type arg names if specialized (e.g., ("String",)),
+        or empty tuple if it's a generic extension.
+        """
+        if not extension.type_params:
+            return ()
+
+        # Check if all type params are known types (specialization)
+        type_args = []
+        for tp in extension.type_params:
+            if tp.name in self.BUILTIN_TYPE_NAMES or tp.name in self.struct_types:
+                type_args.append(tp.name)
+            else:
+                # Not a known type, this is a generic extension
+                return ()
+
+        return tuple(type_args)
 
     def _declare_external_functions(self):
         # Declare printf
@@ -214,12 +247,21 @@ class CodeGenerator(MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, Oper
             else:
                 self._declare_function(func)
 
-        # First pass: store generic extensions (needed for monomorphization)
+        # First pass: store generic and specialized extensions separately
         for extension in program.extensions:
             if extension.type_params:
-                if extension.struct_name not in self.generic_extensions:
-                    self.generic_extensions[extension.struct_name] = []
-                self.generic_extensions[extension.struct_name].append(extension)
+                spec_key = self._get_extension_specialization(extension)
+                if spec_key:
+                    # Specialized extension (e.g., extension Vector<String>)
+                    full_key = (extension.struct_name, spec_key)
+                    if full_key not in self.specialized_extensions:
+                        self.specialized_extensions[full_key] = []
+                    self.specialized_extensions[full_key].append(extension)
+                else:
+                    # Generic extension (e.g., extension Vector<T>)
+                    if extension.struct_name not in self.generic_extensions:
+                        self.generic_extensions[extension.struct_name] = []
+                    self.generic_extensions[extension.struct_name].append(extension)
 
         # Second pass: declare non-generic extension methods
         for extension in program.extensions:
@@ -234,6 +276,10 @@ class CodeGenerator(MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, Oper
         # Generate extension method bodies
         for extension in program.extensions:
             self._generate_extension_methods(extension)
+
+        # Generate pending monomorphized method bodies
+        # These were queued during monomorphization to ensure all signatures exist first
+        self._generate_pending_method_bodies()
 
         return str(self.module)
 
@@ -533,7 +579,7 @@ class CodeGenerator(MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, Oper
             self.builder.call(self.snprintf, [buf_ptr, size, fmt_ptr, value])
             return buf_ptr
 
-        elif saw_type.kind in {TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}:
+        elif saw_type.kind in {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}:
             fmt = self._create_string_constant("%llu")
             fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
             # Extend to i64 if needed

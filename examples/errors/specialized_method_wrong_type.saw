@@ -1,0 +1,28 @@
+// Test that specialized methods are only available for matching types
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type `Vector` has no method `join`
+// EXPECT-ERROR-CONTAINS: available methods:
+// EXPECT-ERROR-CONTAINS: int_vector_foobar
+
+// Define a specialized method for Vector<Int>
+extension Vector<Int> {
+    func int_vector_foobar(self) -> Int {
+        42
+    }
+}
+
+func main() {
+    var v = Vector<Int>()
+    v.push(1)
+    v.push(2)
+    v.push(3)
+
+    // This should work - int_vector_foobar is defined for Vector<Int>
+    let x = v.int_vector_foobar()
+    print(x)
+
+    // This should fail - join is only defined for Vector<String>
+    // The error hint should show "int_vector_foobar" in available methods
+    let result = v.join(",")
+    print(result)
+}

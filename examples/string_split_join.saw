@@ -1,0 +1,38 @@
+// Test String.split and Vector<String>.join
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Split by comma:
+// apple
+// banana
+// cherry
+// Joined with dash:
+// apple-banana-cherry
+// Round trip:
+// one,two,three
+
+func main() {
+    // Test split
+    let text = "apple,banana,cherry"
+    let parts = text.split(",")
+
+    print("Split by comma:")
+    var i = 0
+    while i < parts.len() {
+        if let part = parts.get(i) {
+            print(part)
+        }
+        i = i + 1
+    }
+
+    // Test join
+    let joined = parts.join("-")
+    print("Joined with dash:")
+    print(joined)
+
+    // Test round trip
+    let original = "one,two,three"
+    let split_parts = original.split(",")
+    let rejoined = split_parts.join(",")
+    print("Round trip:")
+    print(rejoined)
+}

@@ -54,20 +54,9 @@ class TokenType(Enum):
     PACKAGE = auto()  # 'package' for package-relative imports
     PARENT = auto()   # 'parent' for parent-relative imports
 
-    # Types
-    INT_TYPE = auto()
-    FLOAT_TYPE = auto()
-    BOOL_TYPE = auto()
-    STRING_TYPE = auto()
-    # Fixed-width integer types
-    INT8_TYPE = auto()
-    INT16_TYPE = auto()
-    INT32_TYPE = auto()
-    INT64_TYPE = auto()
-    UINT8_TYPE = auto()
-    UINT16_TYPE = auto()
-    UINT32_TYPE = auto()
-    UINT64_TYPE = auto()
+    # Note: Type names (Int, String, Bool, etc.) are NOT special tokens.
+    # They are lexed as IDENT and recognized by the typechecker.
+    # This simplifies the parser and allows them to be used in generic contexts.
 
     # Operators
     PLUS = auto()
@@ -159,19 +148,11 @@ KEYWORDS = {
     # Note: 'package' and 'parent' are NOT keywords - they are handled
     # specially by the parser only in import contexts to avoid conflicts
     # with user code (e.g., a method named 'parent')
-    'Int': TokenType.INT_TYPE,
-    'Float': TokenType.FLOAT_TYPE,
-    'Bool': TokenType.BOOL_TYPE,
-    'String': TokenType.STRING_TYPE,
-    # Fixed-width integers
-    'Int8': TokenType.INT8_TYPE,
-    'Int16': TokenType.INT16_TYPE,
-    'Int32': TokenType.INT32_TYPE,
-    'Int64': TokenType.INT64_TYPE,
-    'UInt8': TokenType.UINT8_TYPE,
-    'UInt16': TokenType.UINT16_TYPE,
-    'UInt32': TokenType.UINT32_TYPE,
-    'UInt64': TokenType.UINT64_TYPE,
+    #
+    # Note: Type names (Int, Float, Bool, String, Int8, UInt64, etc.) are NOT
+    # keywords. They are lexed as IDENT and recognized by the typechecker.
+    # This simplifies the parser and enables generic specialization syntax
+    # like `extension Vector<String>`.
 }
 
 

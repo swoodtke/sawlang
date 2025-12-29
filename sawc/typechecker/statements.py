@@ -9,7 +9,7 @@ Usage:
         pass
 """
 
-from typing import Optional
+from typing import Optional, Dict
 from ast_nodes import (
     Extension, Method, Function, Block, Statement,
     LetStatement, AssignStatement, ReturnStatement, GuardLetStatement,
@@ -49,14 +49,37 @@ class StatementsMixin:
 
     def _check_extension(self, extension: Extension):
         """Type check all methods in an extension."""
-        for method in extension.methods:
-            self._check_method(extension.struct_name, method)
+        # Check if this is a specialized extension (e.g., extension Vector<String>)
+        specialization_key = self._get_specialization_key(extension)
 
-    def _check_method(self, struct_name: str, method: Method):
-        """Type check a method body."""
+        # Build type substitution map for specialized extensions
+        type_subst = {}
+        if specialization_key:
+            # Get the struct's type params to map them to the specialized types
+            struct_info = self.structs.get(extension.struct_name)
+            if struct_info and struct_info.type_params:
+                for i, type_param in enumerate(struct_info.type_params):
+                    if i < len(specialization_key):
+                        # Convert the specialization key name to a SawType
+                        type_name = specialization_key[i]
+                        type_subst[type_param.name] = self._name_to_type(type_name)
+
+        for method in extension.methods:
+            self._check_method(extension.struct_name, method, type_subst)
+
+    def _check_method(self, struct_name: str, method: Method, type_subst: Dict[str, SawType] = None):
+        """Type check a method body.
+
+        Args:
+            struct_name: The name of the struct this method belongs to
+            method: The method AST node
+            type_subst: Optional type substitution map for specialized extensions
+                       (e.g., {"T": String} for extension Vector<String>)
+        """
         from .core import VariableInfo, Scope
         self.current_method = method
         self.found_return_with_value = False
+        self.current_type_subst = type_subst or {}
 
         # Create new scope for method
         self.current_scope = Scope()
@@ -65,7 +88,12 @@ class StatementsMixin:
         if struct_name == "String":
             self_type = SawType(TypeKind.STRING)
         else:
-            self_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+            # For specialized extensions, include the type args in self_type
+            if type_subst:
+                type_args = list(type_subst.values())
+                self_type = SawType(TypeKind.STRUCT, struct_name=struct_name, type_args=type_args)
+            else:
+                self_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
 
         # Add parameters to scope
         for param in method.parameters:

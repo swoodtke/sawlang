@@ -8,7 +8,8 @@ from enum import Enum, auto
 
 
 class TypeKind(Enum):
-    INT = auto()
+    INT = auto()         # System-width signed integer (typically 64-bit)
+    UINT = auto()        # System-width unsigned integer (typically 64-bit)
     FLOAT = auto()
     BOOL = auto()
     STRING = auto()
@@ -747,10 +748,15 @@ class TypeAssignment(ASTNode):
 
 @dataclass
 class Extension(ASTNode):
-    """Extension declaration: extension Box<T>: Trait { ... }"""
+    """Extension declaration: extension Box<T>: Trait { ... }
+
+    For generic extensions like `extension Vector<T>`, type_params contains [T].
+    For specialized extensions like `extension Vector<String>`, type_args contains [String].
+    """
     struct_name: str
     methods: List['Method']
     type_params: List['TypeParameter'] = field(default_factory=list)  # For generic extensions
+    type_args: List['Type'] = field(default_factory=list)  # For specialized extensions (e.g., Vector<String>)
     conformances: List[str] = field(default_factory=list)  # Trait names
     type_assignments: List[TypeAssignment] = field(default_factory=list)  # Associated type assignments
     visibility: 'Visibility' = Visibility.PRIVATE

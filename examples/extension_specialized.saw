@@ -1,0 +1,14 @@
+// Test specialized generic extension: extension Vector<String>
+// EXPECT: success
+// EXPECT-OUTPUT:
+// hello,world,test
+
+func main() {
+    var v = Vector<String>()
+    v.push("hello")
+    v.push("world")
+    v.push("test")
+
+    let joined = v.join(",")
+    print(joined)
+}

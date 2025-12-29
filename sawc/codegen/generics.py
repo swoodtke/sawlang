@@ -284,19 +284,77 @@ class GenericsMixin:
     def _monomorphize_extension(self, struct_name: str, type_args: List[SawType],
                                  mangled_struct_name: str, type_mapping: dict[str, SawType]):
         """Generate monomorphized version of extension methods for a generic struct."""
-        # Process all extensions for this struct
-        for generic_ext in self.generic_extensions[struct_name]:
-            self._monomorphize_single_extension(generic_ext, type_args, mangled_struct_name, type_mapping)
+        # Check if there's a specialized extension for this exact type
+        spec_key = self._make_specialization_key(type_args)
+        full_key = (struct_name, spec_key)
+
+        # Collect method names from specialized extensions (these override generic ones)
+        specialized_method_names = set()
+        if full_key in self.specialized_extensions:
+            for spec_ext in self.specialized_extensions[full_key]:
+                for method in spec_ext.methods:
+                    specialized_method_names.add(method.name)
+
+        # Process generic extensions, skipping methods that have specialized overrides
+        if struct_name in self.generic_extensions:
+            for generic_ext in self.generic_extensions[struct_name]:
+                self._monomorphize_single_extension(
+                    generic_ext, type_args, mangled_struct_name, type_mapping,
+                    skip_methods=specialized_method_names
+                )
+
+        # Process specialized extensions (no skipping, no type substitution needed)
+        if full_key in self.specialized_extensions:
+            for spec_ext in self.specialized_extensions[full_key]:
+                self._monomorphize_single_extension(spec_ext, type_args, mangled_struct_name, {})
+
+    def _make_specialization_key(self, type_args: List[SawType]) -> tuple:
+        """Convert type arguments to a specialization key tuple."""
+        key_parts = []
+        for t in type_args:
+            if t.kind == TypeKind.STRING:
+                key_parts.append("String")
+            elif t.kind == TypeKind.INT:
+                key_parts.append("Int")
+            elif t.kind == TypeKind.UINT:
+                key_parts.append("UInt")
+            elif t.kind == TypeKind.FLOAT:
+                key_parts.append("Float")
+            elif t.kind == TypeKind.BOOL:
+                key_parts.append("Bool")
+            elif t.kind == TypeKind.INT8:
+                key_parts.append("Int8")
+            elif t.kind == TypeKind.INT16:
+                key_parts.append("Int16")
+            elif t.kind == TypeKind.INT32:
+                key_parts.append("Int32")
+            elif t.kind == TypeKind.INT64:
+                key_parts.append("Int64")
+            elif t.kind == TypeKind.UINT8:
+                key_parts.append("UInt8")
+            elif t.kind == TypeKind.UINT16:
+                key_parts.append("UInt16")
+            elif t.kind == TypeKind.UINT32:
+                key_parts.append("UInt32")
+            elif t.kind == TypeKind.UINT64:
+                key_parts.append("UInt64")
+            elif t.kind == TypeKind.STRUCT and t.struct_name:
+                key_parts.append(t.struct_name)
+            else:
+                # Can't create key for this type
+                return ()
+        return tuple(key_parts)
 
     def _monomorphize_single_extension(self, generic_ext: Extension, type_args: List[SawType],
-                                        mangled_struct_name: str, type_mapping: dict[str, SawType]):
-        """Generate monomorphized version of a single extension's methods."""
+                                        mangled_struct_name: str, type_mapping: dict[str, SawType],
+                                        skip_methods: set = None):
+        """Generate monomorphized version of a single extension's methods.
 
-        # Save current state - we may be in the middle of generating another function
-        saved_builder = self.builder
-        saved_variables = self.variables
-        saved_variable_types = self.variable_types.copy() if self.variable_types else {}
-        saved_cleanup_stack = self.cleanup_stack[:] if self.cleanup_stack else []
+        Args:
+            skip_methods: Set of method names to skip (because specialized versions exist)
+        """
+        if skip_methods is None:
+            skip_methods = set()
 
         # Set type param context
         old_context = self.type_param_context
@@ -305,6 +363,9 @@ class GenericsMixin:
         # First pass: register all methods (so methods can call each other)
         methods_to_generate = []
         for method in generic_ext.methods:
+            # Skip methods that have specialized overrides
+            if method.name in skip_methods:
+                continue
             # Create mangled name using the monomorphized struct name
             if method.is_init:
                 param_names = [p.name for p in method.parameters]
@@ -341,19 +402,33 @@ class GenericsMixin:
             self.functions[mangled_name] = llvm_func
             methods_to_generate.append(method)
 
-        # Second pass: generate method bodies
+        # Second pass: queue method bodies for later generation
+        # This ensures all method signatures are declared before any bodies are generated
         for method in methods_to_generate:
-            if method.is_init:
+            self.pending_method_bodies.append((mangled_struct_name, method, type_mapping.copy(), method.is_init))
+
+        # Restore type param context (other state will be set up when generating bodies)
+        self.type_param_context = old_context
+
+    def _generate_pending_method_bodies(self):
+        """Generate all pending monomorphized method bodies.
+
+        This is called after all method signatures have been declared,
+        ensuring that method calls within bodies can find their targets.
+        """
+        while self.pending_method_bodies:
+            mangled_struct_name, method, type_mapping, is_init = self.pending_method_bodies.pop(0)
+
+            # Set up type param context for this method
+            old_context = self.type_param_context
+            self.type_param_context = type_mapping
+
+            if is_init:
                 self._generate_init_method_generic(mangled_struct_name, method, type_mapping)
             else:
                 self._generate_method_generic(mangled_struct_name, method, type_mapping)
 
-        # Restore all state
-        self.type_param_context = old_context
-        self.builder = saved_builder
-        self.variables = saved_variables
-        self.variable_types = saved_variable_types
-        self.cleanup_stack = saved_cleanup_stack
+            self.type_param_context = old_context
 
     def _generate_method_generic(self, struct_name: str, method: Method, type_mapping: dict[str, SawType]):
         """Generate code for a method with type substitution."""

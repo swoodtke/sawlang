@@ -65,6 +65,9 @@ class StructInfo:
     column: int = 0
     methods: Dict[str, 'MethodInfo'] = field(default_factory=dict)  # method_name -> info
     type_params: List[TypeParameter] = field(default_factory=list)  # For generic structs
+    # Specialized methods for specific type arguments (e.g., extension Vector<String>)
+    # Key: tuple of type arg strings like ("String",), Value: method_name -> MethodInfo
+    specialized_methods: Dict[Tuple[str, ...], Dict[str, 'MethodInfo']] = field(default_factory=dict)
 
 
 @dataclass
@@ -148,6 +151,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
         self.current_method: Optional['Method'] = None  # Track current method for 'self'
+        # Type substitution map for specialized extensions (e.g., {"T": String})
+        self.current_type_subst: Dict[str, SawType] = {}
         # Track return statements found in current function
         self.found_return_with_value: bool = False
         # Track loop nesting depth for break/continue validation

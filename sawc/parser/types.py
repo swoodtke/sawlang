@@ -30,47 +30,30 @@ class TypeParsingMixin:
 
         return base_type
 
+    # Mapping from type name strings to TypeKind for built-in types
+    BUILTIN_TYPES = {
+        'Int': TypeKind.INT,
+        'Float': TypeKind.FLOAT,
+        'Bool': TypeKind.BOOL,
+        'String': TypeKind.STRING,
+        'UInt': TypeKind.UINT,  # System-width unsigned integer
+        # Fixed-width signed integers
+        'Int8': TypeKind.INT8,
+        'Int16': TypeKind.INT16,
+        'Int32': TypeKind.INT32,
+        'Int64': TypeKind.INT64,
+        # Fixed-width unsigned integers
+        'UInt8': TypeKind.UINT8,
+        'UInt16': TypeKind.UINT16,
+        'UInt32': TypeKind.UINT32,
+        'UInt64': TypeKind.UINT64,
+    }
+
     def _parse_base_type(self) -> SawType:
         """Parse a non-optional base type."""
         token = self.current()
-        if token.type == TokenType.INT_TYPE:
-            self.advance()
-            return SawType(TypeKind.INT)
-        elif token.type == TokenType.FLOAT_TYPE:
-            self.advance()
-            return SawType(TypeKind.FLOAT)
-        elif token.type == TokenType.BOOL_TYPE:
-            self.advance()
-            return SawType(TypeKind.BOOL)
-        elif token.type == TokenType.STRING_TYPE:
-            self.advance()
-            return SawType(TypeKind.STRING)
-        # Fixed-width integers
-        elif token.type == TokenType.INT8_TYPE:
-            self.advance()
-            return SawType(TypeKind.INT8)
-        elif token.type == TokenType.INT16_TYPE:
-            self.advance()
-            return SawType(TypeKind.INT16)
-        elif token.type == TokenType.INT32_TYPE:
-            self.advance()
-            return SawType(TypeKind.INT32)
-        elif token.type == TokenType.INT64_TYPE:
-            self.advance()
-            return SawType(TypeKind.INT64)
-        elif token.type == TokenType.UINT8_TYPE:
-            self.advance()
-            return SawType(TypeKind.UINT8)
-        elif token.type == TokenType.UINT16_TYPE:
-            self.advance()
-            return SawType(TypeKind.UINT16)
-        elif token.type == TokenType.UINT32_TYPE:
-            self.advance()
-            return SawType(TypeKind.UINT32)
-        elif token.type == TokenType.UINT64_TYPE:
-            self.advance()
-            return SawType(TypeKind.UINT64)
-        elif token.type == TokenType.LBRACKET:
+
+        if token.type == TokenType.LBRACKET:
             # Array type: [Type; Size]
             self.advance()  # consume '['
             element_type = self.parse_type()
@@ -98,11 +81,15 @@ class TypeParsingMixin:
             else:
                 return SawType(TypeKind.TUPLE, element_types=element_types)
         elif token.type == TokenType.IDENT:
-            # Could be a struct, enum, type parameter, Self, or pointer type
+            # Could be a built-in type, struct, enum, type parameter, Self, or pointer type
             self.advance()
             name = token.value
 
-            # Special case for Self type (used in interface method return types)
+            # Check for built-in types (Int, String, Bool, etc.)
+            if name in self.BUILTIN_TYPES:
+                return SawType(self.BUILTIN_TYPES[name])
+
+            # Special case for Self type (used in trait method return types)
             if name == "Self":
                 return SawType(TypeKind.SELF)
 

@@ -51,7 +51,7 @@ class ExpressionsMixin:
     def visit_StringInterpolation(self, expr: StringInterpolation) -> Optional[SawType]:
         """Type check string interpolation expressions."""
         allowed_kinds = {
-            TypeKind.INT, TypeKind.FLOAT, TypeKind.BOOL, TypeKind.STRING,
+            TypeKind.INT, TypeKind.UINT, TypeKind.FLOAT, TypeKind.BOOL, TypeKind.STRING,
             TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
             TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
         }
@@ -189,7 +189,8 @@ class ExpressionsMixin:
             return None
         to_type = self._resolve_type(expr.target_type)
         int_kinds = {
-            TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+            TypeKind.INT, TypeKind.UINT,
+            TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
             TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
         }
         if from_type.kind in int_kinds and to_type.kind in int_kinds:
@@ -218,7 +219,8 @@ class ExpressionsMixin:
         left_underlying = self._get_underlying_type(left_type)
         right_underlying = self._get_underlying_type(right_type)
         int_kinds = {
-            TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+            TypeKind.INT, TypeKind.UINT,
+            TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
             TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
         }
         if expr.op in ['+', '-', '*', '/']:
@@ -1032,6 +1034,90 @@ class ExpressionsMixin:
         field_type = struct_info.fields[expr.member]
         return SawType(TypeKind.OPTIONAL, inner_type=field_type)
 
+    def _make_specialization_key(self, type_args: List[SawType]) -> tuple:
+        """Convert type arguments to a specialization key tuple."""
+        if not type_args:
+            return ()
+        key_parts = []
+        for t in type_args:
+            if t.kind == TypeKind.STRING:
+                key_parts.append("String")
+            elif t.kind == TypeKind.INT:
+                key_parts.append("Int")
+            elif t.kind == TypeKind.UINT:
+                key_parts.append("UInt")
+            elif t.kind == TypeKind.FLOAT:
+                key_parts.append("Float")
+            elif t.kind == TypeKind.BOOL:
+                key_parts.append("Bool")
+            elif t.kind == TypeKind.INT8:
+                key_parts.append("Int8")
+            elif t.kind == TypeKind.INT16:
+                key_parts.append("Int16")
+            elif t.kind == TypeKind.INT32:
+                key_parts.append("Int32")
+            elif t.kind == TypeKind.INT64:
+                key_parts.append("Int64")
+            elif t.kind == TypeKind.UINT8:
+                key_parts.append("UInt8")
+            elif t.kind == TypeKind.UINT16:
+                key_parts.append("UInt16")
+            elif t.kind == TypeKind.UINT32:
+                key_parts.append("UInt32")
+            elif t.kind == TypeKind.UINT64:
+                key_parts.append("UInt64")
+            elif t.kind == TypeKind.STRUCT and t.struct_name:
+                key_parts.append(t.struct_name)
+            else:
+                # Unknown type, can't match specialization
+                return ()
+        return tuple(key_parts)
+
+    def _name_to_type(self, name: str) -> SawType:
+        """Convert a type name string to a SawType."""
+        type_mapping = {
+            'Int': SawType(TypeKind.INT),
+            'UInt': SawType(TypeKind.UINT),
+            'Float': SawType(TypeKind.FLOAT),
+            'Bool': SawType(TypeKind.BOOL),
+            'String': SawType(TypeKind.STRING),
+            'Int8': SawType(TypeKind.INT8),
+            'Int16': SawType(TypeKind.INT16),
+            'Int32': SawType(TypeKind.INT32),
+            'Int64': SawType(TypeKind.INT64),
+            'UInt8': SawType(TypeKind.UINT8),
+            'UInt16': SawType(TypeKind.UINT16),
+            'UInt32': SawType(TypeKind.UINT32),
+            'UInt64': SawType(TypeKind.UINT64),
+        }
+        if name in type_mapping:
+            return type_mapping[name]
+        # Check if it's a user-defined struct
+        if name in self.structs:
+            return SawType(TypeKind.STRUCT, struct_name=name)
+        # Check if it's an enum
+        if name in self.enums:
+            return SawType(TypeKind.ENUM, struct_name=name)
+        # Fallback to STRUCT type
+        return SawType(TypeKind.STRUCT, struct_name=name)
+
+    def _lookup_method(self, struct_info, method_name: str, type_args: List[SawType] = None):
+        """Look up a method, checking specialized extensions first."""
+        from .core import MethodInfo
+        # First, check if there's a specialized extension matching the type args
+        if type_args and struct_info.specialized_methods:
+            spec_key = self._make_specialization_key(type_args)
+            if spec_key in struct_info.specialized_methods:
+                specialized = struct_info.specialized_methods[spec_key]
+                if method_name in specialized:
+                    return specialized[method_name]
+
+        # Fall back to generic methods
+        if method_name in struct_info.methods:
+            return struct_info.methods[method_name]
+
+        return None
+
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
         """Check a method call, static method call, enum initialization, or module function call."""
         from .core import FunctionInfo, MethodInfo
@@ -1184,15 +1270,23 @@ class ExpressionsMixin:
         if struct_info.type_params and obj_type.type_args:
             for type_param, type_arg in zip(struct_info.type_params, obj_type.type_args):
                 type_subst[type_param.name] = type_arg
-        if expr.method_name not in struct_info.methods:
+
+        # Look up method - first check specialized extensions, then generic
+        method_info = self._lookup_method(struct_info, expr.method_name, obj_type.type_args)
+        if method_info is None:
+            # Collect available methods from both generic and specialized
+            available = list(struct_info.methods.keys())
+            if obj_type.type_args:
+                spec_key = self._make_specialization_key(obj_type.type_args)
+                if spec_key in struct_info.specialized_methods:
+                    available.extend(struct_info.specialized_methods[spec_key].keys())
             self.reporter.error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 f"type `{struct_name}` has no method `{expr.method_name}`",
                 expr.line, expr.column,
-                hint=f"available methods: {', '.join(struct_info.methods.keys())}" if struct_info.methods else "no methods defined"
+                hint=f"available methods: {', '.join(sorted(set(available)))}" if available else "no methods defined"
             )
             return None
-        method_info = struct_info.methods[expr.method_name]
         if expr.method_name == "deinit":
             self.reporter.error(
                 ErrorKind.TYPE_MISMATCH,

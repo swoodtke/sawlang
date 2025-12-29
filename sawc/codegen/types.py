@@ -35,6 +35,8 @@ class TypesMixin:
         """
         if saw_type.kind == TypeKind.INT:
             return ir.IntType(64)
+        elif saw_type.kind == TypeKind.UINT:
+            return ir.IntType(64)  # System-width unsigned (64-bit)
         elif saw_type.kind == TypeKind.FLOAT:
             return ir.DoubleType()
         elif saw_type.kind == TypeKind.BOOL:
@@ -206,6 +208,8 @@ class TypesMixin:
         """
         if saw_type.kind == TypeKind.INT:
             return "Int"
+        elif saw_type.kind == TypeKind.UINT:
+            return "UInt"
         elif saw_type.kind == TypeKind.INT8:
             return "Int8"
         elif saw_type.kind == TypeKind.INT16:
