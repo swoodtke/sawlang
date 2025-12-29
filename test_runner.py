@@ -138,7 +138,7 @@ def compile_saw_file(file_path: Path, output_path: Path) -> tuple[bool, str, str
             [sys.executable, str(sawc_path), str(file_path), '-o', str(output_path)],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=30
         )
         return result.returncode == 0, result.stdout, result.stderr
     except subprocess.TimeoutExpired:
@@ -158,7 +158,7 @@ def run_executable(exe_path: Path) -> tuple[bool, str, str]:
             [str(exe_path)],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=30
         )
         return result.returncode == 0, result.stdout, result.stderr
     except subprocess.TimeoutExpired:

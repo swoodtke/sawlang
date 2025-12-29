@@ -1,0 +1,34 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 999
+
+// Basic Result type test
+// Tests Result<T, E> creation with auto-wrap
+
+struct ParseError {
+    code: Int
+}
+
+func parseNumber(valid: Bool) -> Result<Int, ParseError> {
+    if valid {
+        return 42  // Auto-wrapped to Ok
+    }
+    return ParseError(code: 1)  // Auto-wrapped to Err
+}
+
+func main() {
+    // Test Ok case - just create it to verify compilation
+    let result1 = parseNumber(true)
+    match result1 {
+        case Ok(n) -> print(n),       // Should print 42
+        case Err(e) -> print(0)       // e.code requires type substitution fix
+    }
+
+    // Test Err case
+    let result2 = parseNumber(false)
+    match result2 {
+        case Ok(n) -> print(n),
+        case Err(e) -> print(999)     // Should print 999 to indicate Err path
+    }
+}

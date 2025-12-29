@@ -382,8 +382,15 @@ class StatementsMixin:
 
         # Now return
         if value is not None:
+            # Check if we need to auto-wrap in Result (set by typechecker)
+            if hasattr(stmt, 'auto_wrap') and stmt.auto_wrap:
+                if stmt.auto_wrap == "ok":
+                    value = self._create_result_ok_for_return(value)
+                elif stmt.auto_wrap == "err":
+                    value = self._create_result_err_for_return(value)
+
             # Check if we need to wrap in optional
-            if self.current_return_type and self.current_return_type.is_optional():
+            elif self.current_return_type and self.current_return_type.is_optional():
                 expected_type = self._get_llvm_type(self.current_return_type)
                 if not self._is_optional_type(value.type):
                     value = self._wrap_in_optional(value)

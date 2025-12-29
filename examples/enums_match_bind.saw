@@ -8,19 +8,19 @@
 // 0
 
 // Match with bindings to extract associated values
-enum Result {
+enum OperationResult {
     case Success(value: Int),
     case Error(code: Int)
 }
 
-func process_result(r: Result) -> Int {
+func process_result(r: OperationResult) -> Int {
     match r {
         case Success(val) -> val,
         case Error(err_code) -> err_code
     }
 }
 
-func describe_result(r: Result) -> Int {
+func describe_result(r: OperationResult) -> Int {
     match r {
         case Success(n) -> {
             print(n)
@@ -34,8 +34,8 @@ func describe_result(r: Result) -> Int {
 }
 
 func main() {
-    let r1 = Result.Success(value: 42)
-    let r2 = Result.Error(code: 404)
+    let r1 = OperationResult.Success(value: 42)
+    let r2 = OperationResult.Error(code: 404)
 
     // Extract values via pattern matching
     print(process_result(r1))  // Should print 42

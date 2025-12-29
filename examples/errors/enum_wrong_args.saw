@@ -3,15 +3,15 @@
 // EXPECT-ERROR-CONTAINS: variant `Success` expects 1 arguments, got 0
 // EXPECT-ERROR-CONTAINS: variant `Error` expects 1 arguments, got 2
 
-enum Result {
+enum OperationResult {
     case Success(value: Int),
     case Error(code: Int)
 }
 
 func main() {
     // Missing required argument
-    let r1 = Result.Success()
+    let r1 = OperationResult.Success()
 
     // Extra argument
-    let r2 = Result.Error(code: 404, extra: 123)
+    let r2 = OperationResult.Error(code: 404, extra: 123)
 }

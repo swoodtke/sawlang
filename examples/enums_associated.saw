@@ -4,17 +4,17 @@
 // 2
 
 // Enum with associated values
-enum Result {
+enum OperationResult {
     case Success(value: Int),
     case Error(code: Int)
 }
 
-func make_success(n: Int) -> Result {
-    Result.Success(value: n)
+func make_success(n: Int) -> OperationResult {
+    OperationResult.Success(value: n)
 }
 
-func make_error(code: Int) -> Result {
-    Result.Error(code: code)
+func make_error(code: Int) -> OperationResult {
+    OperationResult.Error(code: code)
 }
 
 func main() {
@@ -26,8 +26,8 @@ func main() {
         print(1)  // Should print
     }
 
-    let r3 = Result.Success(value: 100)
-    let r4 = Result.Success(value: 200)
+    let r3 = OperationResult.Success(value: 100)
+    let r4 = OperationResult.Success(value: 200)
 
     // Even with different payloads, same variant tags are equal
     if r3 == r4 {

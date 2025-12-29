@@ -167,6 +167,22 @@ class TypeUtilsMixin:
             b.inner_type and b.inner_type.kind == TypeKind.INT8):
             return True
 
+        # Handle generic enums which can be parsed as STRUCT but typed as ENUM
+        # (Parser creates GenericEnum<T> as STRUCT, typechecker returns ENUM)
+        a_name = a.enum_name if a.kind == TypeKind.ENUM else (a.struct_name if a.kind == TypeKind.STRUCT else None)
+        b_name = b.enum_name if b.kind == TypeKind.ENUM else (b.struct_name if b.kind == TypeKind.STRUCT else None)
+        if a_name and b_name and a_name == b_name:
+            # Same named type - check if it's an enum and compare type arguments
+            if a_name in self.enums:
+                a_args = a.type_args or []
+                b_args = b.type_args or []
+                if len(a_args) != len(b_args):
+                    return False
+                if len(a_args) == 0:
+                    return True  # Non-generic enum, names match
+                return all(self._types_compatible(at, bt)
+                          for at, bt in zip(a_args, b_args))
+
         if a.kind != b.kind:
             return False
 

@@ -45,6 +45,8 @@ class TokenType(Enum):
     TYPE = auto()  # 'type' keyword for associated types
     EXTERN = auto()  # 'extern' for FFI declarations
     AS = auto()      # 'as' for type casting
+    TRY = auto()     # 'try' for error handling
+    CATCH = auto()   # 'catch' for error handling
 
     # Module system keywords
     MODULE = auto()   # 'module' for module declarations
@@ -140,6 +142,8 @@ KEYWORDS = {
     'not': TokenType.NOT,
     'move': TokenType.MOVE,
     'as': TokenType.AS,
+    'try': TokenType.TRY,
+    'catch': TokenType.CATCH,
     # Module system
     # Note: 'module', 'import', and 'export' are NOT keywords - they are handled
     # specially by the parser only in specific syntactic positions to avoid

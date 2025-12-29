@@ -24,6 +24,7 @@ from ast_nodes import (
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
+    TryExpr, TryCatchExpr,
     RangeExpr, MatchExpr, MatchArm,
     MethodCall, SelfExpr,
     SawType, Argument,
@@ -409,6 +410,9 @@ class ExpressionsMixin:
         elif self.match(TokenType.MATCH):
             return self.parse_match_expression()
 
+        elif self.match(TokenType.TRY):
+            return self.parse_try_expression()
+
         elif self.match(TokenType.WHILE):
             return self.parse_while_statement()
 
@@ -682,6 +686,74 @@ class ExpressionsMixin:
         return MatchExpr(
             matched_expr=matched_expr,
             arms=arms,
+            line=start.line,
+            column=start.column
+        )
+
+    def parse_try_expression(self) -> Expression:
+        """Parse try expression: try expr, try? expr, try! expr, or try { } catch { }
+
+        Syntax variants:
+        - try expr                  - propagate error (function must return Result)
+        - try? expr                 - convert to optional (Result<T,E> -> T?)
+        - try! expr                 - force unwrap (panic on error)
+        - try expr catch { ... }    - inline catch handler
+        - try { ... } catch { ... } - block try-catch
+        """
+        start = self.advance()  # consume 'try'
+
+        # Check for try? or try!
+        variant = "propagate"  # default
+        if self.match(TokenType.QUESTION):
+            self.advance()
+            variant = "optional"
+        elif self.match(TokenType.EXCLAIM):
+            self.advance()
+            variant = "force"
+
+        self.skip_newlines()
+
+        # Check if this is a try block: try { ... } catch { ... }
+        if self.match(TokenType.LBRACE):
+            # This is a try-catch block
+            try_block = self.parse_block()
+            self.skip_newlines()
+            self.expect(TokenType.CATCH, "Expected 'catch' after try block")
+            self.skip_newlines()
+            catch_block = self.parse_block()
+            return TryCatchExpr(
+                try_block=try_block,
+                catch_block=catch_block,
+                error_binding=None,  # Default to 'error'
+                line=start.line,
+                column=start.column
+            )
+
+        # Single expression: try expr or try expr catch { ... }
+        # Disable trailing closures so { doesn't get consumed as a trailing closure
+        saved_trailing = self.allow_trailing_closure
+        self.allow_trailing_closure = False
+        expr = self.parse_expression()
+        self.allow_trailing_closure = saved_trailing
+
+        # Check for inline catch
+        self.skip_newlines()
+        if self.match(TokenType.CATCH):
+            self.advance()
+            self.skip_newlines()
+            catch_block = self.parse_block()
+            return TryExpr(
+                expr=expr,
+                variant=variant,
+                catch_block=catch_block,
+                line=start.line,
+                column=start.column
+            )
+
+        return TryExpr(
+            expr=expr,
+            variant=variant,
+            catch_block=None,
             line=start.line,
             column=start.column
         )

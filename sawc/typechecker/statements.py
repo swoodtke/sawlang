@@ -545,11 +545,39 @@ class StatementsMixin:
                     stmt.line, stmt.column
                 )
             elif value_type and not self._types_compatible(value_type, expected):
-                self.reporter.error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"expected return type `{expected}` but got `{value_type}`",
-                    stmt.line, stmt.column
-                )
+                # Check for Result auto-wrapping
+                if expected.is_result() and value_type:
+                    ok_type = expected.unwrap_result_ok()
+                    err_type = expected.unwrap_result_err()
+
+                    # Already a Result - no wrapping needed (but types don't match)
+                    if value_type.is_result():
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"expected return type `{expected}` but got `{value_type}`",
+                            stmt.line, stmt.column
+                        )
+                    # Value matches T - auto-wrap in Ok
+                    elif self._types_compatible(value_type, ok_type):
+                        stmt.auto_wrap = "ok"
+                        self.found_return_with_value = True
+                    # Value matches E - auto-wrap in Err
+                    elif self._types_compatible(value_type, err_type):
+                        stmt.auto_wrap = "err"
+                        self.found_return_with_value = True
+                    else:
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"expected return type `{expected}` but got `{value_type}` "
+                            f"(doesn't match Ok type `{ok_type}` or Err type `{err_type}`)",
+                            stmt.line, stmt.column
+                        )
+                else:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"expected return type `{expected}` but got `{value_type}`",
+                        stmt.line, stmt.column
+                    )
             else:
                 # Mark that we found a valid return statement with a value
                 self.found_return_with_value = True

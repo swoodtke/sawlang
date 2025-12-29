@@ -14,7 +14,7 @@ enum Color {
     case Blue
 }
 
-enum Result {
+enum OperationResult {
     case Success(value: Int),
     case Error(code: Int)
 }
@@ -41,9 +41,9 @@ func test_simple_equality() {
 }
 
 func test_associated_equality() {
-    let r1 = Result.Success(value: 42)
-    let r2 = Result.Success(value: 99)
-    let r3 = Result.Error(code: 404)
+    let r1 = OperationResult.Success(value: 42)
+    let r2 = OperationResult.Success(value: 99)
+    let r3 = OperationResult.Error(code: 404)
 
     // Same variant tags are equal (tag-only comparison)
     if r1 == r2 {

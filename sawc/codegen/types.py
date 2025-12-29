@@ -90,6 +90,10 @@ class TypesMixin:
                 return self.enum_types[saw_type.struct_name][0]  # Return LLVM type
             # Handle generic struct with type arguments (e.g., VectorIterator<Int>)
             if saw_type.type_args:
+                # Check if this is actually a generic enum (like Result<T, E>)
+                if saw_type.struct_name in self.generic_enums:
+                    mangled_name = self._ensure_monomorphized_enum(saw_type.struct_name, saw_type.type_args)
+                    return self.enum_types[mangled_name][0]
                 mangled_name = self._ensure_monomorphized_struct(saw_type.struct_name, saw_type.type_args)
                 return self.struct_types[mangled_name][0]
             if saw_type.struct_name not in self.struct_types:

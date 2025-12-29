@@ -1,0 +1,32 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 999
+
+// Test Result<Int, Int> where Ok and Err have the same type
+// Auto-wrap is ambiguous here, so we use explicit construction
+
+func divide(a: Int, b: Int) -> Result<Int, Int> {
+    if b == 0 {
+        // When T == E, auto-wrap prefers Ok, so we must be explicit for Err
+        return Result<Int, Int>.Err(error: -1)
+    }
+    // Auto-wrap: Int -> Ok(value: Int)
+    return a / b
+}
+
+func main() {
+    // Test success case
+    let result1 = divide(84, 2)
+    match result1 {
+        case Ok(n) -> print(n),       // Should print 42
+        case Err(e) -> print(e)
+    }
+
+    // Test error case
+    let result2 = divide(100, 0)
+    match result2 {
+        case Ok(n) -> print(n),
+        case Err(e) -> print(999)     // Should print 999 to indicate error path
+    }
+}

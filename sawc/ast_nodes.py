@@ -117,6 +117,31 @@ class SawType:
         """Check if this is an enum type."""
         return self.kind == TypeKind.ENUM
 
+    def is_result(self) -> bool:
+        """Check if this is a Result<T, E> type.
+
+        Note: The parser creates generic types as STRUCT, but Result is actually
+        an enum. We check both possibilities here.
+        """
+        if self.kind == TypeKind.ENUM and self.enum_name == "Result":
+            return True
+        # Parser creates generic types as STRUCT - check struct_name too
+        if self.kind == TypeKind.STRUCT and self.struct_name == "Result":
+            return True
+        return False
+
+    def unwrap_result_ok(self) -> Optional['SawType']:
+        """Get the T from Result<T, E>, or None if not a Result."""
+        if self.is_result() and self.type_args and len(self.type_args) >= 1:
+            return self.type_args[0]
+        return None
+
+    def unwrap_result_err(self) -> Optional['SawType']:
+        """Get the E from Result<T, E>, or None if not a Result."""
+        if self.is_result() and self.type_args and len(self.type_args) >= 2:
+            return self.type_args[1]
+        return None
+
     def is_tuple(self) -> bool:
         """Check if this is a tuple type."""
         return self.kind == TypeKind.TUPLE
@@ -468,6 +493,39 @@ class OptionalChain(Expression):
 
 
 @dataclass
+class TryExpr(Expression):
+    """Try expression: unwraps Ok, propagates/handles Err.
+
+    Variants:
+    - try expr: Unwraps Ok, propagates Err (requires catch or error-returning function)
+    - try? expr: Converts Result<T, E> to T? (returns None on Err)
+    - try! expr: Unwraps Ok, panics on Err (like force unwrap)
+    """
+    expr: Expression
+    variant: str  # "propagate", "optional", or "force"
+    catch_block: Optional['Block'] = None  # For inline catch: try expr catch { ... }
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class TryCatchExpr(Expression):
+    """Try-catch block expression for local error handling.
+
+    Syntax: try { ... } catch { handle }
+
+    The try_block can contain multiple try expressions.
+    Unhandled errors propagate to the catch block.
+    The caught error is available as 'error' variable in catch block.
+    """
+    try_block: 'Block'
+    catch_block: 'Block'
+    error_binding: Optional[str] = None  # Optional name for caught error (default: "error")
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class MethodCall(Expression):
     """Method or enum variant call: object.method(args) or EnumType.Variant(args)
 
@@ -610,6 +668,9 @@ class ReturnStatement(Statement):
     value: Optional[Expression]
     line: int = 0
     column: int = 0
+    # Auto-wrap flag for Result-returning functions (set by typechecker)
+    # "ok" = wrap in Ok, "err" = wrap in Err, None = no wrapping
+    auto_wrap: Optional[str] = None
 
 
 @dataclass

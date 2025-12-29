@@ -17,6 +17,7 @@ from ast_nodes import (
     ArrayLiteral, ArrayIndex, MemberAccess, StructInit, NoneLiteral,
     ForceUnwrap, NilCoalesce, OptionalChain, MethodCall, SelfExpr,
     EnumInit, MatchExpr, WhileExpr, RangeExpr, ForLoop, ClosureExpr,
+    TryExpr, TryCatchExpr,
     Block, LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     SawType, TypeKind
 )
@@ -141,6 +142,12 @@ class ExpressionsMixin:
 
     def visit_ClosureExpr(self, expr: ClosureExpr) -> Optional[SawType]:
         return self._check_closure(expr)
+
+    def visit_TryExpr(self, expr: TryExpr) -> Optional[SawType]:
+        return self._check_try_expr(expr)
+
+    def visit_TryCatchExpr(self, expr: TryCatchExpr) -> Optional[SawType]:
+        return self._check_try_catch_expr(expr)
 
     def _check_identifier(self, expr: Identifier) -> Optional[SawType]:
         """Check an identifier reference."""
@@ -1714,3 +1721,158 @@ class ExpressionsMixin:
             if var_info:
                 captures.append(name)
         return captures
+
+    # ===== Try Expression Checking =====
+
+    def _check_try_expr(self, expr: TryExpr) -> Optional[SawType]:
+        """Check a try expression: try expr, try? expr, or try! expr.
+
+        - try expr: Unwraps Ok, propagates Err (function must return Result<_, E>)
+        - try? expr: Converts Result<T, E> to T? (returns None on Err)
+        - try! expr: Unwraps Ok, panics on Err (like force unwrap)
+        """
+        inner_type = self._check_expression(expr.expr)
+        if inner_type is None:
+            return None
+
+        # Must be a Result<T, E>
+        if not inner_type.is_result():
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`try` requires a Result type, got `{inner_type}`",
+                expr.line, expr.column
+            )
+            return None
+
+        ok_type = inner_type.unwrap_result_ok()
+        err_type = inner_type.unwrap_result_err()
+
+        if expr.variant == "optional":
+            # try? returns T?
+            return SawType(TypeKind.OPTIONAL, inner_type=ok_type)
+
+        elif expr.variant == "force":
+            # try! returns T (panics on Err)
+            return ok_type
+
+        else:  # "propagate"
+            # If there's an inline catch block, check it
+            if expr.catch_block:
+                return self._check_try_with_catch(expr, ok_type, err_type)
+
+            # Otherwise, try expr propagates - function must return Result<_, E>
+            self._validate_error_propagation(err_type, expr.line, expr.column)
+            return ok_type
+
+    def _validate_error_propagation(self, err_type: SawType, line: int, column: int):
+        """Validate that error can be propagated from current function."""
+        # Get expected return type from current function/method
+        expected_return = None
+        if self.current_function:
+            expected_return = self.current_function.return_type
+        elif self.current_method:
+            expected_return = self.current_method.return_type
+
+        if expected_return is None:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                "`try` can only propagate errors from functions/methods",
+                line, column
+            )
+            return
+
+        if not expected_return.is_result():
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`try` cannot propagate errors from a function returning `{expected_return}` (must return Result)",
+                line, column,
+                hint="use `try?` to convert to optional, or `try!` to force unwrap, or add a `catch` block"
+            )
+            return
+
+        expected_err = expected_return.unwrap_result_err()
+        if not self._types_compatible(err_type, expected_err):
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot propagate error of type `{err_type}` from function returning `Result<_, {expected_err}>`",
+                line, column
+            )
+
+    def _check_try_with_catch(self, expr: TryExpr, ok_type: SawType, err_type: SawType) -> Optional[SawType]:
+        """Check try expression with inline catch block."""
+        from .core import VariableInfo, Scope
+
+        # Create scope for catch block with 'error' binding
+        old_scope = self.current_scope
+        self.current_scope = Scope(parent=old_scope)
+
+        # Add implicit 'error' variable with the error type
+        self.current_scope.define(
+            "error",
+            VariableInfo(
+                type=err_type,
+                mutable=False,
+                line=expr.catch_block.line,
+                column=expr.catch_block.column
+            )
+        )
+
+        # Check catch block
+        catch_type = self._check_block(expr.catch_block)
+        self.current_scope = old_scope
+
+        # Types must be compatible (catch must return same type as ok_type)
+        if catch_type and not self._types_compatible(catch_type, ok_type):
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"catch block returns `{catch_type}` but try expression expects `{ok_type}`",
+                expr.catch_block.line, expr.catch_block.column
+            )
+
+        return ok_type
+
+    def _check_try_catch_expr(self, expr: TryCatchExpr) -> Optional[SawType]:
+        """Check a try-catch block expression: try { ... } catch { ... }"""
+        from .core import VariableInfo, Scope
+
+        # Check try block
+        try_type = self._check_block(expr.try_block)
+
+        # Create scope for catch block with 'error' binding
+        # For try-catch blocks, the error type is more generic since multiple
+        # try expressions may fail with different error types
+        old_scope = self.current_scope
+        self.current_scope = Scope(parent=old_scope)
+
+        # Add implicit 'error' variable - for now use a generic Error type
+        # In a more sophisticated implementation, we'd track all possible error types
+        error_name = expr.error_binding or "error"
+        self.current_scope.define(
+            error_name,
+            VariableInfo(
+                type=SawType(TypeKind.STRUCT, struct_name="Error"),  # Trait object placeholder
+                mutable=False,
+                line=expr.catch_block.line,
+                column=expr.catch_block.column
+            )
+        )
+
+        # Check catch block
+        catch_type = self._check_block(expr.catch_block)
+        self.current_scope = old_scope
+
+        # Types must be compatible
+        if try_type and catch_type and not self._types_compatible(try_type, catch_type):
+            # Allow optional wrapping - if one returns T and other returns T?, wrap
+            if try_type.is_optional() and not catch_type.is_optional():
+                pass  # catch_type will be wrapped
+            elif catch_type.is_optional() and not try_type.is_optional():
+                pass  # try_type will be wrapped
+            else:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"try and catch blocks have incompatible types: `{try_type}` vs `{catch_type}`",
+                    expr.line, expr.column
+                )
+
+        return try_type or catch_type

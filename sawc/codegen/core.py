@@ -14,6 +14,7 @@ from ast_nodes import (
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
+    TryExpr, TryCatchExpr,
     GuardLetStatement,
     Struct, StructField,
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
@@ -37,10 +38,11 @@ from .calls import CallsMixin
 from .collections import CollectionsMixin
 from .structs import StructsMixin
 from .match import MatchMixin
+from .results import ResultsMixin
 import copy
 
 
-class CodeGenerator(MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, TypesMixin, ResourcesMixin):
+class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, TypesMixin, ResourcesMixin):
     def __init__(self, namespace: Namespace):
         # Unified namespace from type checker (Phase 0 of module system)
         self.namespace = namespace
@@ -224,6 +226,9 @@ class CodeGenerator(MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, Oper
     def generate(self, program: Program) -> str:
         # Type aliases are already in namespace from typechecker
 
+        # Register built-in generic enums (like Result<T, E>)
+        self._register_builtin_enums()
+
         # First pass: register struct types
         for struct in program.structs:
             self._register_struct(struct)
@@ -303,6 +308,33 @@ class CodeGenerator(MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, Oper
         field_order = [field.name for field in struct.fields]
         self.struct_types[struct.name] = (llvm_struct_type, field_order)
         # Struct field types are in namespace
+
+    def _register_builtin_enums(self):
+        """Register built-in generic enums like Result<T, E>.
+
+        These are defined as builtins in the typechecker but need to be
+        registered in codegen for monomorphization.
+        """
+        # Create a synthetic Enum AST node for Result<T, E>
+        result_enum = Enum(
+            name="Result",
+            variants=[
+                EnumVariant(
+                    name="Ok",
+                    associated_types=[("value", SawType(TypeKind.TYPE_PARAM, type_param_name="T"))]
+                ),
+                EnumVariant(
+                    name="Err",
+                    associated_types=[("error", SawType(TypeKind.TYPE_PARAM, type_param_name="E"))]
+                )
+            ],
+            type_params=[
+                TypeParameter(name="T", line=0, column=0),
+                TypeParameter(name="E", line=0, column=0)
+            ],
+            line=0, column=0
+        )
+        self.generic_enums["Result"] = result_enum
 
     def _register_enum(self, enum: Enum):
         """Register an enum type with LLVM.
@@ -654,6 +686,12 @@ class CodeGenerator(MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, Oper
 
     def visit_OptionalChain(self, expr: OptionalChain):
         return self._generate_optional_chain(expr)
+
+    def visit_TryExpr(self, expr: TryExpr):
+        return self._generate_try_expr(expr)
+
+    def visit_TryCatchExpr(self, expr: TryCatchExpr):
+        return self._generate_try_catch_expr(expr)
 
     def visit_MethodCall(self, expr: MethodCall):
         return self._generate_method_call(expr)

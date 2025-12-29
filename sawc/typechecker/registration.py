@@ -69,6 +69,63 @@ class RegistrationMixin:
             column=0
         ))
 
+        # Register Result<T, E> as a built-in generic enum
+        from .core import EnumInfo, TraitInfo, TraitMethodInfo
+        from ast_nodes import TypeParameter
+
+        result_type_params = [
+            TypeParameter(name="T", line=0, column=0),
+            TypeParameter(name="E", line=0, column=0)
+        ]
+        self.enums["Result"] = EnumInfo(
+            name="Result",
+            variants={
+                "Ok": [("value", SawType(TypeKind.TYPE_PARAM, type_param_name="T"))],
+                "Err": [("error", SawType(TypeKind.TYPE_PARAM, type_param_name="E"))]
+            },
+            variant_order=["Ok", "Err"],
+            type_params=result_type_params
+        )
+        # Also register in namespace
+        self.namespace.register_enum("Result", EnumSymbol(
+            variants={
+                "Ok": [("value", SawType(TypeKind.TYPE_PARAM, type_param_name="T"))],
+                "Err": [("error", SawType(TypeKind.TYPE_PARAM, type_param_name="E"))]
+            },
+            variant_order=["Ok", "Err"],
+            type_params=result_type_params
+        ))
+
+        # Register Error trait for error types
+        self.traits["Error"] = TraitInfo(
+            name="Error",
+            methods={
+                "message": TraitMethodInfo(
+                    name="message",
+                    param_types=[SawType(TypeKind.SELF)],
+                    return_type=SawType(TypeKind.STRING),
+                    param_names=["self"],
+                    self_mutable=False
+                )
+            },
+            associated_types=[],
+            parent_traits=[]
+        )
+        # Also register in namespace
+        self.namespace.register_trait("Error", TraitSymbol(
+            methods={
+                "message": TraitMethodSymbol(
+                    name="message",
+                    param_types=[SawType(TypeKind.SELF)],
+                    return_type=SawType(TypeKind.STRING),
+                    param_names=["self"],
+                    self_mutable=False
+                )
+            },
+            associated_types=[],
+            parent_traits=[]
+        ))
+
     def _block_has_early_exit(self, block: Block) -> bool:
         """Check if a block definitely exits early (return, break, continue).
 
