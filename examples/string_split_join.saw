@@ -16,12 +16,8 @@ func main() {
     let parts = text.split(",")
 
     print("Split by comma:")
-    var i = 0
-    while i < parts.len() {
-        if let part = parts.get(i) {
-            print(part)
-        }
-        i = i + 1
+    for part in parts.iter() {
+        print(part)
     }
 
     // Test join
