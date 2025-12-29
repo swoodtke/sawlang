@@ -131,23 +131,53 @@ class ResultsMixin:
         return phi
 
     def _generate_try_propagate(self, result_val, is_ok, expr: TryExpr, result_enum_name: str):
-        """Generate code for try (propagate Err to caller)."""
+        """Generate code for try (propagate Err to caller or to enclosing catch)."""
         func = self.builder.function
         ok_bb = func.append_basic_block(name="try_ok")
         err_bb = func.append_basic_block(name="try_err")
 
         self.builder.cbranch(is_ok, ok_bb, err_bb)
 
-        # Err block - return early with error
+        # Err block
         self.builder.position_at_end(err_bb)
         err_value = self._extract_result_err_value(result_val, result_enum_name)
 
-        # Create Err result for caller's return type
-        caller_result = self._create_result_err_for_return(err_value)
+        # Check if we have an enclosing catch block
+        catch_ctx = getattr(self, '_catch_context', None)
+        if catch_ctx:
+            # Unpack context - may have 2 or 4 elements depending on version
+            if len(catch_ctx) == 4:
+                catch_bb, err_alloca_ptr, error_type, error_types = catch_ctx
+            else:
+                catch_bb, err_alloca_ptr = catch_ctx
+                error_type, error_types = None, []
 
-        # Run cleanup before returning
-        self._cleanup_all_scopes()
-        self.builder.ret(caller_result)
+            # Determine the value to store
+            value_to_store = err_value
+            store_type = err_value.type
+
+            # If multiple error types, wrap in union enum
+            if len(error_types) > 1 and error_type and error_type.enum_name:
+                value_to_store = self._wrap_error_in_union(err_value, error_type, result_enum_name)
+                store_type = value_to_store.type
+
+            # Create error alloca at function entry if not exists yet
+            if err_alloca_ptr[0] is None:
+                # Save position, allocate at entry, restore position
+                saved_block = self.builder.block
+                entry_bb = func.entry_basic_block
+                # Position at start of entry block (allocas go at the beginning)
+                self.builder.position_at_start(entry_bb)
+                err_alloca_ptr[0] = self.builder.alloca(store_type, name="caught_error")
+                self.builder.position_at_end(saved_block)
+
+            self.builder.store(value_to_store, err_alloca_ptr[0])
+            self.builder.branch(catch_bb)
+        else:
+            # No enclosing catch - propagate to caller
+            caller_result = self._create_result_err_for_return(err_value)
+            self._cleanup_all_scopes()
+            self.builder.ret(caller_result)
 
         # OK block - continue with unwrapped value
         self.builder.position_at_end(ok_bb)
@@ -207,18 +237,84 @@ class ResultsMixin:
         return phi
 
     def _generate_try_catch_expr(self, expr: TryCatchExpr):
-        """Generate code for try-catch block expression: try { ... } catch { ... }"""
-        # For now, generate the try block and catch block
-        # In a full implementation, we'd need to track which try expressions
-        # in the block should propagate to the catch
+        """Generate code for try-catch block expression: try { ... } catch { ... }
+
+        Sets up catch context so that try expressions (without inline catch)
+        inside the try block will jump to the catch block on error.
+        """
+        func = self.builder.function
+
+        # Create blocks
+        catch_bb = func.append_basic_block(name="catch")
+        merge_bb = func.append_basic_block(name="try_catch_merge")
+
+        # Get error type info from typechecker (set in _check_try_catch_expr)
+        error_type = getattr(expr, 'error_type', None)
+        error_types = getattr(expr, 'error_types', [])
+        is_union = len(error_types) > 1
+
+        # If union type, ensure it's monomorphized so we have the LLVM type
+        if is_union and error_type and error_type.enum_name:
+            self._ensure_enum_monomorphized(error_type.enum_name, error_type, error_types)
+
+        # Use a mutable list so try expressions can set the alloca when they know the error type
+        # Also pass error type info for union wrapping
+        err_alloca_ptr = [None]  # Will be set by first try expression that fails
+
+        # Save old catch context and set new one
+        # Context: (catch_bb, err_alloca_ptr, error_type, error_types)
+        old_catch_ctx = getattr(self, '_catch_context', None)
+        self._catch_context = (catch_bb, err_alloca_ptr, error_type, error_types)
 
         # Generate try block
         try_result = self._generate_block(expr.try_block)
+        try_end_bb = self.builder.block
 
-        # For block-level try-catch, the error handling is more complex
-        # because multiple try expressions could fail
-        # For simplicity, we'll generate the catch block as unreachable for now
-        # A full implementation would require exception-like control flow
+        # Only branch to merge if we didn't already terminate
+        if not self.builder.block.is_terminated:
+            self.builder.branch(merge_bb)
+            try_end_bb = self.builder.block
+
+        # Restore old catch context
+        self._catch_context = old_catch_ctx
+
+        # Generate catch block
+        self.builder.position_at_end(catch_bb)
+
+        # Make error available as 'error' variable (if any try expression set it up)
+        if err_alloca_ptr[0] is not None:
+            old_error = self.variables.get("error")
+            self.variables["error"] = err_alloca_ptr[0]
+
+            # Generate catch block code
+            catch_result = self._generate_block(expr.catch_block)
+            catch_end_bb = self.builder.block
+
+            # Restore old 'error' if any
+            if old_error is not None:
+                self.variables["error"] = old_error
+            elif "error" in self.variables:
+                del self.variables["error"]
+        else:
+            # No try expressions in the block (unusual) - just generate catch code
+            catch_result = self._generate_block(expr.catch_block)
+            catch_end_bb = self.builder.block
+
+        # Only branch to merge if we didn't already terminate
+        if not self.builder.block.is_terminated:
+            self.builder.branch(merge_bb)
+            catch_end_bb = self.builder.block
+
+        # Merge block
+        self.builder.position_at_end(merge_bb)
+
+        # If both branches produce values, create a phi node
+        if try_result is not None and catch_result is not None:
+            if try_result.type == catch_result.type:
+                phi = self.builder.phi(try_result.type, name="try_catch_result")
+                phi.add_incoming(try_result, try_end_bb)
+                phi.add_incoming(catch_result, catch_end_bb)
+                return phi
 
         return try_result
 
@@ -391,3 +487,86 @@ class ResultsMixin:
             return f"Optional_{inner}"
         else:
             return str(saw_type.kind.name)
+
+    def _ensure_enum_monomorphized(self, enum_name: str, saw_type: SawType, error_types: list = None):
+        """Ensure a synthetic enum (like error union) is registered in enum_types.
+
+        This handles enums created by the typechecker (like _CatchError_123)
+        that aren't from source code.
+        """
+        if enum_name in self.enum_types:
+            return  # Already registered
+
+        if error_types is None:
+            raise ValueError(f"Cannot monomorphize synthetic enum {enum_name} without error_types")
+
+        # Build variants from error_types
+        from ast_nodes import EnumVariant
+        variants = []
+        for err_type in error_types:
+            # Get variant name from the type
+            if err_type.kind == TypeKind.STRUCT:
+                variant_name = err_type.struct_name
+            elif err_type.kind == TypeKind.ENUM:
+                variant_name = err_type.enum_name
+            else:
+                variant_name = str(err_type)
+
+            variants.append(EnumVariant(
+                name=variant_name,
+                associated_types=[("value", err_type)]
+            ))
+
+        self._register_concrete_enum(enum_name, variants)
+
+    def _wrap_error_in_union(self, err_value, union_type: SawType, result_enum_name: str):
+        """Wrap an error value in the union enum type.
+
+        Given an error value (e.g., ParseError) and a union type (_CatchError_123),
+        creates an enum value with the appropriate variant.
+        """
+        # Get the error type name from the Result type
+        # result_enum_name is like "Result_Int_ParseError"
+        parts = result_enum_name.split("_")
+        if len(parts) >= 3:
+            err_type_name = parts[-1]  # Last part is error type name
+        else:
+            err_type_name = "Unknown"
+
+        # Get the union enum type info
+        union_enum_name = union_type.enum_name
+        if union_enum_name not in self.enum_types:
+            # Ensure it's monomorphized
+            self._ensure_enum_monomorphized(union_enum_name, union_type)
+
+        llvm_enum_type, variant_tags, variant_info = self.enum_types[union_enum_name]
+
+        # Find the variant for this error type
+        if err_type_name not in variant_tags:
+            raise ValueError(f"Error type {err_type_name} not found in union {union_enum_name}")
+
+        # Create the union enum value
+        union_val = ir.Constant(llvm_enum_type, ir.Undefined)
+
+        # Set the tag
+        tag = ir.Constant(ir.IntType(32), variant_tags[err_type_name])
+        union_val = self.builder.insert_value(union_val, tag, 0)
+
+        # Create payload struct for the variant
+        variant_params = variant_info[err_type_name]
+        param_types = [self._get_llvm_type(t) for _, t in variant_params]
+        param_struct_type = ir.LiteralStructType(param_types)
+
+        param_struct = ir.Constant(param_struct_type, ir.Undefined)
+        param_struct = self.builder.insert_value(param_struct, err_value, 0)
+
+        # Convert struct to bytes and store in payload
+        payload_type = llvm_enum_type.elements[1]
+        payload_alloca = self.builder.alloca(param_struct_type, name="union_err_alloca")
+        self.builder.store(param_struct, payload_alloca)
+
+        bytes_ptr = self.builder.bitcast(payload_alloca, ir.PointerType(payload_type))
+        payload_bytes = self.builder.load(bytes_ptr, name="union_err_bytes")
+
+        union_val = self.builder.insert_value(union_val, payload_bytes, 1)
+        return union_val

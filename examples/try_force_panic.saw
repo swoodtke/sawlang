@@ -1,0 +1,21 @@
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic: try! failed at line 19
+
+// Test try! (force unwrap) panics on Err
+
+struct ParseError {
+    code: Int
+}
+
+func parseNumber(valid: Bool) -> Result<Int, ParseError> {
+    if valid {
+        return 42
+    }
+    return ParseError(code: 1)
+}
+
+func main() {
+    // try! on Err - should panic
+    let value = try! parseNumber(false)
+    print(value)  // never reached
+}

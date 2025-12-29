@@ -1501,6 +1501,10 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return None
+
+        # Store the matched type for codegen (avoids needing to match by LLVM type)
+        expr.matched_enum_type = matched_type
+
         enum_info = self.enums.get(matched_type.enum_name)
         if enum_info is None:
             return None
@@ -1765,7 +1769,14 @@ class ExpressionsMixin:
             return ok_type
 
     def _validate_error_propagation(self, err_type: SawType, line: int, column: int):
-        """Validate that error can be propagated from current function."""
+        """Validate that error can be propagated from current function or to enclosing catch."""
+        # If we're inside a try-catch block, errors go to the catch block
+        if self.in_try_catch_block:
+            # Track the error type for the enclosing try-catch
+            if hasattr(self, '_try_catch_error_types') and self._try_catch_error_types is not None:
+                self._try_catch_error_types.append(err_type)
+            return  # OK - error will be caught by enclosing try-catch
+
         # Get expected return type from current function/method
         expected_return = None
         if self.current_function:
@@ -1835,22 +1846,59 @@ class ExpressionsMixin:
         """Check a try-catch block expression: try { ... } catch { ... }"""
         from .core import VariableInfo, Scope
 
+        # Set flag so try expressions know they're inside a try-catch
+        old_in_try_catch = self.in_try_catch_block
+        self.in_try_catch_block = True
+
+        # Track error types from try expressions in this block
+        old_try_catch_error_types = getattr(self, '_try_catch_error_types', None)
+        self._try_catch_error_types = []
+
         # Check try block
         try_type = self._check_block(expr.try_block)
 
+        # Collect unique error types
+        error_types = self._try_catch_error_types
+        unique_error_types = []
+        for err_type in error_types:
+            # Check if we already have this type
+            is_dup = False
+            for existing in unique_error_types:
+                if self._types_compatible(err_type, existing):
+                    is_dup = True
+                    break
+            if not is_dup:
+                unique_error_types.append(err_type)
+
+        # Determine the error type for the catch block
+        if len(unique_error_types) == 0:
+            error_type = SawType(TypeKind.STRUCT, struct_name="Error")  # Fallback
+        elif len(unique_error_types) == 1:
+            error_type = unique_error_types[0]  # Single error type
+        else:
+            # Multiple error types - create a union enum
+            error_type = self._create_error_union_type(unique_error_types, expr)
+
+        # Store the error type on the expression for codegen
+        expr.error_type = error_type
+        expr.error_types = unique_error_types
+
+        # Restore tracking
+        self._try_catch_error_types = old_try_catch_error_types
+
+        # Restore flag before checking catch (catch is not inside try-catch context)
+        self.in_try_catch_block = old_in_try_catch
+
         # Create scope for catch block with 'error' binding
-        # For try-catch blocks, the error type is more generic since multiple
-        # try expressions may fail with different error types
         old_scope = self.current_scope
         self.current_scope = Scope(parent=old_scope)
 
-        # Add implicit 'error' variable - for now use a generic Error type
-        # In a more sophisticated implementation, we'd track all possible error types
+        # Add implicit 'error' variable with the actual error type
         error_name = expr.error_binding or "error"
         self.current_scope.define(
             error_name,
             VariableInfo(
-                type=SawType(TypeKind.STRUCT, struct_name="Error"),  # Trait object placeholder
+                type=error_type,
                 mutable=False,
                 line=expr.catch_block.line,
                 column=expr.catch_block.column
@@ -1876,3 +1924,44 @@ class ExpressionsMixin:
                 )
 
         return try_type or catch_type
+
+    def _create_error_union_type(self, error_types: List[SawType], expr) -> SawType:
+        """Create a union enum type for multiple error types.
+
+        Creates an enum like:
+            enum _CatchError_123 {
+                case ParseError(value: ParseError),
+                case IoError(value: IoError)
+            }
+
+        This allows using match in the catch block to differentiate errors.
+        """
+        from .core import EnumInfo
+
+        # Create unique name based on expression id
+        union_name = f"_CatchError_{id(expr)}"
+
+        # Build variants - each error type becomes a variant with 'value' field
+        variants = {}
+        variant_order = []
+        for err_type in error_types:
+            # Get variant name from the type
+            if err_type.kind == TypeKind.STRUCT:
+                variant_name = err_type.struct_name
+            elif err_type.kind == TypeKind.ENUM:
+                variant_name = err_type.enum_name
+            else:
+                variant_name = str(err_type)
+
+            variants[variant_name] = [("value", err_type)]
+            variant_order.append(variant_name)
+
+        # Register the enum
+        self.enums[union_name] = EnumInfo(
+            name=union_name,
+            variants=variants,
+            variant_order=variant_order,
+            type_params=[]
+        )
+
+        return SawType(TypeKind.ENUM, enum_name=union_name)

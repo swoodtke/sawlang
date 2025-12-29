@@ -168,6 +168,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self.type_aliases: Dict[str, SawType] = {}
         # Track moved variables for use-after-move detection
         self.moved_variables: set[str] = set()
+        # Track if we're inside a try-catch block (errors go to catch, not caller)
+        self.in_try_catch_block: bool = False
 
         # Unified namespace (Phase 0 of module system)
         # Populated in parallel with legacy dicts during migration

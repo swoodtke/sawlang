@@ -1,0 +1,23 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+
+// Test try! (force unwrap) with Ok value
+// try! unwraps Ok, panics on Err
+
+struct ParseError {
+    code: Int
+}
+
+func parseNumber(valid: Bool) -> Result<Int, ParseError> {
+    if valid {
+        return 42
+    }
+    return ParseError(code: 1)
+}
+
+func main() {
+    // try! on Ok - should unwrap to 42
+    let value = try! parseNumber(true)
+    print(value)
+}

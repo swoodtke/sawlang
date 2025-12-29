@@ -69,7 +69,8 @@ class TypeUtilsMixin:
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
             # Check if this is actually an enum (NOT a type alias - those stay as STRUCT)
             if saw_type.struct_name in self.enums:
-                return SawType(TypeKind.ENUM, enum_name=saw_type.struct_name)
+                resolved_args = [self._resolve_type(t) for t in saw_type.type_args] if saw_type.type_args else None
+                return SawType(TypeKind.ENUM, enum_name=saw_type.struct_name, type_args=resolved_args)
             # Recursively resolve type args
             if saw_type.type_args:
                 resolved_args = [self._resolve_type(t) for t in saw_type.type_args]

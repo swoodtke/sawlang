@@ -1,0 +1,54 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 404
+
+// Test try-catch with multiple error types using match
+
+struct ParseError {
+    code: Int
+}
+
+struct IoError {
+    status: Int
+}
+
+func parseNumber(valid: Bool) -> Result<Int, ParseError> {
+    if valid {
+        return 42
+    }
+    return ParseError(code: 1)
+}
+
+func readFile(exists: Bool) -> Result<Int, IoError> {
+    if exists {
+        return 100
+    }
+    return IoError(status: 404)
+}
+
+func main() {
+    // First error type fails
+    try {
+        let n = try parseNumber(false)
+        let m = try readFile(true)
+        print(n + m)
+    } catch {
+        match error {
+            case ParseError(e) -> print(e.code),
+            case IoError(e) -> print(e.status)
+        }
+    }
+
+    // Second error type fails
+    try {
+        let n = try parseNumber(true)
+        let m = try readFile(false)
+        print(n + m)
+    } catch {
+        match error {
+            case ParseError(e) -> print(e.code),
+            case IoError(e) -> print(e.status)
+        }
+    }
+}

@@ -22,6 +22,7 @@ This document outlines the Saw language features required to implement `blade`, 
 - ~~Process spawning~~ ✅ Done (Command struct)
 - ~~Module system~~ ✅ Done (imports, visibility, packages)
 - ~~Command-line argument parsing~~ ✅ Done (Env.args)
+- ~~Error handling (Result, try/catch)~~ ✅ Done
 
 ---
 
@@ -380,12 +381,12 @@ Env.set_cwd(Path(s: "/tmp"))
 
 ---
 
-## Phase 6: Error Handling
+## Phase 6: Error Handling ✅ COMPLETE
 
 *Goal: Proper Result types and error propagation.*
 
-### 6.1 Result Type & Error Handling
-**Priority: HIGH**
+### 6.1 Result Type & Error Handling ✅
+**Priority: HIGH** - COMPLETED
 
 ```saw
 enum Result<T, E> {
@@ -393,26 +394,53 @@ enum Result<T, E> {
     case Err(error: E)
 }
 
-// Error propagation with ?
-func read_config() -> Result<Config, Error> {
-    let content = fs.read_to_string("config.toml")?
-    let config = parse_toml(content)?
-    return Ok(config)
+// Auto-wrap returns - just return T or E
+func parse_number(valid: Bool) -> Result<Int, ParseError> {
+    if valid {
+        return 42              // Auto-wraps to Ok(value: 42)
+    }
+    return ParseError(code: 1) // Auto-wraps to Err(error: ...)
 }
 
-// Pattern matching on errors
-match result {
-    case Ok(value) -> print(value),
-    case Err(e) -> print("Error: {e.message}")
+// try variants
+let x = try parse_number(true)           // Propagates Err to caller
+let y = try? parse_number(false)         // Returns Int? (None on Err)
+let z = try! parse_number(true)          // Force unwrap (panics on Err)
+
+// Inline catch
+let value = try parse_number(false) catch { 0 }  // Fallback value
+
+// Block try-catch
+try {
+    let a = try op1()
+    let b = try op2()
+} catch {
+    print(error.code)  // 'error' variable available
+}
+
+// Multiple error types with match
+try {
+    let n = try parse_number(false)
+    let f = try read_file(path)
+} catch {
+    match error {
+        case ParseError(e) -> print(e.code),
+        case IoError(e) -> print(e.status)
+    }
 }
 ```
 
 **Tasks:**
-- [ ] Built-in Result<T, E> enum
-- [ ] `?` operator for early return on Err
-- [ ] Error trait with `message()` method
-- [ ] Common error types (IoError, ParseError, etc.)
-- [ ] `try` blocks for local error handling
+- [x] Built-in Result<T, E> enum
+- [x] Auto-wrap returns: returning T wraps in Ok, returning E wraps in Err
+- [x] `try expr` for error propagation to caller
+- [x] `try? expr` converts Result to Optional (None on Err)
+- [x] `try! expr` force unwrap (panics on Err)
+- [x] `try expr catch { }` inline catch with fallback
+- [x] `try { } catch { }` block catch with implicit `error` variable
+- [x] Multiple error types auto-union with match support in catch
+- [x] Pattern matching on Result with `match`
+- [ ] Error trait with `message()` method (optional - errors work without it)
 
 ---
 
@@ -548,6 +576,12 @@ my-package/
 - Visibility: public, public(package), public(parent), private (default)
 - Saw.toml package manifest and init.saw facades
 - Per-module namespace resolution and type checking
+
+**Milestone 4.5: Error Handling** ✅ COMPLETE (Phase 6)
+- Result<T, E> with auto-wrap returns
+- try/try?/try! operators
+- Inline and block catch syntax
+- Multiple error types with match in catch
 
 **Milestone 5: Minimal blade** (Phase 8.1-8.4) ⬅️ NEXT
 - `blade build` for local projects

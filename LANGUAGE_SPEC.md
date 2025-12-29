@@ -699,157 +699,125 @@ extension Container: CustomCopy {
 
 Saw uses `Result<T, E>` for recoverable errors with `try` expressions for ergonomic handling. Errors are explicit in function signatures—no hidden control flow.
 
-### The Error Interface
-
-```saw
-// Built-in trait that all error types should implement
-trait Error {
-    func message(self) -> String
-}
-
-// Custom error types implement Error
-enum IoError: Error {
-    case NotFound(path: String),
-    case Permission(path: String),
-    case ConnectionFailed(host: String),
-}
-
-extension IoError {
-    func message(self) -> String {
-        match self {
-            case NotFound(p) -> "File not found: {p}",
-            case Permission(p) -> "Permission denied: {p}",
-            case ConnectionFailed(h) -> "Connection failed: {h}",
-        }
-    }
-}
-
-enum ParseError: Error {
-    case InvalidSyntax(line: Int, column: Int),
-    case UnexpectedToken(token: String),
-    case EndOfInput,
-}
-
-extension ParseError {
-    func message(self) -> String {
-        match self {
-            case InvalidSyntax(line, col) -> "Syntax error at {line}:{col}",
-            case UnexpectedToken(tok) -> "Unexpected token: {tok}",
-            case EndOfInput -> "Unexpected end of input",
-        }
-    }
-}
-```
-
 ### Result Type
 
 ```saw
 // Built-in generic enum
 enum Result<T, E> {
     case Ok(value: T),
-    case Err(error: E),
+    case Err(error: E)
+}
+
+// Custom error types are just structs
+struct IoError {
+    code: Int
+}
+
+struct ParseError {
+    line: Int
+    message: String
 }
 
 // Functions declare error types explicitly in return type
 func read_file(path: String) -> Result<String, IoError> {
     // ...
 }
+```
 
-func parse_json(content: String) -> Result<Config, ParseError> {
-    // ...
+### Auto-Wrap Returns
+
+In functions returning `Result<T, E>`, values are automatically wrapped:
+
+```saw
+func parse_number(valid: Bool) -> Result<Int, ParseError> {
+    if valid {
+        return 42  // Auto-wrapped to Ok(value: 42)
+    }
+    return ParseError(line: 1, message: "invalid")  // Auto-wrapped to Err(error: ...)
+}
+
+// Rules:
+// - Return T → wraps in Ok(value: T)
+// - Return E → wraps in Err(error: E)
+// - Return Result<T, E> → no wrapping
+```
+
+### Try Variants
+
+The `try` keyword has three forms:
+
+```saw
+// try - propagate error to caller (function must return Result)
+func load_data() -> Result<Data, IoError> {
+    let content = try read_file("data.txt")  // Propagates IoError if Err
+    return parse(content)
+}
+
+// try? - convert Result to Optional (None on Err)
+let maybe_content: String? = try? read_file("data.txt")
+
+// try! - force unwrap (panics on Err)
+let content = try! read_file("data.txt")  // Panics if Err
+```
+
+### Inline Catch
+
+Handle errors locally with inline `catch`:
+
+```saw
+// Provide fallback value on error
+let content = try read_file("config.txt") catch { "default config" }
+
+// Access error in catch block
+let content = try read_file("config.txt") catch {
+    print("Error code: {error.code}")
+    "default config"
 }
 ```
 
-### The `try` Expression
+### Block Try-Catch
 
-The `try` keyword unwraps a `Result`, extracting the `Ok` value. If the result is `Err`, the error is either propagated to the caller or caught by an enclosing `try/catch` block.
+For multiple operations that may fail:
 
 ```saw
-// 'try' unwraps Ok value, propagates Err to caller
-func load_config() -> Result<Config, IoError> {
-    let content = try read_file("config.json")  // Propagates IoError
-    Ok(parse(content))
-}
-
-// Chaining multiple try expressions
-func process_data() -> Result<Output, IoError> {
-    let input = try read_file("input.txt")
-    let config = try read_file("config.json")
-    Ok(transform(input, config))
+try {
+    let config = try read_config()
+    let data = try load_data(config)
+    process(data)
+} catch {
+    print("Error: {error.code}")
 }
 ```
 
-**Key rule:** A bare `try` (outside a `try/catch` block) requires the enclosing function to return `Result<_, E>` where `E` is compatible with the error type.
+The implicit `error` variable is available in the catch block.
 
-### The `try/catch` Block
+### Multiple Error Types
 
-For local error handling without propagation, use `try/catch` blocks with pattern matching:
+When a try block contains operations with different error types, use `match` to handle them:
 
 ```saw
-func safe_read() -> Config {
+struct IoError { code: Int }
+struct ParseError { line: Int }
+
+func read_file(path: String) -> Result<String, IoError> { ... }
+func parse_config(content: String) -> Result<Config, ParseError> { ... }
+
+func load_config() {
     try {
-        let content = try read_file("config.json")
-        try parse_json(content)
+        let content = try read_file("config.txt")
+        let config = try parse_config(content)
+        use(config)
     } catch {
-        case IoError.NotFound(p) -> {
-            print("Config not found at {p}, using defaults")
-            Config.default()
-        },
-        case IoError.Permission(p) -> {
-            print("Cannot read {p}, using defaults")
-            Config.default()
-        },
-        case ParseError.InvalidSyntax(line, _) -> {
-            panic("Config syntax error at line {line}")
-        },
-        case ParseError.UnexpectedToken(tok) -> {
-            panic("Unexpected token in config: {tok}")
-        },
-        case ParseError.EndOfInput -> {
-            panic("Config file is incomplete")
-        },
+        // error is auto-wrapped in a union enum
+        match error {
+            case IoError(e) -> print("IO error: {e.code}"),
+            case ParseError(e) -> print("Parse error at line: {e.line}")
+        }
     }
 }
 ```
 
-The `catch` block must be **exhaustive**—all possible error types from the `try` block must be handled.
-
-### Mixed Error Types and the Error Interface
-
-When a `try` block contains operations that return different error types, they are automatically erased to the `Error` trait for propagation:
-
-```saw
-// Mixed errors auto-erase to Error trait
-func load_and_parse() -> Result<Config, Error> {
-    // IoError and ParseError both implement Error
-    let content = try read_file("config.json")  // Result<String, IoError>
-    try parse_json(content)                      // Result<Config, ParseError>
-    // Both errors erased to Error for propagation
-}
-```
-
-At a higher level, you can pattern match on the `Error` trait to recover concrete types:
-
-```saw
-func main() {
-    try {
-        let config = try load_and_parse()
-        run(config)
-    } catch {
-        // Pattern match to recover concrete error types
-        case IoError.NotFound(p) -> print("Missing file: {p}"),
-        case IoError.Permission(p) -> print("Access denied: {p}"),
-        case ParseError.InvalidSyntax(line, col) -> {
-            print("Syntax error at {line}:{col}")
-        },
-        // Catch-all required when matching on Error trait
-        // (can't statically know all implementors)
-        case _ -> print("Unknown error occurred"),
-    }
-}
-```
-
-**Important:** When catching `Error` (the trait), a catch-all `case _` is required since the compiler cannot know all types that implement `Error`. When catching specific error types, exhaustiveness is checked statically.
+The compiler automatically creates a union type for multiple error types, allowing pattern matching in the catch block.
 
 ### Explicit Result Handling
 
@@ -858,13 +826,8 @@ You can always handle `Result` explicitly with `match`:
 ```saw
 match read_file("data.txt") {
     case Ok(content) -> process(content),
-    case Err(e) -> print("Error: {e.message()}"),
+    case Err(e) -> print("Error: {e.code}")
 }
-
-// Combinators for functional style
-let result = read_file("data.txt")
-    .map { content in content.to_uppercase() }
-    .unwrap_or("default")
 ```
 
 ### Panic for Unrecoverable Errors
@@ -873,25 +836,21 @@ let result = read_file("data.txt")
 // Panic halts execution (unrecoverable)
 func get_index(arr: [Int], i: Int) -> Int {
     if i >= arr.len() {
-        panic("Index {i} out of bounds for length {arr.len()}")
+        panic("Index {i} out of bounds")
     }
     arr[i]
 }
-
-// Assert for invariants
-assert(x > 0, "x must be positive")
-debug_assert(expensive_check())  // Only in debug builds
 ```
 
 ### Summary
 
-| Mechanism | Use Case |
-|-----------|----------|
-| `Result<T, E>` | Explicit error type in signature |
-| `try expr` | Unwrap Ok or propagate/catch Err |
-| `try { } catch { }` | Local error handling with pattern matching |
-| `Error` trait | Type-erased errors, pattern match later |
-| `panic()` | Unrecoverable errors, bugs, invariant violations |
+| Syntax | Behavior | Return Type |
+|--------|----------|-------------|
+| `try expr` | Unwrap Ok, propagate Err to caller | `T` |
+| `try? expr` | Unwrap Ok, return None on Err | `T?` |
+| `try! expr` | Unwrap Ok, panic on Err | `T` |
+| `try expr catch { }` | Unwrap Ok, run catch block on Err | `T` |
+| `try { } catch { }` | Catch errors from try block | block type |
 
 ---
 

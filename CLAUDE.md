@@ -128,7 +128,7 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 81 tests including success cases and error validation
+**Test Coverage:** 166 tests including success cases and error validation
 
 ## Current Features
 
@@ -158,6 +158,10 @@ The compiler currently supports:
 - Optional binding: `if let`/`if var`, `guard let`/`guard var`
 - Enums with associated values and `match` expressions
 - Match exhaustiveness checking (must cover all variants or use `_` wildcard)
+- Result<T, E> with auto-wrap returns
+- `try`/`try?`/`try!` operators for error handling
+- `try { } catch { }` blocks with implicit `error` variable
+- Multiple error types with match in catch block
 
 ### Extensions & Methods
 - `extension` blocks for adding methods to structs
@@ -473,5 +477,82 @@ func main() {
     // Or use nil coalescing
     let result = found ?? 0
     print(result)
+}
+```
+
+### Result and Error Handling
+```saw
+struct ParseError {
+    code: Int
+}
+
+// Functions returning Result get auto-wrap
+func parseNumber(valid: Bool) -> Result<Int, ParseError> {
+    if valid {
+        return 42                    // Auto-wrapped to Ok
+    }
+    return ParseError(code: 1)       // Auto-wrapped to Err
+}
+
+func main() {
+    // try! - force unwrap (panics on Err)
+    let n = try! parseNumber(true)
+    print(n)  // 42
+
+    // try? - convert to Optional
+    let maybe = try? parseNumber(false)
+    if let value = maybe {
+        print(value)
+    } else {
+        print(0)  // Prints 0 since parseNumber failed
+    }
+
+    // Inline catch with fallback
+    let value = try parseNumber(false) catch { 99 }
+    print(value)  // 99
+
+    // Block try-catch
+    try {
+        let x = try parseNumber(false)
+        print(x)
+    } catch {
+        print(error.code)  // 1
+    }
+
+    // Match on Result directly
+    match parseNumber(true) {
+        case Ok(n) -> print(n),
+        case Err(e) -> print(e.code)
+    }
+}
+```
+
+### Multiple Error Types in Catch
+```saw
+struct ParseError { code: Int }
+struct IoError { status: Int }
+
+func parse(valid: Bool) -> Result<Int, ParseError> {
+    if valid { return 42 }
+    return ParseError(code: 1)
+}
+
+func read(exists: Bool) -> Result<Int, IoError> {
+    if exists { return 100 }
+    return IoError(status: 404)
+}
+
+func main() {
+    // Multiple error types auto-wrapped in union
+    try {
+        let a = try parse(false)
+        let b = try read(true)
+        print(a + b)
+    } catch {
+        match error {
+            case ParseError(e) -> print(e.code),
+            case IoError(e) -> print(e.status)
+        }
+    }
 }
 ```

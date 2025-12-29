@@ -34,12 +34,23 @@ class MatchMixin:
             # Enum with payload
             tag = self.builder.extract_value(matched_val, 0, name="match_tag")
 
-        # Find the enum name by matching LLVM types
-        enum_name = None
-        for name, (llvm_type, _, _) in self.enum_types.items():
-            if llvm_type == matched_val.type:
-                enum_name = name
-                break
+        # Get enum name from typechecker annotation, or fall back to LLVM type matching
+        matched_enum_type = getattr(expr, 'matched_enum_type', None)
+        if matched_enum_type is not None:
+            # Mangle generic enums like Result<Int, Int> -> Result_Int_Int
+            if matched_enum_type.type_args:
+                enum_name = matched_enum_type.enum_name + "_" + "_".join(
+                    self._mangle_type_name(t) for t in matched_enum_type.type_args
+                )
+            else:
+                enum_name = matched_enum_type.enum_name
+        else:
+            enum_name = None
+            # Fallback: find the enum name by matching LLVM types
+            for name, (llvm_type, _, _) in self.enum_types.items():
+                if llvm_type == matched_val.type:
+                    enum_name = name
+                    break
 
         # Create basic blocks for each arm + merge block
         arm_blocks = []

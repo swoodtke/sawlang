@@ -1,0 +1,34 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 0
+
+// Test try? (convert Result to Optional)
+// try? returns T? - Some(value) on Ok, None on Err
+
+struct ParseError {
+    code: Int
+}
+
+func parseNumber(valid: Bool) -> Result<Int, ParseError> {
+    if valid {
+        return 42
+    }
+    return ParseError(code: 1)
+}
+
+func main() {
+    // try? on Ok - returns Some(42)
+    let result1 = try? parseNumber(true)
+    if let value = result1 {
+        print(value)  // 42
+    }
+
+    // try? on Err - returns None
+    let result2 = try? parseNumber(false)
+    if let value = result2 {
+        print(value)  // not reached
+    } else {
+        print(0)  // 0 indicates we got None
+    }
+}
