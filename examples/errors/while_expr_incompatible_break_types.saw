@@ -1,5 +1,5 @@
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: break value type `STRING` incompatible with expected type `INT`
+// EXPECT-ERROR-CONTAINS: break value type `String` incompatible with expected type `Int`
 
 func main() {
     var counter = 0

@@ -96,7 +96,24 @@ class SawType:
             if self.reference_mutable:
                 return f"&var {self.inner_type}"
             return f"&{self.inner_type}"
-        return self.kind.name
+        # Map TypeKind names to CamelCase display names
+        display_names = {
+            TypeKind.INT: "Int",
+            TypeKind.UINT: "UInt",
+            TypeKind.INT8: "Int8",
+            TypeKind.INT16: "Int16",
+            TypeKind.INT32: "Int32",
+            TypeKind.INT64: "Int64",
+            TypeKind.UINT8: "UInt8",
+            TypeKind.UINT16: "UInt16",
+            TypeKind.UINT32: "UInt32",
+            TypeKind.UINT64: "UInt64",
+            TypeKind.FLOAT: "Float",
+            TypeKind.BOOL: "Bool",
+            TypeKind.STRING: "String",
+            TypeKind.VOID: "Void",
+        }
+        return display_names.get(self.kind, self.kind.name)
 
     # ===== Predicate Methods =====
 

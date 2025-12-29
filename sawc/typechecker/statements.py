@@ -128,11 +128,37 @@ class StatementsMixin:
                     method.line, method.column
                 )
             elif body_type is not None and not self._types_compatible(body_type, expected_return):
-                self.reporter.error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
-                    method.line, method.column
-                )
+                # Check for Result auto-wrapping on final expression
+                if expected_return.is_result() and method.body.final_expr:
+                    ok_type = expected_return.unwrap_result_ok()
+                    err_type = expected_return.unwrap_result_err()
+
+                    if body_type.is_result():
+                        # Already a Result but types don't match
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
+                            method.line, method.column
+                        )
+                    elif self._types_compatible(body_type, ok_type):
+                        # Auto-wrap in Ok
+                        method.body.final_expr.auto_wrap = "ok"
+                    elif self._types_compatible(body_type, err_type):
+                        # Auto-wrap in Err
+                        method.body.final_expr.auto_wrap = "err"
+                    else:
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"method `{method.name}` should return `{expected_return}` but returns `{body_type}` "
+                            f"(doesn't match Ok type `{ok_type}` or Err type `{err_type}`)",
+                            method.line, method.column
+                        )
+                else:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
+                        method.line, method.column
+                    )
 
         # Check NoCopy return - must use move for variable references
         # Check both the return type and the inner type if optional
@@ -185,11 +211,37 @@ class StatementsMixin:
                     func.line, func.column
                 )
             elif body_type is not None and not self._types_compatible(body_type, resolved_return_type):
-                self.reporter.error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
-                    func.line, func.column
-                )
+                # Check for Result auto-wrapping on final expression
+                if resolved_return_type.is_result() and func.body.final_expr:
+                    ok_type = resolved_return_type.unwrap_result_ok()
+                    err_type = resolved_return_type.unwrap_result_err()
+
+                    if body_type.is_result():
+                        # Already a Result but types don't match
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
+                            func.line, func.column
+                        )
+                    elif self._types_compatible(body_type, ok_type):
+                        # Auto-wrap in Ok
+                        func.body.final_expr.auto_wrap = "ok"
+                    elif self._types_compatible(body_type, err_type):
+                        # Auto-wrap in Err
+                        func.body.final_expr.auto_wrap = "err"
+                    else:
+                        self.reporter.error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}` "
+                            f"(doesn't match Ok type `{ok_type}` or Err type `{err_type}`)",
+                            func.line, func.column
+                        )
+                else:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
+                        func.line, func.column
+                    )
 
         # Check NoCopy return - must use move for variable references
         # Check both the return type and the inner type if optional

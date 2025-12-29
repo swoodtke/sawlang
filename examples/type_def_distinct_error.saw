@@ -1,6 +1,6 @@
 // Test that type definitions create distinct types
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: expects `MyInt` but got `INT`
+// EXPECT-ERROR-CONTAINS: expects `MyInt` but got `Int`
 
 type MyInt = Int
 

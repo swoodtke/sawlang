@@ -1,5 +1,5 @@
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: array element 1 has type `STRING`, expected `INT`
+// EXPECT-ERROR-CONTAINS: array element 1 has type `String`, expected `Int`
 func main() {
     let arr = [1, "two", 3]  // Error: mixed types
 }

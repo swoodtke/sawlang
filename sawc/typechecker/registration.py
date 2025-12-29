@@ -567,8 +567,11 @@ class RegistrationMixin:
             return_type = method.return_type
             if return_type.kind == TypeKind.SELF:
                 return_type = self_type
-            if method.is_init:
+            elif method.is_init:
                 return_type = self_type
+            else:
+                # Resolve enum types (e.g., Result<T, E>) that are parsed as STRUCT
+                return_type = self._resolve_type(return_type)
 
             # Collect default values for parameters
             default_values = [p.default_value for p in method.parameters]

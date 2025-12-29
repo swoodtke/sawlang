@@ -108,9 +108,14 @@ class MethodsMixin:
         else:
             if not self.builder.block.is_terminated:
                 if result is not None:
+                    # Check if we need to auto-wrap in Result (set by typechecker on final_expr)
+                    if method.body.final_expr and hasattr(method.body.final_expr, 'auto_wrap') and method.body.final_expr.auto_wrap:
+                        if method.body.final_expr.auto_wrap == "ok":
+                            result = self._create_result_ok_for_return(result)
+                        elif method.body.final_expr.auto_wrap == "err":
+                            result = self._create_result_err_for_return(result)
                     # Check if we need to wrap the result in an optional
-                    expected_type = self._get_llvm_type(method.return_type)
-                    if self._is_optional_type(expected_type) and not self._is_optional_type(result.type):
+                    elif self._is_optional_type(self._get_llvm_type(method.return_type)) and not self._is_optional_type(result.type):
                         # Wrap in Some
                         result = self._wrap_in_optional(result)
                     self.builder.ret(result)
@@ -312,11 +317,16 @@ class MethodsMixin:
                 # Cleanup parameter scope before return
                 self._cleanup_all_scopes()
                 if result is not None:
+                    # Check if we need to auto-wrap in Result (set by typechecker on final_expr)
+                    if func.body.final_expr and hasattr(func.body.final_expr, 'auto_wrap') and func.body.final_expr.auto_wrap:
+                        if func.body.final_expr.auto_wrap == "ok":
+                            result = self._create_result_ok_for_return(result)
+                        elif func.body.final_expr.auto_wrap == "err":
+                            result = self._create_result_err_for_return(result)
                     # Check if we need to wrap in Some (T -> T?)
-                    expected_type = self._get_llvm_type(func.return_type)
-                    if (func.return_type.is_optional() and
-                        self._is_optional_type(expected_type) and
-                        not self._is_optional_type(result.type)):
+                    elif (func.return_type.is_optional() and
+                          self._is_optional_type(self._get_llvm_type(func.return_type)) and
+                          not self._is_optional_type(result.type)):
                         # Wrap in Some
                         result = self._wrap_in_optional(result)
                     self.builder.ret(result)
