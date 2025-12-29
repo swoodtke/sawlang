@@ -961,7 +961,21 @@ class StatementsMixin:
             )
             return None
 
-        return type_assigns["Item"]
+        item_type = type_assigns["Item"]
+
+        # Substitute type parameters if the iterator type has type arguments
+        if iterable_type.type_args:
+            struct_info = self.structs.get(type_name)
+            if struct_info and struct_info.type_params:
+                # Build substitution map: type_param_name -> actual_type
+                type_subst = {}
+                for i, param in enumerate(struct_info.type_params):
+                    if i < len(iterable_type.type_args):
+                        type_subst[param.name] = iterable_type.type_args[i]
+                # Apply substitution to Item type
+                item_type = item_type.substitute(type_subst)
+
+        return item_type
 
     def _check_range_expr(self, expr: RangeExpr) -> Optional[SawType]:
         """Check a range expression: start..end"""
