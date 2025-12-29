@@ -8,7 +8,7 @@ struct Point {
 }
 
 extension Point {
-    func distance(self) -> Int {
+    func distance(&self) -> Int {
         self.x + self.y
     }
 }

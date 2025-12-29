@@ -10,7 +10,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop, RangeExpr,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation, Identifier,
-    BinaryOp, UnaryOp, MoveExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
+    BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
@@ -634,6 +634,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def visit_Identifier(self, expr: Identifier):
         if expr.name not in self.variables:
             raise ValueError(f"Undefined variable: {expr.name}")
+
+        # Check if this is a reference type - if so, auto-dereference
+        var_type = self.variable_types.get(expr.name)
+        if var_type and var_type.kind == TypeKind.REFERENCE:
+            # For references, the alloca holds a pointer to the actual data
+            # Load the pointer, then load the value through it
+            ref_ptr = self.builder.load(self.variables[expr.name], name=f"{expr.name}_ref")
+            return self.builder.load(ref_ptr, name=expr.name)
+
         return self.builder.load(self.variables[expr.name], name=expr.name)
 
     def visit_BinaryOp(self, expr: BinaryOp):
@@ -644,6 +653,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def visit_MoveExpr(self, expr: MoveExpr):
         return self._generate_move_expr(expr)
+
+    def visit_ReferenceExpr(self, expr: ReferenceExpr):
+        return self._generate_reference_expr(expr)
 
     def visit_CastExpr(self, expr: CastExpr):
         return self._generate_cast_expr(expr)

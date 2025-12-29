@@ -16,24 +16,24 @@ extern "C" {
 
 extension String {
     // Get the length of the string in bytes
-    func len(self) -> Int {
+    func len(&self) -> Int {
         let ptr = self as UnsafePointer<Int8>
         strlen(ptr)
     }
 
     // Check if the string is empty
-    func is_empty(self) -> Bool {
+    func is_empty(&self) -> Bool {
         self.len() == 0
     }
 
     // Get the byte at a given index (no bounds checking)
-    func byte_at(self, index: Int) -> Int8 {
+    func byte_at(&self, index: Int) -> Int8 {
         let ptr = self as UnsafePointer<Int8>
         ptr[index]
     }
 
     // Check if the string starts with the given prefix
-    func starts_with(self, prefix: String) -> Bool {
+    func starts_with(&self, prefix: String) -> Bool {
         let self_len = self.len()
         let prefix_len = prefix.len()
 
@@ -53,7 +53,7 @@ extension String {
     }
 
     // Check if the string ends with the given suffix
-    func ends_with(self, suffix: String) -> Bool {
+    func ends_with(&self, suffix: String) -> Bool {
         let self_len = self.len()
         let suffix_len = suffix.len()
 
@@ -74,7 +74,7 @@ extension String {
     }
 
     // Check if the string contains the given substring
-    func contains(self, needle: String) -> Bool {
+    func contains(&self, needle: String) -> Bool {
         let self_len = self.len()
         let needle_len = needle.len()
 
@@ -104,12 +104,12 @@ extension String {
     }
 
     // Check if a byte is ASCII whitespace (space, tab, newline, carriage return)
-    func _is_whitespace(self, b: Int8) -> Bool {
+    func _is_whitespace(&self, b: Int8) -> Bool {
         b == (32 as Int8) || b == (9 as Int8) || b == (10 as Int8) || b == (13 as Int8)
     }
 
     // Trim whitespace from the start of the string
-    func trim_start(self) -> String {
+    func trim_start(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
@@ -129,7 +129,7 @@ extension String {
     }
 
     // Trim whitespace from the end of the string
-    func trim_end(self) -> String {
+    func trim_end(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
@@ -149,12 +149,12 @@ extension String {
     }
 
     // Trim whitespace from both ends
-    func trim(self) -> String {
+    func trim(&self) -> String {
         self.trim_start().trim_end()
     }
 
     // Create a substring (allocates new memory)
-    func _substring(self, start: Int, length: Int) -> String {
+    func _substring(&self, start: Int, length: Int) -> String {
         if length <= 0 {
             ""
         } else {
@@ -173,7 +173,7 @@ extension String {
     }
 
     // Convert to uppercase (ASCII only)
-    func to_uppercase(self) -> String {
+    func to_uppercase(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
@@ -199,7 +199,7 @@ extension String {
     }
 
     // Convert to lowercase (ASCII only)
-    func to_lowercase(self) -> String {
+    func to_lowercase(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
@@ -225,7 +225,7 @@ extension String {
     }
 
     // Replace all occurrences of old with new
-    func replace(self, old: String, new: String) -> String {
+    func replace(&self, old: String, new: String) -> String {
         let self_len = self.len()
         let old_len = old.len()
         let new_len = new.len()
@@ -303,7 +303,7 @@ extension String {
     }
 
     // Compare two strings for equality
-    func equals(self, other: String) -> Bool {
+    func equals(&self, other: String) -> Bool {
         let self_len = self.len()
         let other_len = other.len()
 
@@ -324,7 +324,7 @@ extension String {
 
     // Extract a substring from start index to end index (exclusive)
     // Returns empty string if indices are invalid
-    func substring(self, start: Int, end: Int) -> String {
+    func substring(&self, start: Int, end: Int) -> String {
         let len = self.len()
 
         // Clamp indices
@@ -339,7 +339,7 @@ extension String {
 
     // Find the first occurrence of a character (byte)
     // Returns None if not found
-    func index_of_char(self, c: Int8) -> Int? {
+    func index_of_char(&self, c: Int8) -> Int? {
         let len = self.len()
         var i = 0
         while i < len {
@@ -353,7 +353,7 @@ extension String {
 
     // Find the last occurrence of a character (byte)
     // Returns None if not found
-    func last_index_of_char(self, c: Int8) -> Int? {
+    func last_index_of_char(&self, c: Int8) -> Int? {
         let len = self.len()
         var i = len - 1
         while i >= 0 {
@@ -366,7 +366,7 @@ extension String {
     }
 
     // Split the string by a separator, returning a Vector of substrings
-    func split(self, separator: String) -> Vector<String> {
+    func split(&self, separator: String) -> Vector<String> {
         var result = Vector<String>()
         let self_len = self.len()
         let sep_len = separator.len()
@@ -416,7 +416,7 @@ extension String {
 
 extension Vector<String> {
     // Join all strings in the vector with a separator
-    func join(self, separator: String) -> String {
+    func join(&self, separator: String) -> String {
         let count = self.len()
 
         if count == 0 {

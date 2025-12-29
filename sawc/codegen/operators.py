@@ -10,7 +10,7 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import BinaryOp, UnaryOp, MoveExpr, CastExpr, TypeKind
+from ast_nodes import BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, TypeKind, Identifier, MemberAccess, ArrayIndex, SelfExpr
 
 
 class OperatorsMixin:
@@ -225,6 +225,37 @@ class OperatorsMixin:
         self.moved_variables.add(var_name)
 
         return value
+
+    def _generate_reference_expr(self, expr: ReferenceExpr):
+        """Generate code for reference expression: &expr or &var expr.
+
+        Returns a pointer to the referenced value.
+        """
+        inner_expr = expr.expr
+
+        if isinstance(inner_expr, Identifier):
+            # Reference to a variable - return its alloca
+            var_name = inner_expr.name
+            if var_name not in self.variables:
+                raise ValueError(f"Undefined variable: {var_name}")
+            return self.variables[var_name]
+        elif isinstance(inner_expr, SelfExpr):
+            # Reference to self - return self's alloca/pointer
+            if "self" not in self.variables:
+                raise ValueError("'self' not available in this context")
+            return self.variables["self"]
+        elif isinstance(inner_expr, MemberAccess):
+            # Reference to struct field - get GEP pointer
+            return self._get_member_pointer(inner_expr)
+        elif isinstance(inner_expr, ArrayIndex):
+            # Reference to array element - get GEP pointer
+            return self._get_array_element_pointer(inner_expr)
+        else:
+            # For other expressions, evaluate and store in a temporary
+            value = self._generate_expression(inner_expr)
+            temp = self.builder.alloca(value.type, name="ref_temp")
+            self.builder.store(value, temp)
+            return temp
 
     def _generate_cast_expr(self, expr: CastExpr):
         """Generate code for type cast: expr as Type"""

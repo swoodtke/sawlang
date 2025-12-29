@@ -8,7 +8,7 @@ struct Resource {
 }
 
 extension Resource: NoCopy {
-    func deinit(var self) {
+    func deinit(&var self) {
         // Cleanup
     }
 }

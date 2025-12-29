@@ -83,17 +83,17 @@ extension Data {
     // =========================================================================
 
     // Get the number of bytes
-    func len(self) -> Int {
+    func len(&self) -> Int {
         self.length
     }
 
     // Check if the buffer is empty
-    func is_empty(self) -> Bool {
+    func is_empty(&self) -> Bool {
         self.length == 0
     }
 
     // Get the capacity of the underlying buffer
-    func capacity(self) -> Int {
+    func capacity(&self) -> Int {
         if let inner = self.inner {
             inner[0].capacity
         } else {
@@ -106,7 +106,7 @@ extension Data {
     // =========================================================================
 
     // Get byte at index (returns None if out of bounds)
-    func get(self, index: Int) -> UInt8? {
+    func get(&self, index: Int) -> UInt8? {
         if index < 0 || index >= self.length {
             return None
         }
@@ -121,7 +121,7 @@ extension Data {
     // Note: If buffer is shared, this will modify the shared buffer!
     // Use copy() first if you need copy-on-write semantics.
     // Returns true if successful, false otherwise
-    func set(var self, index: Int, value: UInt8) -> Bool {
+    func set(&var self, index: Int, value: UInt8) -> Bool {
         if index < 0 || index >= self.length {
             return false
         }
@@ -138,7 +138,7 @@ extension Data {
     // =========================================================================
 
     // Add a byte to the end
-    func push(var self, value: UInt8) {
+    func push(&var self, value: UInt8) {
         // Ensure we have exclusive ownership and space
         self.ensure_unique_capacity(self.length + 1)
 
@@ -150,7 +150,7 @@ extension Data {
     }
 
     // Remove and return the last byte (returns None if empty)
-    func pop(var self) -> UInt8? {
+    func pop(&var self) -> UInt8? {
         if self.length == 0 {
             return None
         }
@@ -164,13 +164,13 @@ extension Data {
     }
 
     // Clear all bytes (keeps capacity)
-    func clear(var self) {
+    func clear(&var self) {
         self.length = 0
     }
 
     // Append all bytes from another Data
     // TODO: This uses memcpy which may have the same issues as copy() - needs testing
-    func append(var self, other: Data) {
+    func append(&var self, other: Data) {
         if other.length == 0 {
             return
         }
@@ -195,7 +195,7 @@ extension Data {
 
     // Create a slice of this Data (shares underlying buffer)
     // Returns None if bounds are invalid
-    func slice(var self, start: Int, end: Int) -> Data? {
+    func slice(&var self, start: Int, end: Int) -> Data? {
         if start < 0 || end < start || end > self.length {
             return None
         }
@@ -224,7 +224,7 @@ extension Data {
     //   let dest = new_inner[0].buffer as UnsafePointer<Int8>
     //   let src = self_inner[0].buffer as UnsafePointer<Int8>
     //   memcpy(dest, src + self.offset, self.length)
-    func copy(self) -> Data {
+    func copy(&self) -> Data {
         if self.length == 0 {
             return Data()
         }
@@ -253,7 +253,7 @@ extension Data {
     // Create an iterator over the bytes
     // TODO: Iterator doesn't increment refcount, so it can become invalid if
     // source Data is deallocated. Should add refcount management to be safe.
-    func iter(self) -> DataIterator {
+    func iter(&self) -> DataIterator {
         DataIterator(inner: self.inner, offset: self.offset, length: self.length, index: 0)
     }
 
@@ -262,7 +262,7 @@ extension Data {
     // =========================================================================
 
     // Ensure the buffer has at least the given capacity
-    func ensure_capacity(var self, min_capacity: Int) {
+    func ensure_capacity(&var self, min_capacity: Int) {
         let current_cap = self.capacity()
         if current_cap >= min_capacity {
             return
@@ -293,7 +293,7 @@ extension Data {
     // to self.inner, old_data still exists and its deinit will be called at scope
     // end, causing double-free or use-after-free issues despite refcount manipulation.
     // Need to investigate proper ownership transfer patterns in Saw.
-    func make_unique(var self) {
+    func make_unique(&var self) {
         guard let inner = self.inner else {
             return
         }
@@ -319,7 +319,7 @@ extension Data {
     }
 
     // Ensure exclusive ownership and sufficient capacity
-    func ensure_unique_capacity(var self, min_capacity: Int) {
+    func ensure_unique_capacity(&var self, min_capacity: Int) {
         // First ensure we have exclusive ownership
         if let inner = self.inner {
             if inner[0].refcount > 1 {
@@ -332,7 +332,7 @@ extension Data {
     }
 
     // Allocate a new buffer with given capacity
-    func allocate_buffer(var self, capacity: Int) {
+    func allocate_buffer(&var self, capacity: Int) {
         // Allocate the DataBuffer struct (size = pointer + 2 ints)
         let buffer_struct_size = 24  // sizeof(UnsafePointer) + sizeof(Int) + sizeof(Int)
         if let inner_raw = malloc(buffer_struct_size) {
@@ -356,7 +356,7 @@ extension Data {
 
 // Data uses reference counting for memory management
 extension Data: NoCopy {
-    func deinit(var self) {
+    func deinit(&var self) {
         if let inner = self.inner {
             inner[0].refcount = inner[0].refcount - 1
 
@@ -386,7 +386,7 @@ struct DataIterator {
 extension DataIterator: Iterator {
     type Item = UInt8
 
-    func next(var self) -> UInt8? {
+    func next(&var self) -> UInt8? {
         if self.index >= self.length {
             return None
         }
@@ -402,7 +402,7 @@ extension DataIterator: Iterator {
 
 // DataIterator also needs to manage refcount
 extension DataIterator: NoCopy {
-    func deinit(var self) {
+    func deinit(&var self) {
         // Note: We don't increment refcount when creating iterator,
         // so we don't decrement here. The source Data object owns the reference.
         // This means iterators should not outlive their source Data.

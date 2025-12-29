@@ -12,7 +12,7 @@ Usage:
 from typing import Optional
 from llvmlite import ir
 from ast_nodes import (
-    Statement, LetStatement, AssignStatement, ReturnStatement,
+    Statement, LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement,
     GuardLetStatement, BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, Identifier, MemberAccess, ArrayIndex, SelfExpr,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation,
@@ -56,6 +56,9 @@ class StatementsMixin:
 
     def visit_AssignStatement(self, stmt: AssignStatement):
         self._generate_assign_statement(stmt)
+
+    def visit_CompoundAssignStatement(self, stmt: CompoundAssignStatement):
+        self._generate_compound_assign_statement(stmt)
 
     def visit_ReturnStatement(self, stmt: ReturnStatement):
         self._generate_return_statement(stmt)
@@ -368,6 +371,105 @@ class StatementsMixin:
 
         else:
             raise ValueError(f"Invalid assignment target: {type(stmt.target)}")
+
+    def _generate_compound_assign_statement(self, stmt: CompoundAssignStatement):
+        """Generate code for a compound assignment statement (+=, -=, *=, /=, %=).
+
+        For regular variables: x += 1 becomes x = x + 1
+        For references: y += 1 loads through pointer, computes, stores back
+        """
+        # Get pointer to target
+        if isinstance(stmt.target, Identifier):
+            var_name = stmt.target.name
+            if var_name not in self.variables:
+                raise ValueError(f"Undefined variable: {var_name}")
+            target_ptr = self.variables[var_name]
+
+            # Check if this is a reference type - if so, it's already a pointer to the data
+            var_type = self.variable_types.get(var_name)
+            if var_type and var_type.kind == TypeKind.REFERENCE:
+                # For references, the variable holds a pointer to the actual data
+                # Load the pointer (which points to the referenced value)
+                actual_ptr = self.builder.load(target_ptr, name=f"{var_name}_ref")
+                # Load current value through the pointer
+                current_val = self.builder.load(actual_ptr, name=f"{var_name}_val")
+                # Compute new value
+                rhs = self._generate_expression(stmt.value)
+                new_val = self._apply_compound_op(stmt.op, current_val, rhs)
+                # Store back through the pointer
+                self.builder.store(new_val, actual_ptr)
+            else:
+                # Regular variable - load, compute, store
+                current_val = self.builder.load(target_ptr, name=f"{var_name}_val")
+                rhs = self._generate_expression(stmt.value)
+                new_val = self._apply_compound_op(stmt.op, current_val, rhs)
+                self.builder.store(new_val, target_ptr)
+
+        elif isinstance(stmt.target, MemberAccess):
+            # Field compound assignment: obj.field += value
+            field_ptr = self._get_member_pointer(stmt.target)
+            current_val = self.builder.load(field_ptr, name="field_val")
+            rhs = self._generate_expression(stmt.value)
+            new_val = self._apply_compound_op(stmt.op, current_val, rhs)
+            self.builder.store(new_val, field_ptr)
+
+        elif isinstance(stmt.target, ArrayIndex):
+            # Array element compound assignment: arr[i] += value
+            container_expr = stmt.target.array_expr
+            index_val = self._generate_expression(stmt.target.index)
+
+            if isinstance(container_expr, Identifier):
+                if container_expr.name not in self.variables:
+                    raise ValueError(f"Undefined variable: {container_expr.name}")
+                container_ptr = self.variables[container_expr.name]
+
+                # Load the container value to check its type
+                container_val = self.builder.load(container_ptr, name="container")
+
+                if isinstance(container_val.type, ir.ArrayType):
+                    # Array: GEP with two indices [0, index]
+                    zero = ir.Constant(ir.IntType(64), 0)
+                    elem_ptr = self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
+                elif isinstance(container_val.type, ir.PointerType):
+                    # Pointer: GEP with single index
+                    elem_ptr = self.builder.gep(container_val, [index_val], name="ptr_elem")
+                else:
+                    raise ValueError(f"Cannot index into type: {container_val.type}")
+            else:
+                raise ValueError(f"Unsupported container expression in compound assignment: {type(container_expr)}")
+
+            current_val = self.builder.load(elem_ptr, name="elem_val")
+            rhs = self._generate_expression(stmt.value)
+            new_val = self._apply_compound_op(stmt.op, current_val, rhs)
+            self.builder.store(new_val, elem_ptr)
+
+        else:
+            raise ValueError(f"Invalid compound assignment target: {type(stmt.target)}")
+
+    def _apply_compound_op(self, op: str, left, right):
+        """Apply a compound assignment operator and return the result."""
+        is_float = isinstance(left.type, ir.DoubleType)
+
+        if op == '+':
+            if is_float:
+                return self.builder.fadd(left, right, name="addtmp")
+            return self.builder.add(left, right, name="addtmp")
+        elif op == '-':
+            if is_float:
+                return self.builder.fsub(left, right, name="subtmp")
+            return self.builder.sub(left, right, name="subtmp")
+        elif op == '*':
+            if is_float:
+                return self.builder.fmul(left, right, name="multmp")
+            return self.builder.mul(left, right, name="multmp")
+        elif op == '/':
+            if is_float:
+                return self.builder.fdiv(left, right, name="divtmp")
+            return self.builder.sdiv(left, right, name="divtmp")
+        elif op == '%':
+            return self.builder.srem(left, right, name="modtmp")
+        else:
+            raise ValueError(f"Unknown compound operator: {op}")
 
     def _generate_return_statement(self, stmt: ReturnStatement):
         """Generate code for a return statement."""

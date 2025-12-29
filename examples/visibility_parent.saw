@@ -8,7 +8,7 @@ public(parent) struct Counter {
 }
 
 public(parent) extension Counter {
-    func increment(self) -> Counter {
+    func increment(&self) -> Counter {
         Counter(value: self.value + 1)
     }
 }

@@ -19,7 +19,7 @@ extension Countdown {
 }
 extension Countdown: Iterator {
     type Item = Int
-    func next(var self) -> Int? {
+    func next(&var self) -> Int? {
         if self.current > 0 {
             self.current = self.current - 1
             self.current  // Return Some(current) after decrement

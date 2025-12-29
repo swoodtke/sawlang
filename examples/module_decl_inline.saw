@@ -20,7 +20,7 @@ module math {
     }
 
     public extension Point {
-        func sum(self) -> Int {
+        func sum(&self) -> Int {
             self.x + self.y
         }
     }

@@ -35,7 +35,7 @@ class DeclarationsMixin:
         type_params = self.parse_type_params()
 
         self.expect(TokenType.LPAREN)
-        parameters, _ = self.parse_parameters()  # Ignore self_mutable for regular functions
+        parameters, _, _ = self.parse_parameters()  # Ignore self_mutable/self_is_reference for regular functions
         self.expect(TokenType.RPAREN)
 
         # Return type (optional, defaults to void)
@@ -228,7 +228,7 @@ class DeclarationsMixin:
         )
 
     def parse_trait_method(self) -> TraitMethod:
-        """Parse method signature in trait: func name(self, params...) -> Type"""
+        """Parse method signature in trait: func name(&self, params...) -> Type"""
         start = self.current()
         self.expect(TokenType.FUNC, "Expected 'func' in trait method")
 
@@ -236,7 +236,7 @@ class DeclarationsMixin:
         name = name_token.value
 
         self.expect(TokenType.LPAREN)
-        parameters, self_mutable = self.parse_parameters()
+        parameters, self_mutable, self_is_reference = self.parse_parameters()
         self.expect(TokenType.RPAREN)
 
         # Return type (optional, defaults to void)
@@ -250,6 +250,7 @@ class DeclarationsMixin:
             parameters=parameters,
             return_type=return_type,
             self_mutable=self_mutable,
+            self_is_reference=self_is_reference,
             line=start.line,
             column=start.column
         )
@@ -398,7 +399,7 @@ class DeclarationsMixin:
         name = name_token.value
 
         self.expect(TokenType.LPAREN)
-        parameters, _ = self.parse_parameters()
+        parameters, _, _ = self.parse_parameters()
 
         # Check for variadic marker (...)
         is_variadic = False
@@ -430,7 +431,7 @@ class DeclarationsMixin:
         )
 
     def parse_method(self) -> Method:
-        """Parse method definition: func name(self, ...) -> Type { ... }
+        """Parse method definition: func name(&self, ...) -> Type { ... }
            or init method: init(...) { ... }"""
         start = self.current()
 
@@ -448,7 +449,7 @@ class DeclarationsMixin:
             self.error("Expected 'func' or 'init' in extension")
 
         self.expect(TokenType.LPAREN)
-        parameters, self_mutable, is_static = self.parse_method_parameters()
+        parameters, self_mutable, self_is_reference, is_static = self.parse_method_parameters()
         self.expect(TokenType.RPAREN)
 
         # Return type (optional, defaults to void)
@@ -467,39 +468,57 @@ class DeclarationsMixin:
             body=body,
             is_init=is_init,
             self_mutable=self_mutable,
+            self_is_reference=self_is_reference,
             is_static=is_static,
             line=start.line,
             column=start.column
         )
 
     def parse_method_parameters(self):
-        """Parse method parameters. Returns (params, self_mutable, is_static).
+        """Parse method parameters. Returns (params, self_mutable, self_is_reference, is_static).
 
         - is_static is True if no 'self' parameter is present (static method)
-        - self_mutable is True if 'var self' is used
+        - self_mutable is True if '&var self' is used
+        - self_is_reference is True if '&self' or '&var self' is used
         """
-        params, self_mutable = self.parse_parameters()
+        params, self_mutable, self_is_reference = self.parse_parameters()
 
         # Check if this is a static method (no self parameter)
         is_static = True
         if params and params[0].name == 'self':
             is_static = False
 
-        return params, self_mutable, is_static
+        return params, self_mutable, self_is_reference, is_static
 
     def parse_parameters(self):
-        """Parse parameters. Returns (params, self_mutable) where self_mutable is True if first param is 'var self'."""
+        """Parse parameters. Returns (params, self_mutable, self_is_reference).
+
+        - self_mutable is True if '&var self' is used
+        - self_is_reference is True if '&self' or '&var self' is used
+        """
         params = []
         self_mutable = False
+        self_is_reference = False
 
         if self.match(TokenType.RPAREN):
-            return params, self_mutable
+            return params, self_mutable, self_is_reference
 
         while True:
-            # Check for 'var' before parameter name (only valid for 'self')
+            # Check for '&' before parameter (for reference parameters and &self/&var self)
+            is_ref = False
             is_var = False
-            if self.match(TokenType.VAR):
+
+            if self.match(TokenType.AMPERSAND):
+                is_ref = True
+                self.advance()
+                # Check for &var (mutable reference)
+                if self.match(TokenType.VAR):
+                    is_var = True
+                    self.advance()
+            elif self.match(TokenType.VAR):
+                # Legacy: 'var self' - treat as deprecated, convert to &var self
                 is_var = True
+                is_ref = True  # Implied reference
                 self.advance()
 
             # Allow both IDENT and SELF as parameter names (for method self parameter)
@@ -510,19 +529,30 @@ class DeclarationsMixin:
 
             # Special case: 'self' doesn't need type annotation (type is inferred from extension)
             if name_token.value == "self":
-                if is_var:
-                    # This is the first parameter and it's 'var self'
-                    if len(params) != 0:
-                        self.error("'var' can only be used with the first 'self' parameter")
-                    self_mutable = True
+                if not is_ref:
+                    self.error("'self' must be a reference: use '&self' or '&var self'")
+                if len(params) != 0:
+                    self.error("'self' can only be the first parameter")
+                self_mutable = is_var
+                self_is_reference = True
                 # Create a placeholder type - will be filled in by type checker
                 param_type = SawType(TypeKind.VOID)  # Placeholder
-                params.append(Parameter(name=name_token.value, type=param_type))
+                params.append(Parameter(
+                    name=name_token.value,
+                    type=param_type,
+                    is_reference=True,
+                    reference_mutable=is_var
+                ))
             else:
-                if is_var:
-                    self.error("'var' can only be used with 'self' parameter")
+                # Regular parameter - reference is indicated by type annotation, not prefix
+                if is_ref:
+                    self.error("Use reference type annotation (e.g., 'x: &Int') instead of '&x'")
                 self.expect(TokenType.COLON, "Expected ':' after parameter name")
                 param_type = self.parse_type()
+
+                # Check if the type is a reference type
+                param_is_ref = param_type.kind == TypeKind.REFERENCE
+                param_ref_mut = param_is_ref and param_type.reference_mutable
 
                 # Check for default value: param: Type = expr
                 default_value = None
@@ -530,7 +560,13 @@ class DeclarationsMixin:
                     self.advance()  # consume '='
                     default_value = self.parse_expression()
 
-                params.append(Parameter(name=name_token.value, type=param_type, default_value=default_value))
+                params.append(Parameter(
+                    name=name_token.value,
+                    type=param_type,
+                    default_value=default_value,
+                    is_reference=param_is_ref,
+                    reference_mutable=param_ref_mut
+                ))
 
             if not self.match(TokenType.COMMA):
                 break
@@ -540,4 +576,4 @@ class DeclarationsMixin:
             if self.match(TokenType.ELLIPSIS):
                 break
 
-        return params, self_mutable
+        return params, self_mutable, self_is_reference

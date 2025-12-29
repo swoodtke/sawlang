@@ -24,6 +24,7 @@ class TypeKind(Enum):
     SELF = auto()        # For Self type in trait methods
     POINTER = auto()     # For raw pointers: UnsafePointer<T>, UnsafeMutablePointer<T>
     MODULE = auto()      # For module references during qualified access
+    REFERENCE = auto()   # For reference types: &T (immutable), &var T (mutable)
     # Fixed-width integers
     INT8 = auto()
     INT16 = auto()
@@ -60,6 +61,8 @@ class SawType:
     pointer_mutable: Optional[bool] = None
     # For module types (during qualified access)
     module_name: Optional[str] = None
+    # For reference types (REFERENCE), True = &var T (mutable), False = &T (immutable)
+    reference_mutable: bool = False
 
     def __repr__(self):
         if self.kind == TypeKind.TUPLE and self.element_types:
@@ -89,6 +92,10 @@ class SawType:
         if self.kind == TypeKind.POINTER and self.inner_type:
             ptr_name = "UnsafePointer" if self.pointer_mutable else "UnsafeConstPointer"
             return f"{ptr_name}<{self.inner_type}>"
+        if self.kind == TypeKind.REFERENCE and self.inner_type:
+            if self.reference_mutable:
+                return f"&var {self.inner_type}"
+            return f"&{self.inner_type}"
         return self.kind.name
 
     # ===== Predicate Methods =====
@@ -150,6 +157,10 @@ class SawType:
         """Check if this is an array type."""
         return self.kind == TypeKind.ARRAY
 
+    def is_reference_type(self) -> bool:
+        """Check if this is a reference type (&T or &var T)."""
+        return self.kind == TypeKind.REFERENCE
+
     # ===== Transformation Methods =====
 
     def unwrap_optional(self) -> 'SawType':
@@ -161,6 +172,12 @@ class SawType:
     def wrap_optional(self) -> 'SawType':
         """Wrap this type in an optional (T -> T?)."""
         return SawType(TypeKind.OPTIONAL, inner_type=self)
+
+    def unwrap_reference(self) -> 'SawType':
+        """Get the inner type of a reference, or self if not a reference."""
+        if self.kind == TypeKind.REFERENCE and self.inner_type:
+            return self.inner_type
+        return self
 
     def substitute(self, type_map: Dict[str, 'SawType']) -> 'SawType':
         """Substitute type parameters with concrete types.
@@ -204,6 +221,11 @@ class SawType:
         if self.kind == TypeKind.POINTER and self.inner_type:
             substituted_inner = self.inner_type.substitute(type_map)
             return SawType(TypeKind.POINTER, inner_type=substituted_inner, pointer_mutable=self.pointer_mutable)
+
+        # Handle reference types
+        if self.kind == TypeKind.REFERENCE and self.inner_type:
+            substituted_inner = self.inner_type.substitute(type_map)
+            return SawType(TypeKind.REFERENCE, inner_type=substituted_inner, reference_mutable=self.reference_mutable)
 
         # Handle tuple types
         if self.kind == TypeKind.TUPLE and self.element_types:
@@ -373,6 +395,19 @@ class UnaryOp(Expression):
 class MoveExpr(Expression):
     """Move expression: move variable - transfers ownership without copying."""
     variable: str  # The variable name being moved
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ReferenceExpr(Expression):
+    """Reference expression at call site: &expr or &var expr.
+
+    Used when passing arguments to functions that take reference parameters.
+    The mutable flag indicates whether this is a mutable reference (&var).
+    """
+    expr: Expression
+    mutable: bool = False  # True for &var, False for &
     line: int = 0
     column: int = 0
 
@@ -664,6 +699,16 @@ class AssignStatement(Statement):
 
 
 @dataclass
+class CompoundAssignStatement(Statement):
+    """Compound assignment: x += 1, y -= 2, etc."""
+    target: Expression  # Can be Identifier, MemberAccess, or ArrayIndex
+    op: str  # '+', '-', '*', '/', '%'
+    value: Expression
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class ReturnStatement(Statement):
     value: Optional[Expression]
     line: int = 0
@@ -727,6 +772,8 @@ class Parameter:
     name: str
     type: SawType
     default_value: Optional['Expression'] = None  # For default parameter values
+    is_reference: bool = False  # True if parameter type is &T or &var T
+    reference_mutable: bool = False  # True if parameter type is &var T
 
 
 @dataclass
@@ -771,7 +818,8 @@ class TraitMethod(ASTNode):
     name: str
     parameters: List[Parameter]  # includes self
     return_type: SawType
-    self_mutable: bool = False  # True for 'var self'
+    self_mutable: bool = False  # True for '&var self'
+    self_is_reference: bool = False  # True for '&self' or '&var self'
     line: int = 0
     column: int = 0
 
@@ -836,7 +884,8 @@ class Method(ASTNode):
     return_type: SawType
     body: Block
     is_init: bool = False  # True for 'init' methods
-    self_mutable: bool = False  # True for 'var self'
+    self_mutable: bool = False  # True for '&var self'
+    self_is_reference: bool = False  # True for '&self' or '&var self'
     is_static: bool = False  # True for methods without 'self' parameter
     line: int = 0
     column: int = 0

@@ -14,7 +14,7 @@ struct Multiplier {
 }
 extension Multiplier: Iterator {
     type Item = Int
-    func next(var self) -> Int? {
+    func next(&var self) -> Int? {
         if self.current < self.count {
             self.current = self.current + 1
             self.current * self.factor

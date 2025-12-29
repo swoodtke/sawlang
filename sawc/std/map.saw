@@ -11,7 +11,7 @@
 extension Vector<T> {
     // Remove element at index by swapping with last element (O(1))
     // Returns the removed element, or None if out of bounds
-    func swap_remove(var self, index: Int) -> T? {
+    func swap_remove(&var self, index: Int) -> T? {
         if index < 0 || index >= self.length {
             None
         } else {
@@ -46,18 +46,18 @@ extension Map<K, V> {
     }
 
     // Get the number of key-value pairs
-    func len(self) -> Int {
+    func len(&self) -> Int {
         self.keys.len()
     }
 
     // Check if the map is empty
-    func is_empty(self) -> Bool {
+    func is_empty(&self) -> Bool {
         self.keys.is_empty()
     }
 
     // Insert or update a key-value pair
     // Returns the old value if key existed, None otherwise
-    func insert(var self, key: K, value: V) -> V? {
+    func insert(&var self, key: K, value: V) -> V? {
         // Search for existing key
         var i = 0
         while i < self.keys.len() {
@@ -78,7 +78,7 @@ extension Map<K, V> {
     }
 
     // Get value for a key
-    func get(self, key: K) -> V? {
+    func get(&self, key: K) -> V? {
         var i = 0
         while i < self.keys.len() {
             if let existing_key = self.keys.get(i) {
@@ -92,7 +92,7 @@ extension Map<K, V> {
     }
 
     // Check if map contains a key
-    func contains_key(self, key: K) -> Bool {
+    func contains_key(&self, key: K) -> Bool {
         var i = 0
         while i < self.keys.len() {
             if let existing_key = self.keys.get(i) {
@@ -106,7 +106,7 @@ extension Map<K, V> {
     }
 
     // Remove a key and return its value
-    func remove(var self, key: K) -> V? {
+    func remove(&var self, key: K) -> V? {
         var i = 0
         while i < self.keys.len() {
             if let existing_key = self.keys.get(i) {
@@ -124,7 +124,7 @@ extension Map<K, V> {
     }
 
     // Remove all entries
-    func clear(var self) {
+    func clear(&var self) {
         self.keys.clear()
         self.values.clear()
     }
@@ -132,7 +132,7 @@ extension Map<K, V> {
 
 // Map is NoCopy because it contains Vectors (which are NoCopy)
 extension Map<K, V>: NoCopy {
-    func deinit(var self) {
+    func deinit(&var self) {
         // Vectors will be cleaned up automatically via their deinit
     }
 }

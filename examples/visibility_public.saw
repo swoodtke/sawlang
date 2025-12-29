@@ -10,7 +10,7 @@ public struct Point {
 }
 
 public extension Point {
-    func sum(self) -> Int {
+    func sum(&self) -> Int {
         self.x + self.y
     }
 }
@@ -21,11 +21,11 @@ public enum Status {
 }
 
 public trait Describable {
-    func describe(self) -> Int
+    func describe(&self) -> Int
 }
 
 extension Point: Describable {
-    func describe(self) -> Int {
+    func describe(&self) -> Int {
         self.sum()
     }
 }

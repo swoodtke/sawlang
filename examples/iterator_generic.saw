@@ -7,7 +7,7 @@
 // Uses built-in Iterator interface and Range struct from builtin.saw
 // Add sum method to built-in Range
 extension Range {
-    func sum(var self) -> Int {
+    func sum(&var self) -> Int {
         var total = 0
         while {
             if let value = self.next() {

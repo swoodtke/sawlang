@@ -66,6 +66,12 @@ class TypesMixin:
                 raise ValueError("Pointer type missing inner type")
             pointee_type = self._get_llvm_type(saw_type.inner_type)
             return ir.PointerType(pointee_type)
+        elif saw_type.kind == TypeKind.REFERENCE:
+            # Reference type: &T or &var T - compiled as pointer
+            if saw_type.inner_type is None:
+                raise ValueError("Reference type missing inner type")
+            pointee_type = self._get_llvm_type(saw_type.inner_type)
+            return ir.PointerType(pointee_type)
         elif saw_type.kind == TypeKind.VOID:
             return ir.VoidType()
         elif saw_type.kind == TypeKind.TUPLE:

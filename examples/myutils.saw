@@ -11,11 +11,11 @@ public struct Counter {
 }
 
 public extension Counter {
-    func next(var self) {
+    func next(&var self) {
         self.count = self.count + 1
     }
 
-    func value(self) -> Int {
+    func value(&self) -> Int {
         self.count
     }
 }

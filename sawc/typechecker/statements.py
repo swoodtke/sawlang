@@ -12,7 +12,7 @@ Usage:
 from typing import Optional, Dict
 from ast_nodes import (
     Extension, Method, Function, Block, Statement,
-    LetStatement, AssignStatement, ReturnStatement, GuardLetStatement,
+    LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, GuardLetStatement,
     BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, RangeExpr,
     Identifier, MemberAccess, ArrayIndex, MoveExpr, IntLiteral,
@@ -244,6 +244,9 @@ class StatementsMixin:
     def visit_AssignStatement(self, stmt: AssignStatement):
         self._check_assign_statement(stmt)
 
+    def visit_CompoundAssignStatement(self, stmt: CompoundAssignStatement):
+        self._check_compound_assign_statement(stmt)
+
     def visit_ReturnStatement(self, stmt: ReturnStatement):
         self._check_return_statement(stmt)
 
@@ -388,6 +391,18 @@ class StatementsMixin:
                 )
                 return
 
+            # Disallow replacement assignment through references
+            # References can only be modified via compound assignment (+=, -=, etc.)
+            # or by calling mutating methods
+            if var_info.type.kind == TypeKind.REFERENCE:
+                self.reporter.error(
+                    ErrorKind.IMMUTABLE_ASSIGNMENT,
+                    f"cannot assign through reference `{stmt.target.name}`",
+                    stmt.line, stmt.column,
+                    hint="use compound assignment (+=, -=, etc.) or mutating methods instead"
+                )
+                return
+
             # Check mutability
             if not var_info.mutable:
                 self.reporter.error(
@@ -521,6 +536,111 @@ class StatementsMixin:
                 "invalid assignment target",
                 stmt.line, stmt.column
             )
+
+    def _check_compound_assign_statement(self, stmt: CompoundAssignStatement):
+        """Check a compound assignment statement (+=, -=, *=, /=, %=).
+
+        Compound assignment is allowed on:
+        - Mutable variables (var x)
+        - Mutable reference parameters (&var T)
+        - Mutable struct fields (if the struct binding is mutable)
+        - Mutable array elements (if the array binding is mutable)
+        """
+        # Get target type
+        target_type = self._check_expression(stmt.target)
+        if target_type is None:
+            return
+
+        # Get value type
+        value_type = self._check_expression(stmt.value)
+        if value_type is None:
+            return
+
+        # Check mutability based on target kind
+        if isinstance(stmt.target, Identifier):
+            var_info = self.current_scope.lookup(stmt.target.name)
+            if not var_info:
+                return
+
+            # Check if it's a mutable reference or mutable variable
+            is_mutable_ref = (var_info.type.kind == TypeKind.REFERENCE and
+                             var_info.type.reference_mutable)
+            if not var_info.mutable and not is_mutable_ref:
+                self.reporter.error(
+                    ErrorKind.IMMUTABLE_ASSIGNMENT,
+                    f"cannot use compound assignment on immutable variable `{stmt.target.name}`",
+                    stmt.line, stmt.column,
+                    hint="consider using `var` instead of `let` to make it mutable"
+                )
+                return
+
+            # For references, use the inner type for operator checking
+            if var_info.type.kind == TypeKind.REFERENCE:
+                target_type = var_info.type.inner_type
+
+        elif isinstance(stmt.target, MemberAccess):
+            # Check if base object is mutable
+            if isinstance(stmt.target.object, Identifier):
+                base_info = self.current_scope.lookup(stmt.target.object.name)
+                if base_info and not base_info.mutable:
+                    # Check if it's a mutable reference
+                    is_mutable_ref = (base_info.type.kind == TypeKind.REFERENCE and
+                                     base_info.type.reference_mutable)
+                    if not is_mutable_ref:
+                        self.reporter.error(
+                            ErrorKind.IMMUTABLE_ASSIGNMENT,
+                            f"cannot use compound assignment on field of immutable variable `{stmt.target.object.name}`",
+                            stmt.line, stmt.column
+                        )
+                        return
+
+        elif isinstance(stmt.target, ArrayIndex):
+            # Check if array is mutable
+            if isinstance(stmt.target.array_expr, Identifier):
+                arr_info = self.current_scope.lookup(stmt.target.array_expr.name)
+                if arr_info and not arr_info.mutable:
+                    is_mutable_ref = (arr_info.type.kind == TypeKind.REFERENCE and
+                                     arr_info.type.reference_mutable)
+                    if not is_mutable_ref:
+                        self.reporter.error(
+                            ErrorKind.IMMUTABLE_ASSIGNMENT,
+                            f"cannot use compound assignment on element of immutable array `{stmt.target.array_expr.name}`",
+                            stmt.line, stmt.column
+                        )
+                        return
+
+        # Check that operator is valid for the types
+        target_underlying = self._get_underlying_type(target_type)
+        value_underlying = self._get_underlying_type(value_type)
+
+        int_kinds = {
+            TypeKind.INT, TypeKind.UINT,
+            TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+            TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
+        }
+
+        if stmt.op in ['+', '-', '*', '/']:
+            # These work on integers and floats
+            if target_underlying.kind in int_kinds and value_underlying.kind in int_kinds:
+                pass  # OK
+            elif target_underlying.kind == TypeKind.FLOAT and value_underlying.kind in (int_kinds | {TypeKind.FLOAT}):
+                pass  # OK
+            else:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"operator `{stmt.op}=` cannot be applied to `{target_type}` and `{value_type}`",
+                    stmt.line, stmt.column
+                )
+        elif stmt.op == '%':
+            # Modulo only works on integers
+            if target_underlying.kind in int_kinds and value_underlying.kind in int_kinds:
+                pass  # OK
+            else:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"operator `%=` requires integer operands, got `{target_type}` and `{value_type}`",
+                    stmt.line, stmt.column
+                )
 
     def _check_return_statement(self, stmt: ReturnStatement):
         """Check a return statement."""

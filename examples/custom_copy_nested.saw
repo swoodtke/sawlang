@@ -10,22 +10,22 @@ struct RefCounted {
     count: Int
 }
 extension RefCounted: CustomCopy {
-    func copy(self) -> RefCounted {
+    func copy(&self) -> RefCounted {
         // Increment count on copy
         RefCounted(count: self.count + 1)
     }
-    func deinit(var self) {
+    func deinit(&var self) {
     }
 }
 struct Container {
     data: RefCounted
 }
 extension Container: CustomCopy {
-    func copy(self) -> Container {
+    func copy(&self) -> Container {
         // The compiler should auto-call self.data.copy()
         Container(data: self.data)
     }
-    func deinit(var self) {
+    func deinit(&var self) {
         // Auto field deinit will call self.data.deinit()
     }
 }

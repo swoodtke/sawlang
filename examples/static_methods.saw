@@ -36,7 +36,7 @@ extension Point {
     }
 
     // Instance method for comparison
-    func show(self) {
+    func show(&self) {
         print("x=")
         print(self.x)
         print("y=")

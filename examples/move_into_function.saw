@@ -10,7 +10,7 @@ struct FileHandle {
     fd: Int
 }
 extension FileHandle: NoCopy {
-    func deinit(var self) {
+    func deinit(&var self) {
         print("deinit")
         print(self.fd)
     }

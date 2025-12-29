@@ -1,0 +1,11 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign through reference
+
+func replaceValue(y: &var Int) {
+    y = 42  // Error: cannot assign through reference
+}
+
+func main() {
+    var x = 10
+    replaceValue(&x)
+}

@@ -8,11 +8,11 @@ struct RefCounted {
     value: Int
 }
 extension RefCounted: CustomCopy {
-    func copy(self) -> RefCounted {
+    func copy(&self) -> RefCounted {
         print("copy called")
         RefCounted(value: self.value)
     }
-    func deinit(var self) {
+    func deinit(&var self) {
         // In a real implementation, this would decrement refcount
     }
 }

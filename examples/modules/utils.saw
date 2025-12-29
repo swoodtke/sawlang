@@ -9,11 +9,11 @@ public struct Point {
 }
 
 public extension Point {
-    func add(self, other: Point) -> Point {
+    func add(&self, other: Point) -> Point {
         Point(x: self.x + other.x, y: self.y + other.y)
     }
 
-    func magnitude(self) -> Int {
+    func magnitude(&self) -> Int {
         self.x + self.y
     }
 }

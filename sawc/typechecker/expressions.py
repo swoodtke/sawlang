@@ -12,7 +12,7 @@ Usage:
 from typing import Optional, Dict, List
 from ast_nodes import (
     Expression, IntLiteral, FloatLiteral, BoolLiteral, StringLiteral,
-    StringInterpolation, Identifier, BinaryOp, UnaryOp, MoveExpr, CastExpr,
+    StringInterpolation, Identifier, BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr,
     FunctionCall, IfExpr, IfLetExpr, TupleLiteral, TupleIndex,
     ArrayLiteral, ArrayIndex, MemberAccess, StructInit, NoneLiteral,
     ForceUnwrap, NilCoalesce, OptionalChain, MethodCall, SelfExpr,
@@ -76,6 +76,9 @@ class ExpressionsMixin:
 
     def visit_MoveExpr(self, expr: MoveExpr) -> Optional[SawType]:
         return self._check_move_expr(expr)
+
+    def visit_ReferenceExpr(self, expr: ReferenceExpr) -> Optional[SawType]:
+        return self._check_reference_expr(expr)
 
     def visit_CastExpr(self, expr: CastExpr) -> Optional[SawType]:
         return self._check_cast_expr(expr)
@@ -150,7 +153,11 @@ class ExpressionsMixin:
         return self._check_try_catch_expr(expr)
 
     def _check_identifier(self, expr: Identifier) -> Optional[SawType]:
-        """Check an identifier reference."""
+        """Check an identifier reference.
+
+        For reference types (&T or &var T), this auto-dereferences and returns
+        the inner type T. This provides implicit dereference semantics.
+        """
         if expr.name in self.moved_variables:
             self.reporter.error(
                 ErrorKind.USE_AFTER_MOVE,
@@ -167,6 +174,11 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return None
+
+        # Auto-dereference reference types
+        if var_info.type.kind == TypeKind.REFERENCE:
+            return var_info.type.inner_type
+
         return var_info.type
 
     def _check_move_expr(self, expr: MoveExpr) -> Optional[SawType]:
@@ -187,7 +199,69 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return None
+
+        # Disallow moving out of references - this would leave the referent invalid
+        if var_info.type.kind == TypeKind.REFERENCE:
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot move out of reference `{expr.variable}`",
+                expr.line, expr.column,
+                hint="references cannot have their contents moved out"
+            )
+            return None
+
         return var_info.type
+
+    def _check_reference_expr(self, expr: ReferenceExpr) -> Optional[SawType]:
+        """Check a reference expression: &expr or &var expr.
+
+        References can only be taken to lvalues (variables, fields, array elements).
+        For mutable references (&var), the target must be mutable.
+        """
+        inner_type = self._check_expression(expr.expr)
+        if inner_type is None:
+            return None
+
+        # References can only be taken to lvalues
+        if not self._is_lvalue(expr.expr):
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                "can only take reference to a variable, field, or array element",
+                expr.line, expr.column,
+                hint="references require an addressable location"
+            )
+            return None
+
+        # For &var, check that the target is mutable
+        if expr.mutable:
+            if isinstance(expr.expr, Identifier):
+                var_info = self.current_scope.lookup(expr.expr.name)
+                if var_info and not var_info.mutable:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"cannot take mutable reference to immutable variable `{expr.expr.name}`",
+                        expr.line, expr.column,
+                        hint="declare with `var` to make it mutable"
+                    )
+                    return None
+            elif isinstance(expr.expr, SelfExpr):
+                # In a method, check if self is mutable
+                self_info = self.current_scope.lookup("self")
+                if self_info and not self_info.mutable:
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        "cannot take mutable reference to immutable `self`",
+                        expr.line, expr.column,
+                        hint="use `&var self` in method signature to make self mutable"
+                    )
+                    return None
+
+        # Return reference type
+        return SawType(TypeKind.REFERENCE, inner_type=inner_type, reference_mutable=expr.mutable)
+
+    def _is_lvalue(self, expr: Expression) -> bool:
+        """Check if an expression is an lvalue (can have its address taken)."""
+        return isinstance(expr, (Identifier, MemberAccess, ArrayIndex, SelfExpr))
 
     def _check_cast_expr(self, expr: CastExpr) -> Optional[SawType]:
         """Check a type cast expression: expr as Type"""

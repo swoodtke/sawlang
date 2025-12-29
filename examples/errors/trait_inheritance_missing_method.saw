@@ -3,11 +3,11 @@
 // EXPECT-ERROR-CONTAINS: does not implement required method `getValue`
 
 trait Base {
-    func getValue(self) -> Int
+    func getValue(&self) -> Int
 }
 
 trait Child: Base {
-    func doubled(self) -> Int
+    func doubled(&self) -> Int
 }
 
 struct Number {
@@ -16,7 +16,7 @@ struct Number {
 
 // This should error - missing getValue() from Base
 extension Number: Child {
-    func doubled(self) -> Int {
+    func doubled(&self) -> Int {
         self.value * 2
     }
 }

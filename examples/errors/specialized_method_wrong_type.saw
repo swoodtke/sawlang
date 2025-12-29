@@ -6,7 +6,7 @@
 
 // Define a specialized method for Vector<Int>
 extension Vector<Int> {
-    func int_vector_foobar(self) -> Int {
+    func int_vector_foobar(&self) -> Int {
         42
     }
 }

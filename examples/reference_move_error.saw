@@ -1,0 +1,16 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of reference
+
+struct Resource {
+    handle: Int
+}
+
+func steal(r: &var Resource) -> Resource {
+    move r  // Error: cannot move out of reference
+}
+
+func main() {
+    var res = Resource(handle: 1)
+    let stolen = steal(&res)
+    print(stolen.handle)
+}

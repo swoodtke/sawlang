@@ -31,6 +31,7 @@ class FunctionSymbol:
     is_static: bool = False
     is_init: bool = False
     self_mutable: bool = False
+    self_is_reference: bool = True  # True for '&self' or '&var self'
     is_variadic: bool = False
     visibility: Visibility = Visibility.PRIVATE
     ast_node: Optional[Any] = None  # Function or Method AST node

@@ -83,7 +83,7 @@ extension File {
 
     // Read bytes from the file
     // If size <= 0, reads the entire file; otherwise reads up to size bytes
-    func read(var self, size: Int = 0) -> Data? {
+    func read(&var self, size: Int = 0) -> Data? {
         var bytes_to_read = size
 
         // If size <= 0, determine file size
@@ -132,7 +132,7 @@ extension File {
     // =========================================================================
 
     // Write Data to the file
-    func write(self, data: Data) -> Int? {
+    func write(&self, data: Data) -> Int? {
         if data.len() == 0 {
             return 0
         }
@@ -165,22 +165,22 @@ extension File {
     // Seeking
     // =========================================================================
 
-    func seek_start(self, offset: Int) -> Int? {
+    func seek_start(&self, offset: Int) -> Int? {
         let result = lseek(self.fd, offset as Int64, 0 as Int32)
         if result < (0 as Int64) { None } else { result as Int }
     }
 
-    func seek_current(self, offset: Int) -> Int? {
+    func seek_current(&self, offset: Int) -> Int? {
         let result = lseek(self.fd, offset as Int64, 1 as Int32)
         if result < (0 as Int64) { None } else { result as Int }
     }
 
-    func seek_end(self, offset: Int) -> Int? {
+    func seek_end(&self, offset: Int) -> Int? {
         let result = lseek(self.fd, offset as Int64, 2 as Int32)
         if result < (0 as Int64) { None } else { result as Int }
     }
 
-    func position(self) -> Int? {
+    func position(&self) -> Int? {
         let result = lseek(self.fd, 0 as Int64, 1 as Int32)
         if result < (0 as Int64) { None } else { result as Int }
     }
@@ -207,7 +207,7 @@ extension File {
 }
 
 extension File: NoCopy {
-    func deinit(var self) {
+    func deinit(&var self) {
         if self.fd >= (0 as Int32) {
             close(self.fd)
         }

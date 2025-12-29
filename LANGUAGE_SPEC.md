@@ -184,13 +184,13 @@ extension Point {
         Point(x: magnitude, y: magnitude)
     }
 
-    // Instance method (immutable self)
-    func magnitude(self) -> Float64 {
+    // Instance method (immutable reference to self)
+    func magnitude(&self) -> Float64 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
-    // Mutating method (var self receives pointer)
-    func translate(var self, dx: Float64, dy: Float64) {
+    // Mutating method (mutable reference to self)
+    func translate(&var self, dx: Float64, dy: Float64) {
         self.x += dx
         self.y += dy
     }
@@ -272,11 +272,11 @@ guard let value = maybe else {
 
 ```saw
 trait Display {
-    func display(self) -> String
+    func display(&self) -> String
 }
 
 trait Debug {
-    func debug(self) -> String {
+    func debug(&self) -> String {
         // Default implementation
         "<opaque>"
     }
@@ -284,7 +284,7 @@ trait Debug {
 
 // Interface implementation via extension
 extension Point: Display {
-    func display(self) -> String {
+    func display(&self) -> String {
         "({self.x}, {self.y})"
     }
 }
@@ -302,12 +302,12 @@ func process<T: Display + Debug + Clone>(item: T)
 // Associated types
 trait Iterator {
     type Item
-    func next(var self) -> Self.Item?
+    func next(&var self) -> Self.Item?
 }
 
 // Interface inheritance (supertraits)
 trait CustomCopy: Deinit {
-    func copy(self) -> Self
+    func copy(&self) -> Self
     // Implementing CustomCopy requires also implementing Deinit
 }
 
@@ -352,13 +352,13 @@ Extensions allow adding methods and custom initializers to types. Currently impl
 ```saw
 // Add methods to struct types
 extension Point {
-    // Immutable method (self passed by value)
-    func distance_from_origin(self) -> Float64 {
+    // Immutable method (reference to self)
+    func distance_from_origin(&self) -> Float64 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
-    // Mutable method (var self passed by pointer)
-    func scale(var self, factor: Float64) {
+    // Mutable method (mutable reference to self)
+    func scale(&var self, factor: Float64) {
         self.x *= factor
         self.y *= factor
     }
@@ -387,7 +387,7 @@ let p3 = Point(polar: 10.0, angle: 1.57)  // Another custom init
 
 // Future: Built-in type extensions (not yet implemented)
 // extension Int {
-//     func is_even(self) -> Bool { self % 2 == 0 }
+//     func is_even(&self) -> Bool { self % 2 == 0 }
 // }
 
 // Future: Computed properties (not yet implemented)
@@ -397,15 +397,15 @@ let p3 = Point(polar: 10.0, angle: 1.57)  // Another custom init
 
 // Future: Interface conformance via extension (not yet implemented)
 // extension Point: Display {
-//     func display(self) -> String { "({self.x}, {self.y})" }
+//     func display(&self) -> String { "({self.x}, {self.y})" }
 // }
 ```
 
 **Key Features:**
-- Methods can be immutable (`self`) or mutable (`var self`)
+- Methods use `&self` (immutable reference) or `&var self` (mutable reference)
 - Custom `init` methods return the struct type
 - Multiple `init` methods distinguished by parameter names
-- Mutable methods receive `self` as a pointer for efficient mutation
+- Mutable methods receive a reference for efficient mutation
 - Field assignment supported: `self.field = value`
 
 ---
@@ -450,7 +450,7 @@ struct FileHandle: NoCopy {
 extension FileHandle {
     func open(path: String) -> Result<FileHandle, IoError> { ... }
 
-    func deinit(var self) {
+    func deinit(&var self) {
         close(self.fd)  // Automatic cleanup
     }
 }
@@ -467,22 +467,30 @@ struct MutexGuard<T>: NoCopy { ... }
 
 See [Resource Management Interfaces](#resource-management-traits) for the full `Deinit`/`CustomCopy`/`NoCopy` hierarchy.
 
-### Passing by Reference
+### Reference Types
 
-Use `var` parameters to allow a function to mutate the caller's value. At the call site, use `&` to indicate the variable may be modified:
+Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape.
 
 ```saw
-// var parameter: function can mutate caller's value
-func append_greeting(s: var String) {
-    s.push_str(", world!")
+// &T - immutable reference (read-only access)
+func print_length(s: &String) {
+    print(s.len())  // Can read through reference
+}
+
+let msg = "Hello"
+print_length(&msg)  // Pass reference with &
+
+// &var T - mutable reference (allows modification)
+func append_greeting(s: &var String) {
+    s.push_str(", world!")  // Can mutate through reference
 }
 
 var msg = String.from("Hello")
-append_greeting(&msg)  // & indicates msg may be mutated
+append_greeting(&msg)  // & at call site
 print(msg)  // "Hello, world!"
 
-// Multiple var parameters
-func swap<T>(a: var T, b: var T) {
+// Multiple reference parameters
+func swap<T>(a: &var T, b: &var T) {
     let temp = a
     a = b
     b = temp
@@ -499,6 +507,22 @@ func process(s: String) {
 
 let original = "hello"
 process(original)  // original is copied, unchanged
+```
+
+**Reference Semantics:**
+- References auto-dereference on read: `x` where `x: &Int` gives the `Int` value
+- Mutable references allow compound assignment: `x += 1` where `x: &var Int`
+- Direct assignment through references is not allowed: `x = 5` is an error
+- Moving out of references is not allowed: `move x` where `x: &var T` is an error
+- References cannot escape: cannot return, store in structs, or capture in closures
+
+**Method Self:**
+Methods use reference syntax for self:
+```saw
+extension Point {
+    func magnitude(&self) -> Float64 { ... }      // Immutable reference
+    func translate(&var self, dx: Float64) { ... } // Mutable reference
+}
 ```
 
 ### Shared Ownership
@@ -557,7 +581,7 @@ Saw provides a hierarchy of traits for types that need custom copy behavior or c
 ```saw
 // Called automatically when a value goes out of scope
 trait Deinit {
-    func deinit(var self)
+    func deinit(&var self)
 }
 ```
 
@@ -570,7 +594,7 @@ The compiler inserts `deinit()` calls at all scope exit points—including norma
 ```saw
 // Interface inheritance: CustomCopy requires Deinit
 trait CustomCopy: Deinit {
-    func copy(self) -> Self
+    func copy(&self) -> Self
 }
 ```
 
@@ -582,12 +606,12 @@ struct Arc<T>: CustomCopy {
 }
 
 extension Arc<T> {
-    func copy(self) -> Arc<T> {
+    func copy(&self) -> Arc<T> {
         self.ptr.refcount = self.ptr.refcount + 1
         Arc(ptr: self.ptr)
     }
 
-    func deinit(var self) {
+    func deinit(&var self) {
         self.ptr.refcount = self.ptr.refcount - 1
         if self.ptr.refcount == 0 {
             self.ptr.value.deinit()
@@ -622,7 +646,7 @@ struct File: NoCopy {
 extension File {
     func open(path: String) -> Result<File, IoError> { ... }
 
-    func deinit(var self) {
+    func deinit(&var self) {
         close(self.handle)
     }
 }
@@ -655,7 +679,7 @@ struct Connection {
 
 // Fix: explicitly implement NoCopy
 extension Connection: NoCopy {
-    func deinit(var self) {
+    func deinit(&var self) {
         // Your cleanup code here
         // Compiler auto-calls socket.deinit() after your code
     }
@@ -675,7 +699,7 @@ When you implement these traits, the compiler automatically handles fields:
 
 ```saw
 extension Connection: NoCopy {
-    func deinit(var self) {
+    func deinit(&var self) {
         print("closing connection")
         // Compiler inserts: self.socket.deinit()
     }
@@ -686,10 +710,10 @@ extension Connection: NoCopy {
 
 ```saw
 extension Container: CustomCopy {
-    func copy(self) -> Container {
+    func copy(&self) -> Container {
         Container(data: self.data)  // Compiler calls self.data.copy()
     }
-    func deinit(var self) { }
+    func deinit(&var self) { }
 }
 ```
 

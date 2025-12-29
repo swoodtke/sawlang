@@ -7,7 +7,7 @@ struct Resource {
     value: Int
 }
 extension Resource: Deinit {
-    func deinit(var self) {
+    func deinit(&var self) {
         // In a real implementation, this would release resources
         print(self.value)
     }

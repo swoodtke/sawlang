@@ -1,0 +1,67 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+// 5
+// 50
+// 5
+// 2
+// 110
+// 3.500000
+// 25
+// 6
+
+func main() {
+    // Test += on regular variable
+    var a = 10
+    a += 5
+    print(a)  // 15
+
+    // Test -= on regular variable
+    var b = 10
+    b -= 5
+    print(b)  // 5
+
+    // Test *= on regular variable
+    var c = 10
+    c *= 5
+    print(c)  // 50
+
+    // Test /= on regular variable
+    var d = 25
+    d /= 5
+    print(d)  // 5
+
+    // Test %= on regular variable
+    var e = 17
+    e %= 5
+    print(e)  // 2
+
+    // Test compound assignment on struct field
+    var p = Point(x: 100, y: 200)
+    p.x += 10
+    print(p.x)  // 110
+
+    // Test compound assignment with floats
+    var f = 1.5
+    f += 2.0
+    print(f)  // 3.5
+
+    // Test compound assignment on array element
+    var arr = [10, 20, 30]
+    arr[1] += 5
+    print(arr[1])  // 25
+
+    // Test compound assignment through reference
+    var g = 3
+    addThree(&g)
+    print(g)  // 6
+}
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func addThree(n: &var Int) {
+    n += 3
+}

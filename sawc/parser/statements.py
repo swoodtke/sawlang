@@ -13,11 +13,20 @@ Usage:
 from lexer import TokenType
 from ast_nodes import (
     Block, Statement,
-    LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
+    LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
     GuardLetStatement,
     WhileExpr, ForLoop, BreakStatement, ContinueStatement,
     Identifier, MemberAccess, ArrayIndex
 )
+
+# Compound assignment token to operator mapping
+COMPOUND_ASSIGN_OPS = {
+    TokenType.PLUS_ASSIGN: '+',
+    TokenType.MINUS_ASSIGN: '-',
+    TokenType.STAR_ASSIGN: '*',
+    TokenType.SLASH_ASSIGN: '/',
+    TokenType.PERCENT_ASSIGN: '%',
+}
 
 
 class StatementsMixin:
@@ -128,11 +137,11 @@ class StatementsMixin:
         )
 
     def parse_assignment_or_expression_statement(self) -> Statement:
-        """Parse either an assignment (x = value, obj.field = value) or expression statement."""
+        """Parse either an assignment (x = value, obj.field = value), compound assignment (x += 1), or expression statement."""
         start_pos = self.pos
         target_expr = self.parse_expression()
 
-        # Check if this is an assignment
+        # Check if this is a regular assignment
         if self.match(TokenType.ASSIGN):
             self.advance()  # consume '='
             value_expr = self.parse_expression()
@@ -147,13 +156,32 @@ class StatementsMixin:
                 line=target_expr.line,
                 column=target_expr.column
             )
-        else:
-            # It's just an expression statement
-            return ExpressionStatement(
-                expression=target_expr,
+
+        # Check if this is a compound assignment (+=, -=, *=, /=, %=)
+        current_type = self.current().type
+        if current_type in COMPOUND_ASSIGN_OPS:
+            op = COMPOUND_ASSIGN_OPS[current_type]
+            self.advance()  # consume the compound operator
+            value_expr = self.parse_expression()
+
+            # Validate that target is assignable (Identifier, MemberAccess, or ArrayIndex)
+            if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex)):
+                self.error("Invalid compound assignment target")
+
+            return CompoundAssignStatement(
+                target=target_expr,
+                op=op,
+                value=value_expr,
                 line=target_expr.line,
                 column=target_expr.column
             )
+
+        # It's just an expression statement
+        return ExpressionStatement(
+            expression=target_expr,
+            line=target_expr.line,
+            column=target_expr.column
+        )
 
     def parse_return_statement(self) -> ReturnStatement:
         start = self.advance()  # consume return

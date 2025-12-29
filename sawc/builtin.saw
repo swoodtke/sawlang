@@ -7,13 +7,13 @@
 
 // Deinit trait - called automatically when a value goes out of scope
 trait Deinit {
-    func deinit(var self)
+    func deinit(&var self)
 }
 
 // CustomCopy trait - use copy() instead of memcpy when assigning
 // Implementing CustomCopy requires also implementing Deinit
 trait CustomCopy: Deinit {
-    func copy(self) -> Self
+    func copy(&self) -> Self
 }
 
 // NoCopy trait - marker for move-only types that cannot be copied
@@ -29,7 +29,7 @@ trait NoCopy: Deinit {
 // Iterator trait for for-loop support
 trait Iterator {
     type Item
-    func next(var self) -> Item?
+    func next(&var self) -> Item?
 }
 
 // Range struct for range expressions (start..end)
@@ -41,7 +41,7 @@ struct Range {
 extension Range: Iterator {
     type Item = Int
 
-    func next(var self) -> Int? {
+    func next(&var self) -> Int? {
         if self.current < self.end {
             let result = self.current
             self.current = self.current + 1

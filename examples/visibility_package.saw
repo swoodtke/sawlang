@@ -9,7 +9,7 @@ public(package) struct Rectangle {
 }
 
 public(package) extension Rectangle {
-    func area(self) -> Int {
+    func area(&self) -> Int {
         self.width * self.height
     }
 }

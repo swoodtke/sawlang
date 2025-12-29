@@ -74,9 +74,15 @@ class TokenType(Enum):
     GTE = auto()
     AND = auto()            # && for logical and
     OR = auto()             # || for logical or
+    AMPERSAND = auto()      # & for references
     NOT = auto()            # 'not' keyword for logical not
     MOVE = auto()           # 'move' keyword for ownership transfer
     ASSIGN = auto()
+    PLUS_ASSIGN = auto()    # += compound assignment
+    MINUS_ASSIGN = auto()   # -= compound assignment
+    STAR_ASSIGN = auto()    # *= compound assignment
+    SLASH_ASSIGN = auto()   # /= compound assignment
+    PERCENT_ASSIGN = auto() # %= compound assignment
     QUESTION = auto()       # ? for optional types
     DOUBLE_QUESTION = auto() # ?? for nil coalescing
     EXCLAIM = auto()        # ! for force unwrap
@@ -306,35 +312,59 @@ class Lexer:
             elif ch.isalpha() or ch == '_':
                 self.tokens.append(self.read_identifier())
             elif ch == '+':
-                self.add_token(TokenType.PLUS, '+')
-                self.advance()
+                if self.peek(1) == '=':
+                    self.add_token(TokenType.PLUS_ASSIGN, '+=')
+                    self.advance()
+                    self.advance()
+                else:
+                    self.add_token(TokenType.PLUS, '+')
+                    self.advance()
             elif ch == '-':
                 if self.peek(1) == '>':
                     self.add_token(TokenType.ARROW, '->')
+                    self.advance()
+                    self.advance()
+                elif self.peek(1) == '=':
+                    self.add_token(TokenType.MINUS_ASSIGN, '-=')
                     self.advance()
                     self.advance()
                 else:
                     self.add_token(TokenType.MINUS, '-')
                     self.advance()
             elif ch == '*':
-                self.add_token(TokenType.STAR, '*')
-                self.advance()
+                if self.peek(1) == '=':
+                    self.add_token(TokenType.STAR_ASSIGN, '*=')
+                    self.advance()
+                    self.advance()
+                else:
+                    self.add_token(TokenType.STAR, '*')
+                    self.advance()
             elif ch == '/':
                 if self.peek(1) == '/':
                     self.skip_comment()
+                elif self.peek(1) == '=':
+                    self.add_token(TokenType.SLASH_ASSIGN, '/=')
+                    self.advance()
+                    self.advance()
                 else:
                     self.add_token(TokenType.SLASH, '/')
                     self.advance()
             elif ch == '%':
-                self.add_token(TokenType.PERCENT, '%')
-                self.advance()
+                if self.peek(1) == '=':
+                    self.add_token(TokenType.PERCENT_ASSIGN, '%=')
+                    self.advance()
+                    self.advance()
+                else:
+                    self.add_token(TokenType.PERCENT, '%')
+                    self.advance()
             elif ch == '&':
                 if self.peek(1) == '&':
                     self.add_token(TokenType.AND, '&&')
                     self.advance()
                     self.advance()
                 else:
-                    self.error(f"Unexpected character: {ch} (did you mean '&&'?)")
+                    self.add_token(TokenType.AMPERSAND, '&')
+                    self.advance()
             elif ch == '|':
                 if self.peek(1) == '|':
                     self.add_token(TokenType.OR, '||')

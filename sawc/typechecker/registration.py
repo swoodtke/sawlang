@@ -312,7 +312,8 @@ class RegistrationMixin:
                 param_types=param_types,
                 return_type=method.return_type,
                 param_names=param_names,
-                self_mutable=method.self_mutable
+                self_mutable=method.self_mutable,
+                self_is_reference=method.self_is_reference
             )
 
         # Collect associated type names (own + inherited)
@@ -579,6 +580,7 @@ class RegistrationMixin:
                 return_type=return_type,
                 param_names=param_names,
                 self_mutable=self_mutable,
+                self_is_reference=method.self_is_reference,
                 is_init=method.is_init,
                 is_static=method.is_static,
                 default_values=default_values
@@ -596,6 +598,7 @@ class RegistrationMixin:
                 is_static=method.is_static,
                 is_init=method.is_init,
                 self_mutable=self_mutable,
+                self_is_reference=method.self_is_reference,
                 ast_node=method
             )
             if method.is_init:

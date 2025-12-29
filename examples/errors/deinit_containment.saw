@@ -7,7 +7,7 @@ struct Inner {
 }
 
 extension Inner: Deinit {
-    func deinit(var self) {
+    func deinit(&var self) {
         print("inner cleanup")
     }
 }

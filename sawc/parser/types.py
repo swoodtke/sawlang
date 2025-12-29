@@ -53,6 +53,21 @@ class TypeParsingMixin:
         """Parse a non-optional base type."""
         token = self.current()
 
+        # Check for reference type: &T or &var T
+        if token.type == TokenType.AMPERSAND:
+            self.advance()  # consume '&'
+
+            # Check for &var T (mutable reference)
+            is_mutable = False
+            if self.match(TokenType.VAR):
+                is_mutable = True
+                self.advance()
+
+            # Parse the inner type
+            inner_type = self.parse_type()
+
+            return SawType(TypeKind.REFERENCE, inner_type=inner_type, reference_mutable=is_mutable)
+
         if token.type == TokenType.LBRACKET:
             # Array type: [Type; Size]
             self.advance()  # consume '['

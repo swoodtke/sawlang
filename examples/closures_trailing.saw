@@ -19,7 +19,7 @@ struct Calc {
 }
 
 extension Calc {
-    func transform(self, f: (Int) -> Int) -> Int {
+    func transform(&self, f: (Int) -> Int) -> Int {
         f(self.value)
     }
 }

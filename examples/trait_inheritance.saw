@@ -5,11 +5,11 @@
 // Test trait inheritance parsing
 
 trait Base {
-    func getValue(self) -> Int
+    func getValue(&self) -> Int
 }
 
 trait Child: Base {
-    func doubled(self) -> Int
+    func doubled(&self) -> Int
 }
 
 struct Number {
@@ -17,11 +17,11 @@ struct Number {
 }
 
 extension Number: Child {
-    func getValue(self) -> Int {
+    func getValue(&self) -> Int {
         self.value
     }
 
-    func doubled(self) -> Int {
+    func doubled(&self) -> Int {
         self.value * 2
     }
 }

@@ -11,17 +11,17 @@ struct Counter {
 
 extension Counter {
     // Mutable method - can modify self using 'var self'
-    func increment(var self) {
+    func increment(&var self) {
         self.value = self.value + 1
     }
 
     // Another mutable method with parameter
-    func add(var self, amount: Int) {
+    func add(&var self, amount: Int) {
         self.value = self.value + amount
     }
 
     // Immutable method - can only read self
-    func getValue(self) -> Int {
+    func getValue(&self) -> Int {
         self.value
     }
 }

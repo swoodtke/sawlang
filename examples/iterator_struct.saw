@@ -17,7 +17,7 @@ struct PointList {
 }
 extension PointList: Iterator {
     type Item = Point
-    func next(var self) -> Point? {
+    func next(&var self) -> Point? {
         if self.index < 3 {
             let i = self.index
             self.index = self.index + 1

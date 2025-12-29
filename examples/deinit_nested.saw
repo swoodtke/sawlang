@@ -8,7 +8,7 @@ struct Inner {
     value: Int
 }
 extension Inner: Deinit {
-    func deinit(var self) {
+    func deinit(&var self) {
         print("inner deinit")
     }
 }
@@ -16,7 +16,7 @@ struct Outer {
     inner: Inner
 }
 extension Outer: Deinit {
-    func deinit(var self) {
+    func deinit(&var self) {
         print("outer deinit")
         // Do we need to manually call self.inner.deinit()?
     }

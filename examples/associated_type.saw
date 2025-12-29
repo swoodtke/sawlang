@@ -6,14 +6,14 @@
 
 trait Container {
     type Item
-    func get(self) -> Item
+    func get(&self) -> Item
 }
 struct IntBox {
     value: Int
 }
 extension IntBox: Container {
     type Item = Int
-    func get(self) -> Int {
+    func get(&self) -> Int {
         self.value
     }
 }
@@ -22,7 +22,7 @@ struct StringBox {
 }
 extension StringBox: Container {
     type Item = String
-    func get(self) -> String {
+    func get(&self) -> String {
         self.value
     }
 }

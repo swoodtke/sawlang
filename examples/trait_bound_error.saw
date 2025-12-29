@@ -3,7 +3,7 @@
 // EXPECT-ERROR-CONTAINS: does not implement trait `Describable`
 
 trait Describable {
-    func describe(self) -> Int
+    func describe(&self) -> Int
 }
 
 struct Point {

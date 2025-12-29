@@ -7,7 +7,7 @@ struct Resource {
 }
 
 extension Resource: Deinit {
-    func deinit(var self) {
+    func deinit(&var self) {
         print("cleanup")
     }
 }

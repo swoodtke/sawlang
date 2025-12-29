@@ -1,0 +1,23 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 100
+// 101
+
+func getValue(x: &Int) -> Int {
+    x
+}
+
+func increment(y: &var Int) {
+    y += 1
+}
+
+func main() {
+    let a = 42
+    print(getValue(&a))
+
+    var b = 100
+    print(b)
+    increment(&b)
+    print(b)
+}

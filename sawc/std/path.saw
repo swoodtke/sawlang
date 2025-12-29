@@ -36,7 +36,7 @@ extension Path {
     // =========================================================================
 
     // Get the path as a string
-    func as_str(self) -> String {
+    func as_str(&self) -> String {
         self.value
     }
 
@@ -46,7 +46,7 @@ extension Path {
 
     // Get the parent directory path
     // Returns None for root paths or paths with no parent
-    func parent(self) -> Path? {
+    func parent(&self) -> Path? {
         let len = self.value.len()
         if len == 0 {
             return None
@@ -72,7 +72,7 @@ extension Path {
 
     // Get the file name (last component of the path)
     // Returns None for root or empty paths
-    func file_name(self) -> String? {
+    func file_name(&self) -> String? {
         let len = self.value.len()
         if len == 0 {
             return None
@@ -94,7 +94,7 @@ extension Path {
 
     // Get the file extension (without the dot)
     // Returns None if no extension
-    func ext(self) -> String? {
+    func ext(&self) -> String? {
         if let name = self.file_name() {
             if let last_dot = name.last_index_of_char(46 as Int8) {  // '.'
                 if last_dot == 0 {
@@ -117,7 +117,7 @@ extension Path {
     }
 
     // Get the file stem (file name without extension)
-    func stem(self) -> String? {
+    func stem(&self) -> String? {
         if let name = self.file_name() {
             if let last_dot = name.last_index_of_char(46 as Int8) {  // '.'
                 if last_dot == 0 {
@@ -140,7 +140,7 @@ extension Path {
     // =========================================================================
 
     // Join this path with another path component
-    func join(self, other: String) -> Path {
+    func join(&self, other: String) -> Path {
         let self_len = self.value.len()
         let other_len = other.len()
 
@@ -191,7 +191,7 @@ extension Path {
     }
 
     // Join with a Path
-    func join_path(self, other: Path) -> Path {
+    func join_path(&self, other: Path) -> Path {
         self.join(other.value)
     }
 
@@ -200,7 +200,7 @@ extension Path {
     // =========================================================================
 
     // Check if the path is absolute
-    func is_absolute(self) -> Bool {
+    func is_absolute(&self) -> Bool {
         let len = self.value.len()
         if len == 0 {
             return false
@@ -209,12 +209,12 @@ extension Path {
     }
 
     // Check if the path is relative
-    func is_relative(self) -> Bool {
+    func is_relative(&self) -> Bool {
         not self.is_absolute()
     }
 
     // Check if the path is empty
-    func is_empty(self) -> Bool {
+    func is_empty(&self) -> Bool {
         self.value.len() == 0
     }
 }

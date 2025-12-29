@@ -20,7 +20,7 @@ from ast_nodes import (
     Expression, Block, Statement,
     LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation, Identifier,
-    BinaryOp, UnaryOp, MoveExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
+    BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
@@ -184,6 +184,24 @@ class ExpressionsMixin:
                 variable=var_token.value,
                 line=move_token.line,
                 column=move_token.column
+            )
+
+        if self.match(TokenType.AMPERSAND):
+            # Reference expression at call site: &expr or &var expr
+            ref_token = self.advance()
+
+            # Check for &var expr (mutable reference)
+            is_mutable = False
+            if self.match(TokenType.VAR):
+                is_mutable = True
+                self.advance()
+
+            operand = self.parse_unary()
+            return ReferenceExpr(
+                expr=operand,
+                mutable=is_mutable,
+                line=ref_token.line,
+                column=ref_token.column
             )
 
         return self.parse_cast()

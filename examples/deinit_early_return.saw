@@ -9,7 +9,7 @@ struct Counter {
     id: Int
 }
 extension Counter: Deinit {
-    func deinit(var self) {
+    func deinit(&var self) {
         print(self.id)
     }
 }

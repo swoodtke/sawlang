@@ -87,7 +87,8 @@ class MethodInfo:
     param_types: List[SawType]  # Includes self for instance methods
     return_type: SawType
     param_names: List[str]
-    self_mutable: bool  # True if 'var self'
+    self_mutable: bool  # True if '&var self'
+    self_is_reference: bool = True  # True for '&self' or '&var self' (always true for methods with self)
     is_init: bool = False
     is_static: bool = False  # True for methods without 'self' parameter
     default_values: List[Optional['Expression']] = field(default_factory=list)  # Default values for params
@@ -100,7 +101,8 @@ class TraitMethodInfo:
     param_types: List[SawType]  # Includes self
     return_type: SawType
     param_names: List[str]
-    self_mutable: bool = False  # True if 'var self'
+    self_mutable: bool = False  # True if '&var self'
+    self_is_reference: bool = True  # True for '&self' or '&var self'
 
 
 @dataclass

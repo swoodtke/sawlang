@@ -7,10 +7,10 @@ struct RefCounted {
 }
 
 extension RefCounted: CustomCopy {
-    func copy(self) -> RefCounted {
+    func copy(&self) -> RefCounted {
         RefCounted(count: self.count + 1)
     }
-    func deinit(var self) {
+    func deinit(&var self) {
     }
 }
 
