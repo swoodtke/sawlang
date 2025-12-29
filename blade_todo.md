@@ -17,7 +17,7 @@ This document outlines the Saw language features required to implement `blade`, 
 - ~~FFI for system calls~~ ✅ Done
 - ~~Dynamic collections (Vector, Map)~~ ✅ Done
 - ~~StringBuilder~~ ✅ Done
-- ~~String methods (len, trim, contains, etc.)~~ ✅ Mostly done (split/join pending)
+- ~~String methods (len, trim, contains, split, join, etc.)~~ ✅ Done
 - ~~File I/O~~ ✅ Done (File, Directory, Data structs)
 - ~~Process spawning~~ ✅ Done (Command struct)
 - ~~Module system~~ ✅ Done (imports, visibility, packages)
@@ -168,12 +168,12 @@ print(sb.as_str())  // Hello, World!
 
 ---
 
-## Phase 3: String Manipulation ⏳ IN PROGRESS
+## Phase 3: String Manipulation ✅ MOSTLY COMPLETE
 
 *Goal: Parse TOML, process CLI args, handle paths.*
 
 ### 3.1 String Methods
-**Priority: HIGH** - MOSTLY COMPLETE
+**Priority: HIGH** - COMPLETED
 
 ```saw
 let s = "  hello, world  "
@@ -193,7 +193,7 @@ let joined = parts.join("-")  // "a-b-c"
 **Tasks:**
 - [x] `len()` - byte count (implemented in `std/string.saw`)
 - [x] `trim()`, `trim_start()`, `trim_end()`
-- [ ] `split(separator)` returning Vec<String>
+- [x] `split(separator)` returning Vector<String>
 - [x] `starts_with(prefix)`, `ends_with(suffix)`
 - [x] `contains(substring)`
 - [x] `replace(old, new)`
@@ -201,8 +201,8 @@ let joined = parts.join("-")  // "a-b-c"
 - [x] `is_empty()` - bonus method added
 - [x] `byte_at(index)` - bonus method for low-level access
 - [x] `equals(other)` - string comparison
+- [x] `join(separator)` for Vector<String> (via generic specialization)
 - [ ] `chars()` iterator
-- [ ] `join(separator)` for Vec<String>
 - [ ] Substring/slice syntax: `s[0..5]`
 
 ### 3.2 String Formatting
@@ -529,8 +529,8 @@ my-package/
 **Milestone 1.5: Collections & Strings** ✅ COMPLETE (Phase 2-3)
 - Vector<T>, Map<K, V> dynamic collections
 - StringBuilder for string building
-- String methods (len, trim, contains, starts_with, ends_with, replace, etc.)
-- Only split/join remaining for strings
+- String methods (len, trim, contains, starts_with, ends_with, replace, split, etc.)
+- Vector<String>.join via generic extension specialization
 
 **Milestone 2: File Operations** ✅ COMPLETE (Phase 4)
 - File struct with open/create/read/write/seek
