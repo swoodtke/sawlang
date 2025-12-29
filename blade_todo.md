@@ -7,7 +7,7 @@ This document outlines the Saw language features required to implement `blade`, 
 **What we have:**
 - Functions, structs, enums with generics
 - Pattern matching, optionals, closures
-- Interfaces and extensions
+- Traits and extensions
 - Resource management (Deinit, CustomCopy, NoCopy)
 - Move semantics
 - Fixed-size arrays, tuples
@@ -148,7 +148,7 @@ m.remove(1)
 - [x] `insert`, `get`, `remove`, `contains_key` methods
 - [x] `len`, `is_empty`, `clear` methods
 - [ ] Key-value iterator (future enhancement)
-- [ ] Hashable interface for O(1) lookup (future enhancement)
+- [ ] Hashable trait for O(1) lookup (future enhancement)
 
 ### 2.3 StringBuilder ✅
 **Priority: MEDIUM** - COMPLETED
@@ -410,7 +410,7 @@ match result {
 **Tasks:**
 - [ ] Built-in Result<T, E> enum
 - [ ] `?` operator for early return on Err
-- [ ] Error interface with `message()` method
+- [ ] Error trait with `message()` method
 - [ ] Common error types (IoError, ParseError, etc.)
 - [ ] `try` blocks for local error handling
 

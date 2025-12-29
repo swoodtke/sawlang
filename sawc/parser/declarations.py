@@ -2,7 +2,7 @@
 Declaration parsing methods for the Saw parser.
 
 This module provides mixin methods for parsing top-level declarations including
-functions, structs, enums, interfaces, extensions, extern blocks, and methods.
+functions, structs, enums, traits, extensions, extern blocks, and methods.
 
 Usage:
     class Parser(DeclarationsMixin, ...):
@@ -14,7 +14,7 @@ from lexer import TokenType
 from ast_nodes import (
     Function, Parameter, Struct, StructField,
     Enum, EnumVariant,
-    Interface, InterfaceMethod, AssociatedType,
+    Trait, TraitMethod, AssociatedType,
     Extension, Method, TypeAssignment, TypeDefinition,
     ExternBlock, ExternFunction,
     SawType, TypeKind, Visibility
@@ -159,29 +159,29 @@ class DeclarationsMixin:
             column=start.column
         )
 
-    def parse_interface(self, visibility: Visibility = Visibility.PRIVATE) -> Interface:
-        """Parse interface declaration: interface CustomCopy: Deinit { func copy(self) -> Self }"""
+    def parse_trait(self, visibility: Visibility = Visibility.PRIVATE) -> Trait:
+        """Parse trait declaration: trait CustomCopy: Deinit { func copy(self) -> Self }"""
         start = self.current()
-        self.expect(TokenType.INTERFACE)
+        self.expect(TokenType.TRAIT)
 
-        name_token = self.expect(TokenType.IDENT, "Expected interface name")
+        name_token = self.expect(TokenType.IDENT, "Expected trait name")
         name = name_token.value
 
         # Parse optional type parameters
         type_params = self.parse_type_params()
 
-        # Parse optional parent interfaces: `: ParentInterface, AnotherInterface`
-        parent_interfaces = []
+        # Parse optional parent traits: `: ParentTrait, AnotherTrait`
+        parent_traits = []
         if self.match(TokenType.COLON):
             self.advance()
-            # Parse first parent interface
-            parent_token = self.expect(TokenType.IDENT, "Expected parent interface name")
-            parent_interfaces.append(parent_token.value)
-            # Parse additional parent interfaces (comma-separated)
+            # Parse first parent trait
+            parent_token = self.expect(TokenType.IDENT, "Expected parent trait name")
+            parent_traits.append(parent_token.value)
+            # Parse additional parent traits (comma-separated)
             while self.match(TokenType.COMMA):
                 self.advance()
-                parent_token = self.expect(TokenType.IDENT, "Expected parent interface name")
-                parent_interfaces.append(parent_token.value)
+                parent_token = self.expect(TokenType.IDENT, "Expected parent trait name")
+                parent_traits.append(parent_token.value)
 
         self.skip_newlines()
         self.expect(TokenType.LBRACE)
@@ -195,20 +195,20 @@ class DeclarationsMixin:
                 assoc_type = self.parse_associated_type()
                 associated_types.append(assoc_type)
             elif self.match(TokenType.FUNC):
-                method = self.parse_interface_method()
+                method = self.parse_trait_method()
                 methods.append(method)
             else:
-                self.error(f"Expected 'type' or 'func' in interface, got {self.current().type.name}")
+                self.error(f"Expected 'type' or 'func' in trait, got {self.current().type.name}")
             self.skip_newlines()
 
         self.expect(TokenType.RBRACE)
 
-        return Interface(
+        return Trait(
             name=name,
             methods=methods,
             associated_types=associated_types,
             type_params=type_params,
-            parent_interfaces=parent_interfaces,
+            parent_traits=parent_traits,
             visibility=visibility,
             line=start.line,
             column=start.column
@@ -227,10 +227,10 @@ class DeclarationsMixin:
             column=start.column
         )
 
-    def parse_interface_method(self) -> InterfaceMethod:
-        """Parse method signature in interface: func name(self, params...) -> Type"""
+    def parse_trait_method(self) -> TraitMethod:
+        """Parse method signature in trait: func name(self, params...) -> Type"""
         start = self.current()
-        self.expect(TokenType.FUNC, "Expected 'func' in interface method")
+        self.expect(TokenType.FUNC, "Expected 'func' in trait method")
 
         name_token = self.expect(TokenType.IDENT, "Expected method name")
         name = name_token.value
@@ -245,7 +245,7 @@ class DeclarationsMixin:
             self.advance()
             return_type = self.parse_type()
 
-        return InterfaceMethod(
+        return TraitMethod(
             name=name,
             parameters=parameters,
             return_type=return_type,
@@ -255,7 +255,7 @@ class DeclarationsMixin:
         )
 
     def parse_extension(self, visibility: Visibility = Visibility.PRIVATE) -> Extension:
-        """Parse extension declaration: extension Box<T>: Interface { type Item = Int; func... }"""
+        """Parse extension declaration: extension Box<T>: Trait { type Item = Int; func... }"""
         start = self.current()
         self.expect(TokenType.EXTENSION)
 
@@ -272,17 +272,17 @@ class DeclarationsMixin:
         # Parse optional type parameters: <T, U>
         type_params = self.parse_type_params()
 
-        # Parse optional interface conformances: `: Interface1, Interface2`
+        # Parse optional trait conformances: `: Trait1, Trait2`
         conformances = []
         if self.match(TokenType.COLON):
             self.advance()
-            # Parse first interface name
-            iface_token = self.expect(TokenType.IDENT, "Expected interface name after ':'")
+            # Parse first trait name
+            iface_token = self.expect(TokenType.IDENT, "Expected trait name after ':'")
             conformances.append(iface_token.value)
-            # Parse additional interfaces
+            # Parse additional traits
             while self.match(TokenType.COMMA):
                 self.advance()
-                iface_token = self.expect(TokenType.IDENT, "Expected interface name after ','")
+                iface_token = self.expect(TokenType.IDENT, "Expected trait name after ','")
                 conformances.append(iface_token.value)
 
         self.skip_newlines()

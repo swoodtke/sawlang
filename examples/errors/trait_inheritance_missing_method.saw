@@ -1,12 +1,12 @@
-// Test error: interface inheritance requires implementing parent methods
+// Test error: trait inheritance requires implementing parent methods
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: does not implement required method `getValue`
 
-interface Base {
+trait Base {
     func getValue(self) -> Int
 }
 
-interface Child: Base {
+trait Child: Base {
     func doubled(self) -> Int
 }
 

@@ -2,32 +2,32 @@
 // This file is automatically included by the compiler.
 
 // =============================================================================
-// Resource Management Interfaces
+// Resource Management Traits
 // =============================================================================
 
-// Deinit interface - called automatically when a value goes out of scope
-interface Deinit {
+// Deinit trait - called automatically when a value goes out of scope
+trait Deinit {
     func deinit(var self)
 }
 
-// CustomCopy interface - use copy() instead of memcpy when assigning
+// CustomCopy trait - use copy() instead of memcpy when assigning
 // Implementing CustomCopy requires also implementing Deinit
-interface CustomCopy: Deinit {
+trait CustomCopy: Deinit {
     func copy(self) -> Self
 }
 
-// NoCopy interface - marker for move-only types that cannot be copied
+// NoCopy trait - marker for move-only types that cannot be copied
 // Implementing NoCopy requires also implementing Deinit
-interface NoCopy: Deinit {
-    // Marker interface - no additional methods
+trait NoCopy: Deinit {
+    // Marker trait - no additional methods
 }
 
 // =============================================================================
 // Iterator Support
 // =============================================================================
 
-// Iterator interface for for-loop support
-interface Iterator {
+// Iterator trait for for-loop support
+trait Iterator {
     type Item
     func next(var self) -> Item?
 }

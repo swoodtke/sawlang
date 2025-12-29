@@ -20,7 +20,7 @@ class TypeKind(Enum):
     TYPE_PARAM = auto()  # For generic type parameters like T, U
     ARRAY = auto()       # For fixed-size arrays [T; N]
     FUNCTION = auto()    # For function types like (Int) -> Int
-    SELF = auto()        # For Self type in interface methods
+    SELF = auto()        # For Self type in trait methods
     POINTER = auto()     # For raw pointers: UnsafePointer<T>, UnsafeMutablePointer<T>
     MODULE = auto()      # For module references during qualified access
     # Fixed-width integers
@@ -203,7 +203,7 @@ class SawType:
 class TypeParameter:
     """A type parameter in a generic function, struct, or enum (e.g., T in func foo<T>)."""
     name: str
-    bounds: List[str] = field(default_factory=list)  # Interface bounds (Phase 3)
+    bounds: List[str] = field(default_factory=list)  # Trait bounds (Phase 3)
     line: int = 0
     column: int = 0
 
@@ -704,8 +704,8 @@ class Enum(ASTNode):
 
 
 @dataclass
-class InterfaceMethod(ASTNode):
-    """Method signature in an interface (no body)."""
+class TraitMethod(ASTNode):
+    """Method signature in a trait (no body)."""
     name: str
     parameters: List[Parameter]  # includes self
     return_type: SawType
@@ -716,21 +716,21 @@ class InterfaceMethod(ASTNode):
 
 @dataclass
 class AssociatedType(ASTNode):
-    """Associated type declaration in an interface: type Item"""
+    """Associated type declaration in a trait: type Item"""
     name: str
-    bounds: List[str] = field(default_factory=list)  # Interface bounds (future)
+    bounds: List[str] = field(default_factory=list)  # Trait bounds (future)
     line: int = 0
     column: int = 0
 
 
 @dataclass
-class Interface(ASTNode):
-    """Interface declaration: interface CustomCopy: Deinit { func copy(self) -> Self }"""
+class Trait(ASTNode):
+    """Trait declaration: trait CustomCopy: Deinit { func copy(self) -> Self }"""
     name: str
-    methods: List[InterfaceMethod]  # Required method signatures
+    methods: List[TraitMethod]  # Required method signatures
     associated_types: List[AssociatedType] = field(default_factory=list)
     type_params: List[TypeParameter] = field(default_factory=list)
-    parent_interfaces: List[str] = field(default_factory=list)  # Inherited interfaces
+    parent_traits: List[str] = field(default_factory=list)  # Inherited traits
     visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
@@ -747,11 +747,11 @@ class TypeAssignment(ASTNode):
 
 @dataclass
 class Extension(ASTNode):
-    """Extension declaration: extension Box<T>: Interface { ... }"""
+    """Extension declaration: extension Box<T>: Trait { ... }"""
     struct_name: str
     methods: List['Method']
     type_params: List['TypeParameter'] = field(default_factory=list)  # For generic extensions
-    conformances: List[str] = field(default_factory=list)  # Interface names
+    conformances: List[str] = field(default_factory=list)  # Trait names
     type_assignments: List[TypeAssignment] = field(default_factory=list)  # Associated type assignments
     visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
@@ -823,7 +823,7 @@ class Program(ASTNode):
     functions: List[Function]
     extensions: List[Extension] = field(default_factory=list)
     enums: List[Enum] = field(default_factory=list)
-    interfaces: List[Interface] = field(default_factory=list)
+    traits: List[Trait] = field(default_factory=list)
     type_definitions: List[TypeDefinition] = field(default_factory=list)
     extern_blocks: List[ExternBlock] = field(default_factory=list)
     # Module system

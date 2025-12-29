@@ -1,9 +1,9 @@
-// Test passing object via interface bounds on generics
+// Simple trait test
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 7
 
-interface Describable {
+trait Describable {
     func describe(self) -> Int
 }
 
@@ -18,11 +18,7 @@ extension Point: Describable {
     }
 }
 
-func printDescription<T: Describable>(d: T) {
-    print(d.describe())
-}
-
 func main() {
     let p = Point(x: 3, y: 4)
-    printDescription<Point>(p)
+    print(p.describe())
 }

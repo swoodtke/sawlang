@@ -18,7 +18,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, EnumInit, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    Interface, InterfaceMethod, AssociatedType, TypeAssignment, TypeDefinition,
+    Trait, TraitMethod, AssociatedType, TypeAssignment, TypeDefinition,
     ExternFunction, ExternBlock,
     SawType, TypeKind, Parameter, Argument, TypeParameter,
     ClosureExpr, ClosureParam,
@@ -27,8 +27,8 @@ from ast_nodes import (
 from errors import ErrorReporter, ErrorKind
 from namespace import (
     Namespace, SymbolKind,
-    FunctionSymbol, StructSymbol, EnumSymbol, InterfaceSymbol, TypeAliasSymbol,
-    InterfaceMethodSymbol
+    FunctionSymbol, StructSymbol, EnumSymbol, TraitSymbol, TypeAliasSymbol,
+    TraitMethodSymbol
 )
 from .types import TypeUtilsMixin
 from .registration import RegistrationMixin
@@ -91,8 +91,8 @@ class MethodInfo:
 
 
 @dataclass
-class InterfaceMethodInfo:
-    """Information about a method signature in an interface."""
+class TraitMethodInfo:
+    """Information about a method signature in a trait."""
     name: str
     param_types: List[SawType]  # Includes self
     return_type: SawType
@@ -101,12 +101,12 @@ class InterfaceMethodInfo:
 
 
 @dataclass
-class InterfaceInfo:
-    """Information about an interface."""
+class TraitInfo:
+    """Information about a trait."""
     name: str
-    methods: Dict[str, InterfaceMethodInfo]  # method_name -> info
+    methods: Dict[str, TraitMethodInfo]  # method_name -> info
     associated_types: List[str] = field(default_factory=list)  # Associated type names (e.g., ["Item"])
-    parent_interfaces: List[str] = field(default_factory=list)  # Parent interface names
+    parent_traits: List[str] = field(default_factory=list)  # Parent trait names
 
 
 class Scope:
@@ -143,7 +143,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self.reporter = reporter
         self.structs: Dict[str, StructInfo] = {}
         self.enums: Dict[str, EnumInfo] = {}
-        self.interfaces: Dict[str, InterfaceInfo] = {}
+        self.traits: Dict[str, TraitInfo] = {}
         self.functions: Dict[str, FunctionInfo] = {}
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
@@ -155,9 +155,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Track break value types for each loop level
         # Each entry is (expected_type: Optional[SawType], is_infinite: bool, has_break: bool)
         self.loop_break_info: List[Tuple[Optional[SawType], bool, bool]] = []
-        # Track which types implement which interfaces
-        self.type_conformances: Dict[str, List[str]] = {}  # type_name -> [interface_names]
-        # Track associated type assignments: (type_name, interface_name) -> {assoc_type_name: SawType}
+        # Track which types implement which traits
+        self.type_conformances: Dict[str, List[str]] = {}  # type_name -> [trait_names]
+        # Track associated type assignments: (type_name, trait_name) -> {assoc_type_name: SawType}
         self.type_assignments: Dict[Tuple[str, str], Dict[str, SawType]] = {}
         # Type aliases: name -> SawType
         self.type_aliases: Dict[str, SawType] = {}
@@ -202,9 +202,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for enum in program.enums:
             self._register_enum(enum)
 
-        # Fourth pass: collect interface definitions
-        for interface in program.interfaces:
-            self._register_interface(interface)
+        # Fourth pass: collect trait definitions
+        for trait in program.traits:
+            self._register_trait(trait)
 
         # Fifth pass: register extensions and their methods
         for extension in program.extensions:
@@ -271,7 +271,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         """
         from namespace import (
             Namespace, FunctionSymbol, StructSymbol, EnumSymbol,
-            InterfaceSymbol, TypeAliasSymbol, InterfaceMethodSymbol
+            TraitSymbol, TypeAliasSymbol, TraitMethodSymbol
         )
         from ast_nodes import Visibility
 
@@ -300,10 +300,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     if name not in ns.functions:
                         ns.register_function(name, sym)
                     ns.make_accessible(name)
-            for name, sym in parent_namespace.interfaces.items():
+            for name, sym in parent_namespace.traits.items():
                 if sym.visibility == Visibility.PUBLIC:
-                    if name not in ns.interfaces:
-                        ns.register_interface(name, sym)
+                    if name not in ns.traits:
+                        ns.register_trait(name, sym)
                     ns.make_accessible(name)
 
         # Process imports - register imported modules in this namespace
@@ -333,7 +333,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     for name, sym in source_ns.functions.items():
                         if sym.visibility == Visibility.PUBLIC:
                             ns.make_accessible(name)
-                    for name, sym in source_ns.interfaces.items():
+                    for name, sym in source_ns.traits.items():
                         if sym.visibility == Visibility.PUBLIC:
                             ns.make_accessible(name)
             elif imp.symbols:
@@ -392,10 +392,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             self._register_enum(enum)
             ns.make_accessible(enum.name)
 
-        # Register interfaces
-        for interface in module_ast.interfaces:
-            self._register_interface(interface)
-            ns.make_accessible(interface.name)
+        # Register traits
+        for trait in module_ast.traits:
+            self._register_trait(trait)
+            ns.make_accessible(trait.name)
 
         # Register extensions
         for extension in module_ast.extensions:

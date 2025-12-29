@@ -4,7 +4,7 @@
 // 42
 // hello
 
-interface Container {
+trait Container {
     type Item
     func get(self) -> Item
 }

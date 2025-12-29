@@ -18,7 +18,7 @@ from ast_nodes import (
     Struct, StructField,
     Enum, EnumVariant, MatchExpr, MatchArm,
     Extension, Method, MethodCall, SelfExpr,
-    Interface, InterfaceMethod, AssociatedType, TypeAssignment, TypeDefinition,
+    Trait, TraitMethod, AssociatedType, TypeAssignment, TypeDefinition,
     ExternFunction, ExternBlock,
     SawType, TypeKind, Argument, TypeParameter,
     ClosureExpr, ClosureParam,
@@ -136,17 +136,17 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         start = self.current()
         name_token = self.expect(TokenType.IDENT, "Expected type parameter name")
 
-        # Parse optional bounds: T: Interface1 + Interface2
+        # Parse optional bounds: T: Trait1 + Trait2
         bounds = []
         if self.match(TokenType.COLON):
             self.advance()
             # Parse first bound
-            bound_token = self.expect(TokenType.IDENT, "Expected interface name after ':'")
+            bound_token = self.expect(TokenType.IDENT, "Expected trait name after ':'")
             bounds.append(bound_token.value)
             # Parse additional bounds
             while self.match(TokenType.PLUS):
                 self.advance()
-                bound_token = self.expect(TokenType.IDENT, "Expected interface name after '+'")
+                bound_token = self.expect(TokenType.IDENT, "Expected trait name after '+'")
                 bounds.append(bound_token.value)
 
         return TypeParameter(
@@ -161,7 +161,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         functions = []
         extensions = []
         enums = []
-        interfaces = []
+        traits = []
         type_definitions = []
         extern_blocks = []
         imports = []
@@ -185,8 +185,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                         structs.append(self.parse_struct(visibility))
                     elif self.match(TokenType.ENUM):
                         enums.append(self.parse_enum(visibility))
-                    elif self.match(TokenType.INTERFACE):
-                        interfaces.append(self.parse_interface(visibility))
+                    elif self.match(TokenType.TRAIT):
+                        traits.append(self.parse_trait(visibility))
                     elif self.match(TokenType.EXTENSION):
                         extensions.append(self.parse_extension(visibility))
                     elif self.match(TokenType.FUNC):
@@ -194,15 +194,15 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                     elif self.match(TokenType.TYPE):
                         type_definitions.append(self.parse_type_definition(visibility))
                     else:
-                        self.error(f"Expected struct, enum, interface, extension, func, or type after visibility modifier")
+                        self.error(f"Expected struct, enum, trait, extension, func, or type after visibility modifier")
             elif self.match_ident("module"):
                 module_decls.append(self.parse_module_decl())
             elif self.match(TokenType.STRUCT):
                 structs.append(self.parse_struct())
             elif self.match(TokenType.ENUM):
                 enums.append(self.parse_enum())
-            elif self.match(TokenType.INTERFACE):
-                interfaces.append(self.parse_interface())
+            elif self.match(TokenType.TRAIT):
+                traits.append(self.parse_trait())
             elif self.match(TokenType.EXTENSION):
                 extensions.append(self.parse_extension())
             elif self.match(TokenType.FUNC):
@@ -212,11 +212,11 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             elif self.match(TokenType.EXTERN):
                 extern_blocks.append(self.parse_extern_block())
             else:
-                self.error(f"Expected import, export, module, struct, enum, interface, extension, type, extern, or function declaration, got {self.current().type.name}")
+                self.error(f"Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got {self.current().type.name}")
             self.skip_newlines()
 
         return Program(structs=structs, functions=functions, extensions=extensions,
-                       enums=enums, interfaces=interfaces, type_definitions=type_definitions,
+                       enums=enums, traits=traits, type_definitions=type_definitions,
                        extern_blocks=extern_blocks, imports=imports, module_decls=module_decls,
                        exports=exports)
 
@@ -369,7 +369,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             functions = []
             extensions = []
             enums = []
-            interfaces = []
+            traits = []
             type_definitions = []
             extern_blocks = []
             imports = []
@@ -392,8 +392,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                             structs.append(self.parse_struct(visibility))
                         elif self.match(TokenType.ENUM):
                             enums.append(self.parse_enum(visibility))
-                        elif self.match(TokenType.INTERFACE):
-                            interfaces.append(self.parse_interface(visibility))
+                        elif self.match(TokenType.TRAIT):
+                            traits.append(self.parse_trait(visibility))
                         elif self.match(TokenType.EXTENSION):
                             extensions.append(self.parse_extension(visibility))
                         elif self.match(TokenType.FUNC):
@@ -401,15 +401,15 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                         elif self.match(TokenType.TYPE):
                             type_definitions.append(self.parse_type_definition(visibility))
                         else:
-                            self.error(f"Expected struct, enum, interface, extension, func, or type after visibility modifier")
+                            self.error(f"Expected struct, enum, trait, extension, func, or type after visibility modifier")
                 elif self.match_ident("module"):
                     module_decls.append(self.parse_module_decl())
                 elif self.match(TokenType.STRUCT):
                     structs.append(self.parse_struct())
                 elif self.match(TokenType.ENUM):
                     enums.append(self.parse_enum())
-                elif self.match(TokenType.INTERFACE):
-                    interfaces.append(self.parse_interface())
+                elif self.match(TokenType.TRAIT):
+                    traits.append(self.parse_trait())
                 elif self.match(TokenType.EXTENSION):
                     extensions.append(self.parse_extension())
                 elif self.match(TokenType.FUNC):
@@ -429,7 +429,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 functions=functions,
                 extensions=extensions,
                 enums=enums,
-                interfaces=interfaces,
+                traits=traits,
                 type_definitions=type_definitions,
                 extern_blocks=extern_blocks,
                 imports=imports,

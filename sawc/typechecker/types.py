@@ -2,7 +2,7 @@
 Type utility methods for the Saw type checker.
 
 This module provides mixin methods for type resolution, compatibility checking,
-and resource management interface detection (NoCopy, CustomCopy, Deinit).
+and resource management trait detection (NoCopy, CustomCopy, Deinit).
 
 Usage:
     class TypeChecker(TypeUtilsMixin, ...):
@@ -182,9 +182,9 @@ class TypeUtilsMixin:
         if a.is_struct():
             if a.struct_name == b.struct_name:
                 return True
-            # Check if b is an interface that a conforms to
-            if b.struct_name in self.interfaces:
-                # a must be a struct that conforms to interface b
+            # Check if b is a trait that a conforms to
+            if b.struct_name in self.traits:
+                # a must be a struct that conforms to trait b
                 if a.struct_name in self.type_conformances:
                     return b.struct_name in self.type_conformances[a.struct_name]
             return False

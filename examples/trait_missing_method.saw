@@ -1,8 +1,8 @@
-// Test error when interface method is not implemented
+// Test error when trait method is not implemented
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: does not implement required method `describe`
 
-interface Describable {
+trait Describable {
     func describe(self) -> Int
 }
 

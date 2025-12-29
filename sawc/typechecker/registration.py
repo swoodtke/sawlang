@@ -2,7 +2,7 @@
 Registration methods for the Saw type checker.
 
 This module provides mixin methods for registering type definitions, structs,
-enums, interfaces, functions, and extensions during the first pass of type checking.
+enums, traits, functions, and extensions during the first pass of type checking.
 
 Usage:
     class TypeChecker(RegistrationMixin, ...):
@@ -11,14 +11,14 @@ Usage:
 
 from typing import Dict
 from ast_nodes import (
-    TypeDefinition, Struct, Enum, Interface, Function, Extension, Method,
+    TypeDefinition, Struct, Enum, Trait, Function, Extension, Method,
     SawType, TypeKind, Visibility,
     Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr
 )
 from errors import ErrorKind
 from namespace import (
-    SymbolKind, FunctionSymbol, StructSymbol, EnumSymbol, InterfaceSymbol,
-    TypeAliasSymbol, InterfaceMethodSymbol
+    SymbolKind, FunctionSymbol, StructSymbol, EnumSymbol, TraitSymbol,
+    TypeAliasSymbol, TraitMethodSymbol
 )
 
 
@@ -34,13 +34,13 @@ class RegistrationMixin:
         _register_type_definition: Register a type alias
         _register_struct: Register a struct definition
         _register_enum: Register an enum definition
-        _register_interface: Register an interface definition
+        _register_trait: Register a trait definition
         _register_function: Register a function signature
         _register_extern_function: Register an external (FFI) function
         _register_extension: Register methods from an extension
-        _check_interface_conformance: Verify type implements interface
-        _types_compatible_for_interface: Check type compatibility for interfaces
-        _resolve_interface_type: Resolve Self and associated types in interface
+        _check_trait_conformance: Verify type implements trait
+        _types_compatible_for_trait: Check type compatibility for traits
+        _resolve_trait_type: Resolve Self and associated types in trait
     """
 
     def _register_builtins(self):
@@ -48,7 +48,7 @@ class RegistrationMixin:
         # print can take any single argument
         # We'll handle it specially in check_function_call
         #
-        # Note: Built-in interfaces (Deinit, CustomCopy, NoCopy) are defined
+        # Note: Built-in traits (Deinit, CustomCopy, NoCopy) are defined
         # in builtin.saw and loaded automatically by the compiler.
 
         # Register String as a pseudo-struct so it can be extended
@@ -204,29 +204,29 @@ class RegistrationMixin:
             ast_node=enum if enum.type_params else None
         ))
 
-    def _register_interface(self, interface: Interface):
-        """Register an interface definition with inheritance support."""
-        from .core import InterfaceInfo, InterfaceMethodInfo
-        if interface.name in self.interfaces:
+    def _register_trait(self, trait: Trait):
+        """Register a trait definition with inheritance support."""
+        from .core import TraitInfo, TraitMethodInfo
+        if trait.name in self.traits:
             self.reporter.error(
                 ErrorKind.DUPLICATE_FUNCTION,
-                f"interface `{interface.name}` is defined multiple times",
-                interface.line, interface.column
+                f"trait `{trait.name}` is defined multiple times",
+                trait.line, trait.column
             )
             return
 
-        # Validate and collect inherited methods from parent interfaces
+        # Validate and collect inherited methods from parent traits
         inherited_methods = {}
         inherited_assoc_types = []
-        for parent_name in interface.parent_interfaces:
-            if parent_name not in self.interfaces:
+        for parent_name in trait.parent_traits:
+            if parent_name not in self.traits:
                 self.reporter.error(
                     ErrorKind.UNDEFINED_VARIABLE,
-                    f"unknown parent interface `{parent_name}`",
-                    interface.line, interface.column
+                    f"unknown parent trait `{parent_name}`",
+                    trait.line, trait.column
                 )
                 continue
-            parent_info = self.interfaces[parent_name]
+            parent_info = self.traits[parent_name]
             # Inherit all methods from parent
             for method_name, method_info in parent_info.methods.items():
                 inherited_methods[method_name] = method_info
@@ -235,9 +235,9 @@ class RegistrationMixin:
                 if assoc_type not in inherited_assoc_types:
                     inherited_assoc_types.append(assoc_type)
 
-        # Build method info map from this interface's own methods
+        # Build method info map from this trait's own methods
         methods = dict(inherited_methods)  # Start with inherited
-        for method in interface.methods:
+        for method in trait.methods:
             # Collect parameter info (excluding self placeholder type)
             param_names = []
             param_types = []
@@ -250,7 +250,7 @@ class RegistrationMixin:
                     param_names.append(param.name)
                     param_types.append(param.type)
 
-            methods[method.name] = InterfaceMethodInfo(
+            methods[method.name] = TraitMethodInfo(
                 name=method.name,
                 param_types=param_types,
                 return_type=method.return_type,
@@ -260,31 +260,31 @@ class RegistrationMixin:
 
         # Collect associated type names (own + inherited)
         assoc_type_names = list(inherited_assoc_types)
-        for at in interface.associated_types:
+        for at in trait.associated_types:
             if at.name not in assoc_type_names:
                 assoc_type_names.append(at.name)
 
-        self.interfaces[interface.name] = InterfaceInfo(
-            name=interface.name,
+        self.traits[trait.name] = TraitInfo(
+            name=trait.name,
             methods=methods,
             associated_types=assoc_type_names,
-            parent_interfaces=interface.parent_interfaces
+            parent_traits=trait.parent_traits
         )
         # Also register in namespace
         ns_methods = {}
         for name, method_info in methods.items():
-            ns_methods[name] = InterfaceMethodSymbol(
+            ns_methods[name] = TraitMethodSymbol(
                 name=name,
                 param_types=method_info.param_types,
                 param_names=method_info.param_names,
                 return_type=method_info.return_type,
                 self_mutable=method_info.self_mutable
             )
-        self.namespace.register_interface(interface.name, InterfaceSymbol(
+        self.namespace.register_trait(trait.name, TraitSymbol(
             methods=ns_methods,
             associated_types=assoc_type_names,
-            parent_interfaces=interface.parent_interfaces,
-            visibility=getattr(interface, 'visibility', Visibility.PRIVATE)
+            parent_traits=trait.parent_traits,
+            visibility=getattr(trait, 'visibility', Visibility.PRIVATE)
         ))
 
     def _register_function(self, func: Function):
@@ -500,48 +500,48 @@ class RegistrationMixin:
             else:
                 self.namespace.register_method(extension.struct_name, method.name, method_symbol)
 
-        # Process type assignments for interface conformances
-        for iface_name in extension.conformances:
-            if iface_name not in self.interfaces:
+        # Process type assignments for trait conformances
+        for trait_name in extension.conformances:
+            if trait_name not in self.traits:
                 continue  # Error will be reported below
 
-            # Collect type assignments for this interface
+            # Collect type assignments for this trait
             assignments: Dict[str, SawType] = {}
             for type_assign in extension.type_assignments:
                 assignments[type_assign.name] = type_assign.assigned_type
 
             # Store the assignments
-            self.type_assignments[(extension.struct_name, iface_name)] = assignments
+            self.type_assignments[(extension.struct_name, trait_name)] = assignments
 
-        # Check interface conformances
-        for iface_name in extension.conformances:
-            if iface_name not in self.interfaces:
+        # Check trait conformances
+        for trait_name in extension.conformances:
+            if trait_name not in self.traits:
                 self.reporter.error(
                     ErrorKind.UNDEFINED_VARIABLE,
-                    f"unknown interface `{iface_name}`",
+                    f"unknown trait `{trait_name}`",
                     extension.line, extension.column
                 )
                 continue
 
-            iface_info = self.interfaces[iface_name]
-            self._check_interface_conformance(extension.struct_name, iface_info, struct_info, extension)
+            trait_info = self.traits[trait_name]
+            self._check_trait_conformance(extension.struct_name, trait_info, struct_info, extension)
 
             # Track the conformance
             if extension.struct_name not in self.type_conformances:
                 self.type_conformances[extension.struct_name] = []
-            self.type_conformances[extension.struct_name].append(iface_name)
+            self.type_conformances[extension.struct_name].append(trait_name)
 
             # Also register in namespace
-            type_assigns = self.type_assignments.get((extension.struct_name, iface_name), {})
-            self.namespace.register_conformance(extension.struct_name, iface_name, type_assigns)
+            type_assigns = self.type_assignments.get((extension.struct_name, trait_name), {})
+            self.namespace.register_conformance(extension.struct_name, trait_name, type_assigns)
 
-    def _check_interface_conformance(self, type_name: str, iface_info, struct_info, extension: Extension):
-        """Check that a type conforms to an interface by implementing all required methods."""
-        for method_name, iface_method in iface_info.methods.items():
+    def _check_trait_conformance(self, type_name: str, trait_info, struct_info, extension: Extension):
+        """Check that a type conforms to a trait by implementing all required methods."""
+        for method_name, trait_method in trait_info.methods.items():
             if method_name not in struct_info.methods:
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"type `{type_name}` does not implement required method `{method_name}` from interface `{iface_info.name}`",
+                    f"type `{type_name}` does not implement required method `{method_name}` from trait `{trait_info.name}`",
                     extension.line, extension.column
                 )
                 continue
@@ -549,86 +549,86 @@ class RegistrationMixin:
             impl_method = struct_info.methods[method_name]
 
             # Check self mutability matches
-            if iface_method.self_mutable != impl_method.self_mutable:
-                if iface_method.self_mutable:
+            if trait_method.self_mutable != impl_method.self_mutable:
+                if trait_method.self_mutable:
                     self.reporter.error(
                         ErrorKind.TYPE_MISMATCH,
-                        f"method `{method_name}` should have `var self` to conform to interface `{iface_info.name}`",
+                        f"method `{method_name}` should have `var self` to conform to trait `{trait_info.name}`",
                         extension.line, extension.column
                     )
                 else:
                     self.reporter.error(
                         ErrorKind.TYPE_MISMATCH,
-                        f"method `{method_name}` should have immutable `self` to conform to interface `{iface_info.name}`",
+                        f"method `{method_name}` should have immutable `self` to conform to trait `{trait_info.name}`",
                         extension.line, extension.column
                     )
 
             # Check return type matches (allow Self and associated types -> concrete types)
-            if not self._types_compatible_for_interface(iface_method.return_type, impl_method.return_type,
-                                                         type_name, iface_info.name):
+            if not self._types_compatible_for_trait(trait_method.return_type, impl_method.return_type,
+                                                         type_name, trait_info.name):
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"method `{method_name}` has return type `{impl_method.return_type}` but interface `{iface_info.name}` expects `{iface_method.return_type}`",
+                    f"method `{method_name}` has return type `{impl_method.return_type}` but trait `{trait_info.name}` expects `{trait_method.return_type}`",
                     extension.line, extension.column
                 )
 
             # Check parameter count (excluding self)
-            iface_param_count = len(iface_method.param_types) - 1  # Exclude self placeholder
+            trait_param_count = len(trait_method.param_types) - 1  # Exclude self placeholder
             impl_param_count = len(impl_method.param_types) - 1    # Exclude self
-            if iface_param_count != impl_param_count:
+            if trait_param_count != impl_param_count:
                 self.reporter.error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"method `{method_name}` takes {impl_param_count} parameter(s) but interface `{iface_info.name}` expects {iface_param_count}",
+                    f"method `{method_name}` takes {impl_param_count} parameter(s) but trait `{trait_info.name}` expects {trait_param_count}",
                     extension.line, extension.column
                 )
 
         # Check that all required associated types are provided
-        type_assigns = self.type_assignments.get((type_name, iface_info.name), {})
-        for assoc_type_name in iface_info.associated_types:
+        type_assigns = self.type_assignments.get((type_name, trait_info.name), {})
+        for assoc_type_name in trait_info.associated_types:
             if assoc_type_name not in type_assigns:
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"type `{type_name}` does not provide required associated type `{assoc_type_name}` from interface `{iface_info.name}`",
+                    f"type `{type_name}` does not provide required associated type `{assoc_type_name}` from trait `{trait_info.name}`",
                     extension.line, extension.column,
                     hint=f"add `type {assoc_type_name} = SomeType` to the extension"
                 )
 
-    def _types_compatible_for_interface(self, iface_type: SawType, impl_type: SawType,
-                                         self_type_name: str, iface_name: str = None) -> bool:
-        """Check if implementation type matches interface type, with Self and associated type substitution."""
-        # Resolve the interface type by substituting Self and associated types
-        resolved_iface_type = self._resolve_interface_type(iface_type, self_type_name, iface_name)
-        return self._types_compatible(resolved_iface_type, impl_type)
+    def _types_compatible_for_trait(self, trait_type: SawType, impl_type: SawType,
+                                         self_type_name: str, trait_name: str = None) -> bool:
+        """Check if implementation type matches trait type, with Self and associated type substitution."""
+        # Resolve the trait type by substituting Self and associated types
+        resolved_trait_type = self._resolve_trait_type(trait_type, self_type_name, trait_name)
+        return self._types_compatible(resolved_trait_type, impl_type)
 
-    def _resolve_interface_type(self, iface_type: SawType, self_type_name: str,
-                                  iface_name: str = None) -> SawType:
-        """Resolve Self and associated types in an interface type."""
+    def _resolve_trait_type(self, trait_type: SawType, self_type_name: str,
+                                  trait_name: str = None) -> SawType:
+        """Resolve Self and associated types in a trait type."""
         # Handle Self type (TypeKind.SELF)
-        if iface_type.kind == TypeKind.SELF:
+        if trait_type.kind == TypeKind.SELF:
             # Special case: String is a primitive type, not a struct
             if self_type_name == "String":
                 return SawType(TypeKind.STRING)
             return SawType(TypeKind.STRUCT, struct_name=self_type_name)
-        if iface_type.kind == TypeKind.STRUCT and iface_type.struct_name:
+        if trait_type.kind == TypeKind.STRUCT and trait_type.struct_name:
             # Handle associated types
-            if iface_name and (self_type_name, iface_name) in self.type_assignments:
-                type_assigns = self.type_assignments[(self_type_name, iface_name)]
-                if iface_type.struct_name in type_assigns:
-                    return type_assigns[iface_type.struct_name]
+            if trait_name and (self_type_name, trait_name) in self.type_assignments:
+                type_assigns = self.type_assignments[(self_type_name, trait_name)]
+                if trait_type.struct_name in type_assigns:
+                    return type_assigns[trait_type.struct_name]
             # Recursively resolve type args
-            if iface_type.type_args:
-                resolved_args = [self._resolve_interface_type(t, self_type_name, iface_name)
-                                 for t in iface_type.type_args]
-                return SawType(TypeKind.STRUCT, struct_name=iface_type.struct_name, type_args=resolved_args)
-        elif iface_type.kind == TypeKind.OPTIONAL and iface_type.inner_type:
-            resolved_inner = self._resolve_interface_type(iface_type.inner_type, self_type_name, iface_name)
+            if trait_type.type_args:
+                resolved_args = [self._resolve_trait_type(t, self_type_name, trait_name)
+                                 for t in trait_type.type_args]
+                return SawType(TypeKind.STRUCT, struct_name=trait_type.struct_name, type_args=resolved_args)
+        elif trait_type.kind == TypeKind.OPTIONAL and trait_type.inner_type:
+            resolved_inner = self._resolve_trait_type(trait_type.inner_type, self_type_name, trait_name)
             return SawType(TypeKind.OPTIONAL, inner_type=resolved_inner)
-        elif iface_type.kind == TypeKind.TUPLE and iface_type.element_types:
-            resolved_elems = [self._resolve_interface_type(t, self_type_name, iface_name)
-                              for t in iface_type.element_types]
+        elif trait_type.kind == TypeKind.TUPLE and trait_type.element_types:
+            resolved_elems = [self._resolve_trait_type(t, self_type_name, trait_name)
+                              for t in trait_type.element_types]
             return SawType(TypeKind.TUPLE, element_types=resolved_elems)
-        elif iface_type.kind == TypeKind.ENUM and iface_type.type_args:
-            resolved_args = [self._resolve_interface_type(t, self_type_name, iface_name)
-                             for t in iface_type.type_args]
-            return SawType(TypeKind.ENUM, enum_name=iface_type.enum_name, type_args=resolved_args)
-        return iface_type
+        elif trait_type.kind == TypeKind.ENUM and trait_type.type_args:
+            resolved_args = [self._resolve_trait_type(t, self_type_name, trait_name)
+                             for t in trait_type.type_args]
+            return SawType(TypeKind.ENUM, enum_name=trait_type.enum_name, type_args=resolved_args)
+        return trait_type

@@ -1,9 +1,9 @@
-// Test Self type in interface method return types
+// Test Self type in trait method return types
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 84
 
-interface Copyable {
+trait Copyable {
     func copy(self) -> Self
 }
 struct Point {

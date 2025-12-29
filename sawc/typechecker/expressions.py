@@ -429,10 +429,10 @@ class ExpressionsMixin:
                 resolved_arg = self._resolve_type(type_arg)
                 type_map[type_param.name] = resolved_arg
                 for bound in type_param.bounds:
-                    if bound not in self.interfaces:
+                    if bound not in self.traits:
                         self.reporter.error(
                             ErrorKind.UNDEFINED_VARIABLE,
-                            f"unknown interface `{bound}` in type parameter bound",
+                            f"unknown trait `{bound}` in type parameter bound",
                             expr.line, expr.column
                         )
                         continue
@@ -446,7 +446,7 @@ class ExpressionsMixin:
                         if bound not in conformances:
                             self.reporter.error(
                                 ErrorKind.TYPE_MISMATCH,
-                                f"type `{resolved_arg}` does not implement interface `{bound}`",
+                                f"type `{resolved_arg}` does not implement trait `{bound}`",
                                 expr.line, expr.column,
                                 hint=f"add `extension {concrete_type_name}: {bound} {{ ... }}`"
                             )

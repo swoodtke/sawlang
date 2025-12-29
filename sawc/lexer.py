@@ -39,7 +39,7 @@ class TokenType(Enum):
     WHILE = auto()
     BREAK = auto()
     CONTINUE = auto()
-    INTERFACE = auto()
+    TRAIT = auto()
     FOR = auto()
     IN = auto()
     TYPE = auto()  # 'type' keyword for associated types
@@ -143,7 +143,7 @@ KEYWORDS = {
     'continue': TokenType.CONTINUE,
     'case': TokenType.CASE,
     'match': TokenType.MATCH,
-    'interface': TokenType.INTERFACE,
+    'trait': TokenType.TRAIT,
     'for': TokenType.FOR,
     'in': TokenType.IN,
     'type': TokenType.TYPE,

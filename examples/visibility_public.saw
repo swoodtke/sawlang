@@ -20,7 +20,7 @@ public enum Status {
     case Inactive
 }
 
-public interface Describable {
+public trait Describable {
     func describe(self) -> Int
 }
 

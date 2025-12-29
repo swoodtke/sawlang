@@ -2,13 +2,13 @@
 // EXPECT-OUTPUT:
 // 42
 
-// Test interface inheritance parsing
+// Test trait inheritance parsing
 
-interface Base {
+trait Base {
     func getValue(self) -> Int
 }
 
-interface Child: Base {
+trait Child: Base {
     func doubled(self) -> Int
 }
 

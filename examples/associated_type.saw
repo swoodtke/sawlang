@@ -1,10 +1,10 @@
-// Test associated types in interfaces
+// Test associated types in traits
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 42
 // hello
 
-interface Container {
+trait Container {
     type Item
     func get(self) -> Item
 }

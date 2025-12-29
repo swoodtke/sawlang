@@ -1,8 +1,8 @@
-// Test error when type doesn't satisfy interface bound
+// Test error when type doesn't satisfy trait bound
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: does not implement interface `Describable`
+// EXPECT-ERROR-CONTAINS: does not implement trait `Describable`
 
-interface Describable {
+trait Describable {
     func describe(self) -> Int
 }
 

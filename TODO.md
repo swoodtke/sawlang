@@ -32,13 +32,13 @@
 - [x] Generic functions and structs with monomorphization
 - [x] Interfaces with conformance checking
 - [x] Interface bounds on generics (`<T: Iterator>`)
-- [x] Associated types in interfaces
+- [x] Associated types in traits
 - [x] Distinct type definitions (`type UserId = Int`)
 - [x] Closures: `{ x in x * 2 }` and `{ $0 * 2 }`
 - [x] Function types: `(Int) -> Int`
 - [x] Trailing closure syntax: `arr.map { $0 * 2 }`
 - [x] Closure variable capture (copy semantics)
-- [x] Resource management: `Deinit`, `CustomCopy`, `NoCopy` interfaces
+- [x] Resource management: `Deinit`, `CustomCopy`, `NoCopy` traits
 - [x] Move semantics: `move` keyword for ownership transfer
 - [x] Automatic scope-based cleanup with containment rules
 
@@ -186,7 +186,7 @@
 - [x] Generic structs: `struct Box<T> { value: T }`
 - [x] Interface bounds: `<T: Iterator>`
 - [x] Multiple bounds: `<T: A + B>`
-- [x] Associated types in interfaces
+- [x] Associated types in traits
 - [x] Generic enums: `enum Maybe<T> { case Just(value: T), case Nothing }`
 
 ---
@@ -270,18 +270,18 @@
 
 ---
 
-## Priority 6: Interfaces & Polymorphism
+## Priority 6: Traits & Polymorphism
 
-### Interfaces
-- [x] Interface declarations: `interface Name { func method(self) -> Type }`
+### Traits
+- [x] Trait declarations: `trait Name { func method(self) -> Type }`
 - [ ] Default method implementations
-- [x] `extension Type: Interface` for conformance
-- [x] Interface bounds: `<T: Display>`
+- [x] `extension Type: Trait` for conformance
+- [x] Trait bounds: `<T: Display>`
 - [x] Multiple bounds: `<T: Display + Debug>`
-- [x] Associated types: `type Item` in interfaces
+- [x] Associated types: `type Item` in traits
 - [x] Conformance checking (missing methods, signature mismatches)
 
-### Built-in Interfaces
+### Built-in Traits
 - [ ] `Copy` - implicit copy
 - [ ] `Clone` - explicit clone
 - [ ] `Display` - string representation
@@ -304,12 +304,12 @@
 
 ## Priority 7: Memory Management
 
-### Resource Management Interfaces ✅ COMPLETE
-- [x] `Deinit` interface - automatic cleanup at scope exit
-- [x] `CustomCopy` interface - custom copy logic (e.g., reference counting)
-- [x] `NoCopy` interface - move-only types (cannot be copied)
+### Resource Management Traits ✅ COMPLETE
+- [x] `Deinit` trait - automatic cleanup at scope exit
+- [x] `CustomCopy` trait - custom copy logic (e.g., reference counting)
+- [x] `NoCopy` trait - move-only types (cannot be copied)
 - [x] `move` keyword for explicit ownership transfer
-- [x] Containment rules - structs containing Deinit/CustomCopy/NoCopy fields must implement the interface
+- [x] Containment rules - structs containing Deinit/CustomCopy/NoCopy fields must implement the trait
 - [x] Automatic field deinit - compiler calls deinit on fields after user's deinit code
 - [x] Automatic field copy - compiler calls copy() on CustomCopy fields during struct init
 - [x] Manual deinit disallowed - calling obj.deinit() is a compile error
@@ -328,9 +328,9 @@
 
 ## Priority 8: Error Handling
 
-### Error Interface
-- [ ] Built-in `Error` interface with `message(self) -> String`
-- [ ] Pattern matching on `Error` interface with RTTI
+### Error Trait
+- [ ] Built-in `Error` trait with `message(self) -> String`
+- [ ] Pattern matching on `Error` trait with RTTI
 - [ ] Catch-all required when matching on `Error` (can't know all implementors)
 
 ### Result Type
@@ -338,7 +338,7 @@
 - [ ] `try expr` - unwrap Ok or propagate/catch Err
 - [ ] `try { } catch { }` blocks for local error handling
 - [ ] Exhaustive catch blocks with pattern matching
-- [ ] Mixed error types auto-erase to `Error` interface
+- [ ] Mixed error types auto-erase to `Error` trait
 - [ ] `.map()`, `.and_then()`, `.unwrap_or()` combinators
 
 ### Panics

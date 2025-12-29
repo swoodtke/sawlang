@@ -14,7 +14,7 @@ class SymbolKind(Enum):
     STRUCT = auto()
     ENUM = auto()
     METHOD = auto()
-    INTERFACE = auto()
+    TRAIT = auto()
     TYPE_ALIAS = auto()
     MODULE = auto()
 
@@ -71,8 +71,8 @@ class EnumSymbol:
 
 
 @dataclass
-class InterfaceMethodSymbol:
-    """Symbol for a method signature in an interface."""
+class TraitMethodSymbol:
+    """Symbol for a method signature in a trait."""
     name: str
     param_types: List[SawType] = field(default_factory=list)
     param_names: List[str] = field(default_factory=list)
@@ -81,12 +81,12 @@ class InterfaceMethodSymbol:
 
 
 @dataclass
-class InterfaceSymbol:
-    """Symbol for an interface."""
-    kind: SymbolKind = SymbolKind.INTERFACE
-    methods: Dict[str, InterfaceMethodSymbol] = field(default_factory=dict)
+class TraitSymbol:
+    """Symbol for a trait."""
+    kind: SymbolKind = SymbolKind.TRAIT
+    methods: Dict[str, TraitMethodSymbol] = field(default_factory=dict)
     associated_types: List[str] = field(default_factory=list)
-    parent_interfaces: List[str] = field(default_factory=list)
+    parent_traits: List[str] = field(default_factory=list)
     visibility: Visibility = Visibility.PRIVATE
 
 
@@ -111,7 +111,7 @@ class ModuleSymbol:
 
 
 # Union type for any symbol that can be resolved
-Symbol = Union[FunctionSymbol, StructSymbol, EnumSymbol, InterfaceSymbol, TypeAliasSymbol, ModuleSymbol]
+Symbol = Union[FunctionSymbol, StructSymbol, EnumSymbol, TraitSymbol, TypeAliasSymbol, ModuleSymbol]
 
 
 class Namespace:
@@ -132,11 +132,11 @@ class Namespace:
         self.functions: Dict[str, FunctionSymbol] = {}
         self.structs: Dict[str, StructSymbol] = {}
         self.enums: Dict[str, EnumSymbol] = {}
-        self.interfaces: Dict[str, InterfaceSymbol] = {}
+        self.traits: Dict[str, TraitSymbol] = {}
         self.type_aliases: Dict[str, TypeAliasSymbol] = {}
         self.modules: Dict[str, ModuleSymbol] = {}
 
-        # Type conformances: type_name -> {interface_name -> {assoc_type_name -> SawType}}
+        # Type conformances: type_name -> {trait_name -> {assoc_type_name -> SawType}}
         self.conformances: Dict[str, Dict[str, Dict[str, SawType]]] = {}
 
         # Generic AST storage for instantiation
@@ -253,8 +253,8 @@ class Namespace:
         if name in self.enums:
             sym = self.enums[name]
             return sym if is_visible(sym) else None
-        if name in self.interfaces:
-            sym = self.interfaces[name]
+        if name in self.traits:
+            sym = self.traits[name]
             return sym if is_visible(sym) else None
         if name in self.type_aliases:
             sym = self.type_aliases[name]
@@ -313,9 +313,9 @@ class Namespace:
         """Register an enum symbol."""
         self.enums[name] = symbol
 
-    def register_interface(self, name: str, symbol: InterfaceSymbol):
-        """Register an interface symbol."""
-        self.interfaces[name] = symbol
+    def register_trait(self, name: str, symbol: TraitSymbol):
+        """Register a trait symbol."""
+        self.traits[name] = symbol
 
     def register_type_alias(self, name: str, symbol: TypeAliasSymbol):
         """Register a type alias symbol."""
@@ -387,23 +387,23 @@ class Namespace:
                 ast_node=func if func.type_params else None
             ))
 
-        for iface in module_ast.interfaces:
+        for trait in module_ast.traits:
             methods = {}
             assoc_types = []
-            for m in iface.methods:
-                methods[m.name] = InterfaceMethodSymbol(
+            for m in trait.methods:
+                methods[m.name] = TraitMethodSymbol(
                     name=m.name,
                     param_types=[p.type for p in m.parameters],
                     param_names=[p.name for p in m.parameters],
                     return_type=m.return_type,
                     self_mutable=m.self_mutable
                 )
-            for at in iface.associated_types:
+            for at in trait.associated_types:
                 assoc_types.append(at.name)
-            mod_ns.register_interface(iface.name, InterfaceSymbol(
+            mod_ns.register_trait(trait.name, TraitSymbol(
                 methods=methods,
                 associated_types=assoc_types,
-                visibility=iface.visibility
+                visibility=trait.visibility
             ))
 
         # Register inline module declarations (submodules)
@@ -455,17 +455,17 @@ class Namespace:
         if struct_name in self.structs:
             self.structs[struct_name].init_methods.append(symbol)
 
-    def register_conformance(self, type_name: str, interface_name: str,
+    def register_conformance(self, type_name: str, trait_name: str,
                             type_assignments: Optional[Dict[str, SawType]] = None):
-        """Register that a type conforms to an interface."""
+        """Register that a type conforms to a trait."""
         if type_name not in self.conformances:
             self.conformances[type_name] = {}
-        self.conformances[type_name][interface_name] = type_assignments or {}
+        self.conformances[type_name][trait_name] = type_assignments or {}
 
         # Also add to struct's conformance list
         if type_name in self.structs:
-            if interface_name not in self.structs[type_name].conformances:
-                self.structs[type_name].conformances.append(interface_name)
+            if trait_name not in self.structs[type_name].conformances:
+                self.structs[type_name].conformances.append(trait_name)
 
     # =========================================================================
     # Lookup Methods
@@ -483,9 +483,9 @@ class Namespace:
         """Look up an enum by name."""
         return self.enums.get(name)
 
-    def lookup_interface(self, name: str) -> Optional[InterfaceSymbol]:
-        """Look up an interface by name."""
-        return self.interfaces.get(name)
+    def lookup_trait(self, name: str) -> Optional[TraitSymbol]:
+        """Look up a trait by name."""
+        return self.traits.get(name)
 
     def lookup_type_alias(self, name: str) -> Optional[TypeAliasSymbol]:
         """Look up a type alias by name."""
@@ -535,25 +535,25 @@ class Namespace:
         method = self.lookup_method(struct_name, method_name)
         return method.is_init if method else False
 
-    def type_conforms_to(self, type_name: str, interface_name: str) -> bool:
-        """Check if a type conforms to an interface."""
+    def type_conforms_to(self, type_name: str, trait_name: str) -> bool:
+        """Check if a type conforms to a trait."""
         if type_name not in self.conformances:
             return False
-        return interface_name in self.conformances[type_name]
+        return trait_name in self.conformances[type_name]
 
     def get_conformances(self, type_name: str) -> List[str]:
-        """Get all interfaces a type conforms to."""
+        """Get all traits a type conforms to."""
         if type_name not in self.conformances:
             return []
         return list(self.conformances[type_name].keys())
 
-    def get_type_assignment(self, type_name: str, interface_name: str,
+    def get_type_assignment(self, type_name: str, trait_name: str,
                            assoc_type_name: str) -> Optional[SawType]:
         """Get an associated type assignment."""
         if type_name not in self.conformances:
             return None
-        iface_map = self.conformances[type_name].get(interface_name, {})
-        return iface_map.get(assoc_type_name)
+        trait_map = self.conformances[type_name].get(trait_name, {})
+        return trait_map.get(assoc_type_name)
 
     def get_struct_fields(self, struct_name: str) -> Optional[Dict[str, SawType]]:
         """Get the fields of a struct."""
@@ -577,9 +577,9 @@ class Namespace:
         """Check if a function exists."""
         return name in self.functions
 
-    def has_interface(self, name: str) -> bool:
-        """Check if an interface exists."""
-        return name in self.interfaces
+    def has_trait(self, name: str) -> bool:
+        """Check if a trait exists."""
+        return name in self.traits
 
     # =========================================================================
     # Visibility Checking
@@ -637,8 +637,8 @@ class Namespace:
             return self.enums[name].visibility
         if name in self.functions:
             return self.functions[name].visibility
-        if name in self.interfaces:
-            return self.interfaces[name].visibility
+        if name in self.traits:
+            return self.traits[name].visibility
         if name in self.type_aliases:
             return self.type_aliases[name].visibility
         return None
@@ -675,9 +675,9 @@ class Namespace:
         for name, sym in other.functions.items():
             if name not in self.functions:
                 self.functions[name] = sym
-        for name, sym in other.interfaces.items():
-            if name not in self.interfaces:
-                self.interfaces[name] = sym
+        for name, sym in other.traits.items():
+            if name not in self.traits:
+                self.traits[name] = sym
         for name, sym in other.type_aliases.items():
             if name not in self.type_aliases:
                 self.type_aliases[name] = sym

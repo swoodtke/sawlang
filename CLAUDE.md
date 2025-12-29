@@ -26,8 +26,8 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 
 ### Type System
 - Algebraic data types (enums with data)
-- Interfaces for polymorphism
-- Generics with interface bounds
+- Traits for polymorphism
+- Generics with trait bounds
 - No null - `T?` optionals (postfix syntax like Swift)
 - `Result<T, E>` for error handling
 - Type extensions for adding methods to existing types
@@ -66,7 +66,7 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 ### Concurrency
 - Async/await
 - Channels for message passing
-- `Send`/`Sync` interfaces for thread safety
+- `Send`/`Sync` traits for thread safety
 
 ## Open Questions
 
@@ -170,15 +170,15 @@ The compiler currently supports:
 
 ### Type System
 - Type aliases: `type MyInt = Int`
-- Associated types in interfaces: `type Item`
+- Associated types in traits: `type Item`
 - Type assignments in extensions: `type Item = Int`
 
-### Interfaces
-- Interface definitions: `interface Name { func method(self) -> Type }`
-- Interface conformance: `extension Type: Interface { ... }`
+### Traits
+- Trait definitions: `trait Name { func method(self) -> Type }`
+- Trait conformance: `extension Type: Trait { ... }`
 - Conformance checking (missing methods, signature mismatches)
-- Multiple interface conformance: `extension Type: A, B { ... }`
-- Interface bounds on generics: `func foo<T: Interface>(x: T)`
+- Multiple trait conformance: `extension Type: A, B { ... }`
+- Trait bounds on generics: `func foo<T: Trait>(x: T)`
 - Associated types with resolution: `type Item` → `type Item = Int`
 
 ## Example Code
@@ -325,9 +325,9 @@ func main() {
 }
 ```
 
-### Interfaces
+### Traits
 ```saw
-interface Describable {
+trait Describable {
     func describe(self) -> Int
 }
 

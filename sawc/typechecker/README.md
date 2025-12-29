@@ -4,7 +4,7 @@
 
 ## Overview
 
-The `typechecker` module performs type checking and semantic analysis on the Saw AST. It validates type correctness, resolves symbols, checks interface conformance, and enforces resource management rules (NoCopy, CustomCopy, Deinit). The implementation uses a mixin-based architecture where the main `TypeChecker` class inherits from multiple focused mixin classes.
+The `typechecker` module performs type checking and semantic analysis on the Saw AST. It validates type correctness, resolves symbols, checks trait conformance, and enforces resource management rules (NoCopy, CustomCopy, Deinit). The implementation uses a mixin-based architecture where the main `TypeChecker` class inherits from multiple focused mixin classes.
 
 ## Architecture
 
@@ -28,7 +28,7 @@ from typechecker import TypeChecker, StructInfo, EnumInfo
 
 ### `core.py` (475 lines)
 Main `TypeChecker` class with:
-- **Data classes**: `VariableInfo`, `FunctionInfo`, `StructInfo`, `EnumInfo`, `MethodInfo`, `InterfaceMethodInfo`, `InterfaceInfo`, `Scope`
+- **Data classes**: `VariableInfo`, `FunctionInfo`, `StructInfo`, `EnumInfo`, `MethodInfo`, `TraitMethodInfo`, `TraitInfo`, `Scope`
 - **State initialization**: Symbol tables, scope management, error reporter
 - **`check(program)`**: Main entry point for checking a single-file program
 - **`check_module(program, namespace)`**: Entry point for checking a module with namespace
@@ -41,7 +41,7 @@ Main `TypeChecker` class with:
 | `StructInfo` | Struct fields, methods, and type parameters |
 | `EnumInfo` | Enum variants with associated values |
 | `MethodInfo` | Method signature including self mutability |
-| `InterfaceInfo` | Interface methods and associated types |
+| `TraitInfo` | Trait methods and associated types |
 | `Scope` | Lexical scope with variable bindings and parent chain |
 
 #### Key State Variables
@@ -49,7 +49,7 @@ Main `TypeChecker` class with:
 |----------|------|---------|
 | `self.structs` | `Dict[str, StructInfo]` | Registered struct definitions |
 | `self.enums` | `Dict[str, EnumInfo]` | Registered enum definitions |
-| `self.interfaces` | `Dict[str, InterfaceInfo]` | Registered interface definitions |
+| `self.traits` | `Dict[str, TraitInfo]` | Registered trait definitions |
 | `self.functions` | `Dict[str, FunctionInfo]` | Registered function signatures |
 | `self.type_aliases` | `Dict[str, SawType]` | Type alias mappings |
 | `self.current_scope` | `Scope` | Current lexical scope |
@@ -59,7 +59,7 @@ Main `TypeChecker` class with:
 | `self.namespace` | `Namespace` | Symbol namespace for modules |
 
 ### `types.py` (385 lines)
-Type resolution, compatibility checking, and resource interface detection.
+Type resolution, compatibility checking, and resource trait detection.
 
 #### Key Methods
 | Method | Purpose |
@@ -87,13 +87,13 @@ Type and symbol registration during the first pass of type checking.
 | `_register_type_definition(type_def)` | Register a type alias |
 | `_register_struct(struct)` | Register a struct definition |
 | `_register_enum(enum)` | Register an enum definition |
-| `_register_interface(interface)` | Register an interface definition |
+| `_register_trait(trait)` | Register a trait definition |
 | `_register_function(func)` | Register a function signature |
 | `_register_extern_function(func)` | Register an external (FFI) function |
 | `_register_extension(ext)` | Register methods from an extension |
-| `_check_interface_conformance(type, iface)` | Verify type implements interface |
-| `_types_compatible_for_interface(expected, actual)` | Interface type compatibility |
-| `_resolve_interface_type(type, self_type)` | Resolve Self and associated types |
+| `_check_trait_conformance(type, trait)` | Verify type implements trait |
+| `_types_compatible_for_trait(expected, actual)` | Trait type compatibility |
+| `_resolve_trait_type(type, self_type)` | Resolve Self and associated types |
 | `_block_has_early_exit(block)` | Check if block definitely exits early |
 
 ### `statements.py` (806 lines)
@@ -163,12 +163,12 @@ def _check_expression(self, expr):
 2. Register all type definitions (type aliases)
 3. Register all struct definitions
 4. Register all enum definitions
-5. Register all interface definitions
+5. Register all trait definitions
 6. Register all function signatures
 7. Register all extension methods
 
 ### Phase 2: Validation
-1. Check interface conformance for extensions
+1. Check trait conformance for extensions
 2. Check containment rules (NoCopy, CustomCopy, Deinit)
 3. Check function bodies
 4. Check method bodies in extensions

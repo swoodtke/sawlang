@@ -90,10 +90,10 @@ func handle(msg: Message) {
 }
 ```
 
-### Interfaces for Polymorphism
+### Traits for Polymorphism
 
 ```saw
-interface Describable {
+trait Describable {
     func describe(self) -> String
 }
 
@@ -155,9 +155,9 @@ Saw provides deterministic memory management without garbage collection:
 
 - **Copy by default** for simple types
 - **Explicit `move`** for ownership transfer
-- **`Deinit` interface** for cleanup when values go out of scope
-- **`NoCopy` interface** for move-only types (file handles, connections)
-- **`CustomCopy` interface** for reference counting (`Rc<T>`, `Arc<T>`)
+- **`Deinit` trait** for cleanup when values go out of scope
+- **`NoCopy` trait** for move-only types (file handles, connections)
+- **`CustomCopy` trait** for reference counting (`Rc<T>`, `Arc<T>`)
 - **`var` parameters** for mutable references with `&` at call site
 
 ```saw
@@ -229,7 +229,7 @@ Saw is in active development. The compiler currently supports:
 - Optionals (`T?`, `None`, `!`, `??`, `?.`)
 - Optional binding (`if let`, `guard let`)
 - Type extensions with methods
-- Interfaces and conformance
+- Traits and conformance
 - Control flow (`if`/`else`, `while`, `for`, `break`, `continue`)
 - Arrays with indexing
 - Tuples with named fields

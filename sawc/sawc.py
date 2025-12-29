@@ -49,7 +49,7 @@ def load_builtins(verbose: bool = False):
     sawc_dir = os.path.dirname(__file__)
     combined_ast = None
 
-    # Load builtin.saw first (core interfaces)
+    # Load builtin.saw first (core traits)
     builtin_path = os.path.join(sawc_dir, 'builtin.saw')
     if os.path.exists(builtin_path):
         with open(builtin_path, 'r') as f:
@@ -77,7 +77,7 @@ def load_builtins(verbose: bool = False):
                     functions=combined_ast.functions + file_ast.functions,
                     extensions=combined_ast.extensions + file_ast.extensions,
                     enums=combined_ast.enums + file_ast.enums,
-                    interfaces=combined_ast.interfaces + file_ast.interfaces,
+                    traits=combined_ast.traits + file_ast.traits,
                     type_definitions=combined_ast.type_definitions + file_ast.type_definitions,
                     extern_blocks=combined_ast.extern_blocks + file_ast.extern_blocks,
                     line=combined_ast.line,
@@ -99,7 +99,7 @@ def merge_programs(builtin_ast, user_ast):
         functions=builtin_ast.functions + user_ast.functions,
         extensions=builtin_ast.extensions + user_ast.extensions,
         enums=builtin_ast.enums + user_ast.enums,
-        interfaces=builtin_ast.interfaces + user_ast.interfaces,
+        traits=builtin_ast.traits + user_ast.traits,
         type_definitions=builtin_ast.type_definitions + user_ast.type_definitions,
         extern_blocks=builtin_ast.extern_blocks + user_ast.extern_blocks,
         # Preserve user imports, module declarations, and exports (builtins don't have these)
@@ -361,8 +361,8 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
         builtin_typechecker._register_struct(struct)
     for enum in builtin_ast.enums:
         builtin_typechecker._register_enum(enum)
-    for interface in builtin_ast.interfaces:
-        builtin_typechecker._register_interface(interface)
+    for trait in builtin_ast.traits:
+        builtin_typechecker._register_trait(trait)
     for extension in builtin_ast.extensions:
         builtin_typechecker._register_extension(extension)
     for extern_block in builtin_ast.extern_blocks:
@@ -383,7 +383,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     # Copy type information to the main typechecker for codegen compatibility
     typechecker.structs = dict(builtin_typechecker.structs)
     typechecker.enums = dict(builtin_typechecker.enums)
-    typechecker.interfaces = dict(builtin_typechecker.interfaces)
+    typechecker.traits = dict(builtin_typechecker.traits)
     typechecker.functions = dict(builtin_typechecker.functions)
     typechecker.type_aliases = dict(builtin_typechecker.type_aliases)
     typechecker.type_conformances = dict(builtin_typechecker.type_conformances)

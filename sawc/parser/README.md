@@ -74,7 +74,7 @@ Type annotation parsing.
 - Optional: `Type?`
 - Generic: `Box<T>`, `Map<K, V>`
 - Pointer: `UnsafePointer<T>`, `UnsafeConstPointer<T>`
-- Self: `Self` (in interface methods)
+- Self: `Self` (in trait methods)
 
 ### `declarations.py` (532 lines)
 Top-level declaration parsing.
@@ -85,13 +85,13 @@ Top-level declaration parsing.
 | `parse_function(visibility)` | Parse function declaration |
 | `parse_struct(visibility)` | Parse struct declaration with fields |
 | `parse_enum(visibility)` | Parse enum with variants |
-| `parse_interface(visibility)` | Parse interface with methods |
+| `parse_trait(visibility)` | Parse trait with methods |
 | `parse_extension(visibility)` | Parse extension block |
 | `parse_type_definition(visibility)` | Parse type alias |
 | `parse_extern_block()` | Parse extern block with FFI functions |
 | `parse_parameters()` | Parse parameter list with types |
 | `_parse_method()` | Parse method in extension |
-| `_parse_interface_method()` | Parse method signature in interface |
+| `_parse_trait_method()` | Parse method signature in trait |
 | `_parse_extern_function()` | Parse extern function declaration |
 
 ### `statements.py` (241 lines)
@@ -166,7 +166,7 @@ The parser produces AST nodes defined in `ast_nodes.py`. Key node types:
 
 ### Program Structure
 - `Program`: Top-level container
-- `Function`, `Struct`, `Enum`, `Interface`, `Extension`
+- `Function`, `Struct`, `Enum`, `Trait`, `Extension`
 - `ImportDecl`, `ExportDecl`, `ModuleDecl`
 
 ### Statements

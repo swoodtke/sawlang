@@ -268,14 +268,14 @@ guard let value = maybe else {
 }
 ```
 
-### Interfaces
+### Traits
 
 ```saw
-interface Display {
+trait Display {
     func display(self) -> String
 }
 
-interface Debug {
+trait Debug {
     func debug(self) -> String {
         // Default implementation
         "<opaque>"
@@ -300,13 +300,13 @@ func print_all<T: Display>(items: [T]) {
 func process<T: Display + Debug + Clone>(item: T)
 
 // Associated types
-interface Iterator {
+trait Iterator {
     type Item
     func next(var self) -> Self.Item?
 }
 
-// Interface inheritance (superinterfaces)
-interface CustomCopy: Deinit {
+// Interface inheritance (supertraits)
+trait CustomCopy: Deinit {
     func copy(self) -> Self
     // Implementing CustomCopy requires also implementing Deinit
 }
@@ -439,10 +439,10 @@ let list2 = list  // Copy (deep copy for collections)
 
 ### Move-Only Types
 
-Some types represent unique resources that should not be copied. Use the `NoCopy` interface:
+Some types represent unique resources that should not be copied. Use the `NoCopy` trait:
 
 ```saw
-// Implement NoCopy interface for move-only semantics
+// Implement NoCopy trait for move-only semantics
 struct FileHandle: NoCopy {
     fd: Int,
 }
@@ -465,7 +465,7 @@ struct Connection: NoCopy { ... }
 struct MutexGuard<T>: NoCopy { ... }
 ```
 
-See [Resource Management Interfaces](#resource-management-interfaces) for the full `Deinit`/`CustomCopy`/`NoCopy` hierarchy.
+See [Resource Management Interfaces](#resource-management-traits) for the full `Deinit`/`CustomCopy`/`NoCopy` hierarchy.
 
 ### Passing by Reference
 
@@ -550,13 +550,13 @@ guard.insert("key", 42)
 
 ### Resource Management Interfaces
 
-Saw provides a hierarchy of interfaces for types that need custom copy behavior or cleanup when going out of scope. This enables reference counting (like `Arc<T>`), RAII patterns (like file handles), and move-only types.
+Saw provides a hierarchy of traits for types that need custom copy behavior or cleanup when going out of scope. This enables reference counting (like `Arc<T>`), RAII patterns (like file handles), and move-only types.
 
 #### The Deinit Interface
 
 ```saw
 // Called automatically when a value goes out of scope
-interface Deinit {
+trait Deinit {
     func deinit(var self)
 }
 ```
@@ -569,7 +569,7 @@ The compiler inserts `deinit()` calls at all scope exit points—including norma
 
 ```saw
 // Interface inheritance: CustomCopy requires Deinit
-interface CustomCopy: Deinit {
+trait CustomCopy: Deinit {
     func copy(self) -> Self
 }
 ```
@@ -607,8 +607,8 @@ let b = a            // copy() called, refcount = 2
 
 ```saw
 // Interface inheritance: NoCopy requires Deinit
-interface NoCopy: Deinit {
-    // Marker interface - no methods
+trait NoCopy: Deinit {
+    // Marker trait - no methods
 }
 ```
 
@@ -644,7 +644,7 @@ use(f)           // Error: f was moved
 
 #### Containment Rules
 
-If a struct contains fields that implement `Deinit`, `CustomCopy`, or `NoCopy`, the struct must also implement that interface. This ensures resource management is never silently skipped:
+If a struct contains fields that implement `Deinit`, `CustomCopy`, or `NoCopy`, the struct must also implement that trait. This ensures resource management is never silently skipped:
 
 ```saw
 struct Connection {
@@ -669,7 +669,7 @@ The containment rules are:
 
 #### Automatic Field Operations
 
-When you implement these interfaces, the compiler automatically handles fields:
+When you implement these traits, the compiler automatically handles fields:
 
 **In `deinit`**: After your cleanup code runs, the compiler calls `deinit()` on all fields that implement `Deinit`, in reverse declaration order:
 
@@ -702,8 +702,8 @@ Saw uses `Result<T, E>` for recoverable errors with `try` expressions for ergono
 ### The Error Interface
 
 ```saw
-// Built-in interface that all error types should implement
-interface Error {
+// Built-in trait that all error types should implement
+trait Error {
     func message(self) -> String
 }
 
@@ -816,10 +816,10 @@ The `catch` block must be **exhaustive**—all possible error types from the `tr
 
 ### Mixed Error Types and the Error Interface
 
-When a `try` block contains operations that return different error types, they are automatically erased to the `Error` interface for propagation:
+When a `try` block contains operations that return different error types, they are automatically erased to the `Error` trait for propagation:
 
 ```saw
-// Mixed errors auto-erase to Error interface
+// Mixed errors auto-erase to Error trait
 func load_and_parse() -> Result<Config, Error> {
     // IoError and ParseError both implement Error
     let content = try read_file("config.json")  // Result<String, IoError>
@@ -828,7 +828,7 @@ func load_and_parse() -> Result<Config, Error> {
 }
 ```
 
-At a higher level, you can pattern match on the `Error` interface to recover concrete types:
+At a higher level, you can pattern match on the `Error` trait to recover concrete types:
 
 ```saw
 func main() {
@@ -842,14 +842,14 @@ func main() {
         case ParseError.InvalidSyntax(line, col) -> {
             print("Syntax error at {line}:{col}")
         },
-        // Catch-all required when matching on Error interface
+        // Catch-all required when matching on Error trait
         // (can't statically know all implementors)
         case _ -> print("Unknown error occurred"),
     }
 }
 ```
 
-**Important:** When catching `Error` (the interface), a catch-all `case _` is required since the compiler cannot know all types that implement `Error`. When catching specific error types, exhaustiveness is checked statically.
+**Important:** When catching `Error` (the trait), a catch-all `case _` is required since the compiler cannot know all types that implement `Error`. When catching specific error types, exhaustiveness is checked statically.
 
 ### Explicit Result Handling
 
@@ -890,7 +890,7 @@ debug_assert(expensive_check())  // Only in debug builds
 | `Result<T, E>` | Explicit error type in signature |
 | `try expr` | Unwrap Ok or propagate/catch Err |
 | `try { } catch { }` | Local error handling with pattern matching |
-| `Error` interface | Type-erased errors, pattern match later |
+| `Error` trait | Type-erased errors, pattern match later |
 | `panic()` | Unrecoverable errors, bugs, invariant violations |
 
 ---
@@ -957,10 +957,10 @@ See [Synchronized Access](#synchronized-access) in Memory Management for `Mutex`
 
 ```saw
 // Types that can be sent between threads
-interface Send {}
+trait Send {}
 
 // Types that can be safely shared between threads
-interface Sync {}
+trait Sync {}
 
 // Compiler enforces thread safety
 func spawn<F: FnOnce() + Send>(f: F) -> JoinHandle
@@ -1227,8 +1227,8 @@ unsafe func dangerous() {
     // Accessing mutable statics
 }
 
-// Unsafe interfaces
-unsafe interface GlobalAlloc {
+// Unsafe traits
+unsafe trait GlobalAlloc {
     unsafe func alloc(layout: Layout) -> *var Void
     unsafe func dealloc(ptr: *var Void, layout: Layout)
 }
@@ -1256,7 +1256,7 @@ and         as          async       await       break
 catch       const       continue    deinit      defer
 do          dyn         else        enum        extension
 extern      false       func        for         guard
-if          import      in          init        interface
+if          import      in          init        trait
 let         loop        macro       match       module
 move        none        not         or          package
 parent      public      ref         return      self
