@@ -110,6 +110,22 @@ class StructsMixin:
                 )
                 return self._generate_enum_init(enum_init)
 
+        # Handle module-qualified enum variant access: lib.Color.Red
+        if isinstance(expr.object, MemberAccess) and hasattr(expr, 'resolved_module'):
+            # The typechecker resolved this as a module-qualified enum variant
+            # expr.object is something like lib.Color (a MemberAccess to an enum type)
+            enum_name = expr.object.member  # The enum name (e.g., "Color")
+            if enum_name in self.enum_types or enum_name in self.generic_enums:
+                enum_init = EnumInit(
+                    enum_name=enum_name,
+                    variant_name=expr.member,
+                    arguments=[],
+                    type_args=getattr(expr.object, 'type_args', None),
+                    line=expr.line,
+                    column=expr.column
+                )
+                return self._generate_enum_init(enum_init)
+
         obj_val = self._generate_expression(expr.object)
 
         # Determine the struct type

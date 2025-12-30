@@ -514,36 +514,60 @@ my-package/
 
 ---
 
-## Phase 8: Blade Implementation
+## Phase 8: Blade Implementation ✅ MILESTONE 5 COMPLETE
 
-*Once Phases 1-7 are complete, blade can be implemented in Saw.*
+*Blade package manager implemented in Saw!*
 
-### 8.1 CLI Parser
-- Parse `blade build`, `blade run`, `blade new`, etc.
-- Handle flags like `--release`, `--lib`
-- Pass arguments to compiled binary (`-- args`)
+### 8.1 CLI Parser ✅ COMPLETE
+**Location:** `blade/src/cli.saw`
 
-### 8.2 TOML Parser
-- Implement basic TOML parsing in Saw
-- Parse `Saw.toml` manifest files
-- Support sections: `[package]`, `[dependencies]`, `[dev-dependencies]`
+- [x] Parse `blade build`, `blade run`, `blade new`, etc.
+- [x] Handle `help`, `version` commands
+- [x] Pass arguments to compiled binary via `blade run`
+- [ ] Handle flags like `--release`, `--lib` (future)
+
+### 8.2 TOML Parser ✅ COMPLETE
+**Location:** `blade/src/toml.saw`
+
+- [x] Implement basic TOML parsing in Saw
+- [x] Parse `Saw.toml` manifest files
+- [x] Support `[section]` headers
+- [x] Support `key = "value"` string assignments
+- [x] Support `# comments`
+- [ ] Support `[dependencies]`, `[dev-dependencies]` sections (future)
 
 ### 8.3 Dependency Resolver
-- Parse semver version strings
-- Resolve compatible versions
-- Generate `Saw.lock` with exact versions
-- Detect version conflicts
+**Status:** Future work (Milestone 6)
 
-### 8.4 Builder
-- Topological sort of dependencies
-- Invoke `sawc` for each package
-- Incremental builds (file modification times)
-- Link final binary
+- [ ] Parse semver version strings
+- [ ] Resolve compatible versions
+- [ ] Generate `Saw.lock` with exact versions
+- [ ] Detect version conflicts
+
+### 8.4 Builder ✅ COMPLETE
+**Location:** `blade/src/builder.saw`
+
+- [x] Find source files (src/main.saw, main.saw, src/lib.saw)
+- [x] Invoke `sawc` for compilation
+- [x] Build and run with `blade run`
+- [x] Pass arguments to binary
+- [ ] Topological sort of dependencies (future)
+- [ ] Incremental builds (file modification times) (future)
+- [ ] Link final binary with dependencies (future)
 
 ### 8.5 Git Integration
-- Clone repositories via `git` command
-- Checkout specific branches/tags
-- Cache downloaded dependencies
+**Status:** Future work (Milestone 6)
+
+- [ ] Clone repositories via `git` command
+- [ ] Checkout specific branches/tags
+- [ ] Cache downloaded dependencies
+
+### 8.6 Project Scaffolding ✅ COMPLETE
+**Location:** `blade/src/main.saw`
+
+- [x] `blade new <name>` creates project directory
+- [x] Creates `Saw.toml` with [package] section
+- [x] Creates `src/main.saw` with hello world
 
 ---
 
@@ -583,11 +607,15 @@ my-package/
 - Inline and block catch syntax
 - Multiple error types with match in catch
 
-**Milestone 5: Minimal blade** (Phase 8.1-8.4) ⬅️ NEXT
-- `blade build` for local projects
-- No network, no lock file
+**Milestone 5: Minimal blade** (Phase 8.1-8.4) ✅ COMPLETE
+- `blade build` for local projects ✅
+- `blade run` with argument passing ✅
+- `blade new <name>` project scaffolding ✅
+- TOML parsing for Saw.toml ✅
+- No network, no lock file (as designed)
 
-**Milestone 6: Full blade** (Phase 8.5 + networking)
+**Milestone 6: Full blade** (Phase 8.3, 8.5 + networking) ⬅️ NEXT
+- Dependency resolver with semver
 - Git dependencies
 - Registry support
 - Lock file generation

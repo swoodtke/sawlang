@@ -1,0 +1,41 @@
+// Test: Guard let variable scoping
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 100
+
+struct Container {
+    value: Int
+}
+
+extension Container {
+    func get_value(&self) -> Int? {
+        self.value
+    }
+}
+
+func test_guard_let() -> Int {
+    let c = Container(value: 42)
+
+    guard let v = c.get_value() else {
+        return 0
+    }
+
+    // v should be in scope here
+    v
+}
+
+func test_guard_let_with_method_call() -> Int {
+    let c = Container(value: 99)
+
+    guard let val = c.get_value() else {
+        return 0
+    }
+
+    // val should be usable for method calls or further operations
+    val + 1
+}
+
+func main() {
+    print(test_guard_let())  // expect: 42
+    print(test_guard_let_with_method_call())  // expect: 100
+}

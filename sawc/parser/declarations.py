@@ -24,6 +24,17 @@ from ast_nodes import (
 class DeclarationsMixin:
     """Mixin providing declaration parsing methods for Parser."""
 
+    def _parse_qualified_name(self, error_msg: str) -> str:
+        """Parse a potentially module-qualified name like 'Trait' or 'module.Trait'."""
+        token = self.expect(TokenType.IDENT, error_msg)
+        name = token.value
+        # Check for module qualification (e.g., lib.Describable)
+        while self.match(TokenType.DOT):
+            self.advance()
+            next_token = self.expect(TokenType.IDENT, f"Expected identifier after '.' in {name}")
+            name = f"{name}.{next_token.value}"
+        return name
+
     def parse_function(self, visibility: Visibility = Visibility.PRIVATE) -> Function:
         start = self.current()
         self.expect(TokenType.FUNC)
@@ -287,18 +298,18 @@ class DeclarationsMixin:
             # We use a hybrid approach: parse with bounds support for type params
             type_params = self.parse_type_params()
 
-        # Parse optional trait conformances: `: Trait1, Trait2`
+        # Parse optional trait conformances: `: Trait1, Trait2` or `: module.Trait`
         conformances = []
         if self.match(TokenType.COLON):
             self.advance()
-            # Parse first trait name
-            iface_token = self.expect(TokenType.IDENT, "Expected trait name after ':'")
-            conformances.append(iface_token.value)
+            # Parse first trait name (may be module-qualified: lib.Trait)
+            trait_name = self._parse_qualified_name("Expected trait name after ':'")
+            conformances.append(trait_name)
             # Parse additional traits
             while self.match(TokenType.COMMA):
                 self.advance()
-                iface_token = self.expect(TokenType.IDENT, "Expected trait name after ','")
-                conformances.append(iface_token.value)
+                trait_name = self._parse_qualified_name("Expected trait name after ','")
+                conformances.append(trait_name)
 
         self.skip_newlines()
         self.expect(TokenType.LBRACE)

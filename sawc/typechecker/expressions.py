@@ -903,6 +903,7 @@ class ExpressionsMixin:
                         expr.resolved_module = obj_type.module_name
                         return SawType(TypeKind.STRUCT, struct_name=expr.member, symbol=symbol)
                     elif symbol.kind == SymbolKind.ENUM:
+                        expr.resolved_module = obj_type.module_name
                         return SawType(TypeKind.ENUM, enum_name=expr.member, symbol=symbol)
                     elif symbol.kind == SymbolKind.FUNCTION:
                         expr.resolved_function_name = expr.member
@@ -917,6 +918,33 @@ class ExpressionsMixin:
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"cannot use `{expr.member}` as an expression",
+                            expr.line, expr.column
+                        )
+                        return None
+            elif obj_type and obj_type.kind == TypeKind.ENUM:
+                # Handle module-qualified enum variant access: lib.Color.Red
+                enum_info = self.get_enum_info(obj_type.enum_name, from_type=obj_type)
+                if enum_info:
+                    type_args = obj_type.type_args
+                    if expr.member in enum_info.variants:
+                        variant_params = enum_info.variants[expr.member]
+                        if len(variant_params) == 0:
+                            result = SawType(TypeKind.ENUM, enum_name=obj_type.enum_name, type_args=type_args, symbol=enum_info)
+                            # Preserve module resolution info for codegen
+                            if hasattr(expr.object, 'resolved_module'):
+                                expr.resolved_module = expr.object.resolved_module
+                            return result
+                        else:
+                            self._error(
+                                ErrorKind.TYPE_MISMATCH,
+                                f"variant `{expr.member}` has associated values and must be called like `{obj_type.enum_name}.{expr.member}(...)`",
+                                expr.line, expr.column
+                            )
+                            return None
+                    else:
+                        self._error(
+                            ErrorKind.UNDEFINED_VARIABLE,
+                            f"enum `{obj_type.enum_name}` has no variant `{expr.member}`",
                             expr.line, expr.column
                         )
                         return None
@@ -939,6 +967,7 @@ class ExpressionsMixin:
                     expr.resolved_module = expr.object.name
                     return SawType(TypeKind.STRUCT, struct_name=expr.member, symbol=symbol)
                 elif symbol.kind == SymbolKind.ENUM:
+                    expr.resolved_module = expr.object.name
                     return SawType(TypeKind.ENUM, enum_name=expr.member, symbol=symbol)
                 elif symbol.kind == SymbolKind.FUNCTION:
                     expr.resolved_function_name = expr.member
@@ -1003,7 +1032,7 @@ class ExpressionsMixin:
             return None
         if obj_type.struct_name is None:
             return None
-        struct_info = self.get_struct_info(obj_type.struct_name)
+        struct_info = self.get_struct_info(obj_type.struct_name, from_type=obj_type)
         if struct_info is None:
             return None
         if expr.member not in struct_info.fields:
@@ -1319,7 +1348,7 @@ class ExpressionsMixin:
             # Handle static method calls on module-qualified structs: module.Struct.method()
             if obj_type and obj_type.kind == TypeKind.STRUCT:
                 struct_name = obj_type.struct_name
-                struct_info = self.get_struct_info(struct_name)
+                struct_info = self.get_struct_info(struct_name, from_type=obj_type)
                 if struct_info and expr.method_name in struct_info.methods:
                     method_info = struct_info.methods[expr.method_name]
                     if method_info.is_static:
@@ -1327,6 +1356,22 @@ class ExpressionsMixin:
                     elif method_info.is_init:
                         # Custom init method
                         return self._check_init_method_call(expr, struct_name, struct_info, method_info)
+            # Handle module-qualified enum variant construction: lib.Color.Custom(r: 1, g: 2, b: 3)
+            if obj_type and obj_type.kind == TypeKind.ENUM:
+                enum_info = self.get_enum_info(obj_type.enum_name, from_type=obj_type)
+                if enum_info and expr.method_name in enum_info.variants:
+                    enum_init = EnumInit(
+                        enum_name=obj_type.enum_name,
+                        variant_name=expr.method_name,
+                        arguments=expr.arguments,
+                        type_args=obj_type.type_args,
+                        enum_symbol=enum_info,  # Pass symbol for module-qualified lookup
+                        line=expr.line,
+                        column=expr.column
+                    )
+                    # Attach to AST so codegen can use it
+                    expr.resolved_enum_init = enum_init
+                    return self._check_enum_init(enum_init)
             if obj_type and obj_type.kind == TypeKind.MODULE:
                 inner_module_sym = getattr(expr.object, 'resolved_module_symbol', None)
                 if inner_module_sym and inner_module_sym.namespace:
@@ -1418,8 +1463,7 @@ class ExpressionsMixin:
             struct_info = self.get_struct_info(struct_name)
         elif obj_type.kind == TypeKind.STRUCT:
             struct_name = obj_type.struct_name
-            # Use symbol reference if available, fall back to namespace lookup
-            struct_info = obj_type.symbol if obj_type.symbol else self.get_struct_info(struct_name)
+            struct_info = self.get_struct_info(struct_name, from_type=obj_type)
         else:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -1647,7 +1691,8 @@ class ExpressionsMixin:
 
     def _check_enum_init(self, expr: EnumInit) -> Optional[SawType]:
         """Check enum variant initialization."""
-        enum_info = self.get_enum_info(expr.enum_name)
+        # Use direct symbol if available (for module-qualified enums)
+        enum_info = expr.enum_symbol if expr.enum_symbol else self.get_enum_info(expr.enum_name)
         if enum_info is None:
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
@@ -1740,7 +1785,7 @@ class ExpressionsMixin:
         # Store the matched type for codegen (avoids needing to match by LLVM type)
         expr.matched_enum_type = matched_type
 
-        enum_info = self.get_enum_info(matched_type.enum_name)
+        enum_info = self.get_enum_info(matched_type.enum_name, from_type=matched_type)
         if enum_info is None:
             return None
         type_mapping: Dict[str, SawType] = {}
@@ -1787,6 +1832,9 @@ class ExpressionsMixin:
             old_scope = self.current_scope
             self.current_scope = Scope(parent=old_scope)
             for binding_name, (_, param_type) in zip(arm.bindings, variant_params):
+                # Skip wildcard bindings - they don't create variables
+                if binding_name == '_':
+                    continue
                 var_info = VariableInfo(
                     type=param_type,
                     mutable=False,

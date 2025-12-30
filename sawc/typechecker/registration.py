@@ -298,6 +298,8 @@ class RegistrationMixin:
             param_types = [self._resolve_type(p.type) for p in func.parameters]
             param_names = [p.name for p in func.parameters]
             return_type = self._resolve_type(func.return_type)
+            # Update AST with resolved type for codegen
+            func.return_type = return_type
 
         self.namespace.register_function(func.name, FunctionSymbol(
             param_types=param_types,
@@ -526,14 +528,39 @@ class RegistrationMixin:
 
         # Check trait conformances
         for trait_name in extension.conformances:
-            trait_info = self.get_trait_info(trait_name)
-            if trait_info is None:
-                self._error(
-                    ErrorKind.UNDEFINED_VARIABLE,
-                    f"unknown trait `{trait_name}`",
-                    extension.line, extension.column
-                )
-                continue
+            # Handle module-qualified trait names (e.g., "lib.Describable")
+            if '.' in trait_name:
+                # Module-qualified: look up in module namespace
+                parts = trait_name.rsplit('.', 1)
+                module_name, simple_trait_name = parts[0], parts[1]
+                module_sym = self.namespace.modules.get(module_name)
+                if module_sym and module_sym.namespace:
+                    trait_info = module_sym.namespace.resolve(
+                        simple_trait_name, check_visibility=True, accessor_module=self.namespace.module_path
+                    )
+                    if trait_info is None or trait_info.kind != SymbolKind.TRAIT:
+                        self._error(
+                            ErrorKind.UNDEFINED_VARIABLE,
+                            f"unknown trait `{trait_name}`",
+                            extension.line, extension.column
+                        )
+                        continue
+                else:
+                    self._error(
+                        ErrorKind.UNDEFINED_VARIABLE,
+                        f"unknown module `{module_name}` in trait `{trait_name}`",
+                        extension.line, extension.column
+                    )
+                    continue
+            else:
+                trait_info = self.get_trait_info(trait_name)
+                if trait_info is None:
+                    self._error(
+                        ErrorKind.UNDEFINED_VARIABLE,
+                        f"unknown trait `{trait_name}`",
+                        extension.line, extension.column
+                    )
+                    continue
 
             # Register conformance in namespace FIRST (so _check_trait_conformance can read it)
             self.namespace.register_conformance(extension.struct_name, trait_name, local_assignments)

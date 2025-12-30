@@ -671,6 +671,7 @@ class EnumInit(Expression):
     variant_name: str
     arguments: List[Argument]
     type_args: Optional[List['SawType']] = None  # For generic enums: Option<Int> has type_args=[Int]
+    enum_symbol: Optional[Any] = None  # For module-qualified enums: direct symbol reference
     line: int = 0
     column: int = 0
 

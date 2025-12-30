@@ -1,0 +1,88 @@
+// Test: Guard let with module types in various contexts
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 99
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 126
+// EXPECT-OUTPUT: 52
+// EXPECT-OUTPUT: 84
+
+import lib
+
+// Test guard let with module function returning optional
+func test_guard_optional() -> Int {
+    guard let value = lib.get_optional(true) else {
+        return 0
+    }
+    value
+}
+
+// Test guard let with module function returning optional (None case)
+func test_guard_optional_none() -> Int {
+    guard let value = lib.get_optional(false) else {
+        return 99
+    }
+    value
+}
+
+// Test guard let inside if block
+func test_guard_in_if() -> Int {
+    let flag = true
+
+    if flag {
+        guard let value = lib.get_optional(true) else {
+            return 0
+        }
+        value
+    } else {
+        0
+    }
+}
+
+// Test guard let inside while loop
+func test_guard_in_while() -> Int {
+    var result = 0
+    var i = 0
+
+    while i < 3 {
+        guard let value = lib.get_optional(true) else {
+            break
+        }
+        result = result + value
+        i = i + 1
+    }
+
+    result  // 42 * 3 = 126
+}
+
+// Test guard let with method on module struct
+func test_guard_method() -> Int {
+    let p = lib.make_point(5)
+    // Point.sum() returns Int, not Int?, so we test with get_optional
+    guard let value = lib.get_optional(true) else {
+        return 0
+    }
+    p.sum() + value  // 10 + 42 = 52
+}
+
+// Test nested guard let
+func test_nested_guard() -> Int {
+    guard let a = lib.get_optional(true) else {
+        return 0
+    }
+
+    guard let b = lib.get_optional(true) else {
+        return 0
+    }
+
+    a + b  // 42 + 42 = 84
+}
+
+func main() {
+    print(test_guard_optional())      // 42
+    print(test_guard_optional_none()) // 99
+    print(test_guard_in_if())         // 42
+    print(test_guard_in_while())      // 126
+    print(test_guard_method())        // 52
+    print(test_nested_guard())        // 84
+}

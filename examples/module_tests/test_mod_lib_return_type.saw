@@ -1,0 +1,19 @@
+// Test: Using mod.lib.X as return type
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+
+import mod
+
+func get_my_color() -> mod.lib.Color {
+    mod.lib.Color.Green
+}
+
+func main() {
+    let c = get_my_color()
+    match c {
+        case Red -> print(0),
+        case Green -> print(1),
+        case Blue -> print(0),
+        case Custom(r, g, b) -> print(0)
+    }
+}

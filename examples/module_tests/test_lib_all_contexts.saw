@@ -1,0 +1,142 @@
+// Test: Using lib.X in all expression contexts
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 4
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: 6
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT: 9
+// EXPECT-OUTPUT: 10
+// EXPECT-OUTPUT: 11
+// EXPECT-OUTPUT: 12
+// EXPECT-OUTPUT: 13
+// EXPECT-OUTPUT: 14
+// EXPECT-OUTPUT: 15
+
+import lib
+
+// Return lib.Point from function
+func make_point_return() -> lib.Point {
+    return lib.Point(x: 1, y: 1)
+}
+
+// Final expression returning lib.Point
+func make_point_final() -> lib.Point {
+    lib.Point(x: 2, y: 2)
+}
+
+// Return lib.Color from function
+func make_color_return() -> lib.Color {
+    return lib.Color.Red
+}
+
+// Final expression returning lib.Color
+func make_color_final() -> lib.Color {
+    lib.Color.Green
+}
+
+// Return lib.Color with associated values
+func make_custom_color() -> lib.Color {
+    lib.Color.Custom(r: 10, g: 20, b: 30)
+}
+
+func main() {
+    // 1. Variable declaration with lib.Point
+    let p1 = lib.Point(x: 1, y: 0)
+    print(p1.x)  // 1
+
+    // 2. Variable declaration with lib.Color
+    let c1 = lib.Color.Red
+    match c1 {
+        case Red -> print(2),
+        case Green -> print(0),
+        case Blue -> print(0),
+        case Custom(r, g, b) -> print(0)
+    }
+
+    // 3. If expression with lib types
+    let p2 = if true { lib.Point(x: 3, y: 0) } else { lib.Point(x: 0, y: 0) }
+    print(p2.x)  // 3
+
+    // 4. If-else with lib.Color
+    let c2 = if false { lib.Color.Red } else { lib.Color.Green }
+    match c2 {
+        case Red -> print(0),
+        case Green -> print(4),
+        case Blue -> print(0),
+        case Custom(r, g, b) -> print(0)
+    }
+
+    // 5. While loop using lib types
+    var counter = 0
+    var sum = 0
+    while counter < 5 {
+        let p = lib.Point(x: 1, y: 0)
+        sum = sum + p.x
+        counter = counter + 1
+    }
+    print(sum)  // 5
+
+    // 6. For loop using lib types
+    var total = 0
+    for i in 0..3 {
+        let p = lib.Point(x: 2, y: 0)
+        total = total + p.x
+    }
+    print(total)  // 6
+
+    // 7. Match expression with lib.Color
+    let c3 = lib.Color.Custom(r: 7, g: 0, b: 0)
+    let val = match c3 {
+        case Red -> 0,
+        case Green -> 0,
+        case Blue -> 0,
+        case Custom(r, g, b) -> r
+    }
+    print(val)  // 7
+
+    // 8. Function call returning lib.Point
+    let p3 = make_point_return()
+    print(p3.x + p3.y + 6)  // 8
+
+    // 9. Function with final expression returning lib.Point
+    let p4 = make_point_final()
+    print(p4.x + p4.y + 5)  // 9
+
+    // 10. Static method call
+    let p5 = lib.Point.create(val: 5)
+    print(p5.x + p5.y)  // 10
+
+    // 11. lib.add function call
+    let sum2 = lib.add(5, 6)
+    print(sum2)  // 11
+
+    // 12. Chained method call on lib type
+    let p6 = lib.Point(x: 6, y: 6)
+    print(p6.sum())  // 12
+
+    // 13. Nested lib type usage in if
+    let result = if true {
+        let inner = lib.Point(x: 13, y: 0)
+        inner.x
+    } else {
+        0
+    }
+    print(result)  // 13
+
+    // 14. lib.make_point helper function
+    let p7 = lib.make_point(7)
+    print(p7.x + p7.y)  // 14
+
+    // 15. lib.make_color helper function
+    let c4 = lib.make_color()
+    match c4 {
+        case Red -> print(0),
+        case Green -> print(15),
+        case Blue -> print(0),
+        case Custom(r, g, b) -> print(0)
+    }
+}

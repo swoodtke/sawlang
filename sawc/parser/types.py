@@ -96,7 +96,8 @@ class TypeParsingMixin:
             else:
                 return SawType(TypeKind.TUPLE, element_types=element_types)
         elif token.type == TokenType.IDENT:
-            # Could be a built-in type, struct, enum, type parameter, Self, or pointer type
+            # Could be a built-in type, struct, enum, type parameter, Self, pointer type,
+            # or module-qualified type (lib.Point)
             self.advance()
             name = token.value
 
@@ -119,6 +120,12 @@ class TypeParsingMixin:
                 if len(type_args) != 1:
                     self.error("UnsafeConstPointer requires exactly one type argument")
                 return SawType(TypeKind.POINTER, inner_type=type_args[0], pointer_mutable=False)
+
+            # Check for module-qualified types: lib.Point, std.io.Error
+            while self.match(TokenType.DOT):
+                self.advance()  # consume '.'
+                next_token = self.expect(TokenType.IDENT, f"Expected identifier after '.' in type {name}")
+                name = f"{name}.{next_token.value}"
 
             # Check for type arguments: Box<Int>, Pair<A, B>
             type_args = None

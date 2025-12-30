@@ -1,0 +1,55 @@
+// Library module with various public exports for testing
+// EXPECT: skip
+
+// Public struct
+public struct Point {
+    x: Int
+    y: Int
+}
+
+public extension Point {
+    func sum(&self) -> Int {
+        self.x + self.y
+    }
+
+    func create(val: Int) -> Point {
+        Point(x: val, y: val)
+    }
+}
+
+// Public enum (no extension due to bug with match self in modules)
+public enum Color {
+    case Red,
+    case Green,
+    case Blue,
+    case Custom(r: Int, g: Int, b: Int)
+}
+
+// Public trait
+public trait Describable {
+    func describe(&self) -> Int
+}
+
+// Public function
+public func add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+public func make_point(v: Int) -> Point {
+    Point(x: v, y: v)
+}
+
+public func make_color() -> Color {
+    Color.Green
+}
+
+public func get_optional(flag: Bool) -> Int? {
+    if flag { 42 } else { None }
+}
+
+public func get_result(flag: Bool) -> Result<Int, Point> {
+    if flag {
+        return 100
+    }
+    Point(x: 1, y: 1)
+}

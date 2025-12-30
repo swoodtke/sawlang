@@ -46,39 +46,70 @@ class TypeUtilsMixin:
     # Namespace Lookup Helpers
     # =========================================================================
 
-    def get_struct_info(self, name: str, qualified_path: str = None) -> Optional[StructSymbol]:
+    def get_struct_info(self, name: str, qualified_path: str = None, from_type: 'SawType' = None) -> Optional[StructSymbol]:
         """Lookup struct info via namespace, supporting qualified names.
 
         Args:
             name: Simple struct name (e.g., "Point")
             qualified_path: Optional module-qualified path (e.g., "toml.TomlDoc")
+            from_type: Optional SawType that may contain a direct symbol reference
 
         Returns:
             StructSymbol if found, None otherwise
         """
+        # First check if the type has a direct symbol reference (for module-qualified types)
+        if from_type is not None:
+            symbol = getattr(from_type, 'symbol', None)
+            if symbol and symbol.kind == SymbolKind.STRUCT:
+                return symbol
         if qualified_path:
             # Module-qualified lookup: "toml.TomlDoc"
             symbol = self.namespace.resolve(qualified_path, check_access=False)
             if symbol and symbol.kind == SymbolKind.STRUCT:
                 return symbol
         # Local lookup
-        return self.namespace.lookup_struct(name)
+        result = self.namespace.lookup_struct(name)
+        if result:
+            return result
+        # Search imported modules (for types that lost symbol during substitution)
+        for module_sym in self.namespace.modules.values():
+            if module_sym.namespace:
+                struct_sym = module_sym.namespace.lookup_struct(name)
+                if struct_sym:
+                    return struct_sym
+        return None
 
-    def get_enum_info(self, name: str, qualified_path: str = None) -> Optional[EnumSymbol]:
+    def get_enum_info(self, name: str, qualified_path: str = None, from_type: 'SawType' = None) -> Optional[EnumSymbol]:
         """Lookup enum info via namespace, supporting qualified names.
 
         Args:
             name: Simple enum name (e.g., "Color")
             qualified_path: Optional module-qualified path (e.g., "colors.Color")
+            from_type: Optional SawType that may contain a direct symbol reference
 
         Returns:
             EnumSymbol if found, None otherwise
         """
+        # First check if the type has a direct symbol reference (for module-qualified types)
+        if from_type is not None:
+            symbol = getattr(from_type, 'symbol', None)
+            if symbol and symbol.kind == SymbolKind.ENUM:
+                return symbol
         if qualified_path:
             symbol = self.namespace.resolve(qualified_path, check_access=False)
             if symbol and symbol.kind == SymbolKind.ENUM:
                 return symbol
-        return self.namespace.lookup_enum(name)
+        # Local lookup
+        result = self.namespace.lookup_enum(name)
+        if result:
+            return result
+        # Search imported modules (for types that lost symbol during substitution)
+        for module_sym in self.namespace.modules.values():
+            if module_sym.namespace:
+                enum_sym = module_sym.namespace.lookup_enum(name)
+                if enum_sym:
+                    return enum_sym
+        return None
 
     def get_function_info(self, name: str, qualified_path: str = None) -> Optional[FunctionSymbol]:
         """Lookup function info via namespace, supporting qualified names.
@@ -190,15 +221,45 @@ class TypeUtilsMixin:
         check the underlying type structure (e.g., to check if something is Optional).
         """
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
+            struct_name = saw_type.struct_name
+
+            # Handle module-qualified types (e.g., lib.Point, mod.lib.Color)
+            if '.' in struct_name:
+                parts = struct_name.split('.')
+                simple_name = parts[-1]
+                module_parts = parts[:-1]
+
+                # Walk the module path to find the final namespace
+                current_ns = self.namespace
+                for part in module_parts:
+                    module_sym = current_ns.modules.get(part)
+                    if module_sym and module_sym.namespace:
+                        current_ns = module_sym.namespace
+                    else:
+                        current_ns = None
+                        break
+
+                if current_ns:
+                    symbol = current_ns.resolve(
+                        simple_name, check_visibility=True, accessor_module=self.namespace.module_path
+                    )
+                    if symbol:
+                        resolved_args = [self._resolve_type(t) for t in saw_type.type_args] if saw_type.type_args else None
+                        if symbol.kind == SymbolKind.STRUCT:
+                            return SawType(TypeKind.STRUCT, struct_name=simple_name, type_args=resolved_args, symbol=symbol)
+                        elif symbol.kind == SymbolKind.ENUM:
+                            return SawType(TypeKind.ENUM, enum_name=simple_name, type_args=resolved_args, symbol=symbol)
+
             # Check if this is actually an enum (NOT a type alias - those stay as STRUCT)
-            enum_symbol = self.namespace.lookup_enum(saw_type.struct_name)
+            # Use get_enum_info which searches imported modules
+            enum_symbol = self.get_enum_info(struct_name, from_type=saw_type)
             if enum_symbol:
                 resolved_args = [self._resolve_type(t) for t in saw_type.type_args] if saw_type.type_args else None
-                return SawType(TypeKind.ENUM, enum_name=saw_type.struct_name, type_args=resolved_args, symbol=enum_symbol)
+                return SawType(TypeKind.ENUM, enum_name=struct_name, type_args=resolved_args, symbol=enum_symbol)
             # Recursively resolve type args
             if saw_type.type_args:
                 resolved_args = [self._resolve_type(t) for t in saw_type.type_args]
-                return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name, type_args=resolved_args)
+                return SawType(TypeKind.STRUCT, struct_name=struct_name, type_args=resolved_args)
         elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
             # Recursively resolve optional inner types
             resolved_inner = self._resolve_type(saw_type.inner_type)

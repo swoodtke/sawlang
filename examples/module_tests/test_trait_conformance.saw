@@ -1,0 +1,22 @@
+// Test: Module-qualified trait in conformance declaration
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+
+import lib
+
+struct LocalPoint {
+    x: Int
+    y: Int
+}
+
+// This should work: conforming to a trait from an imported module
+extension LocalPoint: lib.Describable {
+    func describe(&self) -> Int {
+        self.x + self.y
+    }
+}
+
+func main() {
+    let p = LocalPoint(x: 3, y: 4)
+    print(p.describe())
+}

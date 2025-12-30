@@ -238,6 +238,10 @@ class CallsMixin:
             if self.namespace.is_static_method(struct_name, expr.method_name):
                 return self._generate_static_method_call(expr, struct_name)
 
+        # Check if typechecker resolved this as an enum init (e.g., lib.Color.Custom(...))
+        if hasattr(expr, 'resolved_enum_init'):
+            return self._generate_enum_init(expr.resolved_enum_init)
+
         # Check if this is actually an enum initialization
         # Check both concrete enums and generic enums
         if isinstance(expr.object, Identifier):

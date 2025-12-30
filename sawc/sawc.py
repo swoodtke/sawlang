@@ -133,7 +133,7 @@ def topological_sort_modules(module_map):
         List of module_path_tuple in dependency order
     """
     # Build dependency graph
-    # For each module, find what it imports
+    # For each module, find what it imports and declares
     dependencies = {}  # module_path -> set of module_paths it depends on
     for mod_path, mod_ast in module_map.items():
         deps = set()
@@ -146,6 +146,13 @@ def topological_sort_modules(module_map):
                 imp_path = imp_path[1:]
             if imp_path in module_map:
                 deps.add(imp_path)
+        # Also add external module declarations as dependencies
+        # e.g., `public module lib` means this module depends on lib
+        for mod_decl in getattr(mod_ast, 'module_decls', []):
+            if not mod_decl.is_inline:
+                decl_path = (mod_decl.name,)
+                if decl_path in module_map:
+                    deps.add(decl_path)
         dependencies[mod_path] = deps
 
     # Kahn's algorithm for topological sort
@@ -243,6 +250,48 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
             # Add this module's imports to pending
             for sub_imp in getattr(mod_ast, 'imports', []):
                 pending_imports.append(sub_imp)
+
+            # Also process external module declarations from this imported module
+            # This enables re-exporting: if mod.saw has `public module lib`,
+            # then lib.saw needs to be loaded
+            mod_source_dir = os.path.dirname(mod_info.source_path)
+            for mod_decl in getattr(mod_ast, 'module_decls', []):
+                if not mod_decl.is_inline:
+                    simple_path = (mod_decl.name,)
+                    if simple_path not in resolved_modules:
+                        # Look for the module file relative to the imported module
+                        sub_mod_file = os.path.join(mod_source_dir, f"{mod_decl.name}.saw")
+                        sub_mod_dir_file = os.path.join(mod_source_dir, mod_decl.name, "module.saw")
+
+                        if os.path.isfile(sub_mod_file):
+                            with open(sub_mod_file, 'r') as f:
+                                sub_mod_source = f.read()
+                            sub_mod_ast = parse_source(sub_mod_source, sub_mod_file, verbose)
+                            module_sources[sub_mod_file] = sub_mod_source
+                            # Register with simple path only (avoids duplicate merging)
+                            module_map[(mod_decl.name,)] = sub_mod_ast
+                            resolved_modules.add((mod_decl.name,))
+                            if verbose:
+                                print(f"    Module decl: {mod_decl.name} -> {sub_mod_file}")
+
+                            # Recursively process imports from this module
+                            for sub_imp in getattr(sub_mod_ast, 'imports', []):
+                                pending_imports.append(sub_imp)
+                        elif os.path.isfile(sub_mod_dir_file):
+                            with open(sub_mod_dir_file, 'r') as f:
+                                sub_mod_source = f.read()
+                            sub_mod_ast = parse_source(sub_mod_source, sub_mod_dir_file, verbose)
+                            module_sources[sub_mod_dir_file] = sub_mod_source
+                            module_map[(mod_decl.name,)] = sub_mod_ast
+                            resolved_modules.add((mod_decl.name,))
+                            if verbose:
+                                print(f"    Module decl: {mod_decl.name} -> {sub_mod_dir_file}")
+
+                            for sub_imp in getattr(sub_mod_ast, 'imports', []):
+                                pending_imports.append(sub_imp)
+                        else:
+                            print(f"\033[1;31merror\033[0m: module `{mod_decl.name}` not found (declared in {mod_info.source_path})", file=sys.stderr)
+                            sys.exit(1)
         else:
             # Module not found - report error
             print(f"\033[1;31merror\033[0m: module `{'.'.join(module_path)}` not found", file=sys.stderr)

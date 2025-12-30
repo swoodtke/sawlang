@@ -1,0 +1,30 @@
+// Test: Static methods with arguments
+// EXPECT: success
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: test
+
+struct Parser {
+    name: String
+}
+
+extension Parser {
+    // Static method - no self parameter
+    func parse(content: String) -> Int {
+        content.len()
+    }
+
+    // Instance method - has self parameter
+    func get_name(&self) -> String {
+        self.name
+    }
+}
+
+func main() {
+    // Call static method with argument
+    let len = Parser.parse("hello")
+    print(len)  // expect: 5
+
+    // Call instance method
+    let p = Parser(name: "test")
+    print(p.get_name())  // expect: test
+}
