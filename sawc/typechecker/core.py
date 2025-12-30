@@ -183,8 +183,40 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Register built-in functions
         self._register_builtins()
 
-    def check(self, program: Program) -> bool:
-        """Type check the entire program. Returns True if no errors."""
+    def _get_current_source_file(self) -> Optional[str]:
+        """Get the source file from the current method or function context."""
+        if self.current_method and hasattr(self.current_method, 'source_file'):
+            return self.current_method.source_file or None
+        if self.current_function and hasattr(self.current_function, 'source_file'):
+            return self.current_function.source_file or None
+        return None
+
+    def _error(self, kind: ErrorKind, message: str, line: int, column: int,
+               hint: Optional[str] = None, source_file: Optional[str] = None):
+        """Report an error with automatic source file detection.
+
+        If source_file is not provided, attempts to determine it from the
+        current method or function context.
+        """
+        if source_file is None:
+            source_file = self._get_current_source_file()
+        self.reporter.error(kind, message, line, column, hint, source_file)
+
+    def _warning(self, kind: ErrorKind, message: str, line: int, column: int,
+                 hint: Optional[str] = None, source_file: Optional[str] = None):
+        """Report a warning with automatic source file detection."""
+        if source_file is None:
+            source_file = self._get_current_source_file()
+        self.reporter.warning(kind, message, line, column, hint, source_file)
+
+    def check(self, program: Program, require_main: bool = True) -> bool:
+        """Type check the entire program. Returns True if no errors.
+
+        Args:
+            program: The AST to type check
+            require_main: If True, error if no main() function (default for executables).
+                         Set to False for library/object file compilation.
+        """
         # Validate: exports are only allowed in init.saw files
         exports = getattr(program, 'exports', [])
         if exports:
@@ -233,13 +265,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for func in program.functions:
             self._register_function(func)
 
-        # Check for main function
-        if "main" not in self.functions:
+        # Check for main function (only required for executables)
+        if require_main and "main" not in self.functions:
             self.reporter.error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 "no `main` function found",
                 1, 1,
-                hint="add a `fn main() { }` function as the entry point"
+                hint="add a `func main() { }` function as the entry point, or use -c to compile as object file"
             )
 
         # Seventh pass: type check function bodies
@@ -460,7 +492,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 ErrorKind.UNDEFINED_FUNCTION,
                 "no `main` function found",
                 1, 1,
-                hint="add a `fn main() { }` function as the entry point"
+                hint="add a `func main() { }` function as the entry point, or use -c to compile as object file"
             )
 
         # Enable import checking for this module

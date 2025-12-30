@@ -1,0 +1,36 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// -1
+
+struct MyError {
+    code: Int
+}
+
+struct MyData {
+    value: Int
+}
+
+extension MyData {
+    // Static method returning Result
+    func parse(input: Int) -> Result<MyData, MyError> {
+        if input > 0 {
+            return MyData(value: input)
+        }
+        return MyError(code: -1)
+    }
+}
+
+func main() {
+    let result = MyData.parse(42)
+    match result {
+        case Ok(data) -> print(data.value),
+        case Err(e) -> print(e.code)
+    }
+
+    let result2 = MyData.parse(-1)
+    match result2 {
+        case Ok(data) -> print(data.value),
+        case Err(e) -> print(e.code)
+    }
+}

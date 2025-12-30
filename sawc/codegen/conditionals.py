@@ -46,6 +46,12 @@ class ConditionalsMixin:
         # Generate then branch
         self.builder.position_at_start(then_bb)
         then_val = self._generate_block(expr.then_branch)
+        # Check for Result auto-wrap (set by typechecker)
+        if hasattr(expr.then_branch, 'auto_wrap') and expr.then_branch.auto_wrap and then_val is not None:
+            if expr.then_branch.auto_wrap == "ok":
+                then_val = self._create_result_ok_for_return(then_val)
+            elif expr.then_branch.auto_wrap == "err":
+                then_val = self._create_result_err_for_return(then_val)
         then_bb_end = self.builder.block  # May have changed due to nested control flow
         then_terminated = self.builder.block.is_terminated
 
@@ -53,6 +59,12 @@ class ConditionalsMixin:
         self.builder.position_at_start(else_bb)
         if expr.else_branch:
             else_val = self._generate_block(expr.else_branch)
+            # Check for Result auto-wrap (set by typechecker)
+            if hasattr(expr.else_branch, 'auto_wrap') and expr.else_branch.auto_wrap and else_val is not None:
+                if expr.else_branch.auto_wrap == "ok":
+                    else_val = self._create_result_ok_for_return(else_val)
+                elif expr.else_branch.auto_wrap == "err":
+                    else_val = self._create_result_err_for_return(else_val)
         else:
             else_val = None
         else_bb_end = self.builder.block

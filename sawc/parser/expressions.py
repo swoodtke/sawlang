@@ -355,7 +355,9 @@ class ExpressionsMixin:
 
         elif self.match(TokenType.STRING):
             self.advance()
-            return StringLiteral(value=token.value, line=token.line, column=token.column)
+            # Convert escaped brace markers back to literal braces
+            value = token.value.replace('\x01{', '{').replace('\x01}', '}')
+            return StringLiteral(value=value, line=token.line, column=token.column)
 
         elif self.match(TokenType.INTERP_STRING):
             self.advance()
@@ -919,6 +921,7 @@ class ExpressionsMixin:
         """Parse a string with {expr} interpolations into parts and expressions.
 
         The raw_value contains the string with braces preserved, e.g. "Hello {name}!"
+        Escaped braces are marked as \x01{ and \x01} by the lexer.
         Returns a StringInterpolation node with parts and expressions separated.
         """
         from lexer import Lexer
@@ -929,7 +932,13 @@ class ExpressionsMixin:
         i = 0
 
         while i < len(raw_value):
-            if raw_value[i] == '{':
+            # Check for escaped brace markers (\x01{ and \x01})
+            if raw_value[i] == '\x01' and i + 1 < len(raw_value) and raw_value[i + 1] in '{}':
+                # Convert marker back to literal brace
+                current_part.append(raw_value[i + 1])
+                i += 2
+            elif raw_value[i] == '{':
+                # Real interpolation start
                 # Save current string part
                 parts.append(''.join(current_part))
                 current_part = []
@@ -966,12 +975,31 @@ class ExpressionsMixin:
         from lexer import Lexer
         from .core import Parser
 
-        sub_lexer = Lexer(expr_str)
-        sub_tokens = sub_lexer.tokenize()
+        try:
+            sub_lexer = Lexer(expr_str)
+            sub_tokens = sub_lexer.tokenize()
+        except SyntaxError as e:
+            # Provide better error message for interpolation failures
+            preview = expr_str[:30] + "..." if len(expr_str) > 30 else expr_str
+            raise SyntaxError(
+                f"Invalid expression in string interpolation at {line}:{column}\n"
+                f"  Expression: {{{preview}}}\n"
+                f"  Error: {e}\n"
+                f"  Hint: Use \\{{ and \\}} for literal braces in interpolated strings"
+            )
 
-        # Create a sub-parser with these tokens
-        sub_parser = Parser(sub_tokens)
-        return sub_parser.parse_expression()
+        try:
+            # Create a sub-parser with these tokens
+            sub_parser = Parser(sub_tokens)
+            return sub_parser.parse_expression()
+        except SyntaxError as e:
+            preview = expr_str[:30] + "..." if len(expr_str) > 30 else expr_str
+            raise SyntaxError(
+                f"Invalid expression in string interpolation at {line}:{column}\n"
+                f"  Expression: {{{preview}}}\n"
+                f"  Error: {e}\n"
+                f"  Hint: Use \\{{ and \\}} for literal braces in interpolated strings"
+            )
 
     def _count_shorthand_params(self, body: Block) -> int:
         """Count the maximum $N parameter index used in the closure body."""

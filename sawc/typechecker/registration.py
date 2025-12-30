@@ -148,7 +148,7 @@ class RegistrationMixin:
     def _register_type_definition(self, type_def: TypeDefinition):
         """Register a type definition (type alias)."""
         if type_def.name in self.type_aliases:
-            self.reporter.error(
+            self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"type `{type_def.name}` is defined multiple times",
                 type_def.line, type_def.column
@@ -167,7 +167,7 @@ class RegistrationMixin:
         """Register a struct definition."""
         from .core import StructInfo
         if struct.name in self.structs:
-            self.reporter.error(
+            self._error(
                 ErrorKind.DUPLICATE_FUNCTION,  # We can reuse this error kind
                 f"struct `{struct.name}` is defined multiple times",
                 struct.line, struct.column
@@ -181,7 +181,7 @@ class RegistrationMixin:
 
         for field in struct.fields:
             if field.name in seen_fields:
-                self.reporter.error(
+                self._error(
                     ErrorKind.DUPLICATE_VARIABLE,  # Reuse this
                     f"field `{field.name}` is defined multiple times in struct `{struct.name}`",
                     struct.line, struct.column
@@ -214,7 +214,7 @@ class RegistrationMixin:
         """Register an enum definition."""
         from .core import EnumInfo
         if enum.name in self.enums:
-            self.reporter.error(
+            self._error(
                 ErrorKind.DUPLICATE_FUNCTION,  # Reuse this error kind
                 f"enum `{enum.name}` is defined multiple times",
                 enum.line, enum.column
@@ -222,7 +222,7 @@ class RegistrationMixin:
             return
 
         if enum.name in self.structs:
-            self.reporter.error(
+            self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"enum `{enum.name}` conflicts with existing struct name",
                 enum.line, enum.column
@@ -236,7 +236,7 @@ class RegistrationMixin:
 
         for variant in enum.variants:
             if variant.name in seen_variants:
-                self.reporter.error(
+                self._error(
                     ErrorKind.DUPLICATE_VARIABLE,  # Reuse this
                     f"variant `{variant.name}` is defined multiple times in enum `{enum.name}`",
                     enum.line, enum.column
@@ -265,7 +265,7 @@ class RegistrationMixin:
         """Register a trait definition with inheritance support."""
         from .core import TraitInfo, TraitMethodInfo
         if trait.name in self.traits:
-            self.reporter.error(
+            self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"trait `{trait.name}` is defined multiple times",
                 trait.line, trait.column
@@ -277,7 +277,7 @@ class RegistrationMixin:
         inherited_assoc_types = []
         for parent_name in trait.parent_traits:
             if parent_name not in self.traits:
-                self.reporter.error(
+                self._error(
                     ErrorKind.UNDEFINED_VARIABLE,
                     f"unknown parent trait `{parent_name}`",
                     trait.line, trait.column
@@ -349,7 +349,7 @@ class RegistrationMixin:
         """Register a function signature."""
         from .core import FunctionInfo
         if func.name in self.functions:
-            self.reporter.error(
+            self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"function `{func.name}` is defined multiple times",
                 func.line, func.column
@@ -396,7 +396,7 @@ class RegistrationMixin:
             if (existing.param_types == param_types and
                 existing.return_type == resolved_return_type):
                 return  # Same signature, allow it
-            self.reporter.error(
+            self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"function `{extern_func.name}` is defined multiple times with different signatures",
                 extern_func.line, extern_func.column
@@ -451,7 +451,7 @@ class RegistrationMixin:
         from .core import MethodInfo
         # Verify the struct exists
         if extension.struct_name not in self.structs:
-            self.reporter.error(
+            self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"cannot extend undefined struct `{extension.struct_name}`",
                 extension.line, extension.column
@@ -484,13 +484,13 @@ class RegistrationMixin:
             # Check for duplicate methods in target dict
             if method_key in target_methods:
                 if method.is_init:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.DUPLICATE_FUNCTION,
                         f"init method with parameters ({', '.join(p.name for p in method.parameters)}) is already defined for struct `{extension.struct_name}`",
                         method.line, method.column
                     )
                 else:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.DUPLICATE_FUNCTION,
                         f"method `{method.name}` is already defined for struct `{extension.struct_name}`",
                         method.line, method.column
@@ -501,7 +501,7 @@ class RegistrationMixin:
             self_mutable = False
             if not method.is_init and not method.is_static:
                 if len(method.parameters) == 0:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.WRONG_ARGUMENT_COUNT,
                         f"method `{method.name}` must have 'self' as first parameter",
                         method.line, method.column
@@ -510,7 +510,7 @@ class RegistrationMixin:
 
                 first_param = method.parameters[0]
                 if first_param.name != "self":
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"first parameter of method must be named 'self', got `{first_param.name}`",
                         method.line, method.column
@@ -526,7 +526,7 @@ class RegistrationMixin:
                     # Replace placeholder with actual type
                     first_param.type = expected_self_type
                 elif not self._types_compatible(first_param.type, expected_self_type):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"'self' parameter must have type `{extension.struct_name}`, got `{first_param.type}`",
                         method.line, method.column
@@ -537,7 +537,7 @@ class RegistrationMixin:
                 param_names_set = {p.name for p in method.parameters}
                 field_names_set = set(struct_info.fields.keys())
                 if param_names_set == field_names_set:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"init method parameters match field names exactly - this is ambiguous with field initialization",
                         method.line, method.column,
@@ -625,7 +625,7 @@ class RegistrationMixin:
         # Check trait conformances
         for trait_name in extension.conformances:
             if trait_name not in self.traits:
-                self.reporter.error(
+                self._error(
                     ErrorKind.UNDEFINED_VARIABLE,
                     f"unknown trait `{trait_name}`",
                     extension.line, extension.column
@@ -648,7 +648,7 @@ class RegistrationMixin:
         """Check that a type conforms to a trait by implementing all required methods."""
         for method_name, trait_method in trait_info.methods.items():
             if method_name not in struct_info.methods:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"type `{type_name}` does not implement required method `{method_name}` from trait `{trait_info.name}`",
                     extension.line, extension.column
@@ -660,13 +660,13 @@ class RegistrationMixin:
             # Check self mutability matches
             if trait_method.self_mutable != impl_method.self_mutable:
                 if trait_method.self_mutable:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"method `{method_name}` should have `var self` to conform to trait `{trait_info.name}`",
                         extension.line, extension.column
                     )
                 else:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"method `{method_name}` should have immutable `self` to conform to trait `{trait_info.name}`",
                         extension.line, extension.column
@@ -675,7 +675,7 @@ class RegistrationMixin:
             # Check return type matches (allow Self and associated types -> concrete types)
             if not self._types_compatible_for_trait(trait_method.return_type, impl_method.return_type,
                                                          type_name, trait_info.name):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"method `{method_name}` has return type `{impl_method.return_type}` but trait `{trait_info.name}` expects `{trait_method.return_type}`",
                     extension.line, extension.column
@@ -685,7 +685,7 @@ class RegistrationMixin:
             trait_param_count = len(trait_method.param_types) - 1  # Exclude self placeholder
             impl_param_count = len(impl_method.param_types) - 1    # Exclude self
             if trait_param_count != impl_param_count:
-                self.reporter.error(
+                self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"method `{method_name}` takes {impl_param_count} parameter(s) but trait `{trait_info.name}` expects {trait_param_count}",
                     extension.line, extension.column
@@ -695,7 +695,7 @@ class RegistrationMixin:
         type_assigns = self.type_assignments.get((type_name, trait_info.name), {})
         for assoc_type_name in trait_info.associated_types:
             if assoc_type_name not in type_assigns:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"type `{type_name}` does not provide required associated type `{assoc_type_name}` from trait `{trait_info.name}`",
                     extension.line, extension.column,

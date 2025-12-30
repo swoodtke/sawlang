@@ -210,6 +210,14 @@ class CallsMixin:
                     # Generate struct initialization
                     return self._generate_module_struct_init(expr)
 
+            # Check if it's module.Struct.static_method()
+            # The MemberAccess resolves to a struct type (not a module)
+            resolved_struct = getattr(expr.object, 'resolved_struct_name', None)
+            if resolved_struct:
+                # This is a static method call on a module-qualified struct
+                if self.namespace.is_static_method(resolved_struct, expr.method_name):
+                    return self._generate_static_method_call(expr, resolved_struct)
+
         # Check if this is a module function call or struct init: ModuleName.symbol(args)
         if isinstance(expr.object, Identifier):
             if expr.object.name in self.namespace.modules:

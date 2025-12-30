@@ -1,0 +1,10 @@
+// Test that unescaped braces in interpolated strings give a helpful error
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Invalid expression in string interpolation
+// EXPECT-ERROR-CONTAINS: Hint: Use \{ and \} for literal braces
+
+func main() {
+    // The outer { } are meant to be literal braces, but they trigger interpolation
+    let bad = "func foo() {\n    return 1\n}\n"
+    print(bad)
+}

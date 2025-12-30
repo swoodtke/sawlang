@@ -229,30 +229,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Register built-in generic enums (like Result<T, E>)
         self._register_builtin_enums()
 
-        # First pass: register struct types
-        for struct in program.structs:
-            self._register_struct(struct)
-
-        # Third pass: register enum types
-        for enum in program.enums:
-            self._register_enum(enum)
-
-        # Interfaces, type conformances, and type assignments are in namespace from typechecker
-
-        # Declare extern functions (FFI)
-        for extern_block in program.extern_blocks:
-            for extern_func in extern_block.functions:
-                self._declare_extern_function(extern_func)
-
-        # Fourth pass: declare all functions (skip generic functions)
-        for func in program.functions:
-            if func.type_params:
-                # Store generic function for later instantiation
-                self.generic_functions[func.name] = func
-            else:
-                self._declare_function(func)
-
-        # First pass: store generic and specialized extensions separately
+        # Store generic and specialized extensions FIRST
+        # This must happen before struct registration since structs with generic
+        # field types (e.g., Vector<Foo>) trigger monomorphization which needs
+        # access to generic extensions.
         for extension in program.extensions:
             if extension.type_params:
                 spec_key = self._get_extension_specialization(extension)
@@ -268,7 +248,25 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                         self.generic_extensions[extension.struct_name] = []
                     self.generic_extensions[extension.struct_name].append(extension)
 
-        # Second pass: declare non-generic extension methods
+        # Register types in dependency order (structs and enums can reference each other)
+        self._register_types_in_order(program.structs, program.enums)
+
+        # Interfaces, type conformances, and type assignments are in namespace from typechecker
+
+        # Declare extern functions (FFI)
+        for extern_block in program.extern_blocks:
+            for extern_func in extern_block.functions:
+                self._declare_extern_function(extern_func)
+
+        # Declare all functions (skip generic functions)
+        for func in program.functions:
+            if func.type_params:
+                # Store generic function for later instantiation
+                self.generic_functions[func.name] = func
+            else:
+                self._declare_function(func)
+
+        # Declare non-generic extension methods
         for extension in program.extensions:
             if not extension.type_params:
                 self._declare_extension_methods(extension)
@@ -289,6 +287,81 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return str(self.module)
 
     # _resolve_type_alias is now in codegen_types.py (TypesMixin)
+
+    def _register_types_in_order(self, structs, enums):
+        """Register structs and enums in dependency order using topological sort."""
+        from ast_nodes import TypeKind
+
+        # Build maps for quick lookup
+        struct_map = {s.name: s for s in structs}
+        enum_map = {e.name: e for e in enums}
+        all_types = set(struct_map.keys()) | set(enum_map.keys())
+
+        # Helper to get type dependencies from a SawType
+        def get_deps(saw_type):
+            deps = set()
+            if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name in all_types:
+                deps.add(saw_type.struct_name)
+            elif saw_type.kind == TypeKind.ENUM and saw_type.enum_name in all_types:
+                deps.add(saw_type.enum_name)
+            # Check type args for generics like Vector<MyStruct>
+            if saw_type.type_args:
+                for arg in saw_type.type_args:
+                    deps.update(get_deps(arg))
+            # Check inner_type for optionals, pointers, references, etc.
+            if saw_type.inner_type:
+                deps.update(get_deps(saw_type.inner_type))
+            return deps
+
+        # Build dependency graph
+        deps = {name: set() for name in all_types}
+
+        for struct in structs:
+            if struct.type_params:
+                continue  # Skip generic structs
+            for field in struct.fields:
+                deps[struct.name].update(get_deps(field.type))
+
+        for enum in enums:
+            if enum.type_params:
+                continue  # Skip generic enums
+            for variant in enum.variants:
+                for _, param_type in variant.associated_types:
+                    deps[enum.name].update(get_deps(param_type))
+
+        # Topological sort using Kahn's algorithm
+        in_degree = {name: 0 for name in all_types}
+        for name, type_deps in deps.items():
+            for dep in type_deps:
+                if dep in in_degree:
+                    in_degree[name] += 1
+
+        # Start with types that have no dependencies
+        queue = [name for name, degree in in_degree.items() if degree == 0]
+        sorted_types = []
+
+        while queue:
+            name = queue.pop(0)
+            sorted_types.append(name)
+
+            # Find types that depend on this one and reduce their in-degree
+            for other_name, other_deps in deps.items():
+                if name in other_deps:
+                    in_degree[other_name] -= 1
+                    if in_degree[other_name] == 0:
+                        queue.append(other_name)
+
+        # Add any remaining types (may have cycles - just add them)
+        for name in all_types:
+            if name not in sorted_types:
+                sorted_types.append(name)
+
+        # Register in sorted order
+        for name in sorted_types:
+            if name in struct_map:
+                self._register_struct(struct_map[name])
+            elif name in enum_map:
+                self._register_enum(enum_map[name])
 
     def _register_struct(self, struct: Struct):
         """Register a struct type with LLVM."""

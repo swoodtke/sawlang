@@ -1,0 +1,33 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 1
+
+struct MyError {
+    msg: String
+}
+
+struct MyData {
+    value: Int
+}
+
+func parse(ok: Bool) -> Result<MyData, MyError> {
+    if ok {
+        return MyData(value: 42)
+    }
+    return MyError(msg: "error")
+}
+
+func main() {
+    let result = parse(true)
+    match result {
+        case Ok(data) -> print(data.value),
+        case Err(e) -> print(0)
+    }
+
+    let result2 = parse(false)
+    match result2 {
+        case Ok(data) -> print(data.value),
+        case Err(e) -> print(1)
+    }
+}

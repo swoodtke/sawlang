@@ -255,11 +255,16 @@ class MethodsMixin:
             if method.return_type.kind == TypeKind.VOID:
                 self.builder.ret_void()
             elif result is not None:
+                # Check if we need to auto-wrap in Result (set by typechecker on final_expr)
+                if method.body.final_expr and hasattr(method.body.final_expr, 'auto_wrap') and method.body.final_expr.auto_wrap:
+                    if method.body.final_expr.auto_wrap == "ok":
+                        result = self._create_result_ok_for_return(result)
+                    elif method.body.final_expr.auto_wrap == "err":
+                        result = self._create_result_err_for_return(result)
                 # Check if we need to wrap in Some (T -> T?)
-                expected_type = self._get_llvm_type(method.return_type)
-                if (method.return_type.is_optional() and
-                    self._is_optional_type(expected_type) and
-                    not self._is_optional_type(result.type)):
+                elif (method.return_type.is_optional() and
+                      self._is_optional_type(self._get_llvm_type(method.return_type)) and
+                      not self._is_optional_type(result.type)):
                     result = self._wrap_in_optional(result)
                 self.builder.ret(result)
             else:

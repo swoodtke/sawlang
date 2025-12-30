@@ -1,0 +1,123 @@
+// Manifest - Saw.toml package manifest handling
+// Part of the Blade package manager
+
+import src.toml
+
+// =============================================================================
+// Error Types
+// =============================================================================
+
+public struct ManifestError {
+    message: String
+}
+
+public extension ManifestError {
+    init(msg: String) -> ManifestError {
+        ManifestError(message: msg)
+    }
+}
+
+// =============================================================================
+// Package Manifest Data Structures
+// =============================================================================
+
+public struct Package {
+    name: String
+    version: String
+}
+
+public struct Manifest {
+    package: Package
+    root_dir: Path
+}
+
+public extension Manifest {
+    // Load manifest from current directory
+    func load() -> Result<Manifest, ManifestError> {
+        let manifest_path = Path(s: "Saw.toml")
+
+        if not File.exists(manifest_path) {
+            return ManifestError(msg: "Saw.toml not found in current directory")
+        }
+
+        guard let file = File.open(manifest_path) else {
+            return ManifestError(msg: "Could not open Saw.toml")
+        }
+
+        guard let data = file.read() else {
+            return ManifestError(msg: "Could not read Saw.toml")
+        }
+
+        // Convert Data to String
+        let content = data.to_string()
+
+        match toml.TomlDoc.parse(content) {
+            case Ok(doc) -> {
+                // Extract [package] section
+                guard let pkg_section = doc.get_section("package") else {
+                    return ManifestError(msg: "Missing [package] section in Saw.toml")
+                }
+
+                let name = pkg_section.get("name") ?? "unknown"
+                let version = pkg_section.get("version") ?? "0.0.0"
+
+                // Get current directory as root
+                let root = if let cwd = Directory.current() {
+                    cwd
+                } else {
+                    Path(s: ".")
+                }
+
+                Manifest(package: Package(name: name, version: version), root_dir: root)
+            },
+            case Err(e) -> {
+                ManifestError(msg: "TOML parse error: {e.message}")
+            }
+        }
+    }
+
+    // Load manifest from a specific directory
+    func load_from(dir: Path) -> Result<Manifest, ManifestError> {
+        let manifest_path = dir.join("Saw.toml")
+
+        if not File.exists(manifest_path) {
+            return ManifestError(msg: "Saw.toml not found in {dir.as_str()}")
+        }
+
+        guard let file = File.open(manifest_path) else {
+            return ManifestError(msg: "Could not open Saw.toml")
+        }
+
+        guard let data = file.read() else {
+            return ManifestError(msg: "Could not read Saw.toml")
+        }
+
+        let content = data.to_string()
+
+        match toml.TomlDoc.parse(content) {
+            case Ok(doc) -> {
+                guard let pkg_section = doc.get_section("package") else {
+                    return ManifestError(msg: "Missing [package] section in Saw.toml")
+                }
+
+                let name = pkg_section.get("name") ?? "unknown"
+                let version = pkg_section.get("version") ?? "0.0.0"
+
+                Manifest(package: Package(name: name, version: version), root_dir: dir)
+            },
+            case Err(e) -> {
+                ManifestError(msg: "TOML parse error: {e.message}")
+            }
+        }
+    }
+
+    // Get the package name
+    func name(&self) -> String {
+        self.package.name
+    }
+
+    // Get the package version
+    func version(&self) -> String {
+        self.package.version
+    }
+}

@@ -226,9 +226,9 @@ class Lexer:
                 elif ch == '\\':
                     result.append('\\')
                 elif ch == '{':
-                    result.append('{')  # Escaped brace - literal {
+                    result.append('\x01{')  # Escaped brace - use marker to distinguish from interpolation
                 elif ch == '}':
-                    result.append('}')  # Escaped brace - literal }
+                    result.append('\x01}')  # Escaped brace - use marker to distinguish from interpolation
                 else:
                     result.append(ch)
             elif self.peek() == '{':

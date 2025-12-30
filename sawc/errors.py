@@ -5,7 +5,7 @@ Provides nice error messages with source locations and context.
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 
 class ErrorKind(Enum):
@@ -57,18 +57,26 @@ class ErrorReporter:
         self.filename = filename
         self.errors: List[CompilerError] = []
         self.warnings: List[CompilerError] = []
+        # Track sources from multiple files (for imports)
+        self.sources: Dict[str, List[str]] = {filename: self.source_lines}
+
+    def add_source(self, filename: str, source: str):
+        """Add source from an imported module for error context."""
+        self.sources[filename] = source.split('\n')
 
     def error(self, kind: ErrorKind, message: str, line: int, column: int,
-              hint: Optional[str] = None):
+              hint: Optional[str] = None, source_file: Optional[str] = None):
         """Report an error."""
-        loc = SourceLocation(line, column, self.filename)
+        filename = source_file if source_file else self.filename
+        loc = SourceLocation(line, column, filename)
         err = CompilerError(kind, message, loc, hint, is_warning=False)
         self.errors.append(err)
 
     def warning(self, kind: ErrorKind, message: str, line: int, column: int,
-                hint: Optional[str] = None):
+                hint: Optional[str] = None, source_file: Optional[str] = None):
         """Report a warning."""
-        loc = SourceLocation(line, column, self.filename)
+        filename = source_file if source_file else self.filename
+        loc = SourceLocation(line, column, filename)
         warn = CompilerError(kind, message, loc, hint, is_warning=True)
         self.warnings.append(warn)
 
@@ -86,10 +94,13 @@ class ErrorReporter:
         # Location
         lines.append(f"  \033[1;34m-->\033[0m {err.location.filename}:{err.location.line}:{err.location.column}")
 
+        # Get source lines for the correct file
+        source_lines = self.sources.get(err.location.filename, self.source_lines)
+
         # Source context
-        if 1 <= err.location.line <= len(self.source_lines):
+        if 1 <= err.location.line <= len(source_lines):
             line_num = err.location.line
-            source_line = self.source_lines[line_num - 1]
+            source_line = source_lines[line_num - 1]
 
             # Line number gutter
             gutter_width = len(str(line_num)) + 1

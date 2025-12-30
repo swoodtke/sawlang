@@ -1,0 +1,79 @@
+// CLI - Command line interface parsing for Blade
+// Part of the Blade package manager
+
+// =============================================================================
+// Command Types
+// =============================================================================
+
+public enum BladeCommand {
+    case Build,
+    case Run(args: Vector<String>),
+    case New(name: String),
+    case Help,
+    case Version,
+    case Unknown(cmd: String)
+}
+
+// =============================================================================
+// CLI Parsing
+// =============================================================================
+
+public struct ParseError {
+    message: String
+}
+
+public extension ParseError {
+    init(msg: String) -> ParseError {
+        ParseError(message: msg)
+    }
+}
+
+public struct Cli {
+    command: BladeCommand
+}
+
+public extension Cli {
+    // Parse command line arguments into a Cli struct
+    func parse() -> Result<Cli, ParseError> {
+        let args = Env.args()
+
+        if args.len() < 2 {
+            return Cli(command: BladeCommand.Help)
+        }
+
+        guard let cmd = args.get(1) else {
+            return ParseError(msg: "No command provided")
+        }
+
+        if cmd.equals("build") {
+            Cli(command: BladeCommand.Build)
+        } else if cmd.equals("run") {
+            // Collect remaining args after "run"
+            var run_args = Vector<String>()
+            var i = 2
+            while i < args.len() {
+                if let arg = args.get(i) {
+                    run_args.push(arg)
+                }
+                i = i + 1
+            }
+            Cli(command: BladeCommand.Run(args: move run_args))
+        } else if cmd.equals("new") {
+            guard let name = args.get(2) else {
+                return ParseError(msg: "blade new requires a project name")
+            }
+            Cli(command: BladeCommand.New(name: name))
+        } else if cmd.equals("help") || cmd.equals("--help") || cmd.equals("-h") {
+            Cli(command: BladeCommand.Help)
+        } else if cmd.equals("version") || cmd.equals("--version") || cmd.equals("-V") {
+            Cli(command: BladeCommand.Version)
+        } else {
+            Cli(command: BladeCommand.Unknown(cmd: cmd))
+        }
+    }
+
+    // Get the parsed command
+    func get_command(&self) -> BladeCommand {
+        self.command
+    }
+}

@@ -809,6 +809,7 @@ class Struct(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
+    source_file: str = ""
 
 
 @dataclass
@@ -827,6 +828,7 @@ class Enum(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
+    source_file: str = ""
 
 
 @dataclass
@@ -888,6 +890,7 @@ class Extension(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
+    source_file: str = ""
 
 
 @dataclass
@@ -906,6 +909,7 @@ class Method(ASTNode):
     is_static: bool = False  # True for methods without 'self' parameter
     line: int = 0
     column: int = 0
+    source_file: str = ""
 
 
 @dataclass
@@ -918,6 +922,7 @@ class Function(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
+    source_file: str = ""
 
 
 @dataclass

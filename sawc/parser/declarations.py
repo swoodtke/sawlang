@@ -55,7 +55,8 @@ class DeclarationsMixin:
             type_params=type_params,
             visibility=visibility,
             line=start.line,
-            column=start.column
+            column=start.column,
+            source_file=self.source_file
         )
 
     def parse_struct(self, visibility: Visibility = Visibility.PRIVATE) -> Struct:
@@ -94,7 +95,8 @@ class DeclarationsMixin:
             type_params=type_params,
             visibility=visibility,
             line=start.line,
-            column=start.column
+            column=start.column,
+            source_file=self.source_file
         )
 
     def parse_enum(self, visibility: Visibility = Visibility.PRIVATE) -> Enum:
@@ -156,7 +158,8 @@ class DeclarationsMixin:
             type_params=type_params,
             visibility=visibility,
             line=start.line,
-            column=start.column
+            column=start.column,
+            source_file=self.source_file
         )
 
     def parse_trait(self, visibility: Visibility = Visibility.PRIVATE) -> Trait:
@@ -325,7 +328,8 @@ class DeclarationsMixin:
             type_assignments=type_assignments,
             visibility=visibility,
             line=start.line,
-            column=start.column
+            column=start.column,
+            source_file=self.source_file
         )
 
     def parse_type_assignment(self) -> TypeAssignment:
@@ -471,7 +475,8 @@ class DeclarationsMixin:
             self_is_reference=self_is_reference,
             is_static=is_static,
             line=start.line,
-            column=start.column
+            column=start.column,
+            source_file=self.source_file
         )
 
     def parse_method_parameters(self):

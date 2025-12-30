@@ -31,11 +31,13 @@ from .expressions import ExpressionsMixin
 
 
 class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMixin):
-    def __init__(self, tokens: List[Token]):
+    def __init__(self, tokens: List[Token], source_file: str = ""):
         self.tokens = tokens
         self.pos = 0
         # Flag to control trailing closure parsing (disabled in if/while/guard conditions)
         self.allow_trailing_closure = True
+        # Track source file for error reporting
+        self.source_file = source_file
 
     def error(self, msg: str):
         token = self.current()

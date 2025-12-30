@@ -408,6 +408,17 @@ extension String {
             result
         }
     }
+
+    // Convert String bytes to Data
+    func to_data(&self) -> Data {
+        var data = Data()
+        var i = 0
+        while i < self.len() {
+            data.push(self.byte_at(i) as UInt8)
+            i = i + 1
+        }
+        move data
+    }
 }
 
 // =============================================================================

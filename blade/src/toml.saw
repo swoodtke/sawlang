@@ -1,0 +1,157 @@
+// TOML - Minimal TOML parser for Saw.toml files
+// Part of the Blade package manager
+//
+// Supports:
+// - [section] headers
+// - key = "value" string assignments
+// - # comments
+
+// =============================================================================
+// Error Types
+// =============================================================================
+
+public struct TomlError {
+    message: String
+    line: Int
+}
+
+public extension TomlError {
+    init(msg: String) -> TomlError {
+        TomlError(message: msg, line: 0)
+    }
+
+    init(msg: String, at_line: Int) -> TomlError {
+        TomlError(message: msg, line: at_line)
+    }
+}
+
+// =============================================================================
+// TOML Data Structures
+// =============================================================================
+
+public struct TomlValue {
+    key: String
+    value: String
+}
+
+public struct TomlSection {
+    name: String
+    values: Vector<TomlValue>
+}
+
+extension TomlSection: NoCopy {
+    func deinit(var self) {
+        // Vector handles its own cleanup
+    }
+}
+
+public extension TomlSection {
+    init(section_name: String) -> TomlSection {
+        let v = Vector<TomlValue>()
+        TomlSection(name: section_name, values: move v)
+    }
+
+    // Get a value by key
+    func get(&self, key: String) -> String? {
+        var i = 0
+        while i < self.values.len() {
+            if let val = self.values.get(i) {
+                if val.key.equals(key) {
+                    return val.value
+                }
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    // Add a value to this section
+    func add(&var self, key: String, value: String) {
+        self.values.push(TomlValue(key: key, value: value))
+    }
+}
+
+public struct TomlDoc {
+    sections: Vector<TomlSection>
+}
+
+extension TomlDoc: NoCopy {
+    func deinit(var self) {
+        // Vector handles its own cleanup
+    }
+}
+
+public extension TomlDoc {
+    init() -> TomlDoc {
+    	let v = Vector<TomlSection>()
+        TomlDoc(sections: move v)
+    }
+
+    // Parse TOML from a string
+    func parse(content: String) -> Result<TomlDoc, TomlError> {
+        var doc = TomlDoc()
+        var current_section = TomlSection(section_name: "")
+
+        let lines = content.split("\n")
+        var line_num = 0
+
+        for line in lines.iter() {
+            line_num = line_num + 1
+            let trimmed = line.trim()
+
+            // Skip empty lines and comments
+            if trimmed.is_empty() || trimmed.starts_with("#") {
+                continue
+            }
+
+            // Section header: [section_name]
+            if trimmed.starts_with("[") && trimmed.ends_with("]") {
+                // Save previous section if it has a name
+                if not current_section.name.is_empty() {
+                    doc.sections.push(move current_section)
+                }
+                // Start new section - extract name between [ and ]
+                let name = trimmed.substring(1, trimmed.len() - 1)
+                current_section = TomlSection(section_name: name)
+                continue
+            }
+
+            // Key-value pair: key = "value" or key = value
+            if let eq_pos = trimmed.index_of_char(61 as Int8) {  // '=' is 61
+                let key = trimmed.substring(0, eq_pos).trim()
+                let raw_value = trimmed.substring(eq_pos + 1, trimmed.len()).trim()
+
+                // Handle quoted strings
+                var value = raw_value
+                if raw_value.starts_with("\"") && raw_value.ends_with("\"") {
+                    value = raw_value.substring(1, raw_value.len() - 1)
+                }
+
+                current_section.add(key, value)
+            } else {
+                return TomlError(msg: "Invalid line: {trimmed}", at_line: line_num)
+            }
+        }
+
+        // Don't forget the last section
+        if not current_section.name.is_empty() || current_section.values.len() > 0 {
+            doc.sections.push(move current_section)
+        }
+
+        move doc
+    }
+
+    // Get a section by name
+    func get_section(&self, name: String) -> TomlSection? {
+        var i = 0
+        while i < self.sections.len() {
+            if let section = self.sections.get(i) {
+                if section.name.equals(name) {
+                    return section
+                }
+            }
+            i = i + 1
+        }
+        None
+    }
+}

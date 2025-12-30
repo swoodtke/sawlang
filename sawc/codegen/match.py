@@ -125,18 +125,34 @@ class MatchMixin:
                 if arm_result is None:
                     # Block didn't have a value, use void or a placeholder
                     arm_result = ir.Constant(ir.IntType(32), 0)  # Placeholder
+                elif isinstance(arm_result.type, ir.VoidType):
+                    # Void function call - use placeholder instead
+                    arm_result = ir.Constant(ir.IntType(32), 0)  # Placeholder
             else:
                 arm_result = self._generate_expression(arm.body)
+                if isinstance(arm_result.type, ir.VoidType):
+                    # Void expression - use placeholder
+                    arm_result = ir.Constant(ir.IntType(32), 0)  # Placeholder
 
-            arm_results.append((arm_result, self.builder.block))
+            # Check for Result auto-wrap (set by typechecker for match in Result-returning functions)
+            if hasattr(arm.body, 'auto_wrap') and arm.body.auto_wrap:
+                if arm.body.auto_wrap == "ok":
+                    arm_result = self._create_result_ok_for_return(arm_result)
+                elif arm.body.auto_wrap == "err":
+                    arm_result = self._create_result_err_for_return(arm_result)
+
+            # Only add to arm_results if block is not terminated (has a return)
+            if not self.builder.block.is_terminated:
+                arm_results.append((arm_result, self.builder.block))
 
             # Clean up bindings
             for binding_name in arm.bindings:
                 if binding_name in self.variables:
                     del self.variables[binding_name]
 
-            # Branch to merge block
-            self.builder.branch(merge_block)
+            # Branch to merge block (only if block not already terminated)
+            if not self.builder.block.is_terminated:
+                self.builder.branch(merge_block)
 
         # Position at merge block
         self.builder.position_at_end(merge_block)

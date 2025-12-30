@@ -258,6 +258,23 @@ extension Data {
     }
 
     // =========================================================================
+    // Conversion
+    // =========================================================================
+
+    // Convert Data bytes to String (assumes UTF-8/ASCII)
+    func to_string(&self) -> String {
+        var sb = StringBuilder()
+        var i = 0
+        while i < self.length {
+            if let b = self.get(i) {
+                sb.append_char(b as Int8)
+            }
+            i = i + 1
+        }
+        sb.as_str()
+    }
+
+    // =========================================================================
     // Internal Helper Methods
     // =========================================================================
 

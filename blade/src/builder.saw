@@ -1,0 +1,116 @@
+// Builder - Build orchestration for Blade
+// Part of the Blade package manager
+
+import src.manifest.*
+
+// =============================================================================
+// Error Types
+// =============================================================================
+
+public struct BuildError {
+    message: String
+    exit_code: Int32
+}
+
+public extension BuildError {
+    init(msg: String) -> BuildError {
+        BuildError(message: msg, exit_code: 1 as Int32)
+    }
+
+    init(msg: String, code: Int32) -> BuildError {
+        BuildError(message: msg, exit_code: code)
+    }
+}
+
+// =============================================================================
+// Builder - Compiles Saw projects
+// =============================================================================
+
+public struct Builder {
+    manifest: Manifest
+}
+
+public extension Builder {
+    init(m: Manifest) -> Builder {
+        Builder(manifest: m)
+    }
+
+    // Find the main source file
+    func find_source_file(&self) -> String? {
+        // Try src/main.saw first
+        let src_main = Path(s: "src/main.saw")
+        if File.exists(src_main) {
+            return "src/main.saw"
+        }
+
+        // Try main.saw in root
+        let root_main = Path(s: "main.saw")
+        if File.exists(root_main) {
+            return "main.saw"
+        }
+
+        // Try src/lib.saw for libraries
+        let src_lib = Path(s: "src/lib.saw")
+        if File.exists(src_lib) {
+            return "src/lib.saw"
+        }
+
+        None
+    }
+
+    // Build the project
+    func build(&self) -> Result<Int, BuildError> {
+        guard let source_file = self.find_source_file() else {
+            return BuildError(msg: "No main.saw or lib.saw found")
+        }
+
+        // Determine output binary name from package name
+        let output_name = self.manifest.name()
+
+        print("   Compiling {output_name} v{self.manifest.version()}")
+
+        // Invoke sawc
+        var cmd = Command(program: "sawc")
+        cmd.arg(source_file)
+        cmd.arg("-o")
+        cmd.arg(output_name)
+
+        let exit_code = cmd.run()
+
+        if exit_code == (0 as Int32) {
+            print("    Finished {output_name}")
+            0
+        } else {
+            BuildError(msg: "sawc failed", code: exit_code)
+        }
+    }
+
+    // Build and run the project
+    func run(&self, args: Vector<String>) -> Result<Int, BuildError> {
+        // First build
+        match self.build() {
+            case Ok(_) -> {},
+            case Err(e) -> { return e }
+        }
+
+        // Construct binary path
+        let binary_name = "./{self.manifest.name()}"
+
+        print("     Running `{binary_name}`")
+
+        // Run the binary with provided arguments
+        var cmd = Command(program: binary_name)
+
+        // Add any arguments passed to blade run
+        var i = 0
+        while i < args.len() {
+            if let arg = args.get(i) {
+                cmd.arg(arg)
+            }
+            i = i + 1
+        }
+
+        let exit_code = cmd.run()
+        exit_code as Int
+    }
+}

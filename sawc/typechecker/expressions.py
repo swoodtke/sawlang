@@ -159,7 +159,7 @@ class ExpressionsMixin:
         the inner type T. This provides implicit dereference semantics.
         """
         if expr.name in self.moved_variables:
-            self.reporter.error(
+            self._error(
                 ErrorKind.USE_AFTER_MOVE,
                 f"use of moved variable `{expr.name}`",
                 expr.line, expr.column,
@@ -168,7 +168,7 @@ class ExpressionsMixin:
             return None
         var_info = self.current_scope.lookup(expr.name)
         if not var_info:
-            self.reporter.error(
+            self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined variable `{expr.name}`",
                 expr.line, expr.column
@@ -184,7 +184,7 @@ class ExpressionsMixin:
     def _check_move_expr(self, expr: MoveExpr) -> Optional[SawType]:
         """Check a move expression."""
         if expr.variable in self.moved_variables:
-            self.reporter.error(
+            self._error(
                 ErrorKind.USE_AFTER_MOVE,
                 f"use of moved variable `{expr.variable}`",
                 expr.line, expr.column,
@@ -193,7 +193,7 @@ class ExpressionsMixin:
             return None
         var_info = self.current_scope.lookup(expr.variable)
         if not var_info:
-            self.reporter.error(
+            self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined variable `{expr.variable}`",
                 expr.line, expr.column
@@ -202,7 +202,7 @@ class ExpressionsMixin:
 
         # Disallow moving out of references - this would leave the referent invalid
         if var_info.type.kind == TypeKind.REFERENCE:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot move out of reference `{expr.variable}`",
                 expr.line, expr.column,
@@ -224,7 +224,7 @@ class ExpressionsMixin:
 
         # References can only be taken to lvalues
         if not self._is_lvalue(expr.expr):
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 "can only take reference to a variable, field, or array element",
                 expr.line, expr.column,
@@ -237,7 +237,7 @@ class ExpressionsMixin:
             if isinstance(expr.expr, Identifier):
                 var_info = self.current_scope.lookup(expr.expr.name)
                 if var_info and not var_info.mutable:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"cannot take mutable reference to immutable variable `{expr.expr.name}`",
                         expr.line, expr.column,
@@ -248,7 +248,7 @@ class ExpressionsMixin:
                 # In a method, check if self is mutable
                 self_info = self.current_scope.lookup("self")
                 if self_info and not self_info.mutable:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         "cannot take mutable reference to immutable `self`",
                         expr.line, expr.column,
@@ -284,7 +284,7 @@ class ExpressionsMixin:
         if from_type.kind == TypeKind.POINTER and to_type.kind == TypeKind.STRING:
             if from_type.inner_type and from_type.inner_type.kind == TypeKind.INT8:
                 return to_type
-        self.reporter.error(
+        self._error(
             ErrorKind.TYPE_MISMATCH,
             f"cannot cast `{from_type}` to `{to_type}`",
             expr.line, expr.column
@@ -309,7 +309,7 @@ class ExpressionsMixin:
                 if right_underlying.kind in int_kinds:
                     return left_type
                 else:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"pointer arithmetic requires integer offset, got `{right_type}`",
                         expr.line, expr.column
@@ -323,7 +323,7 @@ class ExpressionsMixin:
                  right_underlying.kind in (int_kinds | {TypeKind.FLOAT}):
                 return SawType(TypeKind.FLOAT)
             else:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `{expr.op}` cannot be applied to `{left_type}` and `{right_type}`",
                     expr.line, expr.column
@@ -333,7 +333,7 @@ class ExpressionsMixin:
             if left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
                 return left_type
             else:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `%` requires integer operands, got `{left_type}` and `{right_type}`",
                     expr.line, expr.column
@@ -343,7 +343,7 @@ class ExpressionsMixin:
             if left_underlying.kind == TypeKind.BOOL and right_underlying.kind == TypeKind.BOOL:
                 return SawType(TypeKind.BOOL)
             else:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `{expr.op}` requires Bool operands, got `{left_type}` and `{right_type}`",
                     expr.line, expr.column
@@ -352,14 +352,14 @@ class ExpressionsMixin:
         elif expr.op in ['==', '!=', '<', '>', '<=', '>=']:
             if left_type.kind == TypeKind.ENUM or right_type.kind == TypeKind.ENUM:
                 if expr.op in ['<', '>', '<=', '>=']:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"enum types do not support ordering operators (`{expr.op}`), only `==` and `!=`",
                         expr.line, expr.column
                     )
                     return None
             if not self._types_compatible(left_type, right_type):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot compare `{left_type}` with `{right_type}`",
                     expr.line, expr.column
@@ -377,7 +377,7 @@ class ExpressionsMixin:
             if underlying.kind in [TypeKind.INT, TypeKind.FLOAT]:
                 return operand_type
             else:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `-` cannot be applied to `{operand_type}`",
                     expr.line, expr.column
@@ -387,7 +387,7 @@ class ExpressionsMixin:
             if underlying.kind == TypeKind.BOOL:
                 return SawType(TypeKind.BOOL)
             else:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `not` requires Bool operand, got `{operand_type}`",
                     expr.line, expr.column
@@ -400,7 +400,7 @@ class ExpressionsMixin:
         from .core import FunctionInfo
         if expr.name == "print":
             if len(expr.arguments) > 1:
-                self.reporter.error(
+                self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"`print` takes 0 or 1 arguments, but {len(expr.arguments)} were given",
                     expr.line, expr.column
@@ -410,13 +410,13 @@ class ExpressionsMixin:
             return SawType(TypeKind.VOID)
         if expr.name == "sizeof":
             if len(expr.arguments) != 0:
-                self.reporter.error(
+                self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"`sizeof` takes no arguments, but {len(expr.arguments)} were given",
                     expr.line, expr.column
                 )
             if not expr.type_args or len(expr.type_args) != 1:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_ERROR,
                     "`sizeof` requires exactly one type argument: sizeof<T>()",
                     expr.line, expr.column
@@ -432,7 +432,7 @@ class ExpressionsMixin:
             param_types = func_type.param_types or []
             return_type = func_type.func_return_type or SawType(TypeKind.VOID)
             if len(expr.arguments) != len(param_types):
-                self.reporter.error(
+                self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"closure takes {len(param_types)} argument(s), but {len(expr.arguments)} were given",
                     expr.line, expr.column
@@ -444,7 +444,7 @@ class ExpressionsMixin:
                 else:
                     arg_type = self._check_expression(arg.value)
                 if arg_type and not self._types_compatible(arg_type, expected_type):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
                         arg.value.line, arg.value.column
@@ -452,7 +452,7 @@ class ExpressionsMixin:
             return return_type
         func_info = self.functions.get(expr.name)
         if func_info and not self.namespace.is_accessible(expr.name):
-            self.reporter.error(
+            self._error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 f"function `{expr.name}` is not directly accessible",
                 expr.line, expr.column,
@@ -467,7 +467,7 @@ class ExpressionsMixin:
                     if arg.name:
                         field_inits.append((arg.name, arg.value))
                     else:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"struct initialization requires named arguments",
                             arg.value.line, arg.value.column
@@ -484,7 +484,7 @@ class ExpressionsMixin:
                 if hasattr(struct_init, 'resolved_init_params'):
                     expr.resolved_init_params = struct_init.resolved_init_params
                 return result
-            self.reporter.error(
+            self._error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 f"undefined function `{expr.name}`",
                 expr.line, expr.column
@@ -492,7 +492,7 @@ class ExpressionsMixin:
             return None
         if func_info.type_params:
             if not expr.type_args:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"generic function `{expr.name}` requires type arguments",
                     expr.line, expr.column,
@@ -500,7 +500,7 @@ class ExpressionsMixin:
                 )
                 return None
             if len(expr.type_args) != len(func_info.type_params):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"function `{expr.name}` expects {len(func_info.type_params)} type argument(s), "
                     f"but {len(expr.type_args)} were given",
@@ -513,7 +513,7 @@ class ExpressionsMixin:
                 type_map[type_param.name] = resolved_arg
                 for bound in type_param.bounds:
                     if bound not in self.traits:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.UNDEFINED_VARIABLE,
                             f"unknown trait `{bound}` in type parameter bound",
                             expr.line, expr.column
@@ -527,7 +527,7 @@ class ExpressionsMixin:
                     if concrete_type_name:
                         conformances = self.type_conformances.get(concrete_type_name, [])
                         if bound not in conformances:
-                            self.reporter.error(
+                            self._error(
                                 ErrorKind.TYPE_MISMATCH,
                                 f"type `{resolved_arg}` does not implement trait `{bound}`",
                                 expr.line, expr.column,
@@ -541,7 +541,7 @@ class ExpressionsMixin:
             return_type = func_info.return_type.substitute(type_map)
         else:
             if expr.type_args:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"function `{expr.name}` is not generic but was called with type arguments",
                     expr.line, expr.column
@@ -550,7 +550,7 @@ class ExpressionsMixin:
             return_type = func_info.return_type
         if func_info.is_variadic:
             if len(expr.arguments) < len(param_types):
-                self.reporter.error(
+                self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"function `{expr.name}` takes at least {len(param_types)} argument(s), "
                     f"but {len(expr.arguments)} were given",
@@ -559,7 +559,7 @@ class ExpressionsMixin:
                 return return_type
         else:
             if len(expr.arguments) != len(param_types):
-                self.reporter.error(
+                self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"function `{expr.name}` takes {len(param_types)} argument(s), "
                     f"but {len(expr.arguments)} were given",
@@ -573,7 +573,7 @@ class ExpressionsMixin:
                 arg_type = self._check_expression(arg.value)
             if arg_type and not self._types_compatible(arg_type, expected_type):
                 param_name = func_info.param_names[i]
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
@@ -585,7 +585,7 @@ class ExpressionsMixin:
         cond_type = self._check_expression(expr.condition)
         if cond_type and cond_type.kind != TypeKind.BOOL:
             if cond_type.kind != TypeKind.INT:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"condition must be `Bool`, got `{cond_type}`",
                     expr.line, expr.column
@@ -594,7 +594,36 @@ class ExpressionsMixin:
         if expr.else_branch:
             else_type = self._check_block(expr.else_branch)
             if then_type and else_type and not self._types_compatible(then_type, else_type):
-                self.reporter.error(
+                # Check if branches could be Result auto-wrapped
+                expected_return = None
+                if self.current_method:
+                    expected_return = self._resolve_type(self.current_method.return_type)
+                elif self.current_function:
+                    expected_return = self._resolve_type(self.current_function.return_type)
+
+                if expected_return and expected_return.is_result():
+                    ok_type = expected_return.type_args[0] if expected_return.type_args else None
+                    err_type = expected_return.type_args[1] if expected_return.type_args and len(expected_return.type_args) > 1 else None
+
+                    # Check if branches match Ok and Err types
+                    then_is_ok = ok_type and self._types_compatible(then_type, ok_type)
+                    then_is_err = err_type and self._types_compatible(then_type, err_type)
+                    else_is_ok = ok_type and self._types_compatible(else_type, ok_type)
+                    else_is_err = err_type and self._types_compatible(else_type, err_type)
+
+                    if (then_is_ok or then_is_err) and (else_is_ok or else_is_err):
+                        # Mark branches for auto-wrap
+                        if then_is_ok:
+                            expr.then_branch.auto_wrap = "ok"
+                        elif then_is_err:
+                            expr.then_branch.auto_wrap = "err"
+                        if else_is_ok:
+                            expr.else_branch.auto_wrap = "ok"
+                        elif else_is_err:
+                            expr.else_branch.auto_wrap = "err"
+                        return expected_return
+
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"`if` and `else` branches have incompatible types: `{then_type}` vs `{else_type}`",
                     expr.line, expr.column
@@ -625,7 +654,7 @@ class ExpressionsMixin:
         if optional_type is None:
             return None
         if optional_type.kind != TypeKind.OPTIONAL:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"'if let' requires an optional type, got `{optional_type}`",
                 expr.line, expr.column
@@ -633,7 +662,7 @@ class ExpressionsMixin:
             return None
         inner_type = optional_type.inner_type
         if inner_type is None:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot determine type of bound variable from None literal",
                 expr.line, expr.column
@@ -651,7 +680,7 @@ class ExpressionsMixin:
         if expr.else_branch:
             else_type = self._check_block(expr.else_branch)
             if then_type and else_type and not self._types_compatible(then_type, else_type):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"`if let` branches have incompatible types: `{then_type}` vs `{else_type}`",
                     expr.line, expr.column
@@ -691,7 +720,7 @@ class ExpressionsMixin:
         if tuple_type is None:
             return None
         if tuple_type.kind != TypeKind.TUPLE:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot index into non-tuple type `{tuple_type}`",
                 expr.line, expr.column
@@ -700,7 +729,7 @@ class ExpressionsMixin:
         if tuple_type.element_types is None:
             return None
         if expr.index < 0 or expr.index >= len(tuple_type.element_types):
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"tuple index {expr.index} out of range for tuple with {len(tuple_type.element_types)} elements",
                 expr.line, expr.column
@@ -711,7 +740,7 @@ class ExpressionsMixin:
     def _check_array_literal(self, expr: ArrayLiteral) -> Optional[SawType]:
         """Check an array literal and infer its type."""
         if len(expr.elements) == 0:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 "cannot infer type of empty array literal; use explicit type annotation",
                 expr.line, expr.column
@@ -725,7 +754,7 @@ class ExpressionsMixin:
             if elem_type is None:
                 return None
             if not self._types_compatible(elem_type, first_type):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"array element {i} has type `{elem_type}`, expected `{first_type}`",
                     element.line, element.column
@@ -743,7 +772,7 @@ class ExpressionsMixin:
             return None
         index_underlying = self._get_underlying_type(index_type)
         if index_underlying.kind != TypeKind.INT:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"index must be Int, got `{index_type}`",
                 expr.index.line, expr.index.column
@@ -753,7 +782,7 @@ class ExpressionsMixin:
             return container_type.array_element_type
         elif container_type.kind == TypeKind.TUPLE:
             if not isinstance(expr.index, IntLiteral):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     "tuple index must be a compile-time constant",
                     expr.index.line, expr.index.column
@@ -763,7 +792,7 @@ class ExpressionsMixin:
             if container_type.element_types is None:
                 return None
             if index < 0 or index >= len(container_type.element_types):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"tuple index {index} out of range for tuple with {len(container_type.element_types)} elements",
                     expr.line, expr.column
@@ -773,7 +802,7 @@ class ExpressionsMixin:
         elif container_type.kind == TypeKind.POINTER:
             return container_type.inner_type
         else:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot index into type `{container_type}`",
                 expr.line, expr.column
@@ -792,7 +821,7 @@ class ExpressionsMixin:
                         expr.member, check_visibility=True, accessor_module=()
                     )
                     if symbol is None:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.UNDEFINED_VARIABLE,
                             f"module `{obj_type.module_name}` has no symbol `{expr.member}`",
                             expr.line, expr.column
@@ -814,7 +843,7 @@ class ExpressionsMixin:
                         expr.resolved_module_symbol = symbol
                         return SawType(TypeKind.MODULE, module_name=expr.member)
                     else:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"cannot use `{expr.member}` as an expression",
                             expr.line, expr.column
@@ -828,7 +857,7 @@ class ExpressionsMixin:
                     expr.member, check_visibility=True, accessor_module=()
                 )
                 if symbol is None:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.UNDEFINED_VARIABLE,
                         f"module `{expr.object.name}` has no symbol `{expr.member}`",
                         expr.line, expr.column
@@ -850,7 +879,7 @@ class ExpressionsMixin:
                     expr.resolved_module_symbol = symbol
                     return SawType(TypeKind.MODULE, module_name=expr.member)
                 else:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"cannot use `{expr.member}` as an expression",
                         expr.line, expr.column
@@ -861,14 +890,14 @@ class ExpressionsMixin:
                 type_args = expr.object.type_args
                 if enum_info.type_params:
                     if not type_args:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"generic enum `{expr.object.name}` requires type arguments",
                             expr.line, expr.column,
                             hint=f"use `{expr.object.name}<...>.{expr.member}`"
                         )
                     elif len(type_args) != len(enum_info.type_params):
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.WRONG_ARGUMENT_COUNT,
                             f"expected {len(enum_info.type_params)} type argument(s), got {len(type_args)}",
                             expr.line, expr.column
@@ -878,14 +907,14 @@ class ExpressionsMixin:
                     if len(variant_params) == 0:
                         return SawType(TypeKind.ENUM, enum_name=expr.object.name, type_args=type_args)
                     else:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"variant `{expr.member}` has associated values and must be called like `{expr.object.name}.{expr.member}(...)`",
                             expr.line, expr.column
                         )
                         return None
                 else:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.UNDEFINED_VARIABLE,
                         f"enum `{expr.object.name}` has no variant `{expr.member}`",
                         expr.line, expr.column
@@ -895,7 +924,7 @@ class ExpressionsMixin:
         if obj_type is None:
             return None
         if obj_type.kind != TypeKind.STRUCT:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot access member of non-struct type `{obj_type}`",
                 expr.line, expr.column
@@ -907,20 +936,21 @@ class ExpressionsMixin:
         if struct_info is None:
             return None
         if expr.member not in struct_info.fields:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"struct `{obj_type.struct_name}` has no field `{expr.member}`",
                 expr.line, expr.column,
                 hint=f"available fields: {', '.join(struct_info.field_order)}"
             )
             return None
-        return struct_info.fields[expr.member]
+        # Resolve the field type (e.g., convert STRUCT to ENUM if needed)
+        return self._resolve_type(struct_info.fields[expr.member])
 
     def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
         """Check struct initialization with parameter-based resolution."""
         struct_info = self.structs.get(expr.struct_name)
         if struct_info is None:
-            self.reporter.error(
+            self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined struct `{expr.struct_name}`",
                 expr.line, expr.column
@@ -929,14 +959,14 @@ class ExpressionsMixin:
         type_mapping: Dict[str, SawType] = {}
         if struct_info.type_params:
             if not expr.type_args:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"generic struct `{expr.struct_name}` requires type arguments",
                     expr.line, expr.column,
                     hint=f"use `{expr.struct_name}<...>(...)`"
                 )
             elif len(expr.type_args) != len(struct_info.type_params):
-                self.reporter.error(
+                self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"expected {len(struct_info.type_params)} type argument(s), got {len(expr.type_args)}",
                     expr.line, expr.column
@@ -955,7 +985,7 @@ class ExpressionsMixin:
                     matching_inits.append(method_info)
         total_matches = (1 if matches_fields else 0) + len(matching_inits)
         if total_matches == 0:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"no matching initializer for `{expr.struct_name}` with parameters: {', '.join(sorted(provided_params))}",
                 expr.line, expr.column,
@@ -964,7 +994,7 @@ class ExpressionsMixin:
             )
             return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args)
         elif total_matches > 1:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"ambiguous initializer for `{expr.struct_name}` - matches both field initialization and custom init",
                 expr.line, expr.column,
@@ -981,7 +1011,7 @@ class ExpressionsMixin:
                 if expected_type.kind == TypeKind.OPTIONAL and isinstance(field_value, NoneLiteral):
                     field_value.resolved_type = expected_type
                 if actual_type and not self._types_compatible(actual_type, expected_type):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"field `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
                         expr.line, expr.column
@@ -996,7 +1026,7 @@ class ExpressionsMixin:
                     expected_type = expected_type.substitute(type_mapping)
                 actual_type = self._check_expression(field_value)
                 if actual_type and not self._types_compatible(actual_type, expected_type):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"parameter `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
                         expr.line, expr.column
@@ -1050,7 +1080,7 @@ class ExpressionsMixin:
             if underlying.kind == TypeKind.OPTIONAL:
                 return underlying.inner_type
         if inner_type.kind != TypeKind.OPTIONAL:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot force unwrap non-optional type `{inner_type}`",
                 expr.line, expr.column
@@ -1065,14 +1095,14 @@ class ExpressionsMixin:
         if opt_type is None or default_type is None:
             return default_type
         if opt_type.kind != TypeKind.OPTIONAL:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"left side of `??` must be optional, got `{opt_type}`",
                 expr.line, expr.column
             )
             return opt_type
         if opt_type.inner_type and not self._types_compatible(opt_type.inner_type, default_type):
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"optional inner type `{opt_type.inner_type}` does not match default type `{default_type}`",
                 expr.line, expr.column
@@ -1085,7 +1115,7 @@ class ExpressionsMixin:
         if opt_type is None:
             return None
         if opt_type.kind != TypeKind.OPTIONAL:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot use optional chaining on non-optional type `{opt_type}`",
                 expr.line, expr.column
@@ -1095,7 +1125,7 @@ class ExpressionsMixin:
         if inner_type is None:
             return None
         if inner_type.kind != TypeKind.STRUCT:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot access member of non-struct type `{inner_type}`",
                 expr.line, expr.column
@@ -1105,7 +1135,7 @@ class ExpressionsMixin:
         if struct_info is None:
             return None
         if expr.member not in struct_info.fields:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"struct `{inner_type.struct_name}` has no field `{expr.member}`",
                 expr.line, expr.column,
@@ -1204,6 +1234,17 @@ class ExpressionsMixin:
         from .core import FunctionInfo, MethodInfo
         if isinstance(expr.object, MemberAccess):
             obj_type = self._check_member_access(expr.object)
+            # Handle static method calls on module-qualified structs: module.Struct.method()
+            if obj_type and obj_type.kind == TypeKind.STRUCT:
+                struct_name = obj_type.struct_name
+                struct_info = self.structs.get(struct_name)
+                if struct_info and expr.method_name in struct_info.methods:
+                    method_info = struct_info.methods[expr.method_name]
+                    if method_info.is_static:
+                        return self._check_static_method_call(expr, struct_name, struct_info, method_info)
+                    elif method_info.is_init:
+                        # Custom init method
+                        return self._check_init_method_call(expr, struct_name, struct_info, method_info)
             if obj_type and obj_type.kind == TypeKind.MODULE:
                 inner_module_sym = getattr(expr.object, 'resolved_module_symbol', None)
                 if inner_module_sym and inner_module_sym.namespace:
@@ -1214,7 +1255,7 @@ class ExpressionsMixin:
                         accessor_module=self.namespace.module_path
                     )
                     if symbol is None:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.UNDEFINED_FUNCTION,
                             f"module `{obj_type.module_name}` has no function `{expr.method_name}`",
                             expr.line, expr.column
@@ -1225,7 +1266,7 @@ class ExpressionsMixin:
                         if func_info:
                             return self._check_module_function_call(expr, func_info)
                         else:
-                            self.reporter.error(
+                            self._error(
                                 ErrorKind.UNDEFINED_FUNCTION,
                                 f"function `{expr.method_name}` not found",
                                 expr.line, expr.column
@@ -1248,7 +1289,7 @@ class ExpressionsMixin:
                                 struct_init.field_inits = field_inits
                         return self._check_struct_init(struct_init)
                     else:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"`{expr.method_name}` is not callable",
                             expr.line, expr.column
@@ -1264,7 +1305,7 @@ class ExpressionsMixin:
                     accessor_module=self.namespace.module_path
                 )
                 if symbol is None:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.UNDEFINED_FUNCTION,
                         f"module `{expr.object.name}` has no function `{expr.method_name}`",
                         expr.line, expr.column
@@ -1275,7 +1316,7 @@ class ExpressionsMixin:
                     if func_info:
                         return self._check_module_function_call(expr, func_info)
                     else:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.UNDEFINED_FUNCTION,
                             f"function `{expr.method_name}` not found",
                             expr.line, expr.column
@@ -1298,14 +1339,14 @@ class ExpressionsMixin:
                             struct_init.field_inits = field_inits
                     return self._check_struct_init(struct_init)
                 elif symbol.kind == SymbolKind.ENUM:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"use `{expr.object.name}.{expr.method_name}.Variant(...)` to create enum values",
                         expr.line, expr.column
                     )
                     return None
                 else:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"`{expr.method_name}` is not callable",
                         expr.line, expr.column
@@ -1336,7 +1377,7 @@ class ExpressionsMixin:
         elif obj_type.kind == TypeKind.STRUCT:
             struct_name = obj_type.struct_name
         else:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot call method on non-struct type `{obj_type}`",
                 expr.line, expr.column
@@ -1361,7 +1402,7 @@ class ExpressionsMixin:
                 spec_key = self._make_specialization_key(obj_type.type_args)
                 if spec_key in struct_info.specialized_methods:
                     available.extend(struct_info.specialized_methods[spec_key].keys())
-            self.reporter.error(
+            self._error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 f"type `{struct_name}` has no method `{expr.method_name}`",
                 expr.line, expr.column,
@@ -1369,7 +1410,7 @@ class ExpressionsMixin:
             )
             return None
         if expr.method_name == "deinit":
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot call `deinit` manually; it is called automatically when the value goes out of scope",
                 expr.line, expr.column,
@@ -1381,7 +1422,7 @@ class ExpressionsMixin:
         defaults_for_params = method_info.default_values[param_offset:] if method_info.default_values else []
         required_count = sum(1 for dv in defaults_for_params if dv is None) if defaults_for_params else total_params
         if len(expr.arguments) < required_count:
-            self.reporter.error(
+            self._error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
                 f"method `{expr.method_name}` takes at least {required_count} argument(s), "
                 f"but {len(expr.arguments)} were given",
@@ -1389,7 +1430,7 @@ class ExpressionsMixin:
             )
             return method_info.return_type
         if len(expr.arguments) > total_params:
-            self.reporter.error(
+            self._error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
                 f"method `{expr.method_name}` takes at most {total_params} argument(s), "
                 f"but {len(expr.arguments)} were given",
@@ -1403,7 +1444,7 @@ class ExpressionsMixin:
                 expected_type = expected_type.substitute(type_subst)
             if arg_type and not self._types_compatible(arg_type, expected_type):
                 param_name = method_info.param_names[i + param_offset]
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
@@ -1416,7 +1457,7 @@ class ExpressionsMixin:
     def _check_module_function_call(self, expr: MethodCall, func_info) -> Optional[SawType]:
         """Check a module function call: ModuleName.function(args)"""
         if len(expr.arguments) != len(func_info.param_types):
-            self.reporter.error(
+            self._error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
                 f"function `{expr.method_name}` takes {len(func_info.param_types)} argument(s), "
                 f"but {len(expr.arguments)} were given",
@@ -1426,7 +1467,7 @@ class ExpressionsMixin:
         for i, (arg, expected_type) in enumerate(zip(expr.arguments, func_info.param_types)):
             arg_type = self._check_expression(arg.value)
             if arg_type and not self._types_compatible(arg_type, expected_type):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
@@ -1438,7 +1479,7 @@ class ExpressionsMixin:
         """Check a static method call: StructName.method(args)"""
         required_count = sum(1 for dv in method_info.default_values if dv is None)
         if len(expr.arguments) < required_count:
-            self.reporter.error(
+            self._error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
                 f"static method `{struct_name}.{expr.method_name}` takes at least {required_count} argument(s), "
                 f"but {len(expr.arguments)} were given",
@@ -1446,7 +1487,7 @@ class ExpressionsMixin:
             )
             return method_info.return_type
         if len(expr.arguments) > len(method_info.param_types):
-            self.reporter.error(
+            self._error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
                 f"static method `{struct_name}.{expr.method_name}` takes at most {len(method_info.param_types)} argument(s), "
                 f"but {len(expr.arguments)} were given",
@@ -1458,7 +1499,7 @@ class ExpressionsMixin:
             expected_type = method_info.param_types[i]
             if arg_type and not self._types_compatible(arg_type, expected_type):
                 param_name = method_info.param_names[i]
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
@@ -1468,7 +1509,7 @@ class ExpressionsMixin:
     def _check_self_expr(self, expr: SelfExpr) -> Optional[SawType]:
         """Check 'self' keyword usage."""
         if self.current_method is None:
-            self.reporter.error(
+            self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 "'self' can only be used inside methods",
                 expr.line, expr.column
@@ -1476,7 +1517,7 @@ class ExpressionsMixin:
             return None
         var_info = self.current_scope.lookup("self")
         if not var_info:
-            self.reporter.error(
+            self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 "'self' not found in method scope",
                 expr.line, expr.column
@@ -1487,7 +1528,7 @@ class ExpressionsMixin:
     def _check_enum_init(self, expr: EnumInit) -> Optional[SawType]:
         """Check enum variant initialization."""
         if expr.enum_name not in self.enums:
-            self.reporter.error(
+            self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined enum `{expr.enum_name}`",
                 expr.line, expr.column
@@ -1497,14 +1538,14 @@ class ExpressionsMixin:
         type_mapping: Dict[str, SawType] = {}
         if enum_info.type_params:
             if not expr.type_args:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"generic enum `{expr.enum_name}` requires type arguments",
                     expr.line, expr.column,
                     hint=f"use `{expr.enum_name}<...>.{expr.variant_name}(...)`"
                 )
             elif len(expr.type_args) != len(enum_info.type_params):
-                self.reporter.error(
+                self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"expected {len(enum_info.type_params)} type argument(s), got {len(expr.type_args)}",
                     expr.line, expr.column
@@ -1513,7 +1554,7 @@ class ExpressionsMixin:
                 for type_param, type_arg in zip(enum_info.type_params, expr.type_args):
                     type_mapping[type_param.name] = type_arg
         if expr.variant_name not in enum_info.variants:
-            self.reporter.error(
+            self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"enum `{expr.enum_name}` has no variant `{expr.variant_name}`",
                 expr.line, expr.column
@@ -1524,7 +1565,7 @@ class ExpressionsMixin:
             expected_params = [(name, typ.substitute(type_mapping))
                                for name, typ in expected_params]
         if len(expr.arguments) != len(expected_params):
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"variant `{expr.variant_name}` expects {len(expected_params)} arguments, got {len(expr.arguments)}",
                 expr.line, expr.column
@@ -1535,7 +1576,7 @@ class ExpressionsMixin:
         for i, arg in enumerate(expr.arguments):
             if arg.is_named:
                 if arg.name not in expected_dict:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"variant `{expr.variant_name}` has no parameter named `{arg.name}`",
                         expr.line, expr.column
@@ -1544,7 +1585,7 @@ class ExpressionsMixin:
                 arg_type = self._check_expression(arg.value)
                 expected_type = expected_dict[arg.name]
                 if arg_type and not self._types_compatible(arg_type, expected_type):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"expected type `{expected_type}` for parameter `{arg.name}`, got `{arg_type}`",
                         arg.value.line, arg.value.column
@@ -1555,7 +1596,7 @@ class ExpressionsMixin:
                 param_name, expected_type = expected_list[i]
                 arg_type = self._check_expression(arg.value)
                 if arg_type and not self._types_compatible(arg_type, expected_type):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"expected type `{expected_type}` for parameter `{param_name}`, got `{arg_type}`",
                         arg.value.line, arg.value.column
@@ -1569,7 +1610,7 @@ class ExpressionsMixin:
         if matched_type is None:
             return None
         if matched_type.kind != TypeKind.ENUM or matched_type.enum_name is None:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"match expression requires an enum type, got `{matched_type}`",
                 expr.line, expr.column
@@ -1593,7 +1634,7 @@ class ExpressionsMixin:
             if arm.variant_name == "_":
                 has_wildcard = True
                 if arm.bindings:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         "wildcard pattern `_` cannot have bindings",
                         arm.line, arm.column
@@ -1605,7 +1646,7 @@ class ExpressionsMixin:
                 arm_types.append(arm_type)
                 continue
             if arm.variant_name not in enum_info.variants:
-                self.reporter.error(
+                self._error(
                     ErrorKind.UNDEFINED_VARIABLE,
                     f"enum `{matched_type.enum_name}` has no variant `{arm.variant_name}`",
                     arm.line, arm.column
@@ -1617,7 +1658,7 @@ class ExpressionsMixin:
                 variant_params = [(name, typ.substitute(type_mapping))
                                   for name, typ in variant_params]
             if len(arm.bindings) != len(variant_params):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"variant `{arm.variant_name}` has {len(variant_params)} associated values, got {len(arm.bindings)} bindings",
                     arm.line, arm.column
@@ -1633,7 +1674,7 @@ class ExpressionsMixin:
                     column=arm.column
                 )
                 if not self.current_scope.define(binding_name, var_info):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.DUPLICATE_VARIABLE,
                         f"binding `{binding_name}` is already defined in this scope",
                         arm.line, arm.column
@@ -1649,7 +1690,7 @@ class ExpressionsMixin:
             missing_variants = all_variants - matched_variants
             if missing_variants:
                 missing_list = ", ".join(f"`{v}`" for v in sorted(missing_variants))
-                self.reporter.error(
+                self._error(
                     ErrorKind.NON_EXHAUSTIVE_MATCH,
                     f"match is not exhaustive, missing variants: {missing_list}",
                     expr.line, expr.column,
@@ -1660,7 +1701,34 @@ class ExpressionsMixin:
         result_type = arm_types[0]
         for arm_type in arm_types[1:]:
             if not self._types_compatible(result_type, arm_type):
-                self.reporter.error(
+                # Check if arms could be Result auto-wrapped
+                # If we're in a function returning Result<T, E> and arms return T and E,
+                # they're compatible (will be auto-wrapped later)
+                expected_return = None
+                if self.current_method:
+                    expected_return = self._resolve_type(self.current_method.return_type)
+                elif self.current_function:
+                    expected_return = self._resolve_type(self.current_function.return_type)
+
+                if expected_return and expected_return.is_result():
+                    ok_type = expected_return.type_args[0] if expected_return.type_args else None
+                    err_type = expected_return.type_args[1] if expected_return.type_args and len(expected_return.type_args) > 1 else None
+                    # Check if one arm is Ok type and the other is Err type
+                    types_for_result = all(
+                        (ok_type and self._types_compatible(at, ok_type)) or
+                        (err_type and self._types_compatible(at, err_type))
+                        for at in arm_types
+                    )
+                    if types_for_result:
+                        # Mark arms for auto-wrap and return Result type
+                        for i, (arm, arm_type) in enumerate(zip(expr.arms, arm_types)):
+                            if ok_type and self._types_compatible(arm_type, ok_type):
+                                arm.body.auto_wrap = "ok"
+                            elif err_type and self._types_compatible(arm_type, err_type):
+                                arm.body.auto_wrap = "err"
+                        return expected_return
+
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"match arms have incompatible types: `{result_type}` and `{arm_type}`",
                     expr.line, expr.column
@@ -1683,14 +1751,14 @@ class ExpressionsMixin:
                     if i < len(expected_params):
                         param_type = expected_params[i]
                     else:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"Closure has more parameters than expected function type",
                             param.line, param.column
                         )
                         param_type = SawType(TypeKind.INT)
                 else:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"Cannot infer type for closure parameter `{param.name}`. Add type annotation: `{param.name}: Type`",
                         param.line, param.column
@@ -1705,14 +1773,14 @@ class ExpressionsMixin:
                     if i < len(expected_params):
                         param_type = expected_params[i]
                     else:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"Closure uses `${i}` but expected function type only has {len(expected_params)} parameters",
                             expr.line, expr.column
                         )
                         param_type = SawType(TypeKind.INT)
                 else:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"Cannot infer type for shorthand parameter `${i}`. Use named parameters with type annotations.",
                         expr.line, expr.column
@@ -1815,7 +1883,7 @@ class ExpressionsMixin:
 
         # Must be a Result<T, E>
         if not inner_type.is_result():
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"`try` requires a Result type, got `{inner_type}`",
                 expr.line, expr.column
@@ -1859,7 +1927,7 @@ class ExpressionsMixin:
             expected_return = self.current_method.return_type
 
         if expected_return is None:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 "`try` can only propagate errors from functions/methods",
                 line, column
@@ -1867,7 +1935,7 @@ class ExpressionsMixin:
             return
 
         if not expected_return.is_result():
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"`try` cannot propagate errors from a function returning `{expected_return}` (must return Result)",
                 line, column,
@@ -1877,7 +1945,7 @@ class ExpressionsMixin:
 
         expected_err = expected_return.unwrap_result_err()
         if not self._types_compatible(err_type, expected_err):
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot propagate error of type `{err_type}` from function returning `Result<_, {expected_err}>`",
                 line, column
@@ -1908,7 +1976,7 @@ class ExpressionsMixin:
 
         # Types must be compatible (catch must return same type as ok_type)
         if catch_type and not self._types_compatible(catch_type, ok_type):
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"catch block returns `{catch_type}` but try expression expects `{ok_type}`",
                 expr.catch_block.line, expr.catch_block.column
@@ -1991,7 +2059,7 @@ class ExpressionsMixin:
             elif catch_type.is_optional() and not try_type.is_optional():
                 pass  # try_type will be wrapped
             else:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"try and catch blocks have incompatible types: `{try_type}` vs `{catch_type}`",
                     expr.line, expr.column

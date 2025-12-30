@@ -35,7 +35,7 @@ def parse_source(source: str, source_path: str, verbose: bool = False):
 
     # Parsing
     try:
-        parser = Parser(tokens)
+        parser = Parser(tokens, source_file=source_path)
         return parser.parse()
     except SyntaxError as e:
         print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
@@ -180,7 +180,7 @@ def topological_sort_modules(module_map):
     return result
 
 
-def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_source: str, verbose: bool = False):
+def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False):
     """
     Compile a program that uses the module system.
 
@@ -191,7 +191,10 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     4. Merge all modules with builtins for code generation
     5. Type check with module-aware symbol resolution
     6. Generate code
-    7. Link to executable
+    7. Link to executable (unless object_only=True)
+
+    Args:
+        object_only: If True, compile to .o without linking (no main() required)
     """
     from module_resolver import ModuleInfo
     from ast_nodes import Program
@@ -206,6 +209,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     # Resolve all imports and collect module ASTs
     # module_map: module_path_tuple -> AST (for qualified access)
     module_map = {}
+    module_sources = {}  # source_path -> source (for error reporting)
     resolved_modules = set()
     pending_imports = list(getattr(entry_ast, 'imports', []))
 
@@ -227,6 +231,8 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
             # Load and parse the module
             resolver.load_module_source(mod_info)
             mod_ast = parse_source(mod_info.source, mod_info.source_path, verbose)
+            # Track source for error reporting
+            module_sources[mod_info.source_path] = mod_info.source
 
             if verbose:
                 print(f"    Resolved: {'.'.join(module_path)} -> {mod_info.source_path}")
@@ -341,6 +347,9 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
         print("  Type checking (per-module)...")
 
     reporter = ErrorReporter(entry_source, source_path)
+    # Add imported module sources for proper error context
+    for mod_path, mod_source in module_sources.items():
+        reporter.add_source(mod_path, mod_source)
     typechecker = TypeChecker(reporter)
 
     # First, type-check the builtins using the legacy method
@@ -379,6 +388,19 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
 
     # Now create the builtin namespace for the per-module type checking
     builtin_ns = builtin_typechecker.namespace
+
+    # Make all builtin symbols directly accessible to modules
+    # This allows modules to use Vector, Map, String, etc. without explicit imports
+    for name in builtin_ns.structs:
+        builtin_ns.make_accessible(name)
+    for name in builtin_ns.enums:
+        builtin_ns.make_accessible(name)
+    for name in builtin_ns.functions:
+        builtin_ns.make_accessible(name)
+    for name in builtin_ns.traits:
+        builtin_ns.make_accessible(name)
+    for name in builtin_ns.type_aliases:
+        builtin_ns.make_accessible(name)
 
     # Copy type information to the main typechecker for codegen compatibility
     typechecker.structs = dict(builtin_typechecker.structs)
@@ -453,7 +475,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
         checked_modules,
         builtin_ns,
         parent_namespace=None,
-        is_entry=True
+        is_entry=not object_only  # Only require main() for executables
     )
 
     if entry_ns is None:
@@ -497,35 +519,53 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     # Compile to object file
     if verbose:
         print("  Compiling to object code...")
-    obj_path = output_path + ".o"
-    codegen.compile_to_object(obj_path)
 
-    # Link with system linker
-    if verbose:
-        print("  Linking...")
+    if object_only:
+        # Output directly to the specified path (should end in .o)
+        obj_path = output_path if output_path.endswith('.o') else output_path + '.o'
+        codegen.compile_to_object(obj_path)
 
-    link_cmd = ["clang", obj_path, "-o", output_path]
+        if verbose:
+            print(f"  Output: {obj_path}")
+        print(f"Compiled {source_path} -> {obj_path}")
+    else:
+        # Compile to temp object file, then link
+        obj_path = output_path + ".o"
+        codegen.compile_to_object(obj_path)
 
-    try:
-        result = subprocess.run(link_cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"Linking failed: {result.stderr}", file=sys.stderr)
+        # Link with system linker
+        if verbose:
+            print("  Linking...")
+
+        link_cmd = ["clang", obj_path, "-o", output_path]
+
+        try:
+            result = subprocess.run(link_cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"Linking failed: {result.stderr}", file=sys.stderr)
+                sys.exit(1)
+        except FileNotFoundError:
+            print("Error: clang not found. Please install LLVM/clang.", file=sys.stderr)
             sys.exit(1)
-    except FileNotFoundError:
-        print("Error: clang not found. Please install LLVM/clang.", file=sys.stderr)
-        sys.exit(1)
 
-    # Clean up object file
-    os.remove(obj_path)
+        # Clean up object file
+        os.remove(obj_path)
 
-    if verbose:
-        print(f"  Output: {output_path}")
+        if verbose:
+            print(f"  Output: {output_path}")
 
-    print(f"Compiled {source_path} -> {output_path}")
+        print(f"Compiled {source_path} -> {output_path}")
 
 
-def compile_saw(source_path: str, output_path: str, verbose: bool = False):
-    """Compile a Saw source file to an executable."""
+def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False):
+    """Compile a Saw source file to an executable or object file.
+
+    Args:
+        source_path: Path to the .saw source file
+        output_path: Path for output (executable or .o file)
+        verbose: Print verbose progress messages
+        object_only: If True, compile to .o without linking (no main() required)
+    """
 
     # Read source file
     with open(source_path, 'r') as f:
@@ -550,7 +590,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False):
                 print(f"    module {mod.name}")
 
         # Use multi-module compilation path
-        return compile_with_modules(source_path, output_path, user_ast, source, verbose)
+        return compile_with_modules(source_path, output_path, user_ast, source, verbose, object_only)
 
     # Legacy single-file compilation path
     # Load builtins
@@ -567,7 +607,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False):
         print("  Type checking...")
     reporter = ErrorReporter(source, source_path)
     typechecker = TypeChecker(reporter)
-    if not typechecker.check(ast):
+    if not typechecker.check(ast, require_main=not object_only):
         reporter.print_all()
         sys.exit(1)
 
@@ -594,32 +634,43 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False):
     # Compile to object file
     if verbose:
         print("  Compiling to object code...")
-    obj_path = output_path + ".o"
-    codegen.compile_to_object(obj_path)
 
-    # Link with system linker
-    if verbose:
-        print("  Linking...")
+    if object_only:
+        # Output directly to the specified path (should end in .o)
+        obj_path = output_path if output_path.endswith('.o') else output_path + '.o'
+        codegen.compile_to_object(obj_path)
 
-    # Use clang as the linker (handles libc linking automatically)
-    link_cmd = ["clang", obj_path, "-o", output_path]
+        if verbose:
+            print(f"  Output: {obj_path}")
+        print(f"Compiled {source_path} -> {obj_path}")
+    else:
+        # Compile to temp object file, then link
+        obj_path = output_path + ".o"
+        codegen.compile_to_object(obj_path)
 
-    try:
-        result = subprocess.run(link_cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"Linking failed: {result.stderr}", file=sys.stderr)
+        # Link with system linker
+        if verbose:
+            print("  Linking...")
+
+        # Use clang as the linker (handles libc linking automatically)
+        link_cmd = ["clang", obj_path, "-o", output_path]
+
+        try:
+            result = subprocess.run(link_cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"Linking failed: {result.stderr}", file=sys.stderr)
+                sys.exit(1)
+        except FileNotFoundError:
+            print("Error: clang not found. Please install LLVM/clang.", file=sys.stderr)
             sys.exit(1)
-    except FileNotFoundError:
-        print("Error: clang not found. Please install LLVM/clang.", file=sys.stderr)
-        sys.exit(1)
 
-    # Clean up object file
-    os.remove(obj_path)
+        # Clean up object file
+        os.remove(obj_path)
 
-    if verbose:
-        print(f"  Output: {output_path}")
+        if verbose:
+            print(f"  Output: {output_path}")
 
-    print(f"Compiled {source_path} -> {output_path}")
+        print(f"Compiled {source_path} -> {output_path}")
 
 
 def main():
@@ -637,6 +688,7 @@ Examples:
     parser.add_argument("input", help="Input .saw file")
     parser.add_argument("-o", "--output", help="Output executable name")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    parser.add_argument("-c", action="store_true", help="Compile to object file (.o) without linking, no main() required")
     parser.add_argument("--emit-ir", action="store_true", help="Only emit LLVM IR, don't compile")
     parser.add_argument("--emit-ast", action="store_true", help="Dump typed AST for debugging")
 
@@ -722,7 +774,10 @@ Examples:
             f.write(llvm_ir)
         print(f"Emitted IR to {ir_output}")
     else:
-        compile_saw(args.input, output_path, verbose=args.verbose)
+        # If -c flag, ensure output ends with .o
+        if args.c and not output_path.endswith('.o'):
+            output_path = output_path + '.o'
+        compile_saw(args.input, output_path, verbose=args.verbose, object_only=args.c)
 
 
 if __name__ == "__main__":

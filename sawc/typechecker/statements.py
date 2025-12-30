@@ -122,7 +122,7 @@ class StatementsMixin:
 
         if expected_return.kind != TypeKind.VOID:
             if body_type is None and not self.found_return_with_value:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"method `{method.name}` should return `{expected_return}` but body has no value",
                     method.line, method.column
@@ -135,7 +135,7 @@ class StatementsMixin:
 
                     if body_type.is_result():
                         # Already a Result but types don't match
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
                             method.line, method.column
@@ -147,14 +147,14 @@ class StatementsMixin:
                         # Auto-wrap in Err
                         method.body.final_expr.auto_wrap = "err"
                     else:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"method `{method.name}` should return `{expected_return}` but returns `{body_type}` "
                             f"(doesn't match Ok type `{ok_type}` or Err type `{err_type}`)",
                             method.line, method.column
                         )
                 else:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
                         method.line, method.column
@@ -205,7 +205,7 @@ class StatementsMixin:
             # 1. An explicit return statement (found_return_with_value)
             # 2. A final expression in the body (body_type)
             if body_type is None and not self.found_return_with_value:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"function `{func.name}` should return `{resolved_return_type}` but body has no value",
                     func.line, func.column
@@ -218,7 +218,7 @@ class StatementsMixin:
 
                     if body_type.is_result():
                         # Already a Result but types don't match
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
                             func.line, func.column
@@ -230,14 +230,14 @@ class StatementsMixin:
                         # Auto-wrap in Err
                         func.body.final_expr.auto_wrap = "err"
                     else:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}` "
                             f"(doesn't match Ok type `{ok_type}` or Err type `{err_type}`)",
                             func.line, func.column
                         )
                 else:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
                         func.line, func.column
@@ -320,7 +320,7 @@ class StatementsMixin:
         # Check for duplicate in current scope
         existing = self.current_scope.lookup_local(stmt.name)
         if existing:
-            self.reporter.error(
+            self._error(
                 ErrorKind.DUPLICATE_VARIABLE,
                 f"variable `{stmt.name}` is already defined in this scope",
                 stmt.line, stmt.column,
@@ -337,7 +337,7 @@ class StatementsMixin:
             # allow_literal_to_distinct=True because let/var initialization allows primitives to
             # initialize distinct types (e.g., `let x: MyInt = 21`)
             if not self._types_compatible(value_type, resolved_type, allow_literal_to_distinct=True):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot assign `{value_type}` to variable of type `{stmt.type_annotation}`",
                     stmt.line, stmt.column
@@ -354,7 +354,7 @@ class StatementsMixin:
 
         # Check for NoCopy types - cannot copy from another variable (but move is OK)
         if isinstance(stmt.value, Identifier) and self._is_no_copy_type(value_type):
-            self.reporter.error(
+            self._error(
                 ErrorKind.CANNOT_COPY,
                 f"cannot copy value of type `{value_type}` which implements NoCopy",
                 stmt.line, stmt.column,
@@ -375,7 +375,7 @@ class StatementsMixin:
         # Check for duplicate in current scope
         existing = self.current_scope.lookup_local(stmt.name)
         if existing:
-            self.reporter.error(
+            self._error(
                 ErrorKind.DUPLICATE_VARIABLE,
                 f"variable `{stmt.name}` is already defined in this scope",
                 stmt.line, stmt.column,
@@ -391,7 +391,7 @@ class StatementsMixin:
 
         # Must be an optional type
         if optional_type.kind != TypeKind.OPTIONAL:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"'guard let' requires an optional type, got `{optional_type}`",
                 stmt.line, stmt.column
@@ -401,7 +401,7 @@ class StatementsMixin:
         # Get the unwrapped type
         inner_type = optional_type.inner_type
         if inner_type is None:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot determine type of bound variable from None literal",
                 stmt.line, stmt.column
@@ -417,7 +417,7 @@ class StatementsMixin:
 
         # Verify else branch has early exit (return, break, continue)
         if not self._block_has_early_exit(stmt.else_branch):
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 "'guard' else block must exit the scope (return, break, or continue)",
                 stmt.line, stmt.column,
@@ -436,7 +436,7 @@ class StatementsMixin:
             # Simple variable assignment: x = value
             var_info = self.current_scope.lookup(stmt.target.name)
             if not var_info:
-                self.reporter.error(
+                self._error(
                     ErrorKind.UNDEFINED_VARIABLE,
                     f"undefined variable `{stmt.target.name}`",
                     stmt.line, stmt.column
@@ -447,7 +447,7 @@ class StatementsMixin:
             # References can only be modified via compound assignment (+=, -=, etc.)
             # or by calling mutating methods
             if var_info.type.kind == TypeKind.REFERENCE:
-                self.reporter.error(
+                self._error(
                     ErrorKind.IMMUTABLE_ASSIGNMENT,
                     f"cannot assign through reference `{stmt.target.name}`",
                     stmt.line, stmt.column,
@@ -457,7 +457,7 @@ class StatementsMixin:
 
             # Check mutability
             if not var_info.mutable:
-                self.reporter.error(
+                self._error(
                     ErrorKind.IMMUTABLE_ASSIGNMENT,
                     f"cannot assign to immutable variable `{stmt.target.name}`",
                     stmt.line, stmt.column,
@@ -467,7 +467,7 @@ class StatementsMixin:
             # Check type
             value_type = self._check_expression(stmt.value)
             if value_type and not self._types_compatible(value_type, var_info.type):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot assign `{value_type}` to variable of type `{var_info.type}`",
                     stmt.line, stmt.column
@@ -475,7 +475,7 @@ class StatementsMixin:
 
             # Check for NoCopy types - cannot copy from another variable (but move is OK)
             if isinstance(stmt.value, Identifier) and self._is_no_copy_type(value_type):
-                self.reporter.error(
+                self._error(
                     ErrorKind.CANNOT_COPY,
                     f"cannot copy value of type `{value_type}` which implements NoCopy",
                     stmt.line, stmt.column,
@@ -493,7 +493,7 @@ class StatementsMixin:
 
             # Must be a struct type
             if obj_type.kind != TypeKind.STRUCT:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot access field on non-struct type `{obj_type}`",
                     stmt.target.line, stmt.target.column
@@ -506,7 +506,7 @@ class StatementsMixin:
                 return
 
             if stmt.target.member not in struct_info.fields:
-                self.reporter.error(
+                self._error(
                     ErrorKind.UNDEFINED_VARIABLE,
                     f"struct `{obj_type.struct_name}` has no field `{stmt.target.member}`",
                     stmt.target.line, stmt.target.column
@@ -518,7 +518,7 @@ class StatementsMixin:
             # Check value type
             value_type = self._check_expression(stmt.value)
             if value_type and not self._types_compatible(value_type, field_type):
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot assign `{value_type}` to field of type `{field_type}`",
                     stmt.line, stmt.column
@@ -537,7 +537,7 @@ class StatementsMixin:
                 if isinstance(stmt.target.array_expr, Identifier):
                     var_info = self.current_scope.lookup(stmt.target.array_expr.name)
                     if var_info and not var_info.mutable:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.IMMUTABLE_ASSIGNMENT,
                             f"cannot assign to element of immutable array `{stmt.target.array_expr.name}`",
                             stmt.line, stmt.column,
@@ -546,7 +546,7 @@ class StatementsMixin:
             elif container_type.kind == TypeKind.POINTER:
                 # For pointers, check pointer mutability (UnsafePointer vs UnsafeConstPointer)
                 if not container_type.pointer_mutable:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.IMMUTABLE_ASSIGNMENT,
                         f"cannot write through UnsafeConstPointer (use UnsafePointer for mutable access)",
                         stmt.line, stmt.column
@@ -554,7 +554,7 @@ class StatementsMixin:
                     return
                 element_type = container_type.inner_type
             else:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot index into type `{container_type}`",
                     stmt.target.line, stmt.target.column
@@ -566,7 +566,7 @@ class StatementsMixin:
             if index_type:
                 index_underlying = self._get_underlying_type(index_type)
                 if index_underlying.kind != TypeKind.INT:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"index must be Int, got `{index_type}`",
                         stmt.target.index.line, stmt.target.index.column
@@ -576,14 +576,14 @@ class StatementsMixin:
             value_type = self._check_expression(stmt.value)
             if value_type and element_type:
                 if not self._types_compatible(value_type, element_type):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"cannot assign `{value_type}` to element of type `{element_type}`",
                         stmt.line, stmt.column
                     )
 
         else:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 "invalid assignment target",
                 stmt.line, stmt.column
@@ -618,7 +618,7 @@ class StatementsMixin:
             is_mutable_ref = (var_info.type.kind == TypeKind.REFERENCE and
                              var_info.type.reference_mutable)
             if not var_info.mutable and not is_mutable_ref:
-                self.reporter.error(
+                self._error(
                     ErrorKind.IMMUTABLE_ASSIGNMENT,
                     f"cannot use compound assignment on immutable variable `{stmt.target.name}`",
                     stmt.line, stmt.column,
@@ -639,7 +639,7 @@ class StatementsMixin:
                     is_mutable_ref = (base_info.type.kind == TypeKind.REFERENCE and
                                      base_info.type.reference_mutable)
                     if not is_mutable_ref:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.IMMUTABLE_ASSIGNMENT,
                             f"cannot use compound assignment on field of immutable variable `{stmt.target.object.name}`",
                             stmt.line, stmt.column
@@ -654,7 +654,7 @@ class StatementsMixin:
                     is_mutable_ref = (arr_info.type.kind == TypeKind.REFERENCE and
                                      arr_info.type.reference_mutable)
                     if not is_mutable_ref:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.IMMUTABLE_ASSIGNMENT,
                             f"cannot use compound assignment on element of immutable array `{stmt.target.array_expr.name}`",
                             stmt.line, stmt.column
@@ -678,7 +678,7 @@ class StatementsMixin:
             elif target_underlying.kind == TypeKind.FLOAT and value_underlying.kind in (int_kinds | {TypeKind.FLOAT}):
                 pass  # OK
             else:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `{stmt.op}=` cannot be applied to `{target_type}` and `{value_type}`",
                     stmt.line, stmt.column
@@ -688,7 +688,7 @@ class StatementsMixin:
             if target_underlying.kind in int_kinds and value_underlying.kind in int_kinds:
                 pass  # OK
             else:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `%=` requires integer operands, got `{target_type}` and `{value_type}`",
                     stmt.line, stmt.column
@@ -696,14 +696,17 @@ class StatementsMixin:
 
     def _check_return_statement(self, stmt: ReturnStatement):
         """Check a return statement."""
-        if self.current_function is None:
+        # Get expected return type from either function or method context
+        if self.current_function is not None:
+            expected = self.current_function.return_type
+        elif self.current_method is not None:
+            expected = self.current_method.return_type
+        else:
             return
-
-        expected = self.current_function.return_type
 
         if stmt.value is None:
             if expected.kind != TypeKind.VOID:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"function should return `{expected}` but return has no value",
                     stmt.line, stmt.column
@@ -711,7 +714,7 @@ class StatementsMixin:
         else:
             value_type = self._check_expression(stmt.value)
             if value_type and expected.kind == TypeKind.VOID:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"function returns void but return has a value of type `{value_type}`",
                     stmt.line, stmt.column
@@ -724,7 +727,7 @@ class StatementsMixin:
 
                     # Already a Result - no wrapping needed (but types don't match)
                     if value_type.is_result():
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"expected return type `{expected}` but got `{value_type}`",
                             stmt.line, stmt.column
@@ -738,14 +741,14 @@ class StatementsMixin:
                         stmt.auto_wrap = "err"
                         self.found_return_with_value = True
                     else:
-                        self.reporter.error(
+                        self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"expected return type `{expected}` but got `{value_type}` "
                             f"(doesn't match Ok type `{ok_type}` or Err type `{err_type}`)",
                             stmt.line, stmt.column
                         )
                 else:
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"expected return type `{expected}` but got `{value_type}`",
                         stmt.line, stmt.column
@@ -763,7 +766,7 @@ class StatementsMixin:
         if stmt.condition:
             cond_type = self._check_expression(stmt.condition)
             if cond_type and cond_type.kind != TypeKind.BOOL:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"while condition must be Bool, got `{cond_type}`",
                     stmt.line, stmt.column
@@ -781,7 +784,7 @@ class StatementsMixin:
         if expr.condition:
             cond_type = self._check_expression(expr.condition)
             if cond_type and cond_type.kind != TypeKind.BOOL:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"while condition must be Bool, got `{cond_type}`",
                     expr.line, expr.column
@@ -804,14 +807,14 @@ class StatementsMixin:
         if is_infinite:
             # Infinite loop: must have at least one break with value
             if not has_break:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     "infinite while loop used as expression must have at least one `break` statement",
                     expr.line, expr.column
                 )
                 return None
             if break_type is None:
-                self.reporter.error(
+                self._error(
                     ErrorKind.TYPE_MISMATCH,
                     "infinite while loop used as expression must `break` with a value",
                     expr.line, expr.column
@@ -930,7 +933,7 @@ class StatementsMixin:
 
         # The type must be a struct
         if iterable_type.kind != TypeKind.STRUCT:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"for loop requires an Iterator, got `{iterable_type}`",
                 line, column,
@@ -943,7 +946,7 @@ class StatementsMixin:
         # Check if the type conforms to Iterator
         conformances = self.type_conformances.get(type_name, [])
         if "Iterator" not in conformances:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"type `{type_name}` does not implement Iterator",
                 line, column,
@@ -954,7 +957,7 @@ class StatementsMixin:
         # Get the Item associated type
         type_assigns = self.type_assignments.get((type_name, "Iterator"), {})
         if "Item" not in type_assigns:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"Iterator implementation for `{type_name}` is missing associated type `Item`",
                 line, column
@@ -987,14 +990,14 @@ class StatementsMixin:
 
         # Both start and end must be Int
         if start_type.kind != TypeKind.INT:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"range start must be Int, got `{start_type}`",
                 expr.line, expr.column
             )
 
         if end_type.kind != TypeKind.INT:
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"range end must be Int, got `{end_type}`",
                 expr.line, expr.column
@@ -1007,7 +1010,7 @@ class StatementsMixin:
     def _check_break_statement(self, stmt: BreakStatement):
         """Check a break statement."""
         if self.loop_depth == 0:
-            self.reporter.error(
+            self._error(
                 ErrorKind.INVALID_BREAK_CONTINUE,
                 "`break` can only be used inside a loop",
                 stmt.line, stmt.column
@@ -1029,7 +1032,7 @@ class StatementsMixin:
             # If there's an existing break type, validate compatibility
             if existing_type and value_type:
                 if not self._types_compatible(value_type, existing_type):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"break value type `{value_type}` incompatible with expected type `{existing_type}`",
                         stmt.line, stmt.column
@@ -1041,7 +1044,7 @@ class StatementsMixin:
     def _check_continue_statement(self, stmt: ContinueStatement):
         """Check a continue statement."""
         if self.loop_depth == 0:
-            self.reporter.error(
+            self._error(
                 ErrorKind.INVALID_BREAK_CONTINUE,
                 "`continue` can only be used inside a loop",
                 stmt.line, stmt.column

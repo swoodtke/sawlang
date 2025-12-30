@@ -1,0 +1,88 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 100
+// 1
+// 1
+// 77
+
+// Test type registration order - types can reference each other in any order
+// This tests that the compiler properly sorts type definitions by dependency
+
+// Struct referencing an enum (enum defined later)
+struct Container {
+    status: Status
+    value: Int
+}
+
+// Enum referencing a struct (struct defined later)
+enum Result2 {
+    case Ok(data: Payload),
+    case Err(code: Int)
+}
+
+// Struct referencing another struct (defined later)
+struct Wrapper {
+    inner: Inner
+}
+
+// Enum referencing another enum (defined later)
+enum Outer {
+    case Wrapped(inner: Inner2),
+    case Empty
+}
+
+// Now define the referenced types
+
+enum Status {
+    case Active,
+    case Inactive,
+    case Pending
+}
+
+struct Payload {
+    data: Int
+    name: String
+}
+
+struct Inner {
+    x: Int
+    y: Int
+}
+
+enum Inner2 {
+    case A,
+    case B(val: Int)
+}
+
+// Test using all of them
+func main() {
+    // Struct with enum field
+    let c = Container(status: Status.Active, value: 42)
+    print(c.value)
+
+    // Enum with struct payload
+    let r = Result2.Ok(data: Payload(data: 100, name: "test"))
+    match r {
+        case Ok(p) -> print(p.data),
+        case Err(code) -> print(code)
+    }
+
+    // Struct with struct field
+    let w = Wrapper(inner: Inner(x: 1, y: 2))
+    print(w.inner.x)
+
+    // Enum with enum payload
+    let o = Outer.Wrapped(inner: Inner2.B(val: 99))
+    match o {
+        case Wrapped(inner_val) -> print(1),
+        case Empty -> print(-1)
+    }
+
+    // Also test Inner2 directly
+    let i2 = Inner2.B(val: 77)
+    match i2 {
+        case A -> print(0),
+        case B(v) -> print(v)
+    }
+}

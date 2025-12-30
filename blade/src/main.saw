@@ -1,0 +1,137 @@
+// Blade - The Saw Package Manager
+// Entry point
+
+import src.cli
+import src.manifest
+import src.builder
+
+// =============================================================================
+// Help and Version
+// =============================================================================
+
+func print_help() {
+    print("Blade - The Saw Package Manager")
+    print("")
+    print("Usage: blade <command> [options]")
+    print("")
+    print("Commands:")
+    print("  build       Compile the current project")
+    print("  run         Build and run the project")
+    print("  new <name>  Create a new Saw project")
+    print("  help        Show this help message")
+    print("  version     Show version information")
+}
+
+func print_version() {
+    print("blade 0.1.0")
+}
+
+// =============================================================================
+// Project Creation
+// =============================================================================
+
+func create_new_project(name: String) -> Int {
+    // Create project directory
+    let project_path = Path(s: name)
+
+    if Directory.exists(project_path) {
+        print("Error: Directory '{name}' already exists")
+        return 1
+    }
+
+    if not Directory.create(project_path) {
+        print("Error: Could not create directory '{name}'")
+        return 1
+    }
+
+    // Create src directory
+    let src_path = project_path.join("src")
+    if not Directory.create(src_path) {
+        print("Error: Could not create src directory")
+        return 1
+    }
+
+    // Create Saw.toml
+    let toml_content = "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"
+    let toml_path = project_path.join("Saw.toml")
+    if let f = File.create(toml_path) {
+        let toml_data = toml_content.to_data()
+        f.write(toml_data)
+    } else {
+        print("Error: Could not create Saw.toml")
+        return 1
+    }
+
+    // Create src/main.saw - escape literal braces with \{ and \}
+    let main_content = "func main() \{\n    print(\"Hello, {name}!\")\n\}\n"
+    let main_path = src_path.join("main.saw")
+    if let f = File.create(main_path) {
+        let main_data = main_content.to_data()
+        f.write(main_data)
+    } else {
+        print("Error: Could not create main.saw")
+        return 1
+    }
+
+    print("     Created binary (application) `{name}` package")
+    print("")
+    print("To get started:")
+    print("  cd {name}")
+    print("  blade build")
+    0
+}
+
+// =============================================================================
+// Main Entry Point
+// =============================================================================
+
+func main() {
+    match cli.Cli.parse() {
+        case Ok(parsed_cli) -> {
+            match parsed_cli.command {
+                case Build -> {
+                    match manifest.Manifest.load() {
+                        case Ok(m) -> {
+                            let b = builder.Builder(m: m)
+                            match b.build() {
+                                case Ok(_) -> {},
+                                case Err(e) -> print("error: {e.message}")
+                            }
+                        },
+                        case Err(e) -> print("error: {e.message}")
+                    }
+                },
+                case Run(args) -> {
+                    match manifest.Manifest.load() {
+                        case Ok(m) -> {
+                            let b = builder.Builder(m: m)
+                            match b.run(args) {
+                                case Ok(_) -> {},
+                                case Err(e) -> print("error: {e.message}")
+                            }
+                        },
+                        case Err(e) -> print("error: {e.message}")
+                    }
+                },
+                case New(name) -> {
+                    let _ = create_new_project(name)
+                },
+                case Help -> {
+                    print_help()
+                },
+                case Version -> {
+                    print_version()
+                },
+                case Unknown(cmd) -> {
+                    print("error: unknown command `{cmd}`")
+                    print("")
+                    print_help()
+                }
+            }
+        },
+        case Err(e) -> {
+            print("error: {e.message}")
+            print_help()
+        }
+    }
+}

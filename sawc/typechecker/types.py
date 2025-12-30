@@ -309,7 +309,7 @@ class TypeUtilsMixin:
 
         # If the expression is an Identifier (variable reference), it needs move
         if isinstance(final_expr, Identifier):
-            self.reporter.error(
+            self._error(
                 ErrorKind.CANNOT_COPY,
                 f"cannot return NoCopy type `{return_type}` without `move` in {context_name}",
                 line, column,
@@ -339,7 +339,7 @@ class TypeUtilsMixin:
         min_val, max_val = ranges[target_type.kind]
         if literal.value < min_val or literal.value > max_val:
             type_name = target_type.kind.name
-            self.reporter.error(
+            self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"integer literal {literal.value} out of range for {type_name} ({min_val} to {max_val})",
                 literal.line, literal.column
@@ -356,7 +356,7 @@ class TypeUtilsMixin:
             # Check each field
             for field_name, field_type in struct_info.fields.items():
                 if self._is_no_copy_type(field_type):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.CANNOT_COPY,
                         f"struct `{struct_name}` contains NoCopy field `{field_name}` of type `{field_type}` but does not implement NoCopy",
                         struct_info.line, struct_info.column,
@@ -377,7 +377,7 @@ class TypeUtilsMixin:
             # Check each field
             for field_name, field_type in struct_info.fields.items():
                 if self._is_custom_copy_type(field_type):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.CANNOT_COPY,
                         f"struct `{struct_name}` contains CustomCopy field `{field_name}` of type `{field_type}` but does not implement CustomCopy",
                         struct_info.line, struct_info.column,
@@ -397,7 +397,7 @@ class TypeUtilsMixin:
             # Check each field
             for field_name, field_type in struct_info.fields.items():
                 if self._is_deinit_type(field_type):
-                    self.reporter.error(
+                    self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"struct `{struct_name}` contains Deinit field `{field_name}` of type `{field_type}` but does not implement Deinit",
                         struct_info.line, struct_info.column,
