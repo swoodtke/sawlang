@@ -16,7 +16,7 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain
+from ast_nodes import NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain, OptionalWrap
 
 
 class OptionalsMixin:
@@ -44,6 +44,15 @@ class OptionalsMixin:
         optional_val = self.builder.insert_value(optional_val, value, 1)
 
         return optional_val
+
+    def visit_OptionalWrap(self, expr: OptionalWrap):
+        """Generate code for OptionalWrap (T -> T?).
+
+        This is inserted by the typechecker when a value of type T
+        is used where T? is expected.
+        """
+        value = self._generate_expression(expr.value)
+        return self._wrap_in_optional(value)
 
     def _is_optional_type(self, llvm_type) -> bool:
         """Check if an LLVM type is an optional (struct with i1 flag and value)."""

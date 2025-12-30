@@ -547,6 +547,42 @@ class OptionalChain(Expression):
 
 
 @dataclass
+class OptionalWrap(Expression):
+    """Wraps a value T into Optional<T> (Some).
+
+    Inserted by typechecker when T is used where T? is expected.
+    """
+    value: Expression
+    target_type: Optional['SawType'] = None  # The full T? type
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ResultOkWrap(Expression):
+    """Wraps a value T into Result<T, E> as Ok.
+
+    Inserted by typechecker when T is returned from a Result<T, E> function.
+    """
+    value: Expression
+    result_type: Optional['SawType'] = None  # The full Result<T, E> type
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class ResultErrWrap(Expression):
+    """Wraps a value E into Result<T, E> as Err.
+
+    Inserted by typechecker when E is returned from a Result<T, E> function.
+    """
+    value: Expression
+    result_type: Optional['SawType'] = None  # The full Result<T, E> type
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class TryExpr(Expression):
     """Try expression: unwraps Ok, propagates/handles Err.
 
@@ -732,9 +768,6 @@ class ReturnStatement(Statement):
     value: Optional[Expression]
     line: int = 0
     column: int = 0
-    # Auto-wrap flag for Result-returning functions (set by typechecker)
-    # "ok" = wrap in Ok, "err" = wrap in Err, None = no wrapping
-    auto_wrap: Optional[str] = None
 
 
 @dataclass

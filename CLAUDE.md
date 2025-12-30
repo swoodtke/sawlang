@@ -31,7 +31,7 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 - No null - `T?` optionals (postfix syntax like Swift)
 - `Result<T, E>` for error handling
 - Type extensions for adding methods to existing types
-- `type` creates distinct types (not interchangeable aliases)
+- `type` creates distinct types (can flow to underlying, but not vice versa)
 
 ### Syntax Philosophy
 - Expression-oriented (everything returns a value)
@@ -53,7 +53,7 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 7. Named tuple fields
 8. `Type(...)` initialization instead of `Type::new(...)`
 9. Type extensions like Swift
-10. `type` definitions are distinct (not type aliases)
+10. `type` definitions are distinct (alias→underlying allowed, underlying→alias requires initialization)
 11. Python-style imports with full keywords (`import`, `module`, `public`)
 
 ### Module System
@@ -128,7 +128,7 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 166 tests including success cases and error validation
+**Test Coverage:** 181 tests including success cases and error validation
 
 ## Current Features
 
@@ -173,7 +173,10 @@ The compiler currently supports:
 - `self` keyword in method bodies
 
 ### Type System
-- Type aliases: `type MyInt = Int`
+- Type aliases: `type MyInt = Int` (creates distinct type)
+  - Alias can flow to underlying: `func double(x: Int)` accepts `MyInt`
+  - Underlying cannot flow to alias: `func process(x: MyInt)` rejects `Int`
+  - Chained aliases work: `type A = Int`, `type B = A` → B flows to A flows to Int
 - Associated types in traits: `type Item`
 - Type assignments in extensions: `type Item = Int`
 

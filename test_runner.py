@@ -186,7 +186,7 @@ def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
         return False, "Panic test must have at least one '// EXPECT-PANIC-CONTAINS:' directive"
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        exe_path = Path(tmpdir) / test.name
+        exe_path = Path('.build') / test.name
 
         # Compile
         compile_success, compile_stdout, compile_stderr = compile_saw_file(test.path, exe_path)

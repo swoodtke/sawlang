@@ -331,7 +331,7 @@ Saw is in active development. The compiler currently supports:
 - Tuples with indexing
 - Arrays with literals and indexing
 - Reference types: `&T`, `&var T`
-- Type aliases: `type MyInt = Int`
+- Type aliases: `type MyInt = Int` (distinct types that flow to underlying)
 - Type casting: `x as Int`
 
 ### Extensions & Methods

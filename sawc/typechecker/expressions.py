@@ -19,7 +19,8 @@ from ast_nodes import (
     EnumInit, MatchExpr, WhileExpr, RangeExpr, ForLoop, ClosureExpr,
     TryExpr, TryCatchExpr,
     Block, LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
-    SawType, TypeKind
+    SawType, TypeKind,
+    ResultOkWrap, ResultErrWrap, OptionalWrap
 )
 from errors import ErrorKind
 from namespace import Visibility, EnumSymbol
@@ -625,15 +626,37 @@ class ExpressionsMixin:
                     else_is_err = err_type and self._types_compatible(else_type, err_type)
 
                     if (then_is_ok or then_is_err) and (else_is_ok or else_is_err):
-                        # Mark branches for auto-wrap
-                        if then_is_ok:
-                            expr.then_branch.auto_wrap = "ok"
-                        elif then_is_err:
-                            expr.then_branch.auto_wrap = "err"
-                        if else_is_ok:
-                            expr.else_branch.auto_wrap = "ok"
-                        elif else_is_err:
-                            expr.else_branch.auto_wrap = "err"
+                        # Wrap branch final expressions in ResultOkWrap/ResultErrWrap
+                        if expr.then_branch.final_expr:
+                            if then_is_ok:
+                                expr.then_branch.final_expr = ResultOkWrap(
+                                    value=expr.then_branch.final_expr,
+                                    result_type=expected_return,
+                                    line=expr.then_branch.final_expr.line,
+                                    column=expr.then_branch.final_expr.column
+                                )
+                            elif then_is_err:
+                                expr.then_branch.final_expr = ResultErrWrap(
+                                    value=expr.then_branch.final_expr,
+                                    result_type=expected_return,
+                                    line=expr.then_branch.final_expr.line,
+                                    column=expr.then_branch.final_expr.column
+                                )
+                        if expr.else_branch.final_expr:
+                            if else_is_ok:
+                                expr.else_branch.final_expr = ResultOkWrap(
+                                    value=expr.else_branch.final_expr,
+                                    result_type=expected_return,
+                                    line=expr.else_branch.final_expr.line,
+                                    column=expr.else_branch.final_expr.column
+                                )
+                            elif else_is_err:
+                                expr.else_branch.final_expr = ResultErrWrap(
+                                    value=expr.else_branch.final_expr,
+                                    result_type=expected_return,
+                                    line=expr.else_branch.final_expr.line,
+                                    column=expr.else_branch.final_expr.column
+                                )
                         return expected_return
 
                 self._error(
@@ -645,6 +668,14 @@ class ExpressionsMixin:
                 if else_type.is_none_literal() and not then_type.is_optional():
                     result_type = then_type.wrap_optional()
                     self._annotate_none_in_block(expr.else_branch, result_type)
+                    # Wrap the then branch in OptionalWrap
+                    if expr.then_branch.final_expr:
+                        expr.then_branch.final_expr = OptionalWrap(
+                            value=expr.then_branch.final_expr,
+                            target_type=result_type,
+                            line=expr.then_branch.final_expr.line,
+                            column=expr.then_branch.final_expr.column
+                        )
                     return result_type
                 if else_type.is_none_literal() and then_type.is_optional():
                     self._annotate_none_in_block(expr.else_branch, then_type)
@@ -652,10 +683,37 @@ class ExpressionsMixin:
                 if then_type.is_none_literal() and not else_type.is_optional():
                     result_type = else_type.wrap_optional()
                     self._annotate_none_in_block(expr.then_branch, result_type)
+                    # Wrap the else branch in OptionalWrap
+                    if expr.else_branch.final_expr:
+                        expr.else_branch.final_expr = OptionalWrap(
+                            value=expr.else_branch.final_expr,
+                            target_type=result_type,
+                            line=expr.else_branch.final_expr.line,
+                            column=expr.else_branch.final_expr.column
+                        )
                     return result_type
                 if then_type.is_none_literal() and else_type.is_optional():
                     self._annotate_none_in_block(expr.then_branch, else_type)
                     return else_type
+                # Wrap T branch in Optional if other branch is T?
+                if else_type.is_optional() and not then_type.is_optional():
+                    if expr.then_branch.final_expr:
+                        expr.then_branch.final_expr = OptionalWrap(
+                            value=expr.then_branch.final_expr,
+                            target_type=else_type,
+                            line=expr.then_branch.final_expr.line,
+                            column=expr.then_branch.final_expr.column
+                        )
+                    return else_type
+                if then_type.is_optional() and not else_type.is_optional():
+                    if expr.else_branch.final_expr:
+                        expr.else_branch.final_expr = OptionalWrap(
+                            value=expr.else_branch.final_expr,
+                            target_type=then_type,
+                            line=expr.else_branch.final_expr.line,
+                            column=expr.else_branch.final_expr.column
+                        )
+                    return then_type
             return then_type or else_type
         else:
             return then_type
@@ -1782,12 +1840,40 @@ class ExpressionsMixin:
                         for at in arm_types
                     )
                     if types_for_result:
-                        # Mark arms for auto-wrap and return Result type
+                        # Wrap arm bodies in ResultOkWrap/ResultErrWrap
                         for i, (arm, arm_type) in enumerate(zip(expr.arms, arm_types)):
                             if ok_type and self._types_compatible(arm_type, ok_type):
-                                arm.body.auto_wrap = "ok"
+                                # Wrap the arm body in ResultOkWrap
+                                if isinstance(arm.body, Block) and arm.body.final_expr:
+                                    arm.body.final_expr = ResultOkWrap(
+                                        value=arm.body.final_expr,
+                                        result_type=expected_return,
+                                        line=arm.body.final_expr.line,
+                                        column=arm.body.final_expr.column
+                                    )
+                                else:
+                                    arm.body = ResultOkWrap(
+                                        value=arm.body,
+                                        result_type=expected_return,
+                                        line=arm.body.line,
+                                        column=arm.body.column
+                                    )
                             elif err_type and self._types_compatible(arm_type, err_type):
-                                arm.body.auto_wrap = "err"
+                                # Wrap the arm body in ResultErrWrap
+                                if isinstance(arm.body, Block) and arm.body.final_expr:
+                                    arm.body.final_expr = ResultErrWrap(
+                                        value=arm.body.final_expr,
+                                        result_type=expected_return,
+                                        line=arm.body.final_expr.line,
+                                        column=arm.body.final_expr.column
+                                    )
+                                else:
+                                    arm.body = ResultErrWrap(
+                                        value=arm.body,
+                                        result_type=expected_return,
+                                        line=arm.body.line,
+                                        column=arm.body.column
+                                    )
                         return expected_return
 
                 self._error(

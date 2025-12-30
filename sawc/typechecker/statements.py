@@ -16,7 +16,8 @@ from ast_nodes import (
     BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, RangeExpr,
     Identifier, MemberAccess, ArrayIndex, MoveExpr, IntLiteral,
-    SawType, TypeKind
+    SawType, TypeKind,
+    ResultOkWrap, ResultErrWrap, OptionalWrap
 )
 from errors import ErrorKind
 
@@ -141,11 +142,21 @@ class StatementsMixin:
                             method.line, method.column
                         )
                     elif self._types_compatible(body_type, ok_type):
-                        # Auto-wrap in Ok
-                        method.body.final_expr.auto_wrap = "ok"
+                        # Wrap in ResultOkWrap
+                        method.body.final_expr = ResultOkWrap(
+                            value=method.body.final_expr,
+                            result_type=expected_return,
+                            line=method.body.final_expr.line,
+                            column=method.body.final_expr.column
+                        )
                     elif self._types_compatible(body_type, err_type):
-                        # Auto-wrap in Err
-                        method.body.final_expr.auto_wrap = "err"
+                        # Wrap in ResultErrWrap
+                        method.body.final_expr = ResultErrWrap(
+                            value=method.body.final_expr,
+                            result_type=expected_return,
+                            line=method.body.final_expr.line,
+                            column=method.body.final_expr.column
+                        )
                     else:
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
@@ -158,6 +169,15 @@ class StatementsMixin:
                         ErrorKind.TYPE_MISMATCH,
                         f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
                         method.line, method.column
+                    )
+            elif body_type is not None and method.body.final_expr:
+                # Types are compatible - check if we need Optional wrapping
+                if expected_return.is_optional() and not body_type.is_optional() and not body_type.is_none_literal():
+                    method.body.final_expr = OptionalWrap(
+                        value=method.body.final_expr,
+                        target_type=expected_return,
+                        line=method.body.final_expr.line,
+                        column=method.body.final_expr.column
                     )
 
         # Check NoCopy return - must use move for variable references
@@ -224,11 +244,21 @@ class StatementsMixin:
                             func.line, func.column
                         )
                     elif self._types_compatible(body_type, ok_type):
-                        # Auto-wrap in Ok
-                        func.body.final_expr.auto_wrap = "ok"
+                        # Wrap in ResultOkWrap
+                        func.body.final_expr = ResultOkWrap(
+                            value=func.body.final_expr,
+                            result_type=resolved_return_type,
+                            line=func.body.final_expr.line,
+                            column=func.body.final_expr.column
+                        )
                     elif self._types_compatible(body_type, err_type):
-                        # Auto-wrap in Err
-                        func.body.final_expr.auto_wrap = "err"
+                        # Wrap in ResultErrWrap
+                        func.body.final_expr = ResultErrWrap(
+                            value=func.body.final_expr,
+                            result_type=resolved_return_type,
+                            line=func.body.final_expr.line,
+                            column=func.body.final_expr.column
+                        )
                     else:
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
@@ -241,6 +271,15 @@ class StatementsMixin:
                         ErrorKind.TYPE_MISMATCH,
                         f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
                         func.line, func.column
+                    )
+            elif body_type is not None and func.body.final_expr:
+                # Types are compatible - check if we need Optional wrapping
+                if resolved_return_type.is_optional() and not body_type.is_optional() and not body_type.is_none_literal():
+                    func.body.final_expr = OptionalWrap(
+                        value=func.body.final_expr,
+                        target_type=resolved_return_type,
+                        line=func.body.final_expr.line,
+                        column=func.body.final_expr.column
                     )
 
         # Check NoCopy return - must use move for variable references
@@ -345,9 +384,19 @@ class StatementsMixin:
             # Check integer literal range for fixed-width types
             if isinstance(stmt.value, IntLiteral):
                 self._check_integer_literal_range(stmt.value, resolved_type)
+            # Resolve type alias to check underlying type structure (for Optional wrapping)
+            underlying_type = self._resolve_type_alias(resolved_type)
             # Propagate expected type to None literals
-            if value_type and value_type.is_none_literal() and resolved_type.is_optional():
-                self._propagate_optional_type(stmt.value, resolved_type)
+            if value_type and value_type.is_none_literal() and underlying_type.is_optional():
+                self._propagate_optional_type(stmt.value, underlying_type)
+            # Wrap T in Optional if assigning to T?
+            elif value_type and underlying_type.is_optional() and not value_type.is_optional():
+                stmt.value = OptionalWrap(
+                    value=stmt.value,
+                    target_type=underlying_type,
+                    line=stmt.value.line,
+                    column=stmt.value.column
+                )
             var_type = resolved_type
         else:
             var_type = value_type
@@ -732,13 +781,23 @@ class StatementsMixin:
                             f"expected return type `{expected}` but got `{value_type}`",
                             stmt.line, stmt.column
                         )
-                    # Value matches T - auto-wrap in Ok
+                    # Value matches T - wrap in ResultOkWrap
                     elif self._types_compatible(value_type, ok_type):
-                        stmt.auto_wrap = "ok"
+                        stmt.value = ResultOkWrap(
+                            value=stmt.value,
+                            result_type=expected,
+                            line=stmt.value.line,
+                            column=stmt.value.column
+                        )
                         self.found_return_with_value = True
-                    # Value matches E - auto-wrap in Err
+                    # Value matches E - wrap in ResultErrWrap
                     elif self._types_compatible(value_type, err_type):
-                        stmt.auto_wrap = "err"
+                        stmt.value = ResultErrWrap(
+                            value=stmt.value,
+                            result_type=expected,
+                            line=stmt.value.line,
+                            column=stmt.value.column
+                        )
                         self.found_return_with_value = True
                     else:
                         self._error(
@@ -759,6 +818,14 @@ class StatementsMixin:
                 # Annotate None literals with the expected type
                 if value_type and value_type.is_none_literal() and expected.is_optional():
                     self._annotate_none_in_expr(stmt.value, expected)
+                # Wrap T in Optional if returning from T?-returning function
+                elif value_type and expected.is_optional() and not value_type.is_optional():
+                    stmt.value = OptionalWrap(
+                        value=stmt.value,
+                        target_type=expected,
+                        line=stmt.value.line,
+                        column=stmt.value.column
+                    )
 
     def _check_while_expr(self, stmt: WhileExpr):
         """Check a while loop used as a statement (no return value expected)."""

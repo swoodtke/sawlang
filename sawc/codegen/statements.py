@@ -92,20 +92,15 @@ class StatementsMixin:
         if var_type and isinstance(stmt.value, Identifier) and not isinstance(stmt.value, MoveExpr):
             value = self._generate_copy(value, var_type)
 
-        # Check if we need to wrap the value in an optional
+        # Handle None literal type conversion if assigning to optional with different inner type
         if resolved_annotation and resolved_annotation.kind == TypeKind.OPTIONAL:
-            # Check if value is not already optional
-            # An optional is a struct with first element being i1 (is_some flag)
             is_already_optional = (isinstance(value.type, ir.LiteralStructType) and
                                    len(value.type.elements) == 2 and
                                    isinstance(value.type.elements[0], ir.IntType) and
                                    value.type.elements[0].width == 1)
 
-            if not is_already_optional:
-                # Wrap the value in an optional
-                value = self._wrap_in_optional(value)
-            else:
-                # Value is already optional, but check if it's a None literal with i64 placeholder
+            if is_already_optional:
+                # Value is optional, but check if it's a None literal with i64 placeholder
                 # that needs to be converted to match a different expected type
                 current_inner_type = value.type.elements[1]
                 target_inner_type = self._get_llvm_type(resolved_annotation.inner_type)
@@ -484,19 +479,6 @@ class StatementsMixin:
 
         # Now return
         if value is not None:
-            # Check if we need to auto-wrap in Result (set by typechecker)
-            if hasattr(stmt, 'auto_wrap') and stmt.auto_wrap:
-                if stmt.auto_wrap == "ok":
-                    value = self._create_result_ok_for_return(value)
-                elif stmt.auto_wrap == "err":
-                    value = self._create_result_err_for_return(value)
-
-            # Check if we need to wrap in optional
-            elif self.current_return_type and self.current_return_type.is_optional():
-                expected_type = self._get_llvm_type(self.current_return_type)
-                if not self._is_optional_type(value.type):
-                    value = self._wrap_in_optional(value)
-
             self.builder.ret(value)
         else:
             self.builder.ret_void()

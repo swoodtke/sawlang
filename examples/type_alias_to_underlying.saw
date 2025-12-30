@@ -1,0 +1,26 @@
+// Test that type aliases can implicitly convert to their underlying type
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 84
+// 15
+
+type MyInt = Int
+
+func double(x: Int) -> Int {
+    x * 2
+}
+
+func add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+func main() {
+    // MyInt -> Int should work
+    let x: MyInt = 42
+    print(double(x))
+
+    // Multiple MyInt -> Int conversions
+    let a: MyInt = 5
+    let b: MyInt = 10
+    print(add(a, b))
+}

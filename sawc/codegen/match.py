@@ -134,13 +134,6 @@ class MatchMixin:
                     # Void expression - use placeholder
                     arm_result = ir.Constant(ir.IntType(32), 0)  # Placeholder
 
-            # Check for Result auto-wrap (set by typechecker for match in Result-returning functions)
-            if hasattr(arm.body, 'auto_wrap') and arm.body.auto_wrap:
-                if arm.body.auto_wrap == "ok":
-                    arm_result = self._create_result_ok_for_return(arm_result)
-                elif arm.body.auto_wrap == "err":
-                    arm_result = self._create_result_err_for_return(arm_result)
-
             # Only add to arm_results if block is not terminated (has a return)
             if not self.builder.block.is_terminated:
                 arm_results.append((arm_result, self.builder.block))

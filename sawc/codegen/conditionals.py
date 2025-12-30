@@ -46,12 +46,6 @@ class ConditionalsMixin:
         # Generate then branch
         self.builder.position_at_start(then_bb)
         then_val = self._generate_block(expr.then_branch)
-        # Check for Result auto-wrap (set by typechecker)
-        if hasattr(expr.then_branch, 'auto_wrap') and expr.then_branch.auto_wrap and then_val is not None:
-            if expr.then_branch.auto_wrap == "ok":
-                then_val = self._create_result_ok_for_return(then_val)
-            elif expr.then_branch.auto_wrap == "err":
-                then_val = self._create_result_err_for_return(then_val)
         then_bb_end = self.builder.block  # May have changed due to nested control flow
         then_terminated = self.builder.block.is_terminated
 
@@ -59,12 +53,6 @@ class ConditionalsMixin:
         self.builder.position_at_start(else_bb)
         if expr.else_branch:
             else_val = self._generate_block(expr.else_branch)
-            # Check for Result auto-wrap (set by typechecker)
-            if hasattr(expr.else_branch, 'auto_wrap') and expr.else_branch.auto_wrap and else_val is not None:
-                if expr.else_branch.auto_wrap == "ok":
-                    else_val = self._create_result_ok_for_return(else_val)
-                elif expr.else_branch.auto_wrap == "err":
-                    else_val = self._create_result_err_for_return(else_val)
         else:
             else_val = None
         else_bb_end = self.builder.block
@@ -82,76 +70,6 @@ class ConditionalsMixin:
                 self.builder.branch(merge_bb)
             self.builder.position_at_start(merge_bb)
             return None
-
-        # Determine result type and wrap values if needed
-        result_alloca = None
-        if then_val is not None and else_val is not None:
-            if then_val.type != else_val.type:
-                # Check if we need to wrap one in Optional
-                then_is_optional = (isinstance(then_val.type, ir.LiteralStructType) and
-                                   len(then_val.type.elements) == 2 and
-                                   isinstance(then_val.type.elements[0], ir.IntType) and
-                                   then_val.type.elements[0].width == 1)
-                else_is_optional = (isinstance(else_val.type, ir.LiteralStructType) and
-                                   len(else_val.type.elements) == 2 and
-                                   isinstance(else_val.type.elements[0], ir.IntType) and
-                                   else_val.type.elements[0].width == 1)
-
-                if else_is_optional and then_val.type == else_val.type.elements[1]:
-                    # else is Optional, then is inner type - wrap then
-                    optional_type = else_val.type
-
-                    # Create alloca for result before branches
-                    self.builder.position_at_start(func.entry_basic_block)
-                    result_alloca = self.builder.alloca(optional_type, name="if_result")
-                    self.builder.position_at_end(func.entry_basic_block)
-
-                    # Go back to then block and wrap + store
-                    self.builder.position_at_end(then_bb_end)
-                    if not then_terminated:
-                        wrapped_then = ir.Constant(optional_type, ir.Undefined)
-                        wrapped_then = self.builder.insert_value(wrapped_then, ir.Constant(ir.IntType(1), 1), 0)
-                        wrapped_then = self.builder.insert_value(wrapped_then, then_val, 1, name="some_then")
-                        self.builder.store(wrapped_then, result_alloca)
-                        self.builder.branch(merge_bb)
-
-                    # Go to else block and store
-                    self.builder.position_at_end(else_bb_end)
-                    if not else_terminated:
-                        self.builder.store(else_val, result_alloca)
-                        self.builder.branch(merge_bb)
-
-                    # Load result at merge
-                    self.builder.position_at_start(merge_bb)
-                    return self.builder.load(result_alloca, name="iftmp")
-
-                elif then_is_optional and else_val.type == then_val.type.elements[1]:
-                    # then is Optional, else is inner type - wrap else
-                    optional_type = then_val.type
-
-                    # Create alloca for result
-                    self.builder.position_at_start(func.entry_basic_block)
-                    result_alloca = self.builder.alloca(optional_type, name="if_result")
-                    self.builder.position_at_end(func.entry_basic_block)
-
-                    # Go to then block and store
-                    self.builder.position_at_end(then_bb_end)
-                    if not then_terminated:
-                        self.builder.store(then_val, result_alloca)
-                        self.builder.branch(merge_bb)
-
-                    # Go to else block and wrap + store
-                    self.builder.position_at_end(else_bb_end)
-                    if not else_terminated:
-                        wrapped_else = ir.Constant(optional_type, ir.Undefined)
-                        wrapped_else = self.builder.insert_value(wrapped_else, ir.Constant(ir.IntType(1), 1), 0)
-                        wrapped_else = self.builder.insert_value(wrapped_else, else_val, 1, name="some_else")
-                        self.builder.store(wrapped_else, result_alloca)
-                        self.builder.branch(merge_bb)
-
-                    # Load result at merge
-                    self.builder.position_at_start(merge_bb)
-                    return self.builder.load(result_alloca, name="iftmp")
 
         # Normal case - add branches if not terminated
         if not then_terminated:

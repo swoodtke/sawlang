@@ -1,0 +1,16 @@
+// Test that underlying type cannot implicitly convert to type alias
+// Int -> MyInt should NOT work (type safety)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: expects `MyInt` but got `Int`
+
+type MyInt = Int
+
+func process(x: MyInt) -> MyInt {
+    x * 2
+}
+
+func main() {
+    let x: Int = 42
+    // This should fail - Int cannot implicitly become MyInt
+    print(process(x))
+}

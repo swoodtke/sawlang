@@ -14,7 +14,7 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import TryExpr, TryCatchExpr, SawType, TypeKind
+from ast_nodes import TryExpr, TryCatchExpr, SawType, TypeKind, ResultOkWrap, ResultErrWrap
 
 
 class ResultsMixin:
@@ -448,6 +448,24 @@ class ResultsMixin:
 
         result_val = self.builder.insert_value(result_val, payload_bytes, 1)
         return result_val
+
+    def visit_ResultOkWrap(self, expr: ResultOkWrap):
+        """Generate code for ResultOkWrap (T -> Result<T, E> as Ok).
+
+        This is inserted by the typechecker when a value of type T
+        is returned from a function with return type Result<T, E>.
+        """
+        value = self._generate_expression(expr.value)
+        return self._create_result_ok_for_return(value)
+
+    def visit_ResultErrWrap(self, expr: ResultErrWrap):
+        """Generate code for ResultErrWrap (E -> Result<T, E> as Err).
+
+        This is inserted by the typechecker when a value of type E
+        is returned from a function with return type Result<T, E>.
+        """
+        value = self._generate_expression(expr.value)
+        return self._create_result_err_for_return(value)
 
     def _get_result_enum_name(self, result_type: SawType) -> str:
         """Get the monomorphized enum name for a Result type."""

@@ -183,7 +183,12 @@ class TypeUtilsMixin:
             return saw_type
 
     def _resolve_type(self, saw_type: SawType) -> SawType:
-        """Resolve user-defined types (ENUMs parsed as STRUCT). Does NOT resolve type aliases."""
+        """Resolve user-defined types (ENUMs parsed as STRUCT).
+
+        NOTE: Does NOT resolve type aliases because `type X = Y` creates a distinct type
+        in Saw, not a transparent alias. Use _resolve_type_alias() when you need to
+        check the underlying type structure (e.g., to check if something is Optional).
+        """
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
             # Check if this is actually an enum (NOT a type alias - those stay as STRUCT)
             enum_symbol = self.namespace.lookup_enum(saw_type.struct_name)
@@ -253,6 +258,20 @@ class TypeUtilsMixin:
         # Allow implicit wrapping: T is compatible with T?
         if b.is_optional() and not a.is_optional():
             if self._types_compatible(a, b.unwrap_optional(), allow_literal_to_distinct):
+                return True
+
+        # Allow type alias to implicitly convert to its underlying type
+        # e.g., UserId -> Int is allowed, but Int -> UserId is not (except for literals)
+        # Also handles chained aliases: SuperInt -> MyInt -> BaseInt -> Int
+        if a.is_struct() and self.get_type_alias_info(a.struct_name):
+            underlying_a = self._resolve_type_alias(a)
+            # If b is also a type alias, check if they resolve to the same underlying type
+            if b.is_struct() and self.get_type_alias_info(b.struct_name):
+                underlying_b = self._resolve_type_alias(b)
+                if self._types_compatible(underlying_a, underlying_b, allow_literal_to_distinct):
+                    return True
+            # Otherwise check if a's underlying type is compatible with b
+            if self._types_compatible(underlying_a, b, allow_literal_to_distinct):
                 return True
 
         # Check if b is a distinct type (STRUCT with name in type_aliases)
