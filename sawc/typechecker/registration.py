@@ -114,7 +114,7 @@ class RegistrationMixin:
 
     def _register_type_definition(self, type_def: TypeDefinition):
         """Register a type definition (type alias)."""
-        if type_def.name in self.type_aliases:
+        if self.get_type_alias_info(type_def.name):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"type `{type_def.name}` is defined multiple times",
@@ -124,10 +124,9 @@ class RegistrationMixin:
 
         # Resolve the defined type (it might reference other type aliases)
         resolved_type = self._resolve_type_alias(type_def.defined_type)
-        self.type_aliases[type_def.name] = resolved_type
-        # Also register in namespace
         self.namespace.register_type_alias(type_def.name, TypeAliasSymbol(
-            aliased_type=resolved_type
+            aliased_type=resolved_type,
+            visibility=getattr(type_def, 'visibility', Visibility.PRIVATE)
         ))
 
     def _register_struct(self, struct: Struct):
@@ -350,7 +349,7 @@ class RegistrationMixin:
         return (name in self.BUILTIN_TYPE_NAMES or
                 self.namespace.has_struct(name) or
                 self.namespace.has_enum(name) or
-                name in self.type_aliases)
+                self.get_type_alias_info(name) is not None)
 
     def _get_specialization_key(self, extension: Extension) -> tuple:
         """Check if extension is a specialization and return the type args key.
@@ -520,18 +519,10 @@ class RegistrationMixin:
             else:
                 self.namespace.register_method(extension.struct_name, method.name, method_symbol)
 
-        # Process type assignments for trait conformances
-        for trait_name in extension.conformances:
-            if not self.namespace.has_trait(trait_name):
-                continue  # Error will be reported below
-
-            # Collect type assignments for this trait
-            assignments: Dict[str, SawType] = {}
-            for type_assign in extension.type_assignments:
-                assignments[type_assign.name] = type_assign.assigned_type
-
-            # Store the assignments
-            self.type_assignments[(extension.struct_name, trait_name)] = assignments
+        # Collect type assignments once (shared across all trait conformances)
+        local_assignments: Dict[str, SawType] = {}
+        for type_assign in extension.type_assignments:
+            local_assignments[type_assign.name] = type_assign.assigned_type
 
         # Check trait conformances
         for trait_name in extension.conformances:
@@ -544,16 +535,10 @@ class RegistrationMixin:
                 )
                 continue
 
+            # Register conformance in namespace FIRST (so _check_trait_conformance can read it)
+            self.namespace.register_conformance(extension.struct_name, trait_name, local_assignments)
+
             self._check_trait_conformance(extension.struct_name, trait_info, struct_info, extension)
-
-            # Track the conformance
-            if extension.struct_name not in self.type_conformances:
-                self.type_conformances[extension.struct_name] = []
-            self.type_conformances[extension.struct_name].append(trait_name)
-
-            # Also register in namespace
-            type_assigns = self.type_assignments.get((extension.struct_name, trait_name), {})
-            self.namespace.register_conformance(extension.struct_name, trait_name, type_assigns)
 
     def _check_trait_conformance(self, type_name: str, trait_info, struct_info, extension: Extension):
         """Check that a type conforms to a trait by implementing all required methods."""
@@ -603,7 +588,7 @@ class RegistrationMixin:
                 )
 
         # Check that all required associated types are provided
-        type_assigns = self.type_assignments.get((type_name, trait_info.name), {})
+        type_assigns = self.namespace.get_type_assignments(type_name, trait_info.name)
         for assoc_type_name in trait_info.associated_types:
             if assoc_type_name not in type_assigns:
                 self._error(
@@ -631,8 +616,8 @@ class RegistrationMixin:
             return SawType(TypeKind.STRUCT, struct_name=self_type_name)
         if trait_type.kind == TypeKind.STRUCT and trait_type.struct_name:
             # Handle associated types
-            if trait_name and (self_type_name, trait_name) in self.type_assignments:
-                type_assigns = self.type_assignments[(self_type_name, trait_name)]
+            if trait_name:
+                type_assigns = self.namespace.get_type_assignments(self_type_name, trait_name)
                 if trait_type.struct_name in type_assigns:
                     return type_assigns[trait_type.struct_name]
             # Recursively resolve type args

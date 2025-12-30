@@ -944,8 +944,7 @@ class StatementsMixin:
         type_name = iterable_type.struct_name
 
         # Check if the type conforms to Iterator
-        conformances = self.type_conformances.get(type_name, [])
-        if "Iterator" not in conformances:
+        if not self.namespace.type_conforms_to(type_name, "Iterator"):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"type `{type_name}` does not implement Iterator",
@@ -955,7 +954,7 @@ class StatementsMixin:
             return None
 
         # Get the Item associated type
-        type_assigns = self.type_assignments.get((type_name, "Iterator"), {})
+        type_assigns = self.namespace.get_type_assignments(type_name, "Iterator")
         if "Item" not in type_assigns:
             self._error(
                 ErrorKind.TYPE_MISMATCH,

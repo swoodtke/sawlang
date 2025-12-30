@@ -156,8 +156,9 @@ class TypeUtilsMixin:
         """Resolve any type aliases in a SawType."""
         if saw_type.kind == TypeKind.STRUCT:
             # Check if this is actually a type alias
-            if saw_type.struct_name in self.type_aliases:
-                return self.type_aliases[saw_type.struct_name]
+            alias_sym = self.get_type_alias_info(saw_type.struct_name)
+            if alias_sym:
+                return alias_sym.aliased_type
             # Recursively resolve type_args
             if saw_type.type_args:
                 resolved_args = [self._resolve_type_alias(t) for t in saw_type.type_args]
@@ -217,8 +218,9 @@ class TypeUtilsMixin:
         Used for checking if operations are valid on distinct types."""
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
             # Resolve type alias to underlying type
-            if saw_type.struct_name in self.type_aliases:
-                return self._get_underlying_type(self.type_aliases[saw_type.struct_name])
+            alias_sym = self.get_type_alias_info(saw_type.struct_name)
+            if alias_sym:
+                return self._get_underlying_type(alias_sym.aliased_type)
         elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
             resolved_inner = self._get_underlying_type(saw_type.inner_type)
             return SawType(TypeKind.OPTIONAL, inner_type=resolved_inner)
@@ -254,7 +256,7 @@ class TypeUtilsMixin:
                 return True
 
         # Check if b is a distinct type (STRUCT with name in type_aliases)
-        if b.is_struct() and b.struct_name in self.type_aliases:
+        if b.is_struct() and self.get_type_alias_info(b.struct_name):
             # Allow primitive types to initialize distinct type wrappers
             # Only in initialization context (allow_literal_to_distinct=True)
             if allow_literal_to_distinct:
@@ -321,8 +323,7 @@ class TypeUtilsMixin:
             # Check if b is a trait that a conforms to
             if self.namespace.has_trait(b.struct_name):
                 # a must be a struct that conforms to trait b
-                if a.struct_name in self.type_conformances:
-                    return b.struct_name in self.type_conformances[a.struct_name]
+                return self.namespace.type_conforms_to(a.struct_name, b.struct_name)
             return False
 
         # For enum types, check enum names match
@@ -364,8 +365,7 @@ class TypeUtilsMixin:
             return False
 
         # Check if type conforms to NoCopy
-        conformances = self.type_conformances.get(type_name, [])
-        return "NoCopy" in conformances
+        return self.namespace.type_conforms_to(type_name, "NoCopy")
 
     def _is_custom_copy_type(self, saw_type: SawType) -> bool:
         """Check if a type implements CustomCopy."""
@@ -383,8 +383,7 @@ class TypeUtilsMixin:
             return False
 
         # Check if type conforms to CustomCopy
-        conformances = self.type_conformances.get(type_name, [])
-        return "CustomCopy" in conformances
+        return self.namespace.type_conforms_to(type_name, "CustomCopy")
 
     def _is_deinit_type(self, saw_type: SawType) -> bool:
         """Check if a type implements Deinit (directly or through NoCopy/CustomCopy)."""
@@ -402,9 +401,10 @@ class TypeUtilsMixin:
             return False
 
         # Check if type conforms to Deinit (directly or via NoCopy/CustomCopy)
-        conformances = self.type_conformances.get(type_name, [])
         # NoCopy and CustomCopy both inherit from Deinit
-        return "Deinit" in conformances or "NoCopy" in conformances or "CustomCopy" in conformances
+        return (self.namespace.type_conforms_to(type_name, "Deinit") or
+                self.namespace.type_conforms_to(type_name, "NoCopy") or
+                self.namespace.type_conforms_to(type_name, "CustomCopy"))
 
     def _check_no_copy_return(self, return_type: SawType, final_expr: Optional[Expression],
                                context_name: str, line: int, column: int):
@@ -467,9 +467,8 @@ class TypeUtilsMixin:
         """Check that structs containing NoCopy fields also implement NoCopy."""
         for struct_name, struct_info in self.namespace.structs.items():
             # Skip if struct already implements NoCopy
-            if struct_name in self.type_conformances:
-                if "NoCopy" in self.type_conformances[struct_name]:
-                    continue
+            if self.namespace.type_conforms_to(struct_name, "NoCopy"):
+                continue
 
             # Check each field
             for field_name, field_type in struct_info.fields.items():
@@ -487,10 +486,9 @@ class TypeUtilsMixin:
         for struct_name, struct_info in self.namespace.structs.items():
             # Skip if struct already implements CustomCopy or NoCopy
             # (NoCopy types can contain CustomCopy fields since they can't be copied anyway)
-            if struct_name in self.type_conformances:
-                conformances = self.type_conformances[struct_name]
-                if "CustomCopy" in conformances or "NoCopy" in conformances:
-                    continue
+            if (self.namespace.type_conforms_to(struct_name, "CustomCopy") or
+                self.namespace.type_conforms_to(struct_name, "NoCopy")):
+                continue
 
             # Check each field
             for field_name, field_type in struct_info.fields.items():
@@ -507,10 +505,10 @@ class TypeUtilsMixin:
         """Check that structs containing Deinit fields also implement Deinit."""
         for struct_name, struct_info in self.namespace.structs.items():
             # Skip if struct already implements Deinit (or NoCopy/CustomCopy which imply Deinit)
-            if struct_name in self.type_conformances:
-                conformances = self.type_conformances[struct_name]
-                if "Deinit" in conformances or "NoCopy" in conformances or "CustomCopy" in conformances:
-                    continue
+            if (self.namespace.type_conforms_to(struct_name, "Deinit") or
+                self.namespace.type_conforms_to(struct_name, "NoCopy") or
+                self.namespace.type_conforms_to(struct_name, "CustomCopy")):
+                continue
 
             # Check each field
             for field_name, field_type in struct_info.fields.items():

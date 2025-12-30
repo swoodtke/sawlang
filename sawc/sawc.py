@@ -402,11 +402,8 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     for name in builtin_ns.type_aliases:
         builtin_ns.make_accessible(name)
 
-    # Copy type information to the main typechecker
-    # (structs, traits, functions, enums are now namespace-only)
-    typechecker.type_aliases = dict(builtin_typechecker.type_aliases)
-    typechecker.type_conformances = dict(builtin_typechecker.type_conformances)
-    typechecker.type_assignments = dict(builtin_typechecker.type_assignments)
+    # All type information is now namespace-only
+    # (structs, traits, functions, enums, type_aliases, conformances, type_assignments)
 
     # Topologically sort modules by dependencies
     ordered_modules = topological_sort_modules(module_map)

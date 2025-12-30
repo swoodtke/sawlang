@@ -89,12 +89,6 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Track break value types for each loop level
         # Each entry is (expected_type: Optional[SawType], is_infinite: bool, has_break: bool)
         self.loop_break_info: List[Tuple[Optional[SawType], bool, bool]] = []
-        # Track which types implement which traits
-        self.type_conformances: Dict[str, List[str]] = {}  # type_name -> [trait_names]
-        # Track associated type assignments: (type_name, trait_name) -> {assoc_type_name: SawType}
-        self.type_assignments: Dict[Tuple[str, str], Dict[str, SawType]] = {}
-        # Type aliases: name -> SawType
-        self.type_aliases: Dict[str, SawType] = {}
         # Track moved variables for use-after-move detection
         self.moved_variables: set[str] = set()
         # Track if we're inside a try-catch block (errors go to catch, not caller)

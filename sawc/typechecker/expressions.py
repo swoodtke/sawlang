@@ -1099,7 +1099,7 @@ class ExpressionsMixin:
         inner_type = self._check_expression(expr.expr)
         if inner_type is None:
             return None
-        if inner_type.kind == TypeKind.STRUCT and inner_type.struct_name in self.type_aliases:
+        if inner_type.kind == TypeKind.STRUCT and self.get_type_alias_info(inner_type.struct_name):
             underlying = self._get_underlying_type(inner_type)
             if underlying.kind == TypeKind.OPTIONAL:
                 return underlying.inner_type

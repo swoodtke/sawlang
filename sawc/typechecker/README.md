@@ -46,10 +46,7 @@ Main `TypeChecker` class with:
 #### Key State Variables
 | Variable | Type | Purpose |
 |----------|------|---------|
-| `self.namespace` | `Namespace` | Symbol namespace for all types |
-| `self.type_aliases` | `Dict[str, SawType]` | Type alias mappings |
-| `self.type_conformances` | `Dict[str, List[str]]` | Type -> trait conformances |
-| `self.type_assignments` | `Dict[Tuple[str, str], Dict[str, SawType]]` | Associated type assignments |
+| `self.namespace` | `Namespace` | Symbol namespace for all types, aliases, conformances, and type assignments |
 | `self.current_scope` | `Scope` | Current lexical scope |
 | `self.current_function` | `Function` | Function being checked |
 | `self.current_method` | `Method` | Method being checked |
