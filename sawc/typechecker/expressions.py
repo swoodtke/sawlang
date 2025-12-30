@@ -22,6 +22,7 @@ from ast_nodes import (
     SawType, TypeKind
 )
 from errors import ErrorKind
+from namespace import Visibility, EnumSymbol
 
 
 class ExpressionsMixin:
@@ -397,7 +398,6 @@ class ExpressionsMixin:
 
     def _check_function_call(self, expr: FunctionCall) -> Optional[SawType]:
         """Check a function call."""
-        from .core import FunctionInfo
         if expr.name == "print":
             if len(expr.arguments) > 1:
                 self._error(
@@ -450,7 +450,7 @@ class ExpressionsMixin:
                         arg.value.line, arg.value.column
                     )
             return return_type
-        func_info = self.functions.get(expr.name)
+        func_info = self.get_function_info(expr.name)
         if func_info and not self.namespace.is_accessible(expr.name):
             self._error(
                 ErrorKind.UNDEFINED_FUNCTION,
@@ -460,7 +460,20 @@ class ExpressionsMixin:
             )
             return None
         if not func_info:
-            if expr.name in self.structs and self.namespace.is_accessible(expr.name):
+            # Check if function exists in any imported module (not directly accessible)
+            from namespace import SymbolKind
+            for module_name, module_sym in self.namespace.modules.items():
+                if module_sym.namespace:
+                    sym = module_sym.namespace.lookup_function(expr.name)
+                    if sym and sym.visibility == Visibility.PUBLIC:
+                        self._error(
+                            ErrorKind.UNDEFINED_FUNCTION,
+                            f"function `{expr.name}` is not directly accessible",
+                            expr.line, expr.column,
+                            hint=f"use qualified access (e.g., `{module_name}.{expr.name}`) or import it directly"
+                        )
+                        return None
+            if self.get_struct_info(expr.name) and self.namespace.is_accessible(expr.name):
                 from ast_nodes import StructInit, Argument
                 field_inits = []
                 for arg in expr.arguments:
@@ -512,7 +525,7 @@ class ExpressionsMixin:
                 resolved_arg = self._resolve_type(type_arg)
                 type_map[type_param.name] = resolved_arg
                 for bound in type_param.bounds:
-                    if bound not in self.traits:
+                    if self.get_trait_info(bound) is None:
                         self._error(
                             ErrorKind.UNDEFINED_VARIABLE,
                             f"unknown trait `{bound}` in type parameter bound",
@@ -525,7 +538,7 @@ class ExpressionsMixin:
                     elif resolved_arg.kind == TypeKind.ENUM:
                         concrete_type_name = resolved_arg.enum_name
                     if concrete_type_name:
-                        conformances = self.type_conformances.get(concrete_type_name, [])
+                        conformances = self.namespace.get_conformances(concrete_type_name)
                         if bound not in conformances:
                             self._error(
                                 ErrorKind.TYPE_MISMATCH,
@@ -534,7 +547,7 @@ class ExpressionsMixin:
                                 hint=f"add `extension {concrete_type_name}: {bound} {{ ... }}`"
                             )
                         else:
-                            type_assigns = self.type_assignments.get((concrete_type_name, bound), {})
+                            type_assigns = self.namespace.get_type_assignments(concrete_type_name, bound)
                             for assoc_name, assoc_type in type_assigns.items():
                                 type_map[assoc_name] = assoc_type
             param_types = [t.substitute(type_map) for t in func_info.param_types]
@@ -830,9 +843,9 @@ class ExpressionsMixin:
                     if symbol.kind == SymbolKind.STRUCT:
                         expr.resolved_struct_name = expr.member
                         expr.resolved_module = obj_type.module_name
-                        return SawType(TypeKind.STRUCT, struct_name=expr.member)
+                        return SawType(TypeKind.STRUCT, struct_name=expr.member, symbol=symbol)
                     elif symbol.kind == SymbolKind.ENUM:
-                        return SawType(TypeKind.ENUM, enum_name=expr.member)
+                        return SawType(TypeKind.ENUM, enum_name=expr.member, symbol=symbol)
                     elif symbol.kind == SymbolKind.FUNCTION:
                         expr.resolved_function_name = expr.member
                         expr.resolved_module = obj_type.module_name
@@ -866,9 +879,9 @@ class ExpressionsMixin:
                 if symbol.kind == SymbolKind.STRUCT:
                     expr.resolved_struct_name = expr.member
                     expr.resolved_module = expr.object.name
-                    return SawType(TypeKind.STRUCT, struct_name=expr.member)
+                    return SawType(TypeKind.STRUCT, struct_name=expr.member, symbol=symbol)
                 elif symbol.kind == SymbolKind.ENUM:
-                    return SawType(TypeKind.ENUM, enum_name=expr.member)
+                    return SawType(TypeKind.ENUM, enum_name=expr.member, symbol=symbol)
                 elif symbol.kind == SymbolKind.FUNCTION:
                     expr.resolved_function_name = expr.member
                     expr.resolved_module = expr.object.name
@@ -885,8 +898,8 @@ class ExpressionsMixin:
                         expr.line, expr.column
                     )
                     return None
-            if expr.object.name in self.enums:
-                enum_info = self.enums[expr.object.name]
+            enum_info = self.get_enum_info(expr.object.name)
+            if enum_info:
                 type_args = expr.object.type_args
                 if enum_info.type_params:
                     if not type_args:
@@ -905,7 +918,7 @@ class ExpressionsMixin:
                 if expr.member in enum_info.variants:
                     variant_params = enum_info.variants[expr.member]
                     if len(variant_params) == 0:
-                        return SawType(TypeKind.ENUM, enum_name=expr.object.name, type_args=type_args)
+                        return SawType(TypeKind.ENUM, enum_name=expr.object.name, type_args=type_args, symbol=enum_info)
                     else:
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
@@ -932,7 +945,7 @@ class ExpressionsMixin:
             return None
         if obj_type.struct_name is None:
             return None
-        struct_info = self.structs.get(obj_type.struct_name)
+        struct_info = self.get_struct_info(obj_type.struct_name)
         if struct_info is None:
             return None
         if expr.member not in struct_info.fields:
@@ -948,7 +961,7 @@ class ExpressionsMixin:
 
     def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
         """Check struct initialization with parameter-based resolution."""
-        struct_info = self.structs.get(expr.struct_name)
+        struct_info = self.get_struct_info(expr.struct_name)
         if struct_info is None:
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
@@ -978,21 +991,32 @@ class ExpressionsMixin:
         field_names = set(struct_info.fields.keys())
         matches_fields = provided_params == field_names
         matching_inits = []
+        # Check for init methods in both methods dict (legacy) and init_methods list (namespace)
         for method_name, method_info in struct_info.methods.items():
             if method_info.is_init:
                 init_param_names = set(method_info.param_names)
                 if provided_params == init_param_names:
                     matching_inits.append(method_info)
+        # Also check init_methods list (for StructSymbol from namespace)
+        if hasattr(struct_info, 'init_methods'):
+            for method_info in struct_info.init_methods:
+                init_param_names = set(method_info.param_names)
+                if provided_params == init_param_names:
+                    matching_inits.append(method_info)
         total_matches = (1 if matches_fields else 0) + len(matching_inits)
         if total_matches == 0:
+            # Collect available init methods from both methods dict and init_methods list
+            available_inits = [m.param_names for m in struct_info.methods.values() if m.is_init]
+            if hasattr(struct_info, 'init_methods'):
+                available_inits.extend([m.param_names for m in struct_info.init_methods])
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"no matching initializer for `{expr.struct_name}` with parameters: {', '.join(sorted(provided_params))}",
                 expr.line, expr.column,
                 hint=f"field init expects: {', '.join(sorted(field_names))}" +
-                     (f"; available init methods: {[m.param_names for m in struct_info.methods.values() if m.is_init]}" if any(m.is_init for m in struct_info.methods.values()) else "")
+                     (f"; available init methods: {available_inits}" if available_inits else "")
             )
-            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args)
+            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args, symbol=struct_info)
         elif total_matches > 1:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -1000,7 +1024,7 @@ class ExpressionsMixin:
                 expr.line, expr.column,
                 hint="use different parameter names in init method to disambiguate"
             )
-            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args)
+            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args, symbol=struct_info)
         if matches_fields:
             expr.resolved_init_params = None
             for field_name, field_value in expr.field_inits:
@@ -1031,7 +1055,7 @@ class ExpressionsMixin:
                         f"parameter `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
                         expr.line, expr.column
                     )
-        return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args)
+        return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args, symbol=struct_info)
 
     def _check_none_literal(self, expr: NoneLiteral) -> Optional[SawType]:
         """Check None literal - returns a special 'None' type that can unify with any T?."""
@@ -1131,7 +1155,7 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return None
-        struct_info = self.structs.get(inner_type.struct_name)
+        struct_info = self.get_struct_info(inner_type.struct_name)
         if struct_info is None:
             return None
         if expr.member not in struct_info.fields:
@@ -1204,17 +1228,18 @@ class ExpressionsMixin:
         if name in type_mapping:
             return type_mapping[name]
         # Check if it's a user-defined struct
-        if name in self.structs:
-            return SawType(TypeKind.STRUCT, struct_name=name)
+        struct_info = self.namespace.lookup_struct(name)
+        if struct_info:
+            return SawType(TypeKind.STRUCT, struct_name=name, symbol=struct_info)
         # Check if it's an enum
-        if name in self.enums:
-            return SawType(TypeKind.ENUM, struct_name=name)
+        enum_info = self.namespace.lookup_enum(name)
+        if enum_info:
+            return SawType(TypeKind.ENUM, enum_name=name, symbol=enum_info)
         # Fallback to STRUCT type
         return SawType(TypeKind.STRUCT, struct_name=name)
 
     def _lookup_method(self, struct_info, method_name: str, type_args: List[SawType] = None):
         """Look up a method, checking specialized extensions first."""
-        from .core import MethodInfo
         # First, check if there's a specialized extension matching the type args
         if type_args and struct_info.specialized_methods:
             spec_key = self._make_specialization_key(type_args)
@@ -1231,13 +1256,12 @@ class ExpressionsMixin:
 
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
         """Check a method call, static method call, enum initialization, or module function call."""
-        from .core import FunctionInfo, MethodInfo
         if isinstance(expr.object, MemberAccess):
             obj_type = self._check_member_access(expr.object)
             # Handle static method calls on module-qualified structs: module.Struct.method()
             if obj_type and obj_type.kind == TypeKind.STRUCT:
                 struct_name = obj_type.struct_name
-                struct_info = self.structs.get(struct_name)
+                struct_info = self.get_struct_info(struct_name)
                 if struct_info and expr.method_name in struct_info.methods:
                     method_info = struct_info.methods[expr.method_name]
                     if method_info.is_static:
@@ -1262,32 +1286,11 @@ class ExpressionsMixin:
                         )
                         return None
                     if symbol.kind == SymbolKind.FUNCTION:
-                        func_info = self.functions.get(expr.method_name)
-                        if func_info:
-                            return self._check_module_function_call(expr, func_info)
-                        else:
-                            self._error(
-                                ErrorKind.UNDEFINED_FUNCTION,
-                                f"function `{expr.method_name}` not found",
-                                expr.line, expr.column
-                            )
-                            return None
+                        # Use the symbol directly - it's already a FunctionSymbol
+                        return self._check_module_function_call(expr, symbol)
                     elif symbol.kind == SymbolKind.STRUCT:
-                        struct_init = StructInit(
-                            struct_name=expr.method_name,
-                            field_inits=[(arg.name, arg.value) for arg in expr.arguments if arg.name],
-                            type_args=None,
-                            line=expr.line,
-                            column=expr.column
-                        )
-                        if all(arg.name is None for arg in expr.arguments):
-                            struct_info = self.structs.get(expr.method_name)
-                            if struct_info:
-                                field_inits = []
-                                for arg, field_name in zip(expr.arguments, struct_info.field_order):
-                                    field_inits.append((field_name, arg.value))
-                                struct_init.field_inits = field_inits
-                        return self._check_struct_init(struct_init)
+                        # For module-qualified struct init, check using the symbol directly
+                        return self._check_module_struct_init(expr, symbol)
                     else:
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
@@ -1312,32 +1315,11 @@ class ExpressionsMixin:
                     )
                     return None
                 if symbol.kind == SymbolKind.FUNCTION:
-                    func_info = self.functions.get(expr.method_name)
-                    if func_info:
-                        return self._check_module_function_call(expr, func_info)
-                    else:
-                        self._error(
-                            ErrorKind.UNDEFINED_FUNCTION,
-                            f"function `{expr.method_name}` not found",
-                            expr.line, expr.column
-                        )
-                        return None
+                    # Use the symbol directly - it's already a FunctionSymbol
+                    return self._check_module_function_call(expr, symbol)
                 elif symbol.kind == SymbolKind.STRUCT:
-                    struct_init = StructInit(
-                        struct_name=expr.method_name,
-                        field_inits=[(arg.name, arg.value) for arg in expr.arguments if arg.name],
-                        type_args=None,
-                        line=expr.line,
-                        column=expr.column
-                    )
-                    if all(arg.name is None for arg in expr.arguments):
-                        struct_info = self.structs.get(expr.method_name)
-                        if struct_info:
-                            field_inits = []
-                            for arg, field_name in zip(expr.arguments, struct_info.field_order):
-                                field_inits.append((field_name, arg.value))
-                            struct_init.field_inits = field_inits
-                    return self._check_struct_init(struct_init)
+                    # For module-qualified struct init, check using the symbol directly
+                    return self._check_module_struct_init(expr, symbol)
                 elif symbol.kind == SymbolKind.ENUM:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -1352,14 +1334,15 @@ class ExpressionsMixin:
                         expr.line, expr.column
                     )
                     return None
-        if isinstance(expr.object, Identifier) and expr.object.name in self.structs:
-            struct_name = expr.object.name
-            struct_info = self.structs[struct_name]
-            if expr.method_name in struct_info.methods:
-                method_info = struct_info.methods[expr.method_name]
-                if method_info.is_static:
-                    return self._check_static_method_call(expr, struct_name, struct_info, method_info)
-        if isinstance(expr.object, Identifier) and expr.object.name in self.enums:
+        if isinstance(expr.object, Identifier):
+            struct_info = self.get_struct_info(expr.object.name)
+            if struct_info:
+                struct_name = expr.object.name
+                if expr.method_name in struct_info.methods:
+                    method_info = struct_info.methods[expr.method_name]
+                    if method_info.is_static:
+                        return self._check_static_method_call(expr, struct_name, struct_info, method_info)
+        if isinstance(expr.object, Identifier) and self.get_enum_info(expr.object.name):
             enum_init = EnumInit(
                 enum_name=expr.object.name,
                 variant_name=expr.method_name,
@@ -1374,8 +1357,11 @@ class ExpressionsMixin:
             return None
         if obj_type.kind == TypeKind.STRING:
             struct_name = "String"
+            struct_info = self.get_struct_info(struct_name)
         elif obj_type.kind == TypeKind.STRUCT:
             struct_name = obj_type.struct_name
+            # Use symbol reference if available, fall back to namespace lookup
+            struct_info = obj_type.symbol if obj_type.symbol else self.get_struct_info(struct_name)
         else:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -1383,10 +1369,7 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return None
-        if struct_name is None:
-            return None
-        struct_info = self.structs.get(struct_name)
-        if struct_info is None:
+        if struct_name is None or struct_info is None:
             return None
         type_subst: Dict[str, SawType] = {}
         if struct_info.type_params and obj_type.type_args:
@@ -1474,6 +1457,85 @@ class ExpressionsMixin:
                 )
         return func_info.return_type
 
+    def _check_module_struct_init(self, expr: MethodCall, struct_sym) -> Optional[SawType]:
+        """Check a module-qualified struct initialization: ModuleName.StructName(args)
+
+        Uses the struct symbol directly instead of looking up by name.
+        """
+        struct_name = expr.method_name
+        # Build field inits from arguments
+        field_inits = [(arg.name, arg.value) for arg in expr.arguments if arg.name]
+        if all(arg.name is None for arg in expr.arguments):
+            # Positional arguments - use symbol's field_order
+            field_inits = []
+            for arg, field_name in zip(expr.arguments, struct_sym.field_order):
+                field_inits.append((field_name, arg.value))
+
+        provided_params = {field_name for field_name, _ in field_inits}
+        field_names = set(struct_sym.fields.keys())
+        matches_fields = provided_params == field_names
+
+        # Check for matching init methods
+        matching_inits = []
+        for method_name, method_info in struct_sym.methods.items():
+            if method_info.is_init:
+                init_param_names = set(method_info.param_names)
+                if provided_params == init_param_names:
+                    matching_inits.append(method_info)
+        # Also check init_methods list
+        for method_info in struct_sym.init_methods:
+            init_param_names = set(method_info.param_names)
+            if provided_params == init_param_names:
+                matching_inits.append(method_info)
+
+        total_matches = (1 if matches_fields else 0) + len(matching_inits)
+        if total_matches == 0:
+            available_inits = [m.param_names for m in struct_sym.methods.values() if m.is_init]
+            available_inits.extend([m.param_names for m in struct_sym.init_methods])
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"no matching initializer for `{struct_name}` with parameters: {', '.join(sorted(provided_params))}",
+                expr.line, expr.column,
+                hint=f"field init expects: {', '.join(sorted(field_names))}" +
+                     (f"; available init methods: {available_inits}" if available_inits else "")
+            )
+            return SawType(TypeKind.STRUCT, struct_name=struct_name, symbol=struct_sym)
+        elif total_matches > 1:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"ambiguous initializer for `{struct_name}` - matches both field initialization and custom init",
+                expr.line, expr.column,
+                hint="use different parameter names in init method to disambiguate"
+            )
+            return SawType(TypeKind.STRUCT, struct_name=struct_name, symbol=struct_sym)
+
+        if matches_fields:
+            # Field initialization
+            for field_name, field_value in field_inits:
+                expected_type = struct_sym.fields[field_name]
+                actual_type = self._check_expression(field_value)
+                if actual_type and not self._types_compatible(actual_type, expected_type):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"field `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
+                        expr.line, expr.column
+                    )
+        else:
+            # Custom init method
+            method_info = matching_inits[0]
+            for field_name, field_value in field_inits:
+                param_idx = method_info.param_names.index(field_name)
+                expected_type = method_info.param_types[param_idx]
+                actual_type = self._check_expression(field_value)
+                if actual_type and not self._types_compatible(actual_type, expected_type):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"argument `{field_name}` expects `{expected_type}` but got `{actual_type}`",
+                        expr.line, expr.column
+                    )
+
+        return SawType(TypeKind.STRUCT, struct_name=struct_name, symbol=struct_sym)
+
     def _check_static_method_call(self, expr: MethodCall, struct_name: str,
                                    struct_info, method_info) -> Optional[SawType]:
         """Check a static method call: StructName.method(args)"""
@@ -1527,14 +1589,14 @@ class ExpressionsMixin:
 
     def _check_enum_init(self, expr: EnumInit) -> Optional[SawType]:
         """Check enum variant initialization."""
-        if expr.enum_name not in self.enums:
+        enum_info = self.get_enum_info(expr.enum_name)
+        if enum_info is None:
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined enum `{expr.enum_name}`",
                 expr.line, expr.column
             )
             return None
-        enum_info = self.enums[expr.enum_name]
         type_mapping: Dict[str, SawType] = {}
         if enum_info.type_params:
             if not expr.type_args:
@@ -1601,7 +1663,7 @@ class ExpressionsMixin:
                         f"expected type `{expected_type}` for parameter `{param_name}`, got `{arg_type}`",
                         arg.value.line, arg.value.column
                     )
-        return SawType(TypeKind.ENUM, enum_name=expr.enum_name, type_args=expr.type_args)
+        return SawType(TypeKind.ENUM, enum_name=expr.enum_name, type_args=expr.type_args, symbol=enum_info)
 
     def _check_match_expr(self, expr: MatchExpr) -> Optional[SawType]:
         """Check match expression."""
@@ -1620,7 +1682,7 @@ class ExpressionsMixin:
         # Store the matched type for codegen (avoids needing to match by LLVM type)
         expr.matched_enum_type = matched_type
 
-        enum_info = self.enums.get(matched_type.enum_name)
+        enum_info = self.get_enum_info(matched_type.enum_name)
         if enum_info is None:
             return None
         type_mapping: Dict[str, SawType] = {}
@@ -2078,8 +2140,6 @@ class ExpressionsMixin:
 
         This allows using match in the catch block to differentiate errors.
         """
-        from .core import EnumInfo
-
         # Create unique name based on expression id
         union_name = f"_CatchError_{id(expr)}"
 
@@ -2098,12 +2158,13 @@ class ExpressionsMixin:
             variants[variant_name] = [("value", err_type)]
             variant_order.append(variant_name)
 
-        # Register the enum
-        self.enums[union_name] = EnumInfo(
-            name=union_name,
+        # Register the enum in namespace
+        union_enum = EnumSymbol(
             variants=variants,
             variant_order=variant_order,
-            type_params=[]
+            type_params=[],
+            visibility=Visibility.PRIVATE
         )
+        self.namespace.register_enum(union_name, union_enum)
 
-        return SawType(TypeKind.ENUM, enum_name=union_name)
+        return SawType(TypeKind.ENUM, enum_name=union_name, symbol=union_enum)

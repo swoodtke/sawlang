@@ -3,7 +3,7 @@ Saw Language AST Node Definitions
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from enum import Enum, auto
 
 
@@ -63,6 +63,8 @@ class SawType:
     module_name: Optional[str] = None
     # For reference types (REFERENCE), True = &var T (mutable), False = &T (immutable)
     reference_mutable: bool = False
+    # Direct reference to type symbol (StructSymbol, EnumSymbol, etc.)
+    symbol: Optional[Any] = None
 
     def __repr__(self):
         if self.kind == TypeKind.TUPLE and self.element_types:

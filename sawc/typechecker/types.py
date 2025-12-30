@@ -9,18 +9,25 @@ Usage:
         pass
 """
 
-from typing import Optional
+from typing import Optional, Tuple
 from ast_nodes import (
     SawType, TypeKind,
     Expression, Identifier, MoveExpr, IntLiteral, Block
 )
 from errors import ErrorKind
+from namespace import (
+    SymbolKind, StructSymbol, EnumSymbol, FunctionSymbol, TraitSymbol, TypeAliasSymbol
+)
 
 
 class TypeUtilsMixin:
     """Mixin providing type utility methods for TypeChecker.
 
     Methods:
+        get_struct_info: Lookup struct info via namespace
+        get_enum_info: Lookup enum info via namespace
+        get_function_info: Lookup function info via namespace
+        get_trait_info: Lookup trait info via namespace
         _resolve_type_alias: Resolve type aliases in a SawType
         _resolve_type: Resolve user-defined types (enums parsed as structs)
         _get_underlying_type: Get underlying primitive type for distinct types
@@ -34,6 +41,116 @@ class TypeUtilsMixin:
         _check_custom_copy_containment: Check structs with CustomCopy fields implement CustomCopy
         _check_deinit_containment: Check structs with Deinit fields implement Deinit
     """
+
+    # =========================================================================
+    # Namespace Lookup Helpers
+    # =========================================================================
+
+    def get_struct_info(self, name: str, qualified_path: str = None) -> Optional[StructSymbol]:
+        """Lookup struct info via namespace, supporting qualified names.
+
+        Args:
+            name: Simple struct name (e.g., "Point")
+            qualified_path: Optional module-qualified path (e.g., "toml.TomlDoc")
+
+        Returns:
+            StructSymbol if found, None otherwise
+        """
+        if qualified_path:
+            # Module-qualified lookup: "toml.TomlDoc"
+            symbol = self.namespace.resolve(qualified_path, check_access=False)
+            if symbol and symbol.kind == SymbolKind.STRUCT:
+                return symbol
+        # Local lookup
+        return self.namespace.lookup_struct(name)
+
+    def get_enum_info(self, name: str, qualified_path: str = None) -> Optional[EnumSymbol]:
+        """Lookup enum info via namespace, supporting qualified names.
+
+        Args:
+            name: Simple enum name (e.g., "Color")
+            qualified_path: Optional module-qualified path (e.g., "colors.Color")
+
+        Returns:
+            EnumSymbol if found, None otherwise
+        """
+        if qualified_path:
+            symbol = self.namespace.resolve(qualified_path, check_access=False)
+            if symbol and symbol.kind == SymbolKind.ENUM:
+                return symbol
+        return self.namespace.lookup_enum(name)
+
+    def get_function_info(self, name: str, qualified_path: str = None) -> Optional[FunctionSymbol]:
+        """Lookup function info via namespace, supporting qualified names.
+
+        Args:
+            name: Simple function name (e.g., "main")
+            qualified_path: Optional module-qualified path (e.g., "utils.helper")
+
+        Returns:
+            FunctionSymbol if found, None otherwise
+        """
+        if qualified_path:
+            symbol = self.namespace.resolve(qualified_path, check_access=False)
+            if symbol and symbol.kind == SymbolKind.FUNCTION:
+                return symbol
+        return self.namespace.lookup_function(name)
+
+    def get_trait_info(self, name: str, qualified_path: str = None) -> Optional[TraitSymbol]:
+        """Lookup trait info via namespace, supporting qualified names.
+
+        Args:
+            name: Simple trait name (e.g., "Iterator")
+            qualified_path: Optional module-qualified path (e.g., "traits.Iterator")
+
+        Returns:
+            TraitSymbol if found, None otherwise
+        """
+        if qualified_path:
+            symbol = self.namespace.resolve(qualified_path, check_access=False)
+            if symbol and symbol.kind == SymbolKind.TRAIT:
+                return symbol
+        return self.namespace.lookup_trait(name)
+
+    def get_type_alias_info(self, name: str, qualified_path: str = None) -> Optional[TypeAliasSymbol]:
+        """Lookup type alias info via namespace, supporting qualified names.
+
+        Args:
+            name: Simple type alias name (e.g., "MyInt")
+            qualified_path: Optional module-qualified path
+
+        Returns:
+            TypeAliasSymbol if found, None otherwise
+        """
+        if qualified_path:
+            symbol = self.namespace.resolve(qualified_path, check_access=False)
+            if symbol and symbol.kind == SymbolKind.TYPE_ALIAS:
+                return symbol
+        return self.namespace.lookup_type_alias(name)
+
+    def get_method_info(self, struct_name: str, method_name: str,
+                        spec_key: Tuple[str, ...] = None) -> Optional[FunctionSymbol]:
+        """Lookup method info via namespace, supporting specialized methods.
+
+        Args:
+            struct_name: The struct name (e.g., "Point")
+            method_name: The method name (e.g., "distance")
+            spec_key: Optional tuple of type args for specialized methods
+
+        Returns:
+            FunctionSymbol if found, None otherwise
+        """
+        # First check specialized methods if a spec_key is provided
+        if spec_key:
+            specialized = self.namespace.lookup_specialized_method(struct_name, spec_key, method_name)
+            if specialized:
+                return specialized
+        # Fall back to regular method lookup
+        return self.namespace.lookup_method(struct_name, method_name)
+
+    # =========================================================================
+    # Type Resolution Methods
+    # =========================================================================
 
     def _resolve_type_alias(self, saw_type: SawType) -> SawType:
         """Resolve any type aliases in a SawType."""
@@ -59,7 +176,7 @@ class TypeUtilsMixin:
         elif saw_type.kind == TypeKind.ENUM:
             if saw_type.type_args:
                 resolved_args = [self._resolve_type_alias(t) for t in saw_type.type_args]
-                return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=resolved_args)
+                return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=resolved_args, symbol=saw_type.symbol)
             return saw_type
         else:
             return saw_type
@@ -68,9 +185,10 @@ class TypeUtilsMixin:
         """Resolve user-defined types (ENUMs parsed as STRUCT). Does NOT resolve type aliases."""
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
             # Check if this is actually an enum (NOT a type alias - those stay as STRUCT)
-            if saw_type.struct_name in self.enums:
+            enum_symbol = self.namespace.lookup_enum(saw_type.struct_name)
+            if enum_symbol:
                 resolved_args = [self._resolve_type(t) for t in saw_type.type_args] if saw_type.type_args else None
-                return SawType(TypeKind.ENUM, enum_name=saw_type.struct_name, type_args=resolved_args)
+                return SawType(TypeKind.ENUM, enum_name=saw_type.struct_name, type_args=resolved_args, symbol=enum_symbol)
             # Recursively resolve type args
             if saw_type.type_args:
                 resolved_args = [self._resolve_type(t) for t in saw_type.type_args]
@@ -86,7 +204,7 @@ class TypeUtilsMixin:
         elif saw_type.kind == TypeKind.ENUM and saw_type.type_args:
             # Recursively resolve enum type args
             resolved_args = [self._resolve_type(t) for t in saw_type.type_args]
-            return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=resolved_args)
+            return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=resolved_args, symbol=saw_type.symbol)
         elif saw_type.kind == TypeKind.FUNCTION:
             # Recursively resolve function param and return types
             resolved_params = [self._resolve_type(t) for t in (saw_type.param_types or [])]
@@ -174,7 +292,7 @@ class TypeUtilsMixin:
         b_name = b.enum_name if b.kind == TypeKind.ENUM else (b.struct_name if b.kind == TypeKind.STRUCT else None)
         if a_name and b_name and a_name == b_name:
             # Same named type - check if it's an enum and compare type arguments
-            if a_name in self.enums:
+            if self.namespace.has_enum(a_name):
                 a_args = a.type_args or []
                 b_args = b.type_args or []
                 if len(a_args) != len(b_args):
@@ -201,7 +319,7 @@ class TypeUtilsMixin:
             if a.struct_name == b.struct_name:
                 return True
             # Check if b is a trait that a conforms to
-            if b.struct_name in self.traits:
+            if self.namespace.has_trait(b.struct_name):
                 # a must be a struct that conforms to trait b
                 if a.struct_name in self.type_conformances:
                     return b.struct_name in self.type_conformances[a.struct_name]
@@ -347,7 +465,7 @@ class TypeUtilsMixin:
 
     def _check_no_copy_containment(self):
         """Check that structs containing NoCopy fields also implement NoCopy."""
-        for struct_name, struct_info in self.structs.items():
+        for struct_name, struct_info in self.namespace.structs.items():
             # Skip if struct already implements NoCopy
             if struct_name in self.type_conformances:
                 if "NoCopy" in self.type_conformances[struct_name]:
@@ -366,7 +484,7 @@ class TypeUtilsMixin:
 
     def _check_custom_copy_containment(self):
         """Check that structs containing CustomCopy fields also implement CustomCopy."""
-        for struct_name, struct_info in self.structs.items():
+        for struct_name, struct_info in self.namespace.structs.items():
             # Skip if struct already implements CustomCopy or NoCopy
             # (NoCopy types can contain CustomCopy fields since they can't be copied anyway)
             if struct_name in self.type_conformances:
@@ -387,7 +505,7 @@ class TypeUtilsMixin:
 
     def _check_deinit_containment(self):
         """Check that structs containing Deinit fields also implement Deinit."""
-        for struct_name, struct_info in self.structs.items():
+        for struct_name, struct_info in self.namespace.structs.items():
             # Skip if struct already implements Deinit (or NoCopy/CustomCopy which imply Deinit)
             if struct_name in self.type_conformances:
                 conformances = self.type_conformances[struct_name]

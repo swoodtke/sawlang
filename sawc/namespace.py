@@ -27,7 +27,7 @@ class FunctionSymbol:
     param_names: List[str] = field(default_factory=list)
     return_type: Optional[SawType] = None
     type_params: List[TypeParameter] = field(default_factory=list)
-    defaults: List[Optional[Any]] = field(default_factory=list)
+    default_values: List[Optional[Any]] = field(default_factory=list)
     is_static: bool = False
     is_init: bool = False
     self_mutable: bool = False
@@ -53,6 +53,9 @@ class StructSymbol:
     line: int = 0
     column: int = 0
     ast_node: Optional[Struct] = None
+    # Specialized methods for specific type arguments (e.g., extension Vector<String>)
+    # Key: tuple of type arg strings like ("String",), Value: method_name -> FunctionSymbol
+    specialized_methods: Dict[Tuple[str, ...], Dict[str, FunctionSymbol]] = field(default_factory=dict)
     # Filled by codegen:
     llvm_type: Optional[Any] = None
 
@@ -79,12 +82,14 @@ class TraitMethodSymbol:
     param_names: List[str] = field(default_factory=list)
     return_type: Optional[SawType] = None
     self_mutable: bool = False
+    self_is_reference: bool = True
 
 
 @dataclass
 class TraitSymbol:
     """Symbol for a trait."""
     kind: SymbolKind = SymbolKind.TRAIT
+    name: str = ""
     methods: Dict[str, TraitMethodSymbol] = field(default_factory=dict)
     associated_types: List[str] = field(default_factory=list)
     parent_traits: List[str] = field(default_factory=list)
@@ -456,6 +461,22 @@ class Namespace:
         if struct_name in self.structs:
             self.structs[struct_name].init_methods.append(symbol)
 
+    def register_specialized_method(self, struct_name: str, spec_key: Tuple[str, ...],
+                                     method_name: str, method: FunctionSymbol):
+        """Register a specialized method for a generic struct instantiation.
+
+        Args:
+            struct_name: The base struct name (e.g., "Vector")
+            spec_key: Tuple of type argument strings (e.g., ("String",))
+            method_name: The method name
+            method: The FunctionSymbol for the method
+        """
+        struct_sym = self.structs.get(struct_name)
+        if struct_sym:
+            if spec_key not in struct_sym.specialized_methods:
+                struct_sym.specialized_methods[spec_key] = {}
+            struct_sym.specialized_methods[spec_key][method_name] = method
+
     def register_conformance(self, type_name: str, trait_name: str,
                             type_assignments: Optional[Dict[str, SawType]] = None):
         """Register that a type conforms to a trait."""
@@ -497,6 +518,23 @@ class Namespace:
         struct = self.structs.get(struct_name)
         if struct:
             return struct.methods.get(method_name)
+        return None
+
+    def lookup_specialized_method(self, struct_name: str, spec_key: Tuple[str, ...],
+                                   method_name: str) -> Optional[FunctionSymbol]:
+        """Look up a specialized method for a generic struct instantiation.
+
+        Args:
+            struct_name: The base struct name (e.g., "Vector")
+            spec_key: Tuple of type argument strings (e.g., ("String",))
+            method_name: The method name
+
+        Returns:
+            The FunctionSymbol if found, None otherwise
+        """
+        struct = self.structs.get(struct_name)
+        if struct and spec_key in struct.specialized_methods:
+            return struct.specialized_methods[spec_key].get(method_name)
         return None
 
     def lookup_type(self, name: str) -> Optional[SawType]:
@@ -555,6 +593,20 @@ class Namespace:
             return None
         trait_map = self.conformances[type_name].get(trait_name, {})
         return trait_map.get(assoc_type_name)
+
+    def get_type_assignments(self, type_name: str, trait_name: str) -> Dict[str, SawType]:
+        """Get all associated type assignments for a type/trait conformance.
+
+        Args:
+            type_name: The type implementing the trait
+            trait_name: The trait being implemented
+
+        Returns:
+            Dict mapping associated type names to their concrete types
+        """
+        if type_name not in self.conformances:
+            return {}
+        return self.conformances[type_name].get(trait_name, {})
 
     def get_struct_fields(self, struct_name: str) -> Optional[Dict[str, SawType]]:
         """Get the fields of a struct."""

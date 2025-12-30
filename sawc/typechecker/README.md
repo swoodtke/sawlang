@@ -16,20 +16,24 @@ TypeChecker (core.py)
     └── TypeUtilsMixin (types.py)
 ```
 
-All mixins share state through `self` - they access `self.structs`, `self.enums`, `self.current_scope`, etc. defined in `core.py`.
+All type information is stored in the `Namespace` object using symbol classes defined in `namespace.py`:
+- `StructSymbol` - Struct fields, methods, and type parameters
+- `EnumSymbol` - Enum variants with associated values
+- `TraitSymbol` - Trait methods and associated types
+- `FunctionSymbol` - Function/method signature with params, return type, type params
 
 ## File Descriptions
 
 ### `__init__.py`
 Package initialization. Exports `TypeChecker` and data classes for external use:
 ```python
-from typechecker import TypeChecker, StructInfo, EnumInfo
+from typechecker import TypeChecker, VariableInfo, Scope
 ```
 
-### `core.py` (475 lines)
+### `core.py`
 Main `TypeChecker` class with:
-- **Data classes**: `VariableInfo`, `FunctionInfo`, `StructInfo`, `EnumInfo`, `MethodInfo`, `TraitMethodInfo`, `TraitInfo`, `Scope`
-- **State initialization**: Symbol tables, scope management, error reporter
+- **Data classes**: `VariableInfo`, `Scope`
+- **State initialization**: Scope management, error reporter
 - **`check(program)`**: Main entry point for checking a single-file program
 - **`check_module(program, namespace)`**: Entry point for checking a module with namespace
 
@@ -37,33 +41,30 @@ Main `TypeChecker` class with:
 | Class | Purpose |
 |-------|---------|
 | `VariableInfo` | Variable type, mutability, and location |
-| `FunctionInfo` | Function signature with params, return type, type params |
-| `StructInfo` | Struct fields, methods, and type parameters |
-| `EnumInfo` | Enum variants with associated values |
-| `MethodInfo` | Method signature including self mutability |
-| `TraitInfo` | Trait methods and associated types |
 | `Scope` | Lexical scope with variable bindings and parent chain |
 
 #### Key State Variables
 | Variable | Type | Purpose |
 |----------|------|---------|
-| `self.structs` | `Dict[str, StructInfo]` | Registered struct definitions |
-| `self.enums` | `Dict[str, EnumInfo]` | Registered enum definitions |
-| `self.traits` | `Dict[str, TraitInfo]` | Registered trait definitions |
-| `self.functions` | `Dict[str, FunctionInfo]` | Registered function signatures |
+| `self.namespace` | `Namespace` | Symbol namespace for all types |
 | `self.type_aliases` | `Dict[str, SawType]` | Type alias mappings |
+| `self.type_conformances` | `Dict[str, List[str]]` | Type -> trait conformances |
+| `self.type_assignments` | `Dict[Tuple[str, str], Dict[str, SawType]]` | Associated type assignments |
 | `self.current_scope` | `Scope` | Current lexical scope |
 | `self.current_function` | `Function` | Function being checked |
 | `self.current_method` | `Method` | Method being checked |
-| `self.in_loop` | `bool` | Whether inside a loop (for break/continue) |
-| `self.namespace` | `Namespace` | Symbol namespace for modules |
+| `self.loop_depth` | `int` | Loop nesting depth (for break/continue) |
 
-### `types.py` (385 lines)
+### `types.py`
 Type resolution, compatibility checking, and resource trait detection.
 
 #### Key Methods
 | Method | Purpose |
 |--------|---------|
+| `get_struct_info(name)` | Lookup StructSymbol from namespace |
+| `get_enum_info(name)` | Lookup EnumSymbol from namespace |
+| `get_trait_info(name)` | Lookup TraitSymbol from namespace |
+| `get_function_info(name)` | Lookup FunctionSymbol from namespace |
 | `_resolve_type_alias(saw_type)` | Resolve type aliases to their definitions |
 | `_resolve_type(saw_type)` | Resolve user types (enums parsed as structs) |
 | `_get_underlying_type(saw_type)` | Get underlying primitive for distinct types |
@@ -77,7 +78,7 @@ Type resolution, compatibility checking, and resource trait detection.
 | `_check_custom_copy_containment(struct)` | Check CustomCopy field containment rules |
 | `_check_deinit_containment(struct)` | Check Deinit field containment rules |
 
-### `registration.py` (634 lines)
+### `registration.py`
 Type and symbol registration during the first pass of type checking.
 
 #### Key Methods
@@ -96,7 +97,7 @@ Type and symbol registration during the first pass of type checking.
 | `_resolve_trait_type(type, self_type)` | Resolve Self and associated types |
 | `_block_has_early_exit(block)` | Check if block definitely exits early |
 
-### `statements.py` (806 lines)
+### `statements.py`
 Statement checking including variable bindings, assignments, and control flow.
 
 #### Key Methods
@@ -120,7 +121,7 @@ Statement checking including variable bindings, assignments, and control flow.
 | `_check_break_statement(stmt)` | Check break statement |
 | `_check_continue_statement(stmt)` | Check continue statement |
 
-### `expressions.py` (1622 lines)
+### `expressions.py`
 Expression type checking using a visitor pattern.
 
 #### Key Methods

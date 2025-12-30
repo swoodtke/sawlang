@@ -53,15 +53,6 @@ class RegistrationMixin:
 
         # Register String as a pseudo-struct so it can be extended
         # String is a primitive type (i8*) but we want to add methods to it
-        from .core import StructInfo
-        self.structs["String"] = StructInfo(
-            name="String",
-            fields={},  # No fields - it's a primitive
-            field_order=[],
-            line=0,
-            column=0
-        )
-        # Also register in namespace
         self.namespace.register_struct("String", StructSymbol(
             fields={},
             field_order=[],
@@ -70,23 +61,12 @@ class RegistrationMixin:
         ))
 
         # Register Result<T, E> as a built-in generic enum
-        from .core import EnumInfo, TraitInfo, TraitMethodInfo
         from ast_nodes import TypeParameter
 
         result_type_params = [
             TypeParameter(name="T", line=0, column=0),
             TypeParameter(name="E", line=0, column=0)
         ]
-        self.enums["Result"] = EnumInfo(
-            name="Result",
-            variants={
-                "Ok": [("value", SawType(TypeKind.TYPE_PARAM, type_param_name="T"))],
-                "Err": [("error", SawType(TypeKind.TYPE_PARAM, type_param_name="E"))]
-            },
-            variant_order=["Ok", "Err"],
-            type_params=result_type_params
-        )
-        # Also register in namespace
         self.namespace.register_enum("Result", EnumSymbol(
             variants={
                 "Ok": [("value", SawType(TypeKind.TYPE_PARAM, type_param_name="T"))],
@@ -97,29 +77,16 @@ class RegistrationMixin:
         ))
 
         # Register Error trait for error types
-        self.traits["Error"] = TraitInfo(
-            name="Error",
-            methods={
-                "message": TraitMethodInfo(
-                    name="message",
-                    param_types=[SawType(TypeKind.SELF)],
-                    return_type=SawType(TypeKind.STRING),
-                    param_names=["self"],
-                    self_mutable=False
-                )
-            },
-            associated_types=[],
-            parent_traits=[]
-        )
-        # Also register in namespace
         self.namespace.register_trait("Error", TraitSymbol(
+            name="Error",
             methods={
                 "message": TraitMethodSymbol(
                     name="message",
                     param_types=[SawType(TypeKind.SELF)],
                     return_type=SawType(TypeKind.STRING),
                     param_names=["self"],
-                    self_mutable=False
+                    self_mutable=False,
+                    self_is_reference=True
                 )
             },
             associated_types=[],
@@ -165,8 +132,7 @@ class RegistrationMixin:
 
     def _register_struct(self, struct: Struct):
         """Register a struct definition."""
-        from .core import StructInfo
-        if struct.name in self.structs:
+        if self.namespace.has_struct(struct.name):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,  # We can reuse this error kind
                 f"struct `{struct.name}` is defined multiple times",
@@ -191,15 +157,6 @@ class RegistrationMixin:
                 fields[field.name] = field.type
                 field_order.append(field.name)
 
-        self.structs[struct.name] = StructInfo(
-            name=struct.name,
-            fields=fields,
-            field_order=field_order,
-            line=struct.line,
-            column=struct.column,
-            type_params=struct.type_params
-        )
-        # Also register in namespace
         self.namespace.register_struct(struct.name, StructSymbol(
             fields=fields,
             field_order=field_order,
@@ -212,8 +169,7 @@ class RegistrationMixin:
 
     def _register_enum(self, enum: Enum):
         """Register an enum definition."""
-        from .core import EnumInfo
-        if enum.name in self.enums:
+        if self.namespace.has_enum(enum.name):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,  # Reuse this error kind
                 f"enum `{enum.name}` is defined multiple times",
@@ -221,7 +177,7 @@ class RegistrationMixin:
             )
             return
 
-        if enum.name in self.structs:
+        if self.namespace.has_struct(enum.name):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"enum `{enum.name}` conflicts with existing struct name",
@@ -246,13 +202,7 @@ class RegistrationMixin:
                 variants[variant.name] = variant.associated_types
                 variant_order.append(variant.name)
 
-        self.enums[enum.name] = EnumInfo(
-            name=enum.name,
-            variants=variants,
-            variant_order=variant_order,
-            type_params=enum.type_params
-        )
-        # Also register in namespace
+        # Register in namespace only
         self.namespace.register_enum(enum.name, EnumSymbol(
             variants=variants,
             variant_order=variant_order,
@@ -263,8 +213,7 @@ class RegistrationMixin:
 
     def _register_trait(self, trait: Trait):
         """Register a trait definition with inheritance support."""
-        from .core import TraitInfo, TraitMethodInfo
-        if trait.name in self.traits:
+        if self.namespace.has_trait(trait.name):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"trait `{trait.name}` is defined multiple times",
@@ -276,23 +225,23 @@ class RegistrationMixin:
         inherited_methods = {}
         inherited_assoc_types = []
         for parent_name in trait.parent_traits:
-            if parent_name not in self.traits:
+            parent_info = self.get_trait_info(parent_name)
+            if parent_info is None:
                 self._error(
                     ErrorKind.UNDEFINED_VARIABLE,
                     f"unknown parent trait `{parent_name}`",
                     trait.line, trait.column
                 )
                 continue
-            parent_info = self.traits[parent_name]
-            # Inherit all methods from parent
-            for method_name, method_info in parent_info.methods.items():
-                inherited_methods[method_name] = method_info
+            # Inherit all methods from parent (already TraitMethodSymbol)
+            for method_name, method_sym in parent_info.methods.items():
+                inherited_methods[method_name] = method_sym
             # Inherit associated types
             for assoc_type in parent_info.associated_types:
                 if assoc_type not in inherited_assoc_types:
                     inherited_assoc_types.append(assoc_type)
 
-        # Build method info map from this trait's own methods
+        # Build method symbol map from this trait's own methods
         methods = dict(inherited_methods)  # Start with inherited
         for method in trait.methods:
             # Collect parameter info (excluding self placeholder type)
@@ -307,7 +256,7 @@ class RegistrationMixin:
                     param_names.append(param.name)
                     param_types.append(param.type)
 
-            methods[method.name] = TraitMethodInfo(
+            methods[method.name] = TraitMethodSymbol(
                 name=method.name,
                 param_types=param_types,
                 return_type=method.return_type,
@@ -322,24 +271,9 @@ class RegistrationMixin:
             if at.name not in assoc_type_names:
                 assoc_type_names.append(at.name)
 
-        self.traits[trait.name] = TraitInfo(
+        self.namespace.register_trait(trait.name, TraitSymbol(
             name=trait.name,
             methods=methods,
-            associated_types=assoc_type_names,
-            parent_traits=trait.parent_traits
-        )
-        # Also register in namespace
-        ns_methods = {}
-        for name, method_info in methods.items():
-            ns_methods[name] = TraitMethodSymbol(
-                name=name,
-                param_types=method_info.param_types,
-                param_names=method_info.param_names,
-                return_type=method_info.return_type,
-                self_mutable=method_info.self_mutable
-            )
-        self.namespace.register_trait(trait.name, TraitSymbol(
-            methods=ns_methods,
             associated_types=assoc_type_names,
             parent_traits=trait.parent_traits,
             visibility=getattr(trait, 'visibility', Visibility.PRIVATE)
@@ -347,8 +281,7 @@ class RegistrationMixin:
 
     def _register_function(self, func: Function):
         """Register a function signature."""
-        from .core import FunctionInfo
-        if func.name in self.functions:
+        if self.namespace.has_function(func.name):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"function `{func.name}` is defined multiple times",
@@ -360,39 +293,34 @@ class RegistrationMixin:
         if func.type_params:
             param_types = [p.type for p in func.parameters]
             param_names = [p.name for p in func.parameters]
-            info = FunctionInfo(param_types, func.return_type, param_names, func.type_params)
+            return_type = func.return_type
         else:
             # Resolve types before registering
             param_types = [self._resolve_type(p.type) for p in func.parameters]
             param_names = [p.name for p in func.parameters]
-            resolved_return_type = self._resolve_type(func.return_type)
-            info = FunctionInfo(param_types, resolved_return_type, param_names)
-        self.functions[func.name] = info
-        # Also register in namespace
+            return_type = self._resolve_type(func.return_type)
+
         self.namespace.register_function(func.name, FunctionSymbol(
-            param_types=info.param_types,
-            param_names=info.param_names,
-            return_type=info.return_type,
-            type_params=info.type_params,
+            param_types=param_types,
+            param_names=param_names,
+            return_type=return_type,
+            type_params=func.type_params,
             visibility=getattr(func, 'visibility', Visibility.PRIVATE),
             ast_node=func if func.type_params else None
         ))
 
     def _register_extern_function(self, extern_func):
         """Register an external (FFI) function signature."""
-        from .core import FunctionInfo
         # Resolve types for extern functions
         param_types = [self._resolve_type(p.type) for p in extern_func.parameters]
         param_names = [p.name for p in extern_func.parameters]
         resolved_return_type = self._resolve_type(extern_func.return_type)
-        info = FunctionInfo(param_types, resolved_return_type, param_names,
-                           is_variadic=extern_func.is_variadic)
 
-        if extern_func.name in self.functions:
+        existing = self.get_function_info(extern_func.name)
+        if existing is not None:
             # Allow duplicate extern declarations with the same signature
             # This enables library code (like std/) to declare externs that
             # user code may also declare
-            existing = self.functions[extern_func.name]
             if (existing.param_types == param_types and
                 existing.return_type == resolved_return_type):
                 return  # Same signature, allow it
@@ -403,8 +331,6 @@ class RegistrationMixin:
             )
             return
 
-        self.functions[extern_func.name] = info
-        # Also register in namespace
         self.namespace.register_function(extern_func.name, FunctionSymbol(
             param_types=param_types,
             param_names=param_names,
@@ -422,8 +348,8 @@ class RegistrationMixin:
     def _is_known_type(self, name: str) -> bool:
         """Check if a name refers to a known type (built-in or user-defined)."""
         return (name in self.BUILTIN_TYPE_NAMES or
-                name in self.structs or
-                name in self.enums or
+                self.namespace.has_struct(name) or
+                self.namespace.has_enum(name) or
                 name in self.type_aliases)
 
     def _get_specialization_key(self, extension: Extension) -> tuple:
@@ -448,9 +374,9 @@ class RegistrationMixin:
 
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
-        from .core import MethodInfo
-        # Verify the struct exists
-        if extension.struct_name not in self.structs:
+        # Verify the struct exists (check namespace)
+        struct_info = self.get_struct_info(extension.struct_name)
+        if struct_info is None:
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"cannot extend undefined struct `{extension.struct_name}`",
@@ -458,17 +384,13 @@ class RegistrationMixin:
             )
             return
 
-        struct_info = self.structs[extension.struct_name]
-
         # Check if this is a specialized extension (e.g., extension Vector<String>)
         specialization_key = self._get_specialization_key(extension)
         is_specialized = len(specialization_key) > 0
 
-        # Get the target method dict (either main methods or specialized)
+        # Get the target method dict for duplicate checking (from namespace StructSymbol)
         if is_specialized:
-            if specialization_key not in struct_info.specialized_methods:
-                struct_info.specialized_methods[specialization_key] = {}
-            target_methods = struct_info.specialized_methods[specialization_key]
+            target_methods = struct_info.specialized_methods.get(specialization_key, {})
         else:
             target_methods = struct_info.methods
 
@@ -576,28 +498,13 @@ class RegistrationMixin:
             # Collect default values for parameters
             default_values = [p.default_value for p in method.parameters]
 
-            method_info = MethodInfo(
-                struct_name=extension.struct_name,
-                method_name=method.name,
-                param_types=param_types,
-                return_type=return_type,
-                param_names=param_names,
-                self_mutable=self_mutable,
-                self_is_reference=method.self_is_reference,
-                is_init=method.is_init,
-                is_static=method.is_static,
-                default_values=default_values
-            )
-
-            target_methods[method_key] = method_info
-
-            # Also register in namespace (for non-specialized methods)
+            # Register in namespace
             method_symbol = FunctionSymbol(
                 kind=SymbolKind.METHOD,
                 param_types=param_types,
                 param_names=param_names,
                 return_type=return_type,
-                defaults=default_values,
+                default_values=default_values,
                 is_static=method.is_static,
                 is_init=method.is_init,
                 self_mutable=self_mutable,
@@ -606,12 +513,16 @@ class RegistrationMixin:
             )
             if method.is_init:
                 self.namespace.register_init_method(extension.struct_name, method_symbol)
+            elif is_specialized:
+                # Register specialized method with type specialization key
+                self.namespace.register_specialized_method(
+                    extension.struct_name, specialization_key, method.name, method_symbol)
             else:
                 self.namespace.register_method(extension.struct_name, method.name, method_symbol)
 
         # Process type assignments for trait conformances
         for trait_name in extension.conformances:
-            if trait_name not in self.traits:
+            if not self.namespace.has_trait(trait_name):
                 continue  # Error will be reported below
 
             # Collect type assignments for this trait
@@ -624,7 +535,8 @@ class RegistrationMixin:
 
         # Check trait conformances
         for trait_name in extension.conformances:
-            if trait_name not in self.traits:
+            trait_info = self.get_trait_info(trait_name)
+            if trait_info is None:
                 self._error(
                     ErrorKind.UNDEFINED_VARIABLE,
                     f"unknown trait `{trait_name}`",
@@ -632,7 +544,6 @@ class RegistrationMixin:
                 )
                 continue
 
-            trait_info = self.traits[trait_name]
             self._check_trait_conformance(extension.struct_name, trait_info, struct_info, extension)
 
             # Track the conformance
@@ -739,5 +650,5 @@ class RegistrationMixin:
         elif trait_type.kind == TypeKind.ENUM and trait_type.type_args:
             resolved_args = [self._resolve_trait_type(t, self_type_name, trait_name)
                              for t in trait_type.type_args]
-            return SawType(TypeKind.ENUM, enum_name=trait_type.enum_name, type_args=resolved_args)
+            return SawType(TypeKind.ENUM, enum_name=trait_type.enum_name, type_args=resolved_args, symbol=trait_type.symbol)
         return trait_type

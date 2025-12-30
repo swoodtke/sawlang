@@ -56,7 +56,7 @@ class StatementsMixin:
         type_subst = {}
         if specialization_key:
             # Get the struct's type params to map them to the specialized types
-            struct_info = self.structs.get(extension.struct_name)
+            struct_info = self.get_struct_info(extension.struct_name)
             if struct_info and struct_info.type_params:
                 for i, type_param in enumerate(struct_info.type_params):
                     if i < len(specialization_key):
@@ -501,7 +501,7 @@ class StatementsMixin:
                 return
 
             # Check if field exists
-            struct_info = self.structs.get(obj_type.struct_name)
+            struct_info = self.get_struct_info(obj_type.struct_name)
             if not struct_info:
                 return
 
@@ -968,7 +968,7 @@ class StatementsMixin:
 
         # Substitute type parameters if the iterator type has type arguments
         if iterable_type.type_args:
-            struct_info = self.structs.get(type_name)
+            struct_info = self.get_struct_info(type_name)
             if struct_info and struct_info.type_params:
                 # Build substitution map: type_param_name -> actual_type
                 type_subst = {}

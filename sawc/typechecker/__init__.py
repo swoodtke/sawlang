@@ -15,23 +15,11 @@ Usage:
 from .core import (
     TypeChecker,
     VariableInfo,
-    FunctionInfo,
-    StructInfo,
-    EnumInfo,
-    MethodInfo,
-    TraitMethodInfo,
-    TraitInfo,
     Scope
 )
 
 __all__ = [
     'TypeChecker',
     'VariableInfo',
-    'FunctionInfo',
-    'StructInfo',
-    'EnumInfo',
-    'MethodInfo',
-    'TraitMethodInfo',
-    'TraitInfo',
     'Scope'
 ]

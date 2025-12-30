@@ -45,75 +45,6 @@ class VariableInfo:
     column: int
 
 
-@dataclass
-class FunctionInfo:
-    """Information about a function."""
-    param_types: List[SawType]
-    return_type: SawType
-    param_names: List[str]
-    type_params: List[TypeParameter] = field(default_factory=list)  # For generic functions
-    is_variadic: bool = False  # True for variadic functions like printf, open
-
-
-@dataclass
-class StructInfo:
-    """Information about a struct."""
-    name: str
-    fields: Dict[str, SawType]  # field_name -> type
-    field_order: List[str]  # preserve declaration order
-    line: int = 0
-    column: int = 0
-    methods: Dict[str, 'MethodInfo'] = field(default_factory=dict)  # method_name -> info
-    type_params: List[TypeParameter] = field(default_factory=list)  # For generic structs
-    # Specialized methods for specific type arguments (e.g., extension Vector<String>)
-    # Key: tuple of type arg strings like ("String",), Value: method_name -> MethodInfo
-    specialized_methods: Dict[Tuple[str, ...], Dict[str, 'MethodInfo']] = field(default_factory=dict)
-
-
-@dataclass
-class EnumInfo:
-    """Information about an enum."""
-    name: str
-    variants: Dict[str, List[Tuple[str, SawType]]]  # variant_name -> [(param_name, type), ...]
-    variant_order: List[str]  # preserve declaration order
-    type_params: List[TypeParameter] = field(default_factory=list)  # For generic enums
-
-
-@dataclass
-class MethodInfo:
-    """Information about a method."""
-    struct_name: str
-    method_name: str
-    param_types: List[SawType]  # Includes self for instance methods
-    return_type: SawType
-    param_names: List[str]
-    self_mutable: bool  # True if '&var self'
-    self_is_reference: bool = True  # True for '&self' or '&var self' (always true for methods with self)
-    is_init: bool = False
-    is_static: bool = False  # True for methods without 'self' parameter
-    default_values: List[Optional['Expression']] = field(default_factory=list)  # Default values for params
-
-
-@dataclass
-class TraitMethodInfo:
-    """Information about a method signature in a trait."""
-    name: str
-    param_types: List[SawType]  # Includes self
-    return_type: SawType
-    param_names: List[str]
-    self_mutable: bool = False  # True if '&var self'
-    self_is_reference: bool = True  # True for '&self' or '&var self'
-
-
-@dataclass
-class TraitInfo:
-    """Information about a trait."""
-    name: str
-    methods: Dict[str, TraitMethodInfo]  # method_name -> info
-    associated_types: List[str] = field(default_factory=list)  # Associated type names (e.g., ["Item"])
-    parent_traits: List[str] = field(default_factory=list)  # Parent trait names
-
-
 class Scope:
     """A lexical scope containing variable bindings."""
 
@@ -146,10 +77,6 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
     def __init__(self, reporter: ErrorReporter):
         self.reporter = reporter
-        self.structs: Dict[str, StructInfo] = {}
-        self.enums: Dict[str, EnumInfo] = {}
-        self.traits: Dict[str, TraitInfo] = {}
-        self.functions: Dict[str, FunctionInfo] = {}
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
         self.current_method: Optional['Method'] = None  # Track current method for 'self'
@@ -266,7 +193,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             self._register_function(func)
 
         # Check for main function (only required for executables)
-        if require_main and "main" not in self.functions:
+        if require_main and not self.namespace.has_function("main"):
             self.reporter.error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 "no `main` function found",
@@ -361,27 +288,68 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     imp_path = imp_path[1:]
 
             if imp.is_glob:
-                # import foo.* -> make all public symbols directly accessible
+                # import foo.* -> copy all public symbols to local namespace
                 base_path = imp_path[:-1] if imp_path and imp_path[-1] == '*' else imp_path
                 if base_path in checked_modules:
                     source_ast, source_ns = checked_modules[base_path]
                     for name, sym in source_ns.structs.items():
                         if sym.visibility == Visibility.PUBLIC:
+                            if name not in ns.structs:
+                                ns.register_struct(name, sym)
                             ns.make_accessible(name)
                     for name, sym in source_ns.enums.items():
                         if sym.visibility == Visibility.PUBLIC:
+                            if name not in ns.enums:
+                                ns.register_enum(name, sym)
                             ns.make_accessible(name)
                     for name, sym in source_ns.functions.items():
                         if sym.visibility == Visibility.PUBLIC:
+                            if name not in ns.functions:
+                                ns.register_function(name, sym)
                             ns.make_accessible(name)
                     for name, sym in source_ns.traits.items():
                         if sym.visibility == Visibility.PUBLIC:
+                            if name not in ns.traits:
+                                ns.register_trait(name, sym)
                             ns.make_accessible(name)
             elif imp.symbols:
-                # import foo.{A, B} -> make specific symbols directly accessible
+                # import foo.{A, B} -> copy specific symbols to local namespace
                 if imp_path in checked_modules:
+                    _, source_ns = checked_modules[imp_path]
                     for sym_name in imp.symbols:
-                        ns.make_accessible(sym_name)
+                        # Copy the symbol from source to local namespace
+                        if sym_name in source_ns.structs:
+                            sym = source_ns.structs[sym_name]
+                            if sym.visibility == Visibility.PUBLIC:
+                                if sym_name not in ns.structs:
+                                    ns.register_struct(sym_name, sym)
+                                ns.make_accessible(sym_name)
+                        elif sym_name in source_ns.enums:
+                            sym = source_ns.enums[sym_name]
+                            if sym.visibility == Visibility.PUBLIC:
+                                if sym_name not in ns.enums:
+                                    ns.register_enum(sym_name, sym)
+                                ns.make_accessible(sym_name)
+                        elif sym_name in source_ns.functions:
+                            sym = source_ns.functions[sym_name]
+                            if sym.visibility == Visibility.PUBLIC:
+                                if sym_name not in ns.functions:
+                                    ns.register_function(sym_name, sym)
+                                ns.make_accessible(sym_name)
+                        elif sym_name in source_ns.traits:
+                            sym = source_ns.traits[sym_name]
+                            if sym.visibility == Visibility.PUBLIC:
+                                if sym_name not in ns.traits:
+                                    ns.register_trait(sym_name, sym)
+                                ns.make_accessible(sym_name)
+                    # Also register module for qualified access to non-imported symbols
+                    alias = imp.path[-1] if imp.path else ""
+                    from namespace import ModuleSymbol
+                    ns.modules[alias] = ModuleSymbol(
+                        namespace=source_ns,
+                        path=list(imp_path),
+                        visibility=Visibility.PRIVATE
+                    )
             else:
                 # import foo.bar -> register module for qualified access
                 if imp_path in checked_modules:
@@ -487,7 +455,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 )
 
         # Check for main function (only for entry module)
-        if is_entry and "main" not in self.functions:
+        if is_entry and not self.namespace.has_function("main"):
             self.reporter.error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 "no `main` function found",

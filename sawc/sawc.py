@@ -402,11 +402,8 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     for name in builtin_ns.type_aliases:
         builtin_ns.make_accessible(name)
 
-    # Copy type information to the main typechecker for codegen compatibility
-    typechecker.structs = dict(builtin_typechecker.structs)
-    typechecker.enums = dict(builtin_typechecker.enums)
-    typechecker.traits = dict(builtin_typechecker.traits)
-    typechecker.functions = dict(builtin_typechecker.functions)
+    # Copy type information to the main typechecker
+    # (structs, traits, functions, enums are now namespace-only)
     typechecker.type_aliases = dict(builtin_typechecker.type_aliases)
     typechecker.type_conformances = dict(builtin_typechecker.type_conformances)
     typechecker.type_assignments = dict(builtin_typechecker.type_assignments)
