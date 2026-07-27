@@ -126,6 +126,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.cleanup_stack: List[List[tuple[str, SawType]]] = []
         # Cache: type_name -> cleanup behavior ('none', 'deinit', 'implicit_copy', 'no_copy')
         self.type_cleanup_behavior: dict[str, str] = {}
+        # Cache: canonical type symbol -> whether the aggregate has any field/
+        # payload that itself needs cleanup (drop glue for structs that hold
+        # cleanup-needing fields but declare no deinit -- e.g. only String fields).
+        self.type_field_cleanup: dict[str, bool] = {}
         # Track moved variables - these should not be cleaned up or accessed
         self.moved_variables: set[str] = set()
 

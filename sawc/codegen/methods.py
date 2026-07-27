@@ -125,54 +125,23 @@ class MethodsMixin:
         self.current_return_type = old_return_type
 
     def _generate_field_deinit_calls(self, struct_name: str):
-        """Generate deinit calls for all fields that implement Deinit.
+        """Release the struct's cleanup-needing fields at the end of its deinit.
 
-        Called at the end of a deinit method to ensure nested resources are cleaned up.
-        Fields are cleaned up in reverse declaration order.
+        Appended after a user-declared `deinit` body so nested resources are
+        destroyed AFTER the user's own cleanup, in reverse declaration order
+        (LIFO). Delegates to the shared recursive drop routine so a field that is
+        itself a struct-holding-resources recurses, and String/Deinit fields hit
+        their release. `struct_name` is the (possibly monomorphized) key into
+        `struct_types`; reconstruct the SawType so field types resolve.
         """
-        # Use namespace for struct field types
-        field_types = self.namespace.get_struct_fields(struct_name)
-        if not field_types:
-            return
-        _, field_order = self.struct_types[struct_name]
-
-        # Get self pointer
         self_ptr = self.variables.get("self")
         if self_ptr is None:
             return
-
-        # Process fields in reverse order
-        for field_name in reversed(field_order):
-            field_type = field_types.get(field_name)
-            if field_type is None:
-                continue
-
-            # Check if this field type needs deinit
-            behavior = self._get_cleanup_behavior(field_type)
-            if behavior == "none":
-                continue
-
-            # Get the field's canonical method-symbol base for method lookup
-            type_name = self._type_method_base(field_type)
-            if type_name is None:
-                continue
-
-            # Check if deinit method exists
-            deinit_method_name = self._mangle_method_name(type_name, "deinit")
-            if deinit_method_name not in self.functions:
-                continue
-
-            deinit_fn = self.functions[deinit_method_name]
-
-            # Get pointer to field
-            field_index = field_order.index(field_name)
-            field_ptr = self.builder.gep(self_ptr, [
-                ir.Constant(ir.IntType(32), 0),
-                ir.Constant(ir.IntType(32), field_index)
-            ], name=f"{field_name}_ptr")
-
-            # Call deinit on the field (deinit takes var self = pointer)
-            self.builder.call(deinit_fn, [field_ptr])
+        # Non-generic structs key struct_types by their plain name, which is also
+        # the SawType.struct_name; monomorphized deinit bodies don't reach here
+        # (see _generate_method_generic), so a plain STRUCT SawType suffices.
+        self_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+        self._emit_field_cleanup_at(self_ptr, self_type)
 
     def _generate_derived_copy_body(self, struct_name: str):
         """Emit the body of a compiler-derived memberwise copy().

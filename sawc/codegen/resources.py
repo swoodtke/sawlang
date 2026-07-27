@@ -13,6 +13,7 @@ Usage:
 """
 
 from typing import Optional, List
+from llvmlite import ir
 from ast_nodes import (SawType, TypeKind, MoveExpr, Identifier, MemberAccess,
                        ArrayIndex, TupleIndex, SelfExpr)
 from .mangle import mangle_type
@@ -109,32 +110,128 @@ class ResourcesMixin:
         return behavior
 
     def _needs_cleanup(self, saw_type: SawType) -> bool:
-        """Check if a type needs cleanup (implements Deinit, ImplicitCopy, or NoCopy)."""
-        return self._get_cleanup_behavior(saw_type) != "none"
+        """Check if a type needs cleanup.
+
+        A type needs cleanup if it declares a resource trait (Deinit / NoCopy /
+        ImplicitCopy / ExplicitCopy) OR -- even with no declared conformance --
+        it is a struct that transitively holds a field needing cleanup. The
+        second clause is what lets a struct holding only `String` fields (which
+        the containment rules exempt from declaring Deinit, brief 11) still get
+        its fields released at scope exit.
+        """
+        if self._get_cleanup_behavior(saw_type) != "none":
+            return True
+        return self._struct_needs_field_cleanup(saw_type)
+
+    def _concrete_field_types(self, saw_type: SawType):
+        """Concrete field SawTypes for a struct value, substituting generic type
+        arguments (so `Box<String>`'s `value` field resolves to `String`).
+
+        Returns a {field_name: SawType} dict, or None if the struct's fields are
+        not known (e.g. a monomorphization whose template fields aren't
+        recorded)."""
+        if saw_type.kind != TypeKind.STRUCT:
+            return None
+        name = saw_type.struct_name
+        fields = self.namespace.get_struct_fields(name)
+        if not fields:
+            return None
+        if saw_type.type_args and name in self.generic_structs:
+            tmpl = self.generic_structs[name]
+            mapping = {tp.name: ta
+                       for tp, ta in zip(tmpl.type_params, saw_type.type_args)}
+            return {fn: self._substitute_saw_type(ft, mapping)
+                    for fn, ft in fields.items()}
+        return dict(fields)
+
+    def _struct_needs_field_cleanup(self, saw_type: SawType) -> bool:
+        """Whether a struct transitively holds any field that needs cleanup.
+
+        Cached by the canonical type symbol so `Box<Int>` (field Int, no cleanup)
+        and `Box<String>` (field String, cleanup) are distinguished. Structs
+        cannot contain themselves by value, so the graph is acyclic; the cache is
+        seeded False before recursing as a belt-and-braces cycle guard.
+        """
+        if saw_type.kind != TypeKind.STRUCT:
+            return False
+        key = mangle_type(saw_type)
+        cached = self.type_field_cleanup.get(key)
+        if cached is not None:
+            return cached
+        self.type_field_cleanup[key] = False
+        result = False
+        field_types = self._concrete_field_types(saw_type)
+        if field_types:
+            for ftype in field_types.values():
+                if self._needs_cleanup(ftype):
+                    result = True
+                    break
+        self.type_field_cleanup[key] = result
+        return result
 
     def _generate_deinit_call(self, var_name: str, saw_type: SawType):
-        """Generate a call to deinit() for a variable.
+        """Generate cleanup (drop glue) for a variable at scope exit.
 
-        Called during scope cleanup for types that implement Deinit.
-        The deinit method receives a pointer to the variable (var self).
+        The variable's storage is a pointer (alloca); dispatch to the recursive
+        drop routine, which either calls a declared/compiler-known `deinit`
+        method or, for a struct with no declared deinit, releases its
+        cleanup-needing fields directly.
         """
-        type_name = self._type_method_base(saw_type)
-        if type_name is None:
-            return
-
-        deinit_method_name = self._mangle_method_name(type_name, "deinit")
-
-        if deinit_method_name not in self.functions:
-            # No deinit method found - this shouldn't happen if type tracking is correct
-            return
-
-        deinit_fn = self.functions[deinit_method_name]
         var_ptr = self.variables.get(var_name)
         if var_ptr is None:
             return
+        self._emit_drop_at(var_ptr, saw_type)
 
-        # deinit takes var self (pointer)
-        self.builder.call(deinit_fn, [var_ptr])
+    def _emit_drop_at(self, ptr, saw_type: SawType):
+        """Emit cleanup for the value stored at `ptr` (a pointer to it).
+
+        Compositional drop glue:
+        1. If the type has a declared or compiler-provided `deinit` method, call
+           it. That method is self-contained: for a user-declared struct deinit,
+           the user body runs first and field cleanup is appended at the end
+           (`_generate_field_deinit_calls`); `String`/`Vector` deinits are the
+           compiler-provided release/free.
+        2. Otherwise (a struct that needs cleanup only because it holds
+           cleanup-needing fields), release those fields directly, in reverse
+           declaration order.
+        """
+        method_base = self._type_method_base(saw_type)
+        if method_base is not None:
+            deinit_name = self._mangle_method_name(method_base, "deinit")
+            fn = self.functions.get(deinit_name)
+            if fn is not None:
+                self.builder.call(fn, [ptr])
+                return
+        self._emit_field_cleanup_at(ptr, saw_type)
+
+    def _emit_field_cleanup_at(self, struct_ptr, saw_type: SawType):
+        """Release every cleanup-needing field of the struct at `struct_ptr`, in
+        reverse field order (LIFO). Each field is dropped through `_emit_drop_at`
+        so nested structs recurse and String/Deinit fields hit their release.
+
+        This is the field half of drop glue: it never invokes the struct's OWN
+        deinit (the caller already did, or there is none), only its fields.
+        """
+        if saw_type.kind != TypeKind.STRUCT:
+            return
+        struct_key = mangle_type(saw_type)
+        info = self.struct_types.get(struct_key)
+        if info is None:
+            return
+        _, field_order = info
+        field_types = self._concrete_field_types(saw_type)
+        if not field_types:
+            return
+        for field_name in reversed(field_order):
+            ftype = field_types.get(field_name)
+            if ftype is None or not self._needs_cleanup(ftype):
+                continue
+            idx = field_order.index(field_name)
+            field_ptr = self.builder.gep(struct_ptr, [
+                ir.Constant(ir.IntType(32), 0),
+                ir.Constant(ir.IntType(32), idx)
+            ], name=f"{field_name}_ptr")
+            self._emit_drop_at(field_ptr, ftype)
 
     def _generate_copy(self, value, saw_type: SawType):
         """Generate a copy of a value, calling copy() for ImplicitCopy types.

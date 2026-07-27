@@ -1,0 +1,29 @@
+// A struct holding a String needs cleanup even though it declares NO deinit:
+// the containment rules exempt String fields from forcing a Deinit declaration
+// (brief 11), but the String must still be released when the struct dies.
+//
+// String release has no printable observable, so -- like string_lifetime.saw --
+// this is a stable-completion test: a fresh owned (heap) String is built into a
+// struct on every iteration of a hot loop and dropped with the struct. With the
+// field released each iteration (refcount 1 -> 0 -> free) memory stays flat over
+// a million iterations; without it the loop would leak one String per turn.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1000000
+// done
+
+struct Holder {
+    s: String
+}
+
+func main() {
+    var count = 0
+    for i in 0..1000000 {
+        let h = Holder(s: "value={i}")   // owned heap String stored in a struct
+        if h.s.len() > 0 {
+            count = count + 1
+        }
+    }                                    // h dropped here: Holder.s released
+    print(count)                         // 1000000
+    print("done")
+}

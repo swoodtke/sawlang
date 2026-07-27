@@ -1,0 +1,40 @@
+// Two levels of struct nesting, each level Deinit. Destroying the outermost
+// value runs the full LIFO chain: each owner's own deinit body, then it
+// recurses into its field, all the way down. Brief 17 item 2.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// C
+// B
+// A
+
+struct A {
+    id: Int
+}
+extension A: Deinit {
+    func deinit(&var self) {
+        print("A")
+    }
+}
+
+struct B {
+    a: A
+}
+extension B: Deinit {
+    func deinit(&var self) {
+        print("B")
+    }
+}
+
+struct C {
+    b: B
+}
+extension C: Deinit {
+    func deinit(&var self) {
+        print("C")
+    }
+}
+
+func main() {
+    let c = C(b: B(a: A(id: 1)))
+    // drop c -> "C", then field b -> "B", then field a -> "A"
+}

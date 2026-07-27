@@ -1,0 +1,31 @@
+// A struct with its OWN declared deinit and a Deinit-conforming field must run
+// both, in the right order: the owner's own deinit body first, then the field
+// is released (reverse field order overall). Brief 17 item 2 (struct drop glue).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// outer body
+// inner deinit
+
+struct Inner {
+    id: Int
+}
+extension Inner: Deinit {
+    func deinit(&var self) {
+        print("inner deinit")
+    }
+}
+
+struct Outer {
+    inner: Inner
+}
+extension Outer: Deinit {
+    func deinit(&var self) {
+        print("outer body")
+        // field `inner` is released automatically AFTER this body runs
+    }
+}
+
+func main() {
+    let o = Outer(inner: Inner(id: 1))
+    // drop o: "outer body" (own deinit), then "inner deinit" (field cleanup)
+}
