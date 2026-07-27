@@ -49,11 +49,12 @@ Functions stay functions; a runtime switches stacks.
   channels, Arc/Mutex, and the spawn-strips-references rule with zero
   compiler-transform risk.
 
-**Recommendation: stage it.**
-1. **Stage 1 — threads/channels/Mutex** (A3): OS-thread `spawn(escaping
-   closure)`, `Channel<T>` with `send(move v)`, `Mutex.lock { }`. Forces
-   Send/Sync machinery (structural auto-derivation, the auto-Copy pattern)
-   and validates the sharing model. No new syntax.
+**Recommendation: stage it — behind a task-only API (see Axis A′).**
+1. **Stage 1 — tasks/channels/Mutex, thread-per-task engine**: `spawn`
+   (escaping closure) creates a TASK — implemented as an OS thread today,
+   never named as one. `Channel<T>` with `send(move v)`, `Mutex.lock { }`.
+   Forces Send/Sync machinery (structural auto-derivation, the auto-Copy
+   pattern) and validates the sharing model. No new syntax.
 2. **Stage 2 — `async`/`await` on a single-threaded executor** (A1):
    the state-machine transform lands without Send-on-frames complexity
    (frames never cross threads). Structured concurrency primitives here.
@@ -61,6 +62,29 @@ Functions stay functions; a runtime switches stacks.
    coroutine frames to be `Send` (a structural check over live-across-await
    state — the machinery from stage 1 applies). Opt-in per task group if
    we want to keep single-threaded simplicity as a mode.
+
+## Axis A′ — tasks are the ONLY concurrency primitive  ⭐ DECIDED-LEANING
+(raised Jul 27): **no user-facing thread API, ever.** Go's posture (one
+primitive, runtime owns threads) with Saw's safety model; avoids Rust's
+permanent sync/async ecosystem split. Rules that make it hold:
+- `spawn` is defined as creating a *task*; the engine (thread-per-task in
+  stage 1 → work-stealing coroutines in stage 3) is an implementation
+  detail users cannot observe. **The API must never leak thread identity:
+  no thread IDs, no thread-locals, no thread-join semantics** — this
+  prohibition binds from stage 1, or engine swaps break code.
+- **Blocking is legal in tasks.** FFI and long compute must not be
+  hazards; the executor compensates (grow the pool when tasks block —
+  simplified Go model), with `spawn_blocking`-style hinting as an
+  optimization, never a correctness requirement.
+- Async-only *concurrency* ≠ async-only *IO*: sync functions keep plain
+  blocking IO; the runtime links only into programs that `spawn`.
+  Programs that never spawn pay nothing.
+- Accepted scope cost: no-runtime environments (kernels, minimal embedded)
+  get no concurrency story; reversible later via a low-level layer if the
+  niche ever matters.
+- Simplifications bought: Send audit surface = exactly two doors (spawn
+  captures, channel sends); no thread lifecycle API; structured
+  concurrency has no unstructured rival; one stdlib model forever.
 
 ## Axis B — function coloring
 
