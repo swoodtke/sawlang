@@ -24,10 +24,12 @@ The harness-expressible follow-ups below are now ENCODED AS XFAIL TESTS
 (brief 12, `designs/12` — 10 yellow tests are the live tech-debt ledger;
 fixing one breaks the build via XPASS until its marker is removed).
 Two NEW issues found during brief-12 probing:
-- **Bounded-extension methods are monomorphized ignoring their bounds**
-  (brief 09 regression): even constructing `Vector<R>` for a non-Copy `R`
-  fails on the `T: Copy` `copy()` extension — Vector is currently unusable
-  for resource element types. Highest-priority open bug.
+- ~~Bounded-extension methods monomorphized ignoring their bounds~~ —
+  **FIXED** (brief 14, `designs/14`): bounds now gate extension
+  instantiation (shared `Namespace.type_satisfies_bound` helper), gated
+  method calls get a typechecker diagnostic naming the unmet bound, and
+  `Map` gained its missing `K: Copy, V: Copy` bounds. Vector/Map are
+  usable with resource element types again.
 - Module symbol collision is not silent first-wins but a codegen crash
   (`DuplicatedNameError`) — still needs a real ambiguity diagnostic.
 Known follow-ups: use-after-move dataflow; deinit/copy conformance-name
