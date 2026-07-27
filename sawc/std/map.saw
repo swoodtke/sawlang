@@ -130,8 +130,16 @@ extension Map<K, V> {
     }
 }
 
-// Map is NoCopy because it contains Vectors (which are NoCopy)
-extension Map<K, V>: NoCopy {
+// Map is ExplicitCopy because it contains Vectors (which are ExplicitCopy):
+// never implicitly duplicated, and `.copy()` deep-copies both backing vectors.
+// copy() delegates to Vector.copy(), so K and V must be Copy at the point a
+// concrete Map.copy() is instantiated (otherwise the element-copy is a compile
+// error naming the offending type).
+extension Map<K, V>: ExplicitCopy {
+    func copy(&self) -> Map<K, V> {
+        Map<K, V>(keys: self.keys.copy(), values: self.values.copy())
+    }
+
     func deinit(&var self) {
         // Vectors will be cleaned up automatically via their deinit
     }

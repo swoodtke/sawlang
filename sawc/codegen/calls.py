@@ -290,9 +290,21 @@ class CallsMixin:
         # Auto-Copy: `.copy()` on a trivially-copyable receiver (a primitive, or
         # a POD struct with no copy() method) lowers to a bitwise copy, i.e. the
         # value itself. Types with a real copy() method fall through to dispatch.
+        # A receiver that owns a resource (NoCopy / Deinit) but has no copy() is
+        # not Copy: this is where a Vector<File>.copy() monomorphization fails,
+        # with a diagnostic naming the offending element type.
         if expr.method_name == "copy" and len(expr.arguments) == 0:
             copy_mangled = self._mangle_method_name(struct_name, "copy") if struct_name else None
             if copy_mangled is None or copy_mangled not in self.functions:
+                if struct_name is not None:
+                    conformances = self.namespace.get_conformances(struct_name)
+                    if any(c in ("NoCopy", "ImplicitCopy", "ExplicitCopy", "Deinit")
+                           for c in conformances):
+                        raise ValueError(
+                            f"cannot copy value of type `{struct_name}`: it is not Copy "
+                            f"(owns a resource and has no copy()); use a copyable element "
+                            f"type or implement ImplicitCopy/ExplicitCopy"
+                        )
                 return obj_val
 
         if struct_name is None:

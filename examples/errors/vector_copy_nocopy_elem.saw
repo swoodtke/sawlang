@@ -1,0 +1,10 @@
+// Vector.copy() requires the element type to be Copy. Vector<File> has a
+// NoCopy element, so instantiating .copy() is a compile error naming File.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `File`
+
+func main() {
+    var v = Vector<File>()
+    let w = v.copy()
+    print(w.len())
+}

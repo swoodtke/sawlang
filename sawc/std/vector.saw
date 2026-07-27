@@ -134,9 +134,27 @@ extension Vector<T> {
     }
 }
 
-// Vector is NoCopy - cannot be implicitly copied (would cause double-free)
-// Use move semantics or implement explicit .clone() if deep copy is needed
-extension Vector<T>: NoCopy {
+// Vector is ExplicitCopy: never implicitly duplicated (a bitwise copy of the
+// heap buffer would double-free). Transferring a Vector requires `move`;
+// duplicating it is always a visible `.copy()`, which deep-copies the buffer.
+//
+// The bound `<T: Copy>` is required because copy() duplicates each element via
+// T's copy path. Elements that are not Copy (e.g. Vector<File>) make
+// `.copy()` a compile error naming the element type at monomorphization.
+extension Vector<T: Copy>: ExplicitCopy {
+    // Deep copy: allocate a fresh buffer and copy each element.
+    func copy(&self) -> Vector<T> {
+        var result = Vector<T>(capacity: self.capacity)
+        var i = 0
+        while i < self.length {
+            if let buf = self.buffer {
+                result.push(buf[i].copy())
+            }
+            i = i + 1
+        }
+        move result
+    }
+
     func deinit(&var self) {
         if let buf = self.buffer {
             let raw_ptr = buf as UnsafePointer<Int8>

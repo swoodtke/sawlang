@@ -65,8 +65,20 @@ class StatementsMixin:
                         type_name = specialization_key[i]
                         type_subst[type_param.name] = self._name_to_type(type_name)
 
-        for method in extension.methods:
-            self._check_method(extension.struct_name, method, type_subst)
+        # For a fully-generic extension (not a specialization), expose its type
+        # parameters and their bounds to the method bodies, so that e.g. a
+        # `<T: Copy>` bound grants `.copy()` on a value of type T inside the body.
+        prev_type_params = getattr(self, 'current_type_params', {})
+        self.current_type_params = dict(prev_type_params)
+        if not specialization_key:
+            for tp in extension.type_params:
+                self.current_type_params[tp.name] = tp.bounds
+
+        try:
+            for method in extension.methods:
+                self._check_method(extension.struct_name, method, type_subst)
+        finally:
+            self.current_type_params = prev_type_params
 
     def _check_method(self, struct_name: str, method: Method, type_subst: Dict[str, SawType] = None):
         """Type check a method body.

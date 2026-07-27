@@ -1,0 +1,24 @@
+// Vector.copy() is a deep copy: the copy has its own buffer, so mutating it
+// leaves the original untouched.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 99
+// 20
+// 2
+// 2
+
+func main() {
+    var v = Vector<Int>()
+    v.push(10)
+    v.push(20)
+
+    var w = v.copy()      // deep copy - independent buffer
+    w.set(0, 99)          // mutate the copy only
+
+    if let a = v.get(0) { print(a) }   // 10 - original unaffected
+    if let b = w.get(0) { print(b) }   // 99 - copy mutated
+    if let c = v.get(1) { print(c) }   // 20
+    print(v.len())                     // 2
+    print(w.len())                     // 2
+}
