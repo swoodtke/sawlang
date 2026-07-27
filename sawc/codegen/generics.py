@@ -16,6 +16,7 @@ from llvmlite import ir
 from ast_nodes import (
     SawType, TypeKind, Extension, EnumVariant, Method
 )
+from .mangle import mangle_function, mangle_named, mangle_method
 
 
 class GenericsMixin:
@@ -36,11 +37,11 @@ class GenericsMixin:
     """
 
     def _mangle_generic_name(self, func_name: str, type_args: List[SawType]) -> str:
-        """Generate mangled name for generic instantiation: identity$Int or swap$Int_String"""
-        type_names = []
-        for t in type_args:
-            type_names.append(self._type_to_string(t))
-        return f"{func_name}${'_'.join(type_names)}"
+        """Generate mangled name for a generic function instantiation.
+
+        Delegates to the canonical mangler (see codegen/mangle.py).
+        """
+        return mangle_function(func_name, type_args)
 
     def _instantiate_generic_function(self, func_name: str, type_args: List[SawType]) -> str:
         """Instantiate a generic function with concrete type arguments.
@@ -113,44 +114,20 @@ class GenericsMixin:
         return mangled_name
 
     def _mangle_method_name(self, struct_name: str, method_name: str, param_names: Optional[List[str]] = None) -> str:
-        """Generate mangled name for methods: StructName_methodName
-           For init methods, include parameter names to allow overloading."""
-        if param_names is not None:
-            # Init method - include parameter signature
-            param_sig = '_'.join(param_names)
-            return f"{struct_name}_{method_name}_{param_sig}"
-        else:
-            return f"{struct_name}_{method_name}"
+        """Generate mangled name for a method or init.
+
+        Delegates to the canonical mangler (see codegen/mangle.py).
+        """
+        return mangle_method(struct_name, method_name, param_names)
 
     def _mangle_generic_struct_name(self, base_name: str, type_args: List[SawType]) -> str:
-        """Generate mangled name for generic struct instantiation: Box<Int> -> Box_Int"""
-        def type_to_string(t: SawType) -> str:
-            if t.kind == TypeKind.INT:
-                return "Int"
-            elif t.kind == TypeKind.FLOAT:
-                return "Float"
-            elif t.kind == TypeKind.BOOL:
-                return "Bool"
-            elif t.kind == TypeKind.STRING:
-                return "String"
-            elif t.kind == TypeKind.STRUCT:
-                if t.type_args:
-                    return self._mangle_generic_struct_name(t.struct_name, t.type_args)
-                return t.struct_name
-            elif t.kind == TypeKind.ENUM:
-                if t.type_args:
-                    return self._mangle_generic_struct_name(t.enum_name, t.type_args)
-                return t.enum_name
-            elif t.kind == TypeKind.OPTIONAL:
-                return f"Optional_{type_to_string(t.inner_type)}"
-            elif t.kind == TypeKind.TUPLE:
-                inner = "_".join(type_to_string(elem) for elem in t.element_types)
-                return f"Tuple_{inner}"
-            else:
-                return str(t.kind.name)
+        """Generate mangled name for a generic struct/enum monomorphization.
 
-        args_str = "_".join(type_to_string(t) for t in type_args)
-        return f"{base_name}_{args_str}"
+        Delegates to the canonical mangler (see codegen/mangle.py). Both the
+        producer that registers the specialized type and every consumer that
+        looks it up route through this one function, guaranteeing symmetry.
+        """
+        return mangle_named(base_name, type_args)
 
     def _substitute_saw_type(self, saw_type: SawType, type_mapping: dict[str, SawType]) -> SawType:
         """Substitute type parameters with concrete types in a SawType."""

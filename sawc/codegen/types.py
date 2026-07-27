@@ -20,7 +20,8 @@ class TypesMixin:
         _get_llvm_type: Convert SawType to LLVM IR type
         _resolve_type_alias: Resolve type aliases in a SawType
         _estimate_type_size: Estimate size of an LLVM type in bytes
-        _type_to_string: Convert SawType to string for name mangling
+
+    Name mangling lives in the single canonical module codegen/mangle.py.
     """
 
     def _get_llvm_type(self, saw_type: SawType) -> ir.Type:
@@ -209,57 +210,3 @@ class TypesMixin:
             return llvm_type.count * self._estimate_type_size(llvm_type.element)
         else:
             return 8  # Default conservative estimate
-
-    def _type_to_string(self, saw_type: SawType) -> str:
-        """Convert a SawType to a string representation for name mangling.
-
-        Used to generate unique names for generic instantiations.
-        For example: identity<Int> becomes identity$Int
-        """
-        if saw_type.kind == TypeKind.INT:
-            return "Int"
-        elif saw_type.kind == TypeKind.UINT:
-            return "UInt"
-        elif saw_type.kind == TypeKind.INT8:
-            return "Int8"
-        elif saw_type.kind == TypeKind.INT16:
-            return "Int16"
-        elif saw_type.kind == TypeKind.INT32:
-            return "Int32"
-        elif saw_type.kind == TypeKind.INT64:
-            return "Int64"
-        elif saw_type.kind == TypeKind.UINT8:
-            return "UInt8"
-        elif saw_type.kind == TypeKind.UINT16:
-            return "UInt16"
-        elif saw_type.kind == TypeKind.UINT32:
-            return "UInt32"
-        elif saw_type.kind == TypeKind.UINT64:
-            return "UInt64"
-        elif saw_type.kind == TypeKind.FLOAT:
-            return "Float"
-        elif saw_type.kind == TypeKind.BOOL:
-            return "Bool"
-        elif saw_type.kind == TypeKind.STRING:
-            return "String"
-        elif saw_type.kind == TypeKind.VOID:
-            return "Void"
-        elif saw_type.kind == TypeKind.POINTER:
-            if saw_type.inner_type:
-                return f"Ptr_{self._type_to_string(saw_type.inner_type)}"
-            return "Ptr"
-        elif saw_type.kind == TypeKind.TUPLE:
-            if saw_type.element_types:
-                inner = "_".join(self._type_to_string(t) for t in saw_type.element_types)
-                return f"Tuple_{inner}"
-            return "Tuple"
-        elif saw_type.kind == TypeKind.STRUCT:
-            return saw_type.struct_name
-        elif saw_type.kind == TypeKind.OPTIONAL:
-            if saw_type.inner_type:
-                return f"Opt_{self._type_to_string(saw_type.inner_type)}"
-            return "Opt"
-        elif saw_type.kind == TypeKind.ENUM:
-            return saw_type.enum_name
-        else:
-            return "Unknown"

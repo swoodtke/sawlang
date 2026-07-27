@@ -10,7 +10,6 @@
 // 2
 // hi
 // true
-// XFAIL: todo_jul26.md #4 - both tuple Results collide on "Result_TUPLE_MyErr"; codegen crash
 
 struct MyErr {
     code: Int

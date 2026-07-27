@@ -15,6 +15,7 @@ Usage:
 
 from llvmlite import ir
 from ast_nodes import TryExpr, TryCatchExpr, SawType, TypeKind, ResultOkWrap, ResultErrWrap
+from .mangle import mangle_named
 
 
 class ResultsMixin:
@@ -33,11 +34,12 @@ class ResultsMixin:
         """Generate code for try/try?/try! expressions."""
         result_val = self._generate_expression(expr.expr)
 
-        # Get the Result type info - it's stored as "Result_T_E" in enum_types
-        # We need to find it by matching the LLVM type
+        # Get the Result type info - it's stored under its canonical mangled
+        # name (see codegen/mangle.py) in enum_types, e.g. "Result$2$Int$MyErr".
+        # We need to find it by matching the LLVM type.
         result_enum_name = None
         for name, (llvm_type, _, _) in self.enum_types.items():
-            if name.startswith("Result_") and llvm_type == result_val.type:
+            if name.startswith("Result$") and llvm_type == result_val.type:
                 result_enum_name = name
                 break
 
@@ -142,6 +144,12 @@ class ResultsMixin:
         self.builder.position_at_end(err_bb)
         err_value = self._extract_result_err_value(result_val, result_enum_name)
 
+        # The concrete error type of this Result is carried structurally in the
+        # enum's variant info (Err -> [("error", <SawType>)]). We use it directly
+        # rather than parsing it back out of the mangled enum name.
+        _, _, result_variant_info = self.enum_types[result_enum_name]
+        concrete_err_type = result_variant_info["Err"][0][1]
+
         # Check if we have an enclosing catch block
         catch_ctx = getattr(self, '_catch_context', None)
         if catch_ctx:
@@ -158,7 +166,7 @@ class ResultsMixin:
 
             # If multiple error types, wrap in union enum
             if len(error_types) > 1 and error_type and error_type.enum_name:
-                value_to_store = self._wrap_error_in_union(err_value, error_type, result_enum_name)
+                value_to_store = self._wrap_error_in_union(err_value, error_type, concrete_err_type)
                 store_type = value_to_store.type
 
             # Create error alloca at function entry if not exists yet
@@ -475,36 +483,10 @@ class ResultsMixin:
         ok_type = result_type.unwrap_result_ok()
         err_type = result_type.unwrap_result_err()
 
-        # Build the mangled name
-        ok_name = self._mangle_type_name(ok_type)
-        err_name = self._mangle_type_name(err_type)
-
-        return f"Result_{ok_name}_{err_name}"
-
-    def _mangle_type_name(self, saw_type: SawType) -> str:
-        """Mangle a type name for use in monomorphized names."""
-        if saw_type is None:
-            return "Void"
-        if saw_type.kind == TypeKind.INT:
-            return "Int"
-        elif saw_type.kind == TypeKind.FLOAT:
-            return "Float"
-        elif saw_type.kind == TypeKind.BOOL:
-            return "Bool"
-        elif saw_type.kind == TypeKind.STRING:
-            return "String"
-        elif saw_type.kind == TypeKind.STRUCT:
-            return saw_type.struct_name
-        elif saw_type.kind == TypeKind.ENUM:
-            if saw_type.type_args:
-                args = "_".join(self._mangle_type_name(t) for t in saw_type.type_args)
-                return f"{saw_type.enum_name}_{args}"
-            return saw_type.enum_name
-        elif saw_type.kind == TypeKind.OPTIONAL:
-            inner = self._mangle_type_name(saw_type.inner_type)
-            return f"Optional_{inner}"
-        else:
-            return str(saw_type.kind.name)
+        # Build the canonical mangled name. This MUST match the name under which
+        # the monomorphized Result enum is registered (via _ensure_monomorphized_enum
+        # -> mangle_named), so producer and consumer never diverge.
+        return mangle_named("Result", [ok_type, err_type])
 
     def _ensure_enum_monomorphized(self, enum_name: str, saw_type: SawType, error_types: list = None):
         """Ensure a synthetic enum (like error union) is registered in enum_types.
@@ -537,19 +519,26 @@ class ResultsMixin:
 
         self._register_concrete_enum(enum_name, variants)
 
-    def _wrap_error_in_union(self, err_value, union_type: SawType, result_enum_name: str):
+    def _wrap_error_in_union(self, err_value, union_type: SawType, concrete_err_type: SawType):
         """Wrap an error value in the union enum type.
 
-        Given an error value (e.g., ParseError) and a union type (_CatchError_123),
-        creates an enum value with the appropriate variant.
+        Given an error value (e.g., ParseError), the union type (_CatchError_123),
+        and the concrete error type as a structured SawType, creates an enum value
+        with the appropriate variant.
+
+        The variant is selected from the structured `concrete_err_type` (its
+        struct/enum name), never by parsing a mangled name.
         """
-        # Get the error type name from the Result type
-        # result_enum_name is like "Result_Int_ParseError"
-        parts = result_enum_name.split("_")
-        if len(parts) >= 3:
-            err_type_name = parts[-1]  # Last part is error type name
-        else:
+        # Get the variant name from the structured error type. Union variants are
+        # created in _ensure_enum_monomorphized keyed by struct_name/enum_name.
+        if concrete_err_type is None:
             err_type_name = "Unknown"
+        elif concrete_err_type.kind == TypeKind.STRUCT:
+            err_type_name = concrete_err_type.struct_name
+        elif concrete_err_type.kind == TypeKind.ENUM:
+            err_type_name = concrete_err_type.enum_name
+        else:
+            err_type_name = str(concrete_err_type)
 
         # Get the union enum type info
         union_enum_name = union_type.enum_name

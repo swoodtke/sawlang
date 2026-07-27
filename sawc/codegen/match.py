@@ -11,6 +11,7 @@ Usage:
 
 from llvmlite import ir
 from ast_nodes import MatchExpr, Block
+from .mangle import mangle_named
 
 
 class MatchMixin:
@@ -37,13 +38,9 @@ class MatchMixin:
         # Get enum name from typechecker annotation, or fall back to LLVM type matching
         matched_enum_type = getattr(expr, 'matched_enum_type', None)
         if matched_enum_type is not None:
-            # Mangle generic enums like Result<Int, Int> -> Result_Int_Int
-            if matched_enum_type.type_args:
-                enum_name = matched_enum_type.enum_name + "_" + "_".join(
-                    self._mangle_type_name(t) for t in matched_enum_type.type_args
-                )
-            else:
-                enum_name = matched_enum_type.enum_name
+            # Canonical mangled name for a (possibly generic) enum, matching the
+            # name under which it was registered (see codegen/mangle.py).
+            enum_name = mangle_named(matched_enum_type.enum_name, matched_enum_type.type_args)
         else:
             enum_name = None
             # Fallback: find the enum name by matching LLVM types

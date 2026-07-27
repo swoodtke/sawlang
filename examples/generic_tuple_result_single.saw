@@ -7,7 +7,6 @@
 // EXPECT-OUTPUT:
 // 1
 // 2
-// XFAIL: todo_jul26.md #4 - tuple Ok mangled to literal "TUPLE"; KeyError crash in codegen
 
 struct MyErr {
     code: Int
