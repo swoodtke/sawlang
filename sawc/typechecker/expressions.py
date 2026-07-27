@@ -462,6 +462,41 @@ class ExpressionsMixin:
             if resolved_type is None:
                 return None
             return SawType(TypeKind.INT)
+        if expr.name == "__deinit_in_place":
+            # Compiler-internal drop intrinsic for stdlib container code: run the
+            # cleanup (drop glue) for the value at an UnsafePointer<T>, in place.
+            # Manual `deinit()` calls are banned language-wide; this escape hatch
+            # is gated to `deinit` method bodies so a container (Vector/Map) can
+            # release its live elements before freeing its buffer, and cannot be
+            # used as a general user-facing manual-deinit unlock.
+            cur = getattr(self, 'current_method', None)
+            if cur is None or getattr(cur, 'name', None) != "deinit":
+                self._error(
+                    ErrorKind.TYPE_ERROR,
+                    "`__deinit_in_place` is a compiler-internal intrinsic usable "
+                    "only inside a `deinit` method body",
+                    expr.line, expr.column
+                )
+                return SawType(TypeKind.VOID)
+            if len(expr.arguments) != 1:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`__deinit_in_place` takes exactly one pointer argument, but "
+                    f"{len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+                return SawType(TypeKind.VOID)
+            arg_type = self._check_expression(expr.arguments[0].value)
+            if arg_type is not None:
+                arg_underlying = self._get_underlying_type(arg_type)
+                if arg_underlying.kind != TypeKind.POINTER:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`__deinit_in_place` expects an `UnsafePointer<T>` argument, "
+                        f"got `{arg_type}`",
+                        expr.line, expr.column
+                    )
+            return SawType(TypeKind.VOID)
         var_info = self.current_scope.lookup(expr.name)
         if var_info and var_info.type.kind == TypeKind.FUNCTION:
             func_type = var_info.type

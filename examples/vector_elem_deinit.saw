@@ -4,15 +4,13 @@
 // the element pushed into the vector should print `7` when `v` goes out of
 // scope at the end of main, after the `100` marker.
 //
-// This does NOT yet happen (element deinits are never invoked; and for a
-// non-Copy element type the whole ExplicitCopy/deinit extension is gated off),
-// so the `7` line is missing. That element-deinit gap is out of scope for
-// brief 14 -- tracked here as an XFAIL extending the tech-debt ledger.
+// Brief 17 item 3: Vector's deinit now runs each live element's deinit (via the
+// `__deinit_in_place` intrinsic) before freeing the buffer, so the pushed R
+// prints `7` when `v` is dropped at the end of main, after the `100` marker.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 100
 // 7
-// XFAIL: Vector does not run element deinits on drop (element-deinit gap, brief 14 item 5)
 
 struct R {
     id: Int

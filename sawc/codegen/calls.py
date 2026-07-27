@@ -49,6 +49,20 @@ class CallsMixin:
         if expr.name == "sizeof":
             return self._generate_sizeof(expr)
 
+        # Handle the compiler-internal drop intrinsic __deinit_in_place(ptr).
+        # `ptr` is an UnsafePointer<T>; run drop glue for the T value it
+        # addresses, in place. Used by stdlib container deinits (Vector/Map) to
+        # release live elements before freeing the backing buffer. The
+        # typechecker gates this to `deinit` bodies.
+        if expr.name == "__deinit_in_place":
+            arg = expr.arguments[0].value
+            ptr_val = self._generate_expression(arg)
+            ptr_type = self._expr_type(arg)
+            elem_type = ptr_type.inner_type
+            if elem_type is not None and self._needs_cleanup(elem_type):
+                self._emit_drop_at(ptr_val, elem_type)
+            return None
+
         # Check if the name refers to a closure variable
         if expr.name in self.variables:
             closure_ptr = self.variables[expr.name]

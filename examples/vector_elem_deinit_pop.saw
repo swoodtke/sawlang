@@ -1,0 +1,37 @@
+// Brief 17 item 3: a popped element must deinit exactly once -- at the scope
+// that now owns it, NOT again when the vector dies. `pop()` decrements the
+// vector's length before returning the element, so the vector's drop loop
+// (i < length) never revisits the moved-out slot, ruling out a double-free.
+//
+// Trace: push id=1 then id=2. `v.pop()!` moves id=2 out into `popped`.
+//   print(popped.id) -> 2
+//   print(50)        -> 50
+// At end of main, LIFO cleanup runs: popped's deinit prints 2, then `v` drops
+// its one remaining element (id=1) printing 1. id=2 appears exactly once as a
+// deinit (the second `2`); if the drop double-freed it, a third `2` would
+// print after `1`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 50
+// 2
+// 1
+
+struct R {
+    id: Int
+}
+
+extension R: Deinit {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+func main() {
+    var v = Vector<R>()
+    v.push(R(id: 1))
+    v.push(R(id: 2))
+    let popped = v.pop()!
+    print(popped.id)
+    print(50)
+}

@@ -134,6 +134,31 @@ extension Vector<T> {
     }
 }
 
+// Deinit applies to EVERY element type, not just Copy ones: destroying a
+// Vector must run each live element's own deinit (drop glue) before freeing
+// the backing buffer, otherwise element resources leak. This conformance is
+// deliberately unbounded (`<T>`, no `: Copy`) so it is instantiated even for a
+// non-Copy element type like `Vector<File>` — which has no `copy()` but still
+// owns elements that must be destroyed.
+//
+// Manual `deinit()` calls are banned language-wide, so element cleanup uses the
+// compiler-internal `__deinit_in_place` intrinsic (usable only inside a deinit
+// body). Elements popped/moved out first decrement `length`, so the loop below
+// never touches them and cannot double-free.
+extension Vector<T>: Deinit {
+    func deinit(&var self) {
+        if let buf = self.buffer {
+            var i = 0
+            while i < self.length {
+                __deinit_in_place(buf + i)
+                i = i + 1
+            }
+            let raw_ptr = buf as UnsafePointer<Int8>
+            free(raw_ptr)
+        }
+    }
+}
+
 // Vector is ExplicitCopy: never implicitly duplicated (a bitwise copy of the
 // heap buffer would double-free). Transferring a Vector requires `move`;
 // duplicating it is always a visible `.copy()`, which deep-copies the buffer.
@@ -141,6 +166,8 @@ extension Vector<T> {
 // The bound `<T: Copy>` is required because copy() duplicates each element via
 // T's copy path. Elements that are not Copy (e.g. Vector<File>) make
 // `.copy()` a compile error naming the element type at monomorphization.
+// (Deinit is provided unconditionally above; ExplicitCopy: Deinit is satisfied
+// by that separate conformance.)
 extension Vector<T: Copy>: ExplicitCopy {
     // Deep copy: allocate a fresh buffer and copy each element.
     func copy(&self) -> Vector<T> {
@@ -153,13 +180,6 @@ extension Vector<T: Copy>: ExplicitCopy {
             i = i + 1
         }
         move result
-    }
-
-    func deinit(&var self) {
-        if let buf = self.buffer {
-            let raw_ptr = buf as UnsafePointer<Int8>
-            free(raw_ptr)
-        }
     }
 }
 
