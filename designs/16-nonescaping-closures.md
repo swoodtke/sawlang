@@ -79,15 +79,22 @@ only sound way to expose `&var T` to locked data.
 
 - Surface spelling of the marker (`escaping` keyword position; whether the
   type or the parameter carries it in written syntax).
-- ~~Whether `&var` captures require explicit acknowledgment~~ **DECIDED
-  (Jul 27, user preference — explicit at all times for mutation): mutable
-  captures must be declared at the closure, `{ &var sum in ... }`-style;
-  the exact capture-list syntax is for the implementation brief.** Immutable
-  reference captures stay implicit: a read-only borrow for the call's
-  duration is observationally identical to today's captures, and requiring
-  ceremony to *read* enclosing locals (or to capture an owning type without
-  `move`) would tax the pervasive case. The rule: reads are silent,
-  mutation is announced — matching `&` at call sites.
+- ~~Capture explicitness~~ **DECIDED (Jul 27, revised — user preference:
+  fully explicit reference captures, consistent with `&self`/`&var self`):
+  ALL by-reference captures are declared at the closure — `{ &v in ... }`
+  for an immutable borrow, `{ &var sum in ... }` for a mutable one.** This
+  yields the clean unification: **captures follow exactly the transfer-site
+  rules of call arguments.** Trivial types are captured silently (bitwise
+  copy); `ImplicitCopy` types silently (retain — their contract);
+  `ExplicitCopy`/`NoCopy` demand an explicit `move v` or `v.copy()`; and
+  borrows are spelled `&v`/`&var v`, legal only in non-escaping closures,
+  exactly as at a call site. "Captures are hidden arguments" is thereby
+  true in the syntax, not just the semantics. Accepted cost: reading an
+  owning type needs its `&v` marker where implicit borrowing wouldn't —
+  the same explicitness trade Saw made at call sites.
+  Exact capture-list syntax (merged with the param list before `in`, or a
+  separate list) is for the implementation brief, including interaction
+  with `$0` shorthand closures.
 - Interaction with trailing-closure syntax and `$0` shorthand (should be
   none, but confirm in the parser).
 - Sequencing: after the current dataflow work; the natural forcing function
