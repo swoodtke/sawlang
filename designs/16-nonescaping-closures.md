@@ -75,6 +75,29 @@ only sound way to expose `&var T` to locked data.
   marker surfaces exactly at spawn/async/store boundaries, where it is
   informative. Accepted.
 
+### The Swift `self`-capture idiom, translated (recorded Jul 27)
+
+Swift captures `self` in async callbacks because classes are implicitly
+shared mutable references — the source of the `[weak self]`/retain-cycle
+bug class. Saw's equivalents, by case:
+- **Request/response (the dominant case): async/await, no capture at all.**
+  `let data = try await fetch(...); self.items = parse(data)` — mutation is
+  linear inside a method already holding `&var self`. Design item for the
+  async milestone: a suspending method's `&var self` spans suspension
+  points — this is where Swift needed actor isolation; decide deliberately.
+- **Fire-and-forget callbacks that outlive their scope: shared state is
+  declared shared.** Hoist into `Arc<Mutex<State>>`; the escaping closure
+  captures the Arc by value (silent retain — `ImplicitCopy`), and mutates
+  via the non-escaping lock closure:
+  `button.on_tap { state.lock { &var s in s.count += 1 } }`.
+- **Read-only callbacks**: capture the value; snapshot semantics are a
+  feature.
+- **Future needs this implies**: `Weak<T>` (Arc cycles are constructible
+  via stored callbacks, though far rarer than in Swift since sharing is
+  opt-in); possibly an actor construct as sugar over Arc+Mutex+queue, much
+  later. Trade accepted: Saw requires deciding "is this shared?" at design
+  time, in exchange for deleting the `[weak self]` bug class.
+
 ## Open details for the implementation brief (not yet decided)
 
 - Surface spelling of the marker (`escaping` keyword position; whether the
