@@ -1,7 +1,7 @@
 # Option Paper 08 — Exclusivity for `&var` references
 
-**Status: DECISION NEEDED (user). Independent of 06/07 — can decide any
-time.** Source: `todo_jul26.md` design concern 2: the spec never says what
+**Status: DECIDED (Jul 27, 2026) — option A as refined (many readers XOR one
+writer, fully static). Implementation brief: `designs/10-exclusivity-check.md`.** Source: `todo_jul26.md` design concern 2: the spec never says what
 `swap(&x, &x)` or passing `&v` and `&var v` in one call means, and "memory
 safety by default" is a claim about exactly these cases.
 
