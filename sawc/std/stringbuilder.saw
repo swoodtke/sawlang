@@ -10,6 +10,9 @@ extern "C" {
     func realloc(ptr: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
     func free(ptr: UnsafePointer<Int8>)
     func strlen(s: UnsafePointer<Int8>) -> Int
+
+    // Refcounted String runtime (defined by the compiler).
+    func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
 }
 
 // =============================================================================
@@ -101,10 +104,12 @@ extension StringBuilder {
         }
     }
 
-    // Convert to String (returns pointer to internal buffer - valid while StringBuilder exists)
+    // Convert to an owned String (copies the buffer). String is refcounted, so
+    // it cannot alias the builder's internal buffer -- returning `buf as String`
+    // would hand back a header-less pointer that corrupts on len()/release.
     func as_str(&self) -> String {
         if let buf = self.buffer {
-            buf as String
+            __saw_string_from_bytes(buf, self.length)
         } else {
             ""
         }

@@ -1,0 +1,25 @@
+// String is ImplicitCopy: it can be bound, re-bound, and passed to functions
+// freely WITHOUT `move`. Each transfer is a cheap refcount bump; the original
+// stays valid. Under an ExplicitCopy String these would all be move errors.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 5
+// hello
+// hello
+// hello
+
+func describe(s: String) -> Int {
+    s.len()
+}
+
+func main() {
+    let a = "hello"
+    let b = a            // copy (retain), no `move`
+    let c = b            // copy again
+    print(describe(a))   // 5  -- passing `a` to a function does not consume it
+    print(describe(b))   // 5
+    print(a)             // hello  -- a still valid after copies + calls
+    print(b)             // hello
+    print(c)             // hello
+}

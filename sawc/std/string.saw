@@ -8,6 +8,17 @@
 extern "C" {
     func strlen(s: UnsafePointer<Int8>) -> Int
     func malloc(size: Int) -> UnsafePointer<Int8>?
+
+    // Refcounted String runtime, defined by the compiler (see codegen/core.py).
+    // A String value is a pointer to the `bytes` field of a heap block laid out
+    // as { i64 refcount, i64 len, bytes, NUL }; the header sits at negative
+    // offsets, so `as UnsafePointer<Int8>` stays a no-op and FFI is unchanged.
+    //  - __saw_string_len:  O(1) length from the header (no strlen scan)
+    //  - __saw_string_alloc: allocate a fresh refcount=1 String buffer of `len`
+    //    bytes (+ header + NUL); the returned bytes pointer is a valid String.
+    func __saw_string_len(s: UnsafePointer<Int8>) -> Int
+    func __saw_string_alloc(len: Int) -> UnsafePointer<Int8>?
+    func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
 }
 
 // =============================================================================
@@ -15,10 +26,9 @@ extern "C" {
 // =============================================================================
 
 extension String {
-    // Get the length of the string in bytes
+    // Get the length of the string in bytes (O(1): reads the header `len` field)
     func len(&self) -> Int {
-        let ptr = self as UnsafePointer<Int8>
-        strlen(ptr)
+        __saw_string_len(self as UnsafePointer<Int8>)
     }
 
     // Check if the string is empty
@@ -158,7 +168,7 @@ extension String {
         if length <= 0 {
             ""
         } else {
-            if let new_ptr = malloc(length + 1) {
+            if let new_ptr = __saw_string_alloc(length) {
                 var i = 0
                 while i < length {
                     new_ptr[i] = self.byte_at(start + i)
@@ -178,7 +188,7 @@ extension String {
         if len == 0 {
             self
         } else {
-            if let new_ptr = malloc(len + 1) {
+            if let new_ptr = __saw_string_alloc(len) {
                 var i = 0
                 while i < len {
                     let c = self.byte_at(i)
@@ -204,7 +214,7 @@ extension String {
         if len == 0 {
             self
         } else {
-            if let new_ptr = malloc(len + 1) {
+            if let new_ptr = __saw_string_alloc(len) {
                 var i = 0
                 while i < len {
                     let c = self.byte_at(i)
@@ -259,7 +269,7 @@ extension String {
                 // Calculate new size
                 let new_size = self_len - (count * old_len) + (count * new_len)
 
-                if let new_ptr = malloc(new_size + 1) {
+                if let new_ptr = __saw_string_alloc(new_size) {
                     var src_i = 0
                     var dst_i = 0
 
@@ -453,7 +463,7 @@ extension Vector<String> {
             total_len = total_len + (sep_len * (count - 1))
 
             // Allocate buffer and build result
-            if let buf = malloc(total_len + 1) {
+            if let buf = __saw_string_alloc(total_len) {
                 var pos = 0
                 var idx = 0
                 while idx < count {

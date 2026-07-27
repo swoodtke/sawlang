@@ -60,6 +60,14 @@ class RegistrationMixin:
             column=0
         ))
 
+        # String is a compiler-known refcounted value type: ImplicitCopy (a copy
+        # is a refcount bump) + Deinit (release, free at zero). The copy/deinit
+        # bodies are IR-level runtime helpers emitted by codegen, so the
+        # conformance is registered here rather than declared in stdlib. This
+        # drives value-transfer copy() insertion and scope-exit cleanup.
+        self.namespace.register_conformance("String", "ImplicitCopy")
+        self.namespace.register_conformance("String", "Deinit")
+
         # Register Result<T, E> as a built-in generic enum
         from ast_nodes import TypeParameter
 

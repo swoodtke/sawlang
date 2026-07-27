@@ -153,9 +153,43 @@ Float  // Alias for Float64
 // Other primitives
 Bool        // true, false
 Char        // Unicode scalar value
-String      // UTF-8 string
+String      // Immutable, refcounted byte string (see "String" below)
 Never       // Bottom type (function never returns)
 ```
+
+### String
+
+`String` is an **immutable, reference-counted byte string**. A `String` value is
+a single pointer; copying one (binding it, passing it, storing it) is a cheap
+refcount bump, and the buffer is freed deterministically when the last owner
+goes away. Because it is `ImplicitCopy + Deinit`, strings flow through the
+language with no `move` discipline — `greet(s)` does not consume `s`.
+
+- **Representation.** One heap block `{ refcount, len, bytes…, NUL }`; the value
+  points at `bytes`, with the header at negative offsets. The buffer stays
+  NUL-terminated for zero-copy C FFI, and `len` is authoritative (O(1),
+  interior NUL bytes are representable). The buffer is immutable after
+  construction: concatenation and interpolation build fresh buffers (an
+  `s + t` loop is O(n²); a mutable `StringBuilder` is future stdlib work).
+- **Byte string today.** As of this milestone `String` guarantees only that it
+  holds bytes. UTF-8 validity is *not* yet enforced; the UTF-8 guarantee
+  arrives with literal-time validation and a checked `String.fromBytes` (which
+  will return `Result`). There is deliberately no `s[i]` integer indexing —
+  byte and scalar views (`bytes()` / `chars()`) are the future access path.
+- **The refcount is atomic** (`i64`), from day one. This is a deliberate cost
+  paid up front so `String` is `Send`-ready before multithreading lands, so the
+  concurrency milestone does not have to relitigate the memory model. The
+  ordering protocol is the standard `Arc` discipline — immutability does *not*
+  exempt the decrement:
+  - **retain** (a copy): `atomicrmw add` **relaxed/monotonic** — a live
+    reference already keeps the object alive, so no ordering is needed;
+  - **release** (a drop): `atomicrmw sub` **release**; the thread that observes
+    the count reach zero issues an **acquire fence**, then runs deinit / frees
+    (ordering every other thread's final reads before the free);
+  - **immortal literals**: string literals are static blocks with a sentinel
+    refcount of `-1`, checked with a plain (non-atomic) load *before* any atomic
+    op. Literals are never retained or released, so the common case pays zero
+    atomic traffic.
 
 ### Composite Types
 

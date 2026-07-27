@@ -1,0 +1,25 @@
+// An interpolated String is an owned heap value (refcount 1). It can be
+// returned across a scope boundary, stored, copied, and printed later with
+// balanced retain/release -- the old dangling-pointer / leak cases. Two builds
+// share a call frame; neither clobbers the other because each owns a distinct
+// heap buffer.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// item #1
+// item #2
+// item #1
+// 7
+
+func build(n: Int) -> String {
+    "item #{n}"          // owned interp result, returned across the scope
+}
+
+func main() {
+    let a = build(1)     // stored, lives past build()'s scope
+    let b = build(2)     // reuses build()'s frame; must not clobber `a`
+    let c = a            // copy of an owned interp result (retain)
+    print(a)             // item #1
+    print(b)             // item #2
+    print(c)             // item #1
+    print(a.len())       // 7  ("item #1")
+}

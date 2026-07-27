@@ -459,6 +459,9 @@ class TypeUtilsMixin:
             type_name = saw_type.struct_name
         elif saw_type.kind == TypeKind.ENUM:
             type_name = saw_type.enum_name
+        elif saw_type.kind == TypeKind.STRING:
+            # String is a compiler-known refcounted ImplicitCopy type.
+            type_name = "String"
 
         if type_name is None:
             return False
@@ -927,6 +930,12 @@ class TypeUtilsMixin:
 
             # Check each field
             for field_name, field_type in struct_info.fields.items():
+                # String is a compiler-known ImplicitCopy value type; unlike a
+                # user Rc it does not force containing structs to opt in (a plain
+                # struct holding a String keeps the pre-refcount behavior:
+                # bitwise field, no imposed copy/deinit policy).
+                if field_type.kind == TypeKind.STRING:
+                    continue
                 if self._is_implicit_copy_type(field_type):
                     self._error(
                         ErrorKind.CANNOT_COPY,

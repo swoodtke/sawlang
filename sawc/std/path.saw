@@ -162,7 +162,7 @@ extension Path {
 
         let new_len = self_len + other_len + (if needs_sep { 1 } else { 0 })
 
-        if let buf = malloc(new_len + 1) {
+        if let buf = __saw_string_alloc(new_len) {
             let self_ptr = self.value as UnsafePointer<Int8>
             let other_ptr = other as UnsafePointer<Int8>
 

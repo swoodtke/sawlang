@@ -1,0 +1,27 @@
+// String literals are immortal static blocks (refcount == -1). Copying a
+// literal into bindings that die, and passing it to functions repeatedly, incur
+// zero atomic traffic and never free the static data -- the literal stays valid
+// no matter how many owners come and go.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 2
+// hi
+// hi
+// hi
+
+func consume(s: String) -> Int {
+    let local = s      // a binding that dies at function exit
+    local.len()
+}
+
+func main() {
+    let lit = "hi"
+    let a = lit          // copy of a literal into a binding
+    let b = a            // and another
+    print(consume(lit))  // 2  -- literal passed to a function...
+    print(consume(lit))  // 2  -- ...repeatedly; never freed
+    print(a)             // hi -- copies still valid
+    print(b)             // hi
+    print(lit)           // hi -- original literal still valid after everything
+}

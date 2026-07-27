@@ -22,6 +22,10 @@ extern "C" {
     func free(ptr: UnsafePointer<Int8>)
     func strlen(s: UnsafePointer<Int8>) -> Int
 
+    // Refcounted String runtime (defined by the compiler, see codegen/core.py)
+    func __saw_string_alloc(len: Int) -> UnsafePointer<Int8>?
+    func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
+
     // String operations (BSD safe versions)
     func strlcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, size: Int) -> Int
     func strlcat(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, size: Int) -> Int
@@ -125,7 +129,9 @@ extension Command {
         }
 
         let buf_size = total_len + 1
-        if let cmd_buf = malloc(buf_size) {
+        // Build into a real refcounted String buffer so the returned value has a
+        // valid header and is freed by its owner's release() (not a bare malloc).
+        if let cmd_buf = __saw_string_alloc(total_len) {
             // Copy program
             strlcpy(cmd_buf, prog_ptr, buf_size)
 
@@ -218,9 +224,13 @@ extension Command {
             let status = pclose(stream)
             let exit_code = status / (256 as Int32)
 
-            // Convert output to string
+            // Convert output to an owned String. The read buffer has no String
+            // header (it's a bare realloc buffer), so copy its bytes into a
+            // proper refcounted String, then free the scratch buffer. This is
+            // what fixes the old use-after-free (`out as String` then `free(out)`
+            // returned a dangling pointer -> empty captured stdout).
             let stdout_str = if let out = output_buf {
-                let s = out as String
+                let s = __saw_string_from_bytes(out, output_len)
                 free(out)
                 s
             } else {

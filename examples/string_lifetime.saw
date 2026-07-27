@@ -1,0 +1,21 @@
+// A fresh interpolated String is created and dropped on every iteration of a
+// hot loop. With refcounted ownership each one is released (refcount 1 -> 0 ->
+// free) at the end of its scope, so memory stays flat across a million
+// iterations instead of leaking. Correct output proves the strings are valid
+// while live and freed after.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1000000
+// done
+
+func main() {
+    var count = 0
+    for i in 0..1000000 {
+        let s = "value={i}"      // fresh heap String each iteration
+        if s.len() > 0 {
+            count = count + 1
+        }
+    }                            // s released here every iteration
+    print(count)                 // 1000000
+    print("done")
+}

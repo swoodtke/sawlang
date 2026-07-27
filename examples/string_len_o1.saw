@@ -1,0 +1,29 @@
+// len() is O(1): it reads the `len` field from the String header instead of
+// scanning with strlen. It stays correct across interpolation, substring, and
+// case conversion (each builds a fresh header-carrying buffer), and reports 0
+// for the empty literal.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 11
+// 11
+// 5
+// hello
+// 0
+
+func main() {
+    let s = "hello"
+    print(s.len())              // 5
+
+    let joined = "{s} world"    // interpolation -> "hello world"
+    print(joined.len())         // 11
+
+    let upper = joined.to_uppercase()   // "HELLO WORLD"
+    print(upper.len())          // 11
+
+    let sub = joined.substring(0, 5)    // "hello"
+    print(sub.len())            // 5
+    print(sub)                  // hello
+
+    print("".len())             // 0
+}

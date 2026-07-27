@@ -22,6 +22,13 @@ extern "C" {
     // Memory
     func malloc(size: Int) -> UnsafePointer<Int8>?
     func free(ptr: UnsafePointer<Int8>)
+    func strlen(s: UnsafePointer<Int8>) -> Int
+
+    // Refcounted String runtime (defined by the compiler): copy a C string into
+    // an owned String with a proper { refcount, len, bytes } header. A bare
+    // `ptr as String` would produce a header-less pointer that corrupts on
+    // len()/release.
+    func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
 }
 
 // =============================================================================
@@ -51,7 +58,9 @@ extension Directory {
                 if let entry = readdir(dir) {
                     // On macOS, d_name starts at offset 21 in struct dirent
                     let name_ptr = entry + 21
-                    let name = name_ptr as String
+                    // Copy the entry's C string into an owned String (the dirent
+                    // buffer has no String header and is reused by readdir).
+                    let name = __saw_string_from_bytes(name_ptr, strlen(name_ptr))
 
                     // Skip . and ..
                     let first_char = name_ptr[0]
@@ -113,7 +122,10 @@ extension Directory {
     func current() -> Path? {
         if let buf = malloc(1024) {
             if let result = getcwd(buf, 1024) {
-                Path(s: result as String)
+                // Copy into an owned String, then free the scratch buffer.
+                let s = __saw_string_from_bytes(result, strlen(result))
+                free(buf)
+                Path(s: s)
             } else {
                 free(buf)
                 None

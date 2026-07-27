@@ -77,9 +77,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # variant_info: dict[variant_name, list[(param_name, SawType)]]
         self.enum_types: dict = {}
 
-        # String constants
+        # String constants (raw C strings: [N x i8] globals for printf etc.)
         self.string_constants: dict = {}
         self.string_counter = 0
+        # Saw String literal globals: value -> {i64 refcount(=-1), i64 len, [N+1 x i8]}
+        self.string_literal_globals: dict = {}
 
         # Loop tracking for break/continue
         # Stack of (continue_block, break_block, result_storage) for nested loops
@@ -248,6 +250,187 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.string_constants[value] = global_str
         return global_str
 
+    # =========================================================================
+    # Refcounted String runtime (design 07/11)
+    # =========================================================================
+    #
+    # A `String` value lowers to a single `i8*` pointing at the `bytes` field of
+    # a heap block laid out as:
+    #
+    #     { i64 refcount, i64 len, i8 bytes[len], i8 NUL }
+    #
+    # The header lives at NEGATIVE offsets from the String pointer (refcount at
+    # ptr-16, len at ptr-8). Pointing at `bytes` (not the header) keeps every
+    # existing char*-consuming site working unchanged: `s as UnsafePointer<Int8>`
+    # is a no-op bitcast, the bytes stay NUL-terminated for FFI, and printf %s
+    # reads them directly. String literals use an immortal sentinel refcount of
+    # -1 and are never retained/released (a plain load + branch guards every
+    # atomic, so literals incur zero atomic traffic).
+
+    def _saw_string_header_ptrs(self, builder, p):
+        """Return (block_start_i8ptr, refcount_i64ptr, len_i64ptr) for a String
+        bytes pointer `p`."""
+        i64 = ir.IntType(64)
+        i64ptr = i64.as_pointer()
+        block = builder.gep(p, [ir.Constant(i64, -16)], inbounds=True, name="hdr")
+        rc_ptr = builder.bitcast(block, i64ptr, name="rc_ptr")
+        len_raw = builder.gep(p, [ir.Constant(i64, -8)], inbounds=True)
+        len_ptr = builder.bitcast(len_raw, i64ptr, name="len_ptr")
+        return block, rc_ptr, len_ptr
+
+    def _declare_string_runtime(self):
+        """Emit the refcounted-String runtime helpers and the compiler-known
+        String.copy()/String.deinit() bodies the resource machinery calls.
+
+        Must run before extern blocks are declared so the stdlib's `extern`
+        declarations of __saw_string_* resolve to these definitions (the extern
+        pass skips names already defined) while still registering their
+        optional-return wrapping.
+        """
+        i8 = ir.IntType(8)
+        i8ptr = i8.as_pointer()
+        i64 = ir.IntType(64)
+        void = ir.VoidType()
+        null = ir.Constant(i8ptr, None)
+
+        malloc_fn = self._libc_func("malloc", i8ptr, [i64])
+        free_fn = self._libc_func("free", void, [i8ptr])
+        memcpy_fn = self._libc_func("memcpy", i8ptr, [i8ptr, i8ptr, i64])
+
+        # ---- __saw_string_retain(i8* s) -------------------------------------
+        fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
+                         name="__saw_string_retain")
+        self.functions["__saw_string_retain"] = fn
+        s = fn.args[0]; s.name = "s"
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        with b.if_then(b.icmp_unsigned('!=', s, null)):
+            _, rc_ptr, _ = self._saw_string_header_ptrs(b, s)
+            rc = b.load(rc_ptr, name="rc")  # plain load: immortal check first
+            with b.if_then(b.icmp_signed('!=', rc, ir.Constant(i64, -1))):
+                # a live reference keeps the object alive; relaxed is enough
+                b.atomic_rmw('add', rc_ptr, ir.Constant(i64, 1), ordering='monotonic')
+        b.ret_void()
+
+        # ---- __saw_string_release(i8* s) ------------------------------------
+        fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
+                         name="__saw_string_release")
+        self.functions["__saw_string_release"] = fn
+        s = fn.args[0]; s.name = "s"
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        with b.if_then(b.icmp_unsigned('!=', s, null)):
+            block, rc_ptr, _ = self._saw_string_header_ptrs(b, s)
+            rc = b.load(rc_ptr, name="rc")  # plain load: immortal check first
+            with b.if_then(b.icmp_signed('!=', rc, ir.Constant(i64, -1))):
+                old = b.atomic_rmw('sub', rc_ptr, ir.Constant(i64, 1),
+                                   ordering='release')
+                with b.if_then(b.icmp_signed('==', old, ir.Constant(i64, 1))):
+                    # last owner observed count->0: order every other thread's
+                    # final reads before the free, then free the whole block.
+                    b.fence(ordering='acquire')
+                    b.call(free_fn, [block])
+        b.ret_void()
+
+        # ---- __saw_string_alloc(i64 len) -> i8*  (NULL on OOM) ---------------
+        fn = ir.Function(self.module, ir.FunctionType(i8ptr, [i64]),
+                         name="__saw_string_alloc")
+        self.functions["__saw_string_alloc"] = fn
+        length = fn.args[0]; length.name = "len"
+        entry = fn.append_basic_block("entry")
+        oom = fn.append_basic_block("oom")
+        ok = fn.append_basic_block("ok")
+        b = ir.IRBuilder(entry)
+        total = b.add(length, ir.Constant(i64, 17), name="total")  # 16 hdr + len + NUL
+        block = b.call(malloc_fn, [total], name="block")
+        b.cbranch(b.icmp_unsigned('==', block, null), oom, ok)
+        b = ir.IRBuilder(oom)
+        b.ret(null)
+        b = ir.IRBuilder(ok)
+        i64ptr = i64.as_pointer()
+        rc_ptr = b.bitcast(block, i64ptr, name="rc_ptr")
+        b.store(ir.Constant(i64, 1), rc_ptr)
+        len_raw = b.gep(block, [ir.Constant(i64, 8)], inbounds=True)
+        len_ptr = b.bitcast(len_raw, i64ptr, name="len_ptr")
+        b.store(length, len_ptr)
+        bytes_ptr = b.gep(block, [ir.Constant(i64, 16)], inbounds=True, name="bytes")
+        nul_ptr = b.gep(bytes_ptr, [length], inbounds=True, name="nul")
+        b.store(ir.Constant(i8, 0), nul_ptr)
+        b.ret(bytes_ptr)
+
+        # ---- __saw_string_from_bytes(i8* src, i64 len) -> i8* ----------------
+        fn = ir.Function(self.module, ir.FunctionType(i8ptr, [i8ptr, i64]),
+                         name="__saw_string_from_bytes")
+        self.functions["__saw_string_from_bytes"] = fn
+        src = fn.args[0]; src.name = "src"
+        length = fn.args[1]; length.name = "len"
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        bytes_ptr = b.call(self.functions["__saw_string_alloc"], [length], name="dst")
+        with b.if_then(b.icmp_unsigned('!=', bytes_ptr, null)):
+            b.call(memcpy_fn, [bytes_ptr, src, length])
+        b.ret(bytes_ptr)
+
+        # ---- __saw_string_len(i8* s) -> i64 ---------------------------------
+        fn = ir.Function(self.module, ir.FunctionType(i64, [i8ptr]),
+                         name="__saw_string_len")
+        self.functions["__saw_string_len"] = fn
+        s = fn.args[0]; s.name = "s"
+        entry = fn.append_basic_block("entry")
+        null_b = fn.append_basic_block("is_null")
+        ok = fn.append_basic_block("ok")
+        b = ir.IRBuilder(entry)
+        b.cbranch(b.icmp_unsigned('==', s, null), null_b, ok)
+        b = ir.IRBuilder(null_b)
+        b.ret(ir.Constant(i64, 0))
+        b = ir.IRBuilder(ok)
+        _, _, len_ptr = self._saw_string_header_ptrs(b, s)
+        b.ret(b.load(len_ptr, name="len"))
+
+        # ---- String.copy(&self) -> String : retain, return same pointer -----
+        fn = ir.Function(self.module, ir.FunctionType(i8ptr, [i8ptr]),
+                         name=self._mangle_method_name("String", "copy"))
+        self.functions[self._mangle_method_name("String", "copy")] = fn
+        s = fn.args[0]; s.name = "self"
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        b.call(self.functions["__saw_string_retain"], [s])
+        b.ret(s)
+
+        # ---- String.deinit(&var self) : release ------------------------------
+        # Called as deinit(i8** self_slot); load the String pointer and release.
+        fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr.as_pointer()]),
+                         name=self._mangle_method_name("String", "deinit"))
+        self.functions[self._mangle_method_name("String", "deinit")] = fn
+        slot = fn.args[0]; slot.name = "self"
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        sval = b.load(slot, name="s")
+        b.call(self.functions["__saw_string_release"], [sval])
+        b.ret_void()
+
+    def _create_string_literal_global(self, value: str) -> ir.GlobalVariable:
+        """Create (or reuse) an immortal Saw String literal block.
+
+        Layout: { i64 refcount = -1, i64 len, [len+1 x i8] bytes (NUL-terminated) }.
+        Returned global's `bytes` field address is the String value.
+        """
+        if value in self.string_literal_globals:
+            return self.string_literal_globals[value]
+
+        encoded = value.encode('utf-8')
+        n = len(encoded)
+        arr_type = ir.ArrayType(ir.IntType(8), n + 1)
+        hdr_type = ir.LiteralStructType([ir.IntType(64), ir.IntType(64), arr_type])
+
+        name = f".sawstr.{self.string_counter}"
+        self.string_counter += 1
+        g = ir.GlobalVariable(self.module, hdr_type, name=name)
+        g.linkage = 'private'
+        g.global_constant = True
+        g.initializer = ir.Constant(hdr_type, [
+            ir.Constant(ir.IntType(64), -1),   # immortal sentinel
+            ir.Constant(ir.IntType(64), n),
+            ir.Constant(arr_type, bytearray(encoded + b'\0')),
+        ])
+        self.string_literal_globals[value] = g
+        return g
+
     def _libc_func(self, name, return_type, arg_types, var_arg=False):
         """Get (or lazily declare) a libc function by name.
 
@@ -267,6 +450,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Register built-in generic enums (like Result<T, E>)
         self._register_builtin_enums()
+
+        # String is a compiler-known refcounted ImplicitCopy + Deinit type
+        # (retain = copy, release = deinit). Register conformances so cleanup
+        # tracking and transfer-site copies fire; emit the runtime helpers and
+        # String.copy()/String.deinit() before extern blocks so the stdlib's
+        # `extern` declarations of __saw_string_* resolve to these definitions.
+        self.namespace.register_conformance("String", "ImplicitCopy")
+        self.namespace.register_conformance("String", "Deinit")
+        self._declare_string_runtime()
 
         # Store generic and specialized extensions FIRST
         # This must happen before struct registration since structs with generic
@@ -515,7 +707,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _declare_extern_function(self, extern_func: ExternFunction):
         """Declare an external C function (no body, just LLVM declare)."""
-        # Skip if already declared (can happen with std library and user code both declaring)
+        # Record the optional-return wrapping BEFORE any early-out: a
+        # compiler-emitted runtime helper (e.g. __saw_string_alloc) may already
+        # be defined under this name, but call sites still need the NULL->None
+        # wrapping registered from the extern signature.
+        saw_return_type = extern_func.return_type
+        if saw_return_type.kind == TypeKind.OPTIONAL and saw_return_type.inner_type:
+            self.extern_optional_returns[extern_func.name] = saw_return_type.inner_type
+
+        # Skip if already declared (std library and user code both declaring, or
+        # a compiler-provided definition already emitted).
         if extern_func.name in self.functions:
             return
 
@@ -523,10 +724,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # For extern functions, unwrap optionals from return type for C ABI
         # C functions return raw pointers which can be NULL
-        saw_return_type = extern_func.return_type
         if saw_return_type.kind == TypeKind.OPTIONAL and saw_return_type.inner_type:
-            # Store that this extern returns optional (for wrapping at call site)
-            self.extern_optional_returns[extern_func.name] = saw_return_type.inner_type
             return_type = self._get_llvm_type(saw_return_type.inner_type)
         else:
             return_type = self._get_llvm_type(saw_return_type)
@@ -645,17 +843,21 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return ir.Constant(ir.IntType(1), 1 if expr.value else 0)
 
     def visit_StringLiteral(self, expr: StringLiteral):
-        global_str = self._create_string_constant(expr.value)
+        # Immortal refcounted String literal: pointer to the `bytes` field of a
+        # static { i64 -1, i64 len, [N+1 x i8] } block. refcount == -1 makes
+        # retain/release no-ops, so literals are never freed and cost no atomics.
+        g = self._create_string_literal_global(expr.value)
         zero = ir.Constant(ir.IntType(32), 0)
-        return self.builder.gep(global_str, [zero, zero], inbounds=True)
+        two = ir.Constant(ir.IntType(32), 2)  # index of the bytes array field
+        return self.builder.gep(g, [zero, two, zero], inbounds=True)
 
     def visit_StringInterpolation(self, expr: StringInterpolation):
         """Generate code for string interpolation: "Hello {name}!"
 
-        Strategy: measure the exact byte length, HEAP-allocate a buffer of that
-        size, then concatenate the literal parts and stringified expressions
-        into it. A heap pointer is safe to store/return (unlike the old fixed
-        stack buffer, which overflowed past 1KB and dangled when returned).
+        Strategy: measure the exact byte length, build a fresh refcounted String
+        buffer of that size (refcount=1), then concatenate the literal parts and
+        stringified expressions into it. The result is an owned Deinit value that
+        participates in scope cleanup like any other String — no leak.
         """
         zero = ir.Constant(ir.IntType(32), 0)
         i8 = ir.IntType(8)
@@ -671,27 +873,21 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             piece_ptrs.append(self._value_to_string(value, saw_type))
 
         strlen_fn = self._libc_func("strlen", i64, [i8ptr])
-        malloc_fn = self._libc_func("malloc", i8ptr, [i64])
 
         # Total length: the literal parts are known at compile time; the
-        # interpolated pieces are measured at runtime with strlen. +1 for NUL.
+        # interpolated pieces are measured at runtime with strlen.
         literal_bytes = sum(len(p.encode('utf-8')) for p in expr.parts)
         total_len = ir.Constant(i64, literal_bytes)
         for ptr in piece_ptrs:
             piece_len = self.builder.call(strlen_fn, [ptr], name="piece_len")
             total_len = self.builder.add(total_len, piece_len, name="interp_len")
-        alloc_size = self.builder.add(total_len, ir.Constant(i64, 1), name="interp_size")
 
-        # Heap-allocate the exact size.
-        #
-        # NOTE: this heap string is intentionally LEAKED. Saw's String is not
-        # yet an owned type with a Deinit — that redesign is gated on the
-        # copy-semantics decision (see todo_jul26.md priority #4), so there is
-        # no deterministic point at which to free it. A leak is correct-but-
-        # wasteful; the previous stack buffer was memory-unsafe (1KB overflow +
-        # dangling pointer when the string was returned). Leak > corruption.
-        # See todo_jul26.md must-fix #5. Do NOT add an ad-hoc free here.
-        buf = self.builder.call(malloc_fn, [alloc_size], name="interp_buf")
+        # Allocate a refcounted String block (header + total_len + NUL,
+        # refcount=1, len=total_len). The returned pointer addresses the bytes
+        # region and is NUL-terminated, so strcpy/strcat below are safe and the
+        # result is a valid owned String freed by its scope's release().
+        buf = self.builder.call(self.functions["__saw_string_alloc"],
+                                [total_len], name="interp_buf")
 
         # Build the string: strcpy the first literal part, then strcat each
         # piece and the following literal part in order. The buffer is exactly

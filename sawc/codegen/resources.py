@@ -13,7 +13,8 @@ Usage:
 """
 
 from typing import Optional, List
-from ast_nodes import SawType, TypeKind, MoveExpr, Identifier, MemberAccess
+from ast_nodes import (SawType, TypeKind, MoveExpr, Identifier, MemberAccess,
+                       ArrayIndex, TupleIndex, SelfExpr)
 
 
 class ResourcesMixin:
@@ -36,6 +37,9 @@ class ResourcesMixin:
         Returns the canonical name used to look up interface conformances.
         For generic instantiations, includes mangled type arguments.
         """
+        if saw_type.kind == TypeKind.STRING:
+            # String is a compiler-known ImplicitCopy + Deinit type.
+            return "String"
         if saw_type.kind == TypeKind.STRUCT:
             if saw_type.type_args:
                 # Generic instantiation: Box<Int> -> Box$Int
@@ -163,11 +167,38 @@ class ResourcesMixin:
         ImplicitCopy value read out of an existing binding, so codegen invokes
         `copy()` uniformly at every transfer site instead of re-deciding per
         site.
+
+        Two transfer sites the typechecker checkpoint does NOT mark are also
+        handled here, because they alias an owned ImplicitCopy value that then
+        escapes into a new home:
+        - `self` (a `&self` borrow returned/passed on) — SelfExpr is not in the
+          checkpoint's aliasing set;
+        - an inner-block tail expression (an if / if-let / match branch result
+          that is a plain binding) — only function/method-body tails are
+          checkpointed. Without the retain, the block's scope cleanup releases
+          the local and frees the value before its consumer reads it.
+        For ImplicitCopy `copy()` == retain, so re-deriving the decision here
+        (instead of relying solely on `needs_copy`) yields the same result at
+        already-checkpointed sites and closes these two gaps. It never
+        double-copies: `_generate_copy` is invoked at most once per transfer.
         """
         value = self._generate_expression(value_expr)
-        if getattr(value_expr, 'needs_copy', False):
+        if self._transfer_needs_copy(value_expr):
             value = self._generate_copy(value, self._expr_type(value_expr))
         return value
+
+    def _transfer_needs_copy(self, value_expr) -> bool:
+        """Whether transferring `value_expr` into a new owner must copy/retain."""
+        if getattr(value_expr, 'needs_copy', False):
+            return True
+        # `self` and inner-block tails aren't marked by the checkpoint; retain
+        # when they alias an ImplicitCopy value (copy() == cheap retain).
+        if isinstance(value_expr, (Identifier, MemberAccess, ArrayIndex,
+                                   TupleIndex, SelfExpr)):
+            if getattr(value_expr, 'resolved_type', None) is None:
+                return False
+            return self._get_cleanup_behavior(self._expr_type(value_expr)) == "implicit_copy"
+        return False
 
     def _needs_copy_for_struct_init(self, value_expr, field_type: SawType) -> bool:
         """Check if a value expression needs copy() called during struct initialization.
