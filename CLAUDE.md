@@ -108,6 +108,19 @@ source .venv/bin/activate
 Note: the Makefile calls bare `python3`, so `make test` requires the venv to be
 activated first.
 
+## Scratch Compilations
+
+For throwaway experiments (probing a bug, checking codegen output), do NOT
+write `.saw` files to `/tmp` or create them via shell heredocs/echo — those
+commands can't be auto-approved. Instead:
+
+1. Create the file with the Write tool under `.build/scratch/` (gitignored)
+2. Compile: `./.venv/bin/python sawc/sawc.py .build/scratch/foo.saw -o .build/scratch/foo`
+3. Run: `./.build/scratch/foo`
+
+All three steps are covered by the project permissions allowlist in
+`.claude/settings.json`, so they run without prompts.
+
 ## Compiler Usage
 
 ```bash
