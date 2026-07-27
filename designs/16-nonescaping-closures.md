@@ -61,10 +61,10 @@ only sound way to expose `&var T` to locked data.
   capturing an Arc in an escaping closure is a transfer site; the checkpoint
   inserts the refcount bump. `String`'s day-one atomic refcount makes it
   `Send`-eligible with no migration.
-- Candidate simplification when Send lands: ship only atomic `Arc` (no
-  non-atomic `Rc`), consistent with the String precedent — one shared-pointer
-  type, always Send-eligible modulo contents. Revisit only if profiling
-  shows single-threaded refcount traffic matters.
+- **DECIDED (Jul 27): ship only atomic `Arc` — no non-atomic `Rc`** (user
+  preference, consistent with the String precedent): one shared-pointer
+  type, always Send-eligible modulo contents. Add `Rc` later only if
+  profiling proves single-threaded refcount traffic matters.
 - Remaining machinery is standard and small: `Send`/`Sync` as compiler-known
   marker traits with structural auto-derivation (the auto-`Copy` pattern);
   `Arc<T>: Send where T: Send + Sync`; `Mutex<T>: Sync where T: Send`;
@@ -79,10 +79,15 @@ only sound way to expose `&var T` to locked data.
 
 - Surface spelling of the marker (`escaping` keyword position; whether the
   type or the parameter carries it in written syntax).
-- Whether immutable reference captures are implicit while `&var` captures
-  require an explicit capture-list-style acknowledgment at the closure
-  (Swift requires none; an explicit `{ &var sum in ... }`-style signal is
-  worth considering for readability).
+- ~~Whether `&var` captures require explicit acknowledgment~~ **DECIDED
+  (Jul 27, user preference — explicit at all times for mutation): mutable
+  captures must be declared at the closure, `{ &var sum in ... }`-style;
+  the exact capture-list syntax is for the implementation brief.** Immutable
+  reference captures stay implicit: a read-only borrow for the call's
+  duration is observationally identical to today's captures, and requiring
+  ceremony to *read* enclosing locals (or to capture an owning type without
+  `move`) would tax the pervasive case. The rule: reads are silent,
+  mutation is announced — matching `&` at call sites.
 - Interaction with trailing-closure syntax and `$0` shorthand (should be
   none, but confirm in the parser).
 - Sequencing: after the current dataflow work; the natural forcing function
