@@ -79,9 +79,13 @@ permanent sync/async ecosystem split. Rules that make it hold:
 - Async-only *concurrency* ≠ async-only *IO*: sync functions keep plain
   blocking IO; the runtime links only into programs that `spawn`.
   Programs that never spawn pay nothing.
-- Accepted scope cost: no-runtime environments (kernels, minimal embedded)
-  get no concurrency story; reversible later via a low-level layer if the
-  niche ever matters.
+- ~~Accepted scope cost: no-runtime environments get no concurrency~~
+  **REVERSED (Jul 27): kernels and small embedded are the project's INITIAL
+  targets** — freestanding support is a first-class requirement, and
+  stackless tasks-only is the model that serves it best (existence proof:
+  Rust's Embassy — full async on KB-scale microcontrollers, no OS/heap/
+  threads; tasks are compile-time-sized frames, not stacks). See
+  "Freestanding profile" below.
 - Simplifications bought: Send audit surface = exactly two doors (spawn
   captures, channel sends); no thread lifecycle API; structured
   concurrency has no unstructured rival; one stdlib model forever.
@@ -128,6 +132,28 @@ preemption.
 - Async `deinit` is **forbidden** (deinit is synchronous, always — anything
   else breaks deterministic destruction; Swift's async deinit pain is a
   cautionary tale).
+
+## Freestanding profile (added Jul 27 — initial-target requirement)
+
+The runtime is layered so the core is freestanding:
+- **Core executor (the permanent foundation, not a stepping stone):**
+  single-threaded cooperative run queue + wake mechanism; a few hundred
+  lines, single-digit KB of code. The only platform hook is "sleep/wake":
+  `WFI` on bare metal, futex/condvar hosted. ISR wake = atomic ready-bit +
+  queue insert. **Static task allocation** (tasks declared up front, frames
+  in .bss) makes it allocation-free; per-task cost = compile-time-sized
+  frame + ~2 words of linkage. Useful minimum shipped with it: structured
+  join, bounded static channels, one hardware-timer hook.
+- **Hosted layer (on top):** thread pool, blocking compensation, dynamic
+  spawn (allocator-backed), IO reactor.
+- The "blocking is legal" rule is profile-split: hosted compensates with
+  threads; freestanding has none — cooperative discipline is documented
+  reality there (standard embedded practice).
+- **Broader flag (own workstream, more urgent than async itself):** Saw
+  today assumes libc — String/Vector call malloc, panic is printf+abort.
+  The freestanding profile needs pluggable allocator + panic-handler seams
+  (linkage-level) and a heap-free stdlib subset story. Deserves its own
+  option paper before any Stage-2 work.
 
 ## What this paper does NOT decide
 - Executor implementation details (queue discipline, timers, IO reactor) —
