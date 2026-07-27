@@ -20,6 +20,16 @@ readers-XOR-writer, via `designs/10`), string model (`designs/07`, refcounted
 immutable String with atomic retain/release, via `designs/11` — which also
 fixed the long-standing `process_simple` stdout-capture bug; the suite has
 ZERO xfails as of Jul 27).
+The harness-expressible follow-ups below are now ENCODED AS XFAIL TESTS
+(brief 12, `designs/12` — 10 yellow tests are the live tech-debt ledger;
+fixing one breaks the build via XPASS until its marker is removed).
+Two NEW issues found during brief-12 probing:
+- **Bounded-extension methods are monomorphized ignoring their bounds**
+  (brief 09 regression): even constructing `Vector<R>` for a non-Copy `R`
+  fails on the `T: Copy` `copy()` extension — Vector is currently unusable
+  for resource element types. Highest-priority open bug.
+- Module symbol collision is not silent first-wins but a codegen crash
+  (`DuplicatedNameError`) — still needs a real ambiguity diagnostic.
 Known follow-ups: use-after-move dataflow; deinit/copy conformance-name
 mismatch in resources.py (brief 04 report); `--emit-ir` builtins; call-site
 `&x` not validated against `&var` param mutability (brief 10 report); field
