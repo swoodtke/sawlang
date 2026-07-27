@@ -1,0 +1,14 @@
+// Many readers are fine: two immutable `&` arguments may overlap freely, since
+// with no writer in the call the aliasing is unobservable.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+
+func f(a: &Int, b: &Int) -> Int {
+    a + b
+}
+
+func main() {
+    let x = 21
+    print(f(&x, &x))
+}

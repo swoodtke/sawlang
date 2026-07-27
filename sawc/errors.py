@@ -26,6 +26,7 @@ class ErrorKind(Enum):
     INVALID_BREAK_CONTINUE = auto()
     CANNOT_COPY = auto()
     USE_AFTER_MOVE = auto()
+    EXCLUSIVITY_VIOLATION = auto()
 
     # Warnings
     UNUSED_VARIABLE = auto()

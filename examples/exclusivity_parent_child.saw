@@ -1,0 +1,23 @@
+// A `&var` to a whole value overlaps a `&` to one of its fields: parent and
+// child access paths alias. Rejected in both argument orders.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func f(whole: &var Point, part: &Int) {
+    print(part)
+}
+
+func g(part: &Int, whole: &var Point) {
+    print(part)
+}
+
+func main() {
+    var p = Point(x: 1, y: 2)
+    f(&var p, &p.x)     // whole `p` overlaps its field `p.x`
+    g(&p.x, &var p)     // reverse order still overlaps
+}

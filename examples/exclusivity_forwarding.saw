@@ -1,0 +1,19 @@
+// Forwarding is free but still checked at every call site. Inside `outer`,
+// `a` and `b` are distinct roots, so `inner(&a, &b)` is fine. The aliasing is
+// introduced -- and rejected -- at the `outer(&x, &x)` call in `main`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+func inner(a: &var Int, b: &var Int) {
+    a += 1
+    b += 2
+}
+
+func outer(a: &var Int, b: &var Int) {
+    inner(&a, &b)   // distinct params -> accepted here
+}
+
+func main() {
+    var x = 0
+    outer(&x, &x)   // aliasing arrives here -> rejected
+}

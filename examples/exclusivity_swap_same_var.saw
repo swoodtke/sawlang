@@ -1,0 +1,14 @@
+// Two `&var` arguments naming the same variable alias -- the classic
+// swap(&x, &x) corruption. Rejected by the law of exclusivity.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+func swap(a: &var Int, b: &var Int) {
+    a += 1
+    b += 1
+}
+
+func main() {
+    var x = 5
+    swap(&x, &x)
+}

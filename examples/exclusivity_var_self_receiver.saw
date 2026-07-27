@@ -1,0 +1,20 @@
+// The receiver of a `&var self` method is a mutable access path; it must be
+// disjoint from the method's by-reference arguments. `c.mix(&c)` aliases the
+// receiver with the argument.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func mix(&var self, other: &Counter) {
+        self.n = self.n + other.n
+    }
+}
+
+func main() {
+    var c = Counter(n: 1)
+    c.mix(&c)
+}

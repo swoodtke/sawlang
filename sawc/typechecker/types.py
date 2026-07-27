@@ -13,7 +13,7 @@ from typing import Optional, Tuple
 from ast_nodes import (
     SawType, TypeKind,
     Expression, Identifier, MoveExpr, ReferenceExpr, IntLiteral, Block,
-    MemberAccess, ArrayIndex, TupleIndex
+    MemberAccess, ArrayIndex, TupleIndex, SelfExpr
 )
 from errors import ErrorKind
 from namespace import (
@@ -668,6 +668,203 @@ class TypeUtilsMixin:
         """
         self._check_value_transfer(final_expr, return_type, context_name,
                                     line, column, is_return=True)
+
+    # ------------------------------------------------------------------
+    # Static exclusivity check for by-reference arguments (design 08/10).
+    #
+    # Law of exclusivity -- "many readers XOR one writer", per call: an access
+    # path passed mutably (`&var x`, or the receiver of a `var self` method)
+    # must be disjoint from every OTHER by-reference path in the same call.
+    # Immutable `&` paths may overlap each other freely (unobservable with no
+    # writer). A `move` argument may not alias any reference argument.
+    #
+    # References cannot escape in Saw (no reference fields/returns, closures
+    # capture by value), so every live reference was created at some call
+    # expression on the stack. Aliasing therefore reduces to per-call-site
+    # path disjointness plus forwarding -- and forwarding is covered because a
+    # callee's `var` params are distinct storage unless the caller aliased
+    # them, which the caller's own call-site check rejects. Hence fully static.
+    # ------------------------------------------------------------------
+
+    # Sentinel for an array index that is not a compile-time constant.
+    _DYNAMIC_INDEX = object()
+
+    def _build_access_path(self, expr: Expression):
+        """Build an access path (root, projections) from an lvalue expression.
+
+        root is a local/param name or 'self'. Each projection is one of
+        ('field', name), ('tuple', int), or ('index', const_int | _DYNAMIC_INDEX).
+        Returns None for a non-path expression (call result, literal, etc.) --
+        those cannot legally appear under `&`/`&var` (rejected earlier by the
+        lvalue check in `_check_reference_expr`).
+        """
+        projections = []
+        node = expr
+        while True:
+            if isinstance(node, Identifier):
+                projections.reverse()
+                return (node.name, tuple(projections))
+            if isinstance(node, SelfExpr):
+                projections.reverse()
+                return ('self', tuple(projections))
+            if isinstance(node, MemberAccess):
+                projections.append(('field', node.member))
+                node = node.object
+            elif isinstance(node, TupleIndex):
+                projections.append(('tuple', node.index))
+                node = node.tuple_expr
+            elif isinstance(node, ArrayIndex):
+                if isinstance(node.index, IntLiteral):
+                    projections.append(('index', node.index.value))
+                else:
+                    projections.append(('index', self._DYNAMIC_INDEX))
+                node = node.array_expr
+            else:
+                return None
+
+    def _paths_overlap(self, a, b) -> bool:
+        """Two access paths overlap iff they may denote overlapping storage.
+
+        Different roots -> disjoint. Same root: walk projections in parallel;
+        differing fields / tuple indices / differing *constant* array indices at
+        the same position -> disjoint; a DYNAMIC index at a position overlaps
+        anything there (conservative). Running out of projections on either side
+        (one is a prefix of the other) -> overlap.
+
+        Only ever consulted for pairs where at least one side is mutable/moved,
+        so the dynamic-index conservatism applies exactly where the decision
+        requires it.
+        """
+        root_a, proj_a = a
+        root_b, proj_b = b
+        if root_a != root_b:
+            return False
+        for pa, pb in zip(proj_a, proj_b):
+            if pa[0] != pb[0]:
+                # Different projection kinds on the same root cannot denote the
+                # same storage.
+                return False
+            if pa[0] == 'index':
+                ia, ib = pa[1], pb[1]
+                if ia is self._DYNAMIC_INDEX or ib is self._DYNAMIC_INDEX:
+                    continue
+                if ia != ib:
+                    return False
+            else:
+                if pa[1] != pb[1]:
+                    return False
+        return True
+
+    def _render_lvalue_path(self, expr: Expression) -> str:
+        """Render an lvalue expression as a source-like path (for diagnostics)."""
+        if isinstance(expr, Identifier):
+            return expr.name
+        if isinstance(expr, SelfExpr):
+            return 'self'
+        if isinstance(expr, MemberAccess):
+            return f"{self._render_lvalue_path(expr.object)}.{expr.member}"
+        if isinstance(expr, TupleIndex):
+            return f"{self._render_lvalue_path(expr.tuple_expr)}.{expr.index}"
+        if isinstance(expr, ArrayIndex):
+            return f"{self._render_lvalue_path(expr.array_expr)}[{self._render_index(expr.index)}]"
+        return "<expr>"
+
+    def _render_index(self, expr: Expression) -> str:
+        if isinstance(expr, IntLiteral):
+            return str(expr.value)
+        if isinstance(expr, Identifier):
+            return expr.name
+        return "…"
+
+    def _check_call_exclusivity(self, values, param_types=None,
+                                receiver: Optional[Expression] = None,
+                                receiver_mutable: bool = False):
+        """Enforce the law of exclusivity across one call's by-reference paths.
+
+        `values` are the argument value expressions; `param_types` (optional,
+        positionally aligned) let a `&`-argument bound to a `&var` parameter be
+        treated as mutable even when the call site wrote a plain `&` (Saw's call
+        sites do not repeat `var`). `receiver`/`receiver_mutable` describe a
+        method receiver: the receiver of a `var self` method is a mutable path.
+
+        By-value arguments are NOT collected -- snapshot semantics (the copy
+        happens at call setup), which is what makes a by-value argument that
+        overlaps a `&var` well-defined.
+        """
+        # Each entry: (kind, path, name_expr, line, column) where kind is one of
+        # 'mut', 'imm', 'moved'. name_expr renders the offending path.
+        entries = []
+
+        if receiver is not None and receiver_mutable:
+            path = self._build_access_path(receiver)
+            if path is not None:
+                entries.append(('mut', path, receiver,
+                                receiver.line, receiver.column))
+
+        if param_types is None:
+            param_types = []
+        for i, value in enumerate(values):
+            ptype = param_types[i] if i < len(param_types) else None
+            if isinstance(value, ReferenceExpr):
+                path = self._build_access_path(value.expr)
+                if path is None:
+                    continue
+                is_mut = bool(value.mutable)
+                if (ptype is not None and ptype.kind == TypeKind.REFERENCE
+                        and ptype.reference_mutable):
+                    is_mut = True
+                entries.append(('mut' if is_mut else 'imm', path, value.expr,
+                                value.line, value.column))
+            elif isinstance(value, MoveExpr):
+                entries.append(('moved', (value.variable, ()), value,
+                                value.line, value.column))
+
+        n = len(entries)
+        for i in range(n):
+            ki, pi, ei, li, ci = entries[i]
+            for j in range(i + 1, n):
+                kj, pj, ej, lj, cj = entries[j]
+                if ki == 'imm' and kj == 'imm':
+                    continue
+                if not self._paths_overlap(pi, pj):
+                    continue
+                moved_side = None
+                if ki == 'moved' and kj != 'moved':
+                    moved_side = (ei, li, ci)
+                elif kj == 'moved' and ki != 'moved':
+                    moved_side = (ej, lj, cj)
+                if moved_side is not None:
+                    m_expr, m_line, m_col = moved_side
+                    self._error(
+                        ErrorKind.EXCLUSIVITY_VIOLATION,
+                        f"cannot `move` `{self._render_move(m_expr)}` while it is "
+                        f"also passed by reference in the same call",
+                        m_line, m_col,
+                        hint="a moved value cannot alias a reference argument in the same call"
+                    )
+                    continue
+                if ki == 'moved' and kj == 'moved':
+                    # Two moves of overlapping storage -- outside this brief's
+                    # scope (no reference involved); leave to move analysis.
+                    continue
+                # At least one side is mutable and it overlaps another path.
+                if ki == 'mut':
+                    m_expr, m_line, m_col = ei, li, ci
+                else:
+                    m_expr, m_line, m_col = ej, lj, cj
+                self._error(
+                    ErrorKind.EXCLUSIVITY_VIOLATION,
+                    f"exclusive access violation: `{self._render_lvalue_path(m_expr)}` "
+                    f"is passed as `&var` while also being accessed in the same call",
+                    m_line, m_col,
+                    hint="disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); "
+                         "give the mutable reference exclusive access"
+                )
+
+    def _render_move(self, expr: Expression) -> str:
+        if isinstance(expr, MoveExpr):
+            return expr.variable
+        return self._render_lvalue_path(expr)
 
     def _check_integer_literal_range(self, literal: IntLiteral, target_type: SawType):
         """Check if an integer literal fits in the target fixed-width integer type."""

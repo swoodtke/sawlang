@@ -298,7 +298,7 @@ class OperatorsMixin:
             # Reference to struct field - get GEP pointer
             return self._get_member_pointer(inner_expr)
         elif isinstance(inner_expr, ArrayIndex):
-            # Reference to array element - get GEP pointer
+            # Reference to array/pointer element - get a stable GEP pointer
             return self._get_array_element_pointer(inner_expr)
         else:
             # For other expressions, evaluate and store in a temporary
@@ -306,6 +306,45 @@ class OperatorsMixin:
             temp = self._entry_alloca(value.type, name="ref_temp")
             self.builder.store(value, temp)
             return temp
+
+    def _get_array_element_pointer(self, expr: ArrayIndex):
+        """Return a stable pointer to an array or pointer element, for `&arr[i]`.
+
+        Mirrors the lvalue logic used by array-element assignment: obtain a
+        pointer to the container's storage, then GEP into it -- so the reference
+        aliases the real element rather than a materialized copy.
+        """
+        index_val = self._generate_expression(expr.index)
+        container_expr = expr.array_expr
+
+        # Obtain a pointer to the container's storage.
+        if isinstance(container_expr, Identifier):
+            if container_expr.name not in self.variables:
+                raise ValueError(f"Undefined variable: {container_expr.name}")
+            container_ptr = self.variables[container_expr.name]
+        elif isinstance(container_expr, SelfExpr):
+            container_ptr = self.variables["self"]
+        elif isinstance(container_expr, MemberAccess):
+            container_ptr = self._get_member_pointer(container_expr)
+        elif isinstance(container_expr, ArrayIndex):
+            container_ptr = self._get_array_element_pointer(container_expr)
+        else:
+            # Fallback: materialize the container (won't propagate mutations).
+            container_val = self._generate_expression(container_expr)
+            container_ptr = self._entry_alloca(container_val.type, name="arr_tmp")
+            self.builder.store(container_val, container_ptr)
+
+        pointee = container_ptr.type.pointee
+        if isinstance(pointee, ir.ArrayType):
+            zero = ir.Constant(ir.IntType(64), 0)
+            return self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
+        elif isinstance(pointee, ir.PointerType):
+            # The variable holds a pointer value; load it, then offset.
+            base = self.builder.load(container_ptr, name="ptr_base")
+            return self.builder.gep(base, [index_val], name="ptr_elem")
+        else:
+            raise ValueError(
+                f"Cannot take reference to element of non-array type: {pointee}")
 
     def _generate_cast_expr(self, expr: CastExpr):
         """Generate code for type cast: expr as Type"""

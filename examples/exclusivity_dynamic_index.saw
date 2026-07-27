@@ -1,0 +1,16 @@
+// Dynamic array indices are conservatively treated as overlapping when one
+// side is mutable: swap(&var a[i], &a[j]) is rejected even though i != j at
+// runtime. (Escape hatch would be a stdlib swapAt doing a dynamic check.)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+func f(x: &var Int, y: &Int) {
+    x += y
+}
+
+func main() {
+    var arr = [1, 2, 3]
+    let i = 0
+    let j = 1
+    f(&var arr[i], &arr[j])
+}

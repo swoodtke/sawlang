@@ -469,6 +469,7 @@ class ExpressionsMixin:
                     )
                 self._check_value_transfer(arg.value, expected_type, "call argument",
                                            arg.value.line, arg.value.column)
+            self._check_call_exclusivity([a.value for a in expr.arguments], param_types)
             return return_type
         func_info = self.get_function_info(expr.name)
         if func_info and not self.namespace.is_accessible(expr.name):
@@ -631,6 +632,7 @@ class ExpressionsMixin:
             self._check_expression(arg.value)
             self._check_value_transfer(arg.value, None, "call argument",
                                        arg.value.line, arg.value.column)
+        self._check_call_exclusivity([a.value for a in expr.arguments], param_types)
         return return_type
 
     def _check_if_expr(self, expr: IfExpr) -> Optional[SawType]:
@@ -1188,6 +1190,8 @@ class ExpressionsMixin:
         else:
             method_info = matching_inits[0]
             expr.resolved_init_params = method_info.param_names
+            init_values = []
+            init_param_types = []
             for field_name, field_value in expr.field_inits:
                 param_idx = method_info.param_names.index(field_name)
                 expected_type = method_info.param_types[param_idx]
@@ -1202,6 +1206,9 @@ class ExpressionsMixin:
                     )
                 self._check_value_transfer(field_value, expected_type, "init argument",
                                            field_value.line, field_value.column)
+                init_values.append(field_value)
+                init_param_types.append(expected_type)
+            self._check_call_exclusivity(init_values, init_param_types)
         return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args, symbol=struct_info)
 
     def _check_none_literal(self, expr: NoneLiteral) -> Optional[SawType]:
@@ -1659,6 +1666,14 @@ class ExpressionsMixin:
                 )
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
+        # Exclusivity: the receiver of a `var self` method is a mutable path;
+        # its parameter types (excluding self) align with the arguments.
+        self._check_call_exclusivity(
+            [a.value for a in expr.arguments],
+            method_info.param_types[param_offset:],
+            receiver=expr.object if not method_info.is_init else None,
+            receiver_mutable=method_info.self_mutable,
+        )
         return_type = method_info.return_type
         if type_subst:
             return_type = return_type.substitute(type_subst)
@@ -1684,6 +1699,8 @@ class ExpressionsMixin:
                 )
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
+        self._check_call_exclusivity([a.value for a in expr.arguments],
+                                     func_info.param_types)
         return func_info.return_type
 
     def _check_module_struct_init(self, expr: MethodCall, struct_sym) -> Optional[SawType]:
@@ -1754,6 +1771,8 @@ class ExpressionsMixin:
         else:
             # Custom init method
             method_info = matching_inits[0]
+            init_values = []
+            init_param_types = []
             for field_name, field_value in field_inits:
                 param_idx = method_info.param_names.index(field_name)
                 expected_type = method_info.param_types[param_idx]
@@ -1766,6 +1785,9 @@ class ExpressionsMixin:
                     )
                 self._check_value_transfer(field_value, expected_type, "init argument",
                                            field_value.line, field_value.column)
+                init_values.append(field_value)
+                init_param_types.append(expected_type)
+            self._check_call_exclusivity(init_values, init_param_types)
 
         return SawType(TypeKind.STRUCT, struct_name=struct_name, symbol=struct_sym)
 
@@ -1801,6 +1823,8 @@ class ExpressionsMixin:
                 )
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
+        self._check_call_exclusivity([a.value for a in expr.arguments],
+                                     method_info.param_types)
         return method_info.return_type
 
     def _check_self_expr(self, expr: SelfExpr) -> Optional[SawType]:

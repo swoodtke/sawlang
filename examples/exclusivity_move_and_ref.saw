@@ -1,0 +1,17 @@
+// `move x` transfers ownership; it cannot alias a reference to the same value
+// passed in the same call. f(move x, &x) is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot `move`
+
+struct Data {
+    n: Int
+}
+
+func f(owned: Data, borrowed: &Data) {
+    print(borrowed.n)
+}
+
+func main() {
+    var x = Data(n: 5)
+    f(move x, &x)
+}
