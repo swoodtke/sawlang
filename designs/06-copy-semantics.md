@@ -1,8 +1,43 @@
 # Option Paper 06 — Copy semantics
 
-**Status: DECISION NEEDED (user).** Gates: the String redesign (paper 07), all
-future stdlib collections, and the honesty of design principle #4 ("no hidden
-allocations"). Source: `todo_jul26.md` design concern 1 and priority item 4.
+**Status: DECIDED (Jul 27, 2026).** See the decision record below; options
+kept for history. Implementation brief: `designs/09-copy-trait-family.md`.
+Source: `todo_jul26.md` design concern 1 and priority item 4.
+
+## DECISION — the `Copy` trait family
+
+Keep existing default semantics (trivial types bitwise-copy; owning types
+move) and add an explicit copy path. One umbrella trait, two policy subtraits:
+
+```
+                Copy                    "this type can be duplicated"
+               /    \                   requires: func copy(self) -> Self
+     ImplicitCopy    ExplicitCopy       policy: WHEN the compiler may call copy()
+```
+
+- **`Copy`** — umbrella: the type can be duplicated via `copy()`. Trivial
+  types (POD, recursively) **auto-conform** with a synthesized bitwise
+  `copy()` — unless they have `Deinit` or declare `NoCopy`.
+- **`ImplicitCopy`** (rename of today's `CustomCopy`) — the compiler invokes
+  `copy()` automatically at every transfer site. **Documented contract:
+  cheap, O(1)-ish** (e.g. `Rc` refcount bump).
+- **`ExplicitCopy`** — the compiler NEVER invokes `copy()`; transfer sites
+  demand `move`; duplication is always a visible `v1.copy()`. **Documented
+  contract: may be expensive/deep** (e.g. `Vector`, `Map`, `String`).
+  Enforcement = the existing NoCopy move-required checkpoint.
+- **`NoCopy`** — "not `Copy`, on purpose": never duplicable (`File`, `Mutex`).
+- `ImplicitCopy` and `ExplicitCopy` are mutually exclusive on one type.
+- Generic bound **`T: Copy`** (positive bound — `~NoCopy` spelling rejected:
+  negative bounds make adding a conformance a breaking change) grants
+  `.copy()` in the body; monomorphization synthesizes the right tier per
+  instantiation. Narrower `T: ImplicitCopy` / `T: ExplicitCopy` also legal.
+- Memberwise `copy()` derivation for declared conformers; a `NoCopy` field
+  makes derivation impossible. Containment stays explicit: a struct with an
+  `ExplicitCopy` field must itself declare `ExplicitCopy` (or `NoCopy`) —
+  error with hint, no silent inference.
+- Spec's implicit-deep-copy-for-collections line (`LANGUAGE_SPEC.md:437`) is
+  deleted; principle #4 ("no hidden allocations") holds: the only implicit
+  copies are cheap by contract.
 
 ## The problem, restated
 

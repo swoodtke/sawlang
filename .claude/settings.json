@@ -5,6 +5,8 @@
       "Bash(./.venv/bin/python test_runner.py:*)",
       "Bash(./.venv/bin/python .build/scratch/*)",
       "Bash(mkdir -p .build/scratch)",
+      "Bash(grep *)",
+      "Bash(ls *)",
       "Bash(./.build/*)",
       "Bash(git add *)",
       "Bash(git commit *)",

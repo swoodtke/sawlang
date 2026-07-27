@@ -1,9 +1,11 @@
 # Option Paper 07 — The String model
 
-**Status: DECISION NEEDED (user), after paper 06.** String is the first stdlib
-type designed under the new copy semantics, and it stresses every part of the
-memory model — that's why it's the right forcing function. Source:
-`todo_jul26.md` design concern 5 and priority item 4.
+**Status: DECISION NEEDED (user); paper 06 is now decided (the `Copy` trait
+family), so under recommended option A, `String` is an `ExplicitCopy` +
+`Deinit` type — move on transfer, visible `s.copy()` to duplicate.** String is
+the first stdlib type designed under the new copy semantics, and it stresses
+every part of the memory model — that's why it's the right forcing function.
+Source: `todo_jul26.md` design concern 5 and priority item 4.
 
 ## Where strings stand today
 

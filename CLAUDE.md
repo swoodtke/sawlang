@@ -129,7 +129,9 @@ All three steps are covered by the project permissions allowlist in
   (pyright is configured project-wide): `workspaceSymbol` to locate a
   symbol, `goToDefinition`/`findReferences`/`incomingCalls` to trace usage.
   It is faster and more precise than `grep`. For text/pattern searches, use
-  the Grep and Glob tools — never Bash `find`/`grep` pipelines.
+  the Grep and Glob tools — if they are not in your tool list, load them
+  first with `ToolSearch: select:Grep,Glob`. Plain read-only Bash `grep`/`ls`
+  are allowlisted as a fallback; `find` and pipelines are not.
 - Never prefix commands with `cd <absolute path>; ...`. Your working directory
   is already the repo/worktree root and relative paths resolve there. Allowlist
   rules match from the start of the command string, so a `cd` prefix (or any
