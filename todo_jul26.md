@@ -14,10 +14,12 @@ abstract generic checking, canonical mangler, entry-block allocas + O1
 pipeline, heap-based interpolation, div-by-zero panics, array const-index
 bounds. Item 7's bare-ValueError cleanup and the structural issues (pipeline
 unification, merge_into sharing, parser recovery) remain open. Design
-decisions: ALL THREE DECIDED — copy semantics (`designs/06`, Copy trait
-family, landed via `designs/09`), `&var` exclusivity (`designs/08`, static
-readers-XOR-writer, landed via `designs/10`), string model (`designs/07`,
-refcounted immutable String, implementation in `designs/11`).
+decisions: ALL THREE DECIDED AND LANDED — copy semantics (`designs/06`, Copy
+trait family, via `designs/09`), `&var` exclusivity (`designs/08`, static
+readers-XOR-writer, via `designs/10`), string model (`designs/07`, refcounted
+immutable String with atomic retain/release, via `designs/11` — which also
+fixed the long-standing `process_simple` stdout-capture bug; the suite has
+ZERO xfails as of Jul 27).
 Known follow-ups: use-after-move dataflow; deinit/copy conformance-name
 mismatch in resources.py (brief 04 report); `--emit-ir` builtins; call-site
 `&x` not validated against `&var` param mutability (brief 10 report); field
@@ -25,7 +27,12 @@ assignment through a `&var Struct` param fails in codegen (brief 10 report);
 immutable `&self` receivers not collected by the exclusivity check
 (design-08-vs-brief-10 nuance); `noalias` on `&var` params (brief 10
 stretch, deferred); Vector<File>.copy() diagnostic is a Python traceback
-(brief 09 report, joins the item-7 cleanup).
+(brief 09 report, joins the item-7 cleanup); aggregate/temporary String
+leaks — struct fields without declared Deinit, Vector<String> elements,
+method-result temporaries used as receivers/args (brief 11 report; bounded,
+strictly better than the old leak-everything String); nested no-else `if`
+as an if-let branch tail emits an undominated SSA store (brief 11 report,
+pre-existing).
 
 ## Overall assessment
 
