@@ -120,6 +120,59 @@ class RegistrationMixin:
                     return True
         return False
 
+    def _check_loop_body(self, body: Block, outer_scope):
+        """Check a loop body with may-repeat move semantics (design 15 rule 7).
+
+        Conservative (shipped) rule: a binding declared OUTSIDE the loop that is
+        moved inside the body and NOT definitely reassigned before the body ends
+        would be moved-from again on the next iteration -- a use-after-move
+        across iterations. Each such binding is flagged at its move site. A move
+        followed by a definite reassignment (revival) inside the body is fine:
+        the revived binding is not moved at body end, so it is not flagged.
+
+        `outer_scope` is the scope enclosing the loop (for a `for` loop this is
+        the scope BEFORE the loop variable is bound, so moving the freshly-bound
+        loop variable each iteration is not flagged). After the loop the move
+        state is reset to the pre-loop state, since the loop may run zero times.
+        """
+        entry_moves = self._snapshot_moves()
+        outer_ids = set()
+        scope = outer_scope
+        while scope is not None:
+            for var_info in scope.variables.values():
+                outer_ids.add(id(var_info))
+            scope = scope.parent
+
+        self._check_block(body)
+
+        for key, (var_info, name, move_line, move_col) in list(self.moved_bindings.items()):
+            if key in entry_moves:
+                continue  # already moved before the loop -- caught elsewhere
+            if key in outer_ids:
+                self._error(
+                    ErrorKind.USE_AFTER_MOVE,
+                    f"use of moved variable `{name}` across loop iterations",
+                    move_line, move_col,
+                    hint="a binding moved inside a loop is moved-from on the next "
+                         "iteration; reassign it before the loop body ends, or move a fresh value"
+                )
+
+        # The loop may execute zero times, so after it we are back to the
+        # pre-loop state (any real cross-iteration move was flagged above).
+        self.moved_bindings = entry_moves
+
+    def _arm_diverges(self, body) -> bool:
+        """True if a match-arm body definitely exits the enclosing scope.
+
+        Used by the move-dataflow merge (design 15 rule 6): a diverging arm
+        does not contribute to the may-moved union. A block body reuses
+        `_block_has_early_exit`; a bare statement body (return/break/continue)
+        diverges directly; a plain expression body does not.
+        """
+        if isinstance(body, Block):
+            return self._block_has_early_exit(body)
+        return isinstance(body, (ReturnStatement, BreakStatement, ContinueStatement))
+
     def _register_type_definition(self, type_def: TypeDefinition):
         """Register a type definition (type alias)."""
         if self.get_type_alias_info(type_def.name):

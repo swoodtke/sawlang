@@ -545,9 +545,56 @@ class TypeUtilsMixin:
         """True if `expr` reads a value out of existing owned storage."""
         return isinstance(expr, self._ALIASING_EXPR_TYPES)
 
+    # ------------------------------------------------------------------
+    # Per-function, scope-aware may-move state (design 15).
+    #
+    # State is a dict keyed by id(VariableInfo) -> (var_info, name, line, col).
+    # The binding's VariableInfo is its identity: same-named bindings in
+    # different functions or shadowing scopes are distinct objects, so they
+    # never interact (the flat-set bug from brief 03). A snapshot is a plain
+    # dict copy; branch merges union the surviving branch end-states.
+    # ------------------------------------------------------------------
+
+    def _binding_move_info(self, var_info):
+        """Return (name, line, col) if this binding is moved-from, else None."""
+        entry = self.moved_bindings.get(id(var_info))
+        if entry is None:
+            return None
+        _, name, line, col = entry
+        return name, line, col
+
+    def _is_binding_moved(self, var_info) -> bool:
+        return id(var_info) in self.moved_bindings
+
+    def _mark_binding_moved(self, var_info, name: str, line: int, column: int):
+        self.moved_bindings[id(var_info)] = (var_info, name, line, column)
+
+    def _revive_binding(self, var_info):
+        """Clear moved-state for a binding (revival by assignment)."""
+        self.moved_bindings.pop(id(var_info), None)
+
+    def _snapshot_moves(self) -> dict:
+        return dict(self.moved_bindings)
+
+    def _merge_move_branches(self, entry: dict, branches: list) -> dict:
+        """Union-merge branch end-states, excluding diverged branches.
+
+        `branches` is a list of (end_state_dict, diverges_bool). A binding is
+        may-moved after the construct if ANY non-diverging branch left it moved.
+        If every branch diverges (code after is unreachable), fall back to the
+        pre-construct entry state.
+        """
+        contributing = [st for st, diverges in branches if not diverges]
+        if not contributing:
+            return dict(entry)
+        merged: dict = {}
+        for st in contributing:
+            merged.update(st)
+        return merged
+
     def _check_value_transfer(self, expr: Optional[Expression], target_type: Optional[SawType],
                               context: str, line: int, column: int,
-                              is_return: bool = False, track_move: bool = False):
+                              is_return: bool = False):
         """Single checkpoint every copy/move site funnels through.
 
         Every site where a value is copied or moved into a new home (let/var
@@ -558,31 +605,22 @@ class TypeUtilsMixin:
 
         Behavior by the source expression and its resolved type:
         - `move x`: ownership transfers; a transfer is neither a copy nor a
-          NoCopy violation, so it is always accepted. The source binding is
-          recorded as moved-from only when `track_move` is set (see below).
+          NoCopy violation, so it is always accepted. The source binding's
+          moved-from state is recorded in `_check_move_expr` (design 15), which
+          runs for every `move` regardless of the enclosing transfer site.
         - by-reference argument (`&x` / `&var x`): NOT a transfer; skipped.
         - NoCopy type read from an existing binding (identifier / field access /
           index): an error -- it must be `move`d. A fresh temporary is fine.
         - ImplicitCopy type read from an existing binding: annotated
           `expr.needs_copy = True` for codegen. A fresh temporary is fine.
         - anything else: no-op.
-
-        `track_move` is only set by the sites that already recorded moved-from
-        state before this checkpoint existed (let/var and assignment). The
-        moved-variable set is a single flat set with no per-scope/branch
-        lifetime, so recording moves at *every* transfer site (e.g. call
-        arguments) would spuriously poison later same-named bindings across
-        functions. Extending use-after-move to the new sites needs real
-        dataflow analysis, which is explicitly out of scope for this package
-        (see designs/03-value-transfer-checkpoint.md); the gap is noted there.
         """
         if expr is None:
             return
 
         # `move x` transfers ownership; a move is never a copy/NoCopy violation.
+        # Moved-from recording happens in `_check_move_expr` (design 15).
         if isinstance(expr, MoveExpr):
-            if track_move:
-                self.moved_variables.add(expr.variable)
             return
 
         # `&x` / `&var x` bind to a by-reference parameter; the callee mutates

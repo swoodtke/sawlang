@@ -177,20 +177,24 @@ class ExpressionsMixin:
         For reference types (&T or &var T), this auto-dereferences and returns
         the inner type T. This provides implicit dereference semantics.
         """
-        if expr.name in self.moved_variables:
-            self._error(
-                ErrorKind.USE_AFTER_MOVE,
-                f"use of moved variable `{expr.name}`",
-                expr.line, expr.column,
-                hint="value was moved and can no longer be used"
-            )
-            return None
         var_info = self.current_scope.lookup(expr.name)
         if not var_info:
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined variable `{expr.name}`",
                 expr.line, expr.column
+            )
+            return None
+
+        # Use-after-move: the binding was moved-from on some path reaching here.
+        move_info = self._binding_move_info(var_info)
+        if move_info is not None:
+            _, move_line, _ = move_info
+            self._error(
+                ErrorKind.USE_AFTER_MOVE,
+                f"use of moved variable `{expr.name}`",
+                expr.line, expr.column,
+                hint=f"value was moved at line {move_line} and can no longer be used"
             )
             return None
 
@@ -201,21 +205,32 @@ class ExpressionsMixin:
         return var_info.type
 
     def _check_move_expr(self, expr: MoveExpr) -> Optional[SawType]:
-        """Check a move expression."""
-        if expr.variable in self.moved_variables:
-            self._error(
-                ErrorKind.USE_AFTER_MOVE,
-                f"use of moved variable `{expr.variable}`",
-                expr.line, expr.column,
-                hint="value was already moved and can no longer be used"
-            )
-            return None
+        """Check a move expression.
+
+        Records the source binding as moved-from (design 15). This runs for
+        every `move x` regardless of the enclosing transfer site, so call
+        arguments, struct-field inits, enum payloads, array/tuple elements and
+        returns all mark the move uniformly. A double-move is caught here
+        because the second `move` sees the binding already moved-from.
+        """
         var_info = self.current_scope.lookup(expr.variable)
         if not var_info:
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined variable `{expr.variable}`",
                 expr.line, expr.column
+            )
+            return None
+
+        # Use-after-move / double-move: the binding was already moved-from.
+        move_info = self._binding_move_info(var_info)
+        if move_info is not None:
+            _, move_line, _ = move_info
+            self._error(
+                ErrorKind.USE_AFTER_MOVE,
+                f"use of moved variable `{expr.variable}`",
+                expr.line, expr.column,
+                hint=f"value was already moved at line {move_line} and can no longer be used"
             )
             return None
 
@@ -228,6 +243,9 @@ class ExpressionsMixin:
                 hint="references cannot have their contents moved out"
             )
             return None
+
+        # Record the move against the binding's identity.
+        self._mark_binding_moved(var_info, expr.variable, expr.line, expr.column)
 
         return var_info.type
 
@@ -645,9 +663,27 @@ class ExpressionsMixin:
                     f"condition must be `Bool`, got `{cond_type}`",
                     expr.line, expr.column
                 )
+        # Move dataflow (design 15 rule 6): check both branches from the same
+        # entry state, then union-merge, excluding branches that diverge.
+        entry_moves = self._snapshot_moves()
         then_type = self._check_block(expr.then_branch)
+        then_state = self._snapshot_moves()
+        then_diverges = self._block_has_early_exit(expr.then_branch)
+        self.moved_bindings = dict(entry_moves)
+        else_type = None
         if expr.else_branch:
             else_type = self._check_block(expr.else_branch)
+            else_state = self._snapshot_moves()
+            else_diverges = self._block_has_early_exit(expr.else_branch)
+        else:
+            # An absent else contributes the entry state (no new moves).
+            else_state = dict(entry_moves)
+            else_diverges = False
+        self.moved_bindings = self._merge_move_branches(
+            entry_moves,
+            [(then_state, then_diverges), (else_state, else_diverges)])
+
+        if expr.else_branch:
             if then_type and else_type and not self._types_compatible(then_type, else_type):
                 # Check if branches could be Result auto-wrapped
                 expected_return = None
@@ -786,11 +822,26 @@ class ExpressionsMixin:
             expr.name,
             VariableInfo(inner_type, expr.mutable, expr.line, expr.column)
         )
+        # Move dataflow (design 15 rule 6): branches merge as union of the
+        # non-diverging paths, from a shared entry state.
+        entry_moves = self._snapshot_moves()
         then_type = self._check_block(expr.then_branch)
+        then_state = self._snapshot_moves()
+        then_diverges = self._block_has_early_exit(expr.then_branch)
         self.current_scope = old_scope
+        self.moved_bindings = dict(entry_moves)
         else_type = None
         if expr.else_branch:
             else_type = self._check_block(expr.else_branch)
+            else_state = self._snapshot_moves()
+            else_diverges = self._block_has_early_exit(expr.else_branch)
+        else:
+            else_state = dict(entry_moves)
+            else_diverges = False
+        self.moved_bindings = self._merge_move_branches(
+            entry_moves,
+            [(then_state, then_diverges), (else_state, else_diverges)])
+        if expr.else_branch:
             if then_type and else_type and not self._types_compatible(then_type, else_type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -2005,6 +2056,11 @@ class ExpressionsMixin:
         arm_types = []
         matched_variants = set()
         has_wildcard = False
+        # Move dataflow (design 15 rule 6): every arm is a branch from the same
+        # entry state; after the (exhaustive) match a binding is may-moved if any
+        # non-diverging arm moved it.
+        entry_moves = self._snapshot_moves()
+        arm_move_states = []
         for arm in expr.arms:
             if arm.variant_name == "_":
                 has_wildcard = True
@@ -2014,10 +2070,12 @@ class ExpressionsMixin:
                         "wildcard pattern `_` cannot have bindings",
                         arm.line, arm.column
                     )
+                self.moved_bindings = dict(entry_moves)
                 if isinstance(arm.body, Block):
                     arm_type = self._check_block(arm.body)
                 else:
                     arm_type = self._check_expression(arm.body)
+                arm_move_states.append((self._snapshot_moves(), self._arm_diverges(arm.body)))
                 arm_types.append(arm_type)
                 continue
             if arm.variant_name not in enum_info.variants:
@@ -2041,6 +2099,7 @@ class ExpressionsMixin:
                 continue
             old_scope = self.current_scope
             self.current_scope = Scope(parent=old_scope)
+            self.moved_bindings = dict(entry_moves)
             for binding_name, (_, param_type) in zip(arm.bindings, variant_params):
                 # Skip wildcard bindings - they don't create variables
                 if binding_name == '_':
@@ -2061,8 +2120,15 @@ class ExpressionsMixin:
                 arm_type = self._check_block(arm.body)
             else:
                 arm_type = self._check_expression(arm.body)
+            arm_move_states.append((self._snapshot_moves(), self._arm_diverges(arm.body)))
             arm_types.append(arm_type)
             self.current_scope = old_scope
+        # Merge arm move-states (excluding diverging arms). If no arm produced a
+        # state (all were error arms), fall back to the entry state.
+        if arm_move_states:
+            self.moved_bindings = self._merge_move_branches(entry_moves, arm_move_states)
+        else:
+            self.moved_bindings = dict(entry_moves)
         if not has_wildcard:
             all_variants = set(enum_info.variants.keys())
             missing_variants = all_variants - matched_variants
@@ -2147,6 +2213,10 @@ class ExpressionsMixin:
         from .core import VariableInfo, Scope
         outer_scope = self.current_scope
         self.current_scope = Scope(parent=outer_scope)
+        # A closure captures by value, so its body has its own function-local
+        # move state (design 15); restore the enclosing state on exit.
+        saved_moves = self.moved_bindings
+        self.moved_bindings = {}
         param_types = []
         if expr.parameters:
             for i, param in enumerate(expr.parameters):
@@ -2200,6 +2270,7 @@ class ExpressionsMixin:
         captures = self._analyze_closure_captures(expr.body, outer_scope)
         expr.captures = captures
         self.current_scope = outer_scope
+        self.moved_bindings = saved_moves
         return SawType(TypeKind.FUNCTION, param_types=param_types, func_return_type=return_type)
 
     def _analyze_closure_captures(self, body: Block, outer_scope) -> List[str]:

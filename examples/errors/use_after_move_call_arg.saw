@@ -11,7 +11,6 @@
 // See todo_jul26.md "Known follow-ups" (use-after-move dataflow gap).
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: use of moved variable
-// XFAIL: move through a call argument is not recorded, so use-after-move is not detected
 
 struct FileHandle {
     fd: Int

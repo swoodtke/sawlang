@@ -101,6 +101,10 @@ class StatementsMixin:
         self.found_return_with_value = False
         self.current_type_subst = type_subst or {}
 
+        # Move state is function-local (design 15): fresh per method body.
+        saved_moves = self.moved_bindings
+        self.moved_bindings = {}
+
         # Create new scope for method
         self.current_scope = Scope()
 
@@ -208,6 +212,7 @@ class StatementsMixin:
                                     f"method `{method.name}`", method.line, method.column)
 
         self.current_method = None
+        self.moved_bindings = saved_moves
 
     def _check_function(self, func: Function):
         """Type check a function body.
@@ -228,6 +233,11 @@ class StatementsMixin:
 
         self.current_function = func
         self.found_return_with_value = False  # Reset for each function
+
+        # Move state is function-local (design 15): a fresh empty state per body,
+        # restored on exit so a nested check (e.g. an inline module) can't leak.
+        saved_moves = self.moved_bindings
+        self.moved_bindings = {}
 
         # Track type parameters as opaque for the duration of this body. Their
         # bounds are recorded so future bound-aware method/trait lookups can use
@@ -257,6 +267,7 @@ class StatementsMixin:
             # surfaced. Skip return-type reconciliation (see docstring).
             self.current_type_params = prev_type_params
             self.current_function = None
+            self.moved_bindings = saved_moves
             return
 
         # Propagate expected type to body for None annotation
@@ -336,6 +347,7 @@ class StatementsMixin:
 
         self.current_type_params = prev_type_params
         self.current_function = None
+        self.moved_bindings = saved_moves
 
     def _check_block(self, block: Block) -> Optional[SawType]:
         """Check a block and return its type (from final expression)."""
@@ -449,7 +461,7 @@ class StatementsMixin:
         # Value-transfer checkpoint: enforce NoCopy move-discipline and mark
         # ImplicitCopy sites for codegen (replaces the old inline NoCopy check).
         self._check_value_transfer(stmt.value, var_type, "let binding",
-                                   stmt.line, stmt.column, track_move=True)
+                                   stmt.line, stmt.column)
 
         # Add to scope
         if var_type:
@@ -499,10 +511,18 @@ class StatementsMixin:
         # Create a temporary scope for the else branch
         old_scope = self.current_scope
         self.current_scope = Scope(parent=old_scope)
+        # Move dataflow (design 15 rule 6): the else branch diverges (it must
+        # exit the scope), so any moves it performs do NOT reach the
+        # fall-through path. Snapshot before, restore after when it diverges --
+        # this is what lets `guard let x = ... else { consume(move v); return }`
+        # leave `v` usable on the guarded path.
+        entry_moves = self._snapshot_moves()
         self._check_block(stmt.else_branch)
         self.current_scope = old_scope
 
         # Verify else branch has early exit (return, break, continue)
+        if self._block_has_early_exit(stmt.else_branch):
+            self.moved_bindings = entry_moves
         if not self._block_has_early_exit(stmt.else_branch):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -561,9 +581,14 @@ class StatementsMixin:
                 )
 
             # Value-transfer checkpoint: enforce NoCopy move-discipline and mark
-            # ImplicitCopy sites for codegen.
+            # ImplicitCopy sites for codegen. The RHS was already type-checked
+            # above, so a moved var appearing in its own revival RHS is rejected
+            # before we clear the target's moved-state.
             self._check_value_transfer(stmt.value, var_info.type, "assignment",
-                                       stmt.line, stmt.column, track_move=True)
+                                       stmt.line, stmt.column)
+            # Revival by assignment (design 15 rule 3): assigning a fresh value
+            # to a moved binding clears its moved-state.
+            self._revive_binding(var_info)
 
         elif isinstance(stmt.target, MemberAccess):
             # Field assignment: obj.field = value
@@ -889,7 +914,7 @@ class StatementsMixin:
         # Check body with increased loop depth but NO break type tracking
         # (statements don't need to return values)
         self.loop_depth += 1
-        self._check_block(stmt.body)
+        self._check_loop_body(stmt.body, self.current_scope)
         self.loop_depth -= 1
 
     def _check_while_expr_as_expression(self, expr: WhileExpr) -> Optional[SawType]:
@@ -912,7 +937,7 @@ class StatementsMixin:
 
         # Check body with increased loop depth
         self.loop_depth += 1
-        self._check_block(expr.body)
+        self._check_loop_body(expr.body, self.current_scope)
         self.loop_depth -= 1
 
         # Pop loop info and determine return type
@@ -976,9 +1001,11 @@ class StatementsMixin:
             VariableInfo(loop_var_type, mutable=False, line=stmt.line, column=stmt.column)
         )
 
-        # Check body with increased loop depth
+        # Check body with increased loop depth. Pass old_scope (before the loop
+        # variable is bound) so moving the freshly-bound loop variable each
+        # iteration is not flagged as a cross-iteration move.
         self.loop_depth += 1
-        self._check_block(stmt.body)
+        self._check_loop_body(stmt.body, old_scope)
         self.loop_depth -= 1
 
         # Restore scope
@@ -1016,9 +1043,11 @@ class StatementsMixin:
             VariableInfo(loop_var_type, mutable=False, line=expr.line, column=expr.column)
         )
 
-        # Check body with increased loop depth
+        # Check body with increased loop depth. Pass old_scope (before the loop
+        # variable is bound) so moving the freshly-bound loop variable each
+        # iteration is not flagged as a cross-iteration move.
         self.loop_depth += 1
-        self._check_block(expr.body)
+        self._check_loop_body(expr.body, old_scope)
         self.loop_depth -= 1
 
         # Restore scope

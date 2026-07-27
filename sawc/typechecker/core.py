@@ -89,8 +89,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Track break value types for each loop level
         # Each entry is (expected_type: Optional[SawType], is_infinite: bool, has_break: bool)
         self.loop_break_info: List[Tuple[Optional[SawType], bool, bool]] = []
-        # Track moved variables for use-after-move detection
-        self.moved_variables: set[str] = set()
+        # Per-function, scope-aware move state for use-after-move detection.
+        # Keyed by id() of the binding's VariableInfo (its identity), so that
+        # same-named bindings in different functions/scopes never interact and
+        # a `let`/`var` shadow gets fresh state. The VariableInfo object is kept
+        # alive in the value tuple, so the id() key can never be reused.
+        # value = (var_info, name, move_line, move_column)
+        self.moved_bindings: Dict[int, Tuple['VariableInfo', str, int, int]] = {}
         # Structs whose copy() is compiler-derived (memberwise), checked for
         # NoCopy fields after all conformances are registered.
         self._derived_copy_structs: set[str] = set()
