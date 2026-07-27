@@ -78,6 +78,13 @@ class StatementsMixin:
                        (e.g., {"T": String} for extension Vector<String>)
         """
         from .core import VariableInfo, Scope
+
+        # A compiler-derived memberwise copy() has no user-written body to check;
+        # its signature is already registered and codegen emits the body with
+        # full knowledge of each field's copy tier. Skip body checking.
+        if getattr(method, 'is_derived_copy', False):
+            return
+
         self.current_method = method
         self.found_return_with_value = False
         self.current_type_subst = type_subst or {}

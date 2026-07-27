@@ -714,6 +714,25 @@ class TypeUtilsMixin:
                     hint="pick one copy policy: ImplicitCopy (cheap, auto-invoked) or ExplicitCopy (deep, explicit `.copy()`)"
                 )
 
+    def _check_derivable_copy(self):
+        """A struct with a compiler-derived memberwise copy() cannot contain a
+        NoCopy field: NoCopy values can never be duplicated, so the member cannot
+        be copied. Runs after all conformances are registered so field copy tiers
+        are known regardless of declaration order."""
+        for struct_name in self._derived_copy_structs:
+            struct_info = self.namespace.structs.get(struct_name)
+            if struct_info is None:
+                continue
+            for field_name, field_type in struct_info.fields.items():
+                if self._is_no_copy_type(field_type):
+                    self._error(
+                        ErrorKind.CANNOT_COPY,
+                        f"cannot derive copy() for `{struct_name}`: field `{field_name}` "
+                        f"of type `{field_type}` implements NoCopy and cannot be copied",
+                        struct_info.line, struct_info.column,
+                        hint="give the field a copyable type, or write copy() by hand"
+                    )
+
     def _check_deinit_containment(self):
         """Check that structs containing Deinit fields also implement Deinit."""
         for struct_name, struct_info in self.namespace.structs.items():

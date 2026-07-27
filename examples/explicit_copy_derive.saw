@@ -1,0 +1,44 @@
+// Memberwise copy() derivation: a struct declaring ExplicitCopy without a
+// hand-written copy() gets a compiler-synthesized one. POD fields are copied
+// bitwise; a field with its own copy policy has copy() invoked.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// inner copy called
+// 5
+// 5
+// 5
+// 99
+
+struct Inner {
+    n: Int
+}
+
+extension Inner: ImplicitCopy {
+    func copy(&self) -> Inner {
+        print("inner copy called")
+        Inner(n: self.n)
+    }
+    func deinit(&var self) {
+    }
+}
+
+// Outer declares ExplicitCopy but writes no copy() -> memberwise derivation.
+struct Outer {
+    inner: Inner
+    tag: Int
+}
+
+extension Outer: ExplicitCopy {
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    var a = Outer(inner: Inner(n: 5), tag: 5)
+    var b = a.copy()      // derived: Inner.copy() for inner, bitwise for tag
+    print(a.inner.n)      // 5
+    print(b.inner.n)      // 5
+    print(a.tag)          // 5
+    b.tag = 99            // mutate the copy only
+    print(b.tag)          // 99
+}

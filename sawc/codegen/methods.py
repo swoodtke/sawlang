@@ -94,6 +94,13 @@ class MethodsMixin:
         old_return_type = self.current_return_type
         self.current_return_type = method.return_type
 
+        # A compiler-derived memberwise copy() has no user body: synthesize one
+        # here, where every field's copy tier is known from the namespace.
+        if getattr(method, 'is_derived_copy', False):
+            self._generate_derived_copy_body(struct_name)
+            self.current_return_type = old_return_type
+            return
+
         # Generate method body
         result = self._generate_block(method.body)
 
@@ -166,6 +173,45 @@ class MethodsMixin:
 
             # Call deinit on the field (deinit takes var self = pointer)
             self.builder.call(deinit_fn, [field_ptr])
+
+    def _generate_derived_copy_body(self, struct_name: str):
+        """Emit the body of a compiler-derived memberwise copy().
+
+        Builds a fresh struct value from self's fields: POD fields are copied
+        bitwise, while fields whose type declares ImplicitCopy/ExplicitCopy have
+        their own copy() invoked. A NoCopy field is rejected by the typechecker
+        (`_check_derivable_copy`) before reaching here.
+
+        `self` is immutable (`&self`), so codegen passes it by value; the entry
+        block stored it into an alloca, which we index into.
+        """
+        llvm_struct_type, field_order = self.struct_types[struct_name]
+        field_types = self.namespace.get_struct_fields(struct_name) or {}
+        self_ptr = self.variables.get("self")
+
+        result = ir.Constant(llvm_struct_type, ir.Undefined)
+        for i, field_name in enumerate(field_order):
+            field_type = field_types.get(field_name)
+            field_ptr = self.builder.gep(self_ptr, [
+                ir.Constant(ir.IntType(32), 0),
+                ir.Constant(ir.IntType(32), i)
+            ], name=f"{field_name}_ptr")
+            field_val = self.builder.load(field_ptr, name=field_name)
+
+            # Does this field's type carry its own copy()? (ImplicitCopy or
+            # ExplicitCopy). If so, invoke it; otherwise the load is a bitwise copy.
+            type_name = self._get_type_name_for_conformance(field_type) if field_type else None
+            conformances = self.namespace.get_conformances(type_name) if type_name else []
+            if "ImplicitCopy" in conformances or "ExplicitCopy" in conformances:
+                copy_method_name = self._mangle_method_name(type_name, "copy")
+                copy_fn = self.functions.get(copy_method_name)
+                if copy_fn is not None:
+                    field_val = self.builder.call(copy_fn, [field_val],
+                                                  name=f"{field_name}_copy")
+
+            result = self.builder.insert_value(result, field_val, i)
+
+        self.builder.ret(result)
 
     def _generate_init_method(self, struct_name: str, method: Method):
         """Generate code for a custom init method."""

@@ -964,6 +964,7 @@ class Method(ASTNode):
     self_mutable: bool = False  # True for '&var self'
     self_is_reference: bool = False  # True for '&self' or '&var self'
     is_static: bool = False  # True for methods without 'self' parameter
+    is_derived_copy: bool = False  # True for a compiler-synthesized memberwise copy()
     line: int = 0
     column: int = 0
     source_file: str = ""

@@ -91,6 +91,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self.loop_break_info: List[Tuple[Optional[SawType], bool, bool]] = []
         # Track moved variables for use-after-move detection
         self.moved_variables: set[str] = set()
+        # Structs whose copy() is compiler-derived (memberwise), checked for
+        # NoCopy fields after all conformances are registered.
+        self._derived_copy_structs: set[str] = set()
         # Track if we're inside a try-catch block (errors go to catch, not caller)
         self.in_try_catch_block: bool = False
 
@@ -177,6 +180,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_implicit_copy_containment()
         self._check_explicit_copy_containment()
         self._check_copy_trait_exclusivity()
+        self._check_derivable_copy()
         self._check_deinit_containment()
 
         # Register extern functions (FFI)
@@ -411,6 +415,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_implicit_copy_containment()
         self._check_explicit_copy_containment()
         self._check_copy_trait_exclusivity()
+        self._check_derivable_copy()
         self._check_deinit_containment()
 
         # Register extern functions

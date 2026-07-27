@@ -11,7 +11,7 @@ Usage:
 
 from typing import Dict
 from ast_nodes import (
-    TypeDefinition, Struct, Enum, Trait, Function, Extension, Method,
+    TypeDefinition, Struct, Enum, Trait, Function, Extension, Method, Parameter,
     SawType, TypeKind, Visibility,
     Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr
 )
@@ -384,6 +384,34 @@ class RegistrationMixin:
                 extension.line, extension.column
             )
             return
+
+        # Memberwise `copy()` derivation: a struct declaring ImplicitCopy or
+        # ExplicitCopy without a hand-written `copy` gets a compiler-synthesized
+        # memberwise copy. We only register its signature here (so conformance
+        # passes and callers type-check `.copy()`); the body is skipped by the
+        # typechecker and emitted memberwise by codegen, where every field's
+        # copy tier is known regardless of declaration order. Structs needing
+        # derivation are recorded for a post-registration NoCopy-field check.
+        declares_copy_policy = ("ImplicitCopy" in extension.conformances or
+                                "ExplicitCopy" in extension.conformances)
+        has_copy_method = any(not m.is_init and m.name == "copy"
+                              for m in extension.methods)
+        if declares_copy_policy and not has_copy_method:
+            synthesized = Method(
+                name="copy",
+                parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
+                                      is_reference=True)],
+                return_type=SawType(TypeKind.SELF),
+                body=Block(statements=[], final_expr=None,
+                           line=extension.line, column=extension.column),
+                self_mutable=False,
+                self_is_reference=True,
+                is_derived_copy=True,
+                line=extension.line,
+                column=extension.column,
+            )
+            extension.methods.append(synthesized)
+            self._derived_copy_structs.add(extension.struct_name)
 
         # Check if this is a specialized extension (e.g., extension Vector<String>)
         specialization_key = self._get_specialization_key(extension)
