@@ -338,6 +338,10 @@ def print_summary(results: List[tuple[TestCase, TestStatus, str]], verbose: bool
             if status is TestStatus.XFAIL:
                 reason = test.xfail_reason or ""
                 print(f"  {Colors.YELLOW}x{Colors.RESET} {test.name}: {reason}")
+                if verbose:
+                    # msg's first line repeats the reason; show the rest
+                    for line in msg.split('\n')[1:]:
+                        print(f"      {line}")
 
     # Show successes if verbose
     if verbose and counts[TestStatus.PASS]:
@@ -389,7 +393,9 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description='Run Saw language tests')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
-    parser.add_argument('-f', '--filter', help='Run only tests matching this pattern')
+    parser.add_argument('-f', '--filter', action='append',
+                        help='Run only tests matching this pattern '
+                             '(repeatable; each may be comma-separated)')
     parser.add_argument('-j', '--jobs', type=int, default=None,
                         help='Number of parallel jobs (default: CPU count)')
     parser.add_argument('--sequential', action='store_true',
@@ -403,10 +409,11 @@ def main():
 
     # Filter tests if requested (match against relative path or name)
     if args.filter:
+        patterns = [p for arg in args.filter for p in arg.split(',') if p]
         def matches_filter(test):
             # Get relative path from examples dir (e.g., "ffi/casting")
             rel_path = str(test.path.relative_to(examples_dir).with_suffix(''))
-            return args.filter in rel_path or args.filter in test.name
+            return any(p in rel_path or p in test.name for p in patterns)
         tests = [t for t in tests if matches_filter(t)]
 
     print(f"Found {len(tests)} test(s)\n")

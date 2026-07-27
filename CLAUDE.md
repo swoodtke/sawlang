@@ -136,6 +136,10 @@ All three steps are covered by the project permissions allowlist in
   compound wrapper) turns an auto-approved command into one that prompts.
 - Run commands in the exact allowlisted forms shown in this file
   (`./.venv/bin/python ...`, `./.build/...`).
+- To check several tests, use the runner's multi-pattern filter instead of a
+  shell loop: `./.venv/bin/python test_runner.py -f test_a,test_b,test_c`.
+  Don't pipe runner output through grep/head — failure detail is already
+  printed in the summary, and `-v` adds it for xfail tests too.
 
 ## Compiler Usage
 

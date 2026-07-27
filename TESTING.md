@@ -22,6 +22,12 @@ python3 test_runner.py -v
 # Run only tests matching a pattern
 make test-filter FILTER=enum
 python3 test_runner.py -f enum
+
+# Multiple patterns: repeat -f or comma-separate (a test runs if ANY matches)
+python3 test_runner.py -f enum,arrays -f closures
+
+# -v also shows the underlying failure detail for xfail tests
+python3 test_runner.py -v -f some_xfail_test
 ```
 
 ### Test Results
