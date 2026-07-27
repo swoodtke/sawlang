@@ -96,7 +96,7 @@ class LoopsMixin:
 
             # Create the Range struct: { current, end }
             range_type, _ = self.struct_types["Range"]
-            iter_alloca = self.builder.alloca(range_type, name="__range")
+            iter_alloca = self._entry_alloca(range_type, name="__range")
 
             # Initialize Range with start and end
             range_val = ir.Constant(range_type, ir.Undefined)
@@ -123,7 +123,7 @@ class LoopsMixin:
             next_func = self.functions[next_mangled]
 
             # Allocate storage for the iterator (since next mutates it)
-            iter_alloca = self.builder.alloca(iter_val.type, name="__iter")
+            iter_alloca = self._entry_alloca(iter_val.type, name="__iter")
             self.builder.store(iter_val, iter_alloca)
 
             # Determine the item type from the next method's return type
@@ -156,7 +156,7 @@ class LoopsMixin:
 
         # Extract value and create loop variable
         loop_val = self.builder.extract_value(optional_result, 1, name="loop_val")
-        loop_var_alloca = self.builder.alloca(item_type, name=stmt.variable)
+        loop_var_alloca = self._entry_alloca(item_type, name=stmt.variable)
         self.builder.store(loop_val, loop_var_alloca)
         self.variables[stmt.variable] = loop_var_alloca
 
@@ -208,7 +208,7 @@ class LoopsMixin:
 
             # Create the Range struct: { current, end }
             range_type, _ = self.struct_types["Range"]
-            iter_alloca = self.builder.alloca(range_type, name="__range")
+            iter_alloca = self._entry_alloca(range_type, name="__range")
 
             # Initialize Range with start and end
             range_val = ir.Constant(range_type, ir.Undefined)
@@ -235,7 +235,7 @@ class LoopsMixin:
             next_func = self.functions[next_mangled]
 
             # Allocate storage for the iterator (since next mutates it)
-            iter_alloca = self.builder.alloca(iter_val.type, name="__iter")
+            iter_alloca = self._entry_alloca(iter_val.type, name="__iter")
             self.builder.store(iter_val, iter_alloca)
 
             # Determine the item type from the next method's return type
@@ -251,7 +251,7 @@ class LoopsMixin:
             # Fallback if no type annotation
             inner_type = ir.IntType(64)
         optional_result_type = ir.LiteralStructType([ir.IntType(1), inner_type])
-        result_alloca = self.builder.alloca(optional_result_type, name="for.result")
+        result_alloca = self._entry_alloca(optional_result_type, name="for.result")
 
         # Initialize to None (has_value = false, value = 0)
         none_value = ir.Constant(optional_result_type, [ir.Constant(ir.IntType(1), 0), ir.Constant(inner_type, 0)])
@@ -282,7 +282,7 @@ class LoopsMixin:
 
         # Extract value and create loop variable
         loop_val = self.builder.extract_value(optional_result, 1, name="loop_val")
-        loop_var_alloca = self.builder.alloca(item_type, name=expr.variable)
+        loop_var_alloca = self._entry_alloca(item_type, name=expr.variable)
         self.builder.store(loop_val, loop_var_alloca)
         self.variables[expr.variable] = loop_var_alloca
 
@@ -331,14 +331,14 @@ class LoopsMixin:
             # Conditional loop returns Optional<T>
             # Optional is { i1 has_value, T value }
             optional_type = ir.LiteralStructType([ir.IntType(1), inner_type])
-            result_alloca = self.builder.alloca(optional_type, name="while.result")
+            result_alloca = self._entry_alloca(optional_type, name="while.result")
 
             # Initialize to None (has_value = false, value = 0)
             none_value = ir.Constant(optional_type, [ir.Constant(ir.IntType(1), 0), ir.Constant(inner_type, 0)])
             self.builder.store(none_value, result_alloca)
         else:
             # Infinite loop returns T directly
-            result_alloca = self.builder.alloca(inner_type, name="while.result")
+            result_alloca = self._entry_alloca(inner_type, name="while.result")
 
         # Create basic blocks
         cond_block = func.append_basic_block("while.cond")

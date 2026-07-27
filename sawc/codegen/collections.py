@@ -75,7 +75,7 @@ class CollectionsMixin:
             index_val = self._generate_expression(expr.index)
 
             # Allocate space for the array on stack
-            array_ptr = self.builder.alloca(container_val.type, name="arr_tmp")
+            array_ptr = self._entry_alloca(container_val.type, name="arr_tmp")
             self.builder.store(container_val, array_ptr)
 
             # Use GEP to get pointer to element

@@ -7,7 +7,6 @@
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 999999
-// XFAIL: todo_jul26.md #6 - per-iteration allocas + no mem2reg; stack overflow (SIGSEGV)
 
 func main() {
     var last = 0

@@ -120,7 +120,7 @@ class ConditionalsMixin:
         # For 'if let', create a copy; for 'if var', we store and use reference
         # Currently, we always create a local variable (copy semantics for if let)
         # For if var reference semantics, we'd need to track the original optional's alloca
-        alloca = self.builder.alloca(inner_val.type, name=expr.name)
+        alloca = self._entry_alloca(inner_val.type, name=expr.name)
         self.builder.store(inner_val, alloca)
         self.variables[expr.name] = alloca
 
@@ -178,10 +178,8 @@ class ConditionalsMixin:
                 # then is T, else is T? - wrap then in Some
                 optional_type = else_val.type
 
-                # Create alloca for result at entry
-                self.builder.position_at_start(func.entry_basic_block)
-                result_alloca = self.builder.alloca(optional_type, name="if_let_result")
-                self.builder.position_at_end(func.entry_basic_block)
+                # Create alloca for result in the entry block
+                result_alloca = self._entry_alloca(optional_type, name="if_let_result")
 
                 # Wrap then value and store
                 self.builder.position_at_end(then_bb_end)
@@ -206,10 +204,8 @@ class ConditionalsMixin:
                 # then is T?, else is T - wrap else in Some
                 optional_type = then_val.type
 
-                # Create alloca for result at entry
-                self.builder.position_at_start(func.entry_basic_block)
-                result_alloca = self.builder.alloca(optional_type, name="if_let_result")
-                self.builder.position_at_end(func.entry_basic_block)
+                # Create alloca for result in the entry block
+                result_alloca = self._entry_alloca(optional_type, name="if_let_result")
 
                 # Store then value directly
                 self.builder.position_at_end(then_bb_end)
@@ -236,9 +232,8 @@ class ConditionalsMixin:
 
         if then_val is not None and else_val is not None and then_val.type == else_val.type:
             # Both branches produce values of the same type
-            # Create alloca for result at function entry
-            self.builder.position_at_start(func.entry_basic_block)
-            result_alloca = self.builder.alloca(then_val.type, name="if_let_result")
+            # Create alloca for result in the entry block
+            result_alloca = self._entry_alloca(then_val.type, name="if_let_result")
 
             # Store then value at end of then branch
             self.builder.position_at_end(then_bb_end)
@@ -258,11 +253,16 @@ class ConditionalsMixin:
 
         elif then_val is not None and else_val is None and not isinstance(then_val.type, ir.VoidType):
             # Only then branch produces a non-void value - use alloca to ensure dominance
-            # Create alloca for result at function entry and initialize to zero
-            self.builder.position_at_start(func.entry_basic_block)
-            result_alloca = self.builder.alloca(then_val.type, name="if_let_result")
-            # Initialize to zero/null in case else path is taken
+            # Create alloca for result in the entry block and initialize to zero
+            result_alloca = self._entry_alloca(then_val.type, name="if_let_result")
+            # Initialize to zero/null in the entry block so the value dominates the
+            # merge-block load in case the else path (which stores nothing) is taken.
             zero_val = ir.Constant(then_val.type, 0 if isinstance(then_val.type, ir.IntType) else None)
+            entry_block = func.entry_basic_block
+            if entry_block.terminator is not None:
+                self.builder.position_before(entry_block.terminator)
+            else:
+                self.builder.position_at_end(entry_block)
             self.builder.store(zero_val, result_alloca)
 
             # Store then value at end of then branch
@@ -330,7 +330,7 @@ class ConditionalsMixin:
         inner_val = self.builder.extract_value(optional_val, 1, name="guard_unwrapped")
 
         # Store in a local variable
-        alloca = self.builder.alloca(inner_val.type, name=stmt.name)
+        alloca = self._entry_alloca(inner_val.type, name=stmt.name)
         self.builder.store(inner_val, alloca)
         self.variables[stmt.name] = alloca
 

@@ -253,7 +253,7 @@ class OperatorsMixin:
         else:
             # For other expressions, evaluate and store in a temporary
             value = self._generate_expression(inner_expr)
-            temp = self.builder.alloca(value.type, name="ref_temp")
+            temp = self._entry_alloca(value.type, name="ref_temp")
             self.builder.store(value, temp)
             return temp
 

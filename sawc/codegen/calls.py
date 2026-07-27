@@ -337,7 +337,7 @@ class CallsMixin:
                 self_arg = self._get_member_pointer(expr.object)
             else:
                 # Otherwise create a temporary
-                self_alloca = self.builder.alloca(obj_val.type, name="self_temp")
+                self_alloca = self._entry_alloca(obj_val.type, name="self_temp")
                 self.builder.store(obj_val, self_alloca)
                 self_arg = self_alloca
 
@@ -466,7 +466,7 @@ class CallsMixin:
         else:
             # Fallback: create temporary (won't propagate changes back)
             base_val = self._generate_expression(expr.object)
-            base_ptr = self.builder.alloca(base_val.type, name="member_temp")
+            base_ptr = self._entry_alloca(base_val.type, name="member_temp")
             self.builder.store(base_val, base_ptr)
 
         # Determine the struct type
@@ -571,7 +571,7 @@ class CallsMixin:
                 payload_array_type = llvm_enum_type.elements[1]  # [N x i8]
 
                 # Allocate temporary space for the payload
-                payload_temp = self.builder.alloca(param_struct_type, name="payload_temp")
+                payload_temp = self._entry_alloca(param_struct_type, name="payload_temp")
                 self.builder.store(param_struct, payload_temp)
 
                 # Bitcast to array of bytes

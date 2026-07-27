@@ -203,6 +203,32 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     # Resource management methods are now in codegen_resources.py (ResourcesMixin)
 
+    def _entry_alloca(self, llvm_type, name=""):
+        """Create an alloca in the current function's entry block.
+
+        Every stack slot must be allocated in the entry block, for two reasons:
+        - mem2reg/SROA only promote allocas that live in the entry block, so
+          entry-block placement is what lets the optimizer lift them into SSA
+          registers (see the -O1 pipeline in compile_to_object).
+        - An alloca emitted inside a loop body allocates a *fresh* stack slot on
+          every iteration; in a hot loop that grows the stack without bound and
+          eventually overflows (SIGSEGV). Hoisting to the entry block gives one
+          stable slot reused across iterations.
+
+        The builder position is saved and restored, so callers can invoke this
+        from anywhere during codegen.
+        """
+        builder = self.builder
+        entry = builder.function.entry_basic_block
+        saved_block = builder.block
+        if entry.terminator is not None:
+            builder.position_before(entry.terminator)
+        else:
+            builder.position_at_end(entry)
+        slot = builder.alloca(llvm_type, name=name)
+        builder.position_at_end(saved_block)
+        return slot
+
     def _create_string_constant(self, value: str) -> ir.GlobalVariable:
         if value in self.string_constants:
             return self.string_constants[value]
@@ -618,7 +644,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Allocate a buffer for the result (1024 bytes should be enough for most cases)
         buf_size = 1024
-        buf = self.builder.alloca(ir.ArrayType(ir.IntType(8), buf_size), name="interp_buf")
+        buf = self._entry_alloca(ir.ArrayType(ir.IntType(8), buf_size), name="interp_buf")
         buf_ptr = self.builder.gep(buf, [zero, zero], inbounds=True)
 
         # Initialize buffer with first part
@@ -662,7 +688,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Allocate buffer for number-to-string conversion (64 bytes is enough)
         buf_size = 64
-        buf = self.builder.alloca(ir.ArrayType(ir.IntType(8), buf_size), name="fmt_buf")
+        buf = self._entry_alloca(ir.ArrayType(ir.IntType(8), buf_size), name="fmt_buf")
         buf_ptr = self.builder.gep(buf, [zero, zero], inbounds=True)
         size = ir.Constant(ir.IntType(64), buf_size)
 

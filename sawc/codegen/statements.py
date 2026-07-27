@@ -122,7 +122,7 @@ class StatementsMixin:
 
                     value = new_optional
 
-        alloca = self.builder.alloca(value.type, name=stmt.name)
+        alloca = self._entry_alloca(value.type, name=stmt.name)
         self.builder.store(value, alloca)
         self.variables[stmt.name] = alloca
 
@@ -217,7 +217,7 @@ class StatementsMixin:
                     struct_ptr = self.builder.gep(container_val, [index_val], name="ptr_idx")
                 elif isinstance(container_val.type, ir.ArrayType):
                     # Array indexing - need to allocate, store, and use GEP
-                    array_ptr = self.builder.alloca(container_val.type, name="arr_tmp")
+                    array_ptr = self._entry_alloca(container_val.type, name="arr_tmp")
                     self.builder.store(container_val, array_ptr)
                     zero = ir.Constant(ir.IntType(64), 0)
                     struct_ptr = self.builder.gep(array_ptr, [zero, index_val], name="elem_ptr")

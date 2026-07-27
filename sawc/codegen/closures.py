@@ -122,14 +122,14 @@ class ClosuresMixin:
                 # Load the captured value
                 cap_value = self.builder.load(field_ptr, name=f"cap_{cap_name}")
                 # Store in a local alloca so it can be used like a variable
-                alloca = self.builder.alloca(cap_value.type, name=cap_name)
+                alloca = self._entry_alloca(cap_value.type, name=cap_name)
                 self.builder.store(cap_value, alloca)
                 self.variables[cap_name] = alloca
 
         # Set up parameter access
         for i, param_name in enumerate(param_names):
             llvm_param = closure_fn.args[i + 1]  # +1 for env_ptr
-            alloca = self.builder.alloca(param_types[i], name=param_name)
+            alloca = self._entry_alloca(param_types[i], name=param_name)
             self.builder.store(llvm_param, alloca)
             self.variables[param_name] = alloca
 
@@ -155,7 +155,7 @@ class ClosuresMixin:
 
         # Create environment struct on stack and copy captured values
         if captures and env_struct_type:
-            env_alloca = self.builder.alloca(env_struct_type, name="closure_env")
+            env_alloca = self._entry_alloca(env_struct_type, name="closure_env")
             for i, cap_name in enumerate(captures):
                 if cap_name in self.variables:
                     cap_value = self.builder.load(self.variables[cap_name], name=f"load_{cap_name}")
