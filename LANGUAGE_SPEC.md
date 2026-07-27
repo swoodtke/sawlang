@@ -71,6 +71,24 @@ let doubled = numbers.map { x in x * 2 }
 let doubled = numbers.map { $0 * 2 }  // shorthand
 ```
 
+**Argument Evaluation Order:**
+In a call, arguments are evaluated left to right; for a method call the
+receiver is evaluated before the arguments. A by-value argument is
+copied (or moved) at evaluation time — a *snapshot* taken at call setup,
+before the callee runs. This is what makes a by-value argument that overlaps a
+`&var` argument well-defined: the copy captures the pre-call value regardless
+of any mutation the callee performs through the reference.
+
+```saw
+func f(snapshot: Int, r: &var Int) {
+    r += 100
+    print(snapshot)   // prints the value of the second arg's target BEFORE the call
+}
+
+var b = 1
+f(b, &var b)          // snapshot copies b (== 1) at call setup; then b becomes 101
+```
+
 ### Control Flow
 
 ```saw
@@ -524,6 +542,51 @@ extension Point {
     func translate(&var self, dx: Float64) { ... } // Mutable reference
 }
 ```
+
+**The Law of Exclusivity (many readers XOR one writer):**
+In a single call, an access path passed *mutably* — a `&var` argument, or the
+receiver of a `&var self` method — must be **disjoint** from every other
+by-reference path in that call. Immutable `&` paths may overlap each other
+freely: with no writer in the call, the shared storage is immutable for the
+callee's duration, so the aliasing is unobservable. A `move` argument may not
+alias any reference argument in the same call.
+
+```saw
+func swap(a: &var Int, b: &var Int) { ... }
+
+var x = 0
+swap(&x, &x)          // error: `x` is passed as `&var` while also aliased
+swap(&x, &y)          // ok: distinct roots
+
+var p = Point(x: 1, y: 2)
+f(&var p, &p.x)       // error: `p` overlaps its field `p.x`
+f(&var p.x, &p.y)     // ok: disjoint fields (the rule is path-disjointness,
+                      //     not one reference per variable)
+g(&x, &x)             // ok when both parameters are immutable `&` (shared reads)
+```
+
+This check is **fully static** and needs no lifetimes or runtime flags.
+Because references cannot escape in Saw (they are only parameters — never
+returned, stored in fields, or captured by reference; closures capture by
+value), every live reference was created at some call expression on the stack.
+Two references can therefore only alias if they were passed in the same call
+chain, and forwarding is covered by applying the same rule at *every* call
+site: inside a callee its `var` parameters are distinct storage, and the only
+way they could alias is if the caller aliased them — which the caller's own
+call-site check rejects.
+
+Access paths compared for disjointness are `x`, `x.f`, `x.0`, and `x[i]`:
+same root with differing fields, tuple indices, or differing *constant* array
+indices are disjoint; different roots are always disjoint. A non-constant
+(dynamic) array index is treated conservatively — `swap(&var a[i], &a[j])` is
+rejected even when `i != j` at runtime (a checked `a.swapAt(i, j)` stdlib
+method is the intended escape hatch).
+
+> **Invariant (for future features):** the fully-static guarantee rests on the
+> no-escape property. If closures capturing by reference, returned/stored
+> references, or globally-reachable mutable variables are ever added, they must
+> either preserve no-escape or be folded into the call-site disjointness check;
+> otherwise this law weakens from *sound* to *advisory*.
 
 ### Shared Ownership
 
