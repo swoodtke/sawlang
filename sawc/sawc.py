@@ -187,7 +187,7 @@ def topological_sort_modules(module_map):
     return result
 
 
-def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False):
+def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, optimize: bool = True):
     """
     Compile a program that uses the module system.
 
@@ -566,7 +566,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     if object_only:
         # Output directly to the specified path (should end in .o)
         obj_path = output_path if output_path.endswith('.o') else output_path + '.o'
-        codegen.compile_to_object(obj_path)
+        codegen.compile_to_object(obj_path, optimize=optimize)
 
         if verbose:
             print(f"  Output: {obj_path}")
@@ -574,7 +574,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     else:
         # Compile to temp object file, then link
         obj_path = output_path + ".o"
-        codegen.compile_to_object(obj_path)
+        codegen.compile_to_object(obj_path, optimize=optimize)
 
         # Link with system linker
         if verbose:
@@ -600,7 +600,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
         print(f"Compiled {source_path} -> {output_path}")
 
 
-def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False):
+def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True):
     """Compile a Saw source file to an executable or object file.
 
     Args:
@@ -608,6 +608,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
         output_path: Path for output (executable or .o file)
         verbose: Print verbose progress messages
         object_only: If True, compile to .o without linking (no main() required)
+        optimize: If True (default), run the O1 optimization pipeline; -O0 disables it
     """
 
     # Read source file
@@ -633,7 +634,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
                 print(f"    module {mod.name}")
 
         # Use multi-module compilation path
-        return compile_with_modules(source_path, output_path, user_ast, source, verbose, object_only)
+        return compile_with_modules(source_path, output_path, user_ast, source, verbose, object_only, optimize)
 
     # Legacy single-file compilation path
     # Load builtins
@@ -681,7 +682,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
     if object_only:
         # Output directly to the specified path (should end in .o)
         obj_path = output_path if output_path.endswith('.o') else output_path + '.o'
-        codegen.compile_to_object(obj_path)
+        codegen.compile_to_object(obj_path, optimize=optimize)
 
         if verbose:
             print(f"  Output: {obj_path}")
@@ -689,7 +690,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
     else:
         # Compile to temp object file, then link
         obj_path = output_path + ".o"
-        codegen.compile_to_object(obj_path)
+        codegen.compile_to_object(obj_path, optimize=optimize)
 
         # Link with system linker
         if verbose:
@@ -734,6 +735,8 @@ Examples:
     parser.add_argument("-c", action="store_true", help="Compile to object file (.o) without linking, no main() required")
     parser.add_argument("--emit-ir", action="store_true", help="Only emit LLVM IR, don't compile")
     parser.add_argument("--emit-ast", action="store_true", help="Dump typed AST for debugging")
+    parser.add_argument("-O0", dest="no_optimize", action="store_true",
+                        help="Disable optimization passes (emit raw codegen output for debugging)")
 
     args = parser.parse_args()
 
@@ -810,7 +813,8 @@ Examples:
             sys.exit(1)
 
         codegen = CodeGenerator(typechecker.namespace)
-        llvm_ir = codegen.generate(ast)
+        codegen.generate(ast)
+        llvm_ir = codegen.emit_ir(optimize=not args.no_optimize)
 
         ir_output = output_path + ".ll"
         with open(ir_output, 'w') as f:
@@ -820,7 +824,7 @@ Examples:
         # If -c flag, ensure output ends with .o
         if args.c and not output_path.endswith('.o'):
             output_path = output_path + '.o'
-        compile_saw(args.input, output_path, verbose=args.verbose, object_only=args.c)
+        compile_saw(args.input, output_path, verbose=args.verbose, object_only=args.c, optimize=not args.no_optimize)
 
 
 if __name__ == "__main__":

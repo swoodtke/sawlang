@@ -836,8 +836,44 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     # Match expression moved to codegen_match.py (MatchMixin)
     # Closure methods moved to codegen_closures.py (ClosuresMixin)
 
-    def compile_to_object(self, output_path: str):
-        """Compile the module to an object file."""
+    def _run_optimization_passes(self, mod, target_machine):
+        """Run a default O1-level module pipeline on a parsed binding module.
+
+        Uses llvmlite 0.48's new pass manager (the legacy PassManagerBuilder
+        was removed in this release). speed_level=1 selects the O1 default
+        pipeline, which includes mem2reg/SROA (promoting the entry-block allocas
+        into SSA registers), instcombine, simplifycfg, GVN, etc. Mutates `mod`
+        in place.
+        """
+        pto = binding.create_pipeline_tuning_options(speed_level=1)
+        pb = binding.create_pass_builder(target_machine, pto)
+        mpm = pb.getModulePassManager()
+        mpm.run(mod, pb)
+
+    def emit_ir(self, optimize: bool = True) -> str:
+        """Return the module's LLVM IR as text.
+
+        When optimize is True the IR is run through the O1 pipeline first, so
+        the emitted IR reflects what actually gets compiled (allocas promoted,
+        dead code removed). With -O0 the raw generated IR is returned.
+        """
+        llvm_ir = str(self.module)
+        if not optimize:
+            return llvm_ir
+        mod = binding.parse_assembly(llvm_ir)
+        mod.verify()
+        target = binding.Target.from_default_triple()
+        target_machine = target.create_target_machine()
+        self._run_optimization_passes(mod, target_machine)
+        return str(mod)
+
+    def compile_to_object(self, output_path: str, optimize: bool = True):
+        """Compile the module to an object file.
+
+        By default runs the O1 optimization pipeline (mem2reg/SROA + friends)
+        before emitting object code; pass optimize=False (sawc -O0) to skip it
+        for debugging raw codegen output.
+        """
         llvm_ir = str(self.module)
 
         # Parse the IR
@@ -847,6 +883,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Create target machine
         target = binding.Target.from_default_triple()
         target_machine = target.create_target_machine()
+
+        # Run the optimization pipeline (mem2reg/SROA require entry-block allocas)
+        if optimize:
+            self._run_optimization_passes(mod, target_machine)
 
         # Emit object code
         with open(output_path, 'wb') as f:
