@@ -10,9 +10,9 @@ trait Deinit {
     func deinit(&var self)
 }
 
-// CustomCopy trait - use copy() instead of memcpy when assigning
-// Implementing CustomCopy requires also implementing Deinit
-trait CustomCopy: Deinit {
+// ImplicitCopy trait - use copy() instead of memcpy when assigning
+// Implementing ImplicitCopy requires also implementing Deinit
+trait ImplicitCopy: Deinit {
     func copy(&self) -> Self
 }
 

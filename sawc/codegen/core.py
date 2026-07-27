@@ -122,7 +122,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Resource management: variable lifetime tracking
         # Stack of scopes, each scope is a list of (var_name, saw_type) for variables needing cleanup
         self.cleanup_stack: List[List[tuple[str, SawType]]] = []
-        # Cache: type_name -> cleanup behavior ('none', 'deinit', 'custom_copy', 'no_copy')
+        # Cache: type_name -> cleanup behavior ('none', 'deinit', 'implicit_copy', 'no_copy')
         self.type_cleanup_behavior: dict[str, str] = {}
         # Track moved variables - these should not be cleaned up or accessed
         self.moved_variables: set[str] = set()

@@ -428,7 +428,7 @@ class StatementsMixin:
             var_type = value_type
 
         # Value-transfer checkpoint: enforce NoCopy move-discipline and mark
-        # CustomCopy sites for codegen (replaces the old inline NoCopy check).
+        # ImplicitCopy sites for codegen (replaces the old inline NoCopy check).
         self._check_value_transfer(stmt.value, var_type, "let binding",
                                    stmt.line, stmt.column, track_move=True)
 
@@ -542,7 +542,7 @@ class StatementsMixin:
                 )
 
             # Value-transfer checkpoint: enforce NoCopy move-discipline and mark
-            # CustomCopy sites for codegen.
+            # ImplicitCopy sites for codegen.
             self._check_value_transfer(stmt.value, var_info.type, "assignment",
                                        stmt.line, stmt.column, track_move=True)
 
@@ -844,7 +844,7 @@ class StatementsMixin:
                     )
 
             # Value-transfer checkpoint for explicit `return x`: unifies the
-            # NoCopy move-discipline / CustomCopy copy rules with the implicit
+            # NoCopy move-discipline / ImplicitCopy copy rules with the implicit
             # tail-return path. Runs after any Result/Optional wrapping above so
             # a wrapped value is a fresh temporary (not aliasing).
             context_name = "function"

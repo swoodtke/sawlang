@@ -2,9 +2,9 @@
 Resource management utilities for the Saw code generator.
 
 This module provides mixin methods for handling resource cleanup, including:
-- Determining cleanup behavior for types (Deinit, CustomCopy, NoCopy)
+- Determining cleanup behavior for types (Deinit, ImplicitCopy, NoCopy)
 - Generating deinit calls for proper destruction
-- Generating copy calls for CustomCopy types
+- Generating copy calls for ImplicitCopy types
 - Managing scope-based cleanup for deterministic resource management
 
 Usage:
@@ -24,7 +24,7 @@ class ResourcesMixin:
         _get_cleanup_behavior: Determine how a type should be cleaned up
         _needs_cleanup: Check if a type requires cleanup
         _generate_deinit_call: Generate deinit() call for a variable
-        _generate_copy: Generate copy() call for CustomCopy types
+        _generate_copy: Generate copy() call for ImplicitCopy types
         _needs_copy_for_struct_init: Check if struct field init needs copy
         _cleanup_scope: Clean up variables in a scope
         _cleanup_all_scopes: Clean up all scopes (for early return)
@@ -57,7 +57,7 @@ class ResourcesMixin:
         Returns one of:
         - 'none': No special cleanup needed (plain types)
         - 'deinit': Type implements Deinit interface, call deinit() on drop
-        - 'custom_copy': Type implements CustomCopy, call copy() on copy
+        - 'implicit_copy': Type implements ImplicitCopy, call copy() on copy
         - 'no_copy': Type implements NoCopy, cannot be copied
 
         Results are cached in self.type_cleanup_behavior.
@@ -75,8 +75,8 @@ class ResourcesMixin:
 
         if "NoCopy" in conformances:
             behavior = "no_copy"
-        elif "CustomCopy" in conformances:
-            behavior = "custom_copy"
+        elif "ImplicitCopy" in conformances:
+            behavior = "implicit_copy"
         elif "Deinit" in conformances:
             behavior = "deinit"
         else:
@@ -86,7 +86,7 @@ class ResourcesMixin:
         return behavior
 
     def _needs_cleanup(self, saw_type: SawType) -> bool:
-        """Check if a type needs cleanup (implements Deinit, CustomCopy, or NoCopy)."""
+        """Check if a type needs cleanup (implements Deinit, ImplicitCopy, or NoCopy)."""
         return self._get_cleanup_behavior(saw_type) != "none"
 
     def _generate_deinit_call(self, var_name: str, saw_type: SawType):
@@ -114,11 +114,11 @@ class ResourcesMixin:
         self.builder.call(deinit_fn, [var_ptr])
 
     def _generate_copy(self, value, saw_type: SawType):
-        """Generate a copy of a value, calling copy() for CustomCopy types.
+        """Generate a copy of a value, calling copy() for ImplicitCopy types.
 
-        Returns the copied value (which may be the original for non-CustomCopy types).
+        Returns the copied value (which may be the original for non-ImplicitCopy types).
 
-        For CustomCopy types, calls the copy(self) -> Self method.
+        For ImplicitCopy types, calls the copy(self) -> Self method.
         For regular types, returns the original value (bitwise copy).
         For NoCopy types, raises an error (should be caught by typechecker).
         """
@@ -128,11 +128,11 @@ class ResourcesMixin:
             # NoCopy types cannot be copied - this should be caught by typechecker
             raise ValueError(f"Cannot copy NoCopy type: {saw_type}")
 
-        if behavior != "custom_copy":
+        if behavior != "implicit_copy":
             # Regular types just use the value as-is (bitwise copy)
             return value
 
-        # CustomCopy: call the copy() method
+        # ImplicitCopy: call the copy() method
         type_name = self._get_type_name_for_conformance(saw_type)
         if type_name is None:
             return value
@@ -154,7 +154,7 @@ class ResourcesMixin:
         `needs_copy` annotation.
 
         The value-transfer checkpoint marks `expr.needs_copy = True` on any
-        CustomCopy value read out of an existing binding, so codegen invokes
+        ImplicitCopy value read out of an existing binding, so codegen invokes
         `copy()` uniformly at every transfer site instead of re-deciding per
         site.
         """
@@ -167,7 +167,7 @@ class ResourcesMixin:
         """Check if a value expression needs copy() called during struct initialization.
 
         We need to call copy() when:
-        1. The field type implements CustomCopy
+        1. The field type implements ImplicitCopy
         2. The value comes from an existing variable (Identifier) or field access (MemberAccess)
 
         We don't need copy() for:
@@ -175,9 +175,9 @@ class ResourcesMixin:
         - Literals (they don't have existing ownership)
         - Move expressions (ownership is transferred)
         """
-        # Check if the field type implements CustomCopy
+        # Check if the field type implements ImplicitCopy
         behavior = self._get_cleanup_behavior(field_type)
-        if behavior != "custom_copy":
+        if behavior != "implicit_copy":
             return False
 
         # Check if the value comes from an existing binding that needs copying

@@ -4,7 +4,7 @@
 
 ## Overview
 
-The `typechecker` module performs type checking and semantic analysis on the Saw AST. It validates type correctness, resolves symbols, checks trait conformance, and enforces resource management rules (NoCopy, CustomCopy, Deinit). The implementation uses a mixin-based architecture where the main `TypeChecker` class inherits from multiple focused mixin classes.
+The `typechecker` module performs type checking and semantic analysis on the Saw AST. It validates type correctness, resolves symbols, checks trait conformance, and enforces resource management rules (NoCopy, ImplicitCopy, Deinit). The implementation uses a mixin-based architecture where the main `TypeChecker` class inherits from multiple focused mixin classes.
 
 ## Architecture
 
@@ -67,12 +67,12 @@ Type resolution, compatibility checking, and resource trait detection.
 | `_get_underlying_type(saw_type)` | Get underlying primitive for distinct types |
 | `_types_compatible(expected, actual)` | Check if types are compatible |
 | `_is_no_copy_type(saw_type)` | Check if type implements NoCopy |
-| `_is_custom_copy_type(saw_type)` | Check if type implements CustomCopy |
+| `_is_implicit_copy_type(saw_type)` | Check if type implements ImplicitCopy |
 | `_is_deinit_type(saw_type)` | Check if type implements Deinit |
 | `_check_no_copy_return(expr, type)` | Validate NoCopy types are moved on return |
 | `_check_integer_literal_range(value, type)` | Validate integer fits target type |
 | `_check_no_copy_containment(struct)` | Check NoCopy field containment rules |
-| `_check_custom_copy_containment(struct)` | Check CustomCopy field containment rules |
+| `_check_implicit_copy_containment(struct)` | Check ImplicitCopy field containment rules |
 | `_check_deinit_containment(struct)` | Check Deinit field containment rules |
 
 ### `registration.py`
@@ -167,7 +167,7 @@ def _check_expression(self, expr):
 
 ### Phase 2: Validation
 1. Check trait conformance for extensions
-2. Check containment rules (NoCopy, CustomCopy, Deinit)
+2. Check containment rules (NoCopy, ImplicitCopy, Deinit)
 3. Check function bodies
 4. Check method bodies in extensions
 

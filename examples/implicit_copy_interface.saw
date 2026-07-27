@@ -1,4 +1,4 @@
-// Test implementing the built-in CustomCopy interface
+// Test implementing the built-in ImplicitCopy interface
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 84
@@ -6,7 +6,7 @@
 struct RefCounted {
     value: Int
 }
-extension RefCounted: CustomCopy {
+extension RefCounted: ImplicitCopy {
     func copy(&self) -> RefCounted {
         // In a real implementation, this would increment a refcount
         RefCounted(value: self.value)

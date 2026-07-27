@@ -1,4 +1,4 @@
-// Test that nested CustomCopy fields are auto-copied
+// Test that nested ImplicitCopy fields are auto-copied
 // EXPECT: success
 // EXPECT-OUTPUT:
 // original count:
@@ -9,7 +9,7 @@
 struct RefCounted {
     count: Int
 }
-extension RefCounted: CustomCopy {
+extension RefCounted: ImplicitCopy {
     func copy(&self) -> RefCounted {
         // Increment count on copy
         RefCounted(count: self.count + 1)
@@ -20,7 +20,7 @@ extension RefCounted: CustomCopy {
 struct Container {
     data: RefCounted
 }
-extension Container: CustomCopy {
+extension Container: ImplicitCopy {
     func copy(&self) -> Container {
         // The compiler should auto-call self.data.copy()
         Container(data: self.data)

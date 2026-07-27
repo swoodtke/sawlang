@@ -911,7 +911,7 @@ class AssociatedType(ASTNode):
 
 @dataclass
 class Trait(ASTNode):
-    """Trait declaration: trait CustomCopy: Deinit { func copy(self) -> Self }"""
+    """Trait declaration: trait ImplicitCopy: Deinit { func copy(self) -> Self }"""
     name: str
     methods: List[TraitMethod]  # Required method signatures
     associated_types: List[AssociatedType] = field(default_factory=list)

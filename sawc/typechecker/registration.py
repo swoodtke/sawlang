@@ -48,7 +48,7 @@ class RegistrationMixin:
         # print can take any single argument
         # We'll handle it specially in check_function_call
         #
-        # Note: Built-in traits (Deinit, CustomCopy, NoCopy) are defined
+        # Note: Built-in traits (Deinit, ImplicitCopy, NoCopy) are defined
         # in builtin.saw and loaded automatically by the compiler.
 
         # Register String as a pseudo-struct so it can be extended

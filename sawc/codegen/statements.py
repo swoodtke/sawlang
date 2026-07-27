@@ -83,7 +83,7 @@ class StatementsMixin:
         # Determine the variable type early for copy behavior
         var_type = resolved_annotation if resolved_annotation else self._expr_type(stmt.value)
 
-        # Apply copy behavior for CustomCopy types when initializing from an existing value
+        # Apply copy behavior for ImplicitCopy types when initializing from an existing value
         # (not for fresh struct/enum construction which doesn't need copying)
         # Skip copy for move expressions - ownership is transferred, not copied
         if var_type and isinstance(stmt.value, Identifier) and not isinstance(stmt.value, MoveExpr):
@@ -129,7 +129,7 @@ class StatementsMixin:
         # Track variable type for resource management
         if var_type:
             self.variable_types[stmt.name] = var_type
-            # Track for cleanup if type implements Deinit/CustomCopy/NoCopy
+            # Track for cleanup if type implements Deinit/ImplicitCopy/NoCopy
             if self.cleanup_stack and self._needs_cleanup(var_type):
                 self.cleanup_stack[-1].append((stmt.name, var_type))
 
@@ -180,7 +180,7 @@ class StatementsMixin:
                 if self._needs_cleanup(var_type):
                     self._generate_deinit_call(stmt.target.name, var_type)
 
-                # Apply copy behavior for CustomCopy types
+                # Apply copy behavior for ImplicitCopy types
                 if isinstance(stmt.value, Identifier):
                     value = self._generate_copy(value, var_type)
 

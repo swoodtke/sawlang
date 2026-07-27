@@ -306,9 +306,9 @@ trait Iterator {
 }
 
 // Interface inheritance (supertraits)
-trait CustomCopy: Deinit {
+trait ImplicitCopy: Deinit {
     func copy(&self) -> Self
-    // Implementing CustomCopy requires also implementing Deinit
+    // Implementing ImplicitCopy requires also implementing Deinit
 }
 
 // Interface objects (dynamic dispatch)
@@ -465,7 +465,7 @@ struct Connection: NoCopy { ... }
 struct MutexGuard<T>: NoCopy { ... }
 ```
 
-See [Resource Management Interfaces](#resource-management-traits) for the full `Deinit`/`CustomCopy`/`NoCopy` hierarchy.
+See [Resource Management Interfaces](#resource-management-traits) for the full `Deinit`/`ImplicitCopy`/`NoCopy` hierarchy.
 
 ### Reference Types
 
@@ -527,7 +527,7 @@ extension Point {
 
 ### Shared Ownership
 
-For data that needs multiple owners, use reference-counted wrappers. These implement `CustomCopy` to increment the reference count on copy and `deinit` to decrement it:
+For data that needs multiple owners, use reference-counted wrappers. These implement `ImplicitCopy` to increment the reference count on copy and `deinit` to decrement it:
 
 ```saw
 // Reference counting (single-threaded shared ownership)
@@ -589,19 +589,19 @@ The compiler inserts `deinit()` calls at all scope exit points—including norma
 
 **Important:** Manual `deinit()` calls are not allowed. Calling `obj.deinit()` is a compile-time error to prevent double-free and use-after-free bugs. For early cleanup, use a nested scope or `move` the value to a consuming function.
 
-#### The CustomCopy Interface
+#### The ImplicitCopy Interface
 
 ```saw
-// Interface inheritance: CustomCopy requires Deinit
-trait CustomCopy: Deinit {
+// Interface inheritance: ImplicitCopy requires Deinit
+trait ImplicitCopy: Deinit {
     func copy(&self) -> Self
 }
 ```
 
-Types implementing `CustomCopy` use the `copy()` method instead of memcpy when assigned. This enables reference counting:
+Types implementing `ImplicitCopy` use the `copy()` method instead of memcpy when assigned. This enables reference counting:
 
 ```saw
-struct Arc<T>: CustomCopy {
+struct Arc<T>: ImplicitCopy {
     ptr: *ArcInner<T>  // Points to { refcount: Int, value: T }
 }
 
@@ -663,12 +663,12 @@ use(f)           // Error: f was moved
 | Interface | Copy Behavior | Cleanup |
 |-----------|---------------|---------|
 | (none) | memcpy | none |
-| `CustomCopy` | calls `copy()` | calls `deinit()` |
+| `ImplicitCopy` | calls `copy()` | calls `deinit()` |
 | `NoCopy` | compile error | calls `deinit()` |
 
 #### Containment Rules
 
-If a struct contains fields that implement `Deinit`, `CustomCopy`, or `NoCopy`, the struct must also implement that trait. This ensures resource management is never silently skipped:
+If a struct contains fields that implement `Deinit`, `ImplicitCopy`, or `NoCopy`, the struct must also implement that trait. This ensures resource management is never silently skipped:
 
 ```saw
 struct Connection {
@@ -688,7 +688,7 @@ extension Connection: NoCopy {
 
 The containment rules are:
 - **NoCopy containment**: If any field is `NoCopy`, the struct must be `NoCopy`
-- **CustomCopy containment**: If any field is `CustomCopy` (and none are `NoCopy`), the struct must be `CustomCopy`
+- **ImplicitCopy containment**: If any field is `ImplicitCopy` (and none are `NoCopy`), the struct must be `ImplicitCopy`
 - **Deinit containment**: If any field is `Deinit`, the struct must implement `Deinit`
 
 #### Automatic Field Operations
@@ -706,10 +706,10 @@ extension Connection: NoCopy {
 }
 ```
 
-**In struct initialization**: When initializing a struct, `copy()` is automatically called on any `CustomCopy` fields that come from existing variables:
+**In struct initialization**: When initializing a struct, `copy()` is automatically called on any `ImplicitCopy` fields that come from existing variables:
 
 ```saw
-extension Container: CustomCopy {
+extension Container: ImplicitCopy {
     func copy(&self) -> Container {
         Container(data: self.data)  // Compiler calls self.data.copy()
     }

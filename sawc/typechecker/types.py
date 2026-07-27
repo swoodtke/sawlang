@@ -2,7 +2,7 @@
 Type utility methods for the Saw type checker.
 
 This module provides mixin methods for type resolution, compatibility checking,
-and resource management trait detection (NoCopy, CustomCopy, Deinit).
+and resource management trait detection (NoCopy, ImplicitCopy, Deinit).
 
 Usage:
     class TypeChecker(TypeUtilsMixin, ...):
@@ -34,12 +34,12 @@ class TypeUtilsMixin:
         _get_underlying_type: Get underlying primitive type for distinct types
         _types_compatible: Check if two types are compatible
         _is_no_copy_type: Check if type implements NoCopy
-        _is_custom_copy_type: Check if type implements CustomCopy
+        _is_implicit_copy_type: Check if type implements ImplicitCopy
         _is_deinit_type: Check if type implements Deinit
         _check_no_copy_return: Validate NoCopy types are moved when returned
         _check_integer_literal_range: Validate integer literal fits target type
         _check_no_copy_containment: Check structs with NoCopy fields implement NoCopy
-        _check_custom_copy_containment: Check structs with CustomCopy fields implement CustomCopy
+        _check_implicit_copy_containment: Check structs with ImplicitCopy fields implement ImplicitCopy
         _check_deinit_containment: Check structs with Deinit fields implement Deinit
     """
 
@@ -448,8 +448,8 @@ class TypeUtilsMixin:
         # Check if type conforms to NoCopy
         return self.namespace.type_conforms_to(type_name, "NoCopy")
 
-    def _is_custom_copy_type(self, saw_type: SawType) -> bool:
-        """Check if a type implements CustomCopy."""
+    def _is_implicit_copy_type(self, saw_type: SawType) -> bool:
+        """Check if a type implements ImplicitCopy."""
         if saw_type is None:
             return False
 
@@ -463,11 +463,11 @@ class TypeUtilsMixin:
         if type_name is None:
             return False
 
-        # Check if type conforms to CustomCopy
-        return self.namespace.type_conforms_to(type_name, "CustomCopy")
+        # Check if type conforms to ImplicitCopy
+        return self.namespace.type_conforms_to(type_name, "ImplicitCopy")
 
     def _is_deinit_type(self, saw_type: SawType) -> bool:
-        """Check if a type implements Deinit (directly or through NoCopy/CustomCopy)."""
+        """Check if a type implements Deinit (directly or through NoCopy/ImplicitCopy)."""
         if saw_type is None:
             return False
 
@@ -481,16 +481,16 @@ class TypeUtilsMixin:
         if type_name is None:
             return False
 
-        # Check if type conforms to Deinit (directly or via NoCopy/CustomCopy)
-        # NoCopy and CustomCopy both inherit from Deinit
+        # Check if type conforms to Deinit (directly or via NoCopy/ImplicitCopy)
+        # NoCopy and ImplicitCopy both inherit from Deinit
         return (self.namespace.type_conforms_to(type_name, "Deinit") or
                 self.namespace.type_conforms_to(type_name, "NoCopy") or
-                self.namespace.type_conforms_to(type_name, "CustomCopy"))
+                self.namespace.type_conforms_to(type_name, "ImplicitCopy"))
 
     # Expression kinds that read a value out of *existing* owned storage,
     # as opposed to producing a freshly constructed temporary. Transferring
     # one of these leaves a live second owner behind, so these are exactly the
-    # sites where NoCopy move-discipline must be enforced and CustomCopy
+    # sites where NoCopy move-discipline must be enforced and ImplicitCopy
     # `copy()` must be inserted. A struct/enum init, call result, or literal is
     # a fresh temporary and is *not* aliasing.
     _ALIASING_EXPR_TYPES = (Identifier, MemberAccess, ArrayIndex, TupleIndex)
@@ -507,7 +507,7 @@ class TypeUtilsMixin:
         Every site where a value is copied or moved into a new home (let/var
         initializers, assignment RHS, call arguments, returns, struct-field
         initializers, array/tuple elements, enum payloads) routes through here.
-        It enforces NoCopy move-discipline and marks CustomCopy sites so codegen
+        It enforces NoCopy move-discipline and marks ImplicitCopy sites so codegen
         inserts `copy()` uniformly.
 
         Behavior by the source expression and its resolved type:
@@ -517,7 +517,7 @@ class TypeUtilsMixin:
         - by-reference argument (`&x` / `&var x`): NOT a transfer; skipped.
         - NoCopy type read from an existing binding (identifier / field access /
           index): an error -- it must be `move`d. A fresh temporary is fine.
-        - CustomCopy type read from an existing binding: annotated
+        - ImplicitCopy type read from an existing binding: annotated
           `expr.needs_copy = True` for codegen. A fresh temporary is fine.
         - anything else: no-op.
 
@@ -564,7 +564,7 @@ class TypeUtilsMixin:
                         line, column,
                         hint="use `move` to transfer ownership instead"
                     )
-        elif self._is_custom_copy_type(src_type):
+        elif self._is_implicit_copy_type(src_type):
             if self._is_aliasing_expr(expr):
                 expr.needs_copy = True
 
@@ -626,33 +626,33 @@ class TypeUtilsMixin:
                     )
                     break  # Only report once per struct
 
-    def _check_custom_copy_containment(self):
-        """Check that structs containing CustomCopy fields also implement CustomCopy."""
+    def _check_implicit_copy_containment(self):
+        """Check that structs containing ImplicitCopy fields also implement ImplicitCopy."""
         for struct_name, struct_info in self.namespace.structs.items():
-            # Skip if struct already implements CustomCopy or NoCopy
-            # (NoCopy types can contain CustomCopy fields since they can't be copied anyway)
-            if (self.namespace.type_conforms_to(struct_name, "CustomCopy") or
+            # Skip if struct already implements ImplicitCopy or NoCopy
+            # (NoCopy types can contain ImplicitCopy fields since they can't be copied anyway)
+            if (self.namespace.type_conforms_to(struct_name, "ImplicitCopy") or
                 self.namespace.type_conforms_to(struct_name, "NoCopy")):
                 continue
 
             # Check each field
             for field_name, field_type in struct_info.fields.items():
-                if self._is_custom_copy_type(field_type):
+                if self._is_implicit_copy_type(field_type):
                     self._error(
                         ErrorKind.CANNOT_COPY,
-                        f"struct `{struct_name}` contains CustomCopy field `{field_name}` of type `{field_type}` but does not implement CustomCopy",
+                        f"struct `{struct_name}` contains ImplicitCopy field `{field_name}` of type `{field_type}` but does not implement ImplicitCopy",
                         struct_info.line, struct_info.column,
-                        hint=f"add `extension {struct_name}: CustomCopy {{ func copy(self) -> {struct_name} {{ ... }} }}`"
+                        hint=f"add `extension {struct_name}: ImplicitCopy {{ func copy(self) -> {struct_name} {{ ... }} }}`"
                     )
                     break  # Only report once per struct
 
     def _check_deinit_containment(self):
         """Check that structs containing Deinit fields also implement Deinit."""
         for struct_name, struct_info in self.namespace.structs.items():
-            # Skip if struct already implements Deinit (or NoCopy/CustomCopy which imply Deinit)
+            # Skip if struct already implements Deinit (or NoCopy/ImplicitCopy which imply Deinit)
             if (self.namespace.type_conforms_to(struct_name, "Deinit") or
                 self.namespace.type_conforms_to(struct_name, "NoCopy") or
-                self.namespace.type_conforms_to(struct_name, "CustomCopy")):
+                self.namespace.type_conforms_to(struct_name, "ImplicitCopy")):
                 continue
 
             # Check each field

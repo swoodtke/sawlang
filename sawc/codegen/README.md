@@ -78,10 +78,10 @@ Resource management: cleanup, deinit, and copy behavior.
 #### Key Methods
 | Method | Purpose |
 |--------|---------|
-| `_get_cleanup_behavior(saw_type)` | Returns "deinit", "custom_copy", "no_copy", or "none" |
+| `_get_cleanup_behavior(saw_type)` | Returns "deinit", "implicit_copy", "no_copy", or "none" |
 | `_needs_cleanup(saw_type)` | Check if type needs cleanup on scope exit |
 | `_generate_deinit_call(var_name, var_type)` | Generate call to deinit method |
-| `_generate_copy(value, saw_type)` | Generate call to copy() for CustomCopy types |
+| `_generate_copy(value, saw_type)` | Generate call to copy() for ImplicitCopy types |
 | `_cleanup_scope(scope_vars)` | Clean up variables in a scope |
 | `_cleanup_all_scopes()` | Clean up all scopes (for return statements) |
 | `_needs_copy_for_struct_init(expr, field_type)` | Check if field needs copying |

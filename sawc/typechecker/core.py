@@ -174,7 +174,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # Fifth-b pass: check resource management containment rules
         self._check_no_copy_containment()
-        self._check_custom_copy_containment()
+        self._check_implicit_copy_containment()
         self._check_deinit_containment()
 
         # Register extern functions (FFI)
@@ -406,7 +406,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # Check resource containment rules
         self._check_no_copy_containment()
-        self._check_custom_copy_containment()
+        self._check_implicit_copy_containment()
         self._check_deinit_containment()
 
         # Register extern functions
