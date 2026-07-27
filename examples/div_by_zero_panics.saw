@@ -6,7 +6,6 @@
 // panicking).
 // EXPECT: panic
 // EXPECT-PANIC-CONTAINS: division by zero
-// XFAIL: todo_jul26.md #7 - integer division by zero unchecked; returns garbage and exits 0 on arm64
 
 func main() {
     let a = 10

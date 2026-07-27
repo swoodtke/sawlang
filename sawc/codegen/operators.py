@@ -25,6 +25,51 @@ class OperatorsMixin:
         _generate_cast_expr: Generate code for type casts
     """
 
+    def _emit_panic(self, message: str):
+        """Emit a runtime panic: print `message` to stdout, then abort().
+
+        Mirrors the try!/force-unwrap panic machinery (codegen/results.py):
+        a private message global, a printf call, abort(), and unreachable to
+        terminate the block. The caller must have positioned the builder in the
+        block that should panic.
+        """
+        msg = message if message.endswith("\n") else message + "\n"
+        msg += "\0"
+        panic_str = ir.Constant(ir.ArrayType(ir.IntType(8), len(msg)),
+                                bytearray(msg.encode('utf-8')))
+        panic_global = ir.GlobalVariable(self.module, panic_str.type,
+                                         name=f".panic_msg.{self.string_counter}")
+        self.string_counter += 1
+        panic_global.global_constant = True
+        panic_global.initializer = panic_str
+        panic_global.linkage = 'private'
+        panic_ptr = self.builder.bitcast(panic_global, ir.PointerType(ir.IntType(8)))
+        self.builder.call(self.printf, [panic_ptr])
+        self.builder.call(self.abort, [])
+        self.builder.unreachable()
+
+    def _check_divisor_nonzero(self, divisor):
+        """Guard an integer division/modulo: panic if `divisor` is zero.
+
+        Emits `if divisor == 0 { panic } else { continue }` and leaves the
+        builder positioned in the continue block, where the raw sdiv/srem is
+        then generated. Needed because arm64 does not trap on integer
+        divide-by-zero, so without this the program silently returns garbage.
+        (INT_MIN / -1 overflow is intentionally NOT handled here; integer
+        overflow semantics are an open spec question — see todo_jul26.md #5/#7.)
+        """
+        zero = ir.Constant(divisor.type, 0)
+        is_zero = self.builder.icmp_signed('==', divisor, zero, name="divzero_check")
+        func = self.builder.function
+        panic_bb = func.append_basic_block(name="div_panic")
+        cont_bb = func.append_basic_block(name="div_cont")
+        self.builder.cbranch(is_zero, panic_bb, cont_bb)
+
+        self.builder.position_at_end(panic_bb)
+        self._emit_panic("panic: division by zero")
+
+        self.builder.position_at_end(cont_bb)
+
     def _generate_binary_op(self, expr: BinaryOp):
         """Generate code for binary operations.
 
@@ -67,11 +112,16 @@ class OperatorsMixin:
 
         elif expr.op == '/':
             if is_float:
+                # Float division keeps IEEE inf/nan semantics (untouched).
                 return self.builder.fdiv(left, right, name="divtmp")
+            # Integer division: panic on a zero divisor instead of returning
+            # garbage (arm64 does not trap).
+            self._check_divisor_nonzero(right)
             return self.builder.sdiv(left, right, name="divtmp")
 
         elif expr.op == '%':
-            # Modulo only works on integers
+            # Modulo only works on integers; same zero-divisor panic as /.
+            self._check_divisor_nonzero(right)
             return self.builder.srem(left, right, name="modtmp")
 
         elif expr.op == '==':
