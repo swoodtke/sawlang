@@ -13,7 +13,8 @@
   "worktree": {
     "symlinkDirectories": [
       ".venv"
-    ]
+    ],
+    "baseRef": "head"
   },
   "enabledPlugins": {
     "pyright-lsp@claude-plugins-official": true
