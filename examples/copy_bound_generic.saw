@@ -1,0 +1,33 @@
+// A `T: Copy` bound grants `.copy()` in the body. Copy is satisfied by trivial
+// types (Int) and by ExplicitCopy structs; monomorphization emits the right
+// synthesis per instantiation (bitwise for Int, copy() call for the struct).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// vec copy called
+// 42
+
+struct Vec {
+    value: Int
+}
+
+extension Vec: ExplicitCopy {
+    func copy(&self) -> Vec {
+        print("vec copy called")
+        Vec(value: self.value)
+    }
+    func deinit(&var self) {
+    }
+}
+
+func dup<T: Copy>(x: T) -> T {
+    x.copy()
+}
+
+func main() {
+    let n = dup<Int>(7)      // trivial: .copy() is bitwise
+    print(n)                 // 7
+
+    let v = dup<Vec>(Vec(value: 42))  // ExplicitCopy: .copy() calls copy()
+    print(v.value)           // 42
+}

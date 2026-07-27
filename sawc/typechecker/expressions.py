@@ -557,7 +557,18 @@ class ExpressionsMixin:
                         concrete_type_name = resolved_arg.struct_name
                     elif resolved_arg.kind == TypeKind.ENUM:
                         concrete_type_name = resolved_arg.enum_name
-                    if concrete_type_name:
+                    if bound == "Copy":
+                        # The umbrella Copy bound is satisfied structurally:
+                        # trivially-copyable types and ImplicitCopy/ExplicitCopy
+                        # conformers all qualify without declaring `: Copy`.
+                        if not self._type_satisfies_copy_bound(resolved_arg):
+                            self._error(
+                                ErrorKind.TYPE_MISMATCH,
+                                f"type `{resolved_arg}` does not satisfy the `Copy` bound",
+                                expr.line, expr.column,
+                                hint="use a trivially-copyable type, or one implementing ImplicitCopy/ExplicitCopy"
+                            )
+                    elif concrete_type_name:
                         conformances = self.namespace.get_conformances(concrete_type_name)
                         if bound not in conformances:
                             self._error(
@@ -1390,6 +1401,59 @@ class ExpressionsMixin:
 
         return None
 
+    # Generic bounds that grant `.copy()` in an abstract generic body.
+    _COPY_BOUND_NAMES = frozenset({"Copy", "ImplicitCopy", "ExplicitCopy"})
+
+    def _check_copy_call(self, expr: MethodCall, obj_type: SawType):
+        """Handle a `.copy()` receiver. Returns (handled, result_type).
+
+        handled=False means the receiver has a real copy() method
+        (ImplicitCopy/ExplicitCopy) and normal method dispatch should proceed.
+        handled=True means this call was fully resolved here (trivial auto-Copy,
+        a `T: Copy`-family bound, or a diagnostic on a non-Copy receiver).
+        """
+        type_params = getattr(self, 'current_type_params', {})
+
+        # Receiver is an opaque generic type parameter: allow .copy() only under
+        # a Copy-family bound; the result is the type parameter itself.
+        if obj_type.kind == TypeKind.STRUCT and obj_type.struct_name in type_params:
+            bounds = type_params.get(obj_type.struct_name) or []
+            if any(b in self._COPY_BOUND_NAMES for b in bounds):
+                expr.resolved_type = obj_type
+                return True, obj_type
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                f"cannot call `.copy()` on value of unbounded type parameter `{obj_type.struct_name}`",
+                expr.line, expr.column,
+                hint=f"add a `Copy` bound: `<{obj_type.struct_name}: Copy>`"
+            )
+            return True, None
+
+        # Concrete type carrying a real copy() method (declared via a copy trait
+        # or an ordinary user method): fall through to normal method dispatch.
+        if obj_type.kind == TypeKind.STRUCT:
+            struct_info = self.get_struct_info(obj_type.struct_name, from_type=obj_type)
+            if struct_info and self._lookup_method(struct_info, "copy", obj_type.type_args) is not None:
+                return False, None
+        elif obj_type.kind == TypeKind.STRING:
+            struct_info = self.get_struct_info("String")
+            if struct_info and self._lookup_method(struct_info, "copy") is not None:
+                return False, None
+
+        # Trivially copyable (POD / primitive): .copy() is a bitwise copy.
+        if self._is_trivially_copyable(obj_type):
+            expr.resolved_type = obj_type
+            return True, obj_type
+
+        # Anything else is not Copy.
+        self._error(
+            ErrorKind.CANNOT_COPY,
+            f"type `{obj_type}` is not Copy; `.copy()` requires a trivially-copyable, "
+            f"ImplicitCopy, or ExplicitCopy type",
+            expr.line, expr.column
+        )
+        return True, None
+
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
         """Check a method call, static method call, enum initialization, or module function call."""
         if isinstance(expr.object, MemberAccess):
@@ -1507,6 +1571,16 @@ class ExpressionsMixin:
         obj_type = self._check_expression(expr.object)
         if obj_type is None:
             return None
+
+        # `.copy()` — the umbrella Copy operation. Handles auto-Copy of trivial
+        # types and `.copy()` through a `T: Copy`-family bound. Types that carry
+        # a real copy() method (ImplicitCopy/ExplicitCopy) fall through to normal
+        # method dispatch.
+        if expr.method_name == "copy" and len(expr.arguments) == 0:
+            handled, result = self._check_copy_call(expr, obj_type)
+            if handled:
+                return result
+
         if obj_type.kind == TypeKind.STRING:
             struct_name = "String"
             struct_info = self.get_struct_info(struct_name)

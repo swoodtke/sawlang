@@ -10,6 +10,14 @@ trait Deinit {
     func deinit(&var self)
 }
 
+// Copy umbrella trait - "this type can be duplicated via copy()". Used mainly
+// as a generic bound (`T: Copy`). Satisfied implicitly by trivially-copyable
+// (POD) types, and by any type declaring ImplicitCopy or ExplicitCopy; the
+// compiler checks satisfaction structurally, so types need not declare `: Copy`.
+trait Copy {
+    func copy(&self) -> Self
+}
+
 // ImplicitCopy trait - the compiler invokes copy() automatically at every
 // transfer site. Contract: cheap, O(1)-ish (e.g. Rc refcount bump).
 // Implementing ImplicitCopy requires also implementing Deinit.

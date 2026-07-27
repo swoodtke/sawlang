@@ -287,6 +287,14 @@ class CallsMixin:
                 if isinstance(pointee, ir.IntType) and pointee.width == 8:
                     struct_name = "String"
 
+        # Auto-Copy: `.copy()` on a trivially-copyable receiver (a primitive, or
+        # a POD struct with no copy() method) lowers to a bitwise copy, i.e. the
+        # value itself. Types with a real copy() method fall through to dispatch.
+        if expr.method_name == "copy" and len(expr.arguments) == 0:
+            copy_mangled = self._mangle_method_name(struct_name, "copy") if struct_name else None
+            if copy_mangled is None or copy_mangled not in self.functions:
+                return obj_val
+
         if struct_name is None:
             raise ValueError(f"Cannot determine struct type for method call to {expr.method_name}")
 
