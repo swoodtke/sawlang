@@ -27,7 +27,7 @@ trait ImplicitCopy: Deinit {
 
 // ExplicitCopy trait - the compiler NEVER invokes copy() automatically;
 // transfer sites demand `move`, and duplication is always a visible v1.copy().
-// Contract: may be expensive/deep (e.g. Vector, Map, String).
+// Contract: may be expensive/deep (e.g. Vector, Map).
 // Implementing ExplicitCopy requires also implementing Deinit.
 // ImplicitCopy and ExplicitCopy are mutually exclusive on one type.
 trait ExplicitCopy: Deinit {

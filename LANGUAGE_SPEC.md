@@ -542,13 +542,20 @@ claim: the cost of every transfer is now readable at the use site.
 - **`ImplicitCopy`** — the compiler invokes `copy()` automatically at every
   transfer site (binding, assignment, argument, return, aggregate element).
   **Contract: cheap, O(1)-ish** — e.g. a refcount bump. `String` and `Rc`/`Arc`
-  are `ImplicitCopy` (they are also `Deinit`).
+  are `ImplicitCopy`.
 - **`ExplicitCopy`** — the compiler *never* copies implicitly; a transfer out of
   an existing binding requires `move`, and duplication is always a visible
   `v.copy()`. **Contract: may be expensive/deep** — e.g. `Vector`, `Map`.
   Enforcement is the value-transfer checkpoint (the same machinery that backs
   `NoCopy`).
 - **`NoCopy`** — never duplicable, on purpose (`File`, `Mutex`). Move-only.
+- **Every declared policy trait extends `Deinit`**: `ImplicitCopy`,
+  `ExplicitCopy`, and `NoCopy` all require a `deinit(&var self)` (declared as
+  `trait ImplicitCopy: Deinit` etc. in the builtin prelude). A type opts into
+  a policy because it manages a resource, and managing a resource means having
+  a destructor — so the trivially-copyable tier is exactly the destructor-free
+  tier. A policy type with genuinely nothing to clean up writes an empty
+  `deinit`.
 - **`ImplicitCopy` and `ExplicitCopy` are mutually exclusive** on one type.
 
 ```saw
