@@ -4,7 +4,7 @@
 
 ## Overview
 
-The `typechecker` module performs type checking and semantic analysis on the Saw AST. It validates type correctness, resolves symbols, checks trait conformance, and enforces resource management rules (NoCopy, ImplicitCopy, Deinit). The implementation uses a mixin-based architecture where the main `TypeChecker` class inherits from multiple focused mixin classes.
+The `typechecker` module performs type checking and semantic analysis on the Saw AST. It validates type correctness, resolves symbols, checks trait conformance, and enforces resource management rules (the Copy trait family — `NoCopy`, `ImplicitCopy`, `ExplicitCopy`, `Deinit`) plus the Law of Exclusivity on `&var` paths. Value copies/moves all funnel through one value-transfer checkpoint. The implementation uses a mixin-based architecture where the main `TypeChecker` class inherits from multiple focused mixin classes.
 
 ## Architecture
 
@@ -68,11 +68,17 @@ Type resolution, compatibility checking, and resource trait detection.
 | `_types_compatible(expected, actual)` | Check if types are compatible |
 | `_is_no_copy_type(saw_type)` | Check if type implements NoCopy |
 | `_is_implicit_copy_type(saw_type)` | Check if type implements ImplicitCopy |
+| `_is_explicit_copy_type(saw_type)` | Check if type implements ExplicitCopy |
 | `_is_deinit_type(saw_type)` | Check if type implements Deinit |
+| `_check_value_transfer(expr, target, ...)` | **The single value-transfer checkpoint.** Every copy/move site (let/var, assignment RHS, call args, returns, struct fields, array/tuple/enum payloads) funnels through here: enforces `NoCopy`/`ExplicitCopy` move-discipline and marks `ImplicitCopy` sites so codegen inserts `copy()`. (Use-after-move dataflow beyond let/var is a documented gap.) |
+| `_check_call_exclusivity(values, ...)` | Enforce the Law of Exclusivity across one call's by-reference paths — a `&var` (or `&var self` receiver) path must be disjoint from every other by-reference/moved path; by-value args are snapshots and not collected |
+| `_check_copy_trait_exclusivity()` | Enforce that a type does not declare both `ImplicitCopy` and `ExplicitCopy` |
+| `_build_access_path(expr)` | Build the root+projection access path used by the exclusivity check |
 | `_check_no_copy_return(expr, type)` | Validate NoCopy types are moved on return |
 | `_check_integer_literal_range(value, type)` | Validate integer fits target type |
 | `_check_no_copy_containment(struct)` | Check NoCopy field containment rules |
 | `_check_implicit_copy_containment(struct)` | Check ImplicitCopy field containment rules |
+| `_check_explicit_copy_containment(struct)` | Check ExplicitCopy field containment rules |
 | `_check_deinit_containment(struct)` | Check Deinit field containment rules |
 
 ### `registration.py`
@@ -167,9 +173,14 @@ def _check_expression(self, expr):
 
 ### Phase 2: Validation
 1. Check trait conformance for extensions
-2. Check containment rules (NoCopy, ImplicitCopy, Deinit)
-3. Check function bodies
-4. Check method bodies in extensions
+2. Check `ImplicitCopy`/`ExplicitCopy` mutual exclusivity
+3. Check containment rules (NoCopy, ImplicitCopy, ExplicitCopy, Deinit)
+4. Check function bodies (generic bodies are checked once, abstractly, against
+   their bounds — with return-type reconciliation and bound-aware method
+   resolution deferred to instantiation)
+5. Check method bodies in extensions
+6. Throughout body checking, every copy/move funnels through the value-transfer
+   checkpoint, and every call's by-reference args are checked for exclusivity
 
 ## Adding New Features
 

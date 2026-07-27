@@ -78,13 +78,21 @@ Resource management: cleanup, deinit, and copy behavior.
 #### Key Methods
 | Method | Purpose |
 |--------|---------|
-| `_get_cleanup_behavior(saw_type)` | Returns "deinit", "implicit_copy", "no_copy", or "none" |
+| `_get_cleanup_behavior(saw_type)` | Returns "deinit", "implicit_copy", "no_copy", or "none". `ExplicitCopy` types map to "deinit" (they have a deinit and are never implicitly copied — the typechecker enforces `move`/`.copy()`). |
 | `_needs_cleanup(saw_type)` | Check if type needs cleanup on scope exit |
 | `_generate_deinit_call(var_name, var_type)` | Generate call to deinit method |
-| `_generate_copy(value, saw_type)` | Generate call to copy() for ImplicitCopy types |
+| `_generate_copy(value, saw_type)` | Generate a call to `copy()` (for `ImplicitCopy` at transfer sites, and for explicit `.copy()` on `ImplicitCopy`/`ExplicitCopy` types) |
 | `_cleanup_scope(scope_vars)` | Clean up variables in a scope |
 | `_cleanup_all_scopes()` | Clean up all scopes (for return statements) |
 | `_needs_copy_for_struct_init(expr, field_type)` | Check if field needs copying |
+
+### `mangle.py`
+Canonical name mangling — the single source of truth for turning Saw types and
+generic instantiations into unique LLVM-identifier strings. Every producer that
+registers a specialized struct/enum/function and every consumer that looks one
+up goes through `mangle_type` (total over `TypeKind`, injective, so
+`Result<(Int,Int),E>` and `Result<(String,Bool),E>` never collide). `generics.py`,
+`types.py`, and `results.py` delegate here rather than hand-rolling names.
 
 ### `generics.py` (446 lines)
 Monomorphization of generic types and functions.
@@ -187,10 +195,10 @@ Method and function body generation.
 #### Method Types
 | Type | Self Parameter | Returns |
 |------|---------------|---------|
-| Instance | `self` (value) or `var self` (pointer) | Any |
+| Instance | `&self` (immutable ref) or `&var self` (mutable ref) | Any |
 | Static | None | Any |
 | Init | None | Struct value |
-| Deinit | `var self` (pointer) | Void |
+| Deinit | `&var self` (mutable ref) | Void |
 
 ### `statements.py` (393 lines)
 Statement generation: let, assign, return.
@@ -298,7 +306,7 @@ When adding new code generation features:
 2. **Add the method** - Implement in the appropriate mixin file
 3. **Add visitor if needed** - If it's a new expression type, add `visit_*` in `core.py`
 4. **Update this documentation** - Add method to the appropriate table
-5. **Run tests** - Ensure all 153 tests pass
+5. **Run tests** - Ensure the full suite stays green (`make test`)
 
 ## Testing
 
