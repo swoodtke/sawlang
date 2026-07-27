@@ -125,6 +125,11 @@ All three steps are covered by the project permissions allowlist in
 
 - Read files with the Read tool — to read several files, batch multiple Read
   calls in one message. Do not `cat` files via Bash loops.
+- For code navigation in the Python compiler (sawc/), prefer the LSP tool
+  (pyright is configured project-wide): `workspaceSymbol` to locate a
+  symbol, `goToDefinition`/`findReferences`/`incomingCalls` to trace usage.
+  It is faster and more precise than `grep`. For text/pattern searches, use
+  the Grep and Glob tools — never Bash `find`/`grep` pipelines.
 - Never prefix commands with `cd <absolute path>; ...`. Your working directory
   is already the repo/worktree root and relative paths resolve there. Allowlist
   rules match from the start of the command string, so a `cd` prefix (or any

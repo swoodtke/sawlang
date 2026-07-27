@@ -11,6 +11,11 @@
     ]
   },
   "worktree": {
-    "symlinkDirectories": [".venv"]
+    "symlinkDirectories": [
+      ".venv"
+    ]
+  },
+  "enabledPlugins": {
+    "pyright-lsp@claude-plugins-official": true
   }
 }
