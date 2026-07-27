@@ -191,14 +191,32 @@ class StatementsMixin:
         self.current_method = None
 
     def _check_function(self, func: Function):
-        """Type check a function body."""
+        """Type check a function body.
+
+        Generic function bodies are checked *abstractly*: their type parameters
+        stay opaque (an unresolved `T`), the body is checked once (surfacing
+        body-level errors such as undefined variables or type mismatches on
+        concrete types, and stamping resolved_type annotations that codegen
+        consumes after substituting the monomorphization bindings), but the
+        final return-type reconciliation (mismatch errors and Result/Optional
+        auto-wrapping) is deferred. That reconciliation can't be decided against
+        opaque type parameters / associated types without a concrete
+        instantiation, so forcing it here would produce false positives; it is
+        left as looseness for a follow-up (see designs/02-typed-ast.md sec. 2).
+        """
         from .core import VariableInfo, Scope
-        # Skip type checking generic function bodies - they'll be checked at instantiation
-        if func.type_params:
-            return
+        is_generic = bool(func.type_params)
 
         self.current_function = func
         self.found_return_with_value = False  # Reset for each function
+
+        # Track type parameters as opaque for the duration of this body. Their
+        # bounds are recorded so future bound-aware method/trait lookups can use
+        # them; today lookups on an opaque type parameter stay conservative.
+        prev_type_params = getattr(self, 'current_type_params', {})
+        self.current_type_params = dict(prev_type_params)
+        for tp in func.type_params:
+            self.current_type_params[tp.name] = tp.bounds
 
         # Create new scope for function
         self.current_scope = Scope()
@@ -212,8 +230,15 @@ class StatementsMixin:
         # Resolve return type first (needed for None propagation)
         resolved_return_type = self._resolve_type(func.return_type)
 
-        # Check body
+        # Check body (stamps annotations at the _check_expression chokepoint)
         body_type = self._check_block(func.body)
+
+        if is_generic:
+            # Abstract check complete: annotations produced, body-level errors
+            # surfaced. Skip return-type reconciliation (see docstring).
+            self.current_type_params = prev_type_params
+            self.current_function = None
+            return
 
         # Propagate expected type to body for None annotation
         if resolved_return_type.is_optional() and func.body.final_expr:
@@ -290,6 +315,7 @@ class StatementsMixin:
         self._check_no_copy_return(check_type, func.body.final_expr,
                                     f"function `{func.name}`", func.line, func.column)
 
+        self.current_type_params = prev_type_params
         self.current_function = None
 
     def _check_block(self, block: Block) -> Optional[SawType]:
