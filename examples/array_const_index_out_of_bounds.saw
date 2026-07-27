@@ -1,0 +1,14 @@
+// Indexing a fixed-size array with an out-of-bounds compile-time constant must be
+// a compile error, exactly like the tuple path already rejects
+// (typechecker/expressions.py). Today arrays skip the bounds check entirely, so
+// this compiles and reads out of bounds at runtime.
+// See todo_jul26.md must-fix #7 (fixed-array indexing has no bounds check even
+// for constant indices).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: out of range
+// XFAIL: todo_jul26.md #7 - no bounds check for constant array index; compiles and reads OOB
+
+func main() {
+    let arr = [10, 20, 30]
+    print(arr[5])   // constant index past the end of a 3-element array
+}

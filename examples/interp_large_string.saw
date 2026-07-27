@@ -1,0 +1,23 @@
+// Interpolating a string larger than the fixed 1024-byte stack buffer must work.
+// codegen/core.py allocates a 1024-byte alloca and fills it with unbounded
+// strcpy/strcat; a ~2KB result overflows the stack buffer -> SIGSEGV, so neither
+// the big string nor SENTINEL is printed.
+// See todo_jul26.md must-fix #5 (string interpolation stack-buffer overflow).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// SENTINEL
+// XFAIL: todo_jul26.md #5 - >1KB interpolation overflows the 1024-byte stack buffer (SIGSEGV)
+
+func main() {
+    // 64-character base string
+    let a = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    // 8 * 64 = 512 bytes
+    let b = "{a}{a}{a}{a}{a}{a}{a}{a}"
+    // 4 * 512 = 2048 bytes, well past the 1024-byte interp buffer
+    let big = "{b}{b}{b}{b}"
+    let n = big.len()
+    // Only assert the sentinel: the point is that we survive building `big`.
+    if n > 1024 {
+        print("SENTINEL")
+    }
+}

@@ -1,0 +1,34 @@
+// Using a NoCopy value to initialize a struct field (no `move`) must be an error.
+// Today it compiles: both `f` and `w.handle` own the same buffer, so it is
+// deinit'd twice -> double free. Struct-field init is one of the copy/move sites
+// the checker never visits.
+// See todo_jul26.md must-fix #1.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: NoCopy
+// XFAIL: todo_jul26.md #1 - NoCopy not checked at struct-field init; compiles and double-frees
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {
+        print("deinit")
+    }
+}
+
+struct Wrapper {
+    handle: FileHandle
+}
+
+extension Wrapper: NoCopy {
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    let f = FileHandle(fd: 42)
+    let w = Wrapper(handle: f)   // should require `move f`
+    print(f.fd)                  // use-after-move: f already owned by w
+    print(w.handle.fd)
+}

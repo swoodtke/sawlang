@@ -1,0 +1,15 @@
+// Integer division by zero must panic with a message (like the try! panic
+// machinery), not silently return garbage or SIGFPE. On arm64 the hardware does
+// not trap: `10 / 0` currently produces a garbage value and the program exits 0,
+// so no panic occurs at all.
+// See todo_jul26.md must-fix #7 (integer division by zero SIGFPEs instead of
+// panicking).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: division by zero
+// XFAIL: todo_jul26.md #7 - integer division by zero unchecked; returns garbage and exits 0 on arm64
+
+func main() {
+    let a = 10
+    let b = 0
+    print(a / b)   // should panic before printing anything
+}

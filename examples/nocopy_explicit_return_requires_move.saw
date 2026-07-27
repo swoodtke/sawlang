@@ -1,0 +1,29 @@
+// An explicit `return x` of a NoCopy value must require `move`, exactly like the
+// tail-expression return already does (see no_copy_return_error.saw). Today the
+// NoCopy return check only fires for an implicit tail expression, not for an
+// explicit `return` statement, so this compiles and the resource is deinit'd
+// twice (once for the moved-from param, once for the returned copy).
+// See todo_jul26.md must-fix #1.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type
+// XFAIL: todo_jul26.md #1 - NoCopy return check misses explicit `return x`; deinit runs twice
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {
+        print("deinit")
+    }
+}
+
+func passthrough(f: FileHandle) -> FileHandle {
+    return f        // should require `move f`
+}
+
+func main() {
+    let a = FileHandle(fd: 1)
+    let b = passthrough(move a)
+    print(b.fd)
+}

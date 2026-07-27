@@ -1,0 +1,27 @@
+// Passing a NoCopy value as a plain call argument (no `move`) must be an error.
+// Today it compiles: `consume` frees the buffer at scope exit, then `f` is used
+// again and freed a second time in main -> double free.
+// See todo_jul26.md must-fix #1 (resource-safety enforced only at some use-sites).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: NoCopy
+// XFAIL: todo_jul26.md #1 - NoCopy not checked at call-arg sites; compiles and double-frees
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {
+        print("deinit")
+    }
+}
+
+func consume(f: FileHandle) {
+    print(f.fd)
+}
+
+func main() {
+    let f = FileHandle(fd: 42)
+    consume(f)      // should require `move f`
+    print(f.fd)     // use-after-free: f's buffer already freed by consume
+}

@@ -1,0 +1,19 @@
+// Interpolation inside a hot loop must not grow the stack without bound.
+// Loop bodies emit their allocas in the loop body block (not the function entry)
+// and no mem2reg / optimization pass runs, so each iteration leaks a fresh
+// 1024-byte interp buffer on the stack -> stack overflow (SIGSEGV) long before
+// the loop finishes.
+// See todo_jul26.md must-fix #6 (allocas in loop bodies, zero opt passes).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 999999
+// XFAIL: todo_jul26.md #6 - per-iteration allocas + no mem2reg; stack overflow (SIGSEGV)
+
+func main() {
+    var last = 0
+    for i in 0..1000000 {
+        let s = "iteration={i}"
+        last = i
+    }
+    print(last)
+}

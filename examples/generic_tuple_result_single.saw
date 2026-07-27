@@ -1,0 +1,31 @@
+// A single function returning a tuple-payload Result must compile and run.
+// Today codegen mangles the tuple Ok type to the literal "TUPLE"
+// (results.py) and then looks up the enum "Result_TUPLE_MyErr", which was never
+// registered -> KeyError crash in the compiler.
+// See todo_jul26.md must-fix #4 (name mangling collides; tuple mangled to "TUPLE").
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// XFAIL: todo_jul26.md #4 - tuple Ok mangled to literal "TUPLE"; KeyError crash in codegen
+
+struct MyErr {
+    code: Int
+}
+
+func makePair(ok: Bool) -> Result<(Int, Int), MyErr> {
+    if ok {
+        return (1, 2)
+    }
+    return MyErr(code: 9)
+}
+
+func main() {
+    match makePair(true) {
+        case Ok(p) -> {
+            print(p.0)
+            print(p.1)
+        },
+        case Err(e) -> print(e.code)
+    }
+}

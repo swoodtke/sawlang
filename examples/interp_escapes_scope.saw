@@ -1,0 +1,28 @@
+// An interpolated string returned from a function must remain valid after the
+// producing scope exits. codegen/core.py returns the address of a stack `alloca`
+// buffer, so the returned pointer dangles. `overwrite` has the same frame layout
+// as `makeLabel`, so its interp buffer reuses the exact stack slot and clobbers
+// the string `s` still points at: `s` prints as "wiped=3" instead of "value=7".
+// See todo_jul26.md must-fix #5 (interpolation returns a dangling alloca pointer).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// value=7
+// wiped=3
+// XFAIL: todo_jul26.md #5 - interpolation returns a dangling alloca pointer; s reads as "wiped=3"
+
+func makeLabel(n: Int) -> String {
+    let label = "value={n}"
+    return label
+}
+
+func overwrite(n: Int) -> String {
+    let label = "wiped={n}"
+    return label
+}
+
+func main() {
+    let s = makeLabel(7)
+    let t = overwrite(3)   // reuses makeLabel's frame, clobbering s's buffer
+    print(s)               // should still be "value=7"
+    print(t)               // "wiped=3"
+}

@@ -1,0 +1,48 @@
+// Two distinct tuple-payload Result instantiations in one program must not alias.
+// Result<(Int, Int), MyErr> and Result<(String, Bool), MyErr> both mangle their
+// tuple Ok type to the literal "TUPLE", so they collide on the same LLVM struct
+// name "Result_TUPLE_MyErr" -> silent miscompile (and today a KeyError crash,
+// since that name is never registered).
+// See todo_jul26.md must-fix #4 (name mangling collides; tuple -> "TUPLE").
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// hi
+// true
+// XFAIL: todo_jul26.md #4 - both tuple Results collide on "Result_TUPLE_MyErr"; codegen crash
+
+struct MyErr {
+    code: Int
+}
+
+func intPair(ok: Bool) -> Result<(Int, Int), MyErr> {
+    if ok {
+        return (1, 2)
+    }
+    return MyErr(code: 1)
+}
+
+func strPair(ok: Bool) -> Result<(String, Bool), MyErr> {
+    if ok {
+        return ("hi", true)
+    }
+    return MyErr(code: 2)
+}
+
+func main() {
+    match intPair(true) {
+        case Ok(p) -> {
+            print(p.0)
+            print(p.1)
+        },
+        case Err(e) -> print(e.code)
+    }
+    match strPair(true) {
+        case Ok(q) -> {
+            print(q.0)
+            print(q.1)
+        },
+        case Err(e) -> print(e.code)
+    }
+}
