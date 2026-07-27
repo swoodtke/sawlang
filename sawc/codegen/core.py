@@ -47,8 +47,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Unified namespace from type checker (Phase 0 of module system)
         self.namespace = namespace
 
-        # Initialize LLVM
-        binding.initialize()
+        # LLVM core init is automatic; targets still need explicit registration
         binding.initialize_native_target()
         binding.initialize_native_asmprinter()
 
