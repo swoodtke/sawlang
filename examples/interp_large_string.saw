@@ -6,7 +6,6 @@
 // EXPECT: success
 // EXPECT-OUTPUT:
 // SENTINEL
-// XFAIL: todo_jul26.md #5 - >1KB interpolation overflows the 1024-byte stack buffer (SIGSEGV)
 
 func main() {
     // 64-character base string

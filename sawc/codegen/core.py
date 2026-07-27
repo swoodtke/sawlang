@@ -248,6 +248,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.string_constants[value] = global_str
         return global_str
 
+    def _libc_func(self, name, return_type, arg_types, var_arg=False):
+        """Get (or lazily declare) a libc function by name.
+
+        Reuses an existing declaration if one is already in the function table
+        (e.g. an `extern func malloc(...)` from a std module) so we never emit a
+        duplicate symbol; otherwise declares it once and caches it.
+        """
+        if name in self.functions:
+            return self.functions[name]
+        fn_type = ir.FunctionType(return_type, arg_types, var_arg=var_arg)
+        fn = ir.Function(self.module, fn_type, name=name)
+        self.functions[name] = fn
+        return fn
+
     def generate(self, program: Program) -> str:
         # Type aliases are already in namespace from typechecker
 
@@ -638,41 +652,66 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def visit_StringInterpolation(self, expr: StringInterpolation):
         """Generate code for string interpolation: "Hello {name}!"
 
-        Strategy: Allocate a buffer, copy/concatenate parts and converted expressions.
+        Strategy: measure the exact byte length, HEAP-allocate a buffer of that
+        size, then concatenate the literal parts and stringified expressions
+        into it. A heap pointer is safe to store/return (unlike the old fixed
+        stack buffer, which overflowed past 1KB and dangled when returned).
         """
         zero = ir.Constant(ir.IntType(32), 0)
+        i8 = ir.IntType(8)
+        i8ptr = i8.as_pointer()
+        i64 = ir.IntType(64)
 
-        # Allocate a buffer for the result (1024 bytes should be enough for most cases)
-        buf_size = 1024
-        buf = self._entry_alloca(ir.ArrayType(ir.IntType(8), buf_size), name="interp_buf")
-        buf_ptr = self.builder.gep(buf, [zero, zero], inbounds=True)
+        # Convert every interpolated expression to a C string pointer once; the
+        # same pointers are reused for both the length pass and the build pass.
+        piece_ptrs = []
+        for sub_expr in expr.expressions:
+            value = self._generate_expression(sub_expr)
+            saw_type = self._expr_type(sub_expr)
+            piece_ptrs.append(self._value_to_string(value, saw_type))
 
-        # Initialize buffer with first part
+        strlen_fn = self._libc_func("strlen", i64, [i8ptr])
+        malloc_fn = self._libc_func("malloc", i8ptr, [i64])
+
+        # Total length: the literal parts are known at compile time; the
+        # interpolated pieces are measured at runtime with strlen. +1 for NUL.
+        literal_bytes = sum(len(p.encode('utf-8')) for p in expr.parts)
+        total_len = ir.Constant(i64, literal_bytes)
+        for ptr in piece_ptrs:
+            piece_len = self.builder.call(strlen_fn, [ptr], name="piece_len")
+            total_len = self.builder.add(total_len, piece_len, name="interp_len")
+        alloc_size = self.builder.add(total_len, ir.Constant(i64, 1), name="interp_size")
+
+        # Heap-allocate the exact size.
+        #
+        # NOTE: this heap string is intentionally LEAKED. Saw's String is not
+        # yet an owned type with a Deinit — that redesign is gated on the
+        # copy-semantics decision (see todo_jul26.md priority #4), so there is
+        # no deterministic point at which to free it. A leak is correct-but-
+        # wasteful; the previous stack buffer was memory-unsafe (1KB overflow +
+        # dangling pointer when the string was returned). Leak > corruption.
+        # See todo_jul26.md must-fix #5. Do NOT add an ad-hoc free here.
+        buf = self.builder.call(malloc_fn, [alloc_size], name="interp_buf")
+
+        # Build the string: strcpy the first literal part, then strcat each
+        # piece and the following literal part in order. The buffer is exactly
+        # sized, so these are safe.
         if expr.parts[0]:
             first = self._create_string_constant(expr.parts[0])
             first_ptr = self.builder.gep(first, [zero, zero], inbounds=True)
-            self.builder.call(self.strcpy, [buf_ptr, first_ptr])
+            self.builder.call(self.strcpy, [buf, first_ptr])
         else:
-            # Empty first part - set null terminator
-            self.builder.store(ir.Constant(ir.IntType(8), 0), buf_ptr)
+            # Empty first part - set null terminator so strcat has a valid start.
+            self.builder.store(ir.Constant(i8, 0), buf)
 
-        # Append each expression and following part
-        for i, sub_expr in enumerate(expr.expressions):
-            # Get expression value and convert to string
-            value = self._generate_expression(sub_expr)
-            saw_type = self._expr_type(sub_expr)
-            str_ptr = self._value_to_string(value, saw_type)
-
-            # Append expression string
-            self.builder.call(self.strcat, [buf_ptr, str_ptr])
-
-            # Append following string part (if non-empty)
+        for i, ptr in enumerate(piece_ptrs):
+            self.builder.call(self.strcat, [buf, ptr])
             if expr.parts[i + 1]:
                 part = self._create_string_constant(expr.parts[i + 1])
                 part_ptr = self.builder.gep(part, [zero, zero], inbounds=True)
-                self.builder.call(self.strcat, [buf_ptr, part_ptr])
+                self.builder.call(self.strcat, [buf, part_ptr])
 
-        return buf_ptr
+        return buf
 
     def _value_to_string(self, value, saw_type: SawType):
         """Convert an LLVM value to a string pointer using snprintf."""

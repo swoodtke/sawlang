@@ -8,7 +8,6 @@
 // EXPECT-OUTPUT:
 // value=7
 // wiped=3
-// XFAIL: todo_jul26.md #5 - interpolation returns a dangling alloca pointer; s reads as "wiped=3"
 
 func makeLabel(n: Int) -> String {
     let label = "value={n}"
