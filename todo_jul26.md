@@ -14,11 +14,18 @@ abstract generic checking, canonical mangler, entry-block allocas + O1
 pipeline, heap-based interpolation, div-by-zero panics, array const-index
 bounds. Item 7's bare-ValueError cleanup and the structural issues (pipeline
 unification, merge_into sharing, parser recovery) remain open. Design
-decisions: copy semantics DECIDED (`designs/06`, Copy trait family —
-implementation in `designs/09`); string model and `&var` exclusivity papers
-await decision (`designs/07`, `08`). Known follow-ups: use-after-move
-dataflow, deinit/copy conformance-name mismatch in resources.py (see brief 04
-report), `--emit-ir` builtins.
+decisions: ALL THREE DECIDED — copy semantics (`designs/06`, Copy trait
+family, landed via `designs/09`), `&var` exclusivity (`designs/08`, static
+readers-XOR-writer, landed via `designs/10`), string model (`designs/07`,
+refcounted immutable String, implementation in `designs/11`).
+Known follow-ups: use-after-move dataflow; deinit/copy conformance-name
+mismatch in resources.py (brief 04 report); `--emit-ir` builtins; call-site
+`&x` not validated against `&var` param mutability (brief 10 report); field
+assignment through a `&var Struct` param fails in codegen (brief 10 report);
+immutable `&self` receivers not collected by the exclusivity check
+(design-08-vs-brief-10 nuance); `noalias` on `&var` params (brief 10
+stretch, deferred); Vector<File>.copy() diagnostic is a Python traceback
+(brief 09 report, joins the item-7 cleanup).
 
 ## Overall assessment
 
