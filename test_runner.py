@@ -14,6 +14,11 @@ Test expectations are specified via comments in the source files:
     // more output
     // EXPECT-ERROR-CONTAINS: text  - Error message should contain "text"
     // EXPECT-PANIC-CONTAINS: text  - Panic message should contain "text"
+    // XFAIL: reason         - Known-broken test; still runs, but a failure is
+                              reported as xfail instead of breaking the build.
+                              Keep the EXPECT directives above accurate: if the
+                              test starts passing it is reported as XPASS and
+                              fails the run, prompting you to drop the marker.
 """
 
 import os
@@ -34,6 +39,19 @@ class ExpectType(Enum):
     PANIC = "panic"  # Runtime panic (compiles but aborts at runtime)
 
 
+class TestStatus(Enum):
+    """Outcome of a test, after accounting for any XFAIL marker."""
+    PASS = "pass"
+    FAIL = "fail"
+    XFAIL = "xfail"   # Marked XFAIL and did fail - expected, does not break the build
+    XPASS = "xpass"   # Marked XFAIL but passed - the marker is now stale
+
+    @property
+    def is_ok(self) -> bool:
+        """Whether this outcome should leave the build green."""
+        return self in (TestStatus.PASS, TestStatus.XFAIL)
+
+
 @dataclass
 class TestCase:
     """Represents a single test case"""
@@ -43,6 +61,7 @@ class TestCase:
     expected_output: List[str]
     expected_error_contains: List[str]
     expected_panic_contains: List[str]  # For panic tests
+    xfail_reason: Optional[str] = None  # Set by '// XFAIL: reason'
 
 
 class Colors:
@@ -55,6 +74,14 @@ class Colors:
     RESET = '\033[0m'
 
 
+STATUS_SYMBOLS = {
+    TestStatus.PASS: f"{Colors.GREEN}✓{Colors.RESET}",
+    TestStatus.FAIL: f"{Colors.RED}✗{Colors.RESET}",
+    TestStatus.XFAIL: f"{Colors.YELLOW}x{Colors.RESET}",
+    TestStatus.XPASS: f"{Colors.RED}!{Colors.RESET}",
+}
+
+
 def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
     """Parse test metadata from comments in a .saw file.
 
@@ -65,6 +92,7 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
     expected_output = []
     expected_error_contains = []
     expected_panic_contains = []
+    xfail_reason = None
 
     with open(file_path, 'r') as f:
         in_output_block = False
@@ -105,6 +133,10 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
                 expected_panic_contains.append(panic_text)
                 in_output_block = False
 
+            elif '// XFAIL:' in line:
+                xfail_reason = line.split('// XFAIL:')[1].strip()
+                in_output_block = False
+
             elif in_output_block:
                 if line.strip().startswith('//'):
                     # Continuation of output block
@@ -121,7 +153,8 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
         expect_type=expect_type,
         expected_output=expected_output,
         expected_error_contains=expected_error_contains,
-        expected_panic_contains=expected_panic_contains
+        expected_panic_contains=expected_panic_contains,
+        xfail_reason=xfail_reason
     )
 
 
@@ -267,47 +300,89 @@ def discover_tests(examples_dir: Path) -> List[TestCase]:
     return tests
 
 
-def print_summary(results: List[tuple[TestCase, bool, str]], verbose: bool):
+def print_summary(results: List[tuple[TestCase, TestStatus, str]], verbose: bool):
     """Print test results summary"""
-    passed = sum(1 for _, p, _ in results if p)
-    failed = len(results) - passed
+    counts = {status: 0 for status in TestStatus}
+    for _, status, _ in results:
+        counts[status] += 1
+
+    broken = counts[TestStatus.FAIL] + counts[TestStatus.XPASS]
 
     print("\n" + "=" * 70)
     print(f"{Colors.BOLD}Test Results{Colors.RESET}")
     print("=" * 70)
 
-    # Show failures first
-    if failed > 0:
+    # Show real failures first
+    if counts[TestStatus.FAIL]:
         print(f"\n{Colors.RED}{Colors.BOLD}FAILED TESTS:{Colors.RESET}")
-        for test, passed, msg in results:
-            if not passed:
+        for test, status, msg in results:
+            if status is TestStatus.FAIL:
                 print(f"\n  {Colors.RED}✗{Colors.RESET} {test.name}")
                 # Indent the message
                 for line in msg.split('\n'):
                     print(f"    {line}")
 
+    # Stale XFAIL markers also break the build - they mean a bug got fixed
+    if counts[TestStatus.XPASS]:
+        print(f"\n{Colors.RED}{Colors.BOLD}UNEXPECTEDLY PASSING (stale XFAIL):{Colors.RESET}")
+        for test, status, msg in results:
+            if status is TestStatus.XPASS:
+                print(f"\n  {Colors.RED}!{Colors.RESET} {test.name}")
+                for line in msg.split('\n'):
+                    print(f"    {line}")
+
+    # Known-broken tests are informational
+    if counts[TestStatus.XFAIL]:
+        print(f"\n{Colors.YELLOW}{Colors.BOLD}KNOWN FAILURES (xfail):{Colors.RESET}")
+        for test, status, msg in results:
+            if status is TestStatus.XFAIL:
+                reason = test.xfail_reason or ""
+                print(f"  {Colors.YELLOW}x{Colors.RESET} {test.name}: {reason}")
+
     # Show successes if verbose
-    if verbose and passed > 0:
+    if verbose and counts[TestStatus.PASS]:
         print(f"\n{Colors.GREEN}{Colors.BOLD}PASSED TESTS:{Colors.RESET}")
-        for test, passed, msg in results:
-            if passed:
+        for test, status, msg in results:
+            if status is TestStatus.PASS:
                 print(f"  {Colors.GREEN}✓{Colors.RESET} {test.name}")
 
     # Summary line
     print("\n" + "=" * 70)
-    if failed == 0:
-        print(f"{Colors.GREEN}{Colors.BOLD}ALL TESTS PASSED{Colors.RESET} ({passed}/{len(results)})")
+    tally = f"{counts[TestStatus.PASS]} passed"
+    if counts[TestStatus.XFAIL]:
+        tally += f", {counts[TestStatus.XFAIL]} xfailed"
+    if counts[TestStatus.FAIL]:
+        tally += f", {counts[TestStatus.FAIL]} failed"
+    if counts[TestStatus.XPASS]:
+        tally += f", {counts[TestStatus.XPASS]} unexpectedly passed"
+
+    if broken == 0:
+        print(f"{Colors.GREEN}{Colors.BOLD}ALL TESTS PASSED{Colors.RESET} ({tally})")
     else:
-        print(f"{Colors.RED}{Colors.BOLD}SOME TESTS FAILED{Colors.RESET} ({passed} passed, {failed} failed)")
+        print(f"{Colors.RED}{Colors.BOLD}SOME TESTS FAILED{Colors.RESET} ({tally})")
     print("=" * 70 + "\n")
 
-    return failed == 0
+    return broken == 0
 
 
-def run_test_wrapper(test: TestCase, verbose: bool) -> tuple[TestCase, bool, str]:
+def resolve_status(test: TestCase, raw_passed: bool, msg: str) -> tuple[TestStatus, str]:
+    """Fold a raw pass/fail result together with any XFAIL marker."""
+    if test.xfail_reason is None:
+        return (TestStatus.PASS if raw_passed else TestStatus.FAIL), msg
+
+    if raw_passed:
+        return TestStatus.XPASS, (
+            f"Marked '// XFAIL: {test.xfail_reason}' but the test passed.\n"
+            f"Remove the XFAIL marker from {test.path}."
+        )
+    return TestStatus.XFAIL, f"{test.xfail_reason}\n{msg}"
+
+
+def run_test_wrapper(test: TestCase, verbose: bool) -> tuple[TestCase, TestStatus, str]:
     """Wrapper to run a test and return all needed info for results"""
-    passed, msg = run_test(test, verbose)
-    return (test, passed, msg)
+    raw_passed, msg = run_test(test, verbose)
+    status, msg = resolve_status(test, raw_passed, msg)
+    return (test, status, msg)
 
 
 def main():
@@ -347,15 +422,13 @@ def main():
             status = f"[{i}/{len(tests)}]"
             print(f"{status} Running {test.name}...", end=' ', flush=True)
 
-            passed, msg = run_test(test, args.verbose)
-            results.append((test, passed, msg))
+            raw_passed, msg = run_test(test, args.verbose)
+            status, msg = resolve_status(test, raw_passed, msg)
+            results.append((test, status, msg))
 
-            if passed:
-                print(f"{Colors.GREEN}✓{Colors.RESET}")
-            else:
-                print(f"{Colors.RED}✗{Colors.RESET}")
-                if not args.verbose:
-                    print(f"  {msg}")
+            print(STATUS_SYMBOLS[status])
+            if not status.is_ok and not args.verbose:
+                print(f"  {msg}")
     else:
         # Parallel execution
         num_workers = args.jobs if args.jobs else os.cpu_count()
@@ -376,24 +449,22 @@ def main():
 
             # Process results as they complete
             for future in as_completed(future_to_test):
-                test, passed, msg = future.result()
-                results.append((test, passed, msg))
+                test, status, msg = future.result()
+                results.append((test, status, msg))
 
                 with print_lock:
                     completed += 1
-                    if passed:
+                    if status.is_ok:
                         passed_count += 1
-                        symbol = f"{Colors.GREEN}✓{Colors.RESET}"
                     else:
                         failed_count += 1
-                        symbol = f"{Colors.RED}✗{Colors.RESET}"
 
                     # Show progress with test name
                     progress = f"[{completed}/{len(tests)}]"
-                    print(f"{progress} {symbol} {test.name}")
+                    print(f"{progress} {STATUS_SYMBOLS[status]} {test.name}")
 
-                    # Show error immediately for failed tests
-                    if not passed and not args.verbose:
+                    # Show error immediately for tests that break the build
+                    if not status.is_ok and not args.verbose:
                         for line in msg.split('\n'):
                             print(f"      {line}")
 

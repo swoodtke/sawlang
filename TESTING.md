@@ -28,7 +28,9 @@ python3 test_runner.py -f enum
 
 - ✓ **Green checkmark**: Test passed
 - ✗ **Red X**: Test failed
-- Summary shows total passed/failed count
+- x **Yellow x**: Known failure, marked `// XFAIL:` (does not break the build)
+- ! **Red bang**: Marked `// XFAIL:` but passed — stale marker, breaks the build
+- Summary shows the tally, e.g. `196 passed, 1 xfailed`
 
 ## Writing Tests
 
@@ -71,8 +73,41 @@ func main() {
 |-----------|-------------|
 | `// EXPECT: success` | Test should compile and run successfully |
 | `// EXPECT: error` | Test should fail during compilation |
+| `// EXPECT: panic` | Test should compile but panic at runtime |
+| `// EXPECT: skip` | Skip the file entirely (library modules, not tests) |
 | `// EXPECT-OUTPUT:` | Lines following are expected stdout (one line per `//`) |
 | `// EXPECT-ERROR-CONTAINS: text` | Error message must contain "text" |
+| `// EXPECT-PANIC-CONTAINS: text` | Panic message must contain "text" |
+| `// XFAIL: reason` | Known-broken test: failure is expected, does not break the build |
+
+### Known Failures (XFAIL)
+
+When a test captures a real bug you are not fixing yet, mark it `// XFAIL:` with
+a reason rather than deleting it or using `// EXPECT: skip`:
+
+```saw
+// EXPECT: success
+// EXPECT-OUTPUT: stdout: hello
+// XFAIL: Command.output() returns empty stdout; capture is lost in std/process.saw
+
+func main() { ... }
+```
+
+Keep the `EXPECT` directives describing the **correct** behavior. The test still
+compiles and runs on every `make test`; it just reports as `xfail` (yellow `x`)
+instead of failing the run.
+
+The point of this over `skip` is the reverse signal: if the test starts passing,
+it is reported as **XPASS** and *fails* the run, telling you the bug is fixed and
+the marker should be removed. `skip` silently drops the file from discovery, so
+a fix would go unnoticed and the coverage would stay lost.
+
+| Outcome | Symbol | Breaks build? |
+|---------|--------|---------------|
+| Passed | green `✓` | no |
+| Failed | red `✗` | yes |
+| Expected failure (`xfail`) | yellow `x` | no |
+| Unexpectedly passed (`xpass`) | red `!` | **yes** — remove the stale marker |
 
 ### Required Directives
 
@@ -253,9 +288,10 @@ To debug:
 
 Run `python3 test_runner.py` to see current test count. As of the latest run:
 
-- **36 total tests**
+- **197 total tests** (196 passing, 1 xfail)
 - **Success tests**: Examples that compile and run
 - **Error tests**: Examples that should fail compilation
+- **Panic tests**: Examples that compile but abort at runtime
 - All tests validate output or error messages
 
 ## Test Runner Implementation

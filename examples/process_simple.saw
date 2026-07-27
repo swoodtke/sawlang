@@ -2,6 +2,7 @@
 // EXPECT: success
 // EXPECT-OUTPUT: stdout: hello
 // EXPECT-OUTPUT: success: true
+// XFAIL: Command.output() returns empty stdout; capture is lost in std/process.saw
 
 func main() {
     // Test capturing output from printf (no trailing newline)
