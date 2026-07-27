@@ -121,6 +121,17 @@ commands can't be auto-approved. Instead:
 All three steps are covered by the project permissions allowlist in
 `.claude/settings.json`, so they run without prompts.
 
+## Command Hygiene (avoids permission prompts)
+
+- Read files with the Read tool — to read several files, batch multiple Read
+  calls in one message. Do not `cat` files via Bash loops.
+- Never prefix commands with `cd <absolute path>; ...`. Your working directory
+  is already the repo/worktree root and relative paths resolve there. Allowlist
+  rules match from the start of the command string, so a `cd` prefix (or any
+  compound wrapper) turns an auto-approved command into one that prompts.
+- Run commands in the exact allowlisted forms shown in this file
+  (`./.venv/bin/python ...`, `./.build/...`).
+
 ## Compiler Usage
 
 ```bash
