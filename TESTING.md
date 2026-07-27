@@ -300,8 +300,12 @@ features land). The suite mixes:
 - **Panic tests**: Examples that compile but abort at runtime
 - All tests validate output or error messages
 
-The suite is expected to run fully green (zero failures and, currently, zero
-xfails) on every commit.
+The suite is expected to run fully green (zero red failures, zero XPASS) on
+every commit. Yellow `xfail` tests are expected and deliberate: they are the
+project's **tech-debt ledger** (see `designs/12-tech-debt-xfail-suite.md`) —
+each one encodes a known, reproducible correctness gap. Fixing one flips it
+to XPASS and breaks the build until its marker is removed, so the ledger
+can't silently rot.
 
 ## Test Runner Implementation
 
