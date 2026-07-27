@@ -9,14 +9,21 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 ## Key Design Decisions
 
 ### Memory Management
-- Copy by default (unlike Rust's move-by-default)
-- Explicit `move` keyword for ownership transfer
-- `@move` attribute for types that cannot be copied (unique resources)
-- No garbage collector
-- Deterministic destruction
-- No reference types or lifetimes in type system
-- Shared ownership via `Rc<T>`/`Arc<T>` wrapper types
-- Synchronized access via `Mutex<T>`/`RwLock<T>`
+- The Copy trait family governs transfers (decided in `designs/06`, landed):
+  - Trivial types (POD, recursively) auto-conform to `Copy` and copy bitwise
+  - `ImplicitCopy` types copy implicitly and cheaply at every transfer
+    (refcount bump) — e.g. `String`, `Rc`/`Arc`
+  - `ExplicitCopy` types (e.g. `Vector`, `Map`) never copy implicitly: `move`
+    to transfer, or a visible `.copy()` to duplicate
+  - `NoCopy` types (e.g. `File`, `Mutex`) are move-only
+  - `T: Copy` generic bound grants `.copy()`; containment rules are explicit
+- Explicit `move` keyword for ownership transfer, enforced at one value-transfer
+  checkpoint in the typechecker
+- No garbage collector; deterministic LIFO destruction via `Deinit`
+- References (`&T`, `&var T`) are parameters only, cannot escape; no lifetimes.
+  Mutable aliasing is caught statically by the Law of Exclusivity
+- Shared ownership via `Rc<T>`/`Arc<T>` wrapper types (planned)
+- Synchronized access via `Mutex<T>`/`RwLock<T>` (planned)
 
 ### Mutability
 - Immutable by default (`let`)
@@ -46,7 +53,7 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 ### Key Differences from Rust
 1. `var` instead of `let mut` (consistent use of `var` for mutability)
 2. No reference types or lifetimes - use `var` params with `&` at call site
-3. Copy by default, explicit `move` (inverse of Rust)
+3. Copy trait family: trivial types copy, owning types move with explicit `.copy()`
 4. `T?` for optionals (postfix, Swift-style)
 5. `guard let` for early unwrapping
 6. Simpler closure syntax: `{ x in x * 2 }` or `{ $0 * 2 }`
@@ -186,7 +193,8 @@ make test-filter FILTER=while_expr_conditional_found
 # See TESTING.md for detailed documentation
 ```
 
-**Test Coverage:** 181 tests including success cases and error validation
+**Test Coverage:** a growing suite of success, error, and panic cases — run
+`make test` to see the current count.
 
 ## Current Features
 
@@ -224,8 +232,8 @@ The compiler currently supports:
 ### Extensions & Methods
 - `extension` blocks for adding methods to structs
 - Generic extensions: `extension Box<T> { ... }`
-- Immutable methods: `func method(self) -> Type`
-- Mutable methods: `func method(var self)` (receives pointer)
+- Immutable methods: `func method(&self) -> Type`
+- Mutable methods: `func method(&var self)` (receives a mutable reference)
 - Custom `init` methods with overloading
 - Method calls: `obj.method(args)`
 - `self` keyword in method bodies
@@ -239,12 +247,30 @@ The compiler currently supports:
 - Type assignments in extensions: `type Item = Int`
 
 ### Traits
-- Trait definitions: `trait Name { func method(self) -> Type }`
+- Trait definitions: `trait Name { func method(&self) -> Type }`
 - Trait conformance: `extension Type: Trait { ... }`
 - Conformance checking (missing methods, signature mismatches)
 - Multiple trait conformance: `extension Type: A, B { ... }`
 - Trait bounds on generics: `func foo<T: Trait>(x: T)`
+- Bounded generic extensions: `extension Vector<T: Copy>: ExplicitCopy { ... }`
 - Associated types with resolution: `type Item` → `type Item = Int`
+
+### Memory & Safety
+- Copy trait family: auto-`Copy` trivial types, `ImplicitCopy`, `ExplicitCopy`,
+  `NoCopy`, `T: Copy` bound, memberwise `.copy()` derivation, containment checks
+- Value-transfer checkpoint enforces `move`/`.copy()` at every transfer site
+- Law of Exclusivity: static "many readers XOR one writer" check on `&var` paths
+- `Deinit` with automatic LIFO cleanup (manual `deinit()` calls are rejected)
+- Reference parameters `&T` / `&var T` (mutate via compound assignment; no escape)
+- String: immutable, reference-counted (atomic refcount), O(1) `len()`
+
+### Runtime & Tooling
+- Division / modulo by zero panics ("division by zero")
+- Out-of-bounds constant array index is a compile error; tuple index bounds checked
+- Force-unwrap of `None` and `try!` on `Err` panic with a message
+- Integer overflow is unspecified (open question)
+- Compiler flags: `-o`, `-v`, `-c`, `--emit-ir`, `--emit-ast`, `-O0`
+  (default is an O1-style pass pipeline)
 
 ## Example Code
 
@@ -256,7 +282,7 @@ struct Point {
 }
 
 extension Point {
-    func distance(self) -> Int {
+    func distance(&self) -> Int {
         self.x + self.y
     }
 }
@@ -294,11 +320,11 @@ struct Counter {
 }
 
 extension Counter {
-    func increment(var self) {
+    func increment(&var self) {
         self.value = self.value + 1
     }
 
-    func getValue(self) -> Int {
+    func getValue(&self) -> Int {
         self.value
     }
 }
@@ -393,7 +419,7 @@ func main() {
 ### Traits
 ```saw
 trait Describable {
-    func describe(self) -> Int
+    func describe(&self) -> Int
 }
 
 struct Point {
@@ -402,7 +428,7 @@ struct Point {
 }
 
 extension Point: Describable {
-    func describe(self) -> Int {
+    func describe(&self) -> Int {
         self.x + self.y
     }
 }

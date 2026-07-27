@@ -6,10 +6,14 @@ A modern systems programming language combining the safety of Rust with the eleg
 
 Saw takes the best ideas from modern languages and combines them into a cohesive whole:
 
-- **Safety by default** - No null pointers, memory safety without garbage collection
+- **Safety enforced, not just promised** - No null pointers; memory safety is
+  checked at a single value-transfer checkpoint, and mutable aliasing is caught
+  statically by the Law of Exclusivity (many readers XOR one writer) — no
+  garbage collector, no lifetimes
 - **Elegant syntax** - Clean, readable code inspired by Swift
 - **Zero-cost abstractions** - High-level constructs compile to efficient machine code
-- **Predictable performance** - No hidden allocations, deterministic destruction
+- **Predictable performance** - No hidden allocations (the only implicit copies
+  are cheap by contract), deterministic LIFO destruction
 
 ## Quick Example
 
@@ -20,11 +24,11 @@ struct Point {
 }
 
 extension Point {
-    func magnitude(self) -> Int {
+    func magnitude(&self) -> Int {
         self.x * self.x + self.y * self.y
     }
 
-    func translate(var self, dx: Int, dy: Int) {
+    func translate(&var self, dx: Int, dy: Int) {
         self.x = self.x + dx
         self.y = self.y + dy
     }
@@ -134,11 +138,11 @@ func handle(msg: Message) {
 
 ```saw
 trait Describable {
-    func describe(self) -> String
+    func describe(&self) -> String
 }
 
 extension Point: Describable {
-    func describe(self) -> String {
+    func describe(&self) -> String {
         "Point at ({self.x}, {self.y})"
     }
 }
@@ -165,28 +169,43 @@ enum Maybe<T> {
 }
 ```
 
-### Copy by Default, Explicit Move
+### The Copy Trait Family
 
-Unlike Rust's move-by-default, Saw copies values by default:
+Transfer cost is readable at the use site. Trivial types (integers, POD structs)
+copy implicitly and cheaply. Owning types are move-by-default: duplication is a
+visible `.copy()`, and the compiler demands `move` to transfer ownership.
+Refcounted types (like `String`) are `ImplicitCopy` — copies are cheap refcount
+bumps, no `move` needed.
 
 ```saw
 let a = Point(x: 1, y: 2)
-let b = a              // Copy - both valid
-let c = move a         // Move - a is now invalid
+let b = a              // trivial type: implicit copy, both valid
+
+var v = Vector<Int>(capacity: 4)
+var w = move v         // owning type: ownership transferred, v invalid
+var u = w.copy()       // explicit, independent deep copy
+
+let s1 = "hi"
+let s2 = s1            // String: cheap implicit refcount bump, both valid
 ```
 
 ### Type Extensions
 
-Add methods to any type without modifying its definition:
+Add methods and trait conformances to a struct without modifying its definition:
 
 ```saw
-extension Int {
-    func is_even(self) -> Bool {
-        self % 2 == 0
+struct Counter {
+    value: Int
+}
+
+extension Counter {
+    func is_even(&self) -> Bool {
+        self.value % 2 == 0
     }
 }
 
-print(42.is_even())  // true
+let c = Counter(value: 42)
+print(c.is_even())  // true
 ```
 
 ### Module System
@@ -214,17 +233,21 @@ func main() {
 
 Saw provides deterministic memory management without garbage collection:
 
-- **Copy by default** for simple types
-- **Explicit `move`** for ownership transfer
-- **`Deinit` trait** for cleanup when values go out of scope
-- **`NoCopy` trait** for move-only types (file handles, connections)
-- **`CustomCopy` trait** for reference counting (`Rc<T>`, `Arc<T>`)
-- **Reference types** (`&T`, `&var T`) for borrowing
+- **The Copy trait family** — trivial types auto-copy bitwise; `ImplicitCopy`
+  types copy cheaply on every transfer (refcount bumps, e.g. `String`);
+  `ExplicitCopy` types (e.g. `Vector`, `Map`) never copy implicitly — you `move`
+  to transfer or `.copy()` to duplicate; `NoCopy` types are move-only.
+- **Explicit `move`** for ownership transfer, enforced at one value-transfer checkpoint
+- **`Deinit` trait** for cleanup when values go out of scope (LIFO)
+- **Reference types** (`&T`, `&var T`) for borrowing, with static exclusivity checking
+- **Law of Exclusivity** — a `&var` path must be disjoint from every other
+  by-reference path in the same call; fully static, no lifetimes
 
 ```saw
-// Mutable reference parameter
+// Mutable reference parameter (mutate via compound assignment; direct `x = ...`
+// through a reference is rejected)
 func increment(x: &var Int) {
-    x = x + 1
+    x += 1
 }
 
 var n = 5
@@ -242,7 +265,7 @@ Saw includes a growing standard library:
 
 - **Vector<T>** - Dynamic arrays with `push`, `pop`, `get`, `len`
 - **Map<K, V>** - Hash maps with `insert`, `get`, `contains`, `remove`
-- **String** - String manipulation with `len`, `equals`, `contains`, `split`, `join`
+- **String** - Immutable, reference-counted byte string (atomic refcount, O(1) `len`); manipulation via `len`, `equals`, `contains`, `split`, `join`
 - **StringBuilder** - Efficient string building
 - **File** - File I/O with `open`, `create`, `read`, `write`
 - **Directory** - Directory operations
@@ -292,7 +315,7 @@ Options:
 ## Running Tests
 
 ```bash
-# Run all tests (178 tests)
+# Run all tests (run `make test` to see the current count)
 make test
 
 # Verbose output
@@ -338,8 +361,8 @@ Saw is in active development. The compiler currently supports:
 - `extension` blocks for adding methods
 - Generic extensions: `extension Box<T> { ... }`
 - Specialized extensions: `extension Vector<String> { ... }`
-- Immutable methods: `func method(self)`
-- Mutable methods: `func method(var self)`
+- Immutable methods: `func method(&self)`
+- Mutable methods: `func method(&var self)`
 - Static methods (no self parameter)
 - Custom `init` methods with overloading
 
@@ -348,7 +371,7 @@ Saw is in active development. The compiler currently supports:
 - Trait conformance: `extension Type: Trait { ... }`
 - Multiple trait conformance
 - Trait bounds on generics: `func foo<T: Trait>(x: T)`
-- Built-in traits: `Deinit`, `NoCopy`, `CustomCopy`, `Iterator`
+- Built-in traits: `Deinit`, `Copy`, `ImplicitCopy`, `ExplicitCopy`, `NoCopy`, `Iterator`
 
 ### Control Flow
 - `if`/`else` expressions
@@ -397,7 +420,7 @@ Saw includes Blade, a package manager written in Saw itself:
 
 | Aspect | Rust | Saw |
 |--------|------|-----|
-| Default behavior | Move | Copy |
+| Transfer default | Move everything | Trivial types copy; owning types move (Copy trait family) |
 | Mutability | `let mut` | `var` |
 | Optionals | `Option<T>` | `T?` (postfix) |
 | References | `&T`, `&mut T` | `&T`, `&var T` |

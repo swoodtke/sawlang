@@ -292,13 +292,16 @@ To debug:
 
 ## Current Test Coverage
 
-Run `python3 test_runner.py` to see current test count. As of the latest run:
+Run `python3 test_runner.py` to see the current test count (it grows as
+features land). The suite mixes:
 
-- **197 total tests** (196 passing, 1 xfail)
 - **Success tests**: Examples that compile and run
 - **Error tests**: Examples that should fail compilation
 - **Panic tests**: Examples that compile but abort at runtime
 - All tests validate output or error messages
+
+The suite is expected to run fully green (zero failures and, currently, zero
+xfails) on every commit.
 
 ## Test Runner Implementation
 
