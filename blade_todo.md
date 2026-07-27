@@ -8,7 +8,7 @@ This document outlines the Saw language features required to implement `blade`, 
 - Functions, structs, enums with generics
 - Pattern matching, optionals, closures
 - Traits and extensions
-- Resource management (Deinit, CustomCopy, NoCopy)
+- Resource management (Deinit, ImplicitCopy, ExplicitCopy, NoCopy)
 - Move semantics
 - Fixed-size arrays, tuples
 - For/while loops with iterators

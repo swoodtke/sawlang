@@ -46,7 +46,7 @@
 - [x] Function types: `(Int) -> Int`
 - [x] Trailing closure syntax: `arr.map { $0 * 2 }`
 - [x] Closure variable capture (copy semantics)
-- [x] Resource management: `Deinit`, `CustomCopy`, `NoCopy` traits
+- [x] Resource management: `Deinit`, `ImplicitCopy`, `ExplicitCopy`, `NoCopy` traits (Copy trait family)
 - [x] Move semantics: `move` keyword for ownership transfer
 - [x] Automatic scope-based cleanup with containment rules
 - [x] Result<T, E> with auto-wrap returns
@@ -286,7 +286,7 @@
 ## Priority 6: Traits & Polymorphism ✅ MOSTLY COMPLETE
 
 ### Traits
-- [x] Trait declarations: `trait Name { func method(self) -> Type }`
+- [x] Trait declarations: `trait Name { func method(&self) -> Type }`
 - [ ] Default method implementations
 - [x] `extension Type: Trait` for conformance
 - [x] Trait bounds: `<T: Display>`
@@ -320,12 +320,15 @@
 
 ### Resource Management Traits
 - [x] `Deinit` trait - automatic cleanup at scope exit
-- [x] `CustomCopy` trait - custom copy logic (e.g., reference counting)
+- [x] `ImplicitCopy` trait - cheap implicit copy (e.g., reference counting); renamed from `CustomCopy`
+- [x] `ExplicitCopy` trait - deep-copy owning types (move-required, visible `.copy()`)
+- [x] Auto-`Copy` for trivial types + `T: Copy` generic bound
 - [x] `NoCopy` trait - move-only types (cannot be copied)
 - [x] `move` keyword for explicit ownership transfer
-- [x] Containment rules - structs containing Deinit/CustomCopy/NoCopy fields must implement the trait
+- [x] Value-transfer checkpoint - single site enforcing move/copy discipline
+- [x] Containment rules - structs containing Deinit/ImplicitCopy/ExplicitCopy/NoCopy fields must implement the trait
 - [x] Automatic field deinit - compiler calls deinit on fields after user's deinit code
-- [x] Automatic field copy - compiler calls copy() on CustomCopy fields during struct init
+- [x] Automatic field copy - compiler calls copy() on ImplicitCopy fields during struct init
 - [x] Manual deinit disallowed - calling obj.deinit() is a compile error
 
 ### Shared Ownership (deferred - needs heap allocation)
