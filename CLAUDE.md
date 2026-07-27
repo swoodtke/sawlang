@@ -140,6 +140,12 @@ All three steps are covered by the project permissions allowlist in
   shell loop: `./.venv/bin/python test_runner.py -f test_a,test_b,test_c`.
   Don't pipe runner output through grep/head — failure detail is already
   printed in the summary, and `-v` adds it for xfail tests too.
+- NEVER run inline Python (`python -c "..."`, `python - <<EOF`). For any
+  Python probe — importing compiler modules, checking llvmlite APIs,
+  inspecting a parse tree — Write a script to `.build/scratch/probe_*.py`
+  and run it with `./.venv/bin/python .build/scratch/probe_foo.py`. That
+  command form is allowlisted; every unique `python -c` string prompts the
+  user and cannot be allowlisted.
 
 ## Compiler Usage
 

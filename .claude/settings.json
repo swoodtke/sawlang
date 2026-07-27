@@ -3,6 +3,7 @@
     "allow": [
       "Bash(./.venv/bin/python sawc/sawc.py:*)",
       "Bash(./.venv/bin/python test_runner.py:*)",
+      "Bash(./.venv/bin/python .build/scratch/*)",
       "Bash(mkdir -p .build/scratch)",
       "Bash(./.build/*)",
       "Bash(git add *)",
