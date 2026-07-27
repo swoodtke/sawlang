@@ -134,9 +134,23 @@ runtime.
   (1) Default allocating APIs are infallible; on final failure they panic
   into `saw_panic` (the kernel's own handler: oops/kill-task/reboot —
   noting a killed task's held resources leak unless tracked externally,
-  as in real kernels). (2) Explicit fallible variants (`Box.try(...) ->
-  Box<T>?`, `try_push -> Result`) for sites that genuinely handle OOM
-  locally (Rust `try_reserve` precedent). (3) Underneath both, a
+  as in real kernels). (2) Explicit fallible **factory functions** (refined
+  Jul 27, user): `MakeBox(...) -> Result<Box<T,A>, AllocError>`,
+  `try_push -> Result` — for sites that genuinely handle OOM locally.
+  A single allocation needs NO nonlocal machinery: the allocator returns
+  null, the factory checks and returns `Err` (reclaim hook still runs
+  underneath); `AllocError` carries allocator/size context for oops logs.
+  Compound construction propagates `Result` through its internals (the
+  Zig model). Accepted: kernel code reads differently from hosted code —
+  fallible factories at allocation boundaries; same language, different
+  idiom density, congruent with the core/alloc layering.
+  Future/research (NOT v1): "fallible construction regions" — a
+  transactional scratch-arena scope whose deep failure returns to the
+  boundary with wholesale region teardown, keeping compound internals
+  uncolored; sound ONLY with compiler-enforced "no external resource
+  effects inside the region" (else skipped deinits leak external
+  refcounts/locks). Revisit after statics + allocators exist.
+  (3) Underneath both, a
   **per-allocator reclaim hook**: on exhaustion the allocator synchronously
   calls its registered handler (flush/evict/kill-a-task) and retries —
   Linux direct-reclaim as a plain call, centralizing OOM policy in the
