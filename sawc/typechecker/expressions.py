@@ -30,12 +30,29 @@ class ExpressionsMixin:
     """Mixin providing expression checking methods for TypeChecker."""
 
     def _check_expression(self, expr: Expression) -> Optional[SawType]:
-        """Check an expression and return its type."""
+        """Check an expression and return its type.
+
+        This is the single chokepoint through which every expression is
+        checked. It stamps the computed type onto ``expr.resolved_type`` so
+        codegen can consume it (see ``CodeGenerator._expr_type``) instead of
+        re-inferring types with a weaker, divergent engine.
+
+        Ordering rule -- "later contextual annotation wins": a few callers
+        annotate *contextually* after this returns (e.g.
+        ``_propagate_optional_type`` pushes an expected optional type down into
+        ``None`` literals). Those run after the child's ``_check_expression``
+        has already returned and stamped here, so their more-specific
+        annotation overwrites the generic one stamped below. Never re-check a
+        node after contextually annotating it, or the generic stamp would win.
+        """
         method_name = f'visit_{expr.__class__.__name__}'
         visitor = getattr(self, method_name, None)
         if visitor is None:
             return None
-        return visitor(expr)
+        result = visitor(expr)
+        if result is not None:
+            expr.resolved_type = result
+        return result
 
     # ===== Expression Visitor Methods =====
 
