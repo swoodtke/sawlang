@@ -15,6 +15,7 @@ Usage:
 from typing import Optional, List
 from ast_nodes import (SawType, TypeKind, MoveExpr, Identifier, MemberAccess,
                        ArrayIndex, TupleIndex, SelfExpr)
+from .mangle import mangle_type
 
 
 class ResourcesMixin:
@@ -32,27 +33,39 @@ class ResourcesMixin:
     """
 
     def _get_type_name_for_conformance(self, saw_type: SawType) -> Optional[str]:
-        """Get the type name for conformance lookup.
+        """Get the registry key for an interface-conformance lookup.
 
-        Returns the canonical name used to look up interface conformances.
-        For generic instantiations, includes mangled type arguments.
+        Interface conformances are registered under the *base* (unmangled) name
+        of a type: `extension Box<T>: Deinit` registers 'Box', which then holds
+        for every monomorphization `Box<Int>`, `Box<String>`, ... So a generic
+        instantiation is looked up by its base name, NOT by a name that embeds
+        the type arguments. (The method *symbol* for the monomorphized deinit/
+        copy is a separate concern -- see `_type_method_base`, which routes
+        through the canonical mangler so it matches the registered symbol.)
         """
         if saw_type.kind == TypeKind.STRING:
             # String is a compiler-known ImplicitCopy + Deinit type.
             return "String"
         if saw_type.kind == TypeKind.STRUCT:
-            if saw_type.type_args:
-                # Generic instantiation: Box<Int> -> Box$Int
-                args = "_".join(self._get_type_name_for_conformance(arg) or "unknown"
-                               for arg in saw_type.type_args)
-                return f"{saw_type.struct_name}${args}"
             return saw_type.struct_name
         elif saw_type.kind == TypeKind.ENUM:
-            if saw_type.type_args:
-                args = "_".join(self._get_type_name_for_conformance(arg) or "unknown"
-                               for arg in saw_type.type_args)
-                return f"{saw_type.enum_name}${args}"
             return saw_type.enum_name
+        return None
+
+    def _type_method_base(self, saw_type: SawType) -> Optional[str]:
+        """Base symbol for a type's compiler-invoked methods (deinit / copy).
+
+        This must match the name the method was REGISTERED under. Monomorphized
+        methods are registered as `mangle_method(mangle_named(base, args), m)`
+        (e.g. `Box<Int>.deinit` -> `Box$1$Int_deinit`), so the base here is the
+        canonical `mangle_type` of the (struct/enum) type. String's compiler-
+        provided methods use the base 'String'. Non-generic types mangle to
+        their plain name, so their symbols are unchanged.
+        """
+        if saw_type.kind == TypeKind.STRING:
+            return "String"
+        if saw_type.kind in (TypeKind.STRUCT, TypeKind.ENUM):
+            return mangle_type(saw_type)
         return None
 
     def _get_cleanup_behavior(self, saw_type: SawType) -> str:
@@ -105,7 +118,7 @@ class ResourcesMixin:
         Called during scope cleanup for types that implement Deinit.
         The deinit method receives a pointer to the variable (var self).
         """
-        type_name = self._get_type_name_for_conformance(saw_type)
+        type_name = self._type_method_base(saw_type)
         if type_name is None:
             return
 
@@ -143,7 +156,7 @@ class ResourcesMixin:
             return value
 
         # ImplicitCopy: call the copy() method
-        type_name = self._get_type_name_for_conformance(saw_type)
+        type_name = self._type_method_base(saw_type)
         if type_name is None:
             return value
 

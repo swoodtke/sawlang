@@ -152,8 +152,8 @@ class MethodsMixin:
             if behavior == "none":
                 continue
 
-            # Get the field's type name for method lookup
-            type_name = self._get_type_name_for_conformance(field_type)
+            # Get the field's canonical method-symbol base for method lookup
+            type_name = self._type_method_base(field_type)
             if type_name is None:
                 continue
 
@@ -200,10 +200,10 @@ class MethodsMixin:
 
             # Does this field's type carry its own copy()? (ImplicitCopy or
             # ExplicitCopy). If so, invoke it; otherwise the load is a bitwise copy.
-            type_name = self._get_type_name_for_conformance(field_type) if field_type else None
-            conformances = self.namespace.get_conformances(type_name) if type_name else []
+            conf_name = self._get_type_name_for_conformance(field_type) if field_type else None
+            conformances = self.namespace.get_conformances(conf_name) if conf_name else []
             if "ImplicitCopy" in conformances or "ExplicitCopy" in conformances:
-                copy_method_name = self._mangle_method_name(type_name, "copy")
+                copy_method_name = self._mangle_method_name(self._type_method_base(field_type), "copy")
                 copy_fn = self.functions.get(copy_method_name)
                 if copy_fn is not None:
                     field_val = self.builder.call(copy_fn, [field_val],

@@ -14,7 +14,6 @@
 // EXPECT-OUTPUT:
 // 42
 // box deinit
-// XFAIL: generic-struct Deinit lookup misses the mangled method name, so deinit never fires
 
 struct Box<T> {
     value: T
