@@ -32,7 +32,11 @@ Two NEW issues found during brief-12 probing:
   usable with resource element types again.
 - Module symbol collision is not silent first-wins but a codegen crash
   (`DuplicatedNameError`) — still needs a real ambiguity diagnostic.
-Known follow-ups: use-after-move dataflow; deinit/copy conformance-name
+Known follow-ups: ~~use-after-move dataflow~~ DONE (brief 15, `designs/15`:
+per-binding may-move analysis, branch merge excluding diverged paths,
+conservative loop rule; 2 xfails flipped); bare `return` in `main` emits
+`ret void` against `main`'s `i32` result — codegen crash (brief 15 report,
+pre-existing); deinit/copy conformance-name
 mismatch in resources.py (brief 04 report); `--emit-ir` builtins; call-site
 `&x` not validated against `&var` param mutability (brief 10 report); field
 assignment through a `&var Struct` param fails in codegen (brief 10 report);
