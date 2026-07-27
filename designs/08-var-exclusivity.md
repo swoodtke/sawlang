@@ -35,13 +35,21 @@ the spec.
 ## Options
 
 ### A. Static call-site exclusivity (Law of Exclusivity, fully static)  ⭐ recommended
-Rule for the spec: *in a single call, the access paths passed by reference
-(including the receiver of a `var self` method) must be pairwise disjoint;
-a path passed by `&var` must additionally be disjoint from every by-value
-argument read of an overlapping path.* Disjointness of access paths
-(`x`, `x.f`, `x.f.g`, `x[const i]`) is decidable at the call site: same-root
-prefixes overlap, different roots don't. Dynamic indices `x[i]`/`x[j]`:
-conservatively treated as overlapping (error) — escape hatch below.
+Rule for the spec — **many readers XOR one writer**: *in a single call, an
+access path passed by `&var` (including the receiver of a `var self` method)
+must be disjoint from every other by-reference path in that call, mutable or
+not. Immutable `&` paths may overlap each other freely* — with no writer in
+the call, the overlapping storage is immutable for the callee's duration, so
+aliasing is unobservable. (Bonus: guaranteed-unaliased `&var` params can be
+marked `noalias` in LLVM.) By-value arguments overlapping a `&var` are
+permitted with snapshot semantics — the copy happens at call setup — which
+requires the spec to also pin argument evaluation order (already an open item
+from design concern 5); `move x` overlapping any reference in the same call
+is an error (value-transfer checkpoint territory).
+Disjointness of access paths (`x`, `x.f`, `x.f.g`, `x[const i]`) is decidable
+at the call site: same-root prefixes overlap, different roots don't. Dynamic
+indices `x[i]`/`x[j]`: conservatively treated as overlapping when one side is
+`&var` (error) — escape hatch below.
 - Forwarding (case 4) is covered by applying the same rule at *every* call
   site: `inner(&a, &b)` is checked in `outer`'s body where `a`,`b` are
   distinct roots — sound because parameters are distinct storage unless the
