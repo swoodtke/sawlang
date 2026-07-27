@@ -18,5 +18,6 @@ venv/
 .idea/
 .vscode/
 
-# Claude internal
-.claude/
+# Claude internal (settings.json is shared; everything else is local)
+.claude/*
+!.claude/settings.json

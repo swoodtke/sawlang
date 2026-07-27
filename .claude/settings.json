@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./.venv/bin/python sawc/sawc.py:*)",
+      "Bash(./.venv/bin/python test_runner.py:*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git merge *)"
+    ]
+  },
+  "worktree": {
+    "symlinkDirectories": [".venv"]
+  }
+}
