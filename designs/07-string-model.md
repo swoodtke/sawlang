@@ -1,11 +1,45 @@
 # Option Paper 07 — The String model
 
-**Status: DECISION NEEDED (user); paper 06 is now decided (the `Copy` trait
-family), so under recommended option A, `String` is an `ExplicitCopy` +
-`Deinit` type — move on transfer, visible `s.copy()` to duplicate.** String is
-the first stdlib type designed under the new copy semantics, and it stresses
-every part of the memory model — that's why it's the right forcing function.
+**Status: DECIDED (Jul 27, 2026).** Implementation brief:
+`designs/11-refcounted-string.md`. Original options kept below for history.
 Source: `todo_jul26.md` design concern 5 and priority item 4.
+
+## DECISION — immutable refcounted String (`ImplicitCopy` + `Deinit`)
+
+Option B, made principled by the 06 trait family: a refcount bump is the
+canonical cheap `ImplicitCopy`. Chosen over owned-`ExplicitCopy` (original
+recommendation) because it dissolves the read-only-parameter ergonomics
+problem (`greet(s)` is a pointer copy + refcount bump) without changing
+parameter-passing semantics, keeping the landed value-transfer checkpoint
+behavior intact. Vector/Map stay `ExplicitCopy`/move-only.
+
+- **Representation:** one heap block `{refcount: Int64, len: Int64,
+  bytes… , NUL}` (NUL-terminated for cheap FFI; `len` authoritative, interior
+  NULs representable). `String` itself is a single pointer. Buffer is
+  **immutable** after construction — no CoW, no uniqueness checks; concat/
+  interpolation build fresh buffers (fixes brief 05's documented leak via
+  `Deinit`). `s + t` in a loop is O(n²) — a mutable `StringBuilder`
+  (ordinary move-only type) is future stdlib work.
+- **Refcount is ATOMIC from day one** (user decision: pay the cost now so
+  `String` is `Send`-ready before multithreading lands). Ordering protocol —
+  the Rust `Arc` standard, immutability does not exempt the decrement:
+  - increment: `atomicrmw add` **monotonic/relaxed** (a holder's reference
+    keeps the object alive; no ordering needed);
+  - decrement: `atomicrmw sub` **release**; the thread that observes the
+    count reaching zero issues an **acquire fence**, then deinits/frees
+    (orders every other thread's final reads before the free);
+  - **immortal sentinel** (e.g. refcount == -1) for string literals: checked
+    with a plain load + branch BEFORE any atomic op — literals are static
+    data, never retained/released, zero atomic traffic on the common case.
+- **Conformances:** `Deinit` (release; free at zero) + `ImplicitCopy`
+  (retain). Mutual exclusivity with `ExplicitCopy` holds.
+- **Carried-over sub-decisions:** UTF-8 validated at literals (compile time)
+  and explicit `fromBytes` (`Result`); no `s[i]` integer indexing, ever —
+  `bytes()`/`chars()` views; `withCString` scoped borrow; SSO/small-string
+  deferred indefinitely (ABI).
+- **Spec note to add:** why the refcount is atomic (Send-readiness) and the
+  ordering protocol above, so the concurrency milestone doesn't relitigate
+  it blind.
 
 ## Where strings stand today
 
