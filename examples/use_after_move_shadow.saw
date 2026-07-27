@@ -1,0 +1,26 @@
+// Shadowing clears moved-state for the new binding (design 15 rule 2). The
+// outer `f` is moved, but an inner scope declares its own `f`; using the inner
+// `f` is fine because it is a distinct binding with fresh (unmoved) state.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {}
+}
+
+func consume(h: FileHandle) {}
+
+func main() {
+    let f = FileHandle(fd: 1)
+    consume(move f)          // outer f moved-from
+    let cond = true
+    if cond {
+        let f = FileHandle(fd: 2)   // shadows outer f
+        print(f.fd)                 // uses inner f: OK -> 2
+    }
+}

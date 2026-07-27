@@ -1,0 +1,41 @@
+// Diverging branch does not poison the fall-through (design 15 rule 6). The
+// `guard let ... else` branch moves `f` and then `return`s, so it diverges and
+// contributes nothing to the merge. On the guarded (fall-through) path `f` was
+// never moved, so it is usable. (The guard lives in a helper returning Int so
+// the diverging `return` carries a value.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 42
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {}
+}
+
+func consume(h: FileHandle) {}
+
+func maybe(present: Bool) -> Int? {
+    if present {
+        42
+    } else {
+        None
+    }
+}
+
+func run(present: Bool) -> Int {
+    let f = FileHandle(fd: 1)
+    guard let x = maybe(present) else {
+        consume(move f)   // moves f, then diverges
+        return 0
+    }
+    print(f.fd)   // OK: the else path diverged, f is still live here (prints 1)
+    x
+}
+
+func main() {
+    print(run(true))   // 42
+}

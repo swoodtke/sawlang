@@ -1,0 +1,38 @@
+// Both arms move-and-return (design 15 rule 6, all-branches-diverge case).
+// Every arm of the `if` moves `f` and then `return`s, so every branch diverges
+// and none contributes to the merge. Deliberate merge choice: when ALL branches
+// diverge, the post-construct state falls back to the pre-`if` (entry) state, so
+// any (unreachable) code after the `if` is checked as if `f` were still live.
+// Here there is no reachable code after the `if`, so this is moot at runtime;
+// the program compiles and one arm runs. (The `if` lives in a helper returning
+// Int so the diverging `return`s carry a value.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 1
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {}
+}
+
+func consume(h: FileHandle) {}
+
+func run(cond: Bool) -> Int {
+    let f = FileHandle(fd: 7)
+    print(f.fd)   // 7
+    if cond {
+        consume(move f)
+        return 1
+    } else {
+        consume(move f)
+        return 2
+    }
+}
+
+func main() {
+    print(run(true))   // 1
+}

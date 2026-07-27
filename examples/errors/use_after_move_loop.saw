@@ -1,0 +1,25 @@
+// Use-after-move across loop iterations (design 15 rule 7). `f` is declared
+// outside the loop and moved inside the body without being reassigned before
+// the body ends, so the second and later iterations would move an
+// already-moved binding -- a compile error at the move site.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {}
+}
+
+func consume(h: FileHandle) {}
+
+func main() {
+    let f = FileHandle(fd: 1)
+    var i = 0
+    while i < 3 {
+        consume(move f)   // error: moved-from on the next iteration
+        i = i + 1
+    }
+}

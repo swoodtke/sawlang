@@ -1,0 +1,23 @@
+// Use-after-move via a reference (design 15 rule 5). Taking `&f` after `f` was
+// moved reads a moved-from binding, which must be a compile error -- the
+// identifier check fires while lowering the reference's operand.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {}
+}
+
+func inspect(h: &FileHandle) {
+    print(h.fd)
+}
+
+func main() {
+    let f = FileHandle(fd: 1)
+    let a = move f
+    inspect(&f)   // error: &f after f was moved
+}

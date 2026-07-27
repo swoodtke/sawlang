@@ -1,0 +1,25 @@
+// Revival by assignment (design 15 rule 3). A moved `var` becomes usable again
+// after it is reassigned a fresh value.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {}
+}
+
+func consume(h: FileHandle) {
+    print(h.fd)
+}
+
+func main() {
+    var f = FileHandle(fd: 1)
+    consume(move f)          // f moved out (prints 1)
+    f = FileHandle(fd: 2)    // revival: f is usable again
+    print(f.fd)              // 2
+}

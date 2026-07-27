@@ -1,0 +1,26 @@
+// Companion to use_after_move_shadow.saw (design 15 rule 2): once the inner
+// shadowing scope ends, the name resolves back to the OUTER `f`, which is still
+// moved-from -- so using it is a compile error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {}
+}
+
+func consume(h: FileHandle) {}
+
+func main() {
+    let f = FileHandle(fd: 1)
+    consume(move f)          // outer f moved-from
+    let cond = true
+    if cond {
+        let f = FileHandle(fd: 2)   // shadows outer f
+        print(f.fd)                 // inner f: fine
+    }
+    print(f.fd)              // error: outer f is still moved
+}
