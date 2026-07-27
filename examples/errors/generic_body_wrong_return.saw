@@ -1,0 +1,21 @@
+// A generic function body must be type-checked once, abstractly. `bad<T>` is
+// declared `-> Int` but its body returns the Bool literal `true`, which is wrong
+// regardless of `T` -- this must be a compile error even though `bad` is never
+// instantiated. (The non-generic analog already reports "should return `Int` but
+// returns `Bool`".)
+//
+// Today it compiles clean: the typechecker skips generic function bodies
+// (typechecker/statements.py ~196); errors only surface on instantiation, and
+// `bad` is never instantiated. Brief 02 report (documented looseness).
+// See todo_jul26.md must-fix #3 (generic bodies never type-checked).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: should return `Int`
+// XFAIL: generic function bodies are not abstractly type-checked; an uninstantiated body returning the wrong concrete type compiles
+
+func bad<T>(x: T) -> Int {
+    true
+}
+
+func main() {
+    print(1)
+}

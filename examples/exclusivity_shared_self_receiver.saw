@@ -1,0 +1,31 @@
+// Exclusivity must treat a method's `&self` receiver as a live shared access for
+// the duration of the call. In `c.read(&var c)`, the receiver is a shared borrow
+// of `c` while the argument `&var c` is a mutable borrow of the same variable --
+// overlapping shared + mutable access, which is an exclusive-access violation.
+//
+// The free-function analog `combine(&c, &var c)` IS rejected today, so the engine
+// detects shared/mutable overlap for explicit arguments; the receiver form is the
+// gap: the exclusivity check never collects the `&self` receiver as an access, so
+// `c.read(&var c)` compiles. (Receivers really are borrows -- the parser requires
+// `&self`/`&var self` -- so this is genuinely unsound, not a by-value copy.)
+// Brief 10 report / design-08-vs-brief-10 nuance.
+// See todo_jul26.md "Known follow-ups" (immutable &self receivers not collected).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+// XFAIL: the exclusivity check does not collect an immutable &self receiver, so aliasing it with a &var argument is accepted
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func read(&self, other: &var Counter) -> Int {
+        self.n + other.n
+    }
+}
+
+func main() {
+    var c = Counter(n: 1)
+    let x = c.read(&var c)   // receiver `c` (shared) aliases `&var c` (mutable)
+    print(x)
+}

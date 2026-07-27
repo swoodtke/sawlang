@@ -1,0 +1,38 @@
+// A method-result temporary of a Deinit type must be destroyed after the
+// statement that produced it. `makeResource().use()` builds an `R`, calls a
+// method on it, and then the temporary receiver goes away -- its deinit must run.
+// Correct order: "use", then "R deinit", then "after".
+//
+// Today the temporary receiver is never cleaned up: "R deinit" never prints. Only
+// the receiver-of-a-method-result temporary is affected -- a temporary passed as
+// a plain call argument (ownership transferred to the callee) IS deinit'd. Brief
+// 11 report.
+// See todo_jul26.md "Known follow-ups" (method-result temporaries used as receivers).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// use
+// R deinit
+// after
+// XFAIL: a method-result temporary receiver of a Deinit type is never destroyed
+
+struct R {
+    id: Int
+}
+
+extension R: Deinit {
+    func deinit(&var self) {
+        print("R deinit")
+    }
+    func use(&self) {
+        print("use")
+    }
+}
+
+func makeResource() -> R {
+    R(id: 1)
+}
+
+func main() {
+    makeResource().use()   // temporary receiver must deinit after this statement
+    print("after")
+}

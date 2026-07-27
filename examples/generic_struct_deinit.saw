@@ -1,0 +1,33 @@
+// A generic struct with a Deinit conformance must have its deinit run when an
+// instance goes out of scope, exactly like a non-generic Deinit struct
+// (cf. deinit_automatic.saw). Here `Box<Int>` should print "box deinit" when `b`
+// is destroyed at the end of main.
+//
+// Today it compiles and runs, but "box deinit" never prints: the scope-cleanup
+// lookup keys the deinit method by a conformance/type name that does not match
+// the canonical mangled method name for the monomorphized generic struct
+// (resources.py `_get_type_name_for_conformance` vs the canonical mangler --
+// brief 04 report). The deinit path is the one that misses; the value is simply
+// leaked with no cleanup call emitted.
+// See todo_jul26.md "Known follow-ups" (deinit/copy conformance-name mismatch).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// box deinit
+// XFAIL: generic-struct Deinit lookup misses the mangled method name, so deinit never fires
+
+struct Box<T> {
+    value: T
+}
+
+extension Box<T>: Deinit {
+    func deinit(&var self) {
+        print("box deinit")
+    }
+}
+
+func main() {
+    let b = Box<Int>(value: 42)
+    print(b.value)
+    // b goes out of scope here: "box deinit" must print
+}

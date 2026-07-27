@@ -1,0 +1,6 @@
+// Library fixture for module_import_collision.saw: exports `shared_value`.
+// Not a standalone test (files under examples/modules/ are skipped by the runner).
+
+public func shared_value() -> Int {
+    1
+}

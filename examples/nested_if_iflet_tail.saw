@@ -1,0 +1,38 @@
+// A nested no-else `if` used as the tail expression of an `if let` branch, inside
+// an `Int?`-returning function, is a valid program: compute(10) takes the x > 0
+// branch, binds v = 10, and the inner `if v > 5 { v }` yields Some(10), so
+// compute returns Some(10) and main prints 10.
+//
+// Today the compiler crashes in LLVM verification -- "Instruction does not
+// dominate all uses" -- because the nested no-else `if` emits a store into the
+// if-let result slot from a block that does not dominate the use (an undominated
+// SSA store). Brief 11 report (pre-existing). A compiler crash on a valid program
+// counts as a failure.
+// See todo_jul26.md "Known follow-ups" (nested no-else if as an if-let branch tail).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// XFAIL: nested no-else if as an if-let branch tail emits an undominated SSA store (LLVM verify crash)
+
+func compute(x: Int) -> Int? {
+    if x > 0 {
+        let y: Int? = x
+        if let v = y {
+            if v > 5 {
+                v
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+func main() {
+    if let r = compute(10) {
+        print(r)
+    } else {
+        print(-1)
+    }
+}

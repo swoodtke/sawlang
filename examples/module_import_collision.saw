@@ -1,0 +1,20 @@
+// Two glob-imported modules export the same symbol `shared_value`, and the
+// importer uses the bare name. This is an unresolvable ambiguity: the compiler
+// must report a collision/ambiguity error rather than silently resolving it.
+//
+// Today it does neither cleanly -- `merge_into` resolves colliding imported
+// symbols first-wins with no diagnostic (namespace.py:722-739), and codegen then
+// emits both module functions under the same LLVM name, crashing with a
+// DuplicatedNameError Python traceback. Correct behavior is a proper "ambiguous"
+// diagnostic at check time. Structural issue in namespace.py merge_into.
+// See todo_jul26.md "Structural issues" (merge_into resolves collisions first-wins).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous
+// XFAIL: colliding imported symbols are not diagnosed; the duplicate name crashes codegen instead of raising an ambiguity error
+
+import modules.collide_a.*
+import modules.collide_b.*
+
+func main() {
+    print(shared_value())
+}

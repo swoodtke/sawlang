@@ -1,0 +1,39 @@
+// Use-after-move via a struct-field initializer. `Wrapper(inner: move f)` moves
+// `f` into the new struct's field; the following `print(f.fd)` reads a value that
+// has already been moved out -- a use-after-move that must be a compile error.
+//
+// Today it compiles clean: the value-transfer checkpoint records moved-from state
+// only for `let`/`var`/assignment sites, never for struct-field initializers, so
+// `f` is never added to the moved set (typechecker/types.py:606-621; gap
+// documented in designs/03-value-transfer-checkpoint.md).
+// See todo_jul26.md "Known follow-ups" (use-after-move dataflow gap).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable
+// XFAIL: move in a struct-field initializer is not recorded, so use-after-move is not detected
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {
+        print("deinit")
+    }
+}
+
+struct Wrapper {
+    inner: FileHandle
+}
+
+extension Wrapper: NoCopy {
+    func deinit(&var self) {
+        print("wrapper deinit")
+    }
+}
+
+func main() {
+    let f = FileHandle(fd: 42)
+    let w = Wrapper(inner: move f)   // f moved into the field
+    print(f.fd)                      // use-after-move: f was already moved out
+    print(w.inner.fd)
+}

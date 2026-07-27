@@ -1,0 +1,34 @@
+// Use-after-move via a call argument. `consume(move f)` transfers ownership of
+// `f` into the callee (which deinits it at its own scope exit); the following
+// `print(f.fd)` in main reads a value that has already been moved out and
+// destroyed -- a use-after-move / use-after-free that must be a compile error.
+//
+// Today it compiles clean: the value-transfer checkpoint only records moved-from
+// state for `let`/`var`/assignment sites, never for call arguments, so `f` is not
+// added to the moved set (typechecker/types.py:606-621; the gap is documented in
+// designs/03-value-transfer-checkpoint.md). The typechecker already has the
+// "use of moved variable" diagnostic; it simply never fires here.
+// See todo_jul26.md "Known follow-ups" (use-after-move dataflow gap).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable
+// XFAIL: move through a call argument is not recorded, so use-after-move is not detected
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {
+        print("deinit")
+    }
+}
+
+func consume(f: FileHandle) {
+    print(f.fd)
+}
+
+func main() {
+    let f = FileHandle(fd: 42)
+    consume(move f)   // ownership transferred to consume
+    print(f.fd)       // use-after-move: f was already moved out and destroyed
+}

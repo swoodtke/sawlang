@@ -1,0 +1,20 @@
+// A generic function body must be type-checked once, abstractly, against its type
+// parameter's bounds. `bad<T>` calls `x.frobnicate()`, but `T` has no bounds, so
+// no such method is guaranteed to exist -- this must be a compile error even
+// though `bad` is never instantiated.
+//
+// Today it compiles clean: the typechecker skips generic function bodies
+// entirely (typechecker/statements.py ~196); errors only ever surface if/when a
+// concrete instantiation is generated. Brief 02 report (documented looseness).
+// See todo_jul26.md must-fix #3 (generic bodies never type-checked).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: frobnicate
+// XFAIL: generic function bodies are not abstractly type-checked; an uninstantiated body with an unbounded method call compiles
+
+func bad<T>(x: T) -> Int {
+    x.frobnicate()
+}
+
+func main() {
+    print(1)
+}
