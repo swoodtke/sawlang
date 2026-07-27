@@ -487,65 +487,29 @@ class TypeUtilsMixin:
         # Check if type conforms to ExplicitCopy
         return self.namespace.type_conforms_to(type_name, "ExplicitCopy")
 
-    # Primitive kinds that are always trivially (bitwise) copyable.
-    _TRIVIAL_PRIMITIVE_KINDS = frozenset({
-        TypeKind.INT, TypeKind.UINT,
-        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
-        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
-        TypeKind.FLOAT, TypeKind.BOOL,
-    })
-
     def _is_trivially_copyable(self, saw_type: SawType) -> bool:
         """A type is trivially copyable iff it can be duplicated bitwise: all
         fields are trivially copyable, and it declares no resource trait
         (Deinit / NoCopy / ImplicitCopy / ExplicitCopy). Such types auto-satisfy
         `Copy`; `.copy()` on them lowers to a bitwise copy.
+
+        The structural logic lives on the namespace (`Namespace.is_trivially_copyable`)
+        so codegen's bounded-extension gating uses the exact same rule. Here we
+        only add the typechecker-local guard: an opaque generic type parameter
+        currently in scope is never known to be trivial.
         """
-        if saw_type is None:
+        if (saw_type is not None and saw_type.kind == TypeKind.STRUCT
+                and saw_type.struct_name in getattr(self, 'current_type_params', {})):
             return False
-        kind = saw_type.kind
-        if kind in self._TRIVIAL_PRIMITIVE_KINDS:
-            return True
-        if kind == TypeKind.TUPLE:
-            return all(self._is_trivially_copyable(e) for e in (saw_type.element_types or []))
-        if kind == TypeKind.OPTIONAL:
-            return saw_type.inner_type is not None and self._is_trivially_copyable(saw_type.inner_type)
-        if kind == TypeKind.STRUCT:
-            name = saw_type.struct_name
-            # An opaque generic type parameter is not known to be trivial.
-            if name in getattr(self, 'current_type_params', {}):
-                return False
-            # A type alias flows to its underlying type for triviality.
-            alias_sym = self.get_type_alias_info(name)
-            if alias_sym:
-                return self._is_trivially_copyable(alias_sym.aliased_type)
-            # Any declared resource trait disqualifies triviality.
-            if (self.namespace.type_conforms_to(name, "Deinit") or
-                self.namespace.type_conforms_to(name, "NoCopy") or
-                self.namespace.type_conforms_to(name, "ImplicitCopy") or
-                self.namespace.type_conforms_to(name, "ExplicitCopy")):
-                return False
-            struct_info = self.get_struct_info(name, from_type=saw_type)
-            if struct_info is None:
-                return False
-            return all(self._is_trivially_copyable(ft) for ft in struct_info.fields.values())
-        return False
+        return self.namespace.is_trivially_copyable(saw_type)
 
     def _type_satisfies_copy_bound(self, saw_type: SawType) -> bool:
         """Whether a concrete type satisfies the umbrella `Copy` bound:
-        trivially copyable, or declaring ImplicitCopy / ExplicitCopy (or Copy)."""
-        if self._is_trivially_copyable(saw_type):
-            return True
-        name = None
-        if saw_type.kind == TypeKind.STRUCT:
-            name = saw_type.struct_name
-        elif saw_type.kind == TypeKind.ENUM:
-            name = saw_type.enum_name
-        if name is None:
-            return False
-        return (self.namespace.type_conforms_to(name, "ImplicitCopy") or
-                self.namespace.type_conforms_to(name, "ExplicitCopy") or
-                self.namespace.type_conforms_to(name, "Copy"))
+        trivially copyable, or declaring ImplicitCopy / ExplicitCopy (or Copy).
+
+        Delegates to the shared namespace helper so codegen agrees.
+        """
+        return self.namespace.type_satisfies_copy_bound(saw_type)
 
     def _is_deinit_type(self, saw_type: SawType) -> bool:
         """Check if a type implements Deinit (directly or through NoCopy/ImplicitCopy/ExplicitCopy)."""

@@ -275,6 +275,15 @@ class GenericsMixin:
         # Process generic extensions, skipping methods that have specialized overrides
         if struct_name in self.generic_extensions:
             for generic_ext in self.generic_extensions[struct_name]:
+                # Conditional conformance: an extension declared with type-param
+                # bounds (e.g. `extension Vector<T: Copy>`) only exists for
+                # instantiations that satisfy those bounds. When a bound is
+                # unmet (e.g. Vector<File> — File is not Copy), its methods are
+                # simply not instantiated, so merely constructing the type no
+                # longer drags in an uninstantiable `copy()` body. A later call
+                # to the missing method is diagnosed by the typechecker.
+                if not self._extension_bounds_satisfied(generic_ext, type_args):
+                    continue
                 self._monomorphize_single_extension(
                     generic_ext, type_args, mangled_struct_name, type_mapping,
                     skip_methods=specialized_method_names
@@ -284,6 +293,26 @@ class GenericsMixin:
         if full_key in self.specialized_extensions:
             for spec_ext in self.specialized_extensions[full_key]:
                 self._monomorphize_single_extension(spec_ext, type_args, mangled_struct_name, {})
+
+    def _extension_bounds_satisfied(self, generic_ext: Extension,
+                                    type_args: List[SawType]) -> bool:
+        """Whether the concrete `type_args` satisfy an extension's declared
+        type-param bounds.
+
+        The extension's type params (`extension Vector<T: Copy>` -> [T: Copy])
+        line up positionally with the struct's type params, which is the same
+        order as `type_args`. Bound satisfaction is decided by the shared
+        namespace helper so it matches the typechecker exactly (`Copy` is
+        structural; any other trait is a conformance lookup).
+        """
+        for i, tp in enumerate(generic_ext.type_params):
+            if not tp.bounds or i >= len(type_args):
+                continue
+            concrete = type_args[i]
+            for bound in tp.bounds:
+                if not self.namespace.type_satisfies_bound(concrete, bound):
+                    return False
+        return True
 
     def _make_specialization_key(self, type_args: List[SawType]) -> tuple:
         """Convert type arguments to a specialization key tuple."""

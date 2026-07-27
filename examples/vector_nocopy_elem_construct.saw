@@ -1,0 +1,37 @@
+// Regression (brief 14): a `Vector<T>` must be constructible and usable for a
+// non-Copy element type `T`. `copy()` lives in `extension Vector<T: Copy>`, so
+// for a NoCopy `R` that method simply does not exist -- but the unbounded
+// methods (init, len, push, is_empty, pop) do, and merely constructing the
+// vector must NOT drag in the uninstantiable `copy()` body.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 0
+// 1
+// 42
+
+struct R {
+    id: Int
+}
+
+extension R: NoCopy {
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    var v = Vector<R>()
+    if v.is_empty() {
+        print(1)        // 1: freshly constructed, empty
+    }
+    print(v.len())      // 0
+
+    let r = R(id: 42)
+    v.push(move r)      // move a NoCopy element in
+    print(v.len())      // 1
+
+    // pop returns the element back out (also move-only, no copy required)
+    if let popped = v.pop() {
+        print(popped.id)  // 42
+    }
+}

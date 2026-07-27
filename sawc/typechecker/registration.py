@@ -425,6 +425,13 @@ class RegistrationMixin:
         specialization_key = self._get_specialization_key(extension)
         is_specialized = len(specialization_key) > 0
 
+        # Conditional-conformance bounds: methods declared in a bounded extension
+        # (e.g. `extension Vector<T: Copy>`) only exist for instantiations whose
+        # type args satisfy the bounds. Record the bounds on each method symbol so
+        # a call on an unsatisfying instantiation (Vector<File>.copy()) is caught.
+        extension_bounds = {tp.name: list(tp.bounds)
+                            for tp in extension.type_params if tp.bounds}
+
         # Get the target method dict for duplicate checking (from namespace StructSymbol)
         if is_specialized:
             target_methods = struct_info.specialized_methods.get(specialization_key, {})
@@ -546,6 +553,7 @@ class RegistrationMixin:
                 is_init=method.is_init,
                 self_mutable=self_mutable,
                 self_is_reference=method.self_is_reference,
+                extension_bounds=extension_bounds,
                 ast_node=method
             )
             if method.is_init:

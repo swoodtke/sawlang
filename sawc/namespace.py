@@ -34,6 +34,11 @@ class FunctionSymbol:
     self_is_reference: bool = True  # True for '&self' or '&var self'
     is_variadic: bool = False
     visibility: Visibility = Visibility.PRIVATE
+    # Type-param bounds from the enclosing extension, keyed by the extension's
+    # type-param name (e.g. {"T": ["Copy"]} for `extension Vector<T: Copy>`).
+    # A method with unmet bounds for a given instantiation does not exist there
+    # (conditional conformance); the typechecker uses this to diagnose calls.
+    extension_bounds: Dict[str, List[str]] = field(default_factory=dict)
     ast_node: Optional[Any] = None  # Function or Method AST node
     # Filled by codegen:
     llvm_func: Optional[Any] = None
@@ -585,6 +590,122 @@ class Namespace:
         if type_name not in self.conformances:
             return []
         return list(self.conformances[type_name].keys())
+
+    # =========================================================================
+    # Copy-family bound satisfaction (shared by typechecker and codegen)
+    #
+    # These are the single source of truth for "does a concrete type satisfy a
+    # `Copy`-family bound". Both the typechecker (bound-checking on calls) and
+    # codegen (skipping unsatisfied bounded-extension instantiations) call them,
+    # so the two phases can never disagree about whether e.g. `Vector<File>`'s
+    # conditional `copy()` exists.
+    # =========================================================================
+
+    _TRIVIAL_PRIMITIVE_KINDS = frozenset({
+        TypeKind.INT, TypeKind.UINT,
+        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+        TypeKind.FLOAT, TypeKind.BOOL,
+    })
+
+    def _lookup_struct_deep(self, name: str) -> Optional[StructSymbol]:
+        """Look up a struct in this namespace or any imported module namespace."""
+        result = self.structs.get(name)
+        if result:
+            return result
+        for module_sym in self.modules.values():
+            if module_sym.namespace:
+                found = module_sym.namespace._lookup_struct_deep(name)
+                if found:
+                    return found
+        return None
+
+    def _lookup_type_alias_deep(self, name: str) -> Optional[TypeAliasSymbol]:
+        """Look up a type alias in this namespace or any imported module namespace."""
+        result = self.type_aliases.get(name)
+        if result:
+            return result
+        for module_sym in self.modules.values():
+            if module_sym.namespace:
+                found = module_sym.namespace._lookup_type_alias_deep(name)
+                if found:
+                    return found
+        return None
+
+    def is_trivially_copyable(self, saw_type: SawType) -> bool:
+        """A type is trivially copyable iff it can be duplicated bitwise: all
+        fields are trivially copyable, and it declares no resource trait
+        (Deinit / NoCopy / ImplicitCopy / ExplicitCopy). Such types auto-satisfy
+        `Copy`; `.copy()` on them lowers to a bitwise copy.
+        """
+        if saw_type is None:
+            return False
+        kind = saw_type.kind
+        if kind in self._TRIVIAL_PRIMITIVE_KINDS:
+            return True
+        if kind == TypeKind.TUPLE:
+            return all(self.is_trivially_copyable(e) for e in (saw_type.element_types or []))
+        if kind == TypeKind.OPTIONAL:
+            return saw_type.inner_type is not None and self.is_trivially_copyable(saw_type.inner_type)
+        if kind == TypeKind.STRUCT:
+            name = saw_type.struct_name
+            # A type alias flows to its underlying type for triviality.
+            alias_sym = self._lookup_type_alias_deep(name)
+            if alias_sym and alias_sym.aliased_type:
+                return self.is_trivially_copyable(alias_sym.aliased_type)
+            # Any declared resource trait disqualifies triviality.
+            if (self.type_conforms_to(name, "Deinit") or
+                self.type_conforms_to(name, "NoCopy") or
+                self.type_conforms_to(name, "ImplicitCopy") or
+                self.type_conforms_to(name, "ExplicitCopy")):
+                return False
+            struct_sym = self._lookup_struct_deep(name)
+            if struct_sym is None:
+                # Unknown / opaque type parameter: not known to be trivial.
+                return False
+            return all(self.is_trivially_copyable(ft) for ft in struct_sym.fields.values())
+        return False
+
+    def type_satisfies_copy_bound(self, saw_type: SawType) -> bool:
+        """Whether a concrete type satisfies the umbrella `Copy` bound:
+        trivially copyable, or declaring ImplicitCopy / ExplicitCopy (or Copy)."""
+        if saw_type is None:
+            return False
+        if self.is_trivially_copyable(saw_type):
+            return True
+        name = None
+        if saw_type.kind == TypeKind.STRUCT:
+            name = saw_type.struct_name
+        elif saw_type.kind == TypeKind.ENUM:
+            name = saw_type.enum_name
+        elif saw_type.kind == TypeKind.STRING:
+            name = "String"
+        if name is None:
+            return False
+        return (self.type_conforms_to(name, "ImplicitCopy") or
+                self.type_conforms_to(name, "ExplicitCopy") or
+                self.type_conforms_to(name, "Copy"))
+
+    def type_satisfies_bound(self, saw_type: SawType, bound: str) -> bool:
+        """Whether a concrete type satisfies a single type-parameter bound.
+
+        `Copy` is structural (trivially-copyable | ImplicitCopy | ExplicitCopy);
+        every other trait bound is an ordinary conformance lookup.
+        """
+        if bound == "Copy":
+            return self.type_satisfies_copy_bound(saw_type)
+        name = None
+        if saw_type is None:
+            return False
+        if saw_type.kind == TypeKind.STRUCT:
+            name = saw_type.struct_name
+        elif saw_type.kind == TypeKind.ENUM:
+            name = saw_type.enum_name
+        elif saw_type.kind == TypeKind.STRING:
+            name = "String"
+        if name is None:
+            return False
+        return self.type_conforms_to(name, bound)
 
     def get_type_assignment(self, type_name: str, trait_name: str,
                            assoc_type_name: str) -> Optional[SawType]:

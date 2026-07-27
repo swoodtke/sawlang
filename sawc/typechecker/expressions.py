@@ -1411,6 +1411,41 @@ class ExpressionsMixin:
     # Generic bounds that grant `.copy()` in an abstract generic body.
     _COPY_BOUND_NAMES = frozenset({"Copy", "ImplicitCopy", "ExplicitCopy"})
 
+    def _bound_satisfied(self, concrete: SawType, bound: str) -> bool:
+        """Whether `concrete` satisfies a single type-param `bound`.
+
+        Concrete types defer to the shared namespace helper (so the typechecker
+        and codegen agree). An *abstract* type parameter still in scope is
+        satisfied only by its own declared bounds: inside a generic body we
+        cannot resolve it structurally, so `Vector<K>.copy()` is legal exactly
+        when `K` itself carries a `Copy`-family bound.
+        """
+        type_params = getattr(self, 'current_type_params', {})
+        if concrete.kind == TypeKind.STRUCT and concrete.struct_name in type_params:
+            param_bounds = type_params.get(concrete.struct_name) or []
+            if bound in param_bounds:
+                return True
+            if bound == "Copy":
+                return any(b in self._COPY_BOUND_NAMES for b in param_bounds)
+            return False
+        return self.namespace.type_satisfies_bound(concrete, bound)
+
+    def _unmet_extension_bound(self, method_info, type_subst):
+        """If a bounded-extension method is unavailable for this instantiation,
+        return the first unmet (param_name, bound, concrete_type); else None.
+        """
+        bounds = getattr(method_info, 'extension_bounds', None)
+        if not bounds:
+            return None
+        for param_name, param_bounds in bounds.items():
+            concrete = type_subst.get(param_name)
+            if concrete is None:
+                continue
+            for bound in param_bounds:
+                if not self._bound_satisfied(concrete, bound):
+                    return (param_name, bound, concrete)
+        return None
+
     def _check_copy_call(self, expr: MethodCall, obj_type: SawType):
         """Handle a `.copy()` receiver. Returns (handled, result_type).
 
@@ -1622,6 +1657,20 @@ class ExpressionsMixin:
                 f"type `{struct_name}` has no method `{expr.method_name}`",
                 expr.line, expr.column,
                 hint=f"available methods: {', '.join(sorted(set(available)))}" if available else "no methods defined"
+            )
+            return None
+        # Conditional conformance: a method declared in a bounded extension
+        # (`extension Vector<T: Copy>`) does not exist for an instantiation whose
+        # type args fail the bound. Diagnose the call by naming the unmet bound.
+        unmet = self._unmet_extension_bound(method_info, type_subst)
+        if unmet is not None:
+            param_name, bound, concrete = unmet
+            self._error(
+                ErrorKind.UNDEFINED_FUNCTION,
+                f"type `{obj_type}` has no method `{expr.method_name}`: "
+                f"requires `{param_name}: {bound}`, and `{concrete}` does not conform",
+                expr.line, expr.column,
+                hint=f"`{expr.method_name}` is only available when `{param_name}` satisfies `{bound}`"
             )
             return None
         if expr.method_name == "deinit":

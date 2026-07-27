@@ -1,7 +1,11 @@
-// Vector.copy() requires the element type to be Copy. Vector<File> has a
-// NoCopy element, so instantiating .copy() is a compile error naming File.
+// Vector.copy() is a conditional method: it only exists when the element type
+// is Copy (`extension Vector<T: Copy>`). Vector<File> has a NoCopy element, so
+// copy() does not exist for it and the call is a compile-time error naming the
+// unmet bound. (Diagnostic improved from the old codegen-time "cannot copy
+// value of type `File`" to this typechecker-time bound diagnostic.)
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot copy value of type `File`
+// EXPECT-ERROR-CONTAINS: type `Vector<File>` has no method `copy`
+// EXPECT-ERROR-CONTAINS: requires `T: Copy`, and `File` does not conform
 
 func main() {
     var v = Vector<File>()
