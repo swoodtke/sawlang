@@ -466,8 +466,8 @@ class TypeUtilsMixin:
         # Check if type conforms to ImplicitCopy
         return self.namespace.type_conforms_to(type_name, "ImplicitCopy")
 
-    def _is_deinit_type(self, saw_type: SawType) -> bool:
-        """Check if a type implements Deinit (directly or through NoCopy/ImplicitCopy)."""
+    def _is_explicit_copy_type(self, saw_type: SawType) -> bool:
+        """Check if a type implements ExplicitCopy (move-only, deep .copy())."""
         if saw_type is None:
             return False
 
@@ -481,11 +481,30 @@ class TypeUtilsMixin:
         if type_name is None:
             return False
 
-        # Check if type conforms to Deinit (directly or via NoCopy/ImplicitCopy)
-        # NoCopy and ImplicitCopy both inherit from Deinit
+        # Check if type conforms to ExplicitCopy
+        return self.namespace.type_conforms_to(type_name, "ExplicitCopy")
+
+    def _is_deinit_type(self, saw_type: SawType) -> bool:
+        """Check if a type implements Deinit (directly or through NoCopy/ImplicitCopy/ExplicitCopy)."""
+        if saw_type is None:
+            return False
+
+        # Get the type name for conformance lookup
+        type_name = None
+        if saw_type.kind == TypeKind.STRUCT:
+            type_name = saw_type.struct_name
+        elif saw_type.kind == TypeKind.ENUM:
+            type_name = saw_type.enum_name
+
+        if type_name is None:
+            return False
+
+        # Check if type conforms to Deinit (directly or via NoCopy/ImplicitCopy/ExplicitCopy)
+        # NoCopy, ImplicitCopy and ExplicitCopy all inherit from Deinit
         return (self.namespace.type_conforms_to(type_name, "Deinit") or
                 self.namespace.type_conforms_to(type_name, "NoCopy") or
-                self.namespace.type_conforms_to(type_name, "ImplicitCopy"))
+                self.namespace.type_conforms_to(type_name, "ImplicitCopy") or
+                self.namespace.type_conforms_to(type_name, "ExplicitCopy"))
 
     # Expression kinds that read a value out of *existing* owned storage,
     # as opposed to producing a freshly constructed temporary. Transferring
@@ -564,6 +583,17 @@ class TypeUtilsMixin:
                         line, column,
                         hint="use `move` to transfer ownership instead"
                     )
+        elif self._is_explicit_copy_type(src_type):
+            # ExplicitCopy gets the same move-required treatment as NoCopy:
+            # the compiler never implicitly duplicates it. Duplication must be a
+            # visible `.copy()`; a plain transfer must be a `move`.
+            if self._is_aliasing_expr(expr):
+                self._error(
+                    ErrorKind.CANNOT_COPY,
+                    f"cannot copy value of type `{src_type}` which implements ExplicitCopy",
+                    line, column,
+                    hint="use .copy() for an explicit deep copy, or `move` to transfer ownership"
+                )
         elif self._is_implicit_copy_type(src_type):
             if self._is_aliasing_expr(expr):
                 expr.needs_copy = True
@@ -627,11 +657,14 @@ class TypeUtilsMixin:
                     break  # Only report once per struct
 
     def _check_implicit_copy_containment(self):
-        """Check that structs containing ImplicitCopy fields also implement ImplicitCopy."""
+        """Check that structs containing ImplicitCopy fields also implement a copy policy."""
         for struct_name, struct_info in self.namespace.structs.items():
-            # Skip if struct already implements ImplicitCopy or NoCopy
-            # (NoCopy types can contain ImplicitCopy fields since they can't be copied anyway)
+            # Skip if struct already declares a copy policy or NoCopy.
+            # (NoCopy types can contain ImplicitCopy fields since they can't be
+            # copied anyway; an ExplicitCopy struct copies the field explicitly
+            # in its own copy().)
             if (self.namespace.type_conforms_to(struct_name, "ImplicitCopy") or
+                self.namespace.type_conforms_to(struct_name, "ExplicitCopy") or
                 self.namespace.type_conforms_to(struct_name, "NoCopy")):
                 continue
 
@@ -646,13 +679,49 @@ class TypeUtilsMixin:
                     )
                     break  # Only report once per struct
 
+    def _check_explicit_copy_containment(self):
+        """Check that structs containing ExplicitCopy fields declare ExplicitCopy or NoCopy."""
+        for struct_name, struct_info in self.namespace.structs.items():
+            # Skip if struct already declares ExplicitCopy or NoCopy.
+            # (NoCopy types can contain ExplicitCopy fields since they can't be
+            # copied anyway.) ImplicitCopy is NOT sufficient: an ExplicitCopy
+            # field cannot be cheaply/implicitly duplicated.
+            if (self.namespace.type_conforms_to(struct_name, "ExplicitCopy") or
+                self.namespace.type_conforms_to(struct_name, "NoCopy")):
+                continue
+
+            # Check each field
+            for field_name, field_type in struct_info.fields.items():
+                if self._is_explicit_copy_type(field_type):
+                    self._error(
+                        ErrorKind.CANNOT_COPY,
+                        f"struct `{struct_name}` contains ExplicitCopy field `{field_name}` of type `{field_type}` but does not implement ExplicitCopy",
+                        struct_info.line, struct_info.column,
+                        hint=f"add `extension {struct_name}: ExplicitCopy {{ func copy(self) -> {struct_name} {{ ... }} }}` or make it NoCopy"
+                    )
+                    break  # Only report once per struct
+
+    def _check_copy_trait_exclusivity(self):
+        """ImplicitCopy and ExplicitCopy are mutually exclusive on one type."""
+        for struct_name in self.namespace.structs:
+            if (self.namespace.type_conforms_to(struct_name, "ImplicitCopy") and
+                self.namespace.type_conforms_to(struct_name, "ExplicitCopy")):
+                struct_info = self.namespace.structs[struct_name]
+                self._error(
+                    ErrorKind.CANNOT_COPY,
+                    f"type `{struct_name}` cannot implement both ImplicitCopy and ExplicitCopy",
+                    struct_info.line, struct_info.column,
+                    hint="pick one copy policy: ImplicitCopy (cheap, auto-invoked) or ExplicitCopy (deep, explicit `.copy()`)"
+                )
+
     def _check_deinit_containment(self):
         """Check that structs containing Deinit fields also implement Deinit."""
         for struct_name, struct_info in self.namespace.structs.items():
-            # Skip if struct already implements Deinit (or NoCopy/ImplicitCopy which imply Deinit)
+            # Skip if struct already implements Deinit (or NoCopy/ImplicitCopy/ExplicitCopy which imply Deinit)
             if (self.namespace.type_conforms_to(struct_name, "Deinit") or
                 self.namespace.type_conforms_to(struct_name, "NoCopy") or
-                self.namespace.type_conforms_to(struct_name, "ImplicitCopy")):
+                self.namespace.type_conforms_to(struct_name, "ImplicitCopy") or
+                self.namespace.type_conforms_to(struct_name, "ExplicitCopy")):
                 continue
 
             # Check each field

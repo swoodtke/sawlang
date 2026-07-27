@@ -56,7 +56,8 @@ class ResourcesMixin:
 
         Returns one of:
         - 'none': No special cleanup needed (plain types)
-        - 'deinit': Type implements Deinit interface, call deinit() on drop
+        - 'deinit': Type implements Deinit (or ExplicitCopy, which has a deinit
+          and is never implicitly copied), call deinit() on drop
         - 'implicit_copy': Type implements ImplicitCopy, call copy() on copy
         - 'no_copy': Type implements NoCopy, cannot be copied
 
@@ -77,6 +78,11 @@ class ResourcesMixin:
             behavior = "no_copy"
         elif "ImplicitCopy" in conformances:
             behavior = "implicit_copy"
+        elif "ExplicitCopy" in conformances:
+            # ExplicitCopy has a deinit and is never implicitly copied (the
+            # typechecker enforces `move`/`.copy()` at transfer sites), so for
+            # codegen it behaves like a plain Deinit type: run deinit on drop.
+            behavior = "deinit"
         elif "Deinit" in conformances:
             behavior = "deinit"
         else:

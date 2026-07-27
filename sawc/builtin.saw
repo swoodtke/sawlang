@@ -10,9 +10,19 @@ trait Deinit {
     func deinit(&var self)
 }
 
-// ImplicitCopy trait - use copy() instead of memcpy when assigning
-// Implementing ImplicitCopy requires also implementing Deinit
+// ImplicitCopy trait - the compiler invokes copy() automatically at every
+// transfer site. Contract: cheap, O(1)-ish (e.g. Rc refcount bump).
+// Implementing ImplicitCopy requires also implementing Deinit.
 trait ImplicitCopy: Deinit {
+    func copy(&self) -> Self
+}
+
+// ExplicitCopy trait - the compiler NEVER invokes copy() automatically;
+// transfer sites demand `move`, and duplication is always a visible v1.copy().
+// Contract: may be expensive/deep (e.g. Vector, Map, String).
+// Implementing ExplicitCopy requires also implementing Deinit.
+// ImplicitCopy and ExplicitCopy are mutually exclusive on one type.
+trait ExplicitCopy: Deinit {
     func copy(&self) -> Self
 }
 
