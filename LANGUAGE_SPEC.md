@@ -2,6 +2,26 @@
 
 > A modern systems programming language combining the safety of Rust with the elegance of Swift
 
+## Status markers
+
+This specification mixes shipped behavior with designed-but-unbuilt features.
+Each major section is tagged so it can be read as an oracle for the current
+compiler:
+
+- **Status: implemented** — built and covered by the test suite (`make test`).
+  Code examples use real, currently-compiling syntax.
+- **Status: partially implemented** — the core is built; specific sub-features
+  called out inline are not yet. Examples that reach into unbuilt stdlib or
+  syntax are marked *(illustrative)*.
+- **Status: planned** — designed, not yet built. Examples are *illustrative* of
+  intended syntax and may not compile today.
+- **Status: superseded** — an earlier design that has been replaced; the
+  replacement is named.
+
+Where an example is *illustrative*, it shows intended shape, not guaranteed
+current behavior. When the implementation and this document disagree, the
+implementation wins and this document is the bug.
+
 ## 1. Design Philosophy
 
 ### Core Principles
@@ -22,6 +42,10 @@
 ---
 
 ## 2. Basic Syntax
+
+**Status: implemented**, except where a construct is marked *(illustrative)*
+below (default parameter values, method-chained closures such as `.map`, and
+the `loop { }` keyword are planned; use `while { }` for infinite loops today).
 
 ### Variables and Mutability
 
@@ -52,19 +76,19 @@ func divide(a: Int, b: Int) -> (quotient: Int, remainder: Int) {
     (a / b, a % b)
 }
 
-// Generic functions
-func swap<T>(a: var T, b: var T) {
-    let temp = a
-    a = b
-    b = temp
+// Generic functions with mutable-reference parameters
+func swap<T>(a: &var T, b: &var T) {
+    // (illustrative) — mutation through a &var reference uses compound
+    // assignment or mutating methods; direct `a = b` is rejected. A real
+    // swap goes through a by-value temporary or a stdlib `swapAt` helper.
 }
 
-// Functions with default parameters
+// Functions with default parameters  (illustrative — default values planned)
 func greet(name: String, greeting: String = "Hello") -> String {
     "{greeting}, {name}!"
 }
 
-// Trailing closure syntax
+// Trailing closure syntax  (illustrative — method-chained `.map` is planned)
 func map<T, U>(list: [T], transform: (T) -> U) -> [U]
 
 let doubled = numbers.map { x in x * 2 }
@@ -95,30 +119,37 @@ f(b, &var b)          // snapshot copies b (== 1) at call setup; then b becomes 
 // If expressions (not statements)
 let max = if a > b { a } else { b }
 
-// Pattern matching (core feature)
-match value {
-    0 => "zero",
-    1..=9 => "single digit",
-    n if n < 0 => "negative",
-    _ => "other"
+// Pattern matching (core feature). Arms are `case <pattern> -> <expr>`,
+// comma-separated. Matches must be exhaustive (cover every enum variant, or
+// use `_`).
+match direction {
+    case North -> "up",
+    case South -> "down",
+    case _ -> "sideways"
 }
 
-// For loops with iterators
-for item in collection {
-    print(item)
+// (illustrative — planned) Literal, range, and guard patterns are NOT yet
+// implemented. Today you match on enum variants (with binding), Result/Option
+// variants, and `_`:
+//   match value {
+//       case 0 -> "zero",              // literal patterns: planned
+//       case 1..=9 -> "single digit",  // range patterns: planned
+//       case n if n < 0 -> "negative", // guard patterns: planned
+//   }
+
+// For loops over ranges
+for i in 0..5 {
+    print(i)
 }
 
-for (index, item) in collection.enumerate() {
-    print("{index}: {item}")
-}
-
-// While loops
+// While loops (conditional and infinite `while { }`)
 while condition {
     // ...
 }
 
-// Loop with break value
-let result = loop {
+// Infinite loop as an expression with a break value.
+// (The `loop { }` keyword is planned; use `while { }` today.)
+let result = while {
     if found {
         break value
     }
@@ -137,7 +168,19 @@ func process(input: String?) {
 
 ## 3. Type System
 
+**Status: partially implemented.** Structs, enums (ADTs) with exhaustive
+`match`, tuples, fixed arrays, optionals, `Result`, distinct `type` aliases,
+traits, and generic types/functions with monomorphization are all built (see
+the subsection notes). Planned pieces called out below: slices (`&a[1..4]`),
+`Set`/dictionary literals, `dyn` trait objects, trait default methods,
+supertrait *enforcement*, and some primitive widths. Stdlib methods used only
+to illustrate (e.g. `.sqrt()`) are marked *(illustrative)*.
+
 ### Primitive Types
+
+Common types — `Int`, `UInt`, the sized `Int8`…`Int64`/`UInt8`…`UInt64`,
+`Float`/`Float64`, `Bool`, and `String` — are implemented. `Int128`/`UInt128`,
+`Float32`, `Char`, and `Never` are *planned*.
 
 ```saw
 // Integers
@@ -203,21 +246,16 @@ let y = named.y
 // Arrays (fixed size, stack allocated)
 let fixed: [Int; 5] = [1, 2, 3, 4, 5]
 
-// Slices (view into contiguous memory)
+// Slices (view into contiguous memory)  (illustrative — slices are planned)
 let slice: [Int] = &fixed[1..4]
 
-// Vectors (dynamic, heap allocated)
-let dynamic: Vec<Int> = [1, 2, 3]
+// Vectors (dynamic, heap allocated) — stdlib `Vector<T>`, constructed via its
+// initializers (`Vector<Int>(capacity: n)`) rather than a literal today.
 
-// Dictionaries (use { } with key: value pairs)
-let ages: Map<String, Int> = {"alice": 30, "bob": 25}
-
-// Sets (use { } without colons)
-let uniques: Set<Int> = {1, 2, 3}
-
-// Empty collections require type annotation
-let empty_map: Map<String, Int> = {:}
-let empty_set: Set<Int> = {}
+// Dictionaries / Sets with `{ }` literals are planned:
+//   let ages: Map<String, Int> = {"alice": 30, "bob": 25}   (illustrative)
+//   let uniques: Set<Int> = {1, 2, 3}                        (illustrative)
+//   let empty_map: Map<String, Int> = {:}                    (illustrative)
 ```
 
 ### Structs
@@ -259,46 +297,46 @@ let p2 = Point(magnitude: 5.0)  // Creates Point(x: 5.0, y: 5.0)
 ### Enums (Algebraic Data Types)
 
 ```saw
+// Variants are introduced with the `case` keyword.
+
 // Simple enum
 enum Direction {
-    North,
-    South,
-    East,
-    West,
+    case North,
+    case South,
+    case East,
+    case West
 }
 
 // Enum with associated data
-enum Result<T, E> {
-    Ok(T),
-    Err(E),
-}
-
 enum Message {
-    Quit,
-    Move(x: Int, y: Int),      // Named parameters
-    Write(String),              // Positional parameter
-    Color(Int, Int, Int),       // Multiple positional
+    case Quit,
+    case Move(x: Int, y: Int),   // Named parameters
+    case Write(text: String),    // Single associated value
+    case Color(r: Int, g: Int, b: Int)
 }
 
 // Creating enum values
 let msg1 = Message.Move(x: 10, y: 20)
-let msg2 = Message.Color(255, 128, 0)
+let msg2 = Message.Color(r: 255, g: 128, b: 0)
 
-// Pattern matching on enums
-match message {
-    Message.Quit => quit(),
-    Message.Move(x, y) => move_to(x, y),
-    Message.Write(text) => print(text),
-    Message.Color(r, g, b) => set_color(r, g, b),
+// Pattern matching on enums: `case <Variant>(bindings) -> <expr>`, bare variant
+// name (not `Message.Quit`), comma-separated, exhaustive.
+match msg1 {
+    case Quit -> quit(),
+    case Move(x, y) -> move_to(x, y),
+    case Write(text) -> print(text),
+    case Color(r, g, b) -> set_color(r, g, b)
 }
 ```
 
 ### Optionals
 
 ```saw
-// Optional type (no null!) - T? syntax like Swift
-let maybe: Int? = some(42)
-let nothing: Int? = none
+// Optional type (no null!) - T? syntax like Swift. A plain value of type T is
+// implicitly wrapped into T?; the empty case is the keyword `None` (there is no
+// `some(...)`/`none` constructor).
+let maybe: Int? = 42
+let nothing: Int? = None
 
 // Optional chaining
 let len = user?.profile?.bio?.len()
@@ -306,7 +344,7 @@ let len = user?.profile?.bio?.len()
 // Unwrap with default
 let value = maybe ?? 0
 
-// Force unwrap (panics if none)
+// Force unwrap (panics with "force unwrap of None" if the value is None)
 let value = maybe!
 
 // If-let binding
@@ -322,6 +360,12 @@ guard let value = maybe else {
 
 ### Traits
 
+Trait definitions, conformance via `extension Type: Trait`, conformance
+checking, single and multiple conformance, associated types (with resolution),
+and `T: Trait` generic bounds are **implemented**. Trait *default method
+bodies*, `dyn Trait` dynamic-dispatch objects, and multi-bound `+` syntax
+(`T: A + B`) are *planned* — the examples below that use them are illustrative.
+
 ```saw
 trait Display {
     func display(&self) -> String
@@ -329,7 +373,7 @@ trait Display {
 
 trait Debug {
     func debug(&self) -> String {
-        // Default implementation
+        // Default implementation  (illustrative — default bodies are planned)
         "<opaque>"
     }
 }
@@ -348,7 +392,7 @@ func print_all<T: Display>(items: [T]) {
     }
 }
 
-// Multiple bounds
+// Multiple bounds  (illustrative — `+` multi-bound syntax is planned)
 func process<T: Display + Debug + Clone>(item: T)
 
 // Associated types
@@ -363,7 +407,7 @@ trait ImplicitCopy: Deinit {
     // Implementing ImplicitCopy requires also implementing Deinit
 }
 
-// Interface objects (dynamic dispatch)
+// Interface objects (dynamic dispatch)  (illustrative — `dyn` objects planned)
 func render(shapes: [dyn Shape]) {
     for shape in shapes {
         shape.draw()
@@ -372,6 +416,10 @@ func render(shapes: [dyn Shape]) {
 ```
 
 ### Type Definitions
+
+**Status: implemented** for distinct `type` aliases with one-way flow (alias →
+underlying allowed, the reverse requires explicit construction) and function-type
+aliases. Generic type aliases (`type Handler<T> = ...`) are *planned*.
 
 ```saw
 // Type definitions create distinct types (not interchangeable aliases)
@@ -399,7 +447,12 @@ type Handler<T> = (T) -> Result<(), Error>
 
 ### Type Extensions
 
-Extensions allow adding methods and custom initializers to types. Currently implemented for user-defined structs.
+**Status: implemented** for user-defined structs (methods, overloaded custom
+`init`, and — see Traits — conformance via `extension Type: Trait`).
+Extending built-in types (`extension Int`), computed properties, and generic
+specialized extensions beyond what monomorphization already supports remain
+*planned*. Some method bodies below use stdlib methods (`.sqrt()`, `.cos()`)
+that are *(illustrative)*.
 
 ```saw
 // Add methods to struct types
@@ -447,10 +500,10 @@ let p3 = Point(polar: 10.0, angle: 1.57)  // Another custom init
 //     var is_empty: Bool { self.len() == 0 }
 // }
 
-// Future: Interface conformance via extension (not yet implemented)
-// extension Point: Display {
-//     func display(&self) -> String { "({self.x}, {self.y})" }
-// }
+// Interface conformance via extension IS implemented:
+extension Point: Display {
+    func display(&self) -> String { "({self.x}, {self.y})" }
+}
 ```
 
 **Key Features:**
@@ -464,64 +517,105 @@ let p3 = Point(polar: 10.0, angle: 1.57)  // Another custom init
 
 ## 4. Memory Management
 
-### Ownership Model
+**Status: implemented** (the Copy trait family, `Deinit`, exclusivity, and
+reference parameters are all built and enforced). No garbage collector;
+destruction is deterministic and LIFO at scope exit.
 
-Saw uses copy-by-default semantics with explicit move for transferring ownership:
+### The Copy Trait Family
+
+**Status: implemented.** Saw's transfer semantics are governed by one umbrella
+trait, `Copy`, with two mutually-exclusive policy subtraits deciding *when* the
+compiler may duplicate a value. This replaces the earlier "copy by default,
+explicit move" framing and the never-implemented "deep copy for collections"
+claim: the cost of every transfer is now readable at the use site.
+
+```
+                Copy                 "this type can be duplicated" (func copy(&self) -> Self)
+               /    \
+     ImplicitCopy    ExplicitCopy    policy: WHEN the compiler may call copy()
+```
+
+- **Trivial types auto-conform to `Copy`.** A type all of whose fields are
+  trivially copyable, with no `Deinit` and no declared copy policy, is copied
+  bitwise. `Int`, `Bool`, `Float`, POD structs/tuples, and fixed arrays of such
+  are in this class. `x.copy()` on them compiles to a bitwise copy.
+- **`ImplicitCopy`** — the compiler invokes `copy()` automatically at every
+  transfer site (binding, assignment, argument, return, aggregate element).
+  **Contract: cheap, O(1)-ish** — e.g. a refcount bump. `String` and `Rc`/`Arc`
+  are `ImplicitCopy` (they are also `Deinit`).
+- **`ExplicitCopy`** — the compiler *never* copies implicitly; a transfer out of
+  an existing binding requires `move`, and duplication is always a visible
+  `v.copy()`. **Contract: may be expensive/deep** — e.g. `Vector`, `Map`.
+  Enforcement is the value-transfer checkpoint (the same machinery that backs
+  `NoCopy`).
+- **`NoCopy`** — never duplicable, on purpose (`File`, `Mutex`). Move-only.
+- **`ImplicitCopy` and `ExplicitCopy` are mutually exclusive** on one type.
 
 ```saw
-// All types are copied by default
-let s1 = String.from("hello")
-let s2 = s1  // s1 is copied, both valid
-
-// Explicit move transfers ownership
-let s3 = move s1  // s1 is moved, no longer valid
-use_string(move s3)  // Transfer ownership to function
-
-// Move is useful for:
-// - Large types where copy is expensive
-// - Types representing unique resources (file handles, connections)
-// - Ensuring single ownership semantics
-
-// Copy happens automatically for all assignments
+// Trivial: implicit bitwise copy, both valid
 let a = 42
-let b = a  // Copy
-let list = [1, 2, 3]
-let list2 = list  // Copy (deep copy for collections)
+let b = a
+
+// ExplicitCopy (e.g. Vector): transfer needs `move`, duplication needs .copy()
+var v = Vector<Int>(capacity: 4)
+var w = move v            // ownership transferred; v no longer valid
+var u = w.copy()          // explicit, independent deep copy
+
+// ImplicitCopy (String): copies are implicit refcount bumps, no `move` needed
+let s1 = "hello"
+let s2 = s1               // both valid; cheap retain
 ```
+
+**The `T: Copy` generic bound** grants `.copy()` in a generic body and is
+satisfied by trivial | `ImplicitCopy` | `ExplicitCopy` types; monomorphization
+synthesizes the right tier per instantiation. Narrower `T: ImplicitCopy` /
+`T: ExplicitCopy` bounds also work. An unbounded `T` does **not** get `.copy()`.
+
+```saw
+func dup<T: Copy>(x: T) -> T {
+    x.copy()
+}
+```
+
+**Derivation & containment.** A struct declaring `ExplicitCopy`/`ImplicitCopy`
+without a hand-written `copy()` gets a memberwise one synthesized (POD fields
+bitwise, copy-policy fields via their `copy()`; a `NoCopy` field makes
+derivation impossible). Containment is explicit, never inferred: a struct with
+an `ExplicitCopy` (or `NoCopy`) field must itself declare that policy — the
+compiler errors with a hint otherwise.
+
+The only implicit copies are cheap by contract, so design principle #4 ("no
+hidden allocations") holds: an innocent `=` is never secretly O(n).
 
 ### Move-Only Types
 
-Some types represent unique resources that should not be copied. Use the `NoCopy` trait:
+Some types represent unique resources that should not be copied. Trait
+conformance is declared through an `extension` (there is no struct-header
+`struct X: Trait` syntax):
 
 ```saw
-// Implement NoCopy trait for move-only semantics
-struct FileHandle: NoCopy {
-    fd: Int,
+struct FileHandle {
+    fd: Int
 }
 
-extension FileHandle {
-    func open(path: String) -> Result<FileHandle, IoError> { ... }
-
+// Declare NoCopy (and its cleanup) via an extension
+extension FileHandle: NoCopy {
     func deinit(&var self) {
-        close(self.fd)  // Automatic cleanup
+        close(self.fd)  // Automatic cleanup at scope exit
     }
 }
 
 // NoCopy types must be explicitly moved
-let file = FileHandle.open("data.txt")?
-let file2 = file       // Error! Cannot copy NoCopy type
-let file2 = move file  // Ok, ownership transferred
-
-// Useful for resources that need cleanup
-struct Connection: NoCopy { ... }
-struct MutexGuard<T>: NoCopy { ... }
+var file = openHandle("data.txt")
+let borrowed = file    // Error! Cannot copy NoCopy type 'FileHandle'
+let owned = move file  // Ok, ownership transferred
 ```
 
-See [Resource Management Interfaces](#resource-management-traits) for the full `Deinit`/`ImplicitCopy`/`NoCopy` hierarchy.
+See [Resource Management Interfaces](#resource-management-traits) for the full `Deinit`/`ImplicitCopy`/`ExplicitCopy`/`NoCopy` hierarchy.
 
 ### Reference Types
 
-Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape.
+**Status: implemented.** Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape. Mutation through a `&var` reference is done with compound assignment (`x += 1`) or mutating methods — direct assignment `x = ...` through a reference is rejected. Some example bodies below use planned stdlib methods (`push_str`, `String.from`) and are *(illustrative)*.
 
 ```saw
 // &T - immutable reference (read-only access)
@@ -541,12 +635,10 @@ var msg = String.from("Hello")
 append_greeting(&msg)  // & at call site
 print(msg)  // "Hello, world!"
 
-// Multiple reference parameters
-func swap<T>(a: &var T, b: &var T) {
-    let temp = a
-    a = b
-    b = temp
-}
+// Multiple reference parameters. (The body is illustrative: because direct
+// assignment through a reference is rejected, a real swap uses a by-value
+// temporary or a stdlib helper.)
+func swap<T>(a: &var T, b: &var T) { /* ... */ }
 
 var x = 1
 var y = 2
@@ -624,6 +716,11 @@ method is the intended escape hatch).
 
 ### Shared Ownership
 
+**Status: planned** (the examples below are illustrative; `Rc`/`Arc`/`Box`
+wrapper types and `thread.spawn` are not yet in the stdlib). The `ImplicitCopy`
++ `Deinit` machinery they rely on *is* implemented and is exactly how `String`
+works today.
+
 For data that needs multiple owners, use reference-counted wrappers. These implement `ImplicitCopy` to increment the reference count on copy and `deinit` to decrement it:
 
 ```saw
@@ -645,6 +742,9 @@ let boxed: Box<LargeStruct> = Box(LargeStruct { ... })
 ```
 
 ### Synchronized Access
+
+**Status: planned** (illustrative — `Mutex`/`RwLock`, lock guards, and threads
+are not yet implemented).
 
 For mutable shared state, wrap in synchronization primitives. Lock guards implement `NoCopy` so they can't be shared, and `deinit` to automatically release the lock:
 
@@ -671,7 +771,15 @@ guard.insert("key", 42)
 
 ### Resource Management Interfaces
 
-Saw provides a hierarchy of traits for types that need custom copy behavior or cleanup when going out of scope. This enables reference counting (like `Arc<T>`), RAII patterns (like file handles), and move-only types.
+**Status: implemented.** Saw provides a hierarchy of traits for types that need
+custom copy behavior or cleanup when going out of scope. This enables reference
+counting (like `String` and the planned `Arc<T>`), deep-copy owning types (like
+`Vector`), RAII patterns (like file handles), and move-only types. Conformance
+is always declared through an `extension` (`extension T: Trait`); there is no
+struct-header conformance syntax. The full family is `Copy`
+(umbrella) → `ImplicitCopy` / `ExplicitCopy` policies, plus `Deinit` and
+`NoCopy`; see [The Copy Trait Family](#the-copy-trait-family) above for the
+transfer-site rules.
 
 #### The Deinit Interface
 
@@ -695,21 +803,23 @@ trait ImplicitCopy: Deinit {
 }
 ```
 
-Types implementing `ImplicitCopy` use the `copy()` method instead of memcpy when assigned. This enables reference counting:
+Types implementing `ImplicitCopy` use the `copy()` method instead of memcpy at
+every transfer site (the copy is implicit and must be cheap by contract). This
+enables reference counting; the conformance is declared in the extension:
 
 ```saw
-struct Arc<T>: ImplicitCopy {
+struct Arc<T> {
     ptr: *ArcInner<T>  // Points to { refcount: Int, value: T }
 }
 
-extension Arc<T> {
+extension Arc<T>: ImplicitCopy {
     func copy(&self) -> Arc<T> {
-        self.ptr.refcount = self.ptr.refcount + 1
+        self.ptr.refcount += 1
         Arc(ptr: self.ptr)
     }
 
     func deinit(&var self) {
-        self.ptr.refcount = self.ptr.refcount - 1
+        self.ptr.refcount -= 1
         if self.ptr.refcount == 0 {
             self.ptr.value.deinit()
             free(self.ptr)
@@ -718,10 +828,38 @@ extension Arc<T> {
 }
 
 // Usage
-let a = Arc.new(42)  // refcount = 1
+let a = makeArc(42)  // refcount = 1
 let b = a            // copy() called, refcount = 2
 // end of scope: b.deinit() → refcount = 1
 // end of scope: a.deinit() → refcount = 0, freed
+```
+
+#### The ExplicitCopy Interface (Deep-Copy Owning Types)
+
+```saw
+// ExplicitCopy also requires Deinit; mutually exclusive with ImplicitCopy
+trait ExplicitCopy: Deinit {
+    func copy(&self) -> Self
+}
+```
+
+Types implementing `ExplicitCopy` are **never** copied implicitly — the
+compiler demands `move` at a transfer out of an existing binding, and any
+duplication is a visible `v.copy()`. This is the policy for expensive,
+resource-owning types such as `Vector` and `Map`. Enforcement reuses the
+`NoCopy` value-transfer checkpoint, with its own diagnostic:
+
+```saw
+extension Buf: ExplicitCopy {
+    func copy(&self) -> Buf { /* deep copy */ }
+    func deinit(&var self) { /* free buffer */ }
+}
+
+var a = makeBuf()
+var b = a          // Error: cannot copy value of type `Buf` which implements
+                   //        ExplicitCopy — use .copy() or `move`
+var c = a.copy()   // Ok: explicit, independent deep copy
+var d = move a     // Ok: ownership transferred, a no longer valid
 ```
 
 #### The NoCopy Interface (Move-Only Types)
@@ -736,32 +874,31 @@ trait NoCopy: Deinit {
 Types implementing `NoCopy` cannot be copied—only moved. The compiler errors on assignment; use `move` to transfer ownership:
 
 ```saw
-struct File: NoCopy {
+struct File {
     handle: Int
 }
 
-extension File {
-    func open(path: String) -> Result<File, IoError> { ... }
-
+extension File: NoCopy {
     func deinit(&var self) {
         close(self.handle)
     }
 }
 
-let f = File.open("data.txt")?
+var f = openFile("data.txt")
 let g = f        // Error: Cannot copy NoCopy type 'File'
-let g = move f   // Ok: f is now invalid
+let h = move f   // Ok: f is now invalid
 use(f)           // Error: f was moved
-// g.deinit() called at scope exit, file closed
+// h.deinit() called at scope exit, file closed
 ```
 
 #### Summary of Type Behaviors
 
-| Interface | Copy Behavior | Cleanup |
-|-----------|---------------|---------|
-| (none) | memcpy | none |
-| `ImplicitCopy` | calls `copy()` | calls `deinit()` |
-| `NoCopy` | compile error | calls `deinit()` |
+| Kind | Transfer (`let b = a`) | `.copy()` | Cleanup |
+|------|------------------------|-----------|---------|
+| trivial / POD (auto-`Copy`) | implicit bitwise copy | bitwise | none |
+| `ImplicitCopy` | implicit `copy()` (cheap) | yes | `deinit()` |
+| `ExplicitCopy` | **error** — needs `move` | yes (visible) | `deinit()` |
+| `NoCopy` | **error** — needs `move` | no | `deinit()` |
 
 #### Containment Rules
 
@@ -785,7 +922,8 @@ extension Connection: NoCopy {
 
 The containment rules are:
 - **NoCopy containment**: If any field is `NoCopy`, the struct must be `NoCopy`
-- **ImplicitCopy containment**: If any field is `ImplicitCopy` (and none are `NoCopy`), the struct must be `ImplicitCopy`
+- **ExplicitCopy containment**: If any field is `ExplicitCopy`, the struct must declare `ExplicitCopy` (or `NoCopy`)
+- **ImplicitCopy containment**: If any field is `ImplicitCopy` (and none are `NoCopy`/`ExplicitCopy`), the struct must be `ImplicitCopy`
 - **Deinit containment**: If any field is `Deinit`, the struct must implement `Deinit`
 
 #### Automatic Field Operations
@@ -817,6 +955,10 @@ extension Container: ImplicitCopy {
 ---
 
 ## 5. Error Handling
+
+**Status: implemented** — `Result<T, E>`, auto-wrap returns, `try`/`try?`/`try!`,
+inline `catch`, block `try { } catch { }` with the implicit `error` variable,
+multiple-error-type union with `match`, and explicit `match` on `Result`.
 
 Saw uses `Result<T, E>` for recoverable errors with `try` expressions for ergonomic handling. Errors are explicit in function signatures—no hidden control flow.
 
@@ -953,8 +1095,12 @@ match read_file("data.txt") {
 
 ### Panic for Unrecoverable Errors
 
+Panics halt execution (unrecoverable). The compiler emits them for `try!`/
+force-unwrap failures and division by zero (see Runtime Semantics). The example
+below is *(illustrative)* — an explicit `panic(...)` builtin and `.len()` on a
+fixed array are illustrative of intent.
+
 ```saw
-// Panic halts execution (unrecoverable)
 func get_index(arr: [Int], i: Int) -> Int {
     if i >= arr.len() {
         panic("Index {i} out of bounds")
@@ -973,9 +1119,31 @@ func get_index(arr: [Int], i: Int) -> Int {
 | `try expr catch { }` | Unwrap Ok, run catch block on Err | `T` |
 | `try { } catch { }` | Catch errors from try block | block type |
 
+### Runtime Semantics and Traps
+
+**Status: implemented**, except integer overflow (open question).
+
+- **Division / modulo by zero** (`a / 0`, `a % 0`) **panics** at runtime with a
+  "division by zero" message rather than raising a hardware fault.
+- **Force-unwrap of `None`** (`opt!`) panics with "force unwrap of None".
+  **`try!` on an `Err`** panics, reporting the source line.
+- **Fixed-array indexing with an out-of-bounds compile-time constant** is a
+  **compile error** ("index out of range"), mirroring the tuple-index check.
+  Bounds checking for *dynamic* array indices is not yet implemented.
+- **Tuple indexing** past the tuple's arity is a compile error.
+- **Integer overflow is currently unspecified** — an open question (wrap, trap,
+  or UB has not been decided). Do not rely on any particular behavior.
+- **Struct equality** (a default `==` for structs) is unspecified / not
+  implemented — an open question.
+
 ---
 
 ## 6. Concurrency
+
+**Status: planned.** None of async/await, threads, channels, or the `Send`/`Sync`
+traits are implemented yet. Everything in this section is *illustrative* of
+intended design. (`String`'s refcount is already atomic so it will be
+`Send`-ready when this lands — see the String section.)
 
 ### Async/Await
 
@@ -1050,22 +1218,57 @@ func spawn<F: FnOnce() + Send>(f: F) -> JoinHandle
 
 ## 7. Metaprogramming
 
+**Status: partially implemented** — generics are built (see below); const
+evaluation, macros, and compile-time reflection are planned.
+
 ### Generics
+
+**Status: implemented.** Generic functions, structs, and enums; `T: Trait`
+bounds (including the built-in `T: Copy` / `ImplicitCopy` / `ExplicitCopy`
+bounds); generic extensions, including **bounded** extensions
+(`extension Vector<T: Copy>: ExplicitCopy { ... }`, used in the stdlib).
+
+Implementation notes:
+- **Monomorphization**: each instantiation is a distinct specialized function/
+  type; all specialized signatures are declared before any body is generated.
+  Names go through one canonical, type-signature-based mangler (nested type
+  arguments included).
+- **Abstract checking of generic bodies**: a generic body is type-checked once,
+  abstractly, against its bounds — so an unused generic with a type error is
+  still caught. Two reconciliations are currently *deferred* and only fully
+  resolved at instantiation: return-type reconciliation, and bound-aware method
+  resolution (a method available only under a specific bound). This is
+  documented honestly as a known limitation, not a guarantee.
+- Inside a `T: Copy` body, `x.copy()` type-checks (abstractly returns `T`);
+  an unbounded `T` does not get `.copy()`.
 
 ```saw
 // Generic struct
 struct Container<T> {
-    value: T,
+    value: T
 }
 
-// Const generics
+func identity<T>(x: T) -> T {
+    x
+}
+
+// A Copy bound grants .copy() in the body; monomorphization emits the right
+// tier per instantiation.
+func dup<T: Copy>(x: T) -> T {
+    x.copy()
+}
+```
+
+**Status: planned** — const generics (`struct Array<T, const N: Int>`) and
+`where` clauses are *illustrative* below and not yet implemented:
+
+```saw
+// (illustrative — planned) Const generics
 struct Array<T, const N: Int> {
-    data: [T; N],
+    data: [T; N]
 }
 
-let arr: Array<Int, 5> = Array()
-
-// Where clauses for complex bounds
+// (illustrative — planned) Where clauses for complex bounds
 func merge<T, U, V>(a: T, b: U) -> V
 where
     T: Into<V>,
@@ -1077,6 +1280,9 @@ where
 ```
 
 ### Compile-Time Evaluation
+
+**Status: planned** (illustrative — `const func`, `static_assert`, macros, and
+compile-time reflection below are all designed but not implemented).
 
 ```saw
 // Const functions evaluated at compile time
@@ -1141,6 +1347,13 @@ struct Config {
 
 ## 8. Module System
 
+**Status: partially implemented.** `import` (module, specific-symbol, and
+qualified forms), inline and external `module` declarations, `public`
+visibility, and qualified access (`module.Type`) are built. Scoped visibility
+(`public(package)`, `public(parent)`), import aliasing (`as`), and glob imports
+(`import x.*`) are *planned* and marked *(illustrative)* below. The `Saw.toml`
+package layout is handled by the Blade package manager.
+
 ### Module Declaration
 
 ```saw
@@ -1164,10 +1377,8 @@ struct Internal { ... }
 // Public
 public struct Public { ... }
 
-// Public within package only
+// (illustrative — planned) Scoped visibility
 public(package) func internal_api() { ... }
-
-// Public to parent module
 public(parent) func parent_visible() { ... }
 ```
 
@@ -1189,16 +1400,15 @@ let s = Set()           // Set is directly available
 import std.io.File
 let f = File.open("data.txt")
 
-// Aliasing
+// (illustrative — planned) Aliasing
 import std.collections.HashMap as Map
 import std.io as fileio
-fileio.open("file.txt")
 
 // Import from current package
 import package.parser.Parser
 import parent.helpers.utility
 
-// Glob import (discouraged, makes dependencies unclear)
+// (illustrative — planned) Glob import (discouraged)
 import std.prelude.*
 ```
 
@@ -1224,6 +1434,13 @@ my_project/
 ---
 
 ## 9. Standard Library Overview
+
+**Status: partially implemented.** The module *paths* below sketch the intended
+namespace layout and are largely *illustrative*. Actually shipped today:
+`String`, `Vector<T>`, `Map<K,V>`, `File`, `Directory`, `Path`, `Data`, `Env`,
+`Process` (and `Result`/optionals as language features). I/O beyond files, `net`,
+`thread`, `sync`, `channel`, `future`, and the `fmt`/`iter`/`cmp`/`hash`/`time`
+utility modules are planned.
 
 ### Core Types
 
@@ -1265,6 +1482,14 @@ std.time.{Instant, Duration}
 ---
 
 ## 10. Interoperability
+
+**Status: partially implemented.** `extern "C"` function declarations and the
+pointer types `UnsafePointer<T>` / `UnsafeConstPointer<T>` (plus a `sizeof<T>()`
+builtin) are used by the stdlib today. The `#[repr(C)]` / `#[no_mangle]`
+attributes, C-varargs, `extern "C"` *exports*, and `unsafe` blocks/functions/
+traits are *planned* — the examples below using them are illustrative. (The
+spec's `*Char`/`*var Void` shorthand is illustrative; the implemented spelling is
+`UnsafePointer<T>` / `UnsafeConstPointer<T>`.)
 
 ### C FFI
 
@@ -1329,35 +1554,74 @@ unsafe trait GlobalAlloc {
 
 ---
 
-## Appendix A: Keywords
+## Appendix 0: The Compiler (`sawc`)
+
+**Status: implemented.** The reference compiler is `sawc` (Python + llvmlite),
+lowering Saw to LLVM IR and then to a native object/executable.
 
 ```
-and         as          async       await       break
-catch       const       continue    deinit      defer
-do          dyn         else        enum        extension
-extern      false       func        for         guard
-if          import      in          init        trait
-let         loop        macro       match       module
-move        none        not         or          package
-parent      public      ref         return      self
-Self        some        static      struct      true
-try         type        unsafe      var         where
-while
+sawc <source.saw> [options]
+
+  -o <file>    Output executable name (default: ./<source>)
+  -c           Compile to an object file (.o) only — no linking, no main() required
+  -v           Verbose output (pipeline stages)
+  --emit-ir    Emit LLVM IR only, don't compile
+  --emit-ast   Dump the typed AST (debugging)
+  -O0          Disable optimization passes (raw codegen; default is an O1-style
+               pipeline: entry-block allocas + mem2reg and friends)
+```
+
+Optimization: by default `sawc` runs an O1-style pass pipeline (allocas hoisted
+to the entry block, mem2reg, etc.); `-O0` turns it off for debugging raw output.
+
+Known limitation: `--emit-ir` does **not** load the stdlib builtins, so it fails
+on programs that use `String`/`Vector`/`Result` and similar. Use a full compile
+(or `-c`) for those.
+
+## Appendix A: Keywords
+
+Reserved words. Some name planned features (marked); logical negation is the
+word `not` (there is no `and`/`or` — use `&&`/`||`), and the empty optional is
+`None`. `case` introduces enum variants and match arms.
+
+```
+Implemented:
+as       break    case     catch    continue deinit   dyn      else
+enum     extension extern  false    for      func     guard    if
+import   in       init     let      match    module   move     None
+not      package  parent   public   return   self     Self     struct
+trait    true     try      type     var      while
+
+Planned / reserved:
+and  async  await  const  defer  do  loop  macro  none  or  ref
+some  static  unsafe  where
 ```
 
 ## Appendix B: Operators
 
 ```
-Arithmetic:     +  -  *  /  %  **
-Comparison:     == != <  >  <= >=
-Logical:        && || !
-Bitwise:        &  |  ^  ~  << >>
-Assignment:     =  += -= *= /= %= &= |= ^= <<= >>=
-Range:          ..  ..=
-Optional:       ?  ??  ?.  !
-Reference:      &  *
-Type:           ->  =>  ::  .
+Implemented
+  Arithmetic:     +  -  *  /  %
+  Comparison:     == != <  >  <= >=
+  Logical:        &&  ||  not        (`not` is logical NOT — not `!`)
+  Assignment:     =  += -= *= /=
+  Range:          ..                 (half-open, e.g. `for i in 0..5`)
+  Optional:       ?  ??  ?.  !        (`!` is force-unwrap; `?.` optional chain)
+  Reference:      &  &var             (`&x` at a call site; `&var` params)
+  Cast:           as                 (`x as Int`)
+  Member/return:  .  ->
+
+Planned (parsed shape may differ or be rejected today)
+  Arithmetic:     **                 (power)
+  Bitwise:        &  |  ^  ~  << >>   and their compound-assign forms
+  Range:          ..=                (inclusive)
+  Match arrow:    =>                 (superseded — Saw match arms use `->`)
+  Path:           ::
 ```
+
+Note: `!` is **force-unwrap only**, never logical NOT; earlier drafts listed it
+as logical NOT (superseded). Bitwise operators and `**` are not implemented; the
+lexer will suggest `||`/`&&` if you write `|`/`&` as an infix boolean operator.
 
 ---
 
