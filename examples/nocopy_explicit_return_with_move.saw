@@ -1,0 +1,30 @@
+// Positive companion to nocopy_explicit_return_requires_move.saw: an explicit
+// `return move x` of a NoCopy value compiles, and the resource is deinit'd
+// exactly once (by the final owner). See todo_jul26.md must-fix #1.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// deinit
+// 7
+
+struct FileHandle {
+    fd: Int
+}
+
+extension FileHandle: NoCopy {
+    func deinit(&var self) {
+        print("deinit")
+        print(self.fd)
+    }
+}
+
+func passthrough(f: FileHandle) -> FileHandle {
+    return move f   // move out; passthrough's param is not deinit'd
+}
+
+func main() {
+    let a = FileHandle(fd: 7)
+    let b = passthrough(move a)
+    print(b.fd)
+    // Only b (the final owner) is deinit'd here
+}

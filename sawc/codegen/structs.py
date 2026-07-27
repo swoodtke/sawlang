@@ -51,7 +51,7 @@ class StructsMixin:
             args = []
             param_to_value = {param_name: value for param_name, value in expr.field_inits}
             for param_name in expr.resolved_init_params:
-                arg_value = self._generate_expression(param_to_value[param_name])
+                arg_value = self._gen_transfer_value(param_to_value[param_name])
                 args.append(arg_value)
 
             # Call the init method

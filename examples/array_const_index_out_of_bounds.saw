@@ -6,7 +6,6 @@
 // for constant indices).
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: out of range
-// XFAIL: todo_jul26.md #7 - no bounds check for constant array index; compiles and reads OOB
 
 func main() {
     let arr = [10, 20, 30]

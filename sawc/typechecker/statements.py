@@ -427,17 +427,10 @@ class StatementsMixin:
         else:
             var_type = value_type
 
-        # Check for NoCopy types - cannot copy from another variable (but move is OK)
-        if isinstance(stmt.value, Identifier) and self._is_no_copy_type(value_type):
-            self._error(
-                ErrorKind.CANNOT_COPY,
-                f"cannot copy value of type `{value_type}` which implements NoCopy",
-                stmt.line, stmt.column,
-                hint="use `move` to transfer ownership instead"
-            )
-        # MoveExpr is allowed - mark the source variable as moved
-        elif isinstance(stmt.value, MoveExpr):
-            self.moved_variables.add(stmt.value.variable)
+        # Value-transfer checkpoint: enforce NoCopy move-discipline and mark
+        # CustomCopy sites for codegen (replaces the old inline NoCopy check).
+        self._check_value_transfer(stmt.value, var_type, "let binding",
+                                   stmt.line, stmt.column, track_move=True)
 
         # Add to scope
         if var_type:
@@ -548,17 +541,10 @@ class StatementsMixin:
                     stmt.line, stmt.column
                 )
 
-            # Check for NoCopy types - cannot copy from another variable (but move is OK)
-            if isinstance(stmt.value, Identifier) and self._is_no_copy_type(value_type):
-                self._error(
-                    ErrorKind.CANNOT_COPY,
-                    f"cannot copy value of type `{value_type}` which implements NoCopy",
-                    stmt.line, stmt.column,
-                    hint="use `move` to transfer ownership instead"
-                )
-            # MoveExpr is allowed - mark the source variable as moved
-            elif isinstance(stmt.value, MoveExpr):
-                self.moved_variables.add(stmt.value.variable)
+            # Value-transfer checkpoint: enforce NoCopy move-discipline and mark
+            # CustomCopy sites for codegen.
+            self._check_value_transfer(stmt.value, var_info.type, "assignment",
+                                       stmt.line, stmt.column, track_move=True)
 
         elif isinstance(stmt.target, MemberAccess):
             # Field assignment: obj.field = value
@@ -598,6 +584,8 @@ class StatementsMixin:
                     f"cannot assign `{value_type}` to field of type `{field_type}`",
                     stmt.line, stmt.column
                 )
+            self._check_value_transfer(stmt.value, field_type, "field assignment",
+                                       stmt.line, stmt.column)
 
         elif isinstance(stmt.target, ArrayIndex):
             # Array or pointer element assignment: arr[i] = value or ptr[i] = value
@@ -656,6 +644,8 @@ class StatementsMixin:
                         f"cannot assign `{value_type}` to element of type `{element_type}`",
                         stmt.line, stmt.column
                     )
+            self._check_value_transfer(stmt.value, element_type, "element assignment",
+                                       stmt.line, stmt.column)
 
         else:
             self._error(
@@ -852,6 +842,18 @@ class StatementsMixin:
                         line=stmt.value.line,
                         column=stmt.value.column
                     )
+
+            # Value-transfer checkpoint for explicit `return x`: unifies the
+            # NoCopy move-discipline / CustomCopy copy rules with the implicit
+            # tail-return path. Runs after any Result/Optional wrapping above so
+            # a wrapped value is a fresh temporary (not aliasing).
+            context_name = "function"
+            if self.current_function is not None:
+                context_name = f"function `{self.current_function.name}`"
+            elif self.current_method is not None:
+                context_name = f"method `{self.current_method.name}`"
+            self._check_value_transfer(stmt.value, expected, context_name,
+                                       stmt.line, stmt.column, is_return=True)
 
     def _check_while_expr(self, stmt: WhileExpr):
         """Check a while loop used as a statement (no return value expected)."""

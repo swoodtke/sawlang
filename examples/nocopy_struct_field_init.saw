@@ -5,7 +5,6 @@
 // See todo_jul26.md must-fix #1.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: NoCopy
-// XFAIL: todo_jul26.md #1 - NoCopy not checked at struct-field init; compiles and double-frees
 
 struct FileHandle {
     fd: Int

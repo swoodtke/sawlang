@@ -413,7 +413,7 @@ class StatementsMixin:
         """Generate code for a return statement."""
         # Generate return value first (before cleanup, in case it uses local vars)
         if stmt.value is not None:
-            value = self._generate_expression(stmt.value)
+            value = self._gen_transfer_value(stmt.value)
         else:
             value = None
 

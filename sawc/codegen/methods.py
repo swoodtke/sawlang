@@ -333,7 +333,10 @@ class MethodsMixin:
                 return None
 
         if block.final_expr is not None:
-            result = self._generate_expression(block.final_expr)
+            # Honor a CustomCopy `needs_copy` annotation on a tail-return final
+            # expression (only the function/method body's final_expr is marked
+            # by the value-transfer checkpoint, so other blocks are unaffected).
+            result = self._gen_transfer_value(block.final_expr)
 
         # Cleanup variables declared in this block
         if manage_cleanup:

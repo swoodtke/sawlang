@@ -467,6 +467,8 @@ class ExpressionsMixin:
                         f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
                         arg.value.line, arg.value.column
                     )
+                self._check_value_transfer(arg.value, expected_type, "call argument",
+                                           arg.value.line, arg.value.column)
             return return_type
         func_info = self.get_function_info(expr.name)
         if func_info and not self.namespace.is_accessible(expr.name):
@@ -609,11 +611,15 @@ class ExpressionsMixin:
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
                 )
+            self._check_value_transfer(arg.value, expected_type, "call argument",
+                                       arg.value.line, arg.value.column)
         # Variadic extra arguments have no declared parameter type to check
         # against, but must still flow through the chokepoint so codegen sees
         # their resolved_type annotations.
         for arg in expr.arguments[len(param_types):]:
             self._check_expression(arg.value)
+            self._check_value_transfer(arg.value, None, "call argument",
+                                       arg.value.line, arg.value.column)
         return return_type
 
     def _check_if_expr(self, expr: IfExpr) -> Optional[SawType]:
@@ -805,6 +811,8 @@ class ExpressionsMixin:
             if elem_type is None:
                 return None
             element_types.append(elem_type)
+            self._check_value_transfer(element, elem_type, "tuple element",
+                                       element.line, element.column)
         return SawType(TypeKind.TUPLE, element_types=element_types)
 
     def _check_tuple_index(self, expr: TupleIndex) -> Optional[SawType]:
@@ -842,6 +850,8 @@ class ExpressionsMixin:
         first_type = self._check_expression(expr.elements[0])
         if first_type is None:
             return None
+        self._check_value_transfer(expr.elements[0], first_type, "array element",
+                                   expr.elements[0].line, expr.elements[0].column)
         for i, element in enumerate(expr.elements[1:], start=1):
             elem_type = self._check_expression(element)
             if elem_type is None:
@@ -853,6 +863,8 @@ class ExpressionsMixin:
                     element.line, element.column
                 )
                 return None
+            self._check_value_transfer(element, first_type, "array element",
+                                       element.line, element.column)
         return SawType(TypeKind.ARRAY, array_element_type=first_type, array_size=len(expr.elements))
 
     def _check_array_index(self, expr: ArrayIndex) -> Optional[SawType]:
@@ -872,6 +884,17 @@ class ExpressionsMixin:
             )
             return None
         if container_type.kind == TypeKind.ARRAY:
+            # Reject out-of-range compile-time constant indices, mirroring the
+            # tuple-index path below. Dynamic indices stay unchecked.
+            if isinstance(expr.index, IntLiteral) and container_type.array_size is not None:
+                if expr.index.value < 0 or expr.index.value >= container_type.array_size:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"array index {expr.index.value} out of range for array with "
+                        f"{container_type.array_size} elements",
+                        expr.line, expr.column
+                    )
+                    return None
             return container_type.array_element_type
         elif container_type.kind == TypeKind.TUPLE:
             if not isinstance(expr.index, IntLiteral):
@@ -1149,6 +1172,8 @@ class ExpressionsMixin:
                         f"field `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
                         expr.line, expr.column
                     )
+                self._check_value_transfer(field_value, expected_type, "struct field",
+                                           field_value.line, field_value.column)
         else:
             method_info = matching_inits[0]
             expr.resolved_init_params = method_info.param_names
@@ -1164,6 +1189,8 @@ class ExpressionsMixin:
                         f"parameter `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
                         expr.line, expr.column
                     )
+                self._check_value_transfer(field_value, expected_type, "init argument",
+                                           field_value.line, field_value.column)
         return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args, symbol=struct_info)
 
     def _check_none_literal(self, expr: NoneLiteral) -> Optional[SawType]:
@@ -1556,6 +1583,8 @@ class ExpressionsMixin:
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
                 )
+            self._check_value_transfer(arg.value, expected_type, "call argument",
+                                       arg.value.line, arg.value.column)
         return_type = method_info.return_type
         if type_subst:
             return_type = return_type.substitute(type_subst)
@@ -1579,6 +1608,8 @@ class ExpressionsMixin:
                     f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
                 )
+            self._check_value_transfer(arg.value, expected_type, "call argument",
+                                       arg.value.line, arg.value.column)
         return func_info.return_type
 
     def _check_module_struct_init(self, expr: MethodCall, struct_sym) -> Optional[SawType]:
@@ -1644,6 +1675,8 @@ class ExpressionsMixin:
                         f"field `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
                         expr.line, expr.column
                     )
+                self._check_value_transfer(field_value, expected_type, "struct field",
+                                           field_value.line, field_value.column)
         else:
             # Custom init method
             method_info = matching_inits[0]
@@ -1657,6 +1690,8 @@ class ExpressionsMixin:
                         f"argument `{field_name}` expects `{expected_type}` but got `{actual_type}`",
                         expr.line, expr.column
                     )
+                self._check_value_transfer(field_value, expected_type, "init argument",
+                                           field_value.line, field_value.column)
 
         return SawType(TypeKind.STRUCT, struct_name=struct_name, symbol=struct_sym)
 
@@ -1690,6 +1725,8 @@ class ExpressionsMixin:
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
                 )
+            self._check_value_transfer(arg.value, expected_type, "call argument",
+                                       arg.value.line, arg.value.column)
         return method_info.return_type
 
     def _check_self_expr(self, expr: SelfExpr) -> Optional[SawType]:
@@ -1777,6 +1814,8 @@ class ExpressionsMixin:
                         f"expected type `{expected_type}` for parameter `{arg.name}`, got `{arg_type}`",
                         arg.value.line, arg.value.column
                     )
+                self._check_value_transfer(arg.value, expected_type, "enum payload",
+                                           arg.value.line, arg.value.column)
             else:
                 if i >= len(expected_list):
                     continue
@@ -1788,6 +1827,8 @@ class ExpressionsMixin:
                         f"expected type `{expected_type}` for parameter `{param_name}`, got `{arg_type}`",
                         arg.value.line, arg.value.column
                     )
+                self._check_value_transfer(arg.value, expected_type, "enum payload",
+                                           arg.value.line, arg.value.column)
         return SawType(TypeKind.ENUM, enum_name=expr.enum_name, type_args=expr.type_args, symbol=enum_info)
 
     def _check_match_expr(self, expr: MatchExpr) -> Optional[SawType]:

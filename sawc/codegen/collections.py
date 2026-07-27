@@ -25,8 +25,8 @@ class CollectionsMixin:
 
     def _generate_tuple_literal(self, expr: TupleLiteral):
         """Generate code for a tuple literal."""
-        # Generate each element
-        element_values = [self._generate_expression(elem) for elem in expr.elements]
+        # Generate each element (honoring CustomCopy needs_copy annotations)
+        element_values = [self._gen_transfer_value(elem) for elem in expr.elements]
 
         # Create the tuple type
         element_types = [val.type for val in element_values]
@@ -51,8 +51,8 @@ class CollectionsMixin:
         if len(expr.elements) == 0:
             raise ValueError("Empty array literals not supported")
 
-        # Generate all element values
-        element_values = [self._generate_expression(elem) for elem in expr.elements]
+        # Generate all element values (honoring CustomCopy needs_copy annotations)
+        element_values = [self._gen_transfer_value(elem) for elem in expr.elements]
 
         # Get the element type from the first element
         elem_type = element_values[0].type

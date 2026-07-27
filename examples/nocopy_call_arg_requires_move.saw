@@ -4,7 +4,6 @@
 // See todo_jul26.md must-fix #1 (resource-safety enforced only at some use-sites).
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: NoCopy
-// XFAIL: todo_jul26.md #1 - NoCopy not checked at call-arg sites; compiles and double-frees
 
 struct FileHandle {
     fd: Int

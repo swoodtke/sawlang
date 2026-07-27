@@ -58,7 +58,7 @@ class CallsMixin:
                 # Call the closure
                 fn_ptr = self.builder.extract_value(closure_val, 0, name="fn_ptr")
                 env_ptr = self.builder.extract_value(closure_val, 1, name="env_ptr")
-                arg_vals = [self._generate_expression(arg.value) for arg in expr.arguments]
+                arg_vals = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
                 return self.builder.call(fn_ptr, [env_ptr] + arg_vals, name="closure_call")
 
         # Check if this is actually a struct init (parser treats empty parens as function call)
@@ -94,7 +94,7 @@ class CallsMixin:
             func = self.functions[expr.name]
 
         # Arguments are now Argument objects with .value
-        args = [self._generate_expression(arg.value) for arg in expr.arguments]
+        args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
         result = self.builder.call(func, args, name="calltmp")
 
         # Wrap result in optional for extern functions that return nullable pointers
@@ -344,7 +344,7 @@ class CallsMixin:
         args = [self_arg]  # self is first argument
         # Arguments are Argument objects with .value
         for arg in expr.arguments:
-            args.append(self._generate_expression(arg.value))
+            args.append(self._gen_transfer_value(arg.value))
 
         # Fill in default values for missing arguments
         if mangled_name in self.method_defaults:
@@ -369,7 +369,7 @@ class CallsMixin:
         # Generate provided arguments
         args = []
         for arg in expr.arguments:
-            args.append(self._generate_expression(arg.value))
+            args.append(self._gen_transfer_value(arg.value))
 
         # Fill in default values for missing arguments
         if mangled_name in self.method_defaults:
@@ -413,7 +413,7 @@ class CallsMixin:
         # Generate arguments
         args = []
         for arg in expr.arguments:
-            args.append(self._generate_expression(arg.value))
+            args.append(self._gen_transfer_value(arg.value))
 
         return self.builder.call(func, args, name="module_call")
 
@@ -553,9 +553,9 @@ class CallsMixin:
                 # Match arguments to parameters (named takes precedence, then positional)
                 for i, (param_name, param_type) in enumerate(variant_params):
                     if param_name in arg_dict:
-                        arg_val = self._generate_expression(arg_dict[param_name])
+                        arg_val = self._gen_transfer_value(arg_dict[param_name])
                     elif i < len(arg_list):
-                        arg_val = self._generate_expression(arg_list[i])
+                        arg_val = self._gen_transfer_value(arg_list[i])
                     else:
                         raise ValueError(f"Missing argument for parameter {param_name}")
                     arg_values.append(arg_val)

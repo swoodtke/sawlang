@@ -12,7 +12,8 @@ Usage:
 from typing import Optional, Tuple
 from ast_nodes import (
     SawType, TypeKind,
-    Expression, Identifier, MoveExpr, IntLiteral, Block
+    Expression, Identifier, MoveExpr, ReferenceExpr, IntLiteral, Block,
+    MemberAccess, ArrayIndex, TupleIndex
 )
 from errors import ErrorKind
 from namespace import (
@@ -486,33 +487,97 @@ class TypeUtilsMixin:
                 self.namespace.type_conforms_to(type_name, "NoCopy") or
                 self.namespace.type_conforms_to(type_name, "CustomCopy"))
 
+    # Expression kinds that read a value out of *existing* owned storage,
+    # as opposed to producing a freshly constructed temporary. Transferring
+    # one of these leaves a live second owner behind, so these are exactly the
+    # sites where NoCopy move-discipline must be enforced and CustomCopy
+    # `copy()` must be inserted. A struct/enum init, call result, or literal is
+    # a fresh temporary and is *not* aliasing.
+    _ALIASING_EXPR_TYPES = (Identifier, MemberAccess, ArrayIndex, TupleIndex)
+
+    def _is_aliasing_expr(self, expr: Expression) -> bool:
+        """True if `expr` reads a value out of existing owned storage."""
+        return isinstance(expr, self._ALIASING_EXPR_TYPES)
+
+    def _check_value_transfer(self, expr: Optional[Expression], target_type: Optional[SawType],
+                              context: str, line: int, column: int,
+                              is_return: bool = False, track_move: bool = False):
+        """Single checkpoint every copy/move site funnels through.
+
+        Every site where a value is copied or moved into a new home (let/var
+        initializers, assignment RHS, call arguments, returns, struct-field
+        initializers, array/tuple elements, enum payloads) routes through here.
+        It enforces NoCopy move-discipline and marks CustomCopy sites so codegen
+        inserts `copy()` uniformly.
+
+        Behavior by the source expression and its resolved type:
+        - `move x`: ownership transfers; a transfer is neither a copy nor a
+          NoCopy violation, so it is always accepted. The source binding is
+          recorded as moved-from only when `track_move` is set (see below).
+        - by-reference argument (`&x` / `&var x`): NOT a transfer; skipped.
+        - NoCopy type read from an existing binding (identifier / field access /
+          index): an error -- it must be `move`d. A fresh temporary is fine.
+        - CustomCopy type read from an existing binding: annotated
+          `expr.needs_copy = True` for codegen. A fresh temporary is fine.
+        - anything else: no-op.
+
+        `track_move` is only set by the sites that already recorded moved-from
+        state before this checkpoint existed (let/var and assignment). The
+        moved-variable set is a single flat set with no per-scope/branch
+        lifetime, so recording moves at *every* transfer site (e.g. call
+        arguments) would spuriously poison later same-named bindings across
+        functions. Extending use-after-move to the new sites needs real
+        dataflow analysis, which is explicitly out of scope for this package
+        (see designs/03-value-transfer-checkpoint.md); the gap is noted there.
+        """
+        if expr is None:
+            return
+
+        # `move x` transfers ownership; a move is never a copy/NoCopy violation.
+        if isinstance(expr, MoveExpr):
+            if track_move:
+                self.moved_variables.add(expr.variable)
+            return
+
+        # `&x` / `&var x` bind to a by-reference parameter; the callee mutates
+        # the caller's value in place -- no transfer, no copy.
+        if isinstance(expr, ReferenceExpr):
+            return
+
+        src_type = getattr(expr, 'resolved_type', None) or target_type
+        if src_type is None:
+            return
+
+        if self._is_no_copy_type(src_type):
+            if self._is_aliasing_expr(expr):
+                if is_return:
+                    self._error(
+                        ErrorKind.CANNOT_COPY,
+                        f"cannot return NoCopy type `{src_type}` without `move` in {context}",
+                        line, column,
+                        hint="use `move` to transfer ownership instead"
+                    )
+                else:
+                    self._error(
+                        ErrorKind.CANNOT_COPY,
+                        f"cannot copy value of type `{src_type}` which implements NoCopy",
+                        line, column,
+                        hint="use `move` to transfer ownership instead"
+                    )
+        elif self._is_custom_copy_type(src_type):
+            if self._is_aliasing_expr(expr):
+                expr.needs_copy = True
+
     def _check_no_copy_return(self, return_type: SawType, final_expr: Optional[Expression],
                                context_name: str, line: int, column: int):
-        """Check that NoCopy types are moved when returned, not copied.
+        """Validate an implicit tail return of a NoCopy type uses `move`.
 
-        If a function/method returns a NoCopy type and the return expression
-        is a variable reference, it must be wrapped in `move` to avoid
-        implicit copying followed by deinit of the original.
+        Thin wrapper delegating to the shared value-transfer checkpoint so that
+        implicit tail returns and explicit `return x` statements enforce the
+        same rule.
         """
-        if final_expr is None:
-            return
-
-        # Check if return type is NoCopy
-        if not self._is_no_copy_type(return_type):
-            return
-
-        # If the expression is a MoveExpr, that's fine
-        if isinstance(final_expr, MoveExpr):
-            return
-
-        # If the expression is an Identifier (variable reference), it needs move
-        if isinstance(final_expr, Identifier):
-            self._error(
-                ErrorKind.CANNOT_COPY,
-                f"cannot return NoCopy type `{return_type}` without `move` in {context_name}",
-                line, column,
-                hint=f"use `move {final_expr.name}` to transfer ownership"
-            )
+        self._check_value_transfer(final_expr, return_type, context_name,
+                                    line, column, is_return=True)
 
     def _check_integer_literal_range(self, literal: IntLiteral, target_type: SawType):
         """Check if an integer literal fits in the target fixed-width integer type."""

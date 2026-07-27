@@ -32,7 +32,7 @@ func main() {
         data.push(100 as UInt8)  // d
         data.push(33 as UInt8)   // !
 
-        if let bytes = f.write(data) {
+        if let bytes = f.write(move data) {
             print("Write successful: {bytes} bytes")
         } else {
             print("Write failed")

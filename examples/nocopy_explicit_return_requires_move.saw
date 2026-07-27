@@ -6,7 +6,6 @@
 // See todo_jul26.md must-fix #1.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot return NoCopy type
-// XFAIL: todo_jul26.md #1 - NoCopy return check misses explicit `return x`; deinit runs twice
 
 struct FileHandle {
     fd: Int

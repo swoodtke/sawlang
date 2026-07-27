@@ -148,6 +148,21 @@ class ResourcesMixin:
         # copy(self) takes self by value (immutable), returns Self
         return self.builder.call(copy_fn, [value], name="copy_result")
 
+    def _gen_transfer_value(self, value_expr):
+        """Generate a value being transferred into a new home (call argument,
+        return value, aggregate element), honoring the typechecker's
+        `needs_copy` annotation.
+
+        The value-transfer checkpoint marks `expr.needs_copy = True` on any
+        CustomCopy value read out of an existing binding, so codegen invokes
+        `copy()` uniformly at every transfer site instead of re-deciding per
+        site.
+        """
+        value = self._generate_expression(value_expr)
+        if getattr(value_expr, 'needs_copy', False):
+            value = self._generate_copy(value, self._expr_type(value_expr))
+        return value
+
     def _needs_copy_for_struct_init(self, value_expr, field_type: SawType) -> bool:
         """Check if a value expression needs copy() called during struct initialization.
 

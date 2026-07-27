@@ -1,0 +1,31 @@
+// A CustomCopy value used as an array-literal element must have copy() invoked,
+// just like a let-binding or call argument. Array construction is one of the
+// aggregate copy sites the value-transfer checkpoint now covers.
+// See todo_jul26.md must-fix #1 (CustomCopy copy() at aggregate sites).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// copy called
+// copy called
+// 1
+// 2
+
+struct RefCounted {
+    value: Int
+}
+
+extension RefCounted: CustomCopy {
+    func copy(&self) -> RefCounted {
+        print("copy called")
+        RefCounted(value: self.value)
+    }
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    let a = RefCounted(value: 1)
+    let b = RefCounted(value: 2)
+    let arr = [a, b]   // each existing binding is copied into the array
+    print(arr[0].value)   // 1
+    print(arr[1].value)   // 2
+}
