@@ -129,7 +129,19 @@ runtime.
   exclusivity — a static is a root reachable by everyone; likely requires
   statics to be `Mutex`-wrapped or single-writer-blessed in kernels).
 - Cortex-M0-class atomics lowering (see §3).
-- Whether `alloc` failure is `T?`/Result (kernel-friendly, explicit) or
-  panic (hosted-friendly) — leaning: allocating constructors return
-  optionals in freestanding, panic in hosted; needs a cleaner unified
-  answer before stage 3.
+- ~~Whether `alloc` failure is optional or panic~~ **RESOLVED (Jul 27,
+  refined from user proposal): three tiers, identical in both profiles.**
+  (1) Default allocating APIs are infallible; on final failure they panic
+  into `saw_panic` (the kernel's own handler: oops/kill-task/reboot —
+  noting a killed task's held resources leak unless tracked externally,
+  as in real kernels). (2) Explicit fallible variants (`Box.try(...) ->
+  Box<T>?`, `try_push -> Result`) for sites that genuinely handle OOM
+  locally (Rust `try_reserve` precedent). (3) Underneath both, a
+  **per-allocator reclaim hook**: on exhaustion the allocator synchronously
+  calls its registered handler (flush/evict/kill-a-task) and retries —
+  Linux direct-reclaim as a plain call, centralizing OOM policy in the
+  allocator. **Explicitly rejected: non-local jump ("exception") to a
+  registered handler** — a longjmp-style transfer skips deinits (leaks,
+  held locks — breaks deterministic destruction), and jump-with-cleanup is
+  C++-style unwinding, which stays rejected (abort-only; kernels compile
+  without unwinding for good reason).
