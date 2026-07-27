@@ -67,31 +67,27 @@ class OptionalsMixin:
         from the typechecker's resolved_type annotation or the current function's
         return type.
         """
-        # Create an optional with is_some = false
-        # Priority: 1) resolved_type from typechecker, 2) current_return_type, 3) default i64
-        inner_llvm_type = None
+        # Create an optional with is_some = false. The inner type comes from the
+        # typechecker annotation via the single accessor (which substitutes
+        # generic bindings). A bare `None` whose optional inner type was never
+        # pinned contextually falls back to the current function's return type.
+        none_type = self._expr_type(expr)  # OPTIONAL, inner_type may be None
+        inner_type = none_type.inner_type
 
-        if expr.resolved_type and expr.resolved_type.inner_type:
-            # Use type from typechecker annotation
-            inner_type = expr.resolved_type.inner_type
-            if self.type_param_context:
-                inner_type = inner_type.substitute(self.type_param_context)
-            inner_llvm_type = self._get_llvm_type(inner_type)
-        elif self.current_return_type and self.current_return_type.is_optional():
-            # Fallback: use current function/method return type
+        if inner_type is None and self.current_return_type and self.current_return_type.is_optional():
             inner_type = self.current_return_type.inner_type
             if inner_type and self.type_param_context:
                 inner_type = inner_type.substitute(self.type_param_context)
-            if inner_type:
-                inner_llvm_type = self._get_llvm_type(inner_type)
 
-        if inner_llvm_type is None:
+        if inner_type is None:
             # No fallback - fail loudly so we can fix the root cause
             raise ValueError(
                 f"None literal at line {expr.line} has no type information. "
-                f"resolved_type={expr.resolved_type}, "
+                f"resolved_type={getattr(expr, 'resolved_type', None)}, "
                 f"current_return_type={self.current_return_type}"
             )
+
+        inner_llvm_type = self._get_llvm_type(inner_type)
 
         optional_type = ir.LiteralStructType([ir.IntType(1), inner_llvm_type])
         optional_val = ir.Constant(optional_type, ir.Undefined)

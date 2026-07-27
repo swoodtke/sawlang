@@ -201,7 +201,7 @@ Statement generation: let, assign, return.
 | `_generate_let_statement(stmt)` | Generate let binding with optional wrapping |
 | `_generate_assign_statement(stmt)` | Generate assignment to variable/field/index |
 | `_generate_return_statement(stmt)` | Generate return with cleanup |
-| `_infer_saw_type(expr)` | Infer SawType from expression |
+| `_expr_type(expr)` | Read a checked expression's type annotation, substituting generic bindings (fail-loud) |
 
 #### Assignment Targets
 - Simple variable: `x = value`

@@ -9,15 +9,12 @@ Usage:
         pass
 """
 
-from typing import Optional
 from llvmlite import ir
 from ast_nodes import (
     Statement, LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement,
     GuardLetStatement, BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, Identifier, MemberAccess, ArrayIndex, SelfExpr,
-    IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation,
-    StructInit, EnumInit, MoveExpr, CastExpr, FunctionCall, MethodCall,
-    BinaryOp, UnaryOp, SawType, TypeKind
+    MoveExpr, SawType, TypeKind
 )
 
 
@@ -27,7 +24,7 @@ class StatementsMixin:
     Methods:
         _generate_statement: Dispatch to appropriate statement generator
         _generate_let_statement: Generate let binding
-        _infer_saw_type: Infer SawType from expression
+        _expr_type: Read a checked expression's type annotation (fail-loud)
         _generate_assign_statement: Generate assignment
         _generate_return_statement: Generate return statement
     """
@@ -84,7 +81,7 @@ class StatementsMixin:
         resolved_annotation = self._resolve_type_alias(stmt.type_annotation) if stmt.type_annotation else None
 
         # Determine the variable type early for copy behavior
-        var_type = resolved_annotation if resolved_annotation else self._infer_saw_type(stmt.value)
+        var_type = resolved_annotation if resolved_annotation else self._expr_type(stmt.value)
 
         # Apply copy behavior for CustomCopy types when initializing from an existing value
         # (not for fresh struct/enum construction which doesn't need copying)
@@ -136,89 +133,35 @@ class StatementsMixin:
             if self.cleanup_stack and self._needs_cleanup(var_type):
                 self.cleanup_stack[-1].append((stmt.name, var_type))
 
-    def _infer_saw_type(self, expr) -> Optional[SawType]:
-        """Infer the SawType of an expression (basic inference for common cases)."""
-        if isinstance(expr, IntLiteral):
-            return SawType(TypeKind.INT)
-        elif isinstance(expr, FloatLiteral):
-            return SawType(TypeKind.FLOAT)
-        elif isinstance(expr, BoolLiteral):
-            return SawType(TypeKind.BOOL)
-        elif isinstance(expr, StringLiteral):
-            return SawType(TypeKind.STRING)
-        elif isinstance(expr, StringInterpolation):
-            return SawType(TypeKind.STRING)
-        elif isinstance(expr, StructInit):
-            return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args)
-        elif isinstance(expr, EnumInit):
-            return SawType(TypeKind.ENUM, enum_name=expr.enum_name, type_args=expr.type_args)
-        elif isinstance(expr, Identifier):
-            # Look up variable type
-            return self.variable_types.get(expr.name)
-        elif isinstance(expr, MoveExpr):
-            # Look up the moved variable's type
-            return self.variable_types.get(expr.variable)
-        elif isinstance(expr, CastExpr):
-            # Cast expression returns the target type
-            return expr.target_type
-        elif isinstance(expr, FunctionCall):
-            # Check if this is a struct init (parser treats Struct() as function call)
-            if expr.name in self.struct_types or expr.name in self.generic_structs:
-                return SawType(TypeKind.STRUCT, struct_name=expr.name, type_args=expr.type_args)
-            # Check if it's a known function (use namespace)
-            return_type = self.namespace.get_return_type(expr.name)
-            if return_type:
-                return return_type
-            return None
-        elif isinstance(expr, MethodCall):
-            # Check for static method call: StructName.method() (use namespace)
-            if isinstance(expr.object, Identifier):
-                struct_name = expr.object.name
-                if self.namespace.is_static_method(struct_name, expr.method_name):
-                    return_type = self.namespace.get_method_return_type(struct_name, expr.method_name)
-                    if return_type:
-                        return return_type
-            # Look up the method return type for instance methods (use namespace)
-            obj_type = self._infer_saw_type(expr.object)
-            if obj_type and obj_type.kind == TypeKind.STRUCT:
-                struct_name = obj_type.struct_name
-                return_type = self.namespace.get_method_return_type(struct_name, expr.method_name)
-                if return_type:
-                    return return_type
-            return None
-        elif isinstance(expr, MemberAccess):
-            # Look up struct field type (use namespace)
-            obj_type = self._infer_saw_type(expr.object)
-            if obj_type and obj_type.kind == TypeKind.STRUCT:
-                struct_name = obj_type.struct_name
-                field_types = self.namespace.get_struct_fields(struct_name)
-                if field_types and expr.member in field_types:
-                    return field_types[expr.member]
-            return None
-        elif isinstance(expr, BinaryOp):
-            # Infer type from binary operations
-            if expr.op in ('==', '!=', '<', '>', '<=', '>=', '&&', '||'):
-                return SawType(TypeKind.BOOL)
-            elif expr.op in ('+', '-', '*', '/', '%'):
-                left_type = self._infer_saw_type(expr.left)
-                right_type = self._infer_saw_type(expr.right)
-                # Float takes precedence
-                if left_type and left_type.kind == TypeKind.FLOAT:
-                    return SawType(TypeKind.FLOAT)
-                if right_type and right_type.kind == TypeKind.FLOAT:
-                    return SawType(TypeKind.FLOAT)
-                # Default to Int for arithmetic
-                if left_type:
-                    return left_type
-                if right_type:
-                    return right_type
-                return SawType(TypeKind.INT)
-            return None
-        elif isinstance(expr, UnaryOp):
-            if expr.op == 'not':
-                return SawType(TypeKind.BOOL)
-            return self._infer_saw_type(expr.operand)
-        return None
+    def _expr_type(self, expr) -> SawType:
+        """Return the SawType of an expression from its typechecker annotation.
+
+        This is the single accessor codegen uses for expression types. It reads
+        ``expr.resolved_type`` (stamped by the typechecker at its
+        ``_check_expression`` chokepoint) and, when that type mentions generic
+        type parameters, substitutes the current monomorphization bindings.
+
+        It fails *loud*, never silent: an unannotated expression is a compiler
+        bug (the typechecker must annotate every expression it checks, and
+        codegen-synthesized nodes must set ``resolved_type`` at creation). A
+        silent ``None`` here is exactly what previously disabled cleanup
+        registration and copy insertion and leaked resources.
+        """
+        resolved = getattr(expr, 'resolved_type', None)
+        if resolved is None:
+            node = type(expr).__name__
+            line = getattr(expr, 'line', '?')
+            column = getattr(expr, 'column', '?')
+            raise ValueError(
+                f"internal compiler error: expression node `{node}` at "
+                f"{line}:{column} reached codegen without a resolved_type; "
+                f"the typechecker must annotate every expression before codegen"
+            )
+        # Substitute generic type parameters using the active monomorphization
+        # bindings (empty outside of a specialized generic body).
+        if self.type_param_context:
+            resolved = resolved.substitute(self.type_param_context)
+        return resolved
 
     def _generate_assign_statement(self, stmt: AssignStatement):
         """Generate code for an assignment statement."""

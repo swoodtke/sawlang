@@ -634,7 +634,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         for i, sub_expr in enumerate(expr.expressions):
             # Get expression value and convert to string
             value = self._generate_expression(sub_expr)
-            saw_type = self._infer_saw_type(sub_expr)
+            saw_type = self._expr_type(sub_expr)
             str_ptr = self._value_to_string(value, saw_type)
 
             # Append expression string

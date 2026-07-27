@@ -556,6 +556,13 @@ class OptionalWrap(Expression):
     target_type: Optional['SawType'] = None  # The full T? type
     line: int = 0
     column: int = 0
+    # Synthesized by the typechecker, so it never flows through the
+    # _check_expression chokepoint; carry its type explicitly for codegen.
+    resolved_type: Optional['SawType'] = None
+
+    def __post_init__(self):
+        if self.resolved_type is None:
+            self.resolved_type = self.target_type
 
 
 @dataclass
@@ -568,6 +575,13 @@ class ResultOkWrap(Expression):
     result_type: Optional['SawType'] = None  # The full Result<T, E> type
     line: int = 0
     column: int = 0
+    # Synthesized by the typechecker (bypasses the _check_expression
+    # chokepoint); carry its type explicitly for codegen.
+    resolved_type: Optional['SawType'] = None
+
+    def __post_init__(self):
+        if self.resolved_type is None:
+            self.resolved_type = self.result_type
 
 
 @dataclass
@@ -580,6 +594,13 @@ class ResultErrWrap(Expression):
     result_type: Optional['SawType'] = None  # The full Result<T, E> type
     line: int = 0
     column: int = 0
+    # Synthesized by the typechecker (bypasses the _check_expression
+    # chokepoint); carry its type explicitly for codegen.
+    resolved_type: Optional['SawType'] = None
+
+    def __post_init__(self):
+        if self.resolved_type is None:
+            self.resolved_type = self.result_type
 
 
 @dataclass

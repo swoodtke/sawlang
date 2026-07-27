@@ -126,7 +126,7 @@ class ConditionalsMixin:
 
         # Store the type of the bound variable for type inference
         # Infer the inner type from the optional expression
-        opt_type = self._infer_saw_type(expr.optional_expr)
+        opt_type = self._expr_type(expr.optional_expr)
         if opt_type and opt_type.kind == TypeKind.OPTIONAL and opt_type.inner_type:
             self.variable_types[expr.name] = opt_type.inner_type
 
@@ -335,6 +335,6 @@ class ConditionalsMixin:
         self.variables[stmt.name] = alloca
 
         # Store the type of the bound variable for type inference
-        opt_type = self._infer_saw_type(stmt.optional_expr)
+        opt_type = self._expr_type(stmt.optional_expr)
         if opt_type and opt_type.kind == TypeKind.OPTIONAL and opt_type.inner_type:
             self.variable_types[stmt.name] = opt_type.inner_type

@@ -260,7 +260,7 @@ class OperatorsMixin:
     def _generate_cast_expr(self, expr: CastExpr):
         """Generate code for type cast: expr as Type"""
         value = self._generate_expression(expr.expr)
-        from_saw_type = self._infer_saw_type(expr.expr)
+        from_saw_type = self._expr_type(expr.expr)
         to_type = expr.target_type
         to_llvm = self._get_llvm_type(to_type)
 

@@ -609,6 +609,11 @@ class ExpressionsMixin:
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
                 )
+        # Variadic extra arguments have no declared parameter type to check
+        # against, but must still flow through the chokepoint so codegen sees
+        # their resolved_type annotations.
+        for arg in expr.arguments[len(param_types):]:
+            self._check_expression(arg.value)
         return return_type
 
     def _check_if_expr(self, expr: IfExpr) -> Optional[SawType]:

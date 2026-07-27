@@ -149,7 +149,7 @@ class CallsMixin:
                 # Extend smaller integers to i64 for printf
                 if value.type.width < 64:
                     # Use zext for unsigned types, sext for signed types
-                    saw_type = self._infer_saw_type(arg.value)
+                    saw_type = self._expr_type(arg.value)
                     unsigned_kinds = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}
                     if saw_type and saw_type.kind in unsigned_kinds:
                         value = self.builder.zext(value, ir.IntType(64), name="print_ext")
