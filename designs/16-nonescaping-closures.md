@@ -97,6 +97,19 @@ bug class. Saw's equivalents, by case:
   opt-in); possibly an actor construct as sugar over Arc+Mutex+queue, much
   later. Trade accepted: Saw requires deciding "is this shared?" at design
   time, in exchange for deleting the `[weak self]` bug class.
+- **Weak/Arc design notes (recorded Jul 27, for the eventual Arc brief):**
+  Rust's model: one control block `{strong, weak, payload}`; two-phase
+  destruction (payload deinit at strong-zero — deterministic, on the
+  releasing thread; allocation freed at weak-zero, strong refs collectively
+  hold one weak count). `weak.upgrade() -> Arc<T>?` composes with
+  `guard let`; both types are `ImplicitCopy + Deinit`; payload teardown
+  uses the brief-17 `__deinit_in_place` intrinsic. Atomics: `upgrade()` is
+  a CAS loop ("increment strong iff nonzero") — NEVER a blind fetch_add
+  (resurrection race); all other ops follow the String protocol.
+  **Constraint binding NOW: Arc's control block must reserve the weak
+  count from day one** — retrofitting changes the allocation layout (same
+  ABI-break class as String SSO). Ship `Weak` itself later, when stored
+  callbacks give it a forcing use case.
 
 ## Open details for the implementation brief (not yet decided)
 
