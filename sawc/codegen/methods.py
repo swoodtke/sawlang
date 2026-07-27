@@ -80,12 +80,12 @@ class MethodsMixin:
                 self.variable_types[param.name] = self_saw_type
             elif param.name == "self":
                 # Handle 'self' parameter - use the Self type
-                alloca = self.builder.alloca(self_llvm_type, name=param.name)
+                alloca = self._entry_alloca(self_llvm_type, name=param.name)
                 self.builder.store(llvm_func.args[i], alloca)
                 self.variables[param.name] = alloca
                 self.variable_types[param.name] = self_saw_type
             else:
-                alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
+                alloca = self._entry_alloca(self._get_llvm_type(param.type), name=param.name)
                 self.builder.store(llvm_func.args[i], alloca)
                 self.variables[param.name] = alloca
                 self.variable_types[param.name] = param.type
@@ -189,7 +189,7 @@ class MethodsMixin:
         # Create allocas for parameters (no self for init methods)
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
-            alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
+            alloca = self._entry_alloca(self._get_llvm_type(param.type), name=param.name)
             self.builder.store(llvm_func.args[i], alloca)
             self.variables[param.name] = alloca
             self.variable_types[param.name] = param.type
@@ -232,7 +232,7 @@ class MethodsMixin:
         # Create allocas for parameters (no self for static methods)
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
-            alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
+            alloca = self._entry_alloca(self._get_llvm_type(param.type), name=param.name)
             self.builder.store(llvm_func.args[i], alloca)
             self.variables[param.name] = alloca
             self.variable_types[param.name] = param.type
@@ -275,7 +275,7 @@ class MethodsMixin:
         self.cleanup_stack.append([])
         for i, param in enumerate(func.parameters):
             llvm_func.args[i].name = param.name
-            alloca = self.builder.alloca(self._get_llvm_type(param.type), name=param.name)
+            alloca = self._entry_alloca(self._get_llvm_type(param.type), name=param.name)
             self.builder.store(llvm_func.args[i], alloca)
             self.variables[param.name] = alloca
             self.variable_types[param.name] = param.type

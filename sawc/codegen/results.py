@@ -176,7 +176,7 @@ class ResultsMixin:
                 entry_bb = func.entry_basic_block
                 # Position at start of entry block (allocas go at the beginning)
                 self.builder.position_at_start(entry_bb)
-                err_alloca_ptr[0] = self.builder.alloca(store_type, name="caught_error")
+                err_alloca_ptr[0] = self._entry_alloca(store_type, name="caught_error")
                 self.builder.position_at_end(saved_block)
 
             self.builder.store(value_to_store, err_alloca_ptr[0])
@@ -211,7 +211,7 @@ class ResultsMixin:
         err_value = self._extract_result_err_value(result_val, result_enum_name)
 
         # Create 'error' variable
-        error_alloca = self.builder.alloca(err_value.type, name="error")
+        error_alloca = self._entry_alloca(err_value.type, name="error")
         self.builder.store(err_value, error_alloca)
         old_error = self.variables.get("error")
         self.variables["error"] = error_alloca
@@ -339,7 +339,7 @@ class ResultsMixin:
         param_struct_type = ir.LiteralStructType(param_types)
 
         # Store bytes to memory, then load as struct
-        payload_alloca = self.builder.alloca(llvm_enum_type.elements[1], name="ok_payload_alloca")
+        payload_alloca = self._entry_alloca(llvm_enum_type.elements[1], name="ok_payload_alloca")
         self.builder.store(payload_bytes, payload_alloca)
         struct_ptr = self.builder.bitcast(payload_alloca,
                                           ir.PointerType(param_struct_type),
@@ -365,7 +365,7 @@ class ResultsMixin:
         param_struct_type = ir.LiteralStructType(param_types)
 
         # Store bytes to memory, then load as struct
-        payload_alloca = self.builder.alloca(llvm_enum_type.elements[1], name="err_payload_alloca")
+        payload_alloca = self._entry_alloca(llvm_enum_type.elements[1], name="err_payload_alloca")
         self.builder.store(payload_bytes, payload_alloca)
         struct_ptr = self.builder.bitcast(payload_alloca,
                                           ir.PointerType(param_struct_type),
@@ -413,7 +413,7 @@ class ResultsMixin:
 
         # Convert struct to bytes and store in payload
         payload_type = llvm_enum_type.elements[1]
-        payload_alloca = self.builder.alloca(param_struct_type, name="err_struct_alloca")
+        payload_alloca = self._entry_alloca(param_struct_type, name="err_struct_alloca")
         self.builder.store(param_struct, payload_alloca)
 
         bytes_ptr = self.builder.bitcast(payload_alloca, ir.PointerType(payload_type))
@@ -448,7 +448,7 @@ class ResultsMixin:
 
         # Convert struct to bytes and store in payload
         payload_type = llvm_enum_type.elements[1]
-        payload_alloca = self.builder.alloca(param_struct_type, name="ok_struct_alloca")
+        payload_alloca = self._entry_alloca(param_struct_type, name="ok_struct_alloca")
         self.builder.store(param_struct, payload_alloca)
 
         bytes_ptr = self.builder.bitcast(payload_alloca, ir.PointerType(payload_type))
@@ -569,7 +569,7 @@ class ResultsMixin:
 
         # Convert struct to bytes and store in payload
         payload_type = llvm_enum_type.elements[1]
-        payload_alloca = self.builder.alloca(param_struct_type, name="union_err_alloca")
+        payload_alloca = self._entry_alloca(param_struct_type, name="union_err_alloca")
         self.builder.store(param_struct, payload_alloca)
 
         bytes_ptr = self.builder.bitcast(payload_alloca, ir.PointerType(payload_type))

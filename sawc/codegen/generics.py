@@ -434,7 +434,7 @@ class GenericsMixin:
                 else:
                     substituted = self._substitute_saw_type(param.type, type_mapping)
                     param_type = self._get_llvm_type(substituted)
-                alloca = self.builder.alloca(param_type, name=param.name)
+                alloca = self._entry_alloca(param_type, name=param.name)
                 self.builder.store(llvm_func.args[i], alloca)
                 self.variables[param.name] = alloca
 
@@ -479,7 +479,7 @@ class GenericsMixin:
             llvm_func.args[i].name = param.name
             substituted = self._substitute_saw_type(param.type, type_mapping)
             param_type = self._get_llvm_type(substituted)
-            alloca = self.builder.alloca(param_type, name=param.name)
+            alloca = self._entry_alloca(param_type, name=param.name)
             self.builder.store(llvm_func.args[i], alloca)
             self.variables[param.name] = alloca
 
