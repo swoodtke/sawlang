@@ -6,6 +6,20 @@ specialist reviews (compiler architecture; typechecker/codegen correctness) and
 direct spot-checks of codegen. A third review (test suite) was deferred pending
 test-environment reconfiguration.
 
+## Status update (Jul 27, 2026)
+
+Must-fix items 1–6 have landed (briefs in `designs/01`–`05`; every
+bug-capture XFAIL test now passes): value-transfer checkpoint, typed AST +
+abstract generic checking, canonical mangler, entry-block allocas + O1
+pipeline, heap-based interpolation, div-by-zero panics, array const-index
+bounds. Item 7's bare-ValueError cleanup and the structural issues (pipeline
+unification, merge_into sharing, parser recovery) remain open. Design
+decisions: copy semantics DECIDED (`designs/06`, Copy trait family —
+implementation in `designs/09`); string model and `&var` exclusivity papers
+await decision (`designs/07`, `08`). Known follow-ups: use-after-move
+dataflow, deinit/copy conformance-name mismatch in resources.py (see brief 04
+report), `--emit-ir` builtins.
+
 ## Overall assessment
 
 Genuinely impressive solo language project. Feature surface (generics with
