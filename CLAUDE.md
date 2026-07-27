@@ -91,11 +91,28 @@ examples/          # Example Saw programs
   variables.saw    # Variables and control flow
 ```
 
+## Python Environment
+
+Dependencies live in a virtualenv at `.venv/` (Python 3.14, llvmlite installed).
+Always use it instead of system Python:
+
+```bash
+# Either activate it...
+source .venv/bin/activate
+
+# ...or invoke it directly
+.venv/bin/python test_runner.py
+.venv/bin/python sawc/sawc.py examples/hello.saw -o hello
+```
+
+Note: the Makefile calls bare `python3`, so `make test` requires the venv to be
+activated first.
+
 ## Compiler Usage
 
 ```bash
-# Install dependencies
-pip install llvmlite
+# Install dependencies (into .venv)
+.venv/bin/pip install llvmlite
 
 # Compile a Saw program
 ./sawc/sawc.py examples/hello.saw -o hello
