@@ -1009,6 +1009,24 @@ class TypeUtilsMixin:
             elif isinstance(value, MoveExpr):
                 entries.append(('moved', (value.variable, ()), value,
                                 value.line, value.column))
+            elif isinstance(value, ClosureExpr):
+                # design 16/29 item 4: the borrow captures of a non-escaping
+                # closure argument are hidden reference parameters of THIS call,
+                # so they join the access set — checked pairwise against the
+                # receiver, the other arguments, and the other closures' captures.
+                # `v.each { [&var v] in ... }` (mutably capturing the iterated
+                # collection) collides with the `&self` receiver and is rejected;
+                # a disjoint `[&total]` is fine.
+                for spec in (getattr(value, 'capture_specs', None) or []):
+                    if spec.mode not in ('ref', 'ref_var'):
+                        continue
+                    name_expr = Identifier(name=spec.name, line=spec.line,
+                                           column=spec.column)
+                    path = self._build_access_path(name_expr)
+                    if path is None:
+                        continue
+                    entries.append(('mut' if spec.mode == 'ref_var' else 'imm',
+                                    path, name_expr, spec.line, spec.column))
 
         n = len(entries)
         for i in range(n):

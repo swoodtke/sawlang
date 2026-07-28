@@ -1,0 +1,31 @@
+// Exclusivity join (design 16/29 item 4): a borrow capture that is DISJOINT
+// from the receiver and the other reference arguments is accepted. Here the
+// method takes a `&var out` argument and the closure immutably borrows a
+// separate `total` — three distinct roots (receiver `s`, `out`, `total`), so no
+// conflict.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 107
+// 7
+
+struct Src {
+    n: Int
+}
+
+extension Src {
+    func drive(&self, sink: &var Int, body: (Int) -> Bool) {
+        body(self.n)
+        sink += self.n
+    }
+}
+
+func main() {
+    let s = Src(n: 7)
+    var out = 0
+    let total = 100
+    s.drive(&var out, { [&total] x in
+        print(x + total)   // reads the immutable borrow of `total`
+        true
+    })
+    print(out)             // 0 + 7 = 7
+}

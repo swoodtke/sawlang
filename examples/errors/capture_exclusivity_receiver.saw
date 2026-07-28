@@ -1,0 +1,25 @@
+// Exclusivity join (design 16/29 item 4): the borrow captures of a non-escaping
+// closure argument join the call's access set (design 10). Mutably capturing the
+// very value being iterated — `b.each { [&var b] ... }` — aliases the `&self`
+// receiver with a `&var` capture in the same call: iterator invalidation caught
+// at compile time.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+struct Bag {
+    n: Int
+}
+
+extension Bag {
+    func each(&self, body: (Int) -> Bool) {
+        body(self.n)
+    }
+}
+
+func main() {
+    var b = Bag(n: 5)
+    // The mere `[&var b]` capture aliases the `&self` receiver of the same call.
+    b.each({ [&var b] x in
+        true
+    })
+}

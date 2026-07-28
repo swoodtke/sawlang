@@ -1,22 +1,29 @@
-// Hazard (design 34 x brief 29): a single call expression combines a `&var`
-// reference ARGUMENT (`combo(&var v)`) with a closure capture list that names a
-// `&var` reference PARAMETER (`{ &var n in ... }`). The two spellings occupy
-// different positions and the parser must keep them apart.
+// Hazard (design 34 x brief 29): a single call combines all THREE `&var`
+// spellings that occupy distinct positions — a `&var` reference ARGUMENT
+// (`combo(&var v, ...)`), a bracketed `&var` CAPTURE list (`{ [&var acc] ... }`),
+// and a `&var` reference PARAMETER (`... &var n in ...`). The parser must keep
+// them apart, and the exclusivity check must see the borrow capture as a hidden
+// reference parameter of the call — here `v`, `acc`, and the closure's local are
+// all disjoint, so it is accepted.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 105
+// 1
 
 func combo(target: &var Int, body: (&var Int) -> Bool) {
-    target += 100        // mutate the &var argument directly
+    target += 100           // mutate the &var argument directly
     var local = 0
-    body(&var local)     // drive the closure through a &var reference
+    body(&var local)        // drive the closure through a &var reference param
 }
 
 func main() {
     var v = 5
-    combo(&var v) { &var n in
+    var acc = 0
+    combo(&var v, { [&var acc] &var n in
         n = n + 1
+        acc = acc + n
         true
-    }
-    print(v)   // 105
+    })
+    print(v)     // 105
+    print(acc)   // 1
 }
