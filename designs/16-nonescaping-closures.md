@@ -1,10 +1,22 @@
 # Design Paper 16 — Non-escaping closures and reference captures
 
-**Status: DIRECTION APPROVED (Jul 27, 2026)** — Swift-style
-default-non-escaping closure parameters with reference captures; details
-below to be confirmed at implementation-brief time. Extends the decisions in
-`designs/08` (exclusivity — whose invariant list explicitly reserved this
-carve-out) and composes with `designs/06`/`07`.
+**Status: FULLY DECIDED (Jul 28, 2026)** — direction approved Jul 27; the
+two remaining surface-syntax decisions ratified Jul 28 (user):
+- **`escaping` marker: type slot, post-parameter position** — same slot
+  family as `sync`: `(Int) escaping -> Void`, composing as
+  `() sync escaping -> Void`. Closure-typed function parameters are
+  non-escaping by default; the marker opts out. Fields, returns, and
+  bindings are implicitly escaping with no marker written; the type
+  carries the bit, so aliases and higher-order signatures express it.
+- **Captures: bracketed capture list before the params** —
+  `{ [&var sum] in sum += $0 }`, `{ [&var sum] x in ... }`,
+  `{ [move conn] in ... }`. Chosen over a merged list because
+  reference-typed closure PARAMETERS already exist
+  (`m.lock { &var data in ... }`, brief 21) — brackets keep captures and
+  params syntactically distinct with no name-lookup disambiguation.
+Implementation is briefed in `designs/29-nonescaping-closures-impl.md`.
+Extends the decisions in `designs/08` (exclusivity — whose invariant list
+explicitly reserved this carve-out) and composes with `designs/06`/`07`.
 
 ## The rule
 
@@ -111,10 +123,10 @@ bug class. Saw's equivalents, by case:
   ABI-break class as String SSO). Ship `Weak` itself later, when stored
   callbacks give it a forcing use case.
 
-## Open details for the implementation brief (not yet decided)
+## Open details for the implementation brief
 
-- Surface spelling of the marker (`escaping` keyword position; whether the
-  type or the parameter carries it in written syntax).
+- ~~Surface spelling of the marker~~ **DECIDED (Jul 28, user): type slot,
+  post-parameter position (`(Int) escaping -> Void`), matching `sync`.**
 - ~~Capture explicitness~~ **DECIDED (Jul 27, revised — user preference:
   fully explicit reference captures, consistent with `&self`/`&var self`):
   ALL by-reference captures are declared at the closure — `{ &v in ... }`
@@ -128,10 +140,11 @@ bug class. Saw's equivalents, by case:
   true in the syntax, not just the semantics. Accepted cost: reading an
   owning type needs its `&v` marker where implicit borrowing wouldn't —
   the same explicitness trade Saw made at call sites.
-  Exact capture-list syntax (merged with the param list before `in`, or a
-  separate list) is for the implementation brief, including interaction
-  with `$0` shorthand closures.
+  ~~Exact capture-list syntax~~ **DECIDED (Jul 28, user): separate
+  bracketed capture list before the params — `{ [&var sum] x in ... }`,
+  `{ [&var sum] in ... $0 ... }` — disambiguating captures from the
+  reference-typed closure params that landed in brief 21.**
 - Interaction with trailing-closure syntax and `$0` shorthand (should be
-  none, but confirm in the parser).
+  none, but confirm in the parser at implementation time).
 - Sequencing: after the current dataflow work; the natural forcing function
   is the first stdlib iteration API (`Vector.each`/`map`/`fold`).

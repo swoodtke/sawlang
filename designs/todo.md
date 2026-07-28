@@ -32,9 +32,6 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   distinguish `&x` (immutable lend) from `&var x`, with the compiler
   enforcing the match? Flagged in briefs 10/12 as "design decision
   pending." [10, 12]
-- **D8. Non-escaping closure surface syntax** — `escaping` marker position,
-  capture-list form (merged vs separate list before `in`), interaction
-  with trailing closures and `$0` shorthand. Blocks item C1. [16]
 - **D9. Arrays of owning types** — copy semantics (recommended: move-only
   with per-element `.copy()`); plus whether to warn on implicit copies of
   large trivially-copyable structs (recommended: no threshold for now).
@@ -73,11 +70,11 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Closures & iteration
 
-- **C1.** Full non-escaping closures with context-directed by-reference
-  captures (the `var sum = 0; vec.each { ... }` accumulation idiom).
-  Blocked on D8. [16]
-- **C2.** Stdlib iteration API (`Vector.each`/`map`/`fold`) — the forcing
-  function for C1. [16]
+- **C1.** Full non-escaping closures with explicit bracketed reference
+  captures — UNBLOCKED (D8 decided); briefed with C2 as
+  `designs/29-nonescaping-closures-impl.md`. [16, 29]
+- **C2.** Stdlib iteration API (`Vector.each`/`map`/`fold`) — item 6 of
+  brief 29. [16, 29]
 - **C3.** `Weak<T>` — Arc's weak-count slot is already reserved; build when
   stored callbacks give it a use case. [16, 21]
 - **C4. VERIFY:** general (non-spawn) escaping-closure environment
@@ -138,6 +135,11 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   fields; `_check_init_method_call` branch) — agent working now. [27]
 
 ## Recently resolved (recorded here to stop re-flagging)
+
+- **D8 (closure syntax) — DECIDED Jul 28 (user):** `escaping` marker in
+  the function type's post-parameter slot (matching `sync`); explicit
+  captures in a bracketed list (`{ [&var sum] x in ... }`), distinct from
+  reference-typed closure params. Implementation → brief 29. [16]
 
 - **D4 (allocator model) — DECIDED Jul 28 (user): A + C ratified.** Global
   seam stays; allocator-as-type-parameter is the model; default type
