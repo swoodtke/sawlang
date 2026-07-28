@@ -1147,10 +1147,58 @@ func get_index(arr: [Int], i: Int) -> Int {
 
 ## 6. Concurrency
 
-**Status: planned.** None of async/await, threads, channels, or the `Send`/`Sync`
-traits are implemented yet. Everything in this section is *illustrative* of
-intended design. (`String`'s refcount is already atomic so it will be
-`Send`-ready when this lands — see the String section.)
+**Status: partially implemented (stage 1, in progress).** The concurrency model
+is defined in `designs/18-async-await.md`; it lands in stages behind a
+task-only API (no user-facing thread API — the engine is a swappable
+implementation detail and never leaks thread identity). Stage 1
+(`designs/21-concurrency-stage1.md`) builds the sharing primitives on a
+thread-per-task engine with **no new syntax**. Async/await (stages 2-3) remain
+illustrative below.
+
+**Landed in stage 1:**
+
+- **`Send`/`Sync` marker traits**, compiler-known and auto-derived
+  *structurally* (the auto-`Copy` pattern), usable as generic bounds
+  (`T: Send`). Primitives/`Bool`/`Float`/`String` are `Send + Sync` (`String`'s
+  day-one atomic refcount is the designed payoff); a struct/enum is `Send`/`Sync`
+  iff all its fields/payloads are; `UnsafePointer<T>` is neither and poisons its
+  containers structurally. The wrappers override the structural rule so their raw
+  pointers do not poison them: `Arc<T>` is `Send + Sync` iff `T: Send + Sync`;
+  `Mutex<T>`/`Channel<T>`/`Task<T>` are `Send`/`Sync` iff `T: Send`. Explicit
+  conformance (`extension X: Send`) is rejected — derivation only, no
+  unsafe-impl story in v1.
+- **`Arc<T>`** — atomic reference-counted shared ownership (`ImplicitCopy +
+  Deinit`). One `saw_alloc`'d control block `{ i64 strong, i64 weak, T payload }`;
+  the weak count is reserved now as ABI (init 1) even though `Weak` does not ship
+  yet. `copy()` retains (atomic add, monotonic); `deinit()` releases (atomic sub,
+  release), and the thread that takes strong to 0 issues an acquire fence, runs
+  the payload drop glue in place, then releases the collective weak count (at 0:
+  acquire fence + free). This is the two-phase protocol of the String section.
+- **Reference-typed closure parameters** — `{ &var data in ... }` receives a
+  pointer and mutates the referent in place. A closure whose signature has
+  reference parameters is **non-storable** (legal only as a direct call
+  argument) — the conservative gate ahead of full non-escaping closures.
+- **`Mutex<T>`** — `NoCopy + Deinit`, backed by a `pthread_mutex_t` in a
+  `saw_alloc`'d block. `lock(body)` runs the closure once, synchronously, with
+  `&var` access to the payload under the lock, and is **non-reentrant**
+  (self-deadlock on re-lock). The pthread opaque buffer is a conservative
+  64-byte slot (real sizes: macOS 64, glibc/x86_64 40, glibc/aarch64 48),
+  initialized via `pthread_mutex_init` — never a hardcoded platform struct.
+
+The atomic-ordering runtime (`__saw_atomic_*`, per the String protocol) that
+`Arc` and future channels share is in place. **`spawn`/`Task<T>` and
+`Channel<T>` (the task-launch and message-passing primitives) are specified in
+`designs/21` but not yet wired up** — they need the escaping-closure heap-env
+lowering (a task closure must outlive the spawning frame on another thread),
+which is the next increment, together with their `pthread_create`/`join` and
+condvar wrappers. Under the future cooperative engine, `recv()` and `lock`
+keep their shapes but `recv()`/channel waits become suspension points; `lock`'s
+critical section stays synchronous (a sync closure cannot `await`), which is how
+the never-block invariant makes holding a lock across `await` a compile error.
+
+**Status of async/await below: planned.** The `Send`/`Sync` traits and the
+sharing wrappers above are real; async/await, `select`, and channels are still
+illustrative.
 
 ### Async/Await
 

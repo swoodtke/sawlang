@@ -650,16 +650,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _declare_pthread_runtime(self):
         """Emit thin pthread wrappers the concurrency stdlib links against
-        (design 21 items 4-6). These exist so the stdlib never has to spell a
-        NULL attr/return pointer at the Saw level (Saw has no null-pointer
-        literal, and an optional-pointer extern param would be an ABI mismatch).
-        Each wrapper passes the platform-correct NULL and forwards the rest.
+        (design 21 item 4). These exist so the stdlib never has to spell a NULL
+        attr pointer at the Saw level (Saw has no null-pointer literal, and an
+        optional-pointer extern param would be an ABI mismatch); the wrapper
+        passes the platform-correct NULL and forwards the rest.
 
         pthread symbols resolve from libSystem on macOS and libc/libpthread on
-        Linux; clang's default link line pulls them in. Only programs that
-        actually use Mutex/Channel/spawn reference these (the wrappers sit behind
-        generic methods that are monomorphized on use), so pure-compute programs
-        neither reference nor link them.
+        Linux; clang's default link line pulls them in.
+
+        (The task-launch wrappers pthread_create/join and the condvar wrappers
+        for Channel land with spawn/Task and Channel in the next stage-1
+        increment, alongside the escaping-closure lowering they require.)
         """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
@@ -675,38 +676,6 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         b.call(pmi, [fn.args[0], null])
         b.ret_void()
-
-        # __saw_pthread_cond_init_default(c): pthread_cond_init(c, NULL)
-        pci = self._libc_func("pthread_cond_init", i64, [i8ptr, i8ptr])
-        fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
-                         name="__saw_pthread_cond_init_default")
-        self.functions["__saw_pthread_cond_init_default"] = fn
-        b = ir.IRBuilder(fn.append_basic_block("entry"))
-        b.call(pci, [fn.args[0], null])
-        b.ret_void()
-
-        # __saw_pthread_create(th, fn, arg): pthread_create(th, NULL, fn, arg)
-        # `fn` is a void*(*)(void*) trampoline pointer passed as i8*; we bitcast.
-        start_fn_ty = ir.FunctionType(i8ptr, [i8ptr]).as_pointer()
-        pcreate = self._libc_func("pthread_create", i64,
-                                  [i8ptr, i8ptr, start_fn_ty, i8ptr])
-        fn = ir.Function(self.module, ir.FunctionType(i64, [i8ptr, i8ptr, i8ptr]),
-                         name="__saw_pthread_create")
-        self.functions["__saw_pthread_create"] = fn
-        b = ir.IRBuilder(fn.append_basic_block("entry"))
-        start = b.bitcast(fn.args[1], start_fn_ty)
-        rc = b.call(pcreate, [fn.args[0], null, start, fn.args[2]])
-        b.ret(rc)
-
-        # __saw_pthread_join_discard(th): pthread_join(th, NULL)
-        # `th` is a pthread_t passed by value in a word-sized i8* slot.
-        pjoin = self._libc_func("pthread_join", i64, [i8ptr, i8ptr])
-        fn = ir.Function(self.module, ir.FunctionType(i64, [i8ptr]),
-                         name="__saw_pthread_join_discard")
-        self.functions["__saw_pthread_join_discard"] = fn
-        b = ir.IRBuilder(fn.append_basic_block("entry"))
-        rc = b.call(pjoin, [fn.args[0], null])
-        b.ret(rc)
 
     def _create_string_literal_global(self, value: str) -> ir.GlobalVariable:
         """Create (or reuse) an immortal Saw String literal block.
