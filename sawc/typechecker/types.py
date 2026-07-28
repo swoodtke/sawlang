@@ -277,8 +277,55 @@ class TypeUtilsMixin:
             # Recursively resolve function param and return types
             resolved_params = [self._resolve_type(t) for t in (saw_type.param_types or [])]
             resolved_return = self._resolve_type(saw_type.func_return_type) if saw_type.func_return_type else None
-            return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return, func_is_sync=saw_type.func_is_sync)
+            return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return, func_is_sync=saw_type.func_is_sync, func_is_escaping=saw_type.func_is_escaping)
         return saw_type
+
+    def _stamp_escaping_roles(self, t: Optional[SawType], is_param: bool = False,
+                              report_at=None):
+        """Stamp function types with their escaping bit by syntactic role (design
+        16/29).
+
+        A function type in PARAMETER position is non-escaping by default (the
+        `escaping` marker in its post-parameter slot opts in — the parser already
+        set the bit). A function type in ANY OTHER role — struct field, enum
+        payload, function return, let/var binding annotation, or nested inside a
+        container in those roles — is IMPLICITLY escaping: the value it names
+        outlives the current call, so it must be safe to store. Writing the
+        marker in a non-parameter role is redundant and reported once via
+        `report_at=(line, column)`.
+
+        Called on declared types at registration/binding time so that every
+        VALUE carries the correct bit and the variance check in
+        `_check_value_transfer` reads it directly.
+        """
+        if t is None:
+            return t
+        if t.kind == TypeKind.FUNCTION:
+            if not is_param:
+                if t.func_is_escaping and report_at is not None:
+                    line, col = report_at
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        "redundant `escaping` — closure types outside parameter "
+                        "position are always escaping",
+                        line, col
+                    )
+                t.func_is_escaping = True
+            for p in (t.param_types or []):
+                self._stamp_escaping_roles(p, is_param=True, report_at=report_at)
+            self._stamp_escaping_roles(t.func_return_type, is_param=False,
+                                       report_at=report_at)
+        elif t.kind == TypeKind.OPTIONAL:
+            self._stamp_escaping_roles(t.inner_type, is_param=False, report_at=report_at)
+        elif t.kind == TypeKind.TUPLE:
+            for e in (t.element_types or []):
+                self._stamp_escaping_roles(e, is_param=False, report_at=report_at)
+        elif t.kind == TypeKind.ARRAY:
+            self._stamp_escaping_roles(t.array_element_type, is_param=False, report_at=report_at)
+        elif t.kind in (TypeKind.STRUCT, TypeKind.ENUM):
+            for a in (t.type_args or []):
+                self._stamp_escaping_roles(a, is_param=False, report_at=report_at)
+        return t
 
     def _get_underlying_type(self, saw_type: SawType) -> SawType:
         """Get the underlying primitive type for a type (resolves type aliases).
@@ -681,6 +728,33 @@ class TypeUtilsMixin:
                     line, column,
                     hint="pass a `sync`-typed function value or a closure literal "
                          "that is checked suspension-free"
+                )
+
+        # design 16/29 escaping variance: a non-escaping function VALUE may not
+        # flow into an escaping slot. non-escaping <: escaping (the SAFE
+        # direction is escaping-value → non-escaping-slot: the callee promises
+        # not to store it). The error direction is non-escaping-value → escaping
+        # slot: the callee may store a value whose captures borrow a frame that
+        # will die. A closure LITERAL is exempt — it is lowered to match the slot
+        # (an escaping heap env when the target is escaping); only a stored/
+        # forwarded function value (e.g. a non-escaping closure PARAM) is gated.
+        # The target's escaping bit is set at its declaration site: closure
+        # parameters default non-escaping, every other role (field, return,
+        # binding) is stamped escaping by `_stamp_escaping_roles`.
+        if (target_type is not None and target_type.kind == TypeKind.FUNCTION
+                and getattr(target_type, 'func_is_escaping', False)
+                and not isinstance(expr, ClosureExpr)):
+            src = getattr(expr, 'resolved_type', None)
+            if (src is not None and src.kind == TypeKind.FUNCTION
+                    and not getattr(src, 'func_is_escaping', False)):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot store or forward a non-escaping closure into an "
+                    f"escaping `{target_type}` slot ({context})",
+                    line, column,
+                    hint="a non-escaping closure's captures may borrow the "
+                         "enclosing frame; only call it or pass it as another "
+                         "non-escaping argument"
                 )
 
         # `move x` transfers ownership; a move is never a copy/NoCopy violation.

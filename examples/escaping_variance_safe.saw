@@ -1,0 +1,22 @@
+// Escaping variance (design 16/29): non-escaping <: escaping. The SAFE
+// direction is passing an ESCAPING-typed function value where a NON-escaping
+// parameter is expected — the callee promises not to store it, which is fine
+// for a value that was safe to store anyway. `h` below is an escaping closure
+// parameter; forwarding it to `apply_ne` (a non-escaping parameter) is accepted.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12
+
+func apply_ne(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+// `h` is declared escaping; forwarding it to a non-escaping slot is the safe
+// (subtype) direction.
+func run(h: (Int) escaping -> Int) -> Int {
+    apply_ne(h, 11)
+}
+
+func main() {
+    print(run({ $0 + 1 }))   // 12
+}

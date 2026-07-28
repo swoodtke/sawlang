@@ -570,6 +570,10 @@ class StatementsMixin:
         if stmt.type_annotation:
             # Resolve type aliases in the annotation
             resolved_type = self._resolve_type(stmt.type_annotation)
+            # A binding annotation is a non-parameter role (design 16/29): a
+            # closure type there is escaping; the `escaping` marker is redundant.
+            self._stamp_escaping_roles(resolved_type, is_param=False,
+                                       report_at=(stmt.line, stmt.column))
             # allow_literal_to_distinct=True because let/var initialization allows primitives to
             # initialize distinct types (e.g., `let x: MyInt = 21`)
             if not self._types_compatible(value_type, resolved_type, allow_literal_to_distinct=True):

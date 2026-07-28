@@ -62,6 +62,17 @@ class SawType:
     # 22). Calls through a sync-typed value do not mark the caller suspending; a
     # closure/function assigned to it is checked transitively suspension-free.
     func_is_sync: bool = False
+    # For function types (FUNCTION): True when the type is ESCAPING (design 16/29).
+    # A closure-typed function PARAMETER is non-escaping by default (`(Int) ->
+    # Void`); the `escaping` marker in the post-parameter slot opts out
+    # (`(Int) escaping -> Void`, composing as `(Int) sync escaping -> Void`).
+    # Function types in any OTHER role (struct field, binding annotation, return
+    # type) are IMPLICITLY escaping and carry this bit set by type resolution —
+    # writing the marker there is a redundancy error. The bit drives the variance
+    # rule: a non-escaping value flows into an escaping slot? NO (the callee may
+    # store it); an escaping value into a non-escaping slot? YES (safe — the
+    # callee promises not to store it). So non-escaping <: escaping.
+    func_is_escaping: bool = False
     # For pointer types (POINTER), True = UnsafePointer (mutable), False = UnsafeConstPointer
     pointer_mutable: Optional[bool] = None
     # For module types (during qualified access)
@@ -103,8 +114,13 @@ class SawType:
             return f"[{self.array_element_type}; {self.array_size}]"
         if self.kind == TypeKind.FUNCTION:
             params = ", ".join(str(t) for t in (self.param_types or []))
-            prefix = "sync " if self.func_is_sync else ""
-            return f"{prefix}({params}) -> {self.func_return_type}"
+            # Canonical post-parameter effect-slot order: `sync escaping`.
+            effects = ""
+            if self.func_is_sync:
+                effects += " sync"
+            if self.func_is_escaping:
+                effects += " escaping"
+            return f"({params}){effects} -> {self.func_return_type}"
         if self.kind == TypeKind.SELF:
             return "Self"
         if self.kind == TypeKind.POINTER and self.inner_type:
@@ -276,7 +292,7 @@ class SawType:
         if self.kind == TypeKind.FUNCTION:
             substituted_params = [t.substitute(type_map) for t in (self.param_types or [])]
             substituted_return = self.func_return_type.substitute(type_map) if self.func_return_type else None
-            return SawType(TypeKind.FUNCTION, param_types=substituted_params, func_return_type=substituted_return, func_is_sync=self.func_is_sync)
+            return SawType(TypeKind.FUNCTION, param_types=substituted_params, func_return_type=substituted_return, func_is_sync=self.func_is_sync, func_is_escaping=self.func_is_escaping)
 
         # Primitives and other types don't need substitution
         return self

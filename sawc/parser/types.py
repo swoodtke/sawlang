@@ -89,16 +89,29 @@ class TypeParsingMixin:
                     element_types.append(self.parse_type())
             self.expect(TokenType.RPAREN)
 
-            # Post-parameter effect slot (designs 18/22): `(T) sync -> U` is a
-            # sync-typed function value (checked suspension-free). `sync` is
-            # CONTEXTUAL here — after a parenthesized list only `->` (function
-            # type) or a closing delimiter (tuple) may follow, so a bare
-            # identifier in this slot is unambiguous and needs no keyword
-            # reservation. This is Swift's `throws`/`async` position.
+            # Post-parameter effect slot (designs 18/22/16/29): `(T) sync -> U`
+            # (checked suspension-free) and `(T) escaping -> U` (escaping
+            # function value), composing in canonical order `(T) sync escaping ->
+            # U`. Both markers are CONTEXTUAL — after a parenthesized list only
+            # `->` (function type) or a closing delimiter (tuple) may follow, so a
+            # run of these identifiers is unambiguous only when terminated by
+            # `->`. Otherwise this is a tuple and the identifiers are left
+            # unconsumed. This is Swift's `throws`/`async` position.
             is_sync = False
-            if self.match_ident('sync') and self.peek(1).type == TokenType.ARROW:
-                is_sync = True
-                self.advance()  # consume 'sync'
+            is_escaping = False
+            run = []
+            k = 0
+            while (self.peek(k).type == TokenType.IDENT
+                   and self.peek(k).value in ('sync', 'escaping')):
+                run.append(self.peek(k).value)
+                k += 1
+            if run and self.peek(k).type == TokenType.ARROW:
+                for kw in run:
+                    if kw == 'sync':
+                        is_sync = True
+                    else:
+                        is_escaping = True
+                    self.advance()
 
             # Check for arrow to distinguish function type from tuple
             if self.match(TokenType.ARROW):
@@ -107,6 +120,8 @@ class TypeParsingMixin:
                 fn_type = SawType(TypeKind.FUNCTION, param_types=element_types, func_return_type=return_type)
                 if is_sync:
                     fn_type.func_is_sync = True
+                if is_escaping:
+                    fn_type.func_is_escaping = True
                 return fn_type
             else:
                 return SawType(TypeKind.TUPLE, element_types=element_types)

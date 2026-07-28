@@ -218,6 +218,13 @@ class RegistrationMixin:
                 )
             else:
                 seen_fields.add(field.name)
+                # A closure-typed field is escaping (design 16/29): the struct
+                # value can outlive any call, so a stored closure must be safe to
+                # store. Stamp the bit; writing `escaping` here is redundant.
+                self._stamp_escaping_roles(
+                    field.type, is_param=False,
+                    report_at=(getattr(field, 'line', struct.line),
+                               getattr(field, 'column', struct.column)))
                 fields[field.name] = field.type
                 field_order.append(field.name)
 
@@ -263,6 +270,11 @@ class RegistrationMixin:
                 )
             else:
                 seen_variants.add(variant.name)
+                # Enum payloads are escaping roles (design 16/29), like fields.
+                for _payload in (variant.associated_types or []):
+                    _pt = _payload[1] if isinstance(_payload, tuple) else _payload
+                    self._stamp_escaping_roles(
+                        _pt, is_param=False, report_at=(enum.line, enum.column))
                 variants[variant.name] = variant.associated_types
                 variant_order.append(variant.name)
 
@@ -363,6 +375,13 @@ class RegistrationMixin:
             param_types = [self._resolve_type(p.type) for p in func.parameters]
             param_names = [p.name for p in func.parameters]
             return_type = self._resolve_type(func.return_type)
+            # Escaping roles (design 16/29): parameter closure types default
+            # non-escaping; the return type is an escaping role.
+            for _pt in param_types:
+                self._stamp_escaping_roles(_pt, is_param=True,
+                                           report_at=(func.line, func.column))
+            self._stamp_escaping_roles(return_type, is_param=False,
+                                       report_at=(func.line, func.column))
             # Update AST with resolved type for codegen
             func.return_type = return_type
 
@@ -656,6 +675,14 @@ class RegistrationMixin:
             else:
                 # Resolve enum types (e.g., Result<T, E>) that are parsed as STRUCT
                 return_type = self._resolve_type(return_type)
+
+            # Escaping roles (design 16/29): method parameter closure types
+            # default non-escaping; return type is an escaping role.
+            for _pt in param_types:
+                self._stamp_escaping_roles(_pt, is_param=True,
+                                           report_at=(method.line, method.column))
+            self._stamp_escaping_roles(return_type, is_param=False,
+                                       report_at=(method.line, method.column))
 
             # Collect default values for parameters
             default_values = [p.default_value for p in method.parameters]
