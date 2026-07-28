@@ -8,6 +8,19 @@ test-environment reconfiguration.
 
 ## Status update (Jul 27, 2026)
 
+FIX-FAMILY SWEEP IN PROGRESS (briefs 23–26 + standalone ledger items):
+- Standalone exclusivity xfail FIXED (`76adfb3`): immutable `&self`
+  receivers are now collected as shared reads in the call-site
+  exclusivity check; receiver-vs-`&var`-argument aliasing is rejected.
+- Brief 23 (cleanup family) DONE (`fe1ea64`..`47b8bb0`): enum payload
+  deinit via tag-switch drop glue (xfail flipped), if-let/guard-let
+  Deinit bindings registered for cleanup (guard-let in the ENCLOSING
+  scope), statement temps drained before return terminators with the
+  returned value exempted. Suite 294 passed / 5 xfailed after landing.
+- Briefs 24 (typechecker family), 25 (codegen crash family + noalias),
+  26 (structural family) queued/in flight — they own the remaining 5
+  ledger xfails.
+
 Must-fix items 1–6 have landed (briefs in `designs/01`–`05`; every
 bug-capture XFAIL test now passes): value-transfer checkpoint, typed AST +
 abstract generic checking, canonical mangler, entry-block allocas + O1
