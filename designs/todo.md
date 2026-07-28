@@ -14,8 +14,6 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Decisions needed (user input required)
 
-- **D2. Struct equality semantics** — memberwise `==`? Derived? What about
-  structs containing resources? [13]
 - **D5. IO integration for async** — kqueue/epoll reactor vs blocking-pool;
   explicitly open in the concurrency model paper. [18]
 - **D6. Async self-isolation** — may a suspending method's `&var self` span
@@ -56,7 +54,9 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   runtime). [07, 11, 13]
 - **S3.** Mutable `StringBuilder` on the new refcounted representation.
   [07]
-- **S4.** String equality/comparison operators. [11]
+- **S4.** String equality/comparison — `==` resolved by design 32
+  (builtin Equatable conformance over existing `equals`); ordering
+  comparisons (`<` etc. / a Comparable trait) still open. [11, 32]
 - **S5.** Small-string optimization — ABI-gated; "before separate
   compilation or never." [07]
 
@@ -128,6 +128,12 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Recently resolved (recorded here to stop re-flagging)
 
+- **D2 (equality) — DECIDED Jul 28 (user):** `Equatable` mirrors the
+  Copy family — trivial structs + payload-free enums auto-conform;
+  everything else opts in with synthesized memberwise/payload-deep `==`
+  (desugared to `.equals`); resource types never conform; fixes the
+  tag-only payload-enum `==` bug. Decision + implementation → design 32.
+  [13, 32]
 - **D1 (integer overflow) — DECIDED Jul 28 (user):** checked arithmetic
   always, every profile — overflow panics (incl. INT_MIN/-1 and signed
   negation of min); intentional wrap via Swift-style `&+ &- &*`
