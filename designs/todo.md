@@ -24,10 +24,6 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   needs real spec semantics (what is `error`'s type? can it escape the
   catch block? interaction with generics / future `Error` trait).
   [critique concern 3; not covered by any brief]
-- **D4. Freestanding allocator wiring model** — ratify "global seam now +
-  allocator-as-type-parameter as the model" (paper 19's header literally
-  says DECISION NEEDED). Committing to it implies default type parameters
-  (`A = Global`) as a generics feature. [19]
 - **D5. IO integration for async** — kqueue/epoll reactor vs blocking-pool;
   explicitly open in the concurrency model paper. [18]
 - **D6. Async self-isolation** — may a suspending method's `&var self` span
@@ -108,10 +104,11 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Freestanding & allocators
 
-- **F1.** `Allocator` trait + `Global` implementation (blocked on D4).
-  [19]
-- **F2.** Default type parameters (`A = Global`) — generics feature
-  (blocked on D4). [19]
+- **F1.** `Allocator` trait + `Global` implementation — UNBLOCKED (D4
+  decided); briefed as `designs/28-allocator-stage3.md` with `alignof<T>()`
+  and the placement-write contract. [19, 28]
+- **F2.** Default type parameters (`A = Global`) — generics feature; stage
+  4, after brief 28. [19]
 - **F3.** Slab allocators + `AllocatedBy` sugar. [19]
 - **F4.** Module-level `static` declarations (needed for slab regions and
   const-init `Mutex`-in-static). [19]
@@ -141,6 +138,12 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   fields; `_check_init_method_call` branch) — agent working now. [27]
 
 ## Recently resolved (recorded here to stop re-flagging)
+
+- **D4 (allocator model) — DECIDED Jul 28 (user): A + C ratified.** Global
+  seam stays; allocator-as-type-parameter is the model; default type
+  params accepted as staged cost. Placement-write primitive pinned
+  (`ptr[i] = move value`: bitwise move, source consumed, no destination
+  release); `alignof<T>()` gap found. Stage 3 → brief 28. [19]
 
 - Immutable-borrow receiver exclusivity hole (`x.read(&var x)`) — FIXED
   `76adfb3` (design docs 10/12 not yet annotated). [10, 12]

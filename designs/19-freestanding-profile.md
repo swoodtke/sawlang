@@ -1,6 +1,17 @@
 # Option Paper 19 — Freestanding profile and allocators
 
-**Status: DECISION NEEDED (user).** Driven by the project's initial targets:
+**Status: DECIDED (Jul 28, user) — Option A + C ratified.** The `saw_alloc`
+global seam (landed, brief 20) stays as the floor; **allocator as a type
+parameter** (`Vector<T, A: Allocator = Global>`, zero-sized static-backed
+allocator unit structs) is the committed model, which entails default type
+parameters as a staged generics feature. Stage 3 is briefed in
+`designs/28-allocator-stage3.md`. Decision discussion also pinned the
+placement-write mechanism for fallible factories (`MakeBox`): typed
+raw-pointer store (`ptr[0] = move value`) IS the placement-move primitive
+(bitwise move, source consumed, NO destination release — stdlib author's
+obligation to use only on uninitialized slots), and surfaced that
+`alignof<T>()` does not exist yet (Vector hardcodes align 16) — both folded
+into the stage-3 brief. Driven by the project's initial targets:
 kernels and small embedded (see memory note + `designs/18`'s Freestanding
 profile section). Today Saw links libc unconditionally: String/Vector/Arc
 buffers use `malloc`, panics are `printf`+`abort`, `print` is `printf`.
@@ -100,7 +111,7 @@ type TaskBox = Box<Task, TaskSlab>           // the kernel idiom
 allocator for a dynamic scope. Powerful but implicit — against the house
 philosophy; revisit only if arena patterns become pervasive.
 
-**Recommendation: A now (the seam is needed regardless) + C as the model**
+**DECIDED (Jul 28, user): A now (the seam is needed regardless) + C as the model**
 — C degenerates to A when only `Global` exists, so they compose rather
 than compete. Statics note: Saw has no global variables today; a slab's
 static region needs either module-level `static` declarations (small,
