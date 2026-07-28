@@ -222,6 +222,59 @@ extension Vector<T: Copy>: ExplicitCopy {
 }
 
 // =============================================================================
+// Iteration API (design 16/29 item 6) — non-escaping closure parameters.
+// =============================================================================
+//
+// `each`/`map`/`fold` take their closures by NON-escaping parameter (the
+// default), so a closure passed directly may borrow-capture enclosing locals:
+//   var sum = 0
+//   vec.each { [&var sum] in sum += $0 }   // mutates the REAL sum
+//
+// COPY-FAMILY / BOUND: each element is handed to the closure BY VALUE (the
+// signatures take `T`, not `&T`). Extraction reuses `get`, which returns `T?`
+// — a value copy of the element per T's copy class (ImplicitCopy retains,
+// trivial copies bitwise). The extracted element is then `move`d into the
+// closure, so there is exactly ONE copy per visit and NEVER a silent duplicate
+// of an ExplicitCopy element. Handing an owned `T` to a by-value closure
+// parameter is a copy at the source, so this API is bound to `T: Copy` — the
+// same bound `Vector`'s own `.copy()` carries. A `Vector<File>` (NoCopy
+// element) therefore cannot call `each`/`map`/`fold`; a future by-reference
+// (`(&T)`) overload would lift that, but is out of scope here.
+extension Vector<T: Copy> {
+    // Visit each element in order, passing it to `body`.
+    func each(&self, body: (T) -> Void) {
+        var i = 0
+        while i < self.length {
+            if let elem = self.get(i) {
+                body(move elem)
+            }
+            i = i + 1
+        }
+    }
+
+}
+
+// `map`/`fold` (brief 29 item 6) — DEFERRED as dedicated methods, subsumed by
+// `each` today. A `map<U>`/`fold<A>` method needs a SECOND, method-level generic
+// type parameter (the output element / the accumulator) independent of the
+// element type `T`. The compiler has no generic METHODS yet (only free
+// functions and whole generic types carry `<...>`), and the free-function
+// alternative — `fold<T: Copy, A>(v: &Vector<T>, ...)` — currently trips a
+// monomorphization recursion when a generic function takes `&Vector<T>`. Both
+// are generic-infrastructure gaps outside brief 29's non-escaping-closure scope;
+// shipping a version fixed to a concrete accumulator type would silently weaken
+// the API, so it is not done.
+//
+// Crucially, non-escaping closures make `each` SUBSUME fold and map through
+// borrow-captured accumulators — which is exactly the payoff this brief exists
+// to deliver:
+//     let mut sum = 0;  v.each { [&var sum] in sum += $0 }        // fold
+//     var out = Vector<Int>()
+//     v.each { [&var out] in out.push($0 * 2) }                   // map
+// So `map`/`fold` add NO new brief-29 semantics over `each`; they are pure
+// ergonomics awaiting the generic-methods feature.
+
+// =============================================================================
 // VectorIterator<T> - Iterator over vector elements
 // =============================================================================
 

@@ -18,7 +18,7 @@ from typing import List, Optional
 from lexer import TokenType
 from ast_nodes import (
     Expression, Block, Statement,
-    LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
+    LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation, Identifier,
     BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
@@ -1271,6 +1271,10 @@ class ExpressionsMixin:
                 elif isinstance(stmt, LetStatement):
                     visit_expr(stmt.value)
                 elif isinstance(stmt, AssignStatement):
+                    visit_expr(stmt.target)
+                    visit_expr(stmt.value)
+                elif isinstance(stmt, CompoundAssignStatement):
+                    visit_expr(stmt.target)
                     visit_expr(stmt.value)
                 elif isinstance(stmt, ReturnStatement):
                     visit_expr(stmt.value)

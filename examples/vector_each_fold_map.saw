@@ -1,0 +1,43 @@
+// Vector iteration API (design 16/29 item 6): `Vector.each` takes a NON-escaping
+// closure parameter, so the closure passed directly may borrow-capture
+// enclosing locals. This makes `each` subsume fold and map through borrow-
+// captured accumulators — the whole point of non-escaping closures. The
+// flagship accumulation idiom `vec.each { [&var sum] in sum += $0 }` mutates the
+// REAL `sum`, which by-value captures could never express.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 60
+// 6
+// 120
+
+func main() {
+    var v = Vector<Int>()
+    v.push(10)
+    v.push(20)
+    v.push(30)
+
+    // each + a borrow-captured accumulator == fold (the flagship idiom)
+    var sum = 0
+    v.each { [&var sum] in
+        sum += $0
+    }
+    print(sum)   // 60
+
+    // fold to a product, same mechanism
+    var product = 1
+    v.each { [&var product] in
+        product = product * ($0 / 10)
+    }
+    print(product)  // 1*2*3 = 6
+
+    // map: build a new Vector by pushing into a borrow-captured result
+    var out = Vector<Int>()
+    v.each { [&var out] in
+        out.push($0 * 2)
+    }
+    var doubled_sum = 0
+    out.each { [&var doubled_sum] in
+        doubled_sum += $0
+    }
+    print(doubled_sum)  // 20+40+60 = 120
+}

@@ -36,6 +36,7 @@ class TypeParsingMixin:
         'Float': TypeKind.FLOAT,
         'Bool': TypeKind.BOOL,
         'String': TypeKind.STRING,
+        'Void': TypeKind.VOID,  # explicit unit type, e.g. a `(T) -> Void` closure
         'UInt': TypeKind.UINT,  # System-width unsigned integer
         # Fixed-width signed integers
         'Int8': TypeKind.INT8,
