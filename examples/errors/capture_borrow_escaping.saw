@@ -1,0 +1,16 @@
+// Borrow captures (`&`/`&var`) are legal ONLY in a closure literal passed
+// directly to a non-escaping parameter (design 16/29): they lower to pointers
+// into the enclosing frame, sound only because the closure cannot outlive the
+// call. `spawn`'s closure escapes to another task, so a borrow capture there is
+// rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: borrow capture `&var sum` is legal only
+
+func main() {
+    var sum = 0
+    let task = spawn { [&var sum] in
+        sum = sum + 1
+        sum
+    }
+    task.join()
+}

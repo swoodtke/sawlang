@@ -838,16 +838,33 @@ class ExpressionsMixin:
     # === Closure Parsing ===
 
     def _parse_closure_expression(self) -> ClosureExpr:
-        """Parse a closure expression: { x in x * 2 } or { $0 * 2 }"""
+        """Parse a closure expression: { x in x * 2 } or { $0 * 2 }
+
+        An optional bracketed capture list may precede the parameters (design
+        16/29): `{ [&var sum] x in ... }`, `{ [move conn] in ... }`. A `[...]`
+        immediately after `{` is a capture list ONLY when it is followed (after
+        optional params) by `in`; otherwise it is an array-literal body
+        (`{ [1, 2, 3] }`).
+        """
         start = self.current()
         self.advance()  # consume '{'
         self.skip_newlines()
+
+        # Optional bracketed capture list.
+        capture_specs = []
+        if self.match(TokenType.LBRACKET) and self._closure_capture_list_ahead():
+            capture_specs = self._parse_capture_list()
+            self.skip_newlines()
 
         # Check for named params: { x in ... } or { x, y in ... } or { x: Type in ... }
         params = []
         if self._is_closure_with_named_params():
             params = self._parse_closure_params()
             self.expect(TokenType.IN, "Expected 'in' after closure parameters")
+            self.skip_newlines()
+        elif capture_specs and self.match(TokenType.IN):
+            # `{ [caps] in ... }` — capture list, no params.
+            self.advance()
             self.skip_newlines()
 
         # Parse body as block-like content
@@ -863,9 +880,95 @@ class ExpressionsMixin:
             parameters=params,
             body=body,
             shorthand_param_count=shorthand_count,
+            capture_specs=capture_specs,
             line=start.line,
             column=start.column
         )
+
+    def _closure_capture_list_ahead(self) -> bool:
+        """Disambiguate a bracketed capture list from an array-literal body.
+
+        Current token is `[`. It begins a capture list iff, after the matching
+        `]` and any closure params, an `in` follows at depth 0 (Swift's rule).
+        `{ [x] in ... }` is a capture list; `{ [1, 2, 3] }` is an array body.
+        """
+        saved = self.pos
+        try:
+            # Skip the bracketed group to its matching `]`.
+            depth = 0
+            while True:
+                t = self.current()
+                if t.type == TokenType.EOF:
+                    return False
+                if t.type == TokenType.LBRACKET:
+                    depth += 1
+                elif t.type == TokenType.RBRACKET:
+                    depth -= 1
+                    self.advance()
+                    if depth == 0:
+                        break
+                    continue
+                self.advance()
+            # After `]`: scan for `in` at depth 0 before a `}` or a statement.
+            depth = 0
+            while True:
+                t = self.current()
+                if t.type == TokenType.EOF:
+                    return False
+                if depth == 0 and t.type == TokenType.RBRACE:
+                    return False
+                if depth == 0 and t.type == TokenType.IN:
+                    return True
+                if t.type in (TokenType.LT, TokenType.LPAREN, TokenType.LBRACE,
+                              TokenType.LBRACKET):
+                    depth += 1
+                elif t.type in (TokenType.GT, TokenType.RPAREN, TokenType.RBRACE,
+                                TokenType.RBRACKET):
+                    depth -= 1
+                if depth == 0 and t.type in (
+                    TokenType.PLUS, TokenType.MINUS, TokenType.STAR, TokenType.SLASH,
+                    TokenType.EQ, TokenType.NEQ, TokenType.RETURN, TokenType.IF,
+                    TokenType.WHILE, TokenType.ASSIGN, TokenType.SEMICOLON,
+                    TokenType.LET,
+                ):
+                    return False
+                self.advance()
+        finally:
+            self.pos = saved
+
+    def _parse_capture_list(self) -> List['CaptureSpec']:
+        """Parse `[ &var sum, move conn, copy v, x ]` (design 16/29)."""
+        from ast_nodes import CaptureSpec
+        self.expect(TokenType.LBRACKET)
+        self.skip_newlines()
+        specs = []
+        while not self.match(TokenType.RBRACKET):
+            tok = self.current()
+            mode = 'plain'
+            if self.match(TokenType.AMPERSAND):
+                self.advance()
+                if self.match(TokenType.VAR):
+                    self.advance()
+                    mode = 'ref_var'
+                else:
+                    mode = 'ref'
+            elif self.match(TokenType.MOVE):
+                self.advance()
+                mode = 'move'
+            elif self.match_ident('copy'):
+                self.advance()
+                mode = 'copy'
+            name_tok = self.expect(TokenType.IDENT, "Expected capture name")
+            specs.append(CaptureSpec(name=name_tok.value, mode=mode,
+                                     line=tok.line, column=tok.column))
+            if self.match(TokenType.COMMA):
+                self.advance()
+                self.skip_newlines()
+            else:
+                break
+        self.skip_newlines()
+        self.expect(TokenType.RBRACKET, "Expected ']' after capture list")
+        return specs
 
     def _is_closure_with_named_params(self) -> bool:
         """Look ahead to check for pattern: IDENT (':' Type)? (',' IDENT (':' Type)?)* 'in'"""

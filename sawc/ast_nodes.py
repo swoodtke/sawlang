@@ -782,6 +782,24 @@ class ClosureParam:
 
 
 @dataclass
+class CaptureSpec:
+    """One entry in a closure's bracketed capture list (design 16/29):
+    `[&var sum, move conn, copy v, x]`. `mode` is one of:
+      'ref'      — `&name`     immutable borrow (env-of-references)
+      'ref_var'  — `&var name` mutable borrow  (env-of-references)
+      'move'     — `move name` ownership transfer into the env
+      'copy'     — `copy name` explicit deep copy into the env
+      'plain'    — `name`      today's transfer rules (bitwise / retain / error)
+    Borrow captures ('ref'/'ref_var') are legal ONLY in a closure literal passed
+    directly to a non-escaping parameter.
+    """
+    name: str
+    mode: str
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class ClosureExpr(Expression):
     """Closure expression: { x in x * 2 } or { $0 * 2 }
 
@@ -789,11 +807,17 @@ class ClosureExpr(Expression):
     1. Named parameters: { x, y in x + y }
     2. Shorthand parameters: { $0 + $1 }
     3. No parameters: { 42 } (treated as () -> T)
+
+    An optional bracketed capture list may precede the parameters:
+    `{ [&var sum] x in ... }`, `{ [move conn] in ... }`.
     """
     parameters: List[ClosureParam]  # Named parameters, empty for shorthand
     body: 'Block'
     shorthand_param_count: int = 0  # Number of $0, $1, etc. used
+    capture_specs: List['CaptureSpec'] = field(default_factory=list)  # Parsed [..]
     captures: List[str] = field(default_factory=list)  # Filled by type checker
+    # Filled by type checker: name -> effective capture mode (see CaptureSpec).
+    capture_modes: Dict[str, str] = field(default_factory=dict)
     has_reference_params: bool = False  # Filled by type checker (design 21 item 3)
     escapes: bool = False  # Filled by type checker (design 21b E1): the closure
                            # value outlives its creating frame (bound/returned/

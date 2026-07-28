@@ -2767,6 +2767,50 @@ class ExpressionsMixin:
         # its target type is a `sync` function type (e.g. `Mutex.lock`'s param),
         # the closure is a sync context checked transitively suspension-free.
         self._effect_enter_closure(expr, expected_type)
+
+        # Bracketed capture list (design 16/29). Borrow captures (`&`/`&var`) are
+        # legal ONLY in a closure literal passed directly to a NON-escaping
+        # parameter — they lower to pointers into the enclosing frame, sound only
+        # because the closure cannot outlive the call. A borrow capture defines a
+        # shadowing binding in the closure scope: the name reads/writes the
+        # referent, mutable iff `&var`. Value captures (`move`/`copy`/plain) are
+        # handled after the body (routed through the value-transfer checkpoint).
+        spec_by_name = {}
+        target_escaping = bool(expected_type is not None
+                               and expected_type.kind == TypeKind.FUNCTION
+                               and getattr(expected_type, 'func_is_escaping', False))
+        borrow_ok = as_call_argument and not force_escape and not target_escaping
+        for spec in (expr.capture_specs or []):
+            if spec.name in spec_by_name:
+                self._error(
+                    ErrorKind.DUPLICATE_VARIABLE,
+                    f"capture `{spec.name}` listed more than once",
+                    spec.line, spec.column)
+            spec_by_name[spec.name] = spec
+            outer_info = outer_scope.lookup(spec.name)
+            if outer_info is None:
+                self._error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"capture of undefined variable `{spec.name}`",
+                    spec.line, spec.column)
+                continue
+            if spec.mode in ('ref', 'ref_var'):
+                if not borrow_ok:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"borrow capture `&{'var ' if spec.mode == 'ref_var' else ''}"
+                        f"{spec.name}` is legal only in a closure passed directly to a "
+                        f"non-escaping parameter",
+                        spec.line, spec.column,
+                        hint="an escaping closure outlives the frame, so it cannot "
+                             "borrow it — capture by value (`move`/`copy`) instead")
+                    continue
+                referent = outer_info.type
+                if referent is not None and referent.kind == TypeKind.REFERENCE:
+                    referent = referent.inner_type
+                self.current_scope.define(spec.name, VariableInfo(
+                    referent, spec.mode == 'ref_var', spec.line, spec.column))
+
         param_types = []
         has_reference_params = False
         if expr.parameters:
@@ -2849,8 +2893,20 @@ class ExpressionsMixin:
         if return_type is None:
             return_type = SawType(TypeKind.VOID)
         captures = self._analyze_closure_captures(expr.body, outer_scope)
+        # An explicitly-listed capture is captured even if the body scan missed
+        # it (e.g. a borrow named for its side of an exclusivity check). Preserve
+        # body-scan order, then append listed-but-unseen names.
+        for spec in (expr.capture_specs or []):
+            if spec.name not in captures and outer_scope.lookup(spec.name):
+                captures.append(spec.name)
         expr.captures = captures
         expr.has_reference_params = has_reference_params
+        # Record each capture's effective mode for codegen (design 16/29): listed
+        # names take their declared mode; everything else is `plain`.
+        expr.capture_modes = {
+            name: (spec_by_name[name].mode if name in spec_by_name else 'plain')
+            for name in captures
+        }
         # Escape analysis (design 21b E1): a closure used in value position (bound
         # to a let/var, returned, stored, or a struct field) outlives the frame
         # that built it, so its environment must be heap-allocated with captured
@@ -2863,27 +2919,44 @@ class ExpressionsMixin:
         # so the spawn handler passes force_escape=True.
         expr.escapes = force_escape or (
             (not as_call_argument) and (not has_reference_params))
-        # A heap env transfers each capture in per the value-transfer rules
-        # (design 21b E1): trivial copy / ImplicitCopy retain are handled in
-        # codegen, but a move-only capture (NoCopy / ExplicitCopy) cannot be
-        # implicitly duplicated into the env — reject it with a clear message.
-        if expr.escapes:
-            for cap_name in captures:
-                cap_info = outer_scope.lookup(cap_name)
-                if cap_info is None:
-                    continue
-                ctype = cap_info.type
-                if self._is_no_copy_type(ctype) or self._is_explicit_copy_type(ctype):
-                    self._error(
-                        ErrorKind.CANNOT_COPY,
-                        f"cannot capture move-only value `{cap_name}` of type "
-                        f"`{ctype}` in an escaping closure",
-                        expr.line, expr.column,
-                        hint="wrap it in `Arc` for shared ownership, or restructure "
-                             "so the closure does not outlive its frame"
-                    )
         self.current_scope = outer_scope
         self.moved_bindings = saved_moves
+        # Route every VALUE capture (mode plain/move/copy) through the shared
+        # value-transfer checkpoint, in the OUTER scope so `move` records the
+        # source binding as moved-from (design 03/15/16/29). Borrow captures
+        # (ref/ref_var) are not transfers and are skipped. This makes capture
+        # rules literally the call-argument rules: plain capture of a
+        # NoCopy/ExplicitCopy is an error (demand `move`/`copy`); ImplicitCopy is
+        # retained; trivial is copied bitwise; `move`/`copy` are explicit.
+        for cap_name in captures:
+            mode = expr.capture_modes.get(cap_name, 'plain')
+            if mode in ('ref', 'ref_var'):
+                continue
+            cap_info = outer_scope.lookup(cap_name)
+            if cap_info is None:
+                continue
+            ctype = cap_info.type
+            if mode == 'move':
+                mv = MoveExpr(variable=cap_name, line=expr.line, column=expr.column)
+                self._check_move_expr(mv)
+                continue
+            if mode == 'copy':
+                if self._is_no_copy_type(ctype):
+                    self._error(
+                        ErrorKind.CANNOT_COPY,
+                        f"cannot `copy` capture `{cap_name}`: type `{ctype}` "
+                        f"implements NoCopy",
+                        expr.line, expr.column,
+                        hint="use `move {}` to transfer ownership".format(cap_name))
+                continue
+            # Plain capture: an escaping env must own its captures, so move-only
+            # types are rejected; a non-escaping stack env borrows the frame, so
+            # a plain capture there is also just a read — but for uniform,
+            # explicit semantics we apply the same rule everywhere.
+            ident = Identifier(name=cap_name, line=expr.line, column=expr.column)
+            ident.resolved_type = ctype
+            self._check_value_transfer(ident, ctype, "closure capture",
+                                       expr.line, expr.column)
         # A closure with reference parameters is non-storable: legal only as a
         # direct call argument (design 21 item 3). Reject any other position.
         if has_reference_params and not as_call_argument:
