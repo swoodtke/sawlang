@@ -1285,6 +1285,22 @@ class ExpressionsMixin:
         # Resolve the field type (e.g., convert STRUCT to ENUM if needed)
         return self._resolve_type(struct_info.fields[expr.member])
 
+    def _check_init_field_value(self, value, expected_type: Optional[SawType]) -> Optional[SawType]:
+        """Type-check a struct-init field/init-argument value.
+
+        When the field/parameter type is a function type and the value is a
+        closure literal, infer the closure's parameter types from that expected
+        type — mirroring the call-argument path in `_check_field_call`
+        (`{ $0 * 2 }` gets its `$0: Int` from the field's `(Int) -> ...`). A
+        closure stored in a struct field escapes its creating frame, so it is
+        NOT treated as a direct call argument (`as_call_argument` stays False),
+        which correctly routes it through escaping-closure heap-env handling.
+        """
+        if (isinstance(value, ClosureExpr) and expected_type is not None
+                and expected_type.kind == TypeKind.FUNCTION):
+            return self._check_closure(value, expected_type)
+        return self._check_expression(value)
+
     def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
         """Check struct initialization with parameter-based resolution."""
         struct_info = self.get_struct_info(expr.struct_name)
@@ -1373,7 +1389,7 @@ class ExpressionsMixin:
                 expected_type = struct_info.fields[field_name]
                 if type_mapping:
                     expected_type = expected_type.substitute(type_mapping)
-                actual_type = self._check_expression(field_value)
+                actual_type = self._check_init_field_value(field_value, expected_type)
                 if expected_type.kind == TypeKind.OPTIONAL and isinstance(field_value, NoneLiteral):
                     field_value.resolved_type = expected_type
                 if actual_type and not self._types_compatible(actual_type, expected_type):
@@ -1398,7 +1414,7 @@ class ExpressionsMixin:
                 expected_type = method_info.param_types[param_idx]
                 if type_mapping:
                     expected_type = expected_type.substitute(type_mapping)
-                actual_type = self._check_expression(field_value)
+                actual_type = self._check_init_field_value(field_value, expected_type)
                 if actual_type and not self._types_compatible(actual_type, expected_type):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -2198,7 +2214,7 @@ class ExpressionsMixin:
             # Field initialization
             for field_name, field_value in field_inits:
                 expected_type = struct_sym.fields[field_name]
-                actual_type = self._check_expression(field_value)
+                actual_type = self._check_init_field_value(field_value, expected_type)
                 if actual_type and not self._types_compatible(actual_type, expected_type):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -2218,7 +2234,7 @@ class ExpressionsMixin:
             for field_name, field_value in field_inits:
                 param_idx = method_info.param_names.index(field_name)
                 expected_type = method_info.param_types[param_idx]
-                actual_type = self._check_expression(field_value)
+                actual_type = self._check_init_field_value(field_value, expected_type)
                 if actual_type and not self._types_compatible(actual_type, expected_type):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,

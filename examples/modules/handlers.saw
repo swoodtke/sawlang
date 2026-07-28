@@ -1,0 +1,7 @@
+// A library module exposing a struct with a function-typed field, used to
+// exercise closure param-type inference through the module-qualified
+// struct-init path (design 27 item 2). Library module; not compiled standalone.
+
+public struct Handler {
+    fn: (Int) -> Int
+}

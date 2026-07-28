@@ -1,0 +1,12 @@
+// A closure literal passed as a field argument to a module-qualified struct
+// init infers its parameter types from the field's function type
+// (design 27 item 2, `_check_module_struct_init` path).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+import modules.handlers
+
+func main() {
+    let h = handlers.Handler(fn: { $0 * 2 })
+    print(h.fn(21))   // 42
+}
