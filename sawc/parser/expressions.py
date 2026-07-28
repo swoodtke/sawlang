@@ -181,12 +181,46 @@ class ExpressionsMixin:
 
         if self.match(TokenType.MOVE):
             move_token = self.advance()
-            # move must be followed by an identifier
+            # move must be followed by an identifier (the root binding)
             if not self.match(TokenType.IDENT):
                 raise SyntaxError(f"Expected identifier after 'move' at line {move_token.line}")
-            var_token = self.advance()
+            base_token = self.advance()
+            # Consume any member/tuple/index projections so a partial move like
+            # `move p.x`, `move p.x.y`, or `move arr[i]` parses cleanly. Partial
+            # moves are forbidden (design 35); the typechecker rejects the path
+            # with a diagnostic naming the field and base. Accepting the syntax
+            # here avoids a bare parse error (`move p.x`) or silent mis-handling
+            # (`move arr[i]` used to drop the index).
+            node = Identifier(name=base_token.value, line=base_token.line,
+                              column=base_token.column)
+            is_partial = False
+            while True:
+                if self.match(TokenType.DOT):
+                    dot = self.advance()
+                    member = self.current()
+                    if member.type == TokenType.INT:
+                        self.advance()
+                        node = TupleIndex(tuple_expr=node, index=int(member.value),
+                                          line=dot.line, column=dot.column)
+                    elif member.type == TokenType.IDENT:
+                        self.advance()
+                        node = MemberAccess(object=node, member=member.value,
+                                            line=dot.line, column=dot.column)
+                    else:
+                        self.error("Expected field name or tuple index after '.'")
+                    is_partial = True
+                elif self.match(TokenType.LBRACKET):
+                    bracket = self.advance()
+                    index_expr = self.parse_expression()
+                    self.expect(TokenType.RBRACKET, "Expected ']' after index in move")
+                    node = ArrayIndex(array_expr=node, index=index_expr,
+                                      line=bracket.line, column=bracket.column)
+                    is_partial = True
+                else:
+                    break
             return MoveExpr(
-                variable=var_token.value,
+                variable=base_token.value,
+                path=node if is_partial else None,
                 line=move_token.line,
                 column=move_token.column
             )

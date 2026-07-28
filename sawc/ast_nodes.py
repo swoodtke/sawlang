@@ -428,8 +428,17 @@ class UnaryOp(Expression):
 
 @dataclass
 class MoveExpr(Expression):
-    """Move expression: move variable - transfers ownership without copying."""
-    variable: str  # The variable name being moved
+    """Move expression: move variable - transfers ownership without copying.
+
+    `variable` names the root binding (always present). `path` is set only for
+    a *partial* move like `move p.x`, `move p.x.y`, or `move arr[i]`: it holds
+    the projected lvalue expression rooted at `variable`. Partial moves are
+    forbidden on every struct (design 35) -- the parser accepts the syntax so a
+    deliberate typechecker diagnostic (naming the field and base) can reject it,
+    rather than a bare parse error or silent mis-handling.
+    """
+    variable: str  # The root binding name being moved
+    path: Optional['Expression'] = None  # Projected lvalue for a partial move
     line: int = 0
     column: int = 0
 

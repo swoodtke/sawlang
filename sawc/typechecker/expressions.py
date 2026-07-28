@@ -214,6 +214,19 @@ class ExpressionsMixin:
         returns all mark the move uniformly. A double-move is caught here
         because the second `move` sees the binding already moved-from.
         """
+        # Partial move (`move p.x`, `move p.x.y`, `move arr[i]`): forbidden on
+        # every struct (design 35). Only whole bindings are movable. Reject with
+        # a diagnostic naming the field/element and its base.
+        if expr.path is not None:
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                self._partial_move_message(expr.path),
+                expr.line, expr.column,
+                hint="move the whole value (`move " + expr.variable + "`) or "
+                     "restructure so the piece is its own binding"
+            )
+            return None
+
         var_info = self.current_scope.lookup(expr.variable)
         if not var_info:
             self._error(
@@ -249,6 +262,20 @@ class ExpressionsMixin:
         self._mark_binding_moved(var_info, expr.variable, expr.line, expr.column)
 
         return var_info.type
+
+    def _partial_move_message(self, path: Expression) -> str:
+        """Diagnostic for a forbidden partial move, naming the piece and base."""
+        if isinstance(path, MemberAccess):
+            base = self._render_lvalue_path(path.object)
+            return f"cannot move out of field `{path.member}` of `{base}`"
+        if isinstance(path, TupleIndex):
+            base = self._render_lvalue_path(path.tuple_expr)
+            return f"cannot move out of tuple element `{path.index}` of `{base}`"
+        if isinstance(path, ArrayIndex):
+            base = self._render_lvalue_path(path.array_expr)
+            idx = self._render_index(path.index)
+            return f"cannot move out of element `[{idx}]` of `{base}`"
+        return f"cannot move out of `{self._render_lvalue_path(path)}`"
 
     def _check_reference_expr(self, expr: ReferenceExpr) -> Optional[SawType]:
         """Check a reference expression: &expr or &var expr.
