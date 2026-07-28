@@ -58,8 +58,14 @@ harness-expressible as xfails today:
 - `_check_init_method_call` referenced but undefined on a module-
   qualified-struct MethodCall branch (dead in practice) — brief-24
   finding.
-- Full suite now takes >10 minutes wall-clock; worth profiling the
-  runner/compiler before it becomes a CI bottleneck.
+- ~~Full suite now takes >10 minutes wall-clock~~ — RESOLVED: measured
+  24s wall-clock uncontended (311 tests, ~487% CPU). The >10min
+  observations were contention between concurrent full-suite runs
+  (orchestrator + subagent verifying simultaneously), not a real
+  slowdown.
+
+The three remaining follow-ups above are now brief 27
+(`designs/27-followups-family.md`).
 
 Must-fix items 1–6 have landed (briefs in `designs/01`–`05`; every
 bug-capture XFAIL test now passes): value-transfer checkpoint, typed AST +
