@@ -252,6 +252,19 @@ carries over as rider 3.
   compile error — anything else breaks deterministic destruction; Swift's
   async-deinit pain is the cautionary tale). Likewise ISRs and `sync`-typed
   callbacks.
+- **Async self-isolation — DECIDED (Jul 28, user): `&var self` and all
+  reference params may remain live across suspension points, no
+  restriction.** Soundness rests on task confinement: references cannot
+  be stored, returned, captured by escaping closures, or cross a spawn
+  (captures are by value/move), so a reference is confined to its task's
+  call stack, which suspends and resumes as a unit — no other task can
+  observe the referent mid-suspension. Cross-task sharing exists only
+  behind Arc/Mutex/channels, and Mutex critical sections are `sync`
+  (cannot suspend). Swift needed actor isolation because class
+  references are shared by default; Saw's references are task-local by
+  construction. This ratifies the paper's dominant-case idiom
+  (`let data = fetch(...); self.items = parse(data)` inside a
+  `&var self` method).
 
 ## Freestanding profile (added Jul 27 — initial-target requirement)
 
@@ -276,10 +289,14 @@ The runtime is layered so the core is freestanding:
   option paper before any Stage-2 work.
 
 ## What this paper does NOT decide
-- Executor implementation details (queue discipline, timers, IO reactor) —
-  stage-2 brief territory. IO integration (epoll/kqueue vs blocking-pool)
-  is genuinely open and can be deferred: stage 1 uses blocking IO on
-  threads; stage 2 can too (async compute first, async IO later).
+- Executor implementation details (queue discipline, timers) — stage-2
+  brief territory. ~~IO integration (epoll/kqueue vs blocking-pool) is
+  genuinely open~~ — STALE, superseded by the Jul 28 never-block
+  revision above: **poller-only v1** (kqueue/epoll over genuinely
+  unbounded sources; bounded local file IO stays sync; the pool returns
+  later only for `extern blocking` FFI / io_uring optimization).
+  Sequencing freedom retained: stage 2 may still ship async compute
+  before the reactor exists (blocking IO on threads meanwhile).
 - Actor sugar — explicitly deferred until Arc+Mutex+queue patterns prove
   common enough to deserve syntax.
 

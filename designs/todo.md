@@ -14,10 +14,6 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Decisions needed (user input required)
 
-- **D5. IO integration for async** — kqueue/epoll reactor vs blocking-pool;
-  explicitly open in the concurrency model paper. [18]
-- **D6. Async self-isolation** — may a suspending method's `&var self` span
-  suspension points? Decide deliberately at the async milestone. [18]
 - **D10. Cortex-M0-class atomics** — lowering strategy for ARMv6-M (no
   CAS); decide with the first such port. [19, 20]
 
@@ -73,7 +69,8 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   Send-on-coroutine-frames check. [18]
 - **A3.** Explicit-only cancellation (`Task.cancelled()`, select points).
   [18]
-- **A4.** IO reactor (blocked on D5). [18]
+- **A4.** IO reactor — model decided (poller-only v1, kqueue/epoll over
+  unbounded sources; never-block invariant); build at/after stage 2. [18]
 - **A5.** Effect polymorphism via monomorphization-time re-inference —
   adopt at stage 2. [18, 22-findings]
 - **A6.** `extern blocking` offload machinery (hosted pool). [18]
@@ -120,6 +117,15 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Recently resolved (recorded here to stop re-flagging)
 
+- **D5 (async IO) — was already decided by the Jul 28 never-block
+  revision in paper 18 (poller-only v1 reactor; bounded local IO stays
+  sync; pool later only for `extern blocking`/optimization); the paper's
+  "does NOT decide" line was stale and is now fixed. [18]
+- **D6 (async self-isolation) — DECIDED Jul 28 (user):** `&var self` /
+  reference params may span suspension points freely — sound via task
+  confinement (refs can't escape their task's call stack; cross-task
+  sharing is Mutex/channel-mediated with sync critical sections).
+  Recorded in paper 18. [18]
 - **D7 (call-site sigils) — DECIDED Jul 28 (user):** call sites mirror
   the parameter — `&x` for `&T`, `&var x` for `&var T`, validated both
   directions; completes the sigil symmetry with types/receivers/
