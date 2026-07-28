@@ -1,0 +1,35 @@
+// Arc<T>: atomic reference-counted shared ownership.
+// ImplicitCopy retains (strong++); Deinit releases (strong--), and the last
+// owner runs the payload's drop glue exactly once, then frees the block.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 1
+// 5
+
+struct Res {
+    id: Int
+}
+
+extension Res: Deinit {
+    func deinit(&var self) {
+        print(self.id)   // observable: fires exactly once, when the last Arc drops
+    }
+}
+
+// Takes an Arc by value (implicit retain at the call), observes the shared
+// count, then releases its copy when it returns.
+func consume(a: Arc<Res>) {
+    print(a.strong_count())   // 2 while both the caller's Arc and this copy live
+}
+
+func main() {
+    let a = Arc<Res>(value: Res(id: 5))
+    print(a.strong_count())   // 1
+
+    consume(a)                // strong 1 -> 2 -> 1
+    print(a.strong_count())   // 1 again
+
+    // main's last owner drops at scope end: payload deinit runs once -> "5".
+}

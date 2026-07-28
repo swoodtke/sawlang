@@ -604,6 +604,50 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.call(self.functions["__saw_string_release"], [sval])
         b.ret_void()
 
+    def _declare_atomic_runtime(self):
+        """Emit the atomic seams the Arc/Channel refcount protocol needs
+        (design 21 item 2; ordering per design 07). These are thin wrappers over
+        LLVM atomic ops, exposed to the stdlib as `extern` i64-pointer helpers:
+
+          - __saw_atomic_add_i64(ptr, delta) -> old   (monotonic/relaxed): a live
+            reference keeps the object alive, so a retain needs no ordering.
+          - __saw_atomic_sub_i64_release(ptr, delta) -> old   (release): the
+            releasing thread publishes its writes; the thread that observes the
+            count reach zero pairs this with an acquire fence before teardown.
+          - __saw_atomic_fence_acquire(): orders every other thread's final
+            reads/writes before the deinit + free performed by the last owner.
+
+        Emitted as real definitions BEFORE extern blocks so the stdlib's
+        `extern func __saw_atomic_*` declarations resolve to these.
+        """
+        i64 = ir.IntType(64)
+        i64ptr = i64.as_pointer()
+        void = ir.VoidType()
+
+        # __saw_atomic_add_i64(i64* ptr, i64 delta) -> i64 (old value), monotonic
+        fn = ir.Function(self.module, ir.FunctionType(i64, [i64ptr, i64]),
+                         name="__saw_atomic_add_i64")
+        self.functions["__saw_atomic_add_i64"] = fn
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        old = b.atomic_rmw('add', fn.args[0], fn.args[1], ordering='monotonic')
+        b.ret(old)
+
+        # __saw_atomic_sub_i64_release(i64* ptr, i64 delta) -> i64 (old), release
+        fn = ir.Function(self.module, ir.FunctionType(i64, [i64ptr, i64]),
+                         name="__saw_atomic_sub_i64_release")
+        self.functions["__saw_atomic_sub_i64_release"] = fn
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        old = b.atomic_rmw('sub', fn.args[0], fn.args[1], ordering='release')
+        b.ret(old)
+
+        # __saw_atomic_fence_acquire()
+        fn = ir.Function(self.module, ir.FunctionType(void, []),
+                         name="__saw_atomic_fence_acquire")
+        self.functions["__saw_atomic_fence_acquire"] = fn
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        b.fence(ordering='acquire')
+        b.ret_void()
+
     def _create_string_literal_global(self, value: str) -> ir.GlobalVariable:
         """Create (or reuse) an immortal Saw String literal block.
 
@@ -664,6 +708,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self._declare_seams()
         self._declare_string_runtime()
         self._declare_print_runtime()
+        self._declare_atomic_runtime()
 
         # Store generic and specialized extensions FIRST
         # This must happen before struct registration since structs with generic
