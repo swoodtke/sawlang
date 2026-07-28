@@ -5,10 +5,13 @@
 // FFI declarations for memory management
 // =============================================================================
 
+// Vector is an alloc-layer type: it allocates only through the runtime seams
+// (design 19/20), never libc directly, so it works in the freestanding profile
+// over a user-provided allocator. memcpy is a compiler builtin, not a seam.
 extern "C" {
-    func malloc(size: Int) -> UnsafePointer<Int8>?
-    func realloc(ptr: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
-    func free(ptr: UnsafePointer<Int8>)
+    func saw_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
+    func saw_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
+    func memcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, n: Int) -> UnsafePointer<Int8>
 }
 
 // =============================================================================
@@ -33,7 +36,7 @@ extension Vector<T> {
             Vector<T>(buffer: None, length: 0, capacity: 0)
         } else {
             let byte_size = capacity * sizeof<T>()
-            if let raw_ptr = malloc(byte_size) {
+            if let raw_ptr = saw_alloc(byte_size, 16) {
                 let typed_ptr = raw_ptr as UnsafePointer<T>
                 Vector<T>(buffer: typed_ptr, length: 0, capacity: capacity)
             } else {
@@ -113,15 +116,19 @@ extension Vector<T> {
         let new_byte_size = new_capacity * sizeof<T>()
 
         if let buf = self.buffer {
-            // Reallocate existing buffer
+            // Grow: the seams expose only alloc/dealloc (no realloc), so
+            // allocate a fresh buffer, copy the live bytes, and release the old.
             let raw_ptr = buf as UnsafePointer<Int8>
-            if let new_raw = realloc(raw_ptr, new_byte_size) {
+            let old_byte_size = self.capacity * sizeof<T>()
+            if let new_raw = saw_alloc(new_byte_size, 16) {
+                memcpy(new_raw, raw_ptr, old_byte_size)
+                saw_dealloc(raw_ptr, old_byte_size, 16)
                 self.buffer = new_raw as UnsafePointer<T>
                 self.capacity = new_capacity
             }
         } else {
             // First allocation
-            if let raw_ptr = malloc(new_byte_size) {
+            if let raw_ptr = saw_alloc(new_byte_size, 16) {
                 self.buffer = raw_ptr as UnsafePointer<T>
                 self.capacity = new_capacity
             }
@@ -154,7 +161,7 @@ extension Vector<T>: Deinit {
                 i = i + 1
             }
             let raw_ptr = buf as UnsafePointer<Int8>
-            free(raw_ptr)
+            saw_dealloc(raw_ptr, self.capacity * sizeof<T>(), 16)
         }
     }
 }

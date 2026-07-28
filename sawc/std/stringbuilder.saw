@@ -5,10 +5,12 @@
 // FFI declarations
 // =============================================================================
 
+// StringBuilder is an alloc-layer type: it allocates only through the runtime
+// seams (design 19/20). memcpy is a compiler builtin, not a seam.
 extern "C" {
-    func malloc(size: Int) -> UnsafePointer<Int8>?
-    func realloc(ptr: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
-    func free(ptr: UnsafePointer<Int8>)
+    func saw_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
+    func saw_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
+    func memcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, n: Int) -> UnsafePointer<Int8>
     func strlen(s: UnsafePointer<Int8>) -> Int
 
     // Refcounted String runtime (defined by the compiler).
@@ -36,7 +38,7 @@ extension StringBuilder {
         if capacity <= 0 {
             StringBuilder(buffer: None, length: 0, capacity: 0)
         } else {
-            if let ptr = malloc(capacity) {
+            if let ptr = saw_alloc(capacity, 1) {
                 StringBuilder(buffer: ptr, length: 0, capacity: capacity)
             } else {
                 StringBuilder(buffer: None, length: 0, capacity: 0)
@@ -123,12 +125,16 @@ extension StringBuilder {
         }
 
         if let buf = self.buffer {
-            if let new_buf = realloc(buf, new_capacity) {
+            // Grow via alloc + copy + dealloc (the seams provide no realloc).
+            let old_capacity = self.capacity
+            if let new_buf = saw_alloc(new_capacity, 1) {
+                memcpy(new_buf, buf, old_capacity)
+                saw_dealloc(buf, old_capacity, 1)
                 self.buffer = new_buf
                 self.capacity = new_capacity
             }
         } else {
-            if let new_buf = malloc(new_capacity) {
+            if let new_buf = saw_alloc(new_capacity, 1) {
                 self.buffer = new_buf
                 self.capacity = new_capacity
                 new_buf[0] = 0  // Initialize with null terminator
@@ -141,7 +147,7 @@ extension StringBuilder {
 extension StringBuilder: NoCopy {
     func deinit(&var self) {
         if let buf = self.buffer {
-            free(buf)
+            saw_dealloc(buf, self.capacity, 1)
         }
     }
 }

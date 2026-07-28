@@ -9,7 +9,8 @@
 // =============================================================================
 
 extern "C" {
-    func malloc(size: Int) -> UnsafePointer<Int8>?
+    // memcpy is a compiler/runtime builtin (not a seam) and stays available in
+    // both profiles; Path does its own buffer allocation via String helpers.
     func memcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, n: Int) -> UnsafePointer<Int8>
 }
 

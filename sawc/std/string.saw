@@ -7,7 +7,6 @@
 
 extern "C" {
     func strlen(s: UnsafePointer<Int8>) -> Int
-    func malloc(size: Int) -> UnsafePointer<Int8>?
 
     // Refcounted String runtime, defined by the compiler (see codegen/core.py).
     // A String value is a pointer to the `bytes` field of a heap block laid out

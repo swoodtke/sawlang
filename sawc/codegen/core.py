@@ -43,22 +43,44 @@ import copy
 
 
 class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, TypesMixin, ResourcesMixin):
-    def __init__(self, namespace: Namespace):
+    def __init__(self, namespace: Namespace, target_triple: Optional[str] = None,
+                 freestanding: bool = False):
         # Unified namespace from type checker (Phase 0 of module system)
         self.namespace = namespace
 
-        # LLVM core init is automatic; targets still need explicit registration
+        # Profile flag (design 19/20): freestanding emits the runtime seams as
+        # declarations only (no hosted libc-backed defaults) and gates hosted
+        # facilities (Float printing, hosted std modules).
+        self.freestanding = freestanding
+
+        # LLVM core init is automatic; targets still need explicit registration.
+        # Registering ALL targets (not just the native one) is what lets
+        # `--target <triple>` cross-compile: without it, a non-host triple such
+        # as x86_64-unknown-none-elf reports "no available targets" (verified
+        # against llvmlite 0.48).
         binding.initialize_native_target()
         binding.initialize_native_asmprinter()
+        binding.initialize_all_targets()
+        binding.initialize_all_asmprinters()
+
+        # Resolve the target triple: default (host) unless --target overrides it.
+        self.triple = target_triple or binding.get_default_triple()
+        self._explicit_target = target_triple is not None
 
         # Create module
         self.module = ir.Module(name="saw_module")
-        self.module.triple = binding.get_default_triple()
+        self.module.triple = self.triple
 
         # Create target data for sizeof calculations
-        target = binding.Target.from_triple(binding.get_default_triple())
+        target = binding.Target.from_triple(self.triple)
         target_machine = target.create_target_machine()
         self.target_data = binding.create_target_data(str(target_machine.target_data))
+        # When a triple is given explicitly, pin the module data layout so the
+        # emitted object and compile-time sizeof() agree for that target. The
+        # default (host) path leaves data_layout unset to stay byte-identical to
+        # the pre-existing output.
+        if self._explicit_target:
+            self.module.data_layout = str(target_machine.target_data)
 
         # Builder will be set when generating function bodies
         self.builder: ir.IRBuilder = None
@@ -289,6 +311,100 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         len_ptr = builder.bitcast(len_raw, i64ptr, name="len_ptr")
         return block, rc_ptr, len_ptr
 
+    def _declare_seams(self):
+        """Emit the four runtime seams (design 19 §2, design 20 item 1).
+
+        These are the ONLY runtime boundary between compiled Saw code and the
+        environment:
+          - saw_alloc(size, align) -> i8*        (global allocator)
+          - saw_dealloc(ptr, size, align)        (global deallocator)
+          - saw_write(ptr, len)                  (output primitive behind print)
+          - saw_panic(msg, len) -> !             (noreturn panic handler)
+
+        Hosted profile (default): emitted as `weak` DEFINITIONS wrapping libc,
+        so a user object may override any of them at link time without a flag.
+        The hosted defaults deliberately share C stdio (fwrite to stdout) with
+        the still-printf-based Float path so print ordering is preserved.
+
+        Freestanding profile: DECLARATIONS only — the user's environment (kernel,
+        bootloader, RTOS) provides the definitions at link time.
+
+        Registered in self.functions BEFORE extern blocks and the String runtime
+        are declared, so the stdlib's `extern func saw_alloc(...)` declarations
+        resolve to these (the extern pass skips names already present) and the
+        compiler-emitted allocation helpers can call them directly.
+        """
+        i8 = ir.IntType(8)
+        i8ptr = i8.as_pointer()
+        i64 = ir.IntType(64)
+        void = ir.VoidType()
+
+        saw_alloc = ir.Function(self.module, ir.FunctionType(i8ptr, [i64, i64]),
+                                name="saw_alloc")
+        saw_dealloc = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64, i64]),
+                                  name="saw_dealloc")
+        saw_write = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64]),
+                                name="saw_write")
+        saw_panic = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64]),
+                                name="saw_panic")
+        saw_panic.attributes.add("noreturn")
+
+        self.functions["saw_alloc"] = saw_alloc
+        self.functions["saw_dealloc"] = saw_dealloc
+        self.functions["saw_write"] = saw_write
+        self.functions["saw_panic"] = saw_panic
+        self.saw_write = saw_write
+        self.saw_panic = saw_panic
+
+        if self.freestanding:
+            # Declarations only; the environment supplies the definitions.
+            for fn in (saw_alloc, saw_dealloc, saw_write, saw_panic):
+                fn.linkage = "external"
+            return
+
+        # ---- hosted weak definitions ----------------------------------------
+        for fn in (saw_alloc, saw_dealloc, saw_write, saw_panic):
+            fn.linkage = "weak"
+
+        malloc_fn = self._libc_func("malloc", i8ptr, [i64])
+        free_fn = self._libc_func("free", void, [i8ptr])
+
+        # saw_alloc: malloc(size). `align` is ignored: malloc guarantees an
+        # alignment of at least alignof(max_align_t) (>= 16 on the targets we
+        # support), which covers every Saw allocation today.
+        b = ir.IRBuilder(saw_alloc.append_basic_block("entry"))
+        b.ret(b.call(malloc_fn, [saw_alloc.args[0]]))
+
+        # saw_dealloc: free(ptr). `size`/`align` are ignored by the libc default.
+        b = ir.IRBuilder(saw_dealloc.append_basic_block("entry"))
+        b.call(free_fn, [saw_dealloc.args[0]])
+        b.ret_void()
+
+        # saw_write: fwrite(ptr, 1, len, stdout). Routing through C stdio (rather
+        # than a raw write(2)) keeps print output on the same buffered stream as
+        # the printf-based Float path, so interleaved int/float prints keep their
+        # program order and flush semantics byte-for-byte.
+        fwrite_fn = self._libc_func("fwrite", i64, [i8ptr, i64, i64, i8ptr])
+        stdout_sym = "__stdoutp" if self._is_apple_triple() else "stdout"
+        stdout_g = ir.GlobalVariable(self.module, i8ptr, name=stdout_sym)
+        stdout_g.linkage = "external"
+        b = ir.IRBuilder(saw_write.append_basic_block("entry"))
+        stream = b.load(stdout_g, name="stdout")
+        b.call(fwrite_fn, [saw_write.args[0], ir.Constant(i64, 1),
+                           saw_write.args[1], stream])
+        b.ret_void()
+
+        # saw_panic: saw_write(msg, len) then abort(). Marked noreturn.
+        abort_fn = self.abort
+        b = ir.IRBuilder(saw_panic.append_basic_block("entry"))
+        b.call(saw_write, [saw_panic.args[0], saw_panic.args[1]])
+        b.call(abort_fn, [])
+        b.unreachable()
+
+    def _is_apple_triple(self) -> bool:
+        t = (self.triple or "").lower()
+        return "apple" in t or "darwin" in t or "macos" in t or "ios" in t
+
     def _declare_string_runtime(self):
         """Emit the refcounted-String runtime helpers and the compiler-known
         String.copy()/String.deinit() bodies the resource machinery calls.
@@ -304,9 +420,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         void = ir.VoidType()
         null = ir.Constant(i8ptr, None)
 
-        malloc_fn = self._libc_func("malloc", i8ptr, [i64])
-        free_fn = self._libc_func("free", void, [i8ptr])
+        # String buffers now route through the seams (design 20 item 1) rather
+        # than libc malloc/free directly. memcpy stays a libc/compiler builtin
+        # (it is not a seam and is available freestanding via compiler-rt).
+        saw_alloc_fn = self.functions["saw_alloc"]
+        saw_dealloc_fn = self.functions["saw_dealloc"]
         memcpy_fn = self._libc_func("memcpy", i8ptr, [i8ptr, i8ptr, i64])
+        align16 = ir.Constant(i64, 16)
 
         # ---- __saw_string_retain(i8* s) -------------------------------------
         fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
@@ -338,7 +458,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     # last owner observed count->0: order every other thread's
                     # final reads before the free, then free the whole block.
                     b.fence(ordering='acquire')
-                    b.call(free_fn, [block])
+                    # dealloc size = 16 (header) + len + 1 (NUL); len lives at
+                    # ptr-8, so it is always available at the free site.
+                    _, _, len_ptr = self._saw_string_header_ptrs(b, s)
+                    slen = b.load(len_ptr, name="len")
+                    total = b.add(slen, ir.Constant(i64, 17), name="dealloc_size")
+                    b.call(saw_dealloc_fn, [block, total, align16])
         b.ret_void()
 
         # ---- __saw_string_alloc(i64 len) -> i8*  (NULL on OOM) ---------------
@@ -351,7 +476,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         ok = fn.append_basic_block("ok")
         b = ir.IRBuilder(entry)
         total = b.add(length, ir.Constant(i64, 17), name="total")  # 16 hdr + len + NUL
-        block = b.call(malloc_fn, [total], name="block")
+        block = b.call(saw_alloc_fn, [total, align16], name="block")
         b.cbranch(b.icmp_unsigned('==', block, null), oom, ok)
         b = ir.IRBuilder(oom)
         b.ret(null)
@@ -469,6 +594,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # `extern` declarations of __saw_string_* resolve to these definitions.
         self.namespace.register_conformance("String", "ImplicitCopy")
         self.namespace.register_conformance("String", "Deinit")
+        # Runtime seams must exist before the String runtime (which allocates via
+        # saw_alloc) and before extern blocks (whose `extern func saw_alloc(...)`
+        # declarations resolve to these definitions).
+        self._declare_seams()
         self._declare_string_runtime()
 
         # Store generic and specialized extensions FIRST
@@ -1096,6 +1225,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         mpm = pb.getModulePassManager()
         mpm.run(mod, pb)
 
+    def _make_target_machine(self):
+        """Create a target machine for the configured triple (default = host).
+
+        Used by both IR optimization and object emission so `--target` flows
+        through to the emitted object and the optimization pipeline.
+        """
+        target = binding.Target.from_triple(self.triple)
+        return target.create_target_machine()
+
     def emit_ir(self, optimize: bool = True) -> str:
         """Return the module's LLVM IR as text.
 
@@ -1108,8 +1246,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return llvm_ir
         mod = binding.parse_assembly(llvm_ir)
         mod.verify()
-        target = binding.Target.from_default_triple()
-        target_machine = target.create_target_machine()
+        target_machine = self._make_target_machine()
         self._run_optimization_passes(mod, target_machine)
         return str(mod)
 
@@ -1126,9 +1263,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         mod = binding.parse_assembly(llvm_ir)
         mod.verify()
 
-        # Create target machine
-        target = binding.Target.from_default_triple()
-        target_machine = target.create_target_machine()
+        # Create target machine (honours --target)
+        target_machine = self._make_target_machine()
 
         # Run the optimization pipeline (mem2reg/SROA require entry-block allocas)
         if optimize:
