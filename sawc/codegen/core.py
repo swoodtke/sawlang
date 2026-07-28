@@ -1019,6 +1019,26 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     # _estimate_type_size is now in codegen_types.py (TypesMixin)
 
+    def _mark_noalias_params(self, llvm_func, saw_types, arg_offset=0):
+        """Mark `&var` (mutable-reference) parameters `noalias`.
+
+        The Law of Exclusivity (brief 10) statically guarantees a `&var` binding
+        is the only live access path to its referent for the whole call, so
+        LLVM's `noalias` contract -- this pointer does not alias any other
+        pointer the function accesses -- holds by construction. Declaring it lets
+        the optimizer keep loads/stores through the reference in registers rather
+        than reloading defensively. Immutable `&` params are intentionally NOT
+        marked: multiple `&` readers of the same value may legitimately coexist.
+
+        `saw_types` is the parameter SawTypes in LLVM-arg order; `arg_offset`
+        skips leading synthetic args (e.g. a closure's env pointer at arg 0).
+        """
+        for i, st in enumerate(saw_types):
+            if (st is not None
+                    and st.kind == TypeKind.REFERENCE
+                    and st.reference_mutable):
+                llvm_func.args[arg_offset + i].add_attribute('noalias')
+
     def _declare_function(self, func: Function, name_override: str = None):
         """Declare a function. If name_override is provided, use it instead of func.name."""
         func_name = name_override if name_override else func.name
@@ -1032,6 +1052,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         func_type = ir.FunctionType(return_type, param_types)
         llvm_func = ir.Function(self.module, func_type, name=func_name)
         self.functions[func_name] = llvm_func
+        self._mark_noalias_params(llvm_func, [p.type for p in func.parameters])
         # Function return types are now in namespace
 
     def _declare_extern_function(self, extern_func: ExternFunction):
@@ -1123,6 +1144,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # Create function type
             func_type = ir.FunctionType(return_type, param_types)
             llvm_func = ir.Function(self.module, func_type, name=mangled_name)
+
+            # Mark &var params noalias. Explicit &var value params carry a
+            # REFERENCE SawType; a `&var self` receiver is a distinct pointer arg
+            # at index 0 (its parameter type is the VOID self-placeholder), so
+            # mark it separately. Both are exclusivity-guaranteed non-aliasing.
+            self._mark_noalias_params(llvm_func, [p.type for p in method.parameters])
+            if (not method.is_init and not method.is_static
+                    and getattr(method, 'self_mutable', False)):
+                llvm_func.args[0].add_attribute('noalias')
 
             # Store in functions table
             self.functions[mangled_name] = llvm_func

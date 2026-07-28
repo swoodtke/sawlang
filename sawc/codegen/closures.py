@@ -110,6 +110,9 @@ class ClosuresMixin:
 
         # Create the closure function
         closure_fn = ir.Function(self.module, fn_type, name=closure_name)
+        # Mark &var params noalias (arg 0 is the env pointer, so params start at
+        # arg 1); same exclusivity-backed reasoning as top-level functions.
+        self._mark_noalias_params(closure_fn, param_saw_types, arg_offset=1)
 
         # Save current builder and variables
         saved_builder = self.builder

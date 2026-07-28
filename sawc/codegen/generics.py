@@ -406,6 +406,12 @@ class GenericsMixin:
             func_type = ir.FunctionType(return_type, param_types)
             llvm_func = ir.Function(self.module, func_type, name=mangled_name)
             self.functions[mangled_name] = llvm_func
+            # Mark &var params (and a &var self receiver) noalias; see
+            # _mark_noalias_params / _declare_extension_methods.
+            self._mark_noalias_params(llvm_func, [p.type for p in method.parameters])
+            if (not method.is_init and not method.is_static
+                    and getattr(method, 'self_mutable', False)):
+                llvm_func.args[0].add_attribute('noalias')
             methods_to_generate.append(method)
 
         # Second pass: queue method bodies for later generation
