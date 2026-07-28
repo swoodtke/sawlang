@@ -19,6 +19,15 @@ class SymbolKind(Enum):
     MODULE = auto()
 
 
+# Symbol objects hold ONLY immutable declaration data. Builtin symbols (String,
+# Vector, Result, ...) are shared BY REFERENCE into every module namespace via
+# `Namespace.merge_into`, so any per-compilation mutable state written onto a
+# symbol would alias across all module views. Per-compilation codegen artifacts
+# therefore live in codegen-owned side tables keyed by canonical (mangled) name
+# — `Codegen.struct_types` / `enum_types` / `functions` (see codegen/core.py) —
+# never on these symbols. This keeps declaration symbols aliasing-safe and
+# unblocks per-module / incremental codegen (design 27 item 1). Do not add
+# codegen-populated fields here; extend the side tables instead.
 @dataclass
 class FunctionSymbol:
     """Symbol for a function or method."""
@@ -45,8 +54,6 @@ class FunctionSymbol:
     # (conditional conformance); the typechecker uses this to diagnose calls.
     extension_bounds: Dict[str, List[str]] = field(default_factory=dict)
     ast_node: Optional[Any] = None  # Function or Method AST node
-    # Filled by codegen:
-    llvm_func: Optional[Any] = None
 
 
 @dataclass
@@ -66,8 +73,6 @@ class StructSymbol:
     # Specialized methods for specific type arguments (e.g., extension Vector<String>)
     # Key: tuple of type arg strings like ("String",), Value: method_name -> FunctionSymbol
     specialized_methods: Dict[Tuple[str, ...], Dict[str, FunctionSymbol]] = field(default_factory=dict)
-    # Filled by codegen:
-    llvm_type: Optional[Any] = None
 
 
 @dataclass
@@ -79,9 +84,6 @@ class EnumSymbol:
     type_params: List[TypeParameter] = field(default_factory=list)
     visibility: Visibility = Visibility.PRIVATE
     ast_node: Optional[SawEnum] = None
-    # Filled by codegen:
-    llvm_type: Optional[Any] = None
-    variant_tags: Optional[Dict[str, int]] = None
 
 
 @dataclass
