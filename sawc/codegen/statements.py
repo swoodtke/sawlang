@@ -444,6 +444,19 @@ class StatementsMixin:
         else:
             value = None
 
+        # Drain statement-scoped temporaries produced while evaluating the return
+        # expression -- e.g. the `makeR()` receiver in `return makeR().value()`
+        # (brief 23 item 3). The end-of-statement drain in `_generate_statement`
+        # is skipped once `return` terminates the block, so it must run HERE,
+        # before the terminator, in LIFO order. The returned value is exempt: it
+        # is never registered as a statement temp (only unbound owned receivers
+        # and discarded results are), so it is not released here -- we never free
+        # what we return.
+        if self.statement_temps:
+            for slot, saw_type in reversed(self.statement_temps):
+                self._emit_drop_at(slot, saw_type)
+            self.statement_temps = []
+
         # Cleanup all scopes before returning
         self._cleanup_all_scopes()
 

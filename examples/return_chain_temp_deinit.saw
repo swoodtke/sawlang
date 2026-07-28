@@ -1,0 +1,40 @@
+// Brief 23 item 3: in `return makeR().value()` the receiver temporary `makeR()`
+// is an owned value nobody binds -- it must be released before the function
+// returns. The end-of-statement temp drain is skipped once the block is
+// terminated by `return`, so the drain must run BEFORE the return terminator.
+// The returned value (an Int here) is never a statement temp, so it is exempt.
+// R's deinit (prints 7) must fire inside `compute`, before `main` prints 107,
+// and exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 107
+
+struct R {
+    id: Int
+}
+
+extension R: Deinit {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+extension R {
+    func value(&self) -> Int {
+        self.id + 100
+    }
+}
+
+func makeR() -> R {
+    R(id: 7)
+}
+
+func compute() -> Int {
+    return makeR().value()
+}
+
+func main() {
+    let x = compute()
+    print(x)
+}
