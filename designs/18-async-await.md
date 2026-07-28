@@ -178,7 +178,13 @@ must be transitively suspension-free, verified at compile time.
   adopt at stage 2 unless new evidence emerges. Known follow-up gaps in
   the prototype: module-qualified/static/function-field call edges,
   `sync` methods in extensions, non-literal function values at `sync`
-  boundaries.
+  boundaries. **Syntax revision DECIDED (Jul 28, user): `sync` moves to
+  the post-parameter-list slot — `(Int) sync -> Bool`,
+  `func f(x: Int) sync -> Int` — Swift's `throws`/`async` position. The
+  slot admits no other identifier, so `sync` becomes CONTEXTUAL and the
+  keyword reservation is lifted; the slot also extensibly hosts future
+  effect modifiers without new reservations. Apply after brief 21b lands
+  (touches parser + mutex.saw, currently in-flight).**
 - Known risks accepted for early investigation (the reason to do this
   while the language is small): coroutine-set growth through indirect
   calls (mitigation: `sync`-typed handler tables — kernel style anyway);
