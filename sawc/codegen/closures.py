@@ -15,7 +15,7 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import ClosureExpr
+from ast_nodes import ClosureExpr, TypeKind
 
 
 class ClosuresMixin:
@@ -34,28 +34,47 @@ class ClosuresMixin:
         2. A function that takes (env_ptr, params...) and accesses captures via env
         3. A closure struct { fn_ptr, env_ptr } that can be passed around
         """
-        # Determine closure parameter and return types
+        # Determine closure parameter and return types. Prefer the typechecker's
+        # resolved function signature (accurate for inferred and reference
+        # parameters); fall back to annotations / Int for older paths.
         param_types = []
         param_names = []
+        # Per-parameter Saw types (None if unknown); used to mark reference params.
+        param_saw_types = []
+        resolved = getattr(expr, 'resolved_type', None)
+        resolved_params = resolved.param_types if (resolved and resolved.param_types) else None
 
         if expr.parameters:
-            for param in expr.parameters:
-                if param.type_annotation:
-                    param_types.append(self._get_llvm_type(param.type_annotation))
+            for idx, param in enumerate(expr.parameters):
+                saw_t = None
+                if resolved_params and idx < len(resolved_params):
+                    saw_t = resolved_params[idx]
+                elif param.type_annotation:
+                    saw_t = param.type_annotation
+                if saw_t is not None:
+                    param_types.append(self._get_llvm_type(saw_t))
                 else:
-                    # Type should have been inferred by typechecker
-                    # For now, use Int as fallback
-                    param_types.append(ir.IntType(64))
+                    param_types.append(ir.IntType(64))  # fallback
+                param_saw_types.append(saw_t)
                 param_names.append(param.name)
         elif expr.shorthand_param_count > 0:
             # Shorthand params - types should be inferred
             for i in range(expr.shorthand_param_count):
-                param_types.append(ir.IntType(64))  # Fallback type
+                saw_t = None
+                if resolved_params and i < len(resolved_params):
+                    saw_t = resolved_params[i]
+                param_types.append(self._get_llvm_type(saw_t) if saw_t is not None
+                                   else ir.IntType(64))
+                param_saw_types.append(saw_t)
                 param_names.append(f"${i}")
 
-        # Get return type from body (we'll determine during generation)
-        # For now, assume Int or Void based on whether body has final_expr
-        if expr.body.final_expr:
+        # Get return type from the resolved signature when known.
+        ret_saw_type = resolved.func_return_type if resolved else None
+        if ret_saw_type is not None and ret_saw_type.kind != TypeKind.VOID:
+            ret_type = self._get_llvm_type(ret_saw_type)
+        elif ret_saw_type is not None and ret_saw_type.kind == TypeKind.VOID:
+            ret_type = ir.VoidType()
+        elif expr.body.final_expr:
             ret_type = ir.IntType(64)  # Default return type
         else:
             ret_type = ir.VoidType()
@@ -129,9 +148,20 @@ class ClosuresMixin:
         # Set up parameter access
         for i, param_name in enumerate(param_names):
             llvm_param = closure_fn.args[i + 1]  # +1 for env_ptr
-            alloca = self._entry_alloca(param_types[i], name=param_name)
-            self.builder.store(llvm_param, alloca)
-            self.variables[param_name] = alloca
+            saw_t = param_saw_types[i] if i < len(param_saw_types) else None
+            if saw_t is not None and saw_t.kind == TypeKind.REFERENCE:
+                # Reference-capture param (design 21 item 3): the argument is
+                # already a pointer to the referent. Bind the name to that
+                # pointer directly (like a `&var self` receiver) so reads load
+                # and writes store through it — no local copy.
+                self.variables[param_name] = llvm_param
+                self.variable_types[param_name] = saw_t.inner_type
+            else:
+                alloca = self._entry_alloca(param_types[i], name=param_name)
+                self.builder.store(llvm_param, alloca)
+                self.variables[param_name] = alloca
+                if saw_t is not None:
+                    self.variable_types[param_name] = saw_t
 
         # Generate body
         result = self._generate_block(expr.body)

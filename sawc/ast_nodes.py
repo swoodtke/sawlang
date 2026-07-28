@@ -730,6 +730,8 @@ class ClosureParam:
     """A parameter in a closure expression."""
     name: str
     type_annotation: Optional[SawType] = None
+    is_reference: bool = False       # True for `&data` / `&var data` params
+    reference_mutable: bool = False  # True for `&var data`
     line: int = 0
     column: int = 0
 
@@ -747,6 +749,7 @@ class ClosureExpr(Expression):
     body: 'Block'
     shorthand_param_count: int = 0  # Number of $0, $1, etc. used
     captures: List[str] = field(default_factory=list)  # Filled by type checker
+    has_reference_params: bool = False  # Filled by type checker (design 21 item 3)
     line: int = 0
     column: int = 0
 

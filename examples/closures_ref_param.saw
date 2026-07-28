@@ -1,0 +1,45 @@
+// Reference-typed closure parameters (design 21 item 3): a closure may take
+// `&`/`&var` parameters and mutate the referent in place. The closure receives
+// a pointer; the body reads/writes through it. This is the enabler for
+// Mutex.lock's scoped `&var T` access.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+// 9
+// 7
+
+func apply_mut(x: Int, body: (&var Int) -> Bool) -> Int {
+    var v = x
+    body(&v)
+    v
+}
+
+func twice(x: Int, body: (&var Int) -> Bool) -> Int {
+    var v = x
+    body(&v)
+    body(&v)
+    v
+}
+
+// Immutable-borrow closure parameter: reads only.
+func peek(x: Int, body: (&Int) -> Int) -> Int {
+    var v = x
+    body(&v)
+}
+
+func main() {
+    let r = apply_mut(10) { &var n in
+        n = n + 5
+        true
+    }
+    print(r)   // 15
+
+    let s = twice(1) { &var n in
+        n = n * 3
+        true
+    }
+    print(s)   // 9
+
+    let t = peek(7) { &n in n }
+    print(t)   // 7
+}

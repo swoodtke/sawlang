@@ -814,13 +814,19 @@ class ExpressionsMixin:
         """Look ahead to check for pattern: IDENT (':' Type)? (',' IDENT (':' Type)?)* 'in'"""
         saved_pos = self.pos
         try:
-            # Must start with identifier
+            # May start with a reference-capture marker: `&data` / `&var data`.
+            if self.match(TokenType.AMPERSAND):
+                self.advance()
+                if self.match(TokenType.VAR):
+                    self.advance()
+            # Must then have an identifier (the first parameter name).
             if not self.match(TokenType.IDENT):
                 return False
 
             # Scan ahead for 'in' keyword
             # Keep track of nesting for type annotations
             depth = 0
+            just_saw_amp = False
             while True:
                 token = self.current()
                 if token.type == TokenType.EOF or token.type == TokenType.RBRACE:
@@ -831,6 +837,17 @@ class ExpressionsMixin:
                     depth += 1
                 if token.type == TokenType.GT or token.type == TokenType.RPAREN:
                     depth -= 1
+                # A `var` immediately following `&` is a `&var data` ref param,
+                # not a statement — don't treat it as a terminator there.
+                if token.type == TokenType.AMPERSAND:
+                    just_saw_amp = True
+                    self.advance()
+                    continue
+                if token.type == TokenType.VAR and just_saw_amp:
+                    just_saw_amp = False
+                    self.advance()
+                    continue
+                just_saw_amp = False
                 # If we see operators or statements, this isn't a param list
                 if depth == 0 and token.type in (
                     TokenType.PLUS, TokenType.MINUS, TokenType.STAR, TokenType.SLASH,
@@ -848,6 +865,18 @@ class ExpressionsMixin:
         params = []
 
         while True:
+            # Reference-capture params: `&data` (immutable borrow) or
+            # `&var data` (mutable borrow) — the closure receives a pointer and
+            # the body reads/mutates through it (design 21 item 3).
+            is_reference = False
+            reference_mutable = False
+            if self.match(TokenType.AMPERSAND):
+                self.advance()
+                is_reference = True
+                if self.match(TokenType.VAR):
+                    self.advance()
+                    reference_mutable = True
+
             param_token = self.expect(TokenType.IDENT, "Expected parameter name")
 
             # Check for optional type annotation
@@ -859,6 +888,8 @@ class ExpressionsMixin:
             params.append(ClosureParam(
                 name=param_token.value,
                 type_annotation=type_ann,
+                is_reference=is_reference,
+                reference_mutable=reference_mutable,
                 line=param_token.line,
                 column=param_token.column
             ))
@@ -902,9 +933,9 @@ class ExpressionsMixin:
     def _parse_closure_statement(self) -> Optional[Statement]:
         """Parse a single statement in a closure body."""
         if self.match(TokenType.LET):
-            return self.parse_let_statement()
+            return self.parse_let_statement(mutable=False)
         elif self.match(TokenType.VAR):
-            return self.parse_let_statement()
+            return self.parse_let_statement(mutable=True)
         elif self.match(TokenType.RETURN):
             start = self.current()
             self.advance()
@@ -912,10 +943,18 @@ class ExpressionsMixin:
             if not self.match(TokenType.NEWLINE) and not self.match(TokenType.RBRACE):
                 value = self.parse_expression()
             return ReturnStatement(value=value, line=start.line, column=start.column)
+        elif self.match(TokenType.WHILE):
+            return self.parse_while_statement()
+        elif self.match(TokenType.FOR):
+            return self.parse_for_statement()
+        elif self.match(TokenType.BREAK):
+            return self.parse_break_statement()
+        elif self.match(TokenType.CONTINUE):
+            return self.parse_continue_statement()
         else:
-            # Expression statement
-            expr = self.parse_expression()
-            return ExpressionStatement(expression=expr, line=expr.line, column=expr.column)
+            # Assignment (`x = v`), compound assignment (`x += v`), or a bare
+            # expression statement — closures mutate captured `&var` state.
+            return self.parse_assignment_or_expression_statement()
 
     def _parse_interpolated_string(self, raw_value: str, line: int, column: int) -> StringInterpolation:
         """Parse a string with {expr} interpolations into parts and expressions.

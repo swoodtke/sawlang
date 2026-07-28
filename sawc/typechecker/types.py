@@ -317,6 +317,18 @@ class TypeUtilsMixin:
         if b.is_none_literal() or a.is_none_literal():
             return True
 
+        # Reference target `&T` / `&var T`: accept a matching reference, or an
+        # UnsafePointer<T> (the stdlib bridges a raw payload pointer into a
+        # scoped reference closure argument, e.g. Mutex.lock's `body(payload)`).
+        # Both lower to a pointer, so this is representation-safe.
+        if b.kind == TypeKind.REFERENCE and a.kind in (TypeKind.REFERENCE, TypeKind.POINTER):
+            ai, bi = a.inner_type, b.inner_type
+            if ai is None or bi is None:
+                return True
+            if self._types_compatible(ai, bi, allow_literal_to_distinct):
+                return True
+            return str(ai) == str(bi)
+
         # Allow implicit wrapping: T is compatible with T?
         if b.is_optional() and not a.is_optional():
             if self._types_compatible(a, b.unwrap_optional(), allow_literal_to_distinct):

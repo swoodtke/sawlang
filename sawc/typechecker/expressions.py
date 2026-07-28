@@ -521,7 +521,7 @@ class ExpressionsMixin:
                 return return_type
             for i, (arg, expected_type) in enumerate(zip(expr.arguments, param_types)):
                 if isinstance(arg.value, ClosureExpr):
-                    arg_type = self._check_closure(arg.value, expected_type)
+                    arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
                 else:
                     arg_type = self._check_expression(arg.value)
                 if arg_type and not self._types_compatible(arg_type, expected_type):
@@ -688,7 +688,7 @@ class ExpressionsMixin:
                 return return_type
         for i, (arg, expected_type) in enumerate(zip(expr.arguments, param_types)):
             if isinstance(arg.value, ClosureExpr):
-                arg_type = self._check_closure(arg.value, expected_type)
+                arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
             else:
                 arg_type = self._check_expression(arg.value)
             if arg_type and not self._types_compatible(arg_type, expected_type):
@@ -1810,10 +1810,15 @@ class ExpressionsMixin:
             )
             return method_info.return_type
         for i, arg in enumerate(expr.arguments):
-            arg_type = self._check_expression(arg.value)
             expected_type = method_info.param_types[i + param_offset]
             if type_subst:
                 expected_type = expected_type.substitute(type_subst)
+            # Closure arguments infer their parameter types from the expected
+            # function type and may carry reference params (e.g. Mutex.lock).
+            if isinstance(arg.value, ClosureExpr):
+                arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
+            else:
+                arg_type = self._check_expression(arg.value)
             if arg_type and not self._types_compatible(arg_type, expected_type):
                 param_name = method_info.param_names[i + param_offset]
                 self._error(
@@ -2265,8 +2270,16 @@ class ExpressionsMixin:
                 return None
         return result_type
 
-    def _check_closure(self, expr: ClosureExpr, expected_type: Optional[SawType] = None) -> Optional[SawType]:
-        """Type check a closure expression."""
+    def _check_closure(self, expr: ClosureExpr, expected_type: Optional[SawType] = None,
+                        as_call_argument: bool = False) -> Optional[SawType]:
+        """Type check a closure expression.
+
+        `as_call_argument` is True only when the closure literal appears directly
+        as an argument of the call it is passed to. A closure whose signature has
+        reference parameters (`&`/`&var`) is NON-STORABLE (design 21 item 3): it
+        may only appear in that position; binding/returning/capturing it is a
+        conservative error until full non-escaping closures land.
+        """
         from .core import VariableInfo, Scope
         outer_scope = self.current_scope
         self.current_scope = Scope(parent=outer_scope)
@@ -2275,21 +2288,52 @@ class ExpressionsMixin:
         saved_moves = self.moved_bindings
         self.moved_bindings = {}
         param_types = []
+        has_reference_params = False
         if expr.parameters:
             for i, param in enumerate(expr.parameters):
-                if param.type_annotation:
-                    param_type = self._resolve_type(param.type_annotation)
-                elif expected_type and expected_type.kind == TypeKind.FUNCTION:
+                expected_param = None
+                if expected_type and expected_type.kind == TypeKind.FUNCTION:
                     expected_params = expected_type.param_types or []
                     if i < len(expected_params):
-                        param_type = expected_params[i]
-                    else:
+                        expected_param = expected_params[i]
+                if getattr(param, 'is_reference', False):
+                    # Reference-capture param: the bound name has the underlying
+                    # type T; the closure's parameter type is `&T` / `&var T`.
+                    has_reference_params = True
+                    inner = None
+                    if param.type_annotation:
+                        inner = self._resolve_type(param.type_annotation)
+                    elif expected_param is not None:
+                        if expected_param.kind in (TypeKind.REFERENCE, TypeKind.POINTER):
+                            inner = expected_param.inner_type
+                        else:
+                            inner = expected_param
+                    if inner is None:
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
-                            f"Closure has more parameters than expected function type",
+                            f"Cannot infer type for reference parameter `{param.name}`. "
+                            f"Add a type annotation: `&{'var ' if param.reference_mutable else ''}{param.name}: Type`",
                             param.line, param.column
                         )
-                        param_type = SawType(TypeKind.INT)
+                        inner = SawType(TypeKind.INT)
+                    param_type = SawType(TypeKind.REFERENCE, inner_type=inner,
+                                         reference_mutable=param.reference_mutable)
+                    param_types.append(param_type)
+                    # The name reads/writes the referent directly; mutable iff &var.
+                    self.current_scope.define(param.name, VariableInfo(
+                        inner, param.reference_mutable, param.line, param.column))
+                    continue
+                if param.type_annotation:
+                    param_type = self._resolve_type(param.type_annotation)
+                elif expected_param is not None:
+                    param_type = expected_param
+                elif expected_type and expected_type.kind == TypeKind.FUNCTION:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"Closure has more parameters than expected function type",
+                        param.line, param.column
+                    )
+                    param_type = SawType(TypeKind.INT)
                 else:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -2326,9 +2370,25 @@ class ExpressionsMixin:
             return_type = SawType(TypeKind.VOID)
         captures = self._analyze_closure_captures(expr.body, outer_scope)
         expr.captures = captures
+        expr.has_reference_params = has_reference_params
         self.current_scope = outer_scope
         self.moved_bindings = saved_moves
-        return SawType(TypeKind.FUNCTION, param_types=param_types, func_return_type=return_type)
+        # A closure with reference parameters is non-storable: legal only as a
+        # direct call argument (design 21 item 3). Reject any other position.
+        if has_reference_params and not as_call_argument:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "a closure with reference (`&`/`&var`) parameters may only be passed "
+                "directly as a call argument; it cannot be bound, returned, or captured",
+                expr.line, expr.column,
+                hint="call the function that takes it inline, e.g. `m.lock { &var x in ... }`"
+            )
+        result_type = SawType(TypeKind.FUNCTION, param_types=param_types,
+                              func_return_type=return_type)
+        # Record the resolved signature so codegen lowers parameter/return types
+        # (including reference params) accurately rather than guessing.
+        expr.resolved_type = result_type
+        return result_type
 
     def _analyze_closure_captures(self, body: Block, outer_scope) -> List[str]:
         """Find all variables from outer scope that are used in the closure body."""
