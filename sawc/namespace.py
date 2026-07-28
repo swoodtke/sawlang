@@ -738,8 +738,17 @@ class Namespace:
             # Declared conformance (empty-body synthesis or a custom equals).
             if self.type_conforms_to(name, "Equatable"):
                 return True
-            # Auto-conform: the trivially-copyable (POD) set, exactly as auto-Copy.
-            return self.is_trivially_copyable(saw_type)
+            # Auto-conform: the trivially-copyable (POD) set, exactly as
+            # auto-Copy, further restricted to members the derive can actually
+            # lower. is_trivially_copyable already excludes String / resource
+            # fields; the field-wise is_equatable pass additionally excludes
+            # optional / array members, which are not comparable yet.
+            if not self.is_trivially_copyable(saw_type):
+                return False
+            struct_sym = self._lookup_struct_deep(name)
+            if struct_sym is None:
+                return False
+            return all(self.is_equatable(ft) for ft in struct_sym.fields.values())
         if kind == TypeKind.ENUM:
             name = saw_type.enum_name
             if self.type_conforms_to(name, "Equatable"):

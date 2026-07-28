@@ -1,0 +1,19 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not conform to `Equatable`
+
+// Optional (and array) members are not comparable yet, so a struct carrying
+// one does not auto-conform to Equatable and cannot derive `==` (design 32).
+// The error is reported cleanly at the comparison site rather than crashing
+// codegen.
+struct Q {
+    a: Int
+    b: Int?
+}
+
+func main() {
+    let x = Q(a: 1, b: 2)
+    let y = Q(a: 1, b: 2)
+    if x == y {
+        print(1)
+    }
+}
