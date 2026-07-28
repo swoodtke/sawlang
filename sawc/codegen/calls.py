@@ -126,66 +126,98 @@ class CallsMixin:
 
         return result
 
+    def _raw_bytes_ptr(self, data: str):
+        """Private global holding exactly `data`'s bytes (no added NUL).
+
+        Returns (i8* pointer-to-first-byte, i64 length). Used by print to feed
+        saw_write(ptr, len) directly, so the emitted byte count is exact.
+        """
+        cache = getattr(self, "_raw_byte_globals", None)
+        if cache is None:
+            cache = {}
+            self._raw_byte_globals = cache
+        encoded = data.encode("utf-8")
+        if data not in cache:
+            arr_type = ir.ArrayType(ir.IntType(8), len(encoded))
+            g = ir.GlobalVariable(self.module, arr_type,
+                                  name=f".rawbytes.{self.string_counter}")
+            self.string_counter += 1
+            g.linkage = "private"
+            g.global_constant = True
+            g.initializer = ir.Constant(arr_type, bytearray(encoded))
+            cache[data] = g
+        g = cache[data]
+        zero = ir.Constant(ir.IntType(32), 0)
+        ptr = self.builder.gep(g, [zero, zero], inbounds=True)
+        return ptr, ir.Constant(ir.IntType(64), len(encoded))
+
     def _generate_print(self, arguments: List[Argument]):
-        """Generate code for the print built-in function."""
+        """Generate code for the print built-in function.
+
+        Int family / Bool / String / interpolation all lower to saw_write (the
+        output seam); only Float remains printf-based (dtoa is out of scope).
+        Both paths share C stdio in the hosted profile, so mixed int/float print
+        output keeps its exact order and formatting.
+        """
+        saw_write = self.functions["saw_write"]
+        # print() is a Void builtin, but it is frequently the tail expression of
+        # an if/match branch; the conditional lowering unifies branch values with
+        # a phi. The old printf path yielded an i32, so keep returning an i32 (a
+        # discarded dummy) to preserve that structure rather than a void value
+        # (which would produce an illegal `phi void`).
+        dummy = ir.Constant(ir.IntType(32), 0)
+
         if not arguments:
-            # Print newline
-            fmt = self._create_string_constant("\n")
-            zero = ir.Constant(ir.IntType(32), 0)
-            fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
-            return self.builder.call(self.printf, [fmt_ptr])
+            # Print a bare newline.
+            nl_ptr, nl_len = self._raw_bytes_ptr("\n")
+            self.builder.call(saw_write, [nl_ptr, nl_len])
+            return dummy
 
         # Arguments are Argument objects with .value
         arg = arguments[0]
         value = self._generate_expression(arg.value)
 
-        # Choose format based on type
         if isinstance(value.type, ir.IntType):
             if value.type.width == 1:
-                # Bool - convert to string
-                fmt = self._create_string_constant("%s\n")
-                zero = ir.Constant(ir.IntType(32), 0)
-                fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
-
-                # Create true/false strings
-                true_str = self._create_string_constant("true")
-                false_str = self._create_string_constant("false")
-                true_ptr = self.builder.gep(true_str, [zero, zero], inbounds=True)
-                false_ptr = self.builder.gep(false_str, [zero, zero], inbounds=True)
-
+                # Bool -> "true\n" / "false\n" via one saw_write.
+                true_ptr, true_len = self._raw_bytes_ptr("true\n")
+                false_ptr, false_len = self._raw_bytes_ptr("false\n")
                 str_ptr = self.builder.select(value, true_ptr, false_ptr)
-                return self.builder.call(self.printf, [fmt_ptr, str_ptr])
+                str_len = self.builder.select(value, true_len, false_len)
+                self.builder.call(saw_write, [str_ptr, str_len])
             else:
-                # Integer - extend to i64 for printf %lld format
-                fmt = self._create_string_constant("%lld\n")
-                zero = ir.Constant(ir.IntType(32), 0)
-                fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
-                # Extend smaller integers to i64 for printf
+                # Integer family: widen to i64 exactly as the old printf %lld path
+                # did (sext signed, zext unsigned<64), then format via itoa.
                 if value.type.width < 64:
-                    # Use zext for unsigned types, sext for signed types
                     saw_type = self._expr_type(arg.value)
                     unsigned_kinds = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}
                     if saw_type and saw_type.kind in unsigned_kinds:
                         value = self.builder.zext(value, ir.IntType(64), name="print_ext")
                     else:
                         value = self.builder.sext(value, ir.IntType(64), name="print_ext")
-                return self.builder.call(self.printf, [fmt_ptr, value])
+                elif value.type.width > 64:
+                    value = self.builder.trunc(value, ir.IntType(64), name="print_trunc")
+                self.builder.call(self.functions["__saw_print_i64"], [value])
 
         elif isinstance(value.type, ir.DoubleType):
+            # Float stays printf-based (identical %f formatting; shares stdio with
+            # saw_write's hosted default). Freestanding rejects this at typecheck.
             fmt = self._create_string_constant("%f\n")
             zero = ir.Constant(ir.IntType(32), 0)
             fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
-            return self.builder.call(self.printf, [fmt_ptr, value])
+            self.builder.call(self.printf, [fmt_ptr, value])
 
         elif isinstance(value.type, ir.PointerType):
-            # String
-            fmt = self._create_string_constant("%s\n")
-            zero = ir.Constant(ir.IntType(32), 0)
-            fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
-            return self.builder.call(self.printf, [fmt_ptr, value])
+            # String: write the exact byte range (ptr + header len), then newline.
+            str_len = self.builder.call(self.functions["__saw_string_len"], [value])
+            self.builder.call(saw_write, [value, str_len])
+            nl_ptr, nl_len = self._raw_bytes_ptr("\n")
+            self.builder.call(saw_write, [nl_ptr, nl_len])
 
         else:
             raise ValueError(f"Cannot print type: {value.type}")
+
+        return dummy
 
     def _generate_sizeof(self, expr: FunctionCall):
         """Generate code for sizeof<T>() - returns the size in bytes of type T."""

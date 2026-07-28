@@ -405,6 +405,70 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         t = (self.triple or "").lower()
         return "apple" in t or "darwin" in t or "macos" in t or "ios" in t
 
+    def _declare_print_runtime(self):
+        """Emit __saw_print_i64: format a signed 64-bit integer as decimal plus a
+        trailing newline, then emit it with a single saw_write.
+
+        This replaces printf("%lld\\n", n) for the whole integer family. Callers
+        first widen the value to i64 with exactly the sign-/zero-extension the old
+        printf path used (sext for signed, zext for unsigned narrower than 64),
+        so the i64 seen here matches %lld's argument bit-for-bit; formatting it as
+        signed decimal therefore reproduces printf output byte-for-byte across the
+        full i64 range, INT64_MIN included.
+
+        INT64_MIN handling: the magnitude is computed as an *unsigned* value
+        (`select(neg, 0 - n, n)` — the wrapping negation of 0x8000...0 is itself,
+        which read unsigned is 9223372036854775808), and digits are extracted with
+        unsigned udiv/urem, so no signed overflow occurs.
+        """
+        i8 = ir.IntType(8)
+        i8ptr = i8.as_pointer()
+        i64 = ir.IntType(64)
+        void = ir.VoidType()
+
+        fn = ir.Function(self.module, ir.FunctionType(void, [i64]),
+                         name="__saw_print_i64")
+        self.functions["__saw_print_i64"] = fn
+        n = fn.args[0]; n.name = "n"
+
+        entry = fn.append_basic_block("entry")
+        loop = fn.append_basic_block("loop")
+        after = fn.append_basic_block("after")
+        b = ir.IRBuilder(entry)
+        # 24 bytes: up to 20 digits/sign for i64 + newline + slack.
+        buf = b.alloca(ir.ArrayType(i8, 24), name="buf")
+        bufp = b.gep(buf, [ir.Constant(i64, 0), ir.Constant(i64, 0)], inbounds=True)
+        endp = b.gep(bufp, [ir.Constant(i64, 24)], inbounds=True, name="end")
+        nlpos = b.gep(endp, [ir.Constant(i64, -1)], inbounds=True, name="nlpos")
+        b.store(ir.Constant(i8, ord('\n')), nlpos)
+        neg = b.icmp_signed('<', n, ir.Constant(i64, 0), name="neg")
+        mag = b.select(neg, b.sub(ir.Constant(i64, 0), n), n, name="mag")
+        b.branch(loop)
+
+        b = ir.IRBuilder(loop)
+        m = b.phi(i64, name="m")
+        writep = b.phi(i8ptr, name="writep")
+        m.add_incoming(mag, entry)
+        writep.add_incoming(nlpos, entry)
+        digit = b.urem(m, ir.Constant(i64, 10), name="digit")
+        ch = b.trunc(b.add(digit, ir.Constant(i64, ord('0'))), i8, name="ch")
+        newwritep = b.gep(writep, [ir.Constant(i64, -1)], inbounds=True, name="w")
+        b.store(ch, newwritep)
+        m2 = b.udiv(m, ir.Constant(i64, 10), name="m2")
+        m.add_incoming(m2, loop)
+        writep.add_incoming(newwritep, loop)
+        done = b.icmp_unsigned('==', m2, ir.Constant(i64, 0), name="done")
+        b.cbranch(done, after, loop)
+
+        b = ir.IRBuilder(after)
+        # newwritep points at the most significant digit. Prepend '-' if negative.
+        signp = b.gep(newwritep, [ir.Constant(i64, -1)], inbounds=True, name="signp")
+        b.store(ir.Constant(i8, ord('-')), signp)
+        startp = b.select(neg, signp, newwritep, name="startp")
+        length = b.sub(b.ptrtoint(endp, i64), b.ptrtoint(startp, i64), name="len")
+        b.call(self.functions["saw_write"], [startp, length])
+        b.ret_void()
+
     def _declare_string_runtime(self):
         """Emit the refcounted-String runtime helpers and the compiler-known
         String.copy()/String.deinit() bodies the resource machinery calls.
@@ -599,6 +663,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # declarations resolve to these definitions).
         self._declare_seams()
         self._declare_string_runtime()
+        self._declare_print_runtime()
 
         # Store generic and specialized extensions FIRST
         # This must happen before struct registration since structs with generic
