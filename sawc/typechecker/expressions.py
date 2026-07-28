@@ -1622,6 +1622,38 @@ class ExpressionsMixin:
         )
         return True, None
 
+    def _resolve_arc_forward(self, expr: MethodCall, payload_type: Optional[SawType]):
+        """Resolve an `Arc<T>` payload-method forward (design 21b E2).
+
+        Returns `(payload_method_info, payload_type_subst)` if `expr.method_name`
+        is an immutable `&self` method on the payload struct `T`; the string
+        `"rejected"` if it is a `&var self` method (reported here as an error);
+        or `None` if there is no such method (the caller then falls through to
+        the ordinary "no method on Arc" diagnostic).
+        """
+        if payload_type is None or payload_type.kind != TypeKind.STRUCT:
+            return None
+        p_info = self.get_struct_info(payload_type.struct_name, from_type=payload_type)
+        if p_info is None:
+            return None
+        m = self._lookup_method(p_info, expr.method_name, payload_type.type_args)
+        if m is None:
+            return None
+        if getattr(m, "self_mutable", False):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot call `&var self` method `{expr.method_name}` through `Arc` "
+                f"— aliased mutation of a shared value is not allowed",
+                expr.line, expr.column,
+                hint="wrap the payload in a `Mutex` and mutate it inside `lock`"
+            )
+            return "rejected"
+        subst: Dict[str, SawType] = {}
+        if p_info.type_params and payload_type.type_args:
+            for tp, ta in zip(p_info.type_params, payload_type.type_args):
+                subst[tp.name] = ta
+        return (m, subst)
+
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
         """Check a method call, static method call, enum initialization, or module function call."""
         if isinstance(expr.object, MemberAccess):
@@ -1771,6 +1803,20 @@ class ExpressionsMixin:
 
         # Look up method - first check specialized extensions, then generic
         method_info = self._lookup_method(struct_info, expr.method_name, obj_type.type_args)
+        # Arc payload access via method forwarding (design 21b E2). When a method
+        # is not found on `Arc<T>` itself but exists on the payload `T` with an
+        # immutable `&self` receiver, forward the call to the payload through an
+        # immutable borrow of the control block's payload slot. This is sound: a
+        # live strong reference pins the payload, so a shared read cannot dangle.
+        # A `&var self` payload method is REJECTED — aliased mutation through a
+        # shared `Arc` is exactly what `Mutex` exists to make safe.
+        if method_info is None and struct_name == "Arc" and obj_type.type_args:
+            fwd = self._resolve_arc_forward(expr, obj_type.type_args[0])
+            if fwd == "rejected":
+                return None
+            if fwd is not None:
+                method_info, type_subst = fwd
+                expr.arc_forward_payload_type = obj_type.type_args[0]
         if method_info is None:
             # Collect available methods from both generic and specialized
             available = list(struct_info.methods.keys())

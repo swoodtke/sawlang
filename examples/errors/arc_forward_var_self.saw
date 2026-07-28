@@ -1,0 +1,20 @@
+// design 21b E2: forwarding a `&var self` payload method through Arc is
+// rejected — aliased mutation of a shared value is what Mutex exists to make
+// safe. Use Arc<Mutex<T>> and mutate inside lock instead.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `bump` through `Arc`
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func bump(&var self) {
+        self.n = self.n + 1
+    }
+}
+
+func main() {
+    let ac = Arc<Counter>(value: Counter(n: 0))
+    ac.bump()
+}

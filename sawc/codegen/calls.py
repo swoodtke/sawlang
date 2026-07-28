@@ -248,6 +248,12 @@ class CallsMixin:
         - EnumType.Variant(args) - enum variant initialization
         - ModuleName.function(args) - module function call (Phase 2)
         """
+        # Arc payload-method forwarding (design 21b E2): the typechecker resolved
+        # this as an immutable `&self` method on Arc's payload; forward through a
+        # borrow of the control block's payload slot.
+        if getattr(expr, 'arc_forward_payload_type', None) is not None:
+            return self._generate_arc_forward_call(expr)
+
         # Check if this is a nested module function call: Parent.Child.symbol(args)
         if isinstance(expr.object, MemberAccess):
             # Check if it's a chain of module accesses
@@ -446,6 +452,40 @@ class CallsMixin:
 
         # Call the method
         return self.builder.call(method_func, args, name="methodcall")
+
+    def _generate_arc_forward_call(self, expr: MethodCall):
+        """Forward an immutable `&self` method call from an `Arc<T>` to its payload
+        (design 21b E2).
+
+        The Arc control block is `{ i64 strong, i64 weak, T payload }`; the
+        payload begins at byte 16. We read the block pointer out of Arc's optional
+        `ptr` field, borrow the payload slot there, and call the payload's
+        monomorphized `&self` method with the payload loaded by value (an
+        immutable borrow — a live strong ref pins it, so the read is sound).
+        """
+        payload_type = expr.arc_forward_payload_type
+        arc_val = self._generate_expression(expr.object)
+        # Arc.ptr is `UnsafePointer<Int8>?`, laid out as { i1 is_some, i8* value }
+        # inside the single-field Arc struct { {i1, i8*} }.
+        ptr_opt = self.builder.extract_value(arc_val, 0, name="arc_ptr_opt")
+        block = self.builder.extract_value(ptr_opt, 1, name="arc_block")
+        payload_i8 = self.builder.gep(
+            block, [ir.Constant(ir.IntType(64), 16)], inbounds=True, name="arc_payload_i8")
+        # Make sure the payload type's methods are monomorphized and present.
+        if payload_type.kind == TypeKind.STRUCT and payload_type.type_args:
+            self._ensure_monomorphized_struct(payload_type.struct_name, payload_type.type_args)
+        payload_llvm = self._get_llvm_type(payload_type)
+        payload_ptr = self.builder.bitcast(
+            payload_i8, ir.PointerType(payload_llvm), name="arc_payload_ptr")
+        self_val = self.builder.load(payload_ptr, name="arc_payload")
+
+        mangled = self._mangle_method_name(
+            self._type_method_base(payload_type), expr.method_name)
+        method_func = self.functions[mangled]
+        args = [self_val]
+        for arg in expr.arguments:
+            args.append(self._gen_transfer_value(arg.value))
+        return self.builder.call(method_func, args, name="arc_forward_call")
 
     def _generate_static_method_call(self, expr: MethodCall, struct_name: str):
         """Generate a static method call: StructName.method(args)"""
