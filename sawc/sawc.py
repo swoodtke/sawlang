@@ -236,8 +236,23 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False):
 
 
 def run_codegen(codegen, ast):
-    """Run code generation for `ast` (the single codegen call site)."""
-    return codegen.generate(ast)
+    """Run code generation for `ast` (the single codegen call site).
+
+    Codegen has ~76 bare `raise ValueError` sites (plus llvmlite failures such
+    as DuplicatedNameError) that were never wrapped — unlike parser calls — so
+    an internal failure printed a raw Python traceback. This single wrapper
+    surfaces any such failure as a clean `internal compiler error: <message>`
+    diagnostic with the standard exit code, mirroring how parse errors are
+    reported. Individual raise-site message quality is out of scope.
+    """
+    try:
+        return codegen.generate(ast)
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"\033[1;31merror\033[0m: internal compiler error: {e}",
+              file=sys.stderr)
+        sys.exit(1)
 
 
 def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False):
