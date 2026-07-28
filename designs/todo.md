@@ -19,8 +19,9 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Language & semantics
 
-- **L1.** Partial moves of struct fields (`move p.x`) — currently
-  undesigned/unsupported; parser behavior unaudited. [15]
+- **L1.** Partial moves — DECIDED forbidden on all structs (design 35);
+  remaining work is the small audit/diagnostic item in that doc
+  (destructure-move and take() deferred wait-and-see). [15, 35]
 - **L2.** Return-type reconciliation for type-param / associated-type
   returns in generic bodies — documented deferred looseness from brief 24.
   [02, 24]
@@ -117,6 +118,11 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Recently resolved (recorded here to stop re-flagging)
 
+- **L1 (partial moves) — DECIDED Jul 28 (user): forbidden on all
+  structs, uniformly**; destructure-move and Optional take() deferred
+  wait-and-see (purely-additive relaxations). Accepted consequence:
+  safe code cannot extract owning fields from owned structs until a
+  relaxation lands. → design 35. [15, 35]
 - **D5 (async IO) — was already decided by the Jul 28 never-block
   revision in paper 18 (poller-only v1 reactor; bounded local IO stays
   sync; pool later only for `extern blocking`/optimization); the paper's
