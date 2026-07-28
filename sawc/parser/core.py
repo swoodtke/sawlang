@@ -158,6 +158,52 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             column=start.column
         )
 
+    # Maximum syntax errors collected before bailing out of a single file.
+    MAX_PARSE_ERRORS = 10
+
+    def _at_toplevel_start(self) -> bool:
+        """True if the current token can begin a top-level declaration."""
+        t = self.current()
+        if t.type in (TokenType.FUNC, TokenType.STRUCT, TokenType.ENUM,
+                      TokenType.EXTENSION, TokenType.TRAIT, TokenType.TYPE,
+                      TokenType.EXTERN, TokenType.PUBLIC):
+            return True
+        if t.type == TokenType.IDENT and t.value in ("import", "module", "export"):
+            return True
+        return False
+
+    def _synchronize(self):
+        """Recover from a syntax error by skipping to the next top-level
+        declaration boundary (`func`/`struct`/`enum`/`extension`/`trait`/
+        `type`/`extern`/`import`/`module`/`export` at brace depth 0).
+
+        Always consumes at least one token so the parse loop makes forward
+        progress (otherwise re-dispatching on the same offending token would
+        loop forever). Braces are tracked so a top-level keyword nested inside a
+        malformed body is not mistaken for a boundary; an unmatched closing
+        brace at depth 0 also ends recovery.
+        """
+        depth = 0
+        first = True  # skip the offending token before honoring any boundary
+        while not self.match(TokenType.EOF):
+            t = self.current()
+            if t.type == TokenType.LBRACE:
+                depth += 1
+                self.advance()
+            elif t.type == TokenType.RBRACE:
+                if depth > 0:
+                    depth -= 1
+                    self.advance()
+                else:
+                    # Stray closing brace at depth 0: consume it and resume.
+                    self.advance()
+                    return
+            elif not first and depth == 0 and self._at_toplevel_start():
+                return
+            else:
+                self.advance()
+            first = False
+
     def parse(self) -> Program:
         structs = []
         functions = []
@@ -169,53 +215,68 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         imports = []
         module_decls = []
         exports = []
+        errors = []  # collected syntax error messages (batched recovery)
         self.skip_newlines()
 
         while not self.match(TokenType.EOF):
-            if self.match_ident("import"):
-                imports.append(self.parse_import())
-            elif self.match_ident("export"):
-                exports.append(self.parse_export())
-            elif self.match(TokenType.PUBLIC):
-                # Could be public module or public declaration
-                if self.peek(1).type == TokenType.IDENT and self.peek(1).value == "module":
-                    module_decls.append(self.parse_module_decl())
-                else:
-                    # Parse visibility and then the declaration
-                    visibility = self._parse_visibility()
-                    if self.match(TokenType.STRUCT):
-                        structs.append(self.parse_struct(visibility))
-                    elif self.match(TokenType.ENUM):
-                        enums.append(self.parse_enum(visibility))
-                    elif self.match(TokenType.TRAIT):
-                        traits.append(self.parse_trait(visibility))
-                    elif self.match(TokenType.EXTENSION):
-                        extensions.append(self.parse_extension(visibility))
-                    elif self.match(TokenType.FUNC):
-                        functions.append(self.parse_function(visibility))
-                    elif self.match(TokenType.TYPE):
-                        type_definitions.append(self.parse_type_definition(visibility))
+            try:
+                if self.match_ident("import"):
+                    imports.append(self.parse_import())
+                elif self.match_ident("export"):
+                    exports.append(self.parse_export())
+                elif self.match(TokenType.PUBLIC):
+                    # Could be public module or public declaration
+                    if self.peek(1).type == TokenType.IDENT and self.peek(1).value == "module":
+                        module_decls.append(self.parse_module_decl())
                     else:
-                        self.error(f"Expected struct, enum, trait, extension, func, or type after visibility modifier")
-            elif self.match_ident("module"):
-                module_decls.append(self.parse_module_decl())
-            elif self.match(TokenType.STRUCT):
-                structs.append(self.parse_struct())
-            elif self.match(TokenType.ENUM):
-                enums.append(self.parse_enum())
-            elif self.match(TokenType.TRAIT):
-                traits.append(self.parse_trait())
-            elif self.match(TokenType.EXTENSION):
-                extensions.append(self.parse_extension())
-            elif self.match(TokenType.FUNC):
-                functions.append(self.parse_function())
-            elif self.match(TokenType.TYPE):
-                type_definitions.append(self.parse_type_definition())
-            elif self.match(TokenType.EXTERN):
-                extern_blocks.append(self.parse_extern_block())
-            else:
-                self.error(f"Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got {self.current().type.name}")
+                        # Parse visibility and then the declaration
+                        visibility = self._parse_visibility()
+                        if self.match(TokenType.STRUCT):
+                            structs.append(self.parse_struct(visibility))
+                        elif self.match(TokenType.ENUM):
+                            enums.append(self.parse_enum(visibility))
+                        elif self.match(TokenType.TRAIT):
+                            traits.append(self.parse_trait(visibility))
+                        elif self.match(TokenType.EXTENSION):
+                            extensions.append(self.parse_extension(visibility))
+                        elif self.match(TokenType.FUNC):
+                            functions.append(self.parse_function(visibility))
+                        elif self.match(TokenType.TYPE):
+                            type_definitions.append(self.parse_type_definition(visibility))
+                        else:
+                            self.error(f"Expected struct, enum, trait, extension, func, or type after visibility modifier")
+                elif self.match_ident("module"):
+                    module_decls.append(self.parse_module_decl())
+                elif self.match(TokenType.STRUCT):
+                    structs.append(self.parse_struct())
+                elif self.match(TokenType.ENUM):
+                    enums.append(self.parse_enum())
+                elif self.match(TokenType.TRAIT):
+                    traits.append(self.parse_trait())
+                elif self.match(TokenType.EXTENSION):
+                    extensions.append(self.parse_extension())
+                elif self.match(TokenType.FUNC):
+                    functions.append(self.parse_function())
+                elif self.match(TokenType.TYPE):
+                    type_definitions.append(self.parse_type_definition())
+                elif self.match(TokenType.EXTERN):
+                    extern_blocks.append(self.parse_extern_block())
+                else:
+                    self.error(f"Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got {self.current().type.name}")
+            except SyntaxError as e:
+                # Batch syntax errors: record this one, then synchronize to the
+                # next top-level declaration and keep parsing so a single file
+                # can report multiple independent errors in one run.
+                errors.append(str(e))
+                if len(errors) >= self.MAX_PARSE_ERRORS:
+                    break
+                self._synchronize()
             self.skip_newlines()
+
+        if errors:
+            # Surface all collected errors. A single error reproduces the exact
+            # prior message; multiple are joined so every one reaches the report.
+            raise SyntaxError("\n".join(errors))
 
         return Program(structs=structs, functions=functions, extensions=extensions,
                        enums=enums, traits=traits, type_definitions=type_definitions,
