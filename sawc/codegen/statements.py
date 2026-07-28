@@ -358,6 +358,13 @@ class StatementsMixin:
         For regular variables: x += 1 becomes x = x + 1
         For references: y += 1 loads through pointer, computes, stores back
         """
+        # `x += y` is `x = x + y`, so it takes the same overflow-checked path as
+        # the binary operators (design 31). Signedness comes from the target's
+        # annotated type (references and unannotated targets default to signed,
+        # which is harmless: only the integer add/sub/mul/div branches consult
+        # it, and unsigned targets are reliably annotated).
+        signed = self._int_is_signed(stmt.target)
+
         # Get pointer to target
         if isinstance(stmt.target, Identifier):
             var_name = stmt.target.name
@@ -375,14 +382,14 @@ class StatementsMixin:
                 current_val = self.builder.load(actual_ptr, name=f"{var_name}_val")
                 # Compute new value
                 rhs = self._generate_expression(stmt.value)
-                new_val = self._apply_compound_op(stmt.op, current_val, rhs)
+                new_val = self._apply_compound_op(stmt.op, current_val, rhs, signed)
                 # Store back through the pointer
                 self.builder.store(new_val, actual_ptr)
             else:
                 # Regular variable - load, compute, store
                 current_val = self.builder.load(target_ptr, name=f"{var_name}_val")
                 rhs = self._generate_expression(stmt.value)
-                new_val = self._apply_compound_op(stmt.op, current_val, rhs)
+                new_val = self._apply_compound_op(stmt.op, current_val, rhs, signed)
                 self.builder.store(new_val, target_ptr)
 
         elif isinstance(stmt.target, MemberAccess):
@@ -390,7 +397,7 @@ class StatementsMixin:
             field_ptr = self._get_member_pointer(stmt.target)
             current_val = self.builder.load(field_ptr, name="field_val")
             rhs = self._generate_expression(stmt.value)
-            new_val = self._apply_compound_op(stmt.op, current_val, rhs)
+            new_val = self._apply_compound_op(stmt.op, current_val, rhs, signed)
             self.builder.store(new_val, field_ptr)
 
         elif isinstance(stmt.target, ArrayIndex):
@@ -420,33 +427,45 @@ class StatementsMixin:
 
             current_val = self.builder.load(elem_ptr, name="elem_val")
             rhs = self._generate_expression(stmt.value)
-            new_val = self._apply_compound_op(stmt.op, current_val, rhs)
+            new_val = self._apply_compound_op(stmt.op, current_val, rhs, signed)
             self.builder.store(new_val, elem_ptr)
 
         else:
             raise ValueError(f"Invalid compound assignment target: {type(stmt.target)}")
 
-    def _apply_compound_op(self, op: str, left, right):
-        """Apply a compound assignment operator and return the result."""
+    def _apply_compound_op(self, op: str, left, right, signed: bool = True):
+        """Apply a compound assignment operator and return the result.
+
+        Integer +/-/* are overflow-checked and integer //% are zero-divisor and
+        INT_MIN/-1 checked, exactly as the corresponding binary operators
+        (design 31) -- `x += y` must not silently wrap where `x = x + y` panics.
+        Float ops are untouched.
+        """
         is_float = isinstance(left.type, ir.DoubleType)
 
         if op == '+':
             if is_float:
                 return self.builder.fadd(left, right, name="addtmp")
-            return self.builder.add(left, right, name="addtmp")
+            return self._checked_arith('+', left, right, signed)
         elif op == '-':
             if is_float:
                 return self.builder.fsub(left, right, name="subtmp")
-            return self.builder.sub(left, right, name="subtmp")
+            return self._checked_arith('-', left, right, signed)
         elif op == '*':
             if is_float:
                 return self.builder.fmul(left, right, name="multmp")
-            return self.builder.mul(left, right, name="multmp")
+            return self._checked_arith('*', left, right, signed)
         elif op == '/':
             if is_float:
                 return self.builder.fdiv(left, right, name="divtmp")
+            self._check_divisor_nonzero(right)
+            if signed:
+                self._check_div_no_overflow(left, right)
             return self.builder.sdiv(left, right, name="divtmp")
         elif op == '%':
+            self._check_divisor_nonzero(right)
+            if signed:
+                self._check_div_no_overflow(left, right)
             return self.builder.srem(left, right, name="modtmp")
         else:
             raise ValueError(f"Unknown compound operator: {op}")

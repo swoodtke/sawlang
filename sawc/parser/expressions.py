@@ -124,7 +124,10 @@ class ExpressionsMixin:
     def parse_additive(self) -> Expression:
         left = self.parse_multiplicative()
 
-        while self.match(TokenType.PLUS, TokenType.MINUS):
+        # `&+` / `&-` are the wrapping counterparts of `+` / `-` and share their
+        # precedence tier (design 31).
+        while self.match(TokenType.PLUS, TokenType.MINUS,
+                         TokenType.WRAP_ADD, TokenType.WRAP_SUB):
             op_token = self.advance()
             right = self.parse_multiplicative()
             left = BinaryOp(
@@ -140,7 +143,9 @@ class ExpressionsMixin:
     def parse_multiplicative(self) -> Expression:
         left = self.parse_unary()
 
-        while self.match(TokenType.STAR, TokenType.SLASH, TokenType.PERCENT):
+        # `&*` is the wrapping counterpart of `*` and shares its precedence tier.
+        while self.match(TokenType.STAR, TokenType.SLASH, TokenType.PERCENT,
+                         TokenType.WRAP_MUL):
             op_token = self.advance()
             right = self.parse_unary()
             left = BinaryOp(

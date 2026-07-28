@@ -1,0 +1,23 @@
+// Parser test: a single expression mixing a call-site `&var` reference argument
+// with a wrapping `&+` operator. These uses of `&` must not collide -- `&x` is a
+// prefix reference position, `&+` is a single infix token (design 31).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 18
+// 3
+
+func addRef(x: &var Int, delta: Int) {
+    x += delta
+}
+
+func main() {
+    var v = 10
+    // `&v` is a reference arg; `5 &+ 3` is a wrapping add -> 8
+    addRef(&v, 5 &+ 3)
+    print(v)   // 18
+
+    // Wrapping op and a plain reference-taking call in the same statement.
+    var w = 1
+    addRef(&w, 1 &+ 1)
+    print(w)   // 3
+}

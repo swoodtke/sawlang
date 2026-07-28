@@ -1,0 +1,9 @@
+// Unary negation of the signed minimum panics: -Int.min is +2^63, which is
+// unrepresentable in a signed 64-bit integer (design 31).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: integer overflow
+
+func main() {
+    let mn = -9223372036854775807 - 1   // Int.min
+    print(-mn)                           // -Int.min -> panic
+}

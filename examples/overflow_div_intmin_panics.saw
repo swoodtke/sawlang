@@ -1,0 +1,10 @@
+// INT_MIN / -1 overflows (the quotient +2^63 is unrepresentable) and panics,
+// checked beside the existing zero-divisor guard (design 31).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: integer overflow
+
+func main() {
+    let mn = -9223372036854775807 - 1   // Int.min
+    let d = -1
+    print(mn / d)                        // Int.min / -1 -> panic
+}

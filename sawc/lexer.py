@@ -75,6 +75,9 @@ class TokenType(Enum):
     AND = auto()            # && for logical and
     OR = auto()             # || for logical or
     AMPERSAND = auto()      # & for references
+    WRAP_ADD = auto()       # &+ wrapping (two's-complement) addition
+    WRAP_SUB = auto()       # &- wrapping (two's-complement) subtraction
+    WRAP_MUL = auto()       # &* wrapping (two's-complement) multiplication
     NOT = auto()            # 'not' keyword for logical not
     MOVE = auto()           # 'move' keyword for ownership transfer
     ASSIGN = auto()
@@ -360,6 +363,21 @@ class Lexer:
             elif ch == '&':
                 if self.peek(1) == '&':
                     self.add_token(TokenType.AND, '&&')
+                    self.advance()
+                    self.advance()
+                elif self.peek(1) == '+':
+                    # Wrapping add: single token, no interior whitespace. Distinct
+                    # from a call-site reference `&x` (a prefix position) and from
+                    # a bare `&`, which stays AMPERSAND.
+                    self.add_token(TokenType.WRAP_ADD, '&+')
+                    self.advance()
+                    self.advance()
+                elif self.peek(1) == '-':
+                    self.add_token(TokenType.WRAP_SUB, '&-')
+                    self.advance()
+                    self.advance()
+                elif self.peek(1) == '*':
+                    self.add_token(TokenType.WRAP_MUL, '&*')
                     self.advance()
                     self.advance()
                 else:

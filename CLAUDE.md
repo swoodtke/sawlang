@@ -268,7 +268,11 @@ The compiler currently supports:
 - Division / modulo by zero panics ("division by zero")
 - Out-of-bounds constant array index is a compile error; tuple index bounds checked
 - Force-unwrap of `None` and `try!` on `Err` panic with a message
-- Integer overflow is unspecified (open question)
+- Integer overflow panics ("integer overflow") — always, every profile — for
+  `+`/`-`/`*` on any integer type, `-Int.min`, and `INT_MIN / -1` (and `% -1`),
+  via `llvm.{s,u}{add,sub,mul}.with.overflow` (decided in `designs/31`, landed).
+  Intentional two's-complement wraparound uses the `&+`/`&-`/`&*` operators
+  (integer-only, same precedence as `+`/`-`/`*`)
 - Compiler flags: `-o`, `-v`, `-c`, `--emit-ir`, `--emit-ast`, `-O0`
   (default is an O1-style pass pipeline)
 

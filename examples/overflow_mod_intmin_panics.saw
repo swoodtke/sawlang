@@ -1,0 +1,10 @@
+// INT_MIN % -1 is mathematically zero, but is defined to panic for consistency
+// with INT_MIN / -1 division (design 31): both hit the same overflow guard.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: integer overflow
+
+func main() {
+    let mn = -9223372036854775807 - 1   // Int.min
+    let d = -1
+    print(mn % d)                        // Int.min % -1 -> panic
+}

@@ -1,0 +1,28 @@
+// Ordinary arithmetic acceptance is unchanged by the checked-arithmetic path
+// (design 31): non-overflowing ops compute normally, and range-loop induction
+// (Range.next's `self.current + 1`) must not panic spuriously at the boundary.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 14
+// -7
+// 3
+// 1
+// 10
+// 9223372036854775807
+
+func main() {
+    print(2 + 3 * 4)     // 14
+    print(-7)            // -7 (unary neg, no overflow)
+    print(10 / 3)        // 3
+    print(10 % 3)        // 1
+
+    // Range loop to a boundary: sums 0..5 without spurious overflow panics.
+    var sum = 0
+    for i in 0..5 {
+        sum += i
+    }
+    print(sum)           // 10
+
+    // Int.max is a valid value; reaching it via subtraction does not overflow.
+    print(9223372036854775807 - 0)   // 9223372036854775807
+}

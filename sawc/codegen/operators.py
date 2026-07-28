@@ -12,6 +12,12 @@ Usage:
 from llvmlite import ir
 from ast_nodes import BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, TypeKind, Identifier, MemberAccess, ArrayIndex, SelfExpr
 
+# Unsigned integer kinds: everything else that is an integer is treated as
+# signed (the codebase default -- comparisons use icmp_signed, division sdiv).
+_UNSIGNED_INT_KINDS = {
+    TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
+}
+
 
 class OperatorsMixin:
     """Mixin providing operator generation methods for CodeGenerator.
@@ -74,11 +80,102 @@ class OperatorsMixin:
 
         self.builder.position_at_end(cont_bb)
 
+    def _int_is_signed(self, expr) -> bool:
+        """Whether `expr`'s (integer) type is signed.
+
+        Reads the typechecker annotation, resolving type aliases first. Anything
+        not explicitly one of the unsigned kinds -- including an unannotated
+        expression -- is treated as signed, matching the codebase's
+        signed-centric integer handling (comparisons use icmp_signed, division
+        sdiv). Only genuine unsigned arithmetic (`let u: UInt = ...`), which is
+        reliably annotated, needs the unsigned intrinsic; deferring to signed
+        elsewhere is both safe and correct for `Int`. This intentionally does NOT
+        use the fail-loud `_expr_type`: a missing annotation must not turn a
+        signedness hint into a hard compile error.
+        """
+        resolved = getattr(expr, 'resolved_type', None)
+        if resolved is None:
+            return True
+        if self.type_param_context:
+            resolved = resolved.substitute(self.type_param_context)
+        resolved = self._resolve_type_alias(resolved)
+        return resolved.kind not in _UNSIGNED_INT_KINDS
+
+    def _overflow_intrinsic(self, op: str, signed: bool, width: int):
+        """Get (declaring on first use) the LLVM checked-arithmetic intrinsic
+        for `op` at the given signedness and bit width, e.g.
+        `llvm.sadd.with.overflow.i64`. Returns {iN, i1}: (result, overflow flag).
+        """
+        base = {'+': 'add', '-': 'sub', '*': 'mul'}[op]
+        prefix = 's' if signed else 'u'
+        name = f"llvm.{prefix}{base}.with.overflow.i{width}"
+        cache = getattr(self, '_overflow_intrinsics', None)
+        if cache is None:
+            cache = self._overflow_intrinsics = {}
+        if name in cache:
+            return cache[name]
+        int_ty = ir.IntType(width)
+        ret_ty = ir.LiteralStructType([int_ty, ir.IntType(1)])
+        fn = ir.Function(self.module, ir.FunctionType(ret_ty, [int_ty, int_ty]),
+                         name=name)
+        cache[name] = fn
+        return fn
+
+    def _checked_arith(self, op: str, left, right, signed: bool):
+        """Emit an overflow-checked integer add/sub/mul (design 31).
+
+        Uses the `llvm.{s,u}{add,sub,mul}.with.overflow` intrinsic and branches
+        to the standard panic seam ("integer overflow") when the overflow flag is
+        set, mirroring the div-by-zero panic-block pattern. Leaves the builder in
+        the non-overflowing continuation block and returns the wrapped result.
+        """
+        intrinsic = self._overflow_intrinsic(op, signed, left.type.width)
+        agg = self.builder.call(intrinsic, [left, right], name="ovf")
+        result = self.builder.extract_value(agg, 0, name="ovf_val")
+        flag = self.builder.extract_value(agg, 1, name="ovf_flag")
+
+        func = self.builder.function
+        panic_bb = func.append_basic_block(name="ovf_panic")
+        cont_bb = func.append_basic_block(name="ovf_cont")
+        self.builder.cbranch(flag, panic_bb, cont_bb)
+
+        self.builder.position_at_end(panic_bb)
+        self._emit_panic("panic: integer overflow")
+
+        self.builder.position_at_end(cont_bb)
+        return result
+
+    def _check_div_no_overflow(self, dividend, divisor):
+        """Guard a *signed* division/modulo against the `INT_MIN / -1` overflow.
+
+        `INT_MIN / -1` is +2^(w-1), unrepresentable in a w-bit signed integer (C
+        UB, and a hardware trap on some targets). Panics with "integer overflow"
+        for both `/` and `%` (see design 31: `%`'s mathematically-zero result is
+        defined via the same panic for consistency with division). Emitted beside
+        the existing zero-divisor check; leaves the builder in the continue block.
+        """
+        ty = dividend.type
+        int_min = ir.Constant(ty, -(1 << (ty.width - 1)))
+        neg_one = ir.Constant(ty, -1)
+        is_min = self.builder.icmp_signed('==', dividend, int_min, name="divovf_min")
+        is_neg1 = self.builder.icmp_signed('==', divisor, neg_one, name="divovf_neg1")
+        is_ovf = self.builder.and_(is_min, is_neg1, name="divovf_check")
+
+        func = self.builder.function
+        panic_bb = func.append_basic_block(name="divovf_panic")
+        cont_bb = func.append_basic_block(name="divovf_cont")
+        self.builder.cbranch(is_ovf, panic_bb, cont_bb)
+
+        self.builder.position_at_end(panic_bb)
+        self._emit_panic("panic: integer overflow")
+
+        self.builder.position_at_end(cont_bb)
+
     def _generate_binary_op(self, expr: BinaryOp):
         """Generate code for binary operations.
 
-        Handles arithmetic (+, -, *, /, %), comparison (==, !=, <, >, <=, >=),
-        and logical (&&, ||) operators.
+        Handles arithmetic (+, -, *, /, %), wrapping arithmetic (&+, &-, &*),
+        comparison (==, !=, <, >, <=, >=), and logical (&&, ||) operators.
         """
         # Handle short-circuit logical operators specially
         if expr.op == '&&':
@@ -92,13 +189,24 @@ class OperatorsMixin:
         # Check if we're dealing with floats
         is_float = isinstance(left.type, ir.DoubleType)
 
+        # Wrapping arithmetic (design 31): defined two's-complement wrap, no
+        # overflow check. Integer-only (enforced by the typechecker), so no
+        # float/pointer sub-cases here.
+        if expr.op == '&+':
+            return self.builder.add(left, right, name="wrapaddtmp")
+        elif expr.op == '&-':
+            return self.builder.sub(left, right, name="wrapsubtmp")
+        elif expr.op == '&*':
+            return self.builder.mul(left, right, name="wrapmultmp")
+
         if expr.op == '+':
             if isinstance(left.type, ir.PointerType):
                 # Pointer arithmetic: ptr + offset
                 return self.builder.gep(left, [right], name="ptr_add")
             if is_float:
                 return self.builder.fadd(left, right, name="addtmp")
-            return self.builder.add(left, right, name="addtmp")
+            # Integer add: overflow panics (design 31).
+            return self._checked_arith('+', left, right, self._int_is_signed(expr.left))
 
         elif expr.op == '-':
             if isinstance(left.type, ir.PointerType):
@@ -107,25 +215,30 @@ class OperatorsMixin:
                 return self.builder.gep(left, [neg_right], name="ptr_sub")
             if is_float:
                 return self.builder.fsub(left, right, name="subtmp")
-            return self.builder.sub(left, right, name="subtmp")
+            return self._checked_arith('-', left, right, self._int_is_signed(expr.left))
 
         elif expr.op == '*':
             if is_float:
                 return self.builder.fmul(left, right, name="multmp")
-            return self.builder.mul(left, right, name="multmp")
+            return self._checked_arith('*', left, right, self._int_is_signed(expr.left))
 
         elif expr.op == '/':
             if is_float:
                 # Float division keeps IEEE inf/nan semantics (untouched).
                 return self.builder.fdiv(left, right, name="divtmp")
             # Integer division: panic on a zero divisor instead of returning
-            # garbage (arm64 does not trap).
+            # garbage (arm64 does not trap), and on INT_MIN / -1 overflow.
             self._check_divisor_nonzero(right)
+            if self._int_is_signed(expr.left):
+                self._check_div_no_overflow(left, right)
             return self.builder.sdiv(left, right, name="divtmp")
 
         elif expr.op == '%':
-            # Modulo only works on integers; same zero-divisor panic as /.
+            # Modulo only works on integers; same zero-divisor and INT_MIN / -1
+            # overflow panics as /.
             self._check_divisor_nonzero(right)
+            if self._int_is_signed(expr.left):
+                self._check_div_no_overflow(left, right)
             return self.builder.srem(left, right, name="modtmp")
 
         elif expr.op == '==':
@@ -256,8 +369,12 @@ class OperatorsMixin:
         if expr.op == '-':
             if isinstance(operand.type, ir.DoubleType):
                 return self.builder.fneg(operand, name="negtmp")
-            zero = ir.Constant(ir.IntType(64), 0)
-            return self.builder.sub(zero, operand, name="negtmp")
+            # Integer negation is `0 - x`; negating the signed minimum overflows
+            # (its magnitude is unrepresentable) and panics (design 31). Unary `-`
+            # is signed-only (typechecker allows Int/Float), so a signed checked
+            # subtract is exactly right.
+            zero = ir.Constant(operand.type, 0)
+            return self._checked_arith('-', zero, operand, True)
 
         elif expr.op == 'not':
             # Logical NOT: flip the boolean (XOR with 1)

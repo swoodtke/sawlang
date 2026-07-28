@@ -1144,20 +1144,39 @@ func get_index(arr: [Int], i: Int) -> Int {
 | `try expr catch { }` | Unwrap Ok, run catch block on Err | `T` |
 | `try { } catch { }` | Catch errors from try block | block type |
 
+### Integer Arithmetic Semantics
+
+**Status: implemented (design 31).**
+
+- **Overflow panics — always, in every build profile.** `+`, `-`, and `*` on
+  any integer type (signed or unsigned), unary negation of a signed minimum
+  (`-Int.min`), and the `INT_MIN / -1` division case all **panic** at runtime
+  with an "integer overflow" message. The behavior is identical at `-O0` and the
+  default `O1` pipeline — the optimizer never elides a check. Overflow joins the
+  existing panic family (division by zero, force-unwrap, `try!`) and routes
+  through the same `saw_panic` seam, so it works freestanding.
+- **Division and modulo**: `a / 0` and `a % 0` **panic** with a "division by
+  zero" message rather than raising a hardware fault. `INT_MIN / -1` and
+  `INT_MIN % -1` **panic** with "integer overflow" — the modulo result is
+  mathematically zero but is defined to panic for consistency with division.
+- **Intentional wraparound** is spelled with the **wrapping operators
+  `&+`, `&-`, `&*`** (Swift-style): defined two's-complement wrap, no check,
+  **integer operands only** (a `Float` operand is a type error). Each is a
+  single token (no interior whitespace), sharing the precedence of its checked
+  counterpart (`&+`/`&-` add-tier, `&*` multiply-tier). They are unambiguous
+  against a call-site reference `&x` (a prefix position) and a bare binary `&`.
+- **Float arithmetic** is untouched: IEEE semantics (inf/nan), no overflow trap.
+
 ### Runtime Semantics and Traps
 
-**Status: implemented**, except integer overflow (open question).
+**Status: implemented.**
 
-- **Division / modulo by zero** (`a / 0`, `a % 0`) **panics** at runtime with a
-  "division by zero" message rather than raising a hardware fault.
 - **Force-unwrap of `None`** (`opt!`) panics with "force unwrap of None".
   **`try!` on an `Err`** panics, reporting the source line.
 - **Fixed-array indexing with an out-of-bounds compile-time constant** is a
   **compile error** ("index out of range"), mirroring the tuple-index check.
   Bounds checking for *dynamic* array indices is not yet implemented.
 - **Tuple indexing** past the tuple's arity is a compile error.
-- **Integer overflow is currently unspecified** — an open question (wrap, trap,
-  or UB has not been decided). Do not rely on any particular behavior.
 - **Struct equality** (a default `==` for structs) is unspecified / not
   implemented — an open question.
 
@@ -1690,10 +1709,11 @@ some  static  unsafe  where
 
 ```
 Implemented
-  Arithmetic:     +  -  *  /  %
+  Arithmetic:     +  -  *  /  %        (overflow panics — see Integer Arithmetic)
+  Wrapping:       &+ &- &*             (two's-complement wrap; integer-only)
   Comparison:     == != <  >  <= >=
   Logical:        &&  ||  not        (`not` is logical NOT — not `!`)
-  Assignment:     =  += -= *= /=
+  Assignment:     =  += -= *= /= %=
   Range:          ..                 (half-open, e.g. `for i in 0..5`)
   Optional:       ?  ??  ?.  !        (`!` is force-unwrap; `?.` optional chain)
   Reference:      &  &var             (`&x` at a call site; `&var` params)
@@ -1702,7 +1722,9 @@ Implemented
 
 Planned (parsed shape may differ or be rejected today)
   Arithmetic:     **                 (power)
-  Bitwise:        &  |  ^  ~  << >>   and their compound-assign forms
+  Bitwise:        |  ^  ~  << >>      and their compound-assign forms
+                                     (binary `&` reserved; `&+ &- &*` already
+                                      take the wrapping-op meaning)
   Range:          ..=                (inclusive)
   Match arrow:    =>                 (superseded — Saw match arms use `->`)
   Path:           ::

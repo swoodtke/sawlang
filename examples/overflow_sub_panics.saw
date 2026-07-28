@@ -1,0 +1,8 @@
+// Integer subtraction overflow panics (design 31). Int.min - 1 underflows.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: integer overflow
+
+func main() {
+    let mn = -9223372036854775807 - 1   // Int.min (exact, no overflow)
+    print(mn - 1)                        // Int.min - 1 -> panic
+}

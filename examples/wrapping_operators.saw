@@ -1,0 +1,23 @@
+// Wrapping operators &+ &- &* perform defined two's-complement wraparound with
+// no overflow check (design 31). They share the precedence of + - *.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -9223372036854775808
+// 9223372036854775807
+// -2
+// 14
+
+func main() {
+    // Int.max &+ 1 wraps to Int.min
+    print(9223372036854775807 &+ 1)
+
+    // Int.min &- 1 wraps to Int.max
+    let mn = -9223372036854775807 - 1
+    print(mn &- 1)
+
+    // Int.max &* 2 wraps to -2
+    print(9223372036854775807 &* 2)
+
+    // Same precedence as * : 2 &+ 3 &* 4 == 2 &+ (3 &* 4) == 14
+    print(2 &+ 3 &* 4)
+}

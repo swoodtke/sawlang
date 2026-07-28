@@ -1,0 +1,9 @@
+// Unsigned overflow panics too: UInt.max + 1 wraps to 0 in two's complement,
+// which the unsigned checked-add intrinsic flags as overflow (design 31).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: integer overflow
+
+func main() {
+    let u: UInt = 18446744073709551615   // UInt.max
+    print(u + 1)                          // -> panic
+}

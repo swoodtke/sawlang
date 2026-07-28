@@ -377,6 +377,20 @@ class ExpressionsMixin:
                     expr.line, expr.column
                 )
                 return None
+        elif expr.op in ['&+', '&-', '&*']:
+            # Wrapping arithmetic (design 31): integer operands only. Float (and
+            # everything else, including pointers) is rejected -- wraparound is
+            # only defined for two's-complement integers.
+            if left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
+                return left_type
+            else:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"wrapping operator `{expr.op}` requires integer operands, "
+                    f"got `{left_type}` and `{right_type}`",
+                    expr.line, expr.column
+                )
+                return None
         elif expr.op in ['&&', '||']:
             if left_underlying.kind == TypeKind.BOOL and right_underlying.kind == TypeKind.BOOL:
                 return SawType(TypeKind.BOOL)
