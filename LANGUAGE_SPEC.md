@@ -1486,6 +1486,22 @@ std.hash.{Hash, Hasher}
 std.time.{Instant, Duration}
 ```
 
+### Profiles (hosted and freestanding)
+
+**Status: freestanding stage 1 implemented.** Saw compiles under two profiles.
+The default **hosted** profile links libc and provides everything above. The
+**freestanding** profile (`sawc --freestanding`, optionally with `--target
+<triple>`) targets kernels and bare-metal: it links no libc and emits an
+unlinked object file. In this profile the runtime rests on exactly four seam
+symbols the environment must supply at link time — `saw_alloc(size, align)`,
+`saw_dealloc(ptr, size, align)`, `saw_write(ptr, len)`, and the noreturn
+`saw_panic(msg, len)` — which the hosted profile instead satisfies with weak
+libc-backed defaults (overridable at link time without a flag). Freestanding
+programs may use `core` and the `alloc`-layer types (`String`, `Vector`, `Map`,
+`Data`, `StringBuilder`, `Path`), which allocate only through the seams; the
+hosted-only modules (`File`, `Process`, `Env`, `Directory`) and `Float` printing
+are unavailable. See `designs/19-freestanding-profile.md` for the full design.
+
 ---
 
 ## 10. Interoperability
