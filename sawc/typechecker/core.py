@@ -145,6 +145,32 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             source_file = self._get_current_source_file()
         self.reporter.warning(kind, message, line, column, hint, source_file)
 
+    def _validate_exports(self, program: Program):
+        """`export` statements are only permitted in init.saw facade files.
+
+        Applied on every compile path (single-file and per-module), so a stray
+        `export` in a regular file is diagnosed regardless of whether the file
+        also uses imports/modules.
+        """
+        exports = getattr(program, 'exports', [])
+        if not exports:
+            return
+        source_path = getattr(program, 'source_path', None)
+        if source_path is None:
+            # Provenance unknown (e.g. an imported module AST that was not tagged
+            # with its path); the entry file always carries source_path, so this
+            # only skips imported modules — matching prior per-module behavior.
+            return
+        if source_path.endswith('init.saw'):
+            return
+        for exp in exports:
+            self.reporter.error(
+                ErrorKind.SYNTAX,
+                "`export` statements are only allowed in init.saw files",
+                exp.line, exp.column,
+                hint="use `public` visibility modifier to expose symbols from regular modules"
+            )
+
     def check(self, program: Program, require_main: bool = True) -> bool:
         """Type check the entire program. Returns True if no errors.
 
@@ -154,18 +180,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                          Set to False for library/object file compilation.
         """
         # Validate: exports are only allowed in init.saw files
-        exports = getattr(program, 'exports', [])
-        if exports:
-            source_path = getattr(program, 'source_path', None)
-            is_init_saw = source_path and source_path.endswith('init.saw')
-            if not is_init_saw:
-                for exp in exports:
-                    self.reporter.error(
-                        ErrorKind.SYNTAX,
-                        "`export` statements are only allowed in init.saw files",
-                        exp.line, exp.column,
-                        hint="use `public` visibility modifier to expose symbols from regular modules"
-                    )
+        self._validate_exports(program)
 
         # First pass: register type definitions (aliases)
         for type_def in program.type_definitions:
@@ -400,6 +415,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         old_module_path = self.current_module_path
         self.namespace = ns
         self.current_module_path = module_path
+
+        # Validate: exports are only allowed in init.saw files (same rule as the
+        # single-file path; enforced here so the unified pipeline still catches
+        # a stray `export` in a regular entry/module file).
+        self._validate_exports(module_ast)
 
         # Register type definitions
         for type_def in module_ast.type_definitions:

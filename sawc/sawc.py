@@ -201,21 +201,60 @@ def topological_sort_modules(module_map):
     return result
 
 
-def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False):
+def build_builtin_namespace(verbose: bool = False, freestanding: bool = False):
+    """Load, parse, and type-check the builtins once, returning
+    ``(builtin_ast, builtin_ns)``.
+
+    This replaces the former hand-inlined registration sequence that reached
+    into the typechecker's private ``_register_*`` methods. Type-checking the
+    builtins through the public ``check()`` entry point keeps a single
+    registration path, and populates a namespace in which every builtin symbol
+    is marked directly accessible so modules can use ``String``/``Vector``/
+    ``Result`` etc. without an explicit import.
     """
-    Compile a program that uses the module system.
+    builtin_ast = load_builtins(verbose, freestanding)
 
-    This implements Phase 2 multi-module compilation:
+    # Check the builtins with a throwaway reporter so their (absent) errors
+    # never pollute user diagnostics. require_main=False: builtins are a library.
+    builtin_reporter = ErrorReporter("", "builtins")
+    builtin_tc = TypeChecker(builtin_reporter, freestanding=freestanding)
+    builtin_tc.namespace.allow_all_access = True
+    if not builtin_tc.check(builtin_ast, require_main=False):
+        # A builtin that fails to type-check is a compiler bug, not user error.
+        print("\033[1;31merror\033[0m: internal compiler error: builtins failed "
+              "to type-check", file=sys.stderr)
+        builtin_reporter.print_all()
+        sys.exit(1)
+
+    builtin_ns = builtin_tc.namespace
+    for table in (builtin_ns.structs, builtin_ns.enums, builtin_ns.functions,
+                  builtin_ns.traits, builtin_ns.type_aliases):
+        for name in table:
+            builtin_ns.make_accessible(name)
+
+    return builtin_ast, builtin_ns
+
+
+def run_codegen(codegen, ast):
+    """Run code generation for `ast` (the single codegen call site)."""
+    return codegen.generate(ast)
+
+
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False):
+    """Resolve modules, load builtins, and type-check the whole program.
+
+    This is the single front half of the compile pipeline: a plain single file
+    is simply a module graph of size one (no imports, empty module map). It
+    returns ``(codegen, merged_ast)`` — a ``CodeGenerator`` primed with the
+    fully merged namespace and the merged AST — ready for ``run_codegen``.
+    Exits the process on any type / resolution error.
+
+    Steps:
     1. Resolve all module imports to their source files
-    2. Parse imported modules
-    3. Build module map for qualified access
-    4. Merge all modules with builtins for code generation
-    5. Type check with module-aware symbol resolution
-    6. Generate code
-    7. Link to executable (unless object_only=True)
-
-    Args:
-        object_only: If True, compile to .o without linking (no main() required)
+    2. Parse imported modules and build the module map for qualified access
+    3. Merge all modules with builtins for code generation
+    4. Type check per-module with module-aware symbol resolution
+    5. Merge namespaces and construct the code generator
     """
     from module_resolver import ModuleInfo
     from ast_nodes import Program
@@ -377,8 +416,8 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
                     print(f"\033[1;31merror\033[0m: module `{mod_decl.name}` not found at {mod_file} or {mod_dir_file}", file=sys.stderr)
                     sys.exit(1)
 
-    # Load builtins
-    builtin_ast = load_builtins(verbose, freestanding)
+    # Load builtins and build the (type-checked) builtin namespace once.
+    builtin_ast, builtin_ns = build_builtin_namespace(verbose, freestanding)
 
     # Helper to recursively collect all inline module bodies from an AST
     def collect_inline_module_bodies(ast):
@@ -430,58 +469,8 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
         reporter.add_source(mod_path, mod_source)
     typechecker = TypeChecker(reporter, freestanding=freestanding)
 
-    # First, type-check the builtins using the legacy method
-    # This sets resolved_type on expressions in the builtin AST
-    if verbose:
-        print("    Type-checking builtins...")
-
-    # Create a temporary error reporter for builtins to avoid polluting user errors
-    builtin_reporter = ErrorReporter("", "builtins")
-    builtin_typechecker = TypeChecker(builtin_reporter)
-
-    # Type-check builtins (this populates the namespace and sets resolved_type)
-    # Use a copy of builtin_ast for checking (we don't want main check errors)
-    builtin_typechecker.namespace.allow_all_access = True  # Allow all access for builtins
-    for type_def in builtin_ast.type_definitions:
-        builtin_typechecker._register_type_definition(type_def)
-    for struct in builtin_ast.structs:
-        builtin_typechecker._register_struct(struct)
-    for enum in builtin_ast.enums:
-        builtin_typechecker._register_enum(enum)
-    for trait in builtin_ast.traits:
-        builtin_typechecker._register_trait(trait)
-    for extension in builtin_ast.extensions:
-        builtin_typechecker._register_extension(extension)
-    for extern_block in builtin_ast.extern_blocks:
-        for extern_func in extern_block.functions:
-            builtin_typechecker._register_extern_function(extern_func)
-    for func in builtin_ast.functions:
-        builtin_typechecker._register_function(func)
-
-    # Type-check the function and method bodies (sets resolved_type on expressions)
-    for func in builtin_ast.functions:
-        builtin_typechecker._check_function(func)
-    for extension in builtin_ast.extensions:
-        builtin_typechecker._check_extension(extension)
-
-    # Now create the builtin namespace for the per-module type checking
-    builtin_ns = builtin_typechecker.namespace
-
-    # Make all builtin symbols directly accessible to modules
-    # This allows modules to use Vector, Map, String, etc. without explicit imports
-    for name in builtin_ns.structs:
-        builtin_ns.make_accessible(name)
-    for name in builtin_ns.enums:
-        builtin_ns.make_accessible(name)
-    for name in builtin_ns.functions:
-        builtin_ns.make_accessible(name)
-    for name in builtin_ns.traits:
-        builtin_ns.make_accessible(name)
-    for name in builtin_ns.type_aliases:
-        builtin_ns.make_accessible(name)
-
-    # All type information is now namespace-only
-    # (structs, traits, functions, enums, type_aliases, conformances, type_assignments)
+    # The builtin namespace was built once by build_builtin_namespace(); all its
+    # symbols are already type-checked and marked directly accessible.
 
     # Topologically sort modules by dependencies
     ordered_modules = topological_sort_modules(module_map)
@@ -588,24 +577,25 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns
 
-    # Code generation
     if verbose:
-        print("  Generating LLVM IR...")
+        print("  Building code generator...")
     codegen = CodeGenerator(typechecker.namespace, target_triple=target_triple, freestanding=freestanding)
-    llvm_ir = codegen.generate(merged_ast)
+    return codegen, merged_ast
 
-    if verbose:
-        print("  Generated LLVM IR")
 
-    # Write LLVM IR to temp file (for debugging)
+def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
+                 object_only: bool, optimize: bool):
+    """Write the module's IR sidecar, compile to an object file, and (for
+    executables) link it. Shared output tail for the compile pipeline."""
+    llvm_ir = codegen.emit_ir(optimize=False)
+
+    # Write LLVM IR to a sidecar file (for debugging)
     ir_path = output_path + ".ll"
     with open(ir_path, 'w') as f:
         f.write(llvm_ir)
-
     if verbose:
         print(f"  Wrote IR to {ir_path}")
 
-    # Compile to object file
     if verbose:
         print("  Compiling to object code...")
 
@@ -622,7 +612,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
         obj_path = output_path + ".o"
         codegen.compile_to_object(obj_path, optimize=optimize)
 
-        # Link with system linker
+        # Link with system linker (clang handles libc linking automatically)
         if verbose:
             print("  Linking...")
 
@@ -649,6 +639,11 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
 def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False):
     """Compile a Saw source file to an executable or object file.
 
+    A single file is just a module graph of size one, so there is one pipeline:
+    parse the entry file, run `_prepare_codegen` (module resolution + builtins +
+    type checking), then generate and emit. `_prepare_codegen` handles the
+    no-import case (empty module map) identically to a multi-module program.
+
     Args:
         source_path: Path to the .saw source file
         output_path: Path for output (executable or .o file)
@@ -669,104 +664,27 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
 
     if verbose:
         print(f"Compiling {source_path}...")
-
-    # Parse user source first to check for modules
-    if verbose:
         print("  Parsing...")
-    user_ast = parse_source(source, source_path, verbose)
-    user_ast.source_path = os.path.abspath(source_path)
+    entry_ast = parse_source(source, source_path, verbose)
+    entry_ast.source_path = os.path.abspath(source_path)
 
-    # Check if this program uses the module system
-    if uses_modules(user_ast):
-        if verbose:
-            print("  Module system detected:")
-            for imp in user_ast.imports:
-                print(f"    import {'.'.join(imp.path)}")
-            for mod in user_ast.module_decls:
-                print(f"    module {mod.name}")
+    if verbose and uses_modules(entry_ast):
+        print("  Module system detected:")
+        for imp in entry_ast.imports:
+            print(f"    import {'.'.join(imp.path)}")
+        for mod in entry_ast.module_decls:
+            print(f"    module {mod.name}")
 
-        # Use multi-module compilation path
-        return compile_with_modules(source_path, output_path, user_ast, source, verbose, object_only, optimize, target_triple, freestanding)
+    codegen, merged_ast = _prepare_codegen(
+        source_path, entry_ast, source, verbose, object_only, target_triple, freestanding)
 
-    # Legacy single-file compilation path
-    # Load builtins
-    builtin_ast = load_builtins(verbose, freestanding)
-
-    # Merge builtins with user program
-    ast = merge_programs(builtin_ast, user_ast)
-
-    if verbose:
-        print(f"    Parsed {len(ast.functions)} functions")
-
-    # Type checking
-    if verbose:
-        print("  Type checking...")
-    reporter = ErrorReporter(source, source_path)
-    typechecker = TypeChecker(reporter, freestanding=freestanding)
-    if not typechecker.check(ast, require_main=not object_only):
-        reporter.print_all()
-        sys.exit(1)
-
-    if verbose:
-        print("    Type check passed")
-
-    # Code generation
     if verbose:
         print("  Generating LLVM IR...")
-    codegen = CodeGenerator(typechecker.namespace, target_triple=target_triple, freestanding=freestanding)
-    llvm_ir = codegen.generate(ast)
-
+    run_codegen(codegen, merged_ast)
     if verbose:
         print("  Generated LLVM IR")
 
-    # Write LLVM IR to temp file (for debugging)
-    ir_path = output_path + ".ll"
-    with open(ir_path, 'w') as f:
-        f.write(llvm_ir)
-
-    if verbose:
-        print(f"  Wrote IR to {ir_path}")
-
-    # Compile to object file
-    if verbose:
-        print("  Compiling to object code...")
-
-    if object_only:
-        # Output directly to the specified path (should end in .o)
-        obj_path = output_path if output_path.endswith('.o') else output_path + '.o'
-        codegen.compile_to_object(obj_path, optimize=optimize)
-
-        if verbose:
-            print(f"  Output: {obj_path}")
-        print(f"Compiled {source_path} -> {obj_path}")
-    else:
-        # Compile to temp object file, then link
-        obj_path = output_path + ".o"
-        codegen.compile_to_object(obj_path, optimize=optimize)
-
-        # Link with system linker
-        if verbose:
-            print("  Linking...")
-
-        # Use clang as the linker (handles libc linking automatically)
-        link_cmd = ["clang", obj_path, "-o", output_path]
-
-        try:
-            result = subprocess.run(link_cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                print(f"Linking failed: {result.stderr}", file=sys.stderr)
-                sys.exit(1)
-        except FileNotFoundError:
-            print("Error: clang not found. Please install LLVM/clang.", file=sys.stderr)
-            sys.exit(1)
-
-        # Clean up object file
-        os.remove(obj_path)
-
-        if verbose:
-            print(f"  Output: {output_path}")
-
-        print(f"Compiled {source_path} -> {output_path}")
+    _emit_object(codegen, source_path, output_path, verbose, object_only, optimize)
 
 
 def main():
@@ -850,28 +768,19 @@ Examples:
         print(ast_output)
 
     elif args.emit_ir:
-        # Only emit IR
+        # Emit IR only, through the same front half as a real compile so that
+        # builtins (String/Vector/Result) are loaded and module imports resolve.
         with open(args.input, 'r') as f:
             source = f.read()
 
-        try:
-            lexer = Lexer(source)
-            tokens = lexer.tokenize()
-            parser_obj = Parser(tokens)
-            ast = parser_obj.parse()
-        except SyntaxError as e:
-            print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
-            sys.exit(1)
+        entry_ast = parse_source(source, args.input, args.verbose)
+        entry_ast.source_path = os.path.abspath(args.input)
 
-        # Type check
-        reporter = ErrorReporter(source, args.input)
-        typechecker = TypeChecker(reporter, freestanding=args.freestanding)
-        if not typechecker.check(ast):
-            reporter.print_all()
-            sys.exit(1)
-
-        codegen = CodeGenerator(typechecker.namespace, target_triple=args.target, freestanding=args.freestanding)
-        codegen.generate(ast)
+        codegen, merged_ast = _prepare_codegen(
+            args.input, entry_ast, source, verbose=args.verbose,
+            object_only=args.c, target_triple=args.target,
+            freestanding=args.freestanding)
+        run_codegen(codegen, merged_ast)
         llvm_ir = codegen.emit_ir(optimize=not args.no_optimize)
 
         ir_output = output_path + ".ll"
