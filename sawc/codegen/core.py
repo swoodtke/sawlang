@@ -871,6 +871,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # Check inner_type for optionals, pointers, references, etc.
             if saw_type.inner_type:
                 deps.update(get_deps(saw_type.inner_type))
+            # Check tuple element types.
+            if saw_type.element_types:
+                for elem in saw_type.element_types:
+                    deps.update(get_deps(elem))
+            # Check the element type of a fixed array `[T; N]`: a struct field of
+            # array type depends on its element type's layout being registered
+            # first (design 33). Missing this let the topological sort place a
+            # container struct before its array element type, so building the
+            # container's LLVM type failed with "Undefined struct" nondeterministically
+            # (the order depended on set iteration / hash seed).
+            if saw_type.kind == TypeKind.ARRAY and saw_type.array_element_type:
+                deps.update(get_deps(saw_type.array_element_type))
             return deps
 
         # Build dependency graph
