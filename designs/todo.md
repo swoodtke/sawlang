@@ -14,8 +14,6 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Decisions needed (user input required)
 
-- **D1. Integer overflow semantics** — wrap, panic, or UB? Also gates
-  INT_MIN/-1 division trapping (out of scope in brief 05). [05, 13]
 - **D2. Struct equality semantics** — memberwise `==`? Derived? What about
   structs containing resources? [13]
 - **D5. IO integration for async** — kqueue/epoll reactor vs blocking-pool;
@@ -130,6 +128,10 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Recently resolved (recorded here to stop re-flagging)
 
+- **D1 (integer overflow) — DECIDED Jul 28 (user):** checked arithmetic
+  always, every profile — overflow panics (incl. INT_MIN/-1 and signed
+  negation of min); intentional wrap via Swift-style `&+ &- &*`
+  operators. Decision + implementation → design 31. [05, 13, 31]
 - **D3 (Result auto-wrap + error union) — DECIDED Jul 28 (user):**
   concrete `T == E` bare returns are a compile error (explicit variant
   required); generic bodies keep abstract per-parameter wrapping; the
