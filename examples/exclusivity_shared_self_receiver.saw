@@ -12,7 +12,6 @@
 // See todo_jul26.md "Known follow-ups" (immutable &self receivers not collected).
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: exclusive access violation
-// XFAIL: the exclusivity check does not collect an immutable &self receiver, so aliasing it with a &var argument is accepted
 
 struct Counter {
     n: Int

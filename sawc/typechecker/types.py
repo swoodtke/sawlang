@@ -812,11 +812,16 @@ class TypeUtilsMixin:
         # 'mut', 'imm', 'moved'. name_expr renders the offending path.
         entries = []
 
-        if receiver is not None and receiver_mutable:
+        # A method receiver is always a borrow (`&self`/`&var self` -- the parser
+        # requires it; static/init calls pass receiver=None). Collect it either
+        # way: a `var self` receiver is a mutable path, and an immutable `&self`
+        # receiver is a live shared read for the call's duration, so aliasing it
+        # with a `&var` argument (`c.read(&var c)`) is an exclusivity violation.
+        if receiver is not None:
             path = self._build_access_path(receiver)
             if path is not None:
-                entries.append(('mut', path, receiver,
-                                receiver.line, receiver.column))
+                entries.append(('mut' if receiver_mutable else 'imm', path,
+                                receiver, receiver.line, receiver.column))
 
         if param_types is None:
             param_types = []
