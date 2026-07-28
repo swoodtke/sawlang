@@ -130,6 +130,11 @@ class ResourcesMixin:
         if saw_type.kind == TypeKind.OPTIONAL:
             return (saw_type.inner_type is not None
                     and self._needs_cleanup(saw_type.inner_type))
+        if saw_type.kind == TypeKind.ARRAY:
+            # A fixed array `[T; N]` needs cleanup iff its element type does
+            # (design 33): each live element is destroyed at scope death.
+            return (saw_type.array_element_type is not None
+                    and self._needs_cleanup(saw_type.array_element_type))
         return self._struct_needs_field_cleanup(saw_type)
 
     def _concrete_field_types(self, saw_type: SawType):
@@ -274,7 +279,29 @@ class ResourcesMixin:
         if saw_type.kind == TypeKind.OPTIONAL:
             self._emit_optional_cleanup_at(ptr, saw_type)
             return
+        if saw_type.kind == TypeKind.ARRAY:
+            self._emit_array_cleanup_at(ptr, saw_type)
+            return
         self._emit_field_cleanup_at(ptr, saw_type)
+
+    def _emit_array_cleanup_at(self, array_ptr, saw_type: SawType):
+        """Release every element of the fixed array at `array_ptr`, in REVERSE
+        index order (design 33). The array is laid out `[N x T]`; each element is
+        dropped through `_emit_drop_at` so Deinit/String/nested-aggregate elements
+        run their own cleanup. Composes with `__deinit_in_place` (arrays nested in
+        structs/enums reach here via `_emit_field_cleanup_at` /
+        `_emit_enum_cleanup_at`).
+        """
+        elem_type = saw_type.array_element_type
+        size = saw_type.array_size
+        if elem_type is None or size is None or not self._needs_cleanup(elem_type):
+            return
+        i32 = ir.IntType(32)
+        for idx in reversed(range(size)):
+            elem_ptr = self.builder.gep(
+                array_ptr, [ir.Constant(i32, 0), ir.Constant(i32, idx)],
+                name=f"arr_drop_{idx}")
+            self._emit_drop_at(elem_ptr, elem_type)
 
     def _emit_field_cleanup_at(self, struct_ptr, saw_type: SawType):
         """Release every cleanup-needing field of the struct at `struct_ptr`, in
@@ -405,6 +432,12 @@ class ResourcesMixin:
         For regular types, returns the original value (bitwise copy).
         For NoCopy types, raises an error (should be caught by typechecker).
         """
+        # A fixed array `[T; N]` copies per element (design 33). Only reached
+        # implicitly for ImplicitCopy-element arrays (trivial arrays need no
+        # copy; ExplicitCopy/NoCopy arrays are move-gated by the typechecker).
+        if saw_type.kind == TypeKind.ARRAY:
+            return self._emit_array_deep_copy(value, saw_type)
+
         behavior = self._get_cleanup_behavior(saw_type)
 
         if behavior == "no_copy":
@@ -430,6 +463,46 @@ class ResourcesMixin:
 
         # copy(self) takes self by value (immutable), returns Self
         return self.builder.call(copy_fn, [value], name="copy_result")
+
+    def _emit_copy_value(self, value, saw_type: SawType):
+        """Produce an independent copy of a single value of `saw_type`.
+
+        The per-element building block for array `.copy()` / implicit array copy
+        (design 33). Dispatches: nested array -> per-element copy; trivially
+        copyable -> the value as-is (bitwise); a type with a real `copy()` method
+        (ImplicitCopy/ExplicitCopy, incl. String) -> a call to it. A resource
+        type with no copy path never reaches here (the typechecker gates it).
+        """
+        if saw_type.kind == TypeKind.ARRAY:
+            return self._emit_array_deep_copy(value, saw_type)
+        if self.namespace.is_trivially_copyable(saw_type):
+            return value
+        method_base = self._type_method_base(saw_type)
+        if method_base is not None:
+            copy_name = self._mangle_method_name(method_base, "copy")
+            fn = self.functions.get(copy_name)
+            if fn is not None:
+                return self.builder.call(fn, [value], name="elem_copy")
+        # No copy path found: bitwise fallback (typechecker should have rejected).
+        return value
+
+    def _emit_array_deep_copy(self, value, saw_type: SawType):
+        """Copy a fixed array `[T; N]` value element-by-element, in index order
+        (design 33). Each element is duplicated through `_emit_copy_value`, so an
+        ExplicitCopy/ImplicitCopy element runs its own `copy()` and the result is
+        an independent array (mutating one leaves the other untouched; each owned
+        element is released exactly once at its array's scope death)."""
+        elem_type = saw_type.array_element_type
+        size = saw_type.array_size
+        if elem_type is None or size is None:
+            return value
+        result = value
+        for idx in range(size):
+            elem = self.builder.extract_value(value, idx, name=f"arr_cp_src{idx}")
+            elem_copy = self._emit_copy_value(elem, elem_type)
+            result = self.builder.insert_value(result, elem_copy, idx,
+                                               name=f"arr_cp{idx}")
+        return result
 
     def _gen_transfer_value(self, value_expr):
         """Generate a value being transferred into a new home (call argument,

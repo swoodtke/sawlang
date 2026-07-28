@@ -659,6 +659,11 @@ class Namespace:
             return all(self.is_trivially_copyable(e) for e in (saw_type.element_types or []))
         if kind == TypeKind.OPTIONAL:
             return saw_type.inner_type is not None and self.is_trivially_copyable(saw_type.inner_type)
+        if kind == TypeKind.ARRAY:
+            # A fixed array `[T; N]` inherits T's copy class (design 33): it is
+            # trivially copyable iff its element type is.
+            return (saw_type.array_element_type is not None
+                    and self.is_trivially_copyable(saw_type.array_element_type))
         if kind == TypeKind.STRUCT:
             name = saw_type.struct_name
             # A type alias flows to its underlying type for triviality.
@@ -685,6 +690,11 @@ class Namespace:
             return False
         if self.is_trivially_copyable(saw_type):
             return True
+        # A fixed array `[T; N]` inherits T's copy class (design 33): it
+        # satisfies `Copy` iff its element type does.
+        if saw_type.kind == TypeKind.ARRAY:
+            return (saw_type.array_element_type is not None
+                    and self.type_satisfies_copy_bound(saw_type.array_element_type))
         name = None
         if saw_type.kind == TypeKind.STRUCT:
             name = saw_type.struct_name

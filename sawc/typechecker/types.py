@@ -442,10 +442,25 @@ class TypeUtilsMixin:
 
         return True
 
+    def _array_base_kind(self, saw_type: SawType):
+        """Peel nested fixed-array layers and return the base element's TypeKind
+        (design 33). `[[String; 2]; 3]` -> STRING; a non-array type returns its
+        own kind. Used to extend the scalar-String containment exemption to
+        arrays of String."""
+        node = saw_type
+        while node is not None and node.kind == TypeKind.ARRAY:
+            node = node.array_element_type
+        return node.kind if node is not None else None
+
     def _is_no_copy_type(self, saw_type: SawType) -> bool:
         """Check if a type implements NoCopy (cannot be copied)."""
         if saw_type is None:
             return False
+
+        # A fixed array `[T; N]` inherits T's copy class (design 33): it is
+        # NoCopy iff its element type is.
+        if saw_type.kind == TypeKind.ARRAY:
+            return self._is_no_copy_type(saw_type.array_element_type)
 
         # Get the type name for conformance lookup
         type_name = None
@@ -464,6 +479,11 @@ class TypeUtilsMixin:
         """Check if a type implements ImplicitCopy."""
         if saw_type is None:
             return False
+
+        # A fixed array `[T; N]` inherits T's copy class (design 33): it is
+        # ImplicitCopy iff its element type is (per-element implicit copy).
+        if saw_type.kind == TypeKind.ARRAY:
+            return self._is_implicit_copy_type(saw_type.array_element_type)
 
         # Get the type name for conformance lookup
         type_name = None
@@ -485,6 +505,12 @@ class TypeUtilsMixin:
         """Check if a type implements ExplicitCopy (move-only, deep .copy())."""
         if saw_type is None:
             return False
+
+        # A fixed array `[T; N]` inherits T's copy class (design 33): it is
+        # ExplicitCopy iff its element type is (move by default, `.copy()`
+        # duplicates per element).
+        if saw_type.kind == TypeKind.ARRAY:
+            return self._is_explicit_copy_type(saw_type.array_element_type)
 
         # Get the type name for conformance lookup
         type_name = None
@@ -527,6 +553,11 @@ class TypeUtilsMixin:
         """Check if a type implements Deinit (directly or through NoCopy/ImplicitCopy/ExplicitCopy)."""
         if saw_type is None:
             return False
+
+        # A fixed array `[T; N]` needs element destruction iff its element type
+        # does (design 33).
+        if saw_type.kind == TypeKind.ARRAY:
+            return self._is_deinit_type(saw_type.array_element_type)
 
         # Get the type name for conformance lookup
         type_name = None
@@ -974,8 +1005,11 @@ class TypeUtilsMixin:
                 # String is a compiler-known ImplicitCopy value type; unlike a
                 # user Rc it does not force containing structs to opt in (a plain
                 # struct holding a String keeps the pre-refcount behavior:
-                # bitwise field, no imposed copy/deinit policy).
-                if field_type.kind == TypeKind.STRING:
+                # bitwise field, no imposed copy/deinit policy). A fixed array of
+                # String is exempt on the same footing (design 33): its per-element
+                # retain/release is compiler-handled, so a `[String; N]` field does
+                # not force a policy any more than a scalar `String` field does.
+                if self._array_base_kind(field_type) == TypeKind.STRING:
                     continue
                 if self._is_implicit_copy_type(field_type):
                     self._error(

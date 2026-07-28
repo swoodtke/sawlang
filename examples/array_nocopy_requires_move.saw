@@ -1,0 +1,16 @@
+// A fixed array of NoCopy elements is itself NoCopy (design 33): it is move-only.
+// A whole-array `let b = a` that aliases an existing binding is rejected; there
+// is no `.copy()` escape hatch for a NoCopy element.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `[F; 2]` which implements NoCopy
+
+struct F { fd: Int }
+extension F: NoCopy {
+    func deinit(&var self) { }
+}
+
+func main() {
+    let a = [F(fd: 1), F(fd: 2)]
+    let b = a          // NoCopy array: move-only
+    print(b[0].fd)
+}

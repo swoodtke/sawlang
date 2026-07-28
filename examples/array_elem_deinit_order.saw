@@ -1,0 +1,19 @@
+// A fixed array of Deinit elements releases every element at scope death, in
+// REVERSE index order (design 33). Without this, the elements would leak.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// live
+// d3
+// d2
+// d1
+
+struct D { v: Int }
+extension D: Deinit {
+    func deinit(&var self) { print("d{self.v}") }
+}
+
+func main() {
+    let a = [D(v: 1), D(v: 2), D(v: 3)]
+    print("live")
+    // scope exit: a[2], a[1], a[0] deinit in that order
+}

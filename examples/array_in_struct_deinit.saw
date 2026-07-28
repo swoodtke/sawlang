@@ -1,0 +1,27 @@
+// A struct holding a fixed array of Deinit elements: the struct's own deinit
+// runs first, then its fields are released, and the array field releases its
+// elements in reverse index order (design 33 nested composition).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// live
+// holder deinit
+// d2
+// d1
+
+struct D { v: Int }
+extension D: Deinit {
+    func deinit(&var self) { print("d{self.v}") }
+}
+
+struct Holder {
+    items: [D; 2]
+}
+extension Holder: Deinit {
+    func deinit(&var self) { print("holder deinit") }
+}
+
+func main() {
+    let h = Holder(items: [D(v: 1), D(v: 2)])
+    print("live")
+    // scope exit: Holder.deinit body, then the `items` array releases d2, d1
+}

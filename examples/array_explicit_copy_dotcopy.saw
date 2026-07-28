@@ -1,0 +1,30 @@
+// `.copy()` on an ExplicitCopy array duplicates per element in index order,
+// yielding an INDEPENDENT array: mutating one leaves the other untouched, and
+// each array's elements deinit exactly once (double-free-free). Deinit prints
+// the element value so the exact release sequence is the oracle.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 99
+// 1
+// d-2
+// d-1
+// d-2
+// d-99
+
+struct R { v: Int }
+extension R: ExplicitCopy {
+    func copy(&self) -> R { R(v: self.v) }
+    func deinit(&var self) {
+        print("d-{self.v}")
+    }
+}
+
+func main() {
+    var a = [R(v: 1), R(v: 2)]
+    let b = a.copy()      // independent per-element copy of a
+    a[0] = R(v: 99)       // mutate a; b must be unchanged
+    print(a[0].v)         // 99
+    print(b[0].v)         // 1  (b still original)
+    // scope exit is LIFO by declaration: b released first (reverse index:
+    // v2 then v1 -> d-2, d-1), then a (v2 then v99 -> d-2, d-99).
+}

@@ -1,0 +1,25 @@
+// A fixed array of ImplicitCopy elements is itself ImplicitCopy (design 33):
+// a whole-array `let b = a` copies each element implicitly (per-element copy()),
+// so both arrays are independent owners and each element is released once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// copy called
+// copy called
+// 1
+// 2
+
+struct RefCounted { value: Int }
+extension RefCounted: ImplicitCopy {
+    func copy(&self) -> RefCounted {
+        print("copy called")
+        RefCounted(value: self.value)
+    }
+    func deinit(&var self) { }
+}
+
+func main() {
+    let a = [RefCounted(value: 1), RefCounted(value: 2)]
+    let b = a              // ImplicitCopy array: each element copied per element
+    print(b[0].value)      // 1
+    print(b[1].value)      // 2
+}

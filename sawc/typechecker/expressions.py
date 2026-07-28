@@ -1704,6 +1704,21 @@ class ExpressionsMixin:
             expr.resolved_type = obj_type
             return True, obj_type
 
+        # A fixed array `[T; N]` is copyable iff its element type is (design 33).
+        # `.copy()` duplicates it per element in index order; the result has the
+        # same array type. (`[trivial; N]` was already handled above.)
+        if obj_type.kind == TypeKind.ARRAY:
+            if self.namespace.type_satisfies_copy_bound(obj_type):
+                expr.resolved_type = obj_type
+                return True, obj_type
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                f"type `{obj_type}` is not Copy; its element type is not copyable",
+                expr.line, expr.column,
+                hint="use a copyable element type, or `move` to transfer the array"
+            )
+            return True, None
+
         # Anything else is not Copy.
         self._error(
             ErrorKind.CANNOT_COPY,

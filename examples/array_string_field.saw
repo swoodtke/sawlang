@@ -1,0 +1,21 @@
+// A fixed array of String is ImplicitCopy (design 33), but — like a scalar
+// String field — it does NOT force a containing struct to declare a copy
+// policy: per-element retain/release is compiler-handled. The struct copies
+// and the array's Strings stay valid.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// a
+// b
+// a
+
+struct Names {
+    parts: [String; 2]
+}
+
+func main() {
+    let n = Names(parts: ["a", "b"])
+    print(n.parts[0])   // a
+    print(n.parts[1])   // b
+    let m = n           // struct copy: no policy required for the String array
+    print(m.parts[0])   // a
+}

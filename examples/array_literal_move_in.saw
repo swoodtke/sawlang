@@ -1,0 +1,23 @@
+// An array literal of owning values is a per-element transfer site: each
+// NoCopy element must be `move`d into the literal (the local binding gives up
+// ownership). The array then owns the elements and releases each once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 9
+// d9
+// d7
+
+struct F { fd: Int }
+extension F: NoCopy {
+    func deinit(&var self) { print("d{self.fd}") }
+}
+
+func main() {
+    let f1 = F(fd: 7)
+    let f2 = F(fd: 9)
+    let arr = [move f1, move f2]   // ownership moves into the array literal
+    print(arr[0].fd)               // 7
+    print(arr[1].fd)               // 9
+    // scope exit: arr releases fd9 then fd7; f1/f2 are moved-from (skipped)
+}

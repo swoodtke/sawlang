@@ -246,6 +246,12 @@ let y = named.y
 // Arrays (fixed size, stack allocated)
 let fixed: [Int; 5] = [1, 2, 3, 4, 5]
 
+// A fixed array `[T; N]` inherits T's copy class (see The Copy Trait Family):
+// `[Int; 5]` is trivially copyable, so `let b = fixed` bitwise-copies it. An
+// array of `ExplicitCopy` elements is itself `ExplicitCopy` (move to transfer,
+// `.copy()` to duplicate per element); an array of `NoCopy` elements is
+// move-only. Owned elements are destroyed in reverse index order at scope death.
+
 // Slices (view into contiguous memory)  (illustrative — slices are planned)
 let slice: [Int] = &fixed[1..4]
 
@@ -589,7 +595,19 @@ without a hand-written `copy()` gets a memberwise one synthesized (POD fields
 bitwise, copy-policy fields via their `copy()`; a `NoCopy` field makes
 derivation impossible). Containment is explicit, never inferred: a struct with
 an `ExplicitCopy` (or `NoCopy`) field must itself declare that policy — the
-compiler errors with a hint otherwise.
+compiler errors with a hint otherwise. Containment looks *through* array-typed
+fields: a struct holding a `[NoCopy; N]` field is move-only and must declare
+`NoCopy`, exactly as for a scalar `NoCopy` field.
+
+**Fixed arrays.** A fixed array `[T; N]` is treated as an anonymous struct with
+`N` uniform fields: it inherits T's copy class. `[trivial; N]` copies bitwise;
+`[ImplicitCopy; N]` copies implicitly per element (each element's `copy()`);
+`[ExplicitCopy; N]` is move-by-default and `arr.copy()` duplicates element-by-
+element in index order; `[NoCopy; N]` is move-only. Owned elements are released
+in **reverse index order** at scope death, composing with the enclosing struct/
+enum drop glue. (A `[String; N]` field, like a scalar `String` field, does not
+force the container to declare a policy — String's per-element retain/release is
+compiler-handled.)
 
 The only implicit copies are cheap by contract, so design principle #4 ("no
 hidden allocations") holds: an innocent `=` is never secretly O(n).

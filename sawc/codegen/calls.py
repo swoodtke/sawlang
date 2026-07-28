@@ -354,6 +354,16 @@ class CallsMixin:
                 if isinstance(pointee, ir.IntType) and pointee.width == 8:
                     struct_name = "String"
 
+        # Array `.copy()` (design 33): a fixed array copies per element in index
+        # order. `[trivial; N]` is a bitwise copy of the whole value; an array of
+        # ExplicitCopy/ImplicitCopy elements calls each element's copy(). The
+        # receiver has no struct_name (it is an LLVM `[N x T]`), so intercept here
+        # before the struct-copy path.
+        if expr.method_name == "copy" and len(expr.arguments) == 0:
+            recv_type = self._expr_type(expr.object)
+            if recv_type is not None and recv_type.kind == TypeKind.ARRAY:
+                return self._emit_array_deep_copy(obj_val, recv_type)
+
         # Auto-Copy: `.copy()` on a trivially-copyable receiver (a primitive, or
         # a POD struct with no copy() method) lowers to a bitwise copy, i.e. the
         # value itself. Types with a real copy() method fall through to dispatch.

@@ -1,0 +1,17 @@
+// A fixed array of ExplicitCopy elements is itself ExplicitCopy (design 33):
+// a whole-array transfer that aliases an existing binding must be `move` or an
+// explicit `.copy()`. A plain `let b = a` is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `[R; 2]` which implements ExplicitCopy
+
+struct R { v: Int }
+extension R: ExplicitCopy {
+    func copy(&self) -> R { R(v: self.v) }
+    func deinit(&var self) { }
+}
+
+func main() {
+    let a = [R(v: 1), R(v: 2)]
+    let b = a          // ExplicitCopy array: needs `move` or `.copy()`
+    print(b[0].v)
+}
