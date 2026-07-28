@@ -41,6 +41,12 @@ ledgered/noted: enum payloads not released on enum death (XFAIL
 `enum_payload_deinit.saw`); `if let` bindings of Deinit values never
 cleaned (pre-existing, needs a ledger test); receiver temporaries inside
 `return f().g()` leak (drain skipped after terminator).
+Concurrency stage 1 (brief 21, `designs/21`) is PARTIALLY DONE: Send/Sync
+structural derivation, Arc<T> (atomic, weak count reserved), reference-
+typed closure params, Mutex<T> (pthread, closure-scoped lock), spec §6 —
+landed. Deferred to `designs/21b` (agent's sound judgment call: needs
+escaping-closure heap envs + Arc payload forwarding first): spawn/Task,
+Channel, threaded tests.
 Freestanding stage 1 (brief 20, `designs/20`) is DONE: saw_alloc/dealloc/
 write/panic seams with weak hosted defaults, print on compiler itoa
 (byte-identical), --target and --freestanding flags, cross-triple object
