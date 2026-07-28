@@ -695,6 +695,12 @@ class CallsMixin:
                     # Positional argument - map to field by order
                     struct_init.field_inits.append((field_order[i], arg.value))
 
+        # design 27 item 3: carry the matched-init decision from the typechecker
+        # (`_check_module_struct_init`) so a module-qualified custom init
+        # dispatches to its initializer instead of a zeroed memberwise build.
+        if hasattr(expr, 'resolved_init_params'):
+            struct_init.resolved_init_params = expr.resolved_init_params
+
         return self._generate_struct_init(struct_init)
 
     def _get_member_pointer(self, expr: MemberAccess):

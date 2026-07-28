@@ -1864,8 +1864,23 @@ class ExpressionsMixin:
                     if method_info.is_static:
                         return self._check_static_method_call(expr, struct_name, struct_info, method_info)
                     elif method_info.is_init:
-                        # Custom init method
-                        return self._check_init_method_call(expr, struct_name, struct_info, method_info)
+                        # design 27 item 3: an `init` reached through the
+                        # member-access form (`pkg.Struct.init(...)`) is not the
+                        # supported call syntax — custom initializers are invoked
+                        # as `pkg.Struct(...)` (which flows through
+                        # `_check_module_struct_init`). In practice this branch is
+                        # unreachable: `init` is a keyword so it never parses as a
+                        # method name, and init symbols live in `init_methods`, not
+                        # the `methods` dict. Emit a clean diagnostic rather than
+                        # calling into a nonexistent handler if it is ever reached.
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"cannot call initializer of `{struct_name}` this way",
+                            expr.line, expr.column,
+                            hint=f"construct it directly as `{struct_name}(...)`"
+                        )
+                        return SawType(TypeKind.STRUCT, struct_name=struct_name,
+                                       symbol=struct_info)
             # Handle module-qualified enum variant construction: lib.Color.Custom(r: 1, g: 2, b: 3)
             if obj_type and obj_type.kind == TypeKind.ENUM:
                 enum_info = self.get_enum_info(obj_type.enum_name, from_type=obj_type)
@@ -2212,6 +2227,9 @@ class ExpressionsMixin:
 
         if matches_fields:
             # Field initialization
+            # design 27 item 3: record "field init, no custom init" so codegen
+            # builds the struct memberwise rather than dispatching to an init.
+            expr.resolved_init_params = None
             for field_name, field_value in field_inits:
                 expected_type = struct_sym.fields[field_name]
                 actual_type = self._check_init_field_value(field_value, expected_type)
@@ -2226,6 +2244,11 @@ class ExpressionsMixin:
         else:
             # Custom init method
             method_info = matching_inits[0]
+            # design 27 item 3: record which init matched so codegen dispatches to
+            # the custom initializer (the module path previously left this unset,
+            # so a module-qualified custom init silently fell through to a zeroed
+            # memberwise build).
+            expr.resolved_init_params = method_info.param_names
             # design 24 item 3: record the suspend-graph edge to the custom init.
             self._effect_call_method(
                 method_info, f"`{struct_name}.init`", expr.line)

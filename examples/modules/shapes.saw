@@ -1,0 +1,12 @@
+// Library module with a struct exposing a custom init, for probing
+// module-qualified custom-init flow. Not compiled standalone.
+
+public struct Square {
+    side: Int
+}
+
+public extension Square {
+    init(magnitude: Int) -> Square {
+        Square(side: magnitude)
+    }
+}

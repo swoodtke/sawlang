@@ -1,5 +1,11 @@
 # Saw Language — Design & Implementation Critique (Jul 26)
 
+> **This document is now historical.** All outstanding work and open
+> decisions have moved to **`designs/todo.md`** (the living tracker,
+> consolidated from this critique plus a full sweep of `designs/01`–`27`).
+> The critique text below is preserved as the record of the original
+> findings; the status updates chronicle how they were burned down.
+
 A review of the language design and compiler implementation, with prioritized
 follow-up work. Findings come from reading the spec/README/TODO plus two
 specialist reviews (compiler architecture; typechecker/codegen correctness) and
@@ -65,7 +71,9 @@ harness-expressible as xfails today:
   slowdown.
 
 The three remaining follow-ups above are now brief 27
-(`designs/27-followups-family.md`).
+(`designs/27-followups-family.md`). All other open items — including the
+never-briefed critique remainders (auto-wrap ambiguity, cross-module
+lookup visibility, testing depth) — are tracked in `designs/todo.md`.
 
 Must-fix items 1–6 have landed (briefs in `designs/01`–`05`; every
 bug-capture XFAIL test now passes): value-transfer checkpoint, typed AST +
