@@ -6,8 +6,8 @@ Dumps the AST with type annotations for debugging purposes.
 
 from typing import Any, Optional
 from ast_nodes import (
-    Program, Struct, Function, Extension, Enum, Interface, TypeDefinition, ExternBlock,
-    Method, Parameter, StructField, EnumVariant, InterfaceMethod, AssociatedType, TypeAssignment,
+    Program, Struct, Function, Extension, Enum, Trait, TypeDefinition, ExternBlock,
+    Method, Parameter, StructField, EnumVariant, TraitMethod, AssociatedType, TypeAssignment,
     Block, Statement, Expression, LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop, GuardLetStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation,
@@ -72,12 +72,12 @@ class ASTDumper:
             self._dedent()
             self._emit("]")
 
-        # Interfaces
-        if prog.interfaces:
-            self._emit("interfaces: [")
+        # Traits
+        if prog.traits:
+            self._emit("traits: [")
             self._indent()
-            for iface in prog.interfaces:
-                self._dump_interface(iface)
+            for trait in prog.traits:
+                self._dump_trait(trait)
             self._dedent()
             self._emit("]")
 
@@ -148,11 +148,11 @@ class ASTDumper:
         self._dedent()
         self._emit("}")
 
-    def _dump_interface(self, iface: Interface):
+    def _dump_trait(self, iface: Trait):
         parents = ""
-        if iface.parent_interfaces:
-            parents = ": " + ", ".join(iface.parent_interfaces)
-        self._emit(f"Interface {iface.name}{parents} {{")
+        if iface.parent_traits:
+            parents = ": " + ", ".join(iface.parent_traits)
+        self._emit(f"Trait {iface.name}{parents} {{")
         self._indent()
         for at in iface.associated_types:
             self._emit(f"type {at.name}")
