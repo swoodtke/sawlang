@@ -12,7 +12,7 @@ func apply(f: (Int) -> Int, x: Int) -> Int {
     f(x)
 }
 
-sync func handler() -> Int {
+func handler() sync -> Int {
     apply({ $0 * 2 }, 5)
 }
 

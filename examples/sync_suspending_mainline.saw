@@ -10,7 +10,7 @@ func background() {
     __test_suspend()
 }
 
-sync func critical() -> Int {
+func critical() sync -> Int {
     pure_calc(21)
 }
 

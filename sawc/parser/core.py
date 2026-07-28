@@ -191,7 +191,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                         traits.append(self.parse_trait(visibility))
                     elif self.match(TokenType.EXTENSION):
                         extensions.append(self.parse_extension(visibility))
-                    elif self.match(TokenType.FUNC, TokenType.SYNC):
+                    elif self.match(TokenType.FUNC):
                         functions.append(self.parse_function(visibility))
                     elif self.match(TokenType.TYPE):
                         type_definitions.append(self.parse_type_definition(visibility))
@@ -207,7 +207,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 traits.append(self.parse_trait())
             elif self.match(TokenType.EXTENSION):
                 extensions.append(self.parse_extension())
-            elif self.match(TokenType.FUNC, TokenType.SYNC):
+            elif self.match(TokenType.FUNC):
                 functions.append(self.parse_function())
             elif self.match(TokenType.TYPE):
                 type_definitions.append(self.parse_type_definition())
@@ -398,7 +398,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                             traits.append(self.parse_trait(visibility))
                         elif self.match(TokenType.EXTENSION):
                             extensions.append(self.parse_extension(visibility))
-                        elif self.match(TokenType.FUNC, TokenType.SYNC):
+                        elif self.match(TokenType.FUNC):
                             functions.append(self.parse_function(visibility))
                         elif self.match(TokenType.TYPE):
                             type_definitions.append(self.parse_type_definition(visibility))
@@ -414,7 +414,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                     traits.append(self.parse_trait())
                 elif self.match(TokenType.EXTENSION):
                     extensions.append(self.parse_extension())
-                elif self.match(TokenType.FUNC, TokenType.SYNC):
+                elif self.match(TokenType.FUNC):
                     functions.append(self.parse_function())
                 elif self.match(TokenType.TYPE):
                     type_definitions.append(self.parse_type_definition())

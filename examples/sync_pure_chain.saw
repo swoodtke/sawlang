@@ -5,7 +5,7 @@
 // EXPECT-OUTPUT:
 // 21
 
-sync func handler() -> Int {
+func handler() sync -> Int {
     compute(10)
 }
 

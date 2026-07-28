@@ -37,12 +37,6 @@ class DeclarationsMixin:
 
     def parse_function(self, visibility: Visibility = Visibility.PRIVATE) -> Function:
         start = self.current()
-        # `sync func ...` (design 22): the body is a checked suspension-free
-        # effect context. The `sync` keyword precedes `func`.
-        is_sync = False
-        if self.match(TokenType.SYNC):
-            is_sync = True
-            self.advance()
         self.expect(TokenType.FUNC)
 
         name_token = self.expect(TokenType.IDENT, "Expected function name")
@@ -54,6 +48,16 @@ class DeclarationsMixin:
         self.expect(TokenType.LPAREN)
         parameters, _, _ = self.parse_parameters()  # Ignore self_mutable/self_is_reference for regular functions
         self.expect(TokenType.RPAREN)
+
+        # Post-parameter effect slot (designs 18/22): `func f(...) sync [-> T]`.
+        # The body is a checked suspension-free context. `sync` is CONTEXTUAL —
+        # after the parameter list only `->`, `{`, or a newline-then-`{` may
+        # follow, so a bare identifier here is unambiguous (Swift's
+        # `throws`/`async` position; no keyword reservation).
+        is_sync = False
+        if self.match_ident('sync'):
+            is_sync = True
+            self.advance()
 
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)

@@ -6,7 +6,7 @@
 // EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
 // EXPECT-ERROR-CONTAINS: a call through a non-`sync` function value
 
-sync func run(action: (Int) -> Int) -> Int {
+func run(action: (Int) -> Int) sync -> Int {
     action(5)
 }
 

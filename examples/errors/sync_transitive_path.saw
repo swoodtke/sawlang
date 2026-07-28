@@ -5,7 +5,7 @@
 // EXPECT-ERROR-CONTAINS: `f` → `g` → __test_suspend
 // EXPECT-ERROR-CONTAINS: `g` suspends at line
 
-sync func handler() {
+func handler() sync {
     f()
 }
 

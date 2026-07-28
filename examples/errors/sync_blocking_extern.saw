@@ -8,7 +8,7 @@ extern "C" {
     blocking func slow_read() -> Int
 }
 
-sync func handler() -> Int {
+func handler() sync -> Int {
     slow_read()
 }
 

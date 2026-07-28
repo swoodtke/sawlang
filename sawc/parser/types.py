@@ -54,16 +54,6 @@ class TypeParsingMixin:
         token = self.current()
 
         # Check for `sync` function type: sync (T, ...) -> R (design 22).
-        # A sync-typed function value is a checked suspension-free effect
-        # context. Only legal directly before a parenthesized function type.
-        if token.type == TokenType.SYNC:
-            self.advance()  # consume 'sync'
-            fn_type = self._parse_base_type()
-            if fn_type.kind != TypeKind.FUNCTION:
-                self.error("`sync` may only prefix a function type, e.g. `sync (Int) -> Int`")
-            fn_type.func_is_sync = True
-            return fn_type
-
         # Check for reference type: &T or &var T
         if token.type == TokenType.AMPERSAND:
             self.advance()  # consume '&'
@@ -99,11 +89,25 @@ class TypeParsingMixin:
                     element_types.append(self.parse_type())
             self.expect(TokenType.RPAREN)
 
+            # Post-parameter effect slot (designs 18/22): `(T) sync -> U` is a
+            # sync-typed function value (checked suspension-free). `sync` is
+            # CONTEXTUAL here — after a parenthesized list only `->` (function
+            # type) or a closing delimiter (tuple) may follow, so a bare
+            # identifier in this slot is unambiguous and needs no keyword
+            # reservation. This is Swift's `throws`/`async` position.
+            is_sync = False
+            if self.match_ident('sync') and self.peek(1).type == TokenType.ARROW:
+                is_sync = True
+                self.advance()  # consume 'sync'
+
             # Check for arrow to distinguish function type from tuple
             if self.match(TokenType.ARROW):
                 self.advance()
                 return_type = self.parse_type()
-                return SawType(TypeKind.FUNCTION, param_types=element_types, func_return_type=return_type)
+                fn_type = SawType(TypeKind.FUNCTION, param_types=element_types, func_return_type=return_type)
+                if is_sync:
+                    fn_type.func_is_sync = True
+                return fn_type
             else:
                 return SawType(TypeKind.TUPLE, element_types=element_types)
         elif token.type == TokenType.IDENT:

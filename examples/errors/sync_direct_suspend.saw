@@ -8,7 +8,7 @@ func suspends() {
     __test_suspend()
 }
 
-sync func handler() {
+func handler() sync {
     suspends()
 }
 

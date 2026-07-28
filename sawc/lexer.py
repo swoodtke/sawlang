@@ -44,7 +44,6 @@ class TokenType(Enum):
     IN = auto()
     TYPE = auto()  # 'type' keyword for associated types
     EXTERN = auto()  # 'extern' for FFI declarations
-    SYNC = auto()    # 'sync' effect keyword (design 22): sync func / sync (T)->U
     AS = auto()      # 'as' for type casting
     TRY = auto()     # 'try' for error handling
     CATCH = auto()   # 'catch' for error handling
@@ -146,7 +145,6 @@ KEYWORDS = {
     'in': TokenType.IN,
     'type': TokenType.TYPE,
     'extern': TokenType.EXTERN,
-    'sync': TokenType.SYNC,
     'not': TokenType.NOT,
     'move': TokenType.MOVE,
     'as': TokenType.AS,

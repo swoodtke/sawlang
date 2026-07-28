@@ -1224,78 +1224,50 @@ how the never-block invariant makes holding a lock across `await` a compile
 error. Task bodies may suspend under that engine, so a `spawn` closure is not a
 `sync` context.
 
-**Status of async/await below: planned.** The `Send`/`Sync` traits and the
-sharing wrappers above are real; async/await, `select`, and channels are still
-illustrative.
+**Status: tasks, channels, Mutex, Send/Sync — implemented (stage 1,
+thread-per-task engine). Suspension/cooperative engine — planned.**
+There is NO `async`/`await` keyword and there never will be: Saw is
+COLORLESS (designs/18 Axis B′). Any call may suspend (once the
+cooperative engine lands); the marked side is the rare one — `sync`
+contexts are checked suspension-free. Tasks are the ONLY concurrency
+primitive: no user-facing threads, no thread identity, ever. The stage-1
+engine happens to run one OS thread per task; that is invisible and will
+change.
 
-### Async/Await
-
-```saw
-// Async functions return futures
-async func fetch_url(url: String) -> Result<Response, HttpError> {
-    let connection = connect(url).await?
-    connection.get("/").await
-}
-
-// Concurrent execution
-async func fetch_all(urls: [String]) -> [Result<Response, HttpError>] {
-    // Spawn concurrent tasks
-    let tasks = urls.map { url in spawn { fetch_url(url).await } }
-
-    // Wait for all
-    join_all(tasks).await
-}
-
-// Select first completed
-async func race_fetch(primary: String, backup: String) -> Response {
-    select {
-        result = fetch_url(primary).await => result,
-        result = fetch_url(backup).await => result,
-    }
-}
-```
-
-### Threads and Channels
+### Tasks and Channels
 
 ```saw
-// Spawn OS thread
-let handle = thread.spawn {
-    heavy_computation()
+// Spawn a task (escaping closure; every capture must be Send)
+let task = spawn {
+    heavy_computation()          // returns Int
 }
-let result = handle.join()
+let result = task.join()         // Task<Int>: NoCopy; deinit joins if unjoined
 
-// Channels for message passing
-let (tx, rx) = channel.create<Message>()
-
-thread.spawn {
-    tx.send(Message.Data(42))
+// Channels: ImplicitCopy handles onto a shared queue
+let ch = Channel<Int>()          // Channel<T: Send>
+let producer = spawn {
+    ch.send(move 42)
+    true
 }
-
-match rx.receive() {
-    Message.Data(n) => print("Got {n}"),
-    Message.Done => break,
-}
-
-// Buffered channels
-let (tx, rx) = channel.buffered<Int>(100)
+let got = ch.recv()              // blocks this task (a suspension point
+                                 // under the future cooperative engine)
+producer.join()
 ```
 
 ### Shared State
 
-See [Synchronized Access](#synchronized-access) in Memory Management for `Mutex` and `RwLock` usage with `Arc` for thread-safe shared state.
+`Arc<Mutex<T>>` — see [Synchronized Access](#synchronized-access).
+`Mutex.lock`'s closure parameter is a `sync (…)` context: suspending while
+holding a lock is a compile error.
 
-### Send and Sync Interfaces
+### Send and Sync
 
-```saw
-// Types that can be sent between threads
-trait Send {}
-
-// Types that can be safely shared between threads
-trait Sync {}
-
-// Compiler enforces thread safety
-func spawn<F: FnOnce() + Send>(f: F) -> JoinHandle
-```
+`Send` ("may move to another task") and `Sync` ("may be shared by
+reference across tasks") are compiler-derived STRUCTURALLY — explicit
+conformance is rejected. `spawn` audits every capture for Send;
+`Channel<T>` requires `T: Send`. `String` is Send+Sync (immutable,
+atomic refcount); `UnsafePointer` is neither and poisons containing
+types.
 
 ---
 
