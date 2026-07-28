@@ -10,7 +10,6 @@
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 5
-// XFAIL: field assignment through a &var struct parameter crashes codegen (cannot determine struct type)
 
 struct Box {
     field: Int

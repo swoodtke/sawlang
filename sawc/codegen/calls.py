@@ -706,6 +706,14 @@ class CallsMixin:
         # Get pointer to the base object
         if isinstance(expr.object, Identifier) and expr.object.name in self.variables:
             base_ptr = self.variables[expr.object.name]
+            # A &/&var reference parameter's slot holds a POINTER to the struct
+            # (e.g. Box**); load once to get the actual struct pointer (Box*) so
+            # the field GEP lands on the caller's value rather than treating a
+            # pointer as the struct.
+            var_type = self.variable_types.get(expr.object.name)
+            if var_type is not None and var_type.kind == TypeKind.REFERENCE:
+                base_ptr = self.builder.load(
+                    base_ptr, name=f"{expr.object.name}_ref")
         elif isinstance(expr.object, SelfExpr) and "self" in self.variables:
             base_ptr = self.variables["self"]
         elif isinstance(expr.object, MemberAccess):

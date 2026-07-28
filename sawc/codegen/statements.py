@@ -231,9 +231,24 @@ class StatementsMixin:
                 if obj_expr.name not in self.variables:
                     raise ValueError(f"Undefined variable: {obj_expr.name}")
                 struct_ptr = self.variables[obj_expr.name]
+                # A &/&var reference parameter's slot holds a POINTER to the
+                # struct (e.g. Box**), not the struct itself. Load once to get
+                # the actual struct pointer (Box*) so field GEP lands on the
+                # caller's value. Without this the pointee is a pointer type and
+                # the struct-type lookup below fails.
+                var_type = self.variable_types.get(obj_expr.name)
+                if var_type is not None and var_type.kind == TypeKind.REFERENCE:
+                    struct_ptr = self.builder.load(
+                        struct_ptr, name=f"{obj_expr.name}_ref")
             elif isinstance(obj_expr, SelfExpr):
                 # self.field = value
                 struct_ptr = self.variables["self"]
+            elif isinstance(obj_expr, MemberAccess):
+                # Nested field target: r.inner.field = value. Resolve a pointer
+                # to the intermediate field (which may itself be reached through
+                # a reference); _get_member_pointer handles the recursion and
+                # reference unwrapping.
+                struct_ptr = self._get_member_pointer(obj_expr)
             elif isinstance(obj_expr, ArrayIndex):
                 # Array/pointer indexing: arr[i].field = value or ptr[i].field = value
                 container_val = self._generate_expression(obj_expr.array_expr)
