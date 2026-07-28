@@ -1,0 +1,68 @@
+// Flagship concurrency test (design 21 item 7): Arc<Mutex<Int>> shared across
+// N tasks, each doing M increments under the lock; the final count is exactly
+// N*M. Exercises the whole stack — escaping-closure heap envs, Arc capture
+// (retain at capture / release at env teardown on the task thread), Arc->Mutex
+// method forwarding, real pthread mutual exclusion, and join-ordered readback.
+// Deterministic by construction: all tasks are joined before the count is read.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1000
+
+func main() {
+    let shared = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+
+    var t0 = spawn {
+        var k = 0
+        while k < 250 {
+            shared.lock { &var c in
+                c = c + 1
+                true
+            }
+            k = k + 1
+        }
+        true
+    }
+    var t1 = spawn {
+        var k = 0
+        while k < 250 {
+            shared.lock { &var c in
+                c = c + 1
+                true
+            }
+            k = k + 1
+        }
+        true
+    }
+    var t2 = spawn {
+        var k = 0
+        while k < 250 {
+            shared.lock { &var c in
+                c = c + 1
+                true
+            }
+            k = k + 1
+        }
+        true
+    }
+    var t3 = spawn {
+        var k = 0
+        while k < 250 {
+            shared.lock { &var c in
+                c = c + 1
+                true
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    let _a = t0.join()
+    let _b = t1.join()
+    let _c = t2.join()
+    let _d = t3.join()
+
+    shared.lock { &var c in
+        print(c)   // 1000 = 4 tasks * 250 increments, exactly
+        true
+    }
+}

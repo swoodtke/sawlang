@@ -1,0 +1,80 @@
+// Task<T> - the handle to a spawned task (design 21 item 5, design 21b).
+//
+// `spawn { ... } -> Task<T>` launches the closure on a fresh pthread (hosted
+// engine) and hands back this NoCopy handle. The task-launch machinery lives in
+// spawn codegen; this file provides the value-level API over the control block.
+//
+// Control block (allocated by spawn codegen), laid out as:
+//     { pthread_t tid (8 bytes), i8* env, T result }
+// The pthread_t lives at byte 0 (joined via __saw_pthread_join, which loads it),
+// the closure's heap environment pointer at byte 8, and the task's result at
+// byte 16 (written by the trampoline after the body returns).
+//
+// Structured by default: a task's lifetime is a value's lifetime. Dropping an
+// unjoined Task JOINS it (deinit below), so a task cannot outlive its handle.
+// The engine never exposes a thread id/handle to Saw code.
+//
+// NOTE (deviation from the item-5 sketch): the original brief wrote
+// `join(move self)`. Saw has no `move self` receiver form, so `join` takes
+// `&var self` and sets a `joined` flag once joined; `deinit` only joins while
+// that flag is clear. This yields the same join-once / join-on-deinit semantics
+// without a consuming receiver.
+
+extern "C" {
+    func saw_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
+
+    // Wrapper (codegen): pthread_join(*(pthread_t*)tid, NULL).
+    func __saw_pthread_join(tid: UnsafePointer<Int8>)
+}
+
+struct Task<T> {
+    // Points at the task control block (`None` only on the inert OOM path).
+    handle: UnsafePointer<Int8>?
+    // Set once the task has been joined, so `deinit` does not double-join/free.
+    joined: Bool
+}
+
+extension Task<T> {
+    // Block until the task finishes and take its result. Joining a Task twice is
+    // a program bug; the `joined` flag guards against a double-join/free.
+    func join(&var self) -> T {
+        if self.joined {
+            // Already joined (or inert): no result to hand back. Misuse —
+            // force-unwrapping None panics deterministically.
+            let empty: T? = None
+            empty!
+        } else {
+            if let h = self.handle {
+                __saw_pthread_join(h)
+                let result_ptr = (h + 16) as UnsafePointer<T>
+                let result = result_ptr[0]
+                saw_dealloc(h, 16 + sizeof<T>(), 16)
+                self.joined = true
+                result
+            } else {
+                let empty: T? = None
+                empty!
+            }
+        }
+    }
+}
+
+// Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
+// requirement is already satisfied.
+extension Task<T>: Deinit {
+    func deinit(&var self) {
+        // An unjoined task is joined at scope exit (structured concurrency), its
+        // unclaimed result dropped, and the control block freed.
+        if not self.joined {
+            if let h = self.handle {
+                __saw_pthread_join(h)
+                let result_ptr = (h + 16) as UnsafePointer<T>
+                __deinit_in_place(result_ptr)
+                saw_dealloc(h, 16 + sizeof<T>(), 16)
+            }
+        }
+    }
+}
+
+extension Task<T>: NoCopy {
+}

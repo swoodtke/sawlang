@@ -658,12 +658,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         pthread symbols resolve from libSystem on macOS and libc/libpthread on
         Linux; clang's default link line pulls them in.
 
-        (The task-launch wrappers pthread_create/join and the condvar wrappers
-        for Channel land with spawn/Task and Channel in the next stage-1
-        increment, alongside the escaping-closure lowering they require.)
+        Task launch (design 21b item 5): `__saw_pthread_create` supplies the NULL
+        attr and takes the trampoline as a `i8*(i8*)` start routine;
+        `__saw_pthread_join` treats the 8-byte `pthread_t` opaquely — it lives in
+        the task control block's first slot, is loaded pointer-sized, and passed
+        BY VALUE (pthread_t is pointer-sized on both macOS and glibc).
+        `__saw_pthread_create` is called by spawn codegen (which holds the
+        trampoline `ir.Function`); `__saw_pthread_join` is called from
+        `Task.join`/`Task.deinit` in std/task.saw.
         """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
+        i32 = ir.IntType(32)
         i64 = ir.IntType(64)
         void = ir.VoidType()
         null = ir.Constant(i8ptr, None)
@@ -675,6 +681,36 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.functions["__saw_pthread_mutex_init_default"] = fn
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         b.call(pmi, [fn.args[0], null])
+        b.ret_void()
+
+        # Trampoline type: void* start_routine(void* arg).
+        tramp_ty = ir.FunctionType(i8ptr, [i8ptr])
+        tramp_ptr_ty = tramp_ty.as_pointer()
+        self.pthread_tramp_type = tramp_ty  # spawn codegen shapes trampolines to this
+
+        # __saw_pthread_create(tid, start, arg):
+        #   pthread_create((pthread_t*)tid, NULL, start, arg)
+        # `tid` points at the control block's 8-byte pthread_t slot.
+        pcreate = self._libc_func("pthread_create", i32,
+                                  [i8ptr, i8ptr, tramp_ptr_ty, i8ptr])
+        fn = ir.Function(self.module,
+                         ir.FunctionType(void, [i8ptr, tramp_ptr_ty, i8ptr]),
+                         name="__saw_pthread_create")
+        self.functions["__saw_pthread_create"] = fn
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        b.call(pcreate, [fn.args[0], null, fn.args[1], fn.args[2]])
+        b.ret_void()
+
+        # __saw_pthread_join(tid): load the 8-byte pthread_t and join it.
+        #   pthread_join(*(pthread_t*)tid, NULL)
+        pjoin = self._libc_func("pthread_join", i32, [i8ptr, i8ptr])
+        fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
+                         name="__saw_pthread_join")
+        self.functions["__saw_pthread_join"] = fn
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        tid_slot = b.bitcast(fn.args[0], i8ptr.as_pointer(), name="tid_slot")
+        tid_val = b.load(tid_slot, name="tid")
+        b.call(pjoin, [tid_val, null])
         b.ret_void()
 
     def _create_string_literal_global(self, value: str) -> ir.GlobalVariable:

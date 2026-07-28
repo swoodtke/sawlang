@@ -19,6 +19,7 @@ from ast_nodes import (
     EnumInit, MatchExpr, WhileExpr, RangeExpr, ForLoop, ClosureExpr,
     TryExpr, TryCatchExpr,
     Block, LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
+    CompoundAssignStatement, GuardLetStatement, BreakStatement,
     SawType, TypeKind,
     ResultOkWrap, ResultErrWrap, OptionalWrap
 )
@@ -432,6 +433,58 @@ class ExpressionsMixin:
                 return None
         return None
 
+    def _check_spawn(self, expr: FunctionCall) -> Optional[SawType]:
+        """Type-check the `spawn { ... }` intrinsic (design 21 item 5).
+
+        `spawn` takes exactly one no-parameter closure and returns `Task<T>`,
+        where `T` is the closure's result type. The closure escapes (it runs on
+        another thread that outlives the call), so it is lowered with a heap env
+        (E1). Every captured value's type must be `Send`: the capture audit walks
+        `closure.captures`, resolves each name's type in the enclosing scope, and
+        rejects the first non-`Send` capture, naming the capture and its type.
+        """
+        if len(expr.arguments) != 1 or not isinstance(expr.arguments[0].value, ClosureExpr):
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                "`spawn` takes exactly one closure argument: `spawn { ... }`",
+                expr.line, expr.column
+            )
+            return None
+        closure = expr.arguments[0].value
+        if closure.parameters or closure.shorthand_param_count:
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                "`spawn`'s closure takes no parameters",
+                closure.line, closure.column
+            )
+        # Check the body as an escaping closure (heap env, move-only-capture
+        # rejection). Not a `sync` context: task bodies may suspend under a
+        # future cooperative engine.
+        ctype = self._check_closure(closure, expected_type=None,
+                                    as_call_argument=True, force_escape=True)
+        result_type = SawType(TypeKind.VOID)
+        if ctype is not None and ctype.kind == TypeKind.FUNCTION:
+            result_type = ctype.func_return_type or SawType(TypeKind.VOID)
+        # Send capture-audit: every captured value must be safe to transfer to
+        # the task thread. Resolve each capture's type and reject the first that
+        # is not Send, naming the capture and its type.
+        for cap_name in closure.captures:
+            cap_info = self.current_scope.lookup(cap_name)
+            if cap_info is None:
+                continue
+            if not self.namespace.is_send(cap_info.type):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot `spawn`: captured `{cap_name}` of type "
+                    f"`{cap_info.type}` is not `Send`",
+                    closure.line, closure.column,
+                    hint="only Send values may cross to another task; share via "
+                         "`Arc` (and `Mutex` for mutation)"
+                )
+                break
+        expr.spawn_result_type = result_type
+        return SawType(TypeKind.STRUCT, struct_name="Task", type_args=[result_type])
+
     def _check_function_call(self, expr: FunctionCall) -> Optional[SawType]:
         """Check a function call."""
         if expr.name == "print":
@@ -466,6 +519,8 @@ class ExpressionsMixin:
                 )
             self._effect_direct_source("__test_suspend", expr.line)
             return SawType(TypeKind.VOID)
+        if expr.name == "spawn":
+            return self._check_spawn(expr)
         if expr.name == "sizeof":
             if len(expr.arguments) != 0:
                 self._error(
@@ -2338,7 +2393,8 @@ class ExpressionsMixin:
         return result_type
 
     def _check_closure(self, expr: ClosureExpr, expected_type: Optional[SawType] = None,
-                        as_call_argument: bool = False) -> Optional[SawType]:
+                        as_call_argument: bool = False,
+                        force_escape: bool = False) -> Optional[SawType]:
         """Type check a closure expression.
 
         `as_call_argument` is True only when the closure literal appears directly
@@ -2451,8 +2507,9 @@ class ExpressionsMixin:
         # so a stack env is sound and cheaper. Reference-param closures are
         # forced to be call arguments (checked below) and never escape. `spawn`
         # is the exception: it is a call argument yet the task outlives the call,
-        # so the spawn handler overrides this to True.
-        expr.escapes = (not as_call_argument) and (not has_reference_params)
+        # so the spawn handler passes force_escape=True.
+        expr.escapes = force_escape or (
+            (not as_call_argument) and (not has_reference_params))
         # A heap env transfers each capture in per the value-transfer rules
         # (design 21b E1): trivial copy / ImplicitCopy retain are handled in
         # codegen, but a move-only capture (NoCopy / ExplicitCopy) cannot be
@@ -2493,8 +2550,16 @@ class ExpressionsMixin:
         return result_type
 
     def _analyze_closure_captures(self, body: Block, outer_scope) -> List[str]:
-        """Find all variables from outer scope that are used in the closure body."""
-        captures = []
+        """Find every variable from an enclosing scope used in the closure body.
+
+        Walks the full expression/statement tree — control flow (if/if-let/
+        while/for/match), operators, calls, casts, and nested closures included —
+        so a name used anywhere inside the body (e.g. only within a `while` loop,
+        which the old analyzer missed) is detected. Nested closures are recursed
+        into as well: a name they reference that resolves in an enclosing scope is
+        a transitive capture of this closure too. A name is a capture iff it
+        resolves in `outer_scope`; the closure's own params/locals do not.
+        """
         used_names = set()
 
         def collect_names(expr):
@@ -2507,6 +2572,12 @@ class ExpressionsMixin:
                 collect_names(expr.right)
             elif isinstance(expr, UnaryOp):
                 collect_names(expr.operand)
+            elif isinstance(expr, MoveExpr):
+                used_names.add(expr.variable)
+            elif isinstance(expr, ReferenceExpr):
+                collect_names(expr.expr)
+            elif isinstance(expr, CastExpr):
+                collect_names(expr.expr)
             elif isinstance(expr, FunctionCall):
                 for arg in expr.arguments:
                     collect_names(arg.value)
@@ -2519,9 +2590,29 @@ class ExpressionsMixin:
                 collect_block(expr.then_branch)
                 if expr.else_branch:
                     collect_block(expr.else_branch)
+            elif isinstance(expr, IfLetExpr):
+                collect_names(expr.optional_expr)
+                collect_block(expr.then_branch)
+                if expr.else_branch:
+                    collect_block(expr.else_branch)
+            elif isinstance(expr, WhileExpr):
+                collect_names(expr.condition)
+                collect_block(expr.body)
+            elif isinstance(expr, ForLoop):
+                collect_names(expr.iterable)
+                collect_block(expr.body)
+            elif isinstance(expr, MatchExpr):
+                collect_names(expr.matched_expr)
+                for arm in expr.arms:
+                    collect_names(arm.body)
+            elif isinstance(expr, RangeExpr):
+                collect_names(expr.start)
+                collect_names(expr.end)
             elif isinstance(expr, TupleLiteral):
                 for elem in expr.elements:
                     collect_names(elem)
+            elif isinstance(expr, TupleIndex):
+                collect_names(expr.tuple_expr)
             elif isinstance(expr, ArrayLiteral):
                 for elem in expr.elements:
                     collect_names(elem)
@@ -2530,6 +2621,12 @@ class ExpressionsMixin:
                 collect_names(expr.index)
             elif isinstance(expr, MemberAccess):
                 collect_names(expr.object)
+            elif isinstance(expr, StructInit):
+                for _fname, fval in expr.field_inits:
+                    collect_names(fval)
+            elif isinstance(expr, EnumInit):
+                for arg in expr.arguments:
+                    collect_names(arg.value)
             elif isinstance(expr, ForceUnwrap):
                 collect_names(expr.expr)
             elif isinstance(expr, NilCoalesce):
@@ -2538,7 +2635,10 @@ class ExpressionsMixin:
             elif isinstance(expr, OptionalChain):
                 collect_names(expr.expr)
             elif isinstance(expr, ClosureExpr):
-                pass
+                # Recurse so a name the nested closure pulls from an enclosing
+                # frame is captured here too; its own params/locals won't resolve
+                # in outer_scope and are filtered out below.
+                collect_block(expr.body)
 
         def collect_block(block):
             if block is None:
@@ -2551,16 +2651,27 @@ class ExpressionsMixin:
                 elif isinstance(stmt, AssignStatement):
                     collect_names(stmt.value)
                     collect_names(stmt.target)
+                elif isinstance(stmt, CompoundAssignStatement):
+                    collect_names(stmt.value)
+                    collect_names(stmt.target)
                 elif isinstance(stmt, ReturnStatement):
                     if stmt.value:
                         collect_names(stmt.value)
+                elif isinstance(stmt, GuardLetStatement):
+                    collect_names(stmt.optional_expr)
+                    collect_block(stmt.else_branch)
+                elif isinstance(stmt, BreakStatement):
+                    if stmt.value:
+                        collect_names(stmt.value)
+                elif isinstance(stmt, (WhileExpr, ForLoop)):
+                    collect_names(stmt)
             if block.final_expr:
                 collect_names(block.final_expr)
 
         collect_block(body)
+        captures = []
         for name in used_names:
-            var_info = outer_scope.lookup(name)
-            if var_info:
+            if outer_scope.lookup(name):
                 captures.append(name)
         return captures
 

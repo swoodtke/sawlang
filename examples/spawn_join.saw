@@ -1,0 +1,19 @@
+// spawn + Task.join (design 21 item 5). `spawn { ... }` runs the closure on a
+// fresh task (hosted pthread engine); `join` blocks for its result. The body
+// captures `base` (Int, Send) into a heap environment.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 81
+
+func square(n: Int) -> Int {
+    n * n
+}
+
+func main() {
+    let base = 9
+    var t = spawn {
+        square(base)
+    }
+    let r = t.join()
+    print(r)   // 81
+}

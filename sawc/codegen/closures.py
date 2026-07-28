@@ -233,6 +233,12 @@ class ClosuresMixin:
         closure_val = self.builder.insert_value(closure_val, closure_fn, 0, name="closure_fn")
         closure_val = self.builder.insert_value(closure_val, env_ptr_val, 1, name="closure_env")
 
+        # Expose the generated function and env pointer to `spawn` codegen, which
+        # calls the closure body directly from a trampoline and needs the env's
+        # heap pointer to hand to the task thread.
+        expr._cg_closure_fn = closure_fn
+        expr._cg_env_value = env_ptr_val
+
         return closure_val
 
     def _generate_env_dtor(self, env_struct_type, captures, closure_name):

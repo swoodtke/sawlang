@@ -1,0 +1,17 @@
+// design 21 item 5: spawn's Send capture-audit rejects capturing a value whose
+// type is not Send (here a struct holding a raw UnsafePointer), naming the
+// capture and its type.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: captured `h` of type `Handle` is not `Send`
+
+struct Handle {
+    raw: UnsafePointer<Int8>
+}
+
+func main() {
+    let h = Handle(raw: 0 as UnsafePointer<Int8>)
+    var t = spawn {
+        h.raw
+    }
+    let _r = t.join()
+}

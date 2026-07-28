@@ -393,6 +393,19 @@ class ExpressionsMixin:
                     return self.parse_struct_init(token, type_args)
                 else:
                     return self.parse_function_call(token, type_args)
+            # `spawn { ... }` — the spawn intrinsic (design 21 item 5) is a call
+            # with only a trailing closure and no parentheses. Restricted to the
+            # `spawn` name so a bare `ident {` in other positions is never
+            # mis-parsed as a call (it may open a block or struct-literal context).
+            if (token.value == "spawn" and self.allow_trailing_closure
+                    and self.match(TokenType.LBRACE)):
+                trailing_closure = self._parse_closure_expression()
+                return FunctionCall(
+                    name=token.value,
+                    arguments=[Argument(value=trailing_closure, name=None)],
+                    type_args=type_args,
+                    line=token.line, column=token.column
+                )
             return Identifier(name=token.value, type_args=type_args, line=token.line, column=token.column)
 
         elif self.match(TokenType.LPAREN):
@@ -829,11 +842,21 @@ class ExpressionsMixin:
             just_saw_amp = False
             while True:
                 token = self.current()
-                if token.type == TokenType.EOF or token.type == TokenType.RBRACE:
+                if token.type == TokenType.EOF:
                     return False
+                # A `}` at the outermost level ends the closure with no `in` seen
+                # (not a param list). A `}` while nested closes an inner `{...}`
+                # (e.g. a nested trailing closure) — decrement and keep scanning
+                # so the inner closure's own `in` is not mistaken for ours.
+                if token.type == TokenType.RBRACE:
+                    if depth == 0:
+                        return False
+                    depth -= 1
+                    self.advance()
+                    continue
                 if token.type == TokenType.IN and depth == 0:
                     return True
-                if token.type == TokenType.LT or token.type == TokenType.LPAREN:
+                if token.type in (TokenType.LT, TokenType.LPAREN, TokenType.LBRACE):
                     depth += 1
                 if token.type == TokenType.GT or token.type == TokenType.RPAREN:
                     depth -= 1

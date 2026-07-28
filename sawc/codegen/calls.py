@@ -51,6 +51,10 @@ class CallsMixin:
         if expr.name == "print":
             return self._generate_print(expr.arguments)
 
+        # Handle the spawn intrinsic: spawn { ... } -> Task<T>
+        if expr.name == "spawn":
+            return self._generate_spawn(expr)
+
         # Handle built-in sizeof<T>() function
         if expr.name == "sizeof":
             return self._generate_sizeof(expr)
@@ -452,6 +456,98 @@ class CallsMixin:
 
         # Call the method
         return self.builder.call(method_func, args, name="methodcall")
+
+    def _generate_spawn(self, expr: FunctionCall):
+        """Lower `spawn { ... }` to a pthread launch (design 21 item 5, 21b).
+
+        Builds the escaping closure (heap env via E1), allocates a task control
+        block `{ pthread_t tid, i8* env, T result }`, and starts a per-spawn
+        trampoline on a fresh pthread. The trampoline runs the body, stores the
+        result into the block, and tears down the env on the task thread. Returns
+        a `Task<T>` value wrapping the control block.
+        """
+        i8ptr = ir.IntType(8).as_pointer()
+        i64 = ir.IntType(64)
+
+        closure_expr = expr.arguments[0].value
+        result_saw = getattr(expr, 'spawn_result_type', None) or SawType(TypeKind.VOID)
+        result_llvm = self._get_llvm_type(result_saw)
+
+        # Build the closure: heap env (escapes=True was set by the typechecker),
+        # plus the generated body fn and env pointer/destructor.
+        self._generate_closure(closure_expr)
+        closure_fn = closure_expr._cg_closure_fn
+        env_val = closure_expr._cg_env_value  # i8* (null if no captures)
+        env_dtor = getattr(closure_expr, 'codegen_env_dtor', None)
+
+        # Control block: { pthread_t tid (i8*), i8* env, T result }.
+        cb_ty = ir.LiteralStructType([i8ptr, i8ptr, result_llvm])
+        cb_size = cb_ty.get_abi_size(self.target_data)
+        raw = self.builder.call(
+            self.functions["saw_alloc"],
+            [ir.Constant(i64, cb_size), ir.Constant(i64, 16)], name="task_cb_raw")
+        cb = self.builder.bitcast(raw, ir.PointerType(cb_ty), name="task_cb")
+        # Store the env pointer at slot 1.
+        env_slot = self.builder.gep(
+            cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 1)],
+            name="task_env_slot")
+        self.builder.store(env_val, env_slot)
+
+        # Emit the trampoline and launch the thread.
+        tramp = self._generate_spawn_trampoline(cb_ty, result_llvm, closure_fn, env_dtor)
+        tid_slot = self.builder.gep(
+            cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)],
+            name="task_tid_slot")
+        tid_i8 = self.builder.bitcast(tid_slot, i8ptr, name="task_tid_i8")
+        self.builder.call(self.functions["__saw_pthread_create"],
+                          [tid_i8, tramp, raw])
+
+        # Build the Task<T> value { handle: Some(raw), joined: false }.
+        task_saw = SawType(TypeKind.STRUCT, struct_name="Task", type_args=[result_saw])
+        self._ensure_monomorphized_struct("Task", [result_saw])
+        task_llvm = self._get_llvm_type(task_saw)
+        # handle field is `UnsafePointer<Int8>?` => { i1 is_some, i8* value }.
+        handle_opt_ty = task_llvm.elements[0]
+        handle_opt = ir.Constant(handle_opt_ty, ir.Undefined)
+        handle_opt = self.builder.insert_value(
+            handle_opt, ir.Constant(ir.IntType(1), 1), 0, name="task_handle_some")
+        handle_opt = self.builder.insert_value(handle_opt, raw, 1, name="task_handle_ptr")
+        task_val = ir.Constant(task_llvm, ir.Undefined)
+        task_val = self.builder.insert_value(task_val, handle_opt, 0, name="task_val")
+        task_val = self.builder.insert_value(
+            task_val, ir.Constant(ir.IntType(1), 0), 1, name="task_joined")
+        return task_val
+
+    def _generate_spawn_trampoline(self, cb_ty, result_llvm, closure_fn, env_dtor):
+        """Emit the `i8*(i8*)` pthread start routine for one spawn site.
+
+        Loads the env from the control block, runs the closure body, stores the
+        result back into the block, then runs the env destructor (drop glue for
+        captured values, then free) on the task thread — exactly once, after the
+        body returns. Returns NULL as the pthread result (results travel via the
+        control block slot, not pthread's return channel).
+        """
+        i8ptr = ir.IntType(8).as_pointer()
+        fn_ty = self.pthread_tramp_type  # i8*(i8*)
+        name = f"__task_tramp_{self.closure_counter}"
+        self.closure_counter += 1
+        tramp = ir.Function(self.module, fn_ty, name=name)
+
+        saved_builder = self.builder
+        b = ir.IRBuilder(tramp.append_basic_block("entry"))
+        self.builder = b
+        cb = b.bitcast(tramp.args[0], ir.PointerType(cb_ty), name="cb")
+        env = b.load(
+            b.gep(cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 1)]),
+            name="env")
+        result = b.call(closure_fn, [env], name="body_result")
+        b.store(result,
+                b.gep(cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 2)]))
+        if env_dtor is not None:
+            b.call(env_dtor, [env])
+        b.ret(ir.Constant(i8ptr, None))
+        self.builder = saved_builder
+        return tramp
 
     def _generate_arc_forward_call(self, expr: MethodCall):
         """Forward an immutable `&self` method call from an `Arc<T>` to its payload

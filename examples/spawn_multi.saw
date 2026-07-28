@@ -1,0 +1,25 @@
+// Multiple tasks joined; the sum of results is exact and scheduling-independent
+// (each result is read via join, then summed). design 21 item 5 / item 7.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 54
+
+func work(base: Int) -> Int {
+    base * base
+}
+
+func main() {
+    let a = 2
+    let b = 3
+    let c = 4
+    let d = 5
+
+    var t0 = spawn { work(a) }   // 4
+    var t1 = spawn { work(b) }   // 9
+    var t2 = spawn { work(c) }   // 16
+    var t3 = spawn { work(d) }   // 25
+
+    // Join order is forced; the sum does not depend on task scheduling.
+    let sum = t0.join() + t1.join() + t2.join() + t3.join()
+    print(sum)   // 54
+}
