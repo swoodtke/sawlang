@@ -30,6 +30,10 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   modules ignoring visibility, resolving by dict order. Brief 26 fixed
   collisions at the codegen merge; the typechecker-side lookup may still
   need a visibility check + ambiguity diagnostic. [critique structural]
+- **L5.** Array-mutation gaps (brief-33 observations, XFAIL-ledgered):
+  `a[0].v = 99` silently no-ops (`array_elem_field_assign.saw`);
+  `a[0] = newElem` never deinits the overwritten element
+  (`array_elem_overwrite_deinit.saw`). [33]
 - **L4. VERIFY:** `Vector<File>.copy()`-style diagnostic — was a raw
   Python traceback (brief 09 report); brief 26's ICE wrapper now catches
   it, but it should be a proper user-facing typechecker error, not an ICE.

@@ -1,0 +1,24 @@
+// Test: overwriting an array element runs the old element's deinit
+// EXPECT: success
+// EXPECT-OUTPUT:
+// deinit 1
+// deinit 2
+// deinit 3
+// XFAIL: whole-element array assignment (a[0] = ...) never deinits the overwritten element (brief 33 observation)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("deinit {self.id}")
+    }
+}
+
+func main() {
+    var a = [Res(id: 1), Res(id: 2)]
+    a[0] = Res(id: 3)
+    // "deinit 1" at overwrite; scope exit then releases in reverse
+    // index order: a[1] (id 2) first, then a[0] (id 3).
+}
