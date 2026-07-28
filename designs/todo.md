@@ -18,12 +18,6 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   INT_MIN/-1 division trapping (out of scope in brief 05). [05, 13]
 - **D2. Struct equality semantics** — memberwise `==`? Derived? What about
   structs containing resources? [13]
-- **D3. Result auto-wrap ambiguity** — `return x` in `Result<T, E>` when
-  `T == E` (reachable via generics): define the tie-break or restrict
-  auto-wrap to unambiguous cases. Also: the auto-created multi-error union
-  needs real spec semantics (what is `error`'s type? can it escape the
-  catch block? interaction with generics / future `Error` trait).
-  [critique concern 3; not covered by any brief]
 - **D5. IO integration for async** — kqueue/epoll reactor vs blocking-pool;
   explicitly open in the concurrency model paper. [18]
 - **D6. Async self-isolation** — may a suspending method's `&var self` span
@@ -136,6 +130,12 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Recently resolved (recorded here to stop re-flagging)
 
+- **D3 (Result auto-wrap + error union) — DECIDED Jul 28 (user):**
+  concrete `T == E` bare returns are a compile error (explicit variant
+  required); generic bodies keep abstract per-parameter wrapping; the
+  multi-error union is a closed, compiler-synthesized, UNNAMEABLE enum —
+  escape prevented structurally. Decision + implementation → design 30.
+  [critique concern 3, 30]
 - **D8 (closure syntax) — DECIDED Jul 28 (user):** `escaping` marker in
   the function type's post-parameter slot (matching `sync`); explicit
   captures in a bracketed list (`{ [&var sum] x in ... }`), distinct from
