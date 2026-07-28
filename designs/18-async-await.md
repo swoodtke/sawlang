@@ -77,16 +77,24 @@ permanent sync/async ecosystem split. Rules that make it hold:
   simplified Go model), with `spawn_blocking`-style hinting as an
   optimization, never a correctness requirement.
 - ~~Async-only concurrency ≠ async-only IO; sync blocking IO stays~~
-  **REVISED (Jul 28, user proposal): "tasks never block" is the model —
-  stdlib waiting APIs are async-only.** No sync `File.read`/`sleep`/
-  `accept`; sync functions are pure-compute by construction; everything
-  that can wait is a visible `await`. Amendments that make it sound:
-  - **Hybrid reactor, not poller-only:** kqueue/epoll covers only
-    pollable FDs — regular-file IO is NOT pollable (always-ready +
-    blocking reads), DNS/misc syscalls have no readiness. Hosted reactor =
-    poller for sockets/pipes/timers + hidden worker-pool offload for file
-    ops (io_uring as a later Linux upgrade). Task-facing API identical;
-    the pool is unobservable. (Go/libuv/tokio all do exactly this.)
+  **REVISED (Jul 28, user proposal + refinement): "tasks never block on
+  the outside world." The invariant is latency-UNBOUNDEDNESS, not IO-ness
+  — `await` means "may wait indefinitely on outside input."**
+  - **Async-only (unbounded external waits):** sockets, accept, channel
+    receive, timers/sleep (deliberate waiting is waiting), process-wait,
+    stdin. A task blocked on these is a liveness hazard.
+  - **Sync stays for bounded local operations:** regular-file read/write,
+    console — completion guaranteed by the local machine in bounded time.
+    Scripts keep unceremonious sync `File.read`. Documented wart shared
+    by every system with this split: network filesystems make "local
+    disk" secretly unbounded.
+  - **Reactor consequence — poller-only v1:** with bounded file IO
+    accepted as sync, the hidden worker-pool offload is NOT needed for
+    correctness; hosted reactor = kqueue/epoll over genuinely unbounded
+    sources only. The pool returns later solely as optimization
+    (io_uring-backed async file IO) or for `extern blocking` FFI.
+  - Embedded reads identically: flash reads bounded/sync; UART/radio
+    receive unbounded/async.
   - **Coloring STAYS** (this does not reopen colorless): implicit
     suspension everywhere would force every function into a state machine
     (whole-program CPS) or stackful tasks — the latter rejected for
