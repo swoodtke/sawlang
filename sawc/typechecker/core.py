@@ -75,8 +75,11 @@ class Scope:
 class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin):
     """Type checks a Saw program."""
 
-    def __init__(self, reporter: ErrorReporter):
+    def __init__(self, reporter: ErrorReporter, freestanding: bool = False):
         self.reporter = reporter
+        # Freestanding profile (design 19/20): gates hosted-only facilities such
+        # as Float formatting in print (dtoa is not available without libc).
+        self.freestanding = freestanding
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
         self.current_method: Optional['Method'] = None  # Track current method for 'self'

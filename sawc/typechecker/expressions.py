@@ -442,7 +442,17 @@ class ExpressionsMixin:
                     expr.line, expr.column
                 )
             for arg in expr.arguments:
-                self._check_expression(arg.value)
+                arg_type = self._check_expression(arg.value)
+                # Freestanding has no dtoa: Float printing requires the hosted
+                # profile (see design 20 item 2/4).
+                if (self.freestanding and arg_type is not None
+                        and arg_type.kind == TypeKind.FLOAT):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        "Float formatting requires the hosted profile; "
+                        "freestanding `print` supports integers, Bool, and String only",
+                        arg.value.line, arg.value.column
+                    )
             return SawType(TypeKind.VOID)
         if expr.name == "sizeof":
             if len(expr.arguments) != 0:

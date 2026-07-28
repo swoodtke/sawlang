@@ -42,8 +42,19 @@ def parse_source(source: str, source_path: str, verbose: bool = False):
         sys.exit(1)
 
 
-def load_builtins(verbose: bool = False):
-    """Load and parse the builtin.saw file and all std/*.saw files."""
+# Hosted-only std modules (design 19 layering): they depend on libc/OS and are
+# excluded from the freestanding profile. Core + alloc-layer modules (string,
+# vector, map, data, stringbuilder, path) depend only on the runtime seams and
+# remain available freestanding.
+HOSTED_STD_MODULES = {"file", "process", "env", "directory"}
+
+
+def load_builtins(verbose: bool = False, freestanding: bool = False):
+    """Load and parse the builtin.saw file and all std/*.saw files.
+
+    In the freestanding profile the hosted-only std modules (file, process, env,
+    directory) are not loaded, so their libc/OS externs are never compiled in.
+    """
     from ast_nodes import Program
 
     sawc_dir = os.path.dirname(__file__)
@@ -62,6 +73,9 @@ def load_builtins(verbose: bool = False):
     std_dir = os.path.join(sawc_dir, 'std')
     if os.path.isdir(std_dir):
         std_files = sorted([f for f in os.listdir(std_dir) if f.endswith('.saw')])
+        if freestanding:
+            std_files = [f for f in std_files
+                         if os.path.splitext(f)[0] not in HOSTED_STD_MODULES]
         for filename in std_files:
             filepath = os.path.join(std_dir, filename)
             with open(filepath, 'r') as f:
@@ -187,7 +201,7 @@ def topological_sort_modules(module_map):
     return result
 
 
-def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, optimize: bool = True):
+def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False):
     """
     Compile a program that uses the module system.
 
@@ -205,6 +219,21 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     """
     from module_resolver import ModuleInfo
     from ast_nodes import Program
+
+    # Freestanding always emits an unlinked object file; the user owns linking.
+    if freestanding:
+        object_only = True
+
+    # Reject imports of hosted-only std modules under the freestanding profile.
+    if freestanding:
+        for imp in getattr(entry_ast, 'imports', []):
+            leaf = imp.path[-1] if imp.path else None
+            if leaf in HOSTED_STD_MODULES and (
+                    'std' in imp.path or len(imp.path) == 1):
+                print(f"\033[1;31merror\033[0m: module `{'.'.join(imp.path)}` is "
+                      f"hosted-only and cannot be imported in the freestanding "
+                      f"profile", file=sys.stderr)
+                sys.exit(1)
 
     if verbose:
         print("  Resolving module dependencies...")
@@ -349,7 +378,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
                     sys.exit(1)
 
     # Load builtins
-    builtin_ast = load_builtins(verbose)
+    builtin_ast = load_builtins(verbose, freestanding)
 
     # Helper to recursively collect all inline module bodies from an AST
     def collect_inline_module_bodies(ast):
@@ -399,7 +428,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     # Add imported module sources for proper error context
     for mod_path, mod_source in module_sources.items():
         reporter.add_source(mod_path, mod_source)
-    typechecker = TypeChecker(reporter)
+    typechecker = TypeChecker(reporter, freestanding=freestanding)
 
     # First, type-check the builtins using the legacy method
     # This sets resolved_type on expressions in the builtin AST
@@ -545,7 +574,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     # Code generation
     if verbose:
         print("  Generating LLVM IR...")
-    codegen = CodeGenerator(typechecker.namespace)
+    codegen = CodeGenerator(typechecker.namespace, target_triple=target_triple, freestanding=freestanding)
     llvm_ir = codegen.generate(merged_ast)
 
     if verbose:
@@ -600,7 +629,7 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
         print(f"Compiled {source_path} -> {output_path}")
 
 
-def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True):
+def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False):
     """Compile a Saw source file to an executable or object file.
 
     Args:
@@ -609,7 +638,13 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
         verbose: Print verbose progress messages
         object_only: If True, compile to .o without linking (no main() required)
         optimize: If True (default), run the O1 optimization pipeline; -O0 disables it
+        target_triple: Optional LLVM target triple for cross-compilation (default host)
+        freestanding: If True, emit for the freestanding profile (seams as
+            declarations only, hosted std modules excluded, unlinked object output)
     """
+    # Freestanding always emits an unlinked object file; the user owns linking.
+    if freestanding:
+        object_only = True
 
     # Read source file
     with open(source_path, 'r') as f:
@@ -634,11 +669,11 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
                 print(f"    module {mod.name}")
 
         # Use multi-module compilation path
-        return compile_with_modules(source_path, output_path, user_ast, source, verbose, object_only, optimize)
+        return compile_with_modules(source_path, output_path, user_ast, source, verbose, object_only, optimize, target_triple, freestanding)
 
     # Legacy single-file compilation path
     # Load builtins
-    builtin_ast = load_builtins(verbose)
+    builtin_ast = load_builtins(verbose, freestanding)
 
     # Merge builtins with user program
     ast = merge_programs(builtin_ast, user_ast)
@@ -650,7 +685,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
     if verbose:
         print("  Type checking...")
     reporter = ErrorReporter(source, source_path)
-    typechecker = TypeChecker(reporter)
+    typechecker = TypeChecker(reporter, freestanding=freestanding)
     if not typechecker.check(ast, require_main=not object_only):
         reporter.print_all()
         sys.exit(1)
@@ -661,7 +696,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
     # Code generation
     if verbose:
         print("  Generating LLVM IR...")
-    codegen = CodeGenerator(typechecker.namespace)
+    codegen = CodeGenerator(typechecker.namespace, target_triple=target_triple, freestanding=freestanding)
     llvm_ir = codegen.generate(ast)
 
     if verbose:
@@ -737,6 +772,12 @@ Examples:
     parser.add_argument("--emit-ast", action="store_true", help="Dump typed AST for debugging")
     parser.add_argument("-O0", dest="no_optimize", action="store_true",
                         help="Disable optimization passes (emit raw codegen output for debugging)")
+    parser.add_argument("--target", metavar="TRIPLE",
+                        help="Target triple for cross-compilation (default: host)")
+    parser.add_argument("--freestanding", action="store_true",
+                        help="Freestanding profile: runtime seams as declarations only, "
+                             "no hosted std modules (file/process/env/directory), "
+                             "no Float printing, unlinked object output")
 
     args = parser.parse_args()
 
@@ -807,12 +848,12 @@ Examples:
 
         # Type check
         reporter = ErrorReporter(source, args.input)
-        typechecker = TypeChecker(reporter)
+        typechecker = TypeChecker(reporter, freestanding=args.freestanding)
         if not typechecker.check(ast):
             reporter.print_all()
             sys.exit(1)
 
-        codegen = CodeGenerator(typechecker.namespace)
+        codegen = CodeGenerator(typechecker.namespace, target_triple=args.target, freestanding=args.freestanding)
         codegen.generate(ast)
         llvm_ir = codegen.emit_ir(optimize=not args.no_optimize)
 
@@ -821,10 +862,13 @@ Examples:
             f.write(llvm_ir)
         print(f"Emitted IR to {ir_output}")
     else:
-        # If -c flag, ensure output ends with .o
-        if args.c and not output_path.endswith('.o'):
+        # -c and --freestanding both emit an unlinked object file; ensure the
+        # output path ends with .o so it is not mistaken for an executable.
+        if (args.c or args.freestanding) and not output_path.endswith('.o'):
             output_path = output_path + '.o'
-        compile_saw(args.input, output_path, verbose=args.verbose, object_only=args.c, optimize=not args.no_optimize)
+        compile_saw(args.input, output_path, verbose=args.verbose,
+                    object_only=args.c, optimize=not args.no_optimize,
+                    target_triple=args.target, freestanding=args.freestanding)
 
 
 if __name__ == "__main__":
