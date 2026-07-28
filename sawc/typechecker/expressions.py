@@ -1725,6 +1725,73 @@ class ExpressionsMixin:
                 subst[tp.name] = ta
         return (m, subst)
 
+    def _check_type_param_method_call(self, expr: MethodCall, obj_type: SawType,
+                                      bounds) -> Optional[SawType]:
+        """Resolve `x.method()` where `x` has opaque generic type `T` (design 24
+        item 1).
+
+        The method must be provided by one of `T`'s declared trait bounds. Found
+        in a bound's trait: check the argument count against that signature,
+        check the argument expressions (stamping their annotations), and yield
+        the trait method's declared return type — which may be an associated
+        type and therefore stays abstract. Provided by no bound: a compile error
+        naming the method and the bounds (an unbounded `T` names an empty set).
+
+        Deep argument-type compatibility is *deferred*: a trait method signature
+        may mention associated types or the trait's own type parameters, which
+        stay abstract in this body, so a concrete-vs-abstract comparison here
+        would produce false positives. Argument *count* is decidable and checked.
+
+        A trait method has no analyzable body, so it contributes no suspend edge
+        — a conservative non-suspending leaf, matching how opaque/imported
+        callees are treated (design 22 §5).
+        """
+        tp_name = obj_type.struct_name
+        for bound in bounds:
+            trait = self.get_trait_info(bound)
+            if trait is None:
+                # A `Copy`-family / `Send` / `Sync` marker bound with no user
+                # methods; it grants no callable method here (`.copy()` under a
+                # Copy bound is handled earlier, in `_check_copy_call`).
+                continue
+            method_sym = trait.methods.get(expr.method_name)
+            if method_sym is None:
+                continue
+            # `param_names` excludes the `self` receiver (which `param_types`
+            # carries as a placeholder at index 0), so it is the arity to match.
+            expected = len(method_sym.param_names)
+            if len(expr.arguments) != expected:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"method `{expr.method_name}` takes {expected} argument(s), "
+                    f"but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+            for arg in expr.arguments:
+                if isinstance(arg.value, ClosureExpr):
+                    self._check_closure(arg.value, None, as_call_argument=True)
+                else:
+                    self._check_expression(arg.value)
+            if method_sym.return_type is None:
+                return SawType(TypeKind.VOID)
+            return self._resolve_type(method_sym.return_type)
+        # Not provided by any of `T`'s bounds (or `T` is unbounded).
+        bound_list = ", ".join(bounds) if bounds else ""
+        if bounds:
+            hint = (f"none of `{tp_name}`'s bounds ({bound_list}) declare a "
+                    f"method `{expr.method_name}`")
+        else:
+            hint = (f"`{tp_name}` is unbounded; add a trait bound whose trait "
+                    f"declares `{expr.method_name}` (e.g. `<{tp_name}: SomeTrait>`)")
+        self._error(
+            ErrorKind.UNDEFINED_FUNCTION,
+            f"type parameter `{tp_name}` has no method `{expr.method_name}`; "
+            f"its bounds are [{bound_list}]",
+            expr.line, expr.column,
+            hint=hint
+        )
+        return None
+
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
         """Check a method call, static method call, enum initialization, or module function call."""
         if isinstance(expr.object, MemberAccess):
@@ -1851,6 +1918,18 @@ class ExpressionsMixin:
             handled, result = self._check_copy_call(expr, obj_type)
             if handled:
                 return result
+
+        # Bound-aware method resolution on an opaque generic type parameter
+        # (design 24 item 1). Inside a generic body, `x.method()` where `x: T`
+        # resolves against the methods declared by T's trait bounds; a method
+        # found in a bound's trait is checked against that signature (associated
+        # types stay abstract), and a method found in no bound is an error naming
+        # the method and the bounds. `.copy()` under a `Copy`-family bound was
+        # already resolved above.
+        type_params = getattr(self, 'current_type_params', {})
+        if obj_type.kind == TypeKind.STRUCT and obj_type.struct_name in type_params:
+            return self._check_type_param_method_call(
+                expr, obj_type, type_params[obj_type.struct_name])
 
         if obj_type.kind == TypeKind.STRING:
             struct_name = "String"

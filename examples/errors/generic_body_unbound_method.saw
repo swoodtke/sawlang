@@ -9,7 +9,6 @@
 // See todo_jul26.md must-fix #3 (generic bodies never type-checked).
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: frobnicate
-// XFAIL: generic function bodies are not abstractly type-checked; an uninstantiated body with an unbounded method call compiles
 
 func bad<T>(x: T) -> Int {
     x.frobnicate()
