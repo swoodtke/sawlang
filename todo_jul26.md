@@ -32,6 +32,15 @@ Two NEW issues found during brief-12 probing:
   usable with resource element types again.
 - Module symbol collision is not silent first-wins but a codegen crash
   (`DuplicatedNameError`) — still needs a real ambiguity diagnostic.
+Aggregate deinit (brief 17, `designs/17`) is DONE: generic-struct deinit,
+recursive struct/String field drop glue, Vector/Map element cleanup (gated
+`__deinit_in_place` intrinsic; also fixed Vector<non-Copy> having NO deinit
+at all — the Deinit extension was trapped inside the bounded ExplicitCopy
+extension), statement-scoped temporary cleanup. New gaps found and
+ledgered/noted: enum payloads not released on enum death (XFAIL
+`enum_payload_deinit.saw`); `if let` bindings of Deinit values never
+cleaned (pre-existing, needs a ledger test); receiver temporaries inside
+`return f().g()` leak (drain skipped after terminator).
 Known follow-ups: ~~use-after-move dataflow~~ DONE (brief 15, `designs/15`:
 per-binding may-move analysis, branch merge excluding diverged paths,
 conservative loop rule; 2 xfails flipped); bare `return` in `main` emits
