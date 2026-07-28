@@ -1,0 +1,37 @@
+// Brief 17 item 5 (probe): when an enum value holding a Deinit-conforming
+// payload dies, the payload's deinit must run. Here `Box.Full` carries an `R`
+// (Deinit, prints its id on drop); when `b` goes out of scope at the end of
+// main the payload `R(id: 7)` should print `7`, after the `100` marker.
+//
+// This does NOT happen today: the drop-glue machinery from brief 17 item 2 is
+// struct-only -- `_needs_cleanup`'s recursive clause (`_struct_needs_field_
+// cleanup`) and the field-release routine (`_emit_field_cleanup_at`) both bail
+// out for a non-struct aggregate, so an enum is never detected as needing
+// cleanup and its active payload is never released. Enum-payload drop glue
+// (walk the active variant's fields by tag, release Deinit payloads) is a
+// distinct piece of work; tracked here as an XFAIL extending the ledger.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 100
+// 7
+// XFAIL: enum payload deinit never fires; drop glue is struct-only (brief 17 item 5)
+
+struct R {
+    id: Int
+}
+
+extension R: Deinit {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+enum Box {
+    case Full(r: R),
+    case Empty
+}
+
+func main() {
+    let b = Box.Full(r: R(id: 7))
+    print(100)
+}
