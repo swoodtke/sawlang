@@ -1,0 +1,42 @@
+// Fallible allocation factory exercising the three-tier failure model
+// (design 28 item 5 / design 19 tier 2). `Vector.try_with_capacity` returns
+// Result<Vector<T>, AllocError>: on success an owned vector, on allocator
+// exhaustion an Err carrying the failed request's size/align context.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok
+// 3
+// err
+// 8000000000000000000
+// 8
+
+func main() {
+    // Success path: allocate capacity, fill it, use it.
+    match Vector<Int>.try_with_capacity(4) {
+        case Ok(v) -> {
+            var vec = move v
+            vec.push(10)
+            vec.push(20)
+            vec.push(30)
+            print("ok")
+            print(vec.len())     // 3
+        },
+        case Err(e) -> print("unexpected-err")
+    }
+
+    // Failure path (deterministic): 1e18 elements * 8 bytes/elem = 8e18 bytes,
+    // which is below Int64 max (no multiply overflow) yet far beyond what the
+    // hosted allocator can satisfy, so malloc returns NULL -> Global.alloc
+    // yields None -> the factory returns Err(AllocError) with size context.
+    match Vector<Int>.try_with_capacity(1000000000000000000) {
+        case Ok(v) -> {
+            let vec = move v
+            print("unexpected-ok")
+        },
+        case Err(e) -> {
+            print("err")
+            print(e.size)        // 8000000000000000000  (bytes requested)
+            print(e.align)       // 8                     (alignof<Int>)
+        }
+    }
+}

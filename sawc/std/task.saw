@@ -21,8 +21,6 @@
 // without a consuming receiver.
 
 extern "C" {
-    func saw_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
-
     // Wrapper (codegen): pthread_join(*(pthread_t*)tid, NULL).
     func __saw_pthread_join(tid: UnsafePointer<Int8>)
 }
@@ -48,7 +46,7 @@ extension Task<T> {
                 __saw_pthread_join(h)
                 let result_ptr = (h + 16) as UnsafePointer<T>
                 let result = result_ptr[0]
-                saw_dealloc(h, 16 + sizeof<T>(), 16)
+                Global().dealloc(h, 16 + sizeof<T>(), 16)
                 self.joined = true
                 result
             } else {
@@ -70,7 +68,7 @@ extension Task<T>: Deinit {
                 __saw_pthread_join(h)
                 let result_ptr = (h + 16) as UnsafePointer<T>
                 __deinit_in_place(result_ptr)
-                saw_dealloc(h, 16 + sizeof<T>(), 16)
+                Global().dealloc(h, 16 + sizeof<T>(), 16)
             }
         }
     }

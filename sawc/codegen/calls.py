@@ -59,6 +59,10 @@ class CallsMixin:
         if expr.name == "sizeof":
             return self._generate_sizeof(expr)
 
+        # Handle built-in alignof<T>() function
+        if expr.name == "alignof":
+            return self._generate_alignof(expr)
+
         # Handle the compiler-internal drop intrinsic __deinit_in_place(ptr).
         # `ptr` is an UnsafePointer<T>; run drop glue for the T value it
         # addresses, in place. Used by stdlib container deinits (Vector/Map) to
@@ -242,6 +246,25 @@ class CallsMixin:
         llvm_type = self._get_llvm_type(saw_type)
         size = llvm_type.get_abi_size(self.target_data)
         return ir.Constant(ir.IntType(64), size)
+
+    def _generate_alignof(self, expr: FunctionCall):
+        """Generate code for alignof<T>() - returns the ABI alignment of T in bytes.
+
+        Sibling of _generate_sizeof: resolves the single type argument (through
+        the monomorphization type-param context, so a generic `T` folds to its
+        concrete instantiation) and emits the target's ABI alignment for that
+        LLVM type as an i64 constant.
+        """
+        if not expr.type_args or len(expr.type_args) != 1:
+            raise ValueError("alignof requires exactly one type argument")
+
+        saw_type = expr.type_args[0]
+        # Resolve type parameters if in a generic context
+        if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name in self.type_param_context:
+            saw_type = self.type_param_context[saw_type.struct_name]
+        llvm_type = self._get_llvm_type(saw_type)
+        align = llvm_type.get_abi_alignment(self.target_data)
+        return ir.Constant(ir.IntType(64), align)
 
     def _generate_method_call(self, expr: MethodCall):
         """Generate code for method call, static method call, enum initialization, or module function call.
@@ -617,6 +640,16 @@ class CallsMixin:
 
     def _generate_static_method_call(self, expr: MethodCall, struct_name: str):
         """Generate a static method call: StructName.method(args)"""
+        # A static method on a GENERIC struct is called with explicit type args
+        # (`Vector<Int>.try_with_capacity(...)`). Monomorphize the struct for
+        # those args — which also queues its extension methods, including this
+        # one — and mangle against the specialized name so we call the concrete
+        # instantiation (`Vector_Int_try_with_capacity`) rather than the generic
+        # placeholder. Non-generic calls fall through unchanged.
+        type_args = getattr(expr.object, 'type_args', None)
+        if type_args and struct_name in self.generic_structs:
+            struct_name = self._ensure_monomorphized_struct(struct_name, type_args)
+
         mangled_name = self._mangle_method_name(struct_name, expr.method_name)
 
         if mangled_name not in self.functions:

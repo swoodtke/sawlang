@@ -14,9 +14,6 @@
 //     frees the whole block. This is the two-phase protocol of design 07/16.
 
 extern "C" {
-    func saw_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
-    func saw_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
-
     // Atomic seams, emitted by codegen (see core.py _declare_atomic_runtime);
     // ordering per design 07's Arc protocol.
     func __saw_atomic_add_i64(ptr: UnsafePointer<Int>, delta: Int) -> Int
@@ -34,7 +31,7 @@ extension Arc<T> {
     // Construct a fresh Arc owning `value` (strong = 1, weak = 1).
     init(value: T) -> Arc<T> {
         let size = 16 + sizeof<T>()
-        if let block = saw_alloc(size, 16) {
+        if let block = Global().alloc(size, 16) {
             let strong_ptr = block as UnsafePointer<Int>
             strong_ptr[0] = 1
             let weak_ptr = (block + 8) as UnsafePointer<Int>
@@ -76,7 +73,7 @@ extension Arc<T>: Deinit {
                 let wold = __saw_atomic_sub_i64_release(weak_ptr, 1)
                 if wold == 1 {
                     __saw_atomic_fence_acquire()
-                    saw_dealloc(block, 16 + sizeof<T>(), 16)
+                    Global().dealloc(block, 16 + sizeof<T>(), 16)
                 }
             }
         }

@@ -14,9 +14,6 @@
 // exactly once, synchronously, with &var access to the payload.
 
 extern "C" {
-    func saw_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
-    func saw_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
-
     // Thin wrapper (codegen) that calls pthread_mutex_init(m, NULL).
     func __saw_pthread_mutex_init_default(m: UnsafePointer<Int8>)
     func pthread_mutex_lock(m: UnsafePointer<Int8>) -> Int
@@ -34,7 +31,7 @@ extension Mutex<T> {
     // Take ownership of `value` and wrap it behind a fresh mutex.
     init(value: T) -> Mutex<T> {
         let size = 64 + sizeof<T>()
-        if let block = saw_alloc(size, 16) {
+        if let block = Global().alloc(size, 16) {
             __saw_pthread_mutex_init_default(block)
             let payload_ptr = (block + 64) as UnsafePointer<T>
             payload_ptr[0] = value
@@ -73,7 +70,7 @@ extension Mutex<T>: Deinit {
             let payload_ptr = (block + 64) as UnsafePointer<T>
             __deinit_in_place(payload_ptr)
             pthread_mutex_destroy(block)
-            saw_dealloc(block, 64 + sizeof<T>(), 16)
+            Global().dealloc(block, 64 + sizeof<T>(), 16)
         }
     }
 }

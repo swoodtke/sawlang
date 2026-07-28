@@ -458,6 +458,16 @@ class GenericsMixin:
         old_context = self.type_param_context
         self.type_param_context = type_mapping
 
+        # Set the (substituted) return type so return-position wrapping works
+        # inside the monomorphized body: `None` literals learn their optional
+        # inner type, and Result auto-wrap (`return T`/`return E` in a
+        # Result-returning method, e.g. Vector.try_with_capacity) can build the
+        # correct Ok/Err. Without this, current_return_type would leak in from
+        # the enclosing generation context and misclassify the method.
+        substituted_return = self._substitute_saw_type(method.return_type, type_mapping)
+        old_return_type = self.current_return_type
+        self.current_return_type = substituted_return
+
         # Create allocas for parameters (including self)
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
@@ -477,7 +487,6 @@ class GenericsMixin:
         result = self._generate_block(method.body)
 
         # Handle return
-        substituted_return = self._substitute_saw_type(method.return_type, type_mapping)
         if substituted_return.kind == TypeKind.VOID:
             if not self.builder.block.is_terminated:
                 self.builder.ret_void()
@@ -490,6 +499,7 @@ class GenericsMixin:
                     self.builder.ret(ir.Constant(return_type, ir.Undefined))
 
         # Restore context
+        self.current_return_type = old_return_type
         self.type_param_context = old_context
 
     def _generate_init_method_generic(self, struct_name: str, method: Method, type_mapping: dict[str, SawType]):

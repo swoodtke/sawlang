@@ -5,12 +5,15 @@
 // FFI declarations for memory management
 // =============================================================================
 
-// Vector is an alloc-layer type: it allocates only through the runtime seams
-// (design 19/20), never libc directly, so it works in the freestanding profile
-// over a user-provided allocator. memcpy is a compiler builtin, not a seam.
+// Vector is an alloc-layer type: it allocates through the `Global` allocator
+// (design 19 §4 / brief 28), which wraps the runtime seams — never libc
+// directly — so it works in the freestanding profile over a user-provided
+// allocator. Buffer alignment comes from `alignof<T>()`, so element types get a
+// correctly-aligned backing store rather than a hardcoded constant. In stage 4
+// the allocator becomes a public type parameter (`Vector<T, A = Global>`); the
+// `Global()` calls below are the seam that exposure will thread. memcpy is a
+// compiler builtin, not a seam.
 extern "C" {
-    func saw_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
-    func saw_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
     func memcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, n: Int) -> UnsafePointer<Int8>
 }
 
@@ -36,7 +39,7 @@ extension Vector<T> {
             Vector<T>(buffer: None, length: 0, capacity: 0)
         } else {
             let byte_size = capacity * sizeof<T>()
-            if let raw_ptr = saw_alloc(byte_size, 16) {
+            if let raw_ptr = Global().alloc(byte_size, alignof<T>()) {
                 let typed_ptr = raw_ptr as UnsafePointer<T>
                 Vector<T>(buffer: typed_ptr, length: 0, capacity: capacity)
             } else {
@@ -44,6 +47,27 @@ extension Vector<T> {
                 Vector<T>(buffer: None, length: 0, capacity: 0)
             }
         }
+    }
+
+    // Fallible capacity factory (design 19 three-tier failure model, tier 2).
+    // Where `init(capacity:)` silently degrades to an empty vector on OOM, this
+    // hands the caller the failure: on allocator exhaustion it returns
+    // `Err(AllocError)` carrying the byte size and alignment of the request that
+    // failed, so a site that genuinely handles OOM locally can react (and log
+    // context) instead of proceeding with a smaller-than-asked buffer. The
+    // success path is identical to `init(capacity:)`. A non-positive request
+    // needs no allocation and trivially succeeds with an empty vector.
+    func try_with_capacity(n: Int) -> Result<Vector<T>, AllocError> {
+        if n <= 0 {
+            return Vector<T>()
+        }
+        let byte_size = n * sizeof<T>()
+        if let raw_ptr = Global().alloc(byte_size, alignof<T>()) {
+            let typed_ptr = raw_ptr as UnsafePointer<T>
+            return Vector<T>(buffer: typed_ptr, length: 0, capacity: n)
+        }
+        // Allocator returned None -> surface the failure with size context.
+        return AllocError(size: byte_size, align: alignof<T>())
     }
 
     // Get the number of elements
@@ -84,7 +108,14 @@ extension Vector<T> {
         if self.length >= self.capacity {
             self.grow()
         }
-        // Add the element
+        // Add the element. `buf[self.length] = value` is the PLACEMENT-MOVE
+        // primitive (see LANGUAGE_SPEC "Placement writes"): the slot at
+        // `self.length` is uninitialized (length < capacity, never yet
+        // written), so the store bitwise-moves `value` in and does NOT release
+        // any prior occupant. `value` is consumed by the value-transfer
+        // checkpoint. Writing into a slot `< length` this way would leak the
+        // live element there — the loop invariant (only ever writing the fresh
+        // tail slot) is what makes this sound.
         if let buf = self.buffer {
             buf[self.length] = value
             self.length = self.length + 1
@@ -120,15 +151,15 @@ extension Vector<T> {
             // allocate a fresh buffer, copy the live bytes, and release the old.
             let raw_ptr = buf as UnsafePointer<Int8>
             let old_byte_size = self.capacity * sizeof<T>()
-            if let new_raw = saw_alloc(new_byte_size, 16) {
+            if let new_raw = Global().alloc(new_byte_size, alignof<T>()) {
                 memcpy(new_raw, raw_ptr, old_byte_size)
-                saw_dealloc(raw_ptr, old_byte_size, 16)
+                Global().dealloc(raw_ptr, old_byte_size, alignof<T>())
                 self.buffer = new_raw as UnsafePointer<T>
                 self.capacity = new_capacity
             }
         } else {
             // First allocation
-            if let raw_ptr = saw_alloc(new_byte_size, 16) {
+            if let raw_ptr = Global().alloc(new_byte_size, alignof<T>()) {
                 self.buffer = raw_ptr as UnsafePointer<T>
                 self.capacity = new_capacity
             }
@@ -161,7 +192,7 @@ extension Vector<T>: Deinit {
                 i = i + 1
             }
             let raw_ptr = buf as UnsafePointer<Int8>
-            saw_dealloc(raw_ptr, self.capacity * sizeof<T>(), 16)
+            Global().dealloc(raw_ptr, self.capacity * sizeof<T>(), alignof<T>())
         }
     }
 }

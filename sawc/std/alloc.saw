@@ -1,0 +1,72 @@
+// Allocator trait, Global allocator, and AllocError
+// Part of the Saw standard library — design 19 §4, brief 28 (stage 3)
+//
+// This is the alloc-layer allocation surface. Alloc-layer containers (Vector,
+// Arc, Map via Vector, ...) route every allocation through the `Allocator`
+// trait rather than calling the `saw_alloc`/`saw_dealloc` seams directly. In
+// stage 3 the allocator is hardcoded to `Global`; stage 4 will thread it as a
+// public type parameter (`Vector<T, A: Allocator = Global>`) via default type
+// parameters, at which point this internal threading becomes a mechanical
+// parameter exposure. The core/alloc/std layer split (design 19 §1) is future
+// work — this file builds no layer enforcement.
+
+// =============================================================================
+// The global allocation seams (design 20)
+// =============================================================================
+
+// Hosted defaults wrap malloc/free; the freestanding profile leaves these as
+// declarations the user's environment provides at link time. Because all std
+// files are merged into one namespace, these declarations are shared with the
+// alloc-layer container modules — they no longer declare the seams themselves.
+extern "C" {
+    func saw_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
+    func saw_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
+}
+
+// =============================================================================
+// Allocator trait (design 19 §4)
+// =============================================================================
+
+// The allocation contract. `alloc` returns None on failure (the caller decides:
+// infallible APIs panic, fallible factories return Err — design 19 three-tier
+// model). `dealloc` must be handed the same size/align the block was allocated
+// with (the seams carry no per-block metadata; the container remembers layout).
+trait Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>?
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int)
+}
+
+// =============================================================================
+// Global — the default, seam-backed allocator
+// =============================================================================
+
+// A zero-field unit struct: it carries no state (its "storage" is whatever the
+// saw_alloc seam is bound to at link time). Being zero-sized, `Global()` is a
+// zero-size placeholder and `Global().alloc(...)` monomorphizes to a direct
+// call into the seam with no allocator value materialized at runtime — the
+// zero-cost static dispatch that design 19 option C relies on.
+struct Global {}
+
+extension Global: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+        saw_alloc(size, align)
+    }
+
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+        saw_dealloc(ptr, size, align)
+    }
+}
+
+// =============================================================================
+// AllocError — failure context for fallible factories (design 19 open-Q tier 2)
+// =============================================================================
+
+// Carried by the `Err` of a fallible factory (e.g. `Vector.try_with_capacity`)
+// so an out-of-memory site can be logged with context. `size` is the byte count
+// the failed request asked for; `align` is its alignment. (When a public
+// allocator type parameter arrives in stage 4, an allocator identity/tag can
+// join these fields.)
+struct AllocError {
+    size: Int
+    align: Int
+}

@@ -617,6 +617,30 @@ class ExpressionsMixin:
             if resolved_type is None:
                 return None
             return SawType(TypeKind.INT)
+        if expr.name == "alignof":
+            # Sibling of sizeof<T>(): the ABI alignment (in bytes) of type T for
+            # the compilation target. Same plumbing — a typechecker special-case
+            # that validates arity/type-arg and yields Int; codegen lowers it via
+            # llvmlite target data. Used by alloc-layer stdlib (Vector) to request
+            # correctly-aligned buffers from the allocator instead of a hardcoded
+            # constant.
+            if len(expr.arguments) != 0:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`alignof` takes no arguments, but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+            if not expr.type_args or len(expr.type_args) != 1:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "`alignof` requires exactly one type argument: alignof<T>()",
+                    expr.line, expr.column
+                )
+                return None
+            resolved_type = self._resolve_type(expr.type_args[0])
+            if resolved_type is None:
+                return None
+            return SawType(TypeKind.INT)
         if expr.name == "__deinit_in_place":
             # Compiler-internal drop intrinsic for stdlib container code: run the
             # cleanup (drop glue) for the value at an UnsafePointer<T>, in place.
@@ -2421,7 +2445,24 @@ class ExpressionsMixin:
         self._check_call_exclusivity([a.value for a in expr.arguments],
                                      method_info.param_types,
                                      param_names=method_info.param_names)
-        return method_info.return_type
+        # For a static factory on a GENERIC struct called with explicit type
+        # args (`Vector<Int>.try_with_capacity(...)`), substitute the struct's
+        # type params into the return type so the caller sees the concrete
+        # instantiation (`Result<Vector<Int>, AllocError>`). Without this the
+        # return type keeps the generic `T`, and a `match` on the result can't
+        # resolve its monomorphized enum. Positional map: the struct's type
+        # params line up with the type args on the call's object.
+        ret = method_info.return_type
+        obj_type_args = getattr(expr.object, 'type_args', None)
+        struct_type_params = getattr(struct_info, 'type_params', None)
+        if ret is not None and obj_type_args and struct_type_params:
+            type_map = {}
+            for tp, ta in zip(struct_type_params, obj_type_args):
+                resolved = self._resolve_type(ta)
+                type_map[tp.name] = resolved if resolved is not None else ta
+            if type_map:
+                ret = ret.substitute(type_map)
+        return ret
 
     def _check_self_expr(self, expr: SelfExpr) -> Optional[SawType]:
         """Check 'self' keyword usage."""

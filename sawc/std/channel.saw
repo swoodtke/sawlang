@@ -27,9 +27,6 @@
 // point; the API shape (`recv() -> T`) is unchanged.
 
 extern "C" {
-    func saw_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
-    func saw_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
-
     // Atomic seams (see arc.saw / core.py) for the handle refcount.
     func __saw_atomic_add_i64(ptr: UnsafePointer<Int>, delta: Int) -> Int
     func __saw_atomic_sub_i64_release(ptr: UnsafePointer<Int>, delta: Int) -> Int
@@ -54,7 +51,7 @@ struct Channel<T: Send> {
 extension Channel<T: Send> {
     // Create a fresh empty channel (refcount = 1, count = 0).
     init() -> Channel<T> {
-        if let block = saw_alloc(160, 16) {
+        if let block = Global().alloc(160, 16) {
             __saw_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
             __saw_pthread_cond_init_default(cond)
@@ -73,7 +70,7 @@ extension Channel<T: Send> {
         if let block = self.block {
             pthread_mutex_lock(block)
             // Allocate and fill a node { next, value }.
-            if let node = saw_alloc(8 + sizeof<T>(), 16) {
+            if let node = Global().alloc(8 + sizeof<T>(), 16) {
                 let val_slot = (node + 8) as UnsafePointer<T>
                 val_slot[0] = v
                 let count = (block + 136) as UnsafePointer<Int>
@@ -115,7 +112,7 @@ extension Channel<T: Send> {
                 let node_next = node as UnsafePointer<UnsafePointer<Int8>>
                 head_slot[0] = node_next[0]
             }
-            saw_dealloc(node, 8 + sizeof<T>(), 16)
+            Global().dealloc(node, 8 + sizeof<T>(), 16)
             pthread_mutex_unlock(block)
             value
         } else {
@@ -148,12 +145,12 @@ extension Channel<T: Send>: Deinit {
                         let node_next = node as UnsafePointer<UnsafePointer<Int8>>
                         head_slot[0] = node_next[0]
                     }
-                    saw_dealloc(node, 8 + sizeof<T>(), 16)
+                    Global().dealloc(node, 8 + sizeof<T>(), 16)
                 }
                 let cond = (block + 64) as UnsafePointer<Int8>
                 pthread_cond_destroy(cond)
                 pthread_mutex_destroy(block)
-                saw_dealloc(block, 160, 16)
+                Global().dealloc(block, 160, 16)
             }
         }
     }
