@@ -1,0 +1,14 @@
+// A bare `return` in main() must exit cleanly with status 0, matching main's
+// implicit fallthrough. main lowers to an i32-returning function (for the
+// process exit code), but a bare `return` emitted `ret void` into that i32
+// function, crashing LLVM verification. The fix returns `ret i32 0` for a
+// valueless return whenever the enclosing LLVM function returns a non-void
+// type (which, for a Saw void function, only happens for main).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+
+func main() {
+    print(1)
+    return
+}

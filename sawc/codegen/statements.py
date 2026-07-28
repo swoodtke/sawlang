@@ -479,4 +479,13 @@ class StatementsMixin:
         if value is not None:
             self.builder.ret(value)
         else:
-            self.builder.ret_void()
+            # A valueless `return` in a Saw void function. main() is the one such
+            # function whose LLVM signature is NOT void: it lowers to i32 for the
+            # process exit code. Emitting `ret void` there crashes verification,
+            # so match the LLVM return type -- `ret i32 0` for main, mirroring the
+            # implicit-fallthrough behavior; `ret void` for every other case.
+            ret_type = self.builder.function.function_type.return_type
+            if isinstance(ret_type, ir.VoidType):
+                self.builder.ret_void()
+            else:
+                self.builder.ret(ir.Constant(ret_type, 0))
