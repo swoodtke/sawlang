@@ -17,9 +17,49 @@ FIX-FAMILY SWEEP IN PROGRESS (briefs 23–26 + standalone ledger items):
   Deinit bindings registered for cleanup (guard-let in the ENCLOSING
   scope), statement temps drained before return terminators with the
   returned value exempted. Suite 294 passed / 5 xfailed after landing.
-- Briefs 24 (typechecker family), 25 (codegen crash family + noalias),
-  26 (structural family) queued/in flight — they own the remaining 5
-  ledger xfails.
+- Brief 24 (typechecker family) DONE (`d26d5d2`..`bd1c674`): bound-aware
+  method resolution on opaque type params (unbound-method xfail flipped),
+  abstract return-type reconciliation where both sides are concrete
+  (wrong-return xfail flipped), effect-graph completeness — module-
+  qualified/static/init/field-call suspendability edges, sync-boundary
+  enforcement at the value-transfer checkpoint, sync methods in
+  extensions. Scope addition: direct `obj.field(args)` calls were
+  unimplemented entirely; the call form was built (typecheck + codegen).
+- Brief 25 (codegen crash family) DONE (`b37e70f`..`f2d55b3`): no-else-if
+  SSA dominance crash fixed via entry-block result alloca (xfail
+  flipped), field assignment through `&var` struct params including
+  nested paths (xfail flipped), bare `return` in `main` emits `ret i32
+  0`, BOTH reachable `ErrorKind.TYPE_ERROR` typos fixed (sizeof +
+  `__deinit_in_place`), `&var` params marked `noalias` at every emission
+  site — full-suite O1 sweep CLEAN (no behavior change; exclusivity
+  guarantee exposed no aliasing hole).
+- Brief 26 (structural family) DONE (`e1e0e18`..`fd0658a`): cross-module
+  symbol collisions get a typechecker-time ambiguity diagnostic naming
+  both modules (last ledger xfail flipped; identity-based collision
+  detection so shared builtin objects stay benign), the two compile
+  pipelines collapsed into one (single file = module graph of size 1;
+  `--emit-ir` finally loads builtins and works on String/Vector/Result
+  programs), parser error recovery with top-level-boundary
+  synchronization and a 10-error cap (multi-error test added;
+  single-error messages unchanged), codegen internal failures surface as
+  `internal compiler error: ...` diagnostics instead of tracebacks.
+- `--emit-ast` fixed (`782de4c`): ast_dump.py still imported pre-rename
+  `Interface`/`InterfaceMethod` names and crashed on any input.
+
+**THE TECH-DEBT LEDGER IS AT ZERO XFAILS** (suite: 311 passed, 0
+xfailed as of the brief-26 landing). Remaining known follow-ups, none
+harness-expressible as xfails today:
+- Shared-mutable-symbol-objects refactor (`llvm_type` leakage across
+  module namespaces via reference-shared builtins) — explicitly out of
+  brief-26 scope, still open.
+- Closure literal as struct-init field argument doesn't infer param
+  types from the field type (needs explicit annotation) — brief-24
+  finding.
+- `_check_init_method_call` referenced but undefined on a module-
+  qualified-struct MethodCall branch (dead in practice) — brief-24
+  finding.
+- Full suite now takes >10 minutes wall-clock; worth profiling the
+  runner/compiler before it becomes a CI bottleneck.
 
 Must-fix items 1–6 have landed (briefs in `designs/01`–`05`; every
 bug-capture XFAIL test now passes): value-transfer checkpoint, typed AST +
