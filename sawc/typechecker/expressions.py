@@ -530,7 +530,7 @@ class ExpressionsMixin:
                 )
             if not expr.type_args or len(expr.type_args) != 1:
                 self._error(
-                    ErrorKind.TYPE_ERROR,
+                    ErrorKind.TYPE_MISMATCH,
                     "`sizeof` requires exactly one type argument: sizeof<T>()",
                     expr.line, expr.column
                 )
@@ -549,7 +549,7 @@ class ExpressionsMixin:
             cur = getattr(self, 'current_method', None)
             if cur is None or getattr(cur, 'name', None) != "deinit":
                 self._error(
-                    ErrorKind.TYPE_ERROR,
+                    ErrorKind.TYPE_MISMATCH,
                     "`__deinit_in_place` is a compiler-internal intrinsic usable "
                     "only inside a `deinit` method body",
                     expr.line, expr.column
