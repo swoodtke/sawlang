@@ -1,0 +1,33 @@
+// Brief 23 item 2: a Deinit value bound by `if let` must be released at the end
+// of the then-branch scope. The optional here is a fresh temporary owned solely
+// by the binding, so the unwrapped `r` is the only owner and must deinit exactly
+// once, at branch exit -- between the branch body's `1` and the trailing `2`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 5
+// 2
+
+struct R {
+    id: Int
+}
+
+extension R: Deinit {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+func makeOpt(present: Bool) -> R? {
+    if present {
+        return R(id: 5)
+    }
+    return None
+}
+
+func main() {
+    if let r = makeOpt(true) {
+        print(1)
+    }
+    print(2)
+}

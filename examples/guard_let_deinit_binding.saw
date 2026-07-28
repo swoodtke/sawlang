@@ -1,0 +1,39 @@
+// Brief 23 item 2: a Deinit value bound by `guard let` lives in the ENCLOSING
+// scope (that is the whole point of guard) -- its cleanup belongs to the
+// enclosing scope, NOT the guard's else body. Here `r` must deinit when `useIt`
+// returns (after the trailing `1`), before `main` prints `2`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 9
+// 2
+
+struct R {
+    id: Int
+}
+
+extension R: Deinit {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+func makeOpt(present: Bool) -> R? {
+    if present {
+        return R(id: 9)
+    }
+    return None
+}
+
+func useIt() {
+    guard let r = makeOpt(true) else {
+        print(0)
+        return
+    }
+    print(1)
+}
+
+func main() {
+    useIt()
+    print(2)
+}

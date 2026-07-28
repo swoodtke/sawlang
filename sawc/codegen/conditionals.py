@@ -132,6 +132,19 @@ class ConditionalsMixin:
 
         then_val = self._generate_block(expr.then_branch)
 
+        # Release the if-let binding at the end of the then-branch scope (brief 23
+        # item 2). Only when the optional source is a fresh owned temporary: then
+        # the unwrapped value is solely owned by this binding, so it must deinit
+        # here. A named/field optional source is owned elsewhere (and its own
+        # cleanup runs), so releasing here would double-free it. Skip if the
+        # branch already terminated (return/break cleaned all scopes).
+        inner_type = self.variable_types.get(expr.name)
+        if (inner_type is not None
+                and self._is_owned_temporary(expr.optional_expr)
+                and self._needs_cleanup(inner_type)
+                and not self.builder.block.is_terminated):
+            self._emit_drop_at(alloca, inner_type)
+
         # Remove the bound variable from scope after the block
         del self.variables[expr.name]
         if expr.name in self.variable_types:
@@ -338,3 +351,17 @@ class ConditionalsMixin:
         opt_type = self._expr_type(stmt.optional_expr)
         if opt_type and opt_type.kind == TypeKind.OPTIONAL and opt_type.inner_type:
             self.variable_types[stmt.name] = opt_type.inner_type
+
+        # Register the guard binding for cleanup in the ENCLOSING scope (brief 23
+        # item 2). A guard binding deliberately outlives the guard and lives to
+        # the end of the surrounding block, so -- unlike an if-let binding -- its
+        # cleanup belongs to the enclosing scope, not a guard-local one. Same
+        # sole-ownership gate as if-let: only a fresh owned-temporary source makes
+        # this binding the sole owner; a named/field optional is cleaned by its
+        # own binding, so registering here too would double-free.
+        inner_type = self.variable_types.get(stmt.name)
+        if (inner_type is not None
+                and self._is_owned_temporary(stmt.optional_expr)
+                and self._needs_cleanup(inner_type)
+                and self.cleanup_stack):
+            self.cleanup_stack[-1].append((stmt.name, inner_type))
