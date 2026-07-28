@@ -39,6 +39,11 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   gap, worked around non-fatally in brief 31's signedness probe
   (defaults to signed). Close by annotating in the module member-access
   checker. [31 report]
+- **L7.** Consuming a generic-instantiated `Result<T,E>` via direct
+  `match`/`try!` at the instantiation's binding site hits
+  monomorphization gaps ("Undefined struct: T"); routing through a
+  concrete-typed consumer works. Pre-existing, found in brief 30's
+  generic lock-in test. [30 report]
 - **L4. VERIFY:** `Vector<File>.copy()`-style diagnostic — was a raw
   Python traceback (brief 09 report); brief 26's ICE wrapper now catches
   it, but it should be a proper user-facing typechecker error, not an ICE.
