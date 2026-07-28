@@ -416,6 +416,29 @@ class ExpressionsMixin:
                     f"cannot compare `{left_type}` with `{right_type}`",
                     expr.line, expr.column
                 )
+                return SawType(TypeKind.BOOL)
+            # Equatable gating (design 32): `==`/`!=` require the operand type to
+            # conform to Equatable. Primitives and String conform builtin;
+            # trivial (POD) structs and payload-free enums auto-conform;
+            # everything else opts in with `extension T: Equatable {}`. A
+            # `T: Equatable` bound satisfies this inside a generic body.
+            if expr.op in ['==', '!='] and not self._bound_satisfied(left_type, "Equatable"):
+                type_params = getattr(self, 'current_type_params', {})
+                if left_type.kind == TypeKind.STRUCT and left_type.struct_name in type_params:
+                    hint = f"add an `Equatable` bound: `<{left_type.struct_name}: Equatable>`"
+                elif left_type.kind == TypeKind.STRUCT:
+                    hint = f"add `extension {left_type.struct_name}: Equatable {{}}`"
+                elif left_type.kind == TypeKind.ENUM:
+                    hint = f"add `extension {left_type.enum_name}: Equatable {{}}`"
+                else:
+                    hint = None
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot compare values of type `{left_type}` with `{expr.op}`: "
+                    f"`{left_type}` does not conform to `Equatable`",
+                    expr.line, expr.column,
+                    hint=hint
+                )
             return SawType(TypeKind.BOOL)
         return None
 
@@ -730,6 +753,19 @@ class ExpressionsMixin:
                                 expr.line, expr.column,
                                 hint="Send/Sync are derived structurally; a field or payload of this type is not "
                                      + bound
+                            )
+                    elif bound == "Equatable":
+                        # Equatable is structural (design 32): primitives + String,
+                        # trivial (POD) structs and payload-free enums, plus any
+                        # declared conformer all satisfy it without a registered
+                        # conformance record.
+                        if not self._bound_satisfied(resolved_arg, bound):
+                            self._error(
+                                ErrorKind.TYPE_MISMATCH,
+                                f"type `{resolved_arg}` does not satisfy the `Equatable` bound",
+                                expr.line, expr.column,
+                                hint=f"add `extension {concrete_type_name}: Equatable {{}}`"
+                                     if concrete_type_name else None
                             )
                     elif concrete_type_name:
                         conformances = self.namespace.get_conformances(concrete_type_name)

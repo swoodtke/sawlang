@@ -96,6 +96,10 @@ class StatementsMixin:
         # full knowledge of each field's copy tier. Skip body checking.
         if getattr(method, 'is_derived_copy', False):
             return
+        # A compiler-derived memberwise equals() (design 32) likewise has no
+        # user body; codegen emits it field-by-field.
+        if getattr(method, 'is_derived_equals', False):
+            return
 
         self.current_method = method
         self.found_return_with_value = False

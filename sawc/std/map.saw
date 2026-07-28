@@ -39,7 +39,10 @@ struct Map<K, V> {
     values: Vector<V>
 }
 
-extension Map<K, V> {
+// A Map needs to compare keys, so its lookup/insert operations require
+// `K: Equatable` (design 32). The bound rides on the whole extension; every
+// Map key type used with these methods (Int, String, ...) is Equatable.
+extension Map<K: Equatable, V> {
     // Create an empty map
     init() -> Map<K, V> {
         Map<K, V>(keys: Vector<K>(), values: Vector<V>())

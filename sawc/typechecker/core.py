@@ -103,6 +103,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Structs whose copy() is compiler-derived (memberwise), checked for
         # NoCopy fields after all conformances are registered.
         self._derived_copy_structs: set[str] = set()
+        # Structs/enums whose equals() (==) is compiler-derived (design 32),
+        # checked for non-Equatable fields/payloads after all conformances are
+        # registered.
+        self._derived_equals_types: set[str] = set()
         # Track if we're inside a try-catch block (errors go to catch, not caller)
         self.in_try_catch_block: bool = False
 
@@ -208,6 +212,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_explicit_copy_containment()
         self._check_copy_trait_exclusivity()
         self._check_derivable_copy()
+        self._check_derivable_equals()
         self._check_deinit_containment()
 
         # Register extern functions (FFI)
@@ -451,6 +456,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_explicit_copy_containment()
         self._check_copy_trait_exclusivity()
         self._check_derivable_copy()
+        self._check_derivable_equals()
         self._check_deinit_containment()
 
         # Register extern functions

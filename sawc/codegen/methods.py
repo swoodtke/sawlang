@@ -101,6 +101,13 @@ class MethodsMixin:
             self.current_return_type = old_return_type
             return
 
+        # A compiler-derived memberwise equals() (design 32): compare self and
+        # other field by field via the shared Equatable lowering.
+        if getattr(method, 'is_derived_equals', False):
+            self._generate_derived_equals_body(struct_name)
+            self.current_return_type = old_return_type
+            return
+
         # Generate method body
         result = self._generate_block(method.body)
 
@@ -180,6 +187,22 @@ class MethodsMixin:
 
             result = self.builder.insert_value(result, field_val, i)
 
+        self.builder.ret(result)
+
+    def _generate_derived_equals_body(self, struct_name: str):
+        """Emit the body of a compiler-derived memberwise equals() (design 32).
+
+        `self` (`&self`) and `other` (by value) were each stored into an alloca
+        by the entry block; load both and compare field by field via the shared
+        Equatable lowering, which recurses into String / nested struct / enum
+        fields. Non-Equatable fields were rejected by `_check_derivable_equals`.
+        """
+        self_ptr = self.variables.get("self")
+        other_ptr = self.variables.get("other")
+        self_val = self.builder.load(self_ptr, name="self_val")
+        other_val = self.builder.load(other_ptr, name="other_val")
+        saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+        result = self._emit_memberwise_equals(self_val, other_val, saw_type)
         self.builder.ret(result)
 
     def _generate_init_method(self, struct_name: str, method: Method):

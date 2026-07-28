@@ -708,15 +708,61 @@ class Namespace:
                 self.type_conforms_to(name, "ExplicitCopy") or
                 self.type_conforms_to(name, "Copy"))
 
+    def is_equatable(self, saw_type: SawType) -> bool:
+        """Whether values of `saw_type` may be compared with `==`/`!=` (design 32).
+
+        Mirrors the Copy family's house rule:
+          - primitives (integers, Bool, Float) and String conform builtin;
+          - trivial (POD) structs and payload-free enums auto-conform (the exact
+            auto-Copy set), so every field / payload is itself Equatable;
+          - any struct or enum with a declared `extension T: Equatable {}` (or a
+            hand-written `equals`) conforms;
+          - tuples conform iff every element does (design 32 item 8).
+        Resource types never satisfy this: they are neither trivially copyable
+        nor accepted as Equatable conformers.
+        """
+        if saw_type is None:
+            return False
+        kind = saw_type.kind
+        if kind in self._TRIVIAL_PRIMITIVE_KINDS:
+            return True
+        if kind == TypeKind.STRING:
+            return True
+        if kind == TypeKind.TUPLE:
+            return all(self.is_equatable(e) for e in (saw_type.element_types or []))
+        if kind == TypeKind.STRUCT:
+            name = saw_type.struct_name
+            alias_sym = self._lookup_type_alias_deep(name)
+            if alias_sym and alias_sym.aliased_type:
+                return self.is_equatable(alias_sym.aliased_type)
+            # Declared conformance (empty-body synthesis or a custom equals).
+            if self.type_conforms_to(name, "Equatable"):
+                return True
+            # Auto-conform: the trivially-copyable (POD) set, exactly as auto-Copy.
+            return self.is_trivially_copyable(saw_type)
+        if kind == TypeKind.ENUM:
+            name = saw_type.enum_name
+            if self.type_conforms_to(name, "Equatable"):
+                return True
+            # Auto-conform: payload-free enums keep their tag-only ==.
+            enum_sym = self._lookup_enum_deep(name)
+            if enum_sym is None:
+                return False
+            return all(len(fields) == 0 for fields in enum_sym.variants.values())
+        return False
+
     def type_satisfies_bound(self, saw_type: SawType, bound: str) -> bool:
         """Whether a concrete type satisfies a single type-parameter bound.
 
         `Copy` is structural (trivially-copyable | ImplicitCopy | ExplicitCopy);
-        `Send`/`Sync` are structural marker traits (design 21 item 1); every
-        other trait bound is an ordinary conformance lookup.
+        `Send`/`Sync` are structural marker traits (design 21 item 1);
+        `Equatable` is structural too (auto-Copy set + declared conformers,
+        design 32); every other trait bound is an ordinary conformance lookup.
         """
         if bound == "Copy":
             return self.type_satisfies_copy_bound(saw_type)
+        if bound == "Equatable":
+            return self.is_equatable(saw_type)
         if bound == "Send":
             return self.is_send(saw_type)
         if bound == "Sync":

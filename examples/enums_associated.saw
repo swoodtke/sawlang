@@ -9,6 +9,9 @@ enum OperationResult {
     case Error(code: Int)
 }
 
+// design 32: payload-carrying enums opt in to payload-deep `==`.
+extension OperationResult: Equatable {}
+
 func make_success(n: Int) -> OperationResult {
     OperationResult.Success(value: n)
 }
@@ -21,7 +24,7 @@ func main() {
     let r1 = make_success(42)
     let r2 = make_error(404)
 
-    // Test equality (should compare tags only)
+    // Different variants are not equal
     if r1 != r2 {
         print(1)  // Should print
     }
@@ -29,8 +32,9 @@ func main() {
     let r3 = OperationResult.Success(value: 100)
     let r4 = OperationResult.Success(value: 200)
 
-    // Even with different payloads, same variant tags are equal
-    if r3 == r4 {
-        print(2)  // Should print (tag-only comparison)
+    // Different payloads are NOT equal under payload-deep comparison
+    // (design 32; the old tag-only comparison wrongly made these equal).
+    if r3 != r4 {
+        print(2)  // Should print
     }
 }

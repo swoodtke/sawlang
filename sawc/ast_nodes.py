@@ -987,6 +987,7 @@ class Method(ASTNode):
     self_is_reference: bool = False  # True for '&self' or '&var self'
     is_static: bool = False  # True for methods without 'self' parameter
     is_derived_copy: bool = False  # True for a compiler-synthesized memberwise copy()
+    is_derived_equals: bool = False  # True for a compiler-synthesized memberwise equals()
     is_sync: bool = False  # True for a `sync func` method (checked suspension-free)
     line: int = 0
     column: int = 0

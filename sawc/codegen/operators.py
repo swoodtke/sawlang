@@ -10,7 +10,8 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, TypeKind, Identifier, MemberAccess, ArrayIndex, SelfExpr
+from ast_nodes import BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, TypeKind, Identifier, MemberAccess, ArrayIndex, SelfExpr, SawType
+from .mangle import mangle_named
 
 # Unsigned integer kinds: everything else that is an integer is treated as
 # signed (the codebase default -- comparisons use icmp_signed, division sdiv).
@@ -242,32 +243,15 @@ class OperatorsMixin:
             return self.builder.srem(left, right, name="modtmp")
 
         elif expr.op == '==':
-            # Check if we're comparing enum types (tag-only comparison)
-            if isinstance(left.type, ir.LiteralStructType) and len(left.type.elements) == 2:
-                # Might be an enum with payload: {i32, [N x i8]}
-                if isinstance(left.type.elements[0], ir.IntType) and left.type.elements[0].width == 32:
-                    # Extract tags and compare
-                    left_tag = self.builder.extract_value(left, 0, name="left_tag")
-                    right_tag = self.builder.extract_value(right, 0, name="right_tag")
-                    return self.builder.icmp_signed('==', left_tag, right_tag, name="eqtmp")
-
-            if is_float:
-                return self.builder.fcmp_ordered('==', left, right, name="eqtmp")
-            return self.builder.icmp_signed('==', left, right, name="eqtmp")
+            # Equality (design 32): lower via the recursive Equatable helper.
+            # Primitives fold to icmp/fcmp; String/struct/enum route to content /
+            # memberwise / payload-deep comparison.
+            return self._emit_equals(left, right, self._equality_operand_type(expr))
 
         elif expr.op == '!=':
-            # Check if we're comparing enum types (tag-only comparison)
-            if isinstance(left.type, ir.LiteralStructType) and len(left.type.elements) == 2:
-                # Might be an enum with payload: {i32, [N x i8]}
-                if isinstance(left.type.elements[0], ir.IntType) and left.type.elements[0].width == 32:
-                    # Extract tags and compare
-                    left_tag = self.builder.extract_value(left, 0, name="left_tag")
-                    right_tag = self.builder.extract_value(right, 0, name="right_tag")
-                    return self.builder.icmp_signed('!=', left_tag, right_tag, name="netmp")
-
-            if is_float:
-                return self.builder.fcmp_ordered('!=', left, right, name="netmp")
-            return self.builder.icmp_signed('!=', left, right, name="netmp")
+            # `!=` is always the negation of `==` (design 32).
+            eq = self._emit_equals(left, right, self._equality_operand_type(expr))
+            return self.builder.not_(eq, name="netmp")
 
         elif expr.op == '<':
             if is_float:
@@ -291,6 +275,189 @@ class OperatorsMixin:
 
         else:
             raise ValueError(f"Unknown binary operator: {expr.op}")
+
+    # =========================================================================
+    # Equality lowering (design 32)
+    #
+    # `_emit_equals` is the single recursive helper that lowers `a == b` for any
+    # Equatable type. It reads two already-materialized LLVM values plus the
+    # operand's Saw type, so it never "moves" or consumes anything. `!=` negates
+    # its result. Primitives fold to icmp/fcmp; String calls its content-equals
+    # runtime; a struct dispatches to its (synthesized or custom) equals method,
+    # or compares memberwise inline when it auto-conforms; an enum compares tag
+    # then active-variant payload fields (recursively). Tuples compare
+    # element-by-element (design 32 item 8).
+    # =========================================================================
+
+    def _equality_operand_type(self, expr: BinaryOp):
+        """The Saw type an `==`/`!=` operand was checked at, substituted for the
+        active monomorphization. Returns None for compiler-synthesized operands
+        that carry no annotation (handled by the LLVM-type fallback)."""
+        st = getattr(expr.left, 'resolved_type', None)
+        if st is None:
+            st = getattr(expr.right, 'resolved_type', None)
+        if st is not None and self.type_param_context:
+            st = st.substitute(self.type_param_context)
+        return st
+
+    def _emit_equals(self, left, right, saw_type):
+        """Emit an i1 that is true iff `left == right`, recursively (design 32)."""
+        st = self._resolve_type_alias(saw_type) if saw_type is not None else None
+        lt = left.type
+
+        # Float keeps IEEE semantics (NaN != NaN via ordered compare).
+        if isinstance(lt, ir.DoubleType):
+            return self.builder.fcmp_ordered('==', left, right, name="feq")
+
+        if st is not None:
+            k = st.kind
+            if k == TypeKind.STRING:
+                return self._emit_string_equals(left, right)
+            if k == TypeKind.TUPLE:
+                return self._emit_tuple_equals(left, right, st)
+            if k == TypeKind.STRUCT and not isinstance(lt, ir.IntType):
+                return self._emit_struct_equals(left, right, st)
+            if k == TypeKind.ENUM and isinstance(lt, ir.LiteralStructType):
+                return self._emit_enum_deep_equals(left, right, st)
+
+        # Primitives (integers, Bool) and payload-free enums (an i32 tag).
+        if isinstance(lt, ir.IntType):
+            return self.builder.icmp_signed('==', left, right, name="ieq")
+
+        # Fallback for values reaching here without a Saw type (compiler-
+        # synthesized comparisons): an enum-shaped {i32, [N x i8]} value compares
+        # tags (the historical behavior); a bare pointer compares by identity.
+        if (isinstance(lt, ir.LiteralStructType) and len(lt.elements) == 2
+                and isinstance(lt.elements[0], ir.IntType)
+                and lt.elements[0].width == 32):
+            l_tag = self.builder.extract_value(left, 0, name="l_tag")
+            r_tag = self.builder.extract_value(right, 0, name="r_tag")
+            return self.builder.icmp_signed('==', l_tag, r_tag, name="tageq")
+        if isinstance(lt, ir.PointerType):
+            return self.builder.icmp_signed('==', left, right, name="peq")
+
+        raise ValueError(f"cannot lower `==` for LLVM type {lt}")
+
+    def _emit_string_equals(self, left, right):
+        """String `==` is content equality via the stdlib `String.equals`."""
+        fn = self.functions.get(self._mangle_method_name("String", "equals"))
+        if fn is None:
+            # String.equals not linked (String stdlib absent): fall back to
+            # pointer identity so codegen stays total.
+            return self.builder.icmp_signed('==', left, right, name="streq_ptr")
+        return self.builder.call(fn, [left, right], name="streq")
+
+    def _emit_tuple_equals(self, left, right, saw_type):
+        """Tuple `==`: conjunction of element-wise `==` (design 32 item 8)."""
+        result = ir.Constant(ir.IntType(1), 1)
+        elems = saw_type.element_types or []
+        for i, elem_type in enumerate(elems):
+            le = self.builder.extract_value(left, i, name=f"l_e{i}")
+            re = self.builder.extract_value(right, i, name=f"r_e{i}")
+            cmp = self._emit_equals(le, re, elem_type)
+            result = self.builder.and_(result, cmp, name="tup_and")
+        return result
+
+    def _emit_struct_equals(self, left, right, saw_type):
+        """Struct `==`: dispatch to the type's `equals` method (synthesized or
+        custom) when one exists, else compare fields inline (auto-conform POD)."""
+        base = self._type_method_base(saw_type)
+        mangled = self._mangle_method_name(base, "equals") if base else None
+        if mangled is not None and mangled in self.functions:
+            return self.builder.call(self.functions[mangled], [left, right],
+                                     name="eq_call")
+        return self._emit_memberwise_equals(left, right, saw_type)
+
+    def _emit_memberwise_equals(self, left, right, saw_type):
+        """Field-by-field `==` over a struct value, ANDed together."""
+        key = self._type_method_base(saw_type)
+        llvm_struct_type, field_order = self.struct_types[key]
+        base_fields = self.namespace.get_struct_fields(saw_type.struct_name) or {}
+        # Substitute type params for a monomorphized generic struct.
+        subst = {}
+        struct_sym = self.namespace._lookup_struct_deep(saw_type.struct_name)
+        if struct_sym and saw_type.type_args:
+            for tp, arg in zip(struct_sym.type_params, saw_type.type_args):
+                subst[tp.name] = arg
+        result = ir.Constant(ir.IntType(1), 1)
+        for i, fname in enumerate(field_order):
+            ftype = base_fields.get(fname)
+            if ftype is not None and subst:
+                ftype = ftype.substitute(subst)
+            lf = self.builder.extract_value(left, i, name=f"l_{fname}")
+            rf = self.builder.extract_value(right, i, name=f"r_{fname}")
+            cmp = self._emit_equals(lf, rf, ftype)
+            result = self.builder.and_(result, cmp, name="mem_and")
+        return result
+
+    def _emit_enum_deep_equals(self, left, right, saw_type):
+        """Enum `==`: equal tags, then the active variant's payload fields
+        compared recursively (design 32). Payload-free variants are true once
+        the tags match."""
+        mangled = mangle_named(saw_type.enum_name, saw_type.type_args)
+        llvm_enum_type, variant_tags, variant_info = self.enum_types[mangled]
+        i1 = ir.IntType(1)
+        i32 = ir.IntType(32)
+
+        left_tag = self.builder.extract_value(left, 0, name="l_tag")
+        right_tag = self.builder.extract_value(right, 0, name="r_tag")
+        tags_eq = self.builder.icmp_signed('==', left_tag, right_tag, name="tags_eq")
+
+        func = self.builder.function
+        entry_bb = self.builder.block
+        payload_bb = func.append_basic_block("eq_payload")
+        merge_bb = func.append_basic_block("eq_merge")
+        # Tags differ -> false (skip payload); tags equal -> compare payload.
+        self.builder.cbranch(tags_eq, payload_bb, merge_bb)
+
+        self.builder.position_at_end(payload_bb)
+        true_bb = func.append_basic_block("eq_payload_free")
+        switch = self.builder.switch(left_tag, true_bb)
+        payload_array_type = llvm_enum_type.elements[1]
+        incoming = []
+        for variant_name, fields in variant_info.items():
+            if not fields:
+                continue  # payload-free variant -> default (true) block
+            arm_bb = func.append_basic_block(f"eq_{variant_name}")
+            switch.add_case(ir.Constant(i32, variant_tags[variant_name]), arm_bb)
+            self.builder.position_at_end(arm_bb)
+
+            l_payload = self.builder.extract_value(left, 1, name="l_pl")
+            r_payload = self.builder.extract_value(right, 1, name="r_pl")
+            param_struct_type = ir.LiteralStructType(
+                [self._get_llvm_type(t) for _, t in fields])
+            l_alloca = self._entry_alloca(payload_array_type, name="l_pl_slot")
+            self.builder.store(l_payload, l_alloca)
+            r_alloca = self._entry_alloca(payload_array_type, name="r_pl_slot")
+            self.builder.store(r_payload, r_alloca)
+            l_sp = self.builder.bitcast(l_alloca, ir.PointerType(param_struct_type),
+                                        name="l_sp")
+            r_sp = self.builder.bitcast(r_alloca, ir.PointerType(param_struct_type),
+                                        name="r_sp")
+            arm_result = ir.Constant(i1, 1)
+            for idx, (fname, ftype) in enumerate(fields):
+                l_fp = self.builder.gep(l_sp, [ir.Constant(i32, 0),
+                                               ir.Constant(i32, idx)], inbounds=True)
+                r_fp = self.builder.gep(r_sp, [ir.Constant(i32, 0),
+                                               ir.Constant(i32, idx)], inbounds=True)
+                lf = self.builder.load(l_fp, name=f"l_{fname}")
+                rf = self.builder.load(r_fp, name=f"r_{fname}")
+                fcmp = self._emit_equals(lf, rf, ftype)
+                arm_result = self.builder.and_(arm_result, fcmp, name="pl_and")
+            arm_end = self.builder.block
+            self.builder.branch(merge_bb)
+            incoming.append((arm_result, arm_end))
+
+        self.builder.position_at_end(true_bb)
+        self.builder.branch(merge_bb)
+
+        self.builder.position_at_end(merge_bb)
+        phi = self.builder.phi(i1, name="enum_eq")
+        phi.add_incoming(ir.Constant(i1, 0), entry_bb)   # tags differ
+        phi.add_incoming(ir.Constant(i1, 1), true_bb)    # payload-free, equal tag
+        for val, blk in incoming:
+            phi.add_incoming(val, blk)
+        return phi
 
     def _generate_logical_and(self, expr: BinaryOp):
         """Generate short-circuit && evaluation.

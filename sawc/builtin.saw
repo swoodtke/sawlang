@@ -41,6 +41,22 @@ trait NoCopy: Deinit {
 }
 
 // =============================================================================
+// Equality (design 32)
+// =============================================================================
+
+// Equatable trait - gates `==` / `!=`. `a == b` on a conforming user type
+// compares via this contract (`equals`); primitives keep direct icmp/fcmp
+// codegen. Trivial (POD) structs and payload-free enums auto-conform (the same
+// set that auto-conforms to Copy); everything else opts in with
+// `extension T: Equatable {}` (an empty body synthesizes a memberwise `==` for
+// structs and a payload-deep `==` for enums; a hand-written `equals` overrides
+// the synthesis). Resource types (File, Mutex, ...) never conform. `!=` is the
+// negation of `==`; Float keeps IEEE semantics (NaN != NaN).
+trait Equatable {
+    func equals(&self, other: Self) -> Bool
+}
+
+// =============================================================================
 // Thread-safety marker traits (design 21 item 1)
 // =============================================================================
 

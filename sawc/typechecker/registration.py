@@ -67,6 +67,10 @@ class RegistrationMixin:
         # drives value-transfer copy() insertion and scope-exit cleanup.
         self.namespace.register_conformance("String", "ImplicitCopy")
         self.namespace.register_conformance("String", "Deinit")
+        # String is Equatable builtin (design 32): content equality via the
+        # hand-written `String.equals` in std/string.saw; `==` on String lowers
+        # to a call to it (fixing the old pointer-identity comparison, S4).
+        self.namespace.register_conformance("String", "Equatable")
 
         # Register Result<T, E> as a built-in generic enum
         from ast_nodes import TypeParameter
@@ -436,8 +440,37 @@ class RegistrationMixin:
 
         return tuple(type_args)
 
+    def _register_enum_equatable_extension(self, extension: Extension):
+        """Register an `extension E: Equatable {}` on an enum (design 32).
+
+        Enums don't carry methods today, so the only extension supported on one
+        is an empty Equatable opt-in: it registers the conformance and records
+        the enum for payload-deep `==` (synthesized inline by codegen). A custom
+        `equals`, other conformances, or type assignments are rejected here.
+        """
+        enum_name = extension.struct_name
+        if (extension.conformances != ["Equatable"] or extension.methods
+                or extension.type_assignments):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot extend enum `{enum_name}`: only an empty "
+                f"`extension {enum_name}: Equatable {{}}` is supported",
+                extension.line, extension.column,
+                hint="enums support Equatable opt-in (payload-deep `==`); other "
+                     "methods and conformances on enums are not available"
+            )
+            return
+        self.namespace.register_conformance(enum_name, "Equatable")
+        self._derived_equals_types.add(enum_name)
+
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
+        # Enum Equatable opt-in (design 32): intercept before the struct lookup
+        # so `extension Color: Equatable {}` doesn't hit "undefined struct".
+        if self.get_enum_info(extension.struct_name) is not None:
+            self._register_enum_equatable_extension(extension)
+            return
+
         # Verify the struct exists (check namespace)
         struct_info = self.get_struct_info(extension.struct_name)
         if struct_info is None:
@@ -475,6 +508,36 @@ class RegistrationMixin:
             )
             extension.methods.append(synthesized)
             self._derived_copy_structs.add(extension.struct_name)
+
+        # Memberwise `equals()` synthesis (design 32): a struct declaring
+        # Equatable without a hand-written `equals` gets a compiler-synthesized
+        # memberwise `==`. Register the signature here so conformance passes and
+        # `.equals()` type-checks; the body is skipped by the typechecker and
+        # emitted memberwise by codegen. Runs BEFORE the conformance
+        # "missing methods" check below, so an empty body does not error.
+        declares_equatable = "Equatable" in extension.conformances
+        has_equals_method = any(not m.is_init and m.name == "equals"
+                                for m in extension.methods)
+        if declares_equatable and not has_equals_method:
+            synth_eq = Method(
+                name="equals",
+                parameters=[
+                    Parameter(name="self", type=SawType(TypeKind.VOID),
+                              is_reference=True),
+                    Parameter(name="other", type=SawType(TypeKind.SELF),
+                              is_reference=False),
+                ],
+                return_type=SawType(TypeKind.BOOL),
+                body=Block(statements=[], final_expr=None,
+                           line=extension.line, column=extension.column),
+                self_mutable=False,
+                self_is_reference=True,
+                is_derived_equals=True,
+                line=extension.line,
+                column=extension.column,
+            )
+            extension.methods.append(synth_eq)
+            self._derived_equals_types.add(extension.struct_name)
 
         # Check if this is a specialized extension (e.g., extension Vector<String>)
         specialization_key = self._get_specialization_key(extension)

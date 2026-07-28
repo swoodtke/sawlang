@@ -1074,6 +1074,49 @@ class TypeUtilsMixin:
                         hint="give the field a copyable type, or write copy() by hand"
                     )
 
+    def _check_derivable_equals(self):
+        """A struct/enum with a compiler-derived `==` (design 32) requires every
+        field / payload to be Equatable, so the memberwise / payload-deep
+        comparison is well-defined. Reports the first non-conforming member.
+        Runs after all conformances are registered so field Equatable status is
+        known regardless of declaration order."""
+        for type_name in self._derived_equals_types:
+            struct_info = self.namespace.structs.get(type_name)
+            if struct_info is not None:
+                for field_name, field_type in struct_info.fields.items():
+                    if not self.namespace.is_equatable(field_type):
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"cannot derive `==` for `{type_name}`: field "
+                            f"`{field_name}` of type `{field_type}` does not "
+                            f"conform to `Equatable`",
+                            struct_info.line, struct_info.column,
+                            hint="give the field an Equatable type, or write "
+                                 "`equals` by hand"
+                        )
+                        break
+                continue
+            enum_info = self.namespace.enums.get(type_name)
+            if enum_info is not None:
+                done = False
+                for variant_name, fields in enum_info.variants.items():
+                    for field_name, field_type in fields:
+                        if not self.namespace.is_equatable(field_type):
+                            self._error(
+                                ErrorKind.TYPE_MISMATCH,
+                                f"cannot derive `==` for `{type_name}`: payload "
+                                f"`{field_name}` of variant `{variant_name}` has "
+                                f"type `{field_type}` which does not conform to "
+                                f"`Equatable`",
+                                enum_info.ast_node.line if enum_info.ast_node else 0,
+                                enum_info.ast_node.column if enum_info.ast_node else 0,
+                                hint="give the payload an Equatable type"
+                            )
+                            done = True
+                            break
+                    if done:
+                        break
+
     def _check_deinit_containment(self):
         """Check that structs containing Deinit fields also implement Deinit."""
         for struct_name, struct_info in self.namespace.structs.items():
