@@ -1,0 +1,43 @@
+// Dual capture lowering (design 16/29 item 3). A non-escaping closure passed
+// directly to a non-escaping parameter may capture enclosing locals BY
+// REFERENCE (`&var sum`), lowering to a pointer into the frame — so the
+// accumulation idiom mutates the REAL variable, not a snapshot. A mixed capture
+// list combines a `&var` borrow with a plain by-value capture (`base`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 36
+// 2
+
+func each3(body: (Int) -> Bool) {
+    body(1)
+    body(2)
+    body(3)
+}
+
+func count_over(threshold: Int, body: (Int) -> Bool) {
+    body(1)
+    body(5)
+    body(9)
+}
+
+func main() {
+    var sum = 0
+    let base = 10
+    // `[&var sum]` mutable borrow; `base` captured plain by value.
+    each3({ [&var sum] n in
+        sum = sum + n + base
+        true
+    })
+    print(sum)   // (1+10)+(2+10)+(3+10) = 36
+
+    // Immutable borrow read (`&count`) alongside a mutable borrow (`&var hits`).
+    var hits = 0
+    let count = 4
+    count_over(count, { [&var hits, &count] n in
+        if n > count {
+            hits = hits + 1
+        }
+        true
+    })
+    print(hits)  // 5>4 and 9>4 exceed the threshold -> 2
+}

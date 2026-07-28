@@ -82,20 +82,32 @@ class ClosuresMixin:
         # Create environment struct type for captures
         env_ptr_type = ir.PointerType(ir.IntType(8))
         captures = expr.captures or []
+        # Per-capture mode (design 16/29): 'ref'/'ref_var' lower to an
+        # env-of-references (a pointer INTO the enclosing frame — sound because a
+        # non-escaping closure cannot outlive the call); every other mode uses
+        # the env-of-values path (bitwise / retain / move / copy).
+        modes = getattr(expr, 'capture_modes', {}) or {}
+
+        def _cap_base_llvm(cap_name):
+            if cap_name in self.variable_types:
+                return self._get_llvm_type(self.variable_types[cap_name])
+            elif cap_name in self.variables:
+                return self.variables[cap_name].type.pointee
+            return ir.IntType(64)  # Fallback
+
+        # Referent Saw types captured before the closure scope is reset, so the
+        # body can type reads/writes through borrowed and by-value captures.
+        cap_saw_types = {name: self.variable_types.get(name) for name in captures}
 
         if captures:
             # Build environment struct with captured variables
             env_field_types = []
             for cap_name in captures:
-                if cap_name in self.variable_types:
-                    cap_type = self._get_llvm_type(self.variable_types[cap_name])
-                elif cap_name in self.variables:
-                    # Get type from the alloca
-                    alloca = self.variables[cap_name]
-                    cap_type = alloca.type.pointee
+                base = _cap_base_llvm(cap_name)
+                if modes.get(cap_name) in ('ref', 'ref_var'):
+                    env_field_types.append(ir.PointerType(base))  # env-of-reference
                 else:
-                    cap_type = ir.IntType(64)  # Fallback
-                env_field_types.append(cap_type)
+                    env_field_types.append(base)
             env_struct_type = ir.LiteralStructType(env_field_types)
         else:
             env_struct_type = None
@@ -141,12 +153,24 @@ class ClosuresMixin:
                     [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)],
                     name=f"cap_{cap_name}_ptr"
                 )
-                # Load the captured value
-                cap_value = self.builder.load(field_ptr, name=f"cap_{cap_name}")
-                # Store in a local alloca so it can be used like a variable
-                alloca = self._entry_alloca(cap_value.type, name=cap_name)
-                self.builder.store(cap_value, alloca)
-                self.variables[cap_name] = alloca
+                csaw = cap_saw_types.get(cap_name)
+                if modes.get(cap_name) in ('ref', 'ref_var'):
+                    # env-of-reference: the field holds a pointer to the referent
+                    # in the enclosing frame. Bind the name straight to that
+                    # pointer (like a `&var` param) so reads load and writes store
+                    # through it — no local copy, mutations reach the real value.
+                    ref_ptr = self.builder.load(field_ptr, name=f"cap_{cap_name}_ref")
+                    self.variables[cap_name] = ref_ptr
+                    if csaw is not None:
+                        self.variable_types[cap_name] = csaw
+                else:
+                    # Load the captured value into a local alloca (env-of-values).
+                    cap_value = self.builder.load(field_ptr, name=f"cap_{cap_name}")
+                    alloca = self._entry_alloca(cap_value.type, name=cap_name)
+                    self.builder.store(cap_value, alloca)
+                    self.variables[cap_name] = alloca
+                    if csaw is not None:
+                        self.variable_types[cap_name] = csaw
 
         # Set up parameter access
         for i, param_name in enumerate(param_names):
@@ -211,22 +235,37 @@ class ClosuresMixin:
             else:
                 env_alloca = self._entry_alloca(env_struct_type, name="closure_env")
             for i, cap_name in enumerate(captures):
-                if cap_name in self.variables:
-                    cap_value = self.builder.load(self.variables[cap_name], name=f"load_{cap_name}")
-                    cap_saw = self.variable_types.get(cap_name)
-                    if escapes and cap_saw is not None:
-                        # Retain ImplicitCopy captures (no-op for trivial types).
-                        cap_value = self._generate_copy(cap_value, cap_saw)
-                    field_ptr = self.builder.gep(
-                        env_alloca,
-                        [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)],
-                        name=f"env_field_{i}"
-                    )
-                    self.builder.store(cap_value, field_ptr)
+                if cap_name not in self.variables:
+                    continue
+                field_ptr = self.builder.gep(
+                    env_alloca,
+                    [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)],
+                    name=f"env_field_{i}"
+                )
+                mode = modes.get(cap_name, 'plain')
+                if mode in ('ref', 'ref_var'):
+                    # env-of-reference: store the pointer to the enclosing binding
+                    # itself (self.variables holds its address), not a loaded copy.
+                    self.builder.store(self.variables[cap_name], field_ptr)
+                    continue
+                cap_value = self.builder.load(self.variables[cap_name], name=f"load_{cap_name}")
+                cap_saw = cap_saw_types.get(cap_name)
+                if mode == 'move':
+                    # Ownership transfers into the env; the source is moved-from,
+                    # so no retain and the frame will not drop it.
+                    pass
+                elif mode == 'copy' and cap_saw is not None:
+                    # Explicit deep copy (ExplicitCopy `.copy()` / ImplicitCopy retain).
+                    cap_value = self._emit_copy_value(cap_value, cap_saw)
+                elif escapes and cap_saw is not None:
+                    # Plain capture into a heap env: retain ImplicitCopy captures
+                    # (no-op for trivial types).
+                    cap_value = self._generate_copy(cap_value, cap_saw)
+                self.builder.store(cap_value, field_ptr)
             env_ptr_val = self.builder.bitcast(env_alloca, env_ptr_type, name="env_ptr")
             if escapes:
                 expr.codegen_env_dtor = self._generate_env_dtor(
-                    env_struct_type, captures, closure_name)
+                    env_struct_type, captures, closure_name, cap_saw_types, modes)
         else:
             env_ptr_val = ir.Constant(env_ptr_type, None)
 
@@ -244,7 +283,8 @@ class ClosuresMixin:
 
         return closure_val
 
-    def _generate_env_dtor(self, env_struct_type, captures, closure_name):
+    def _generate_env_dtor(self, env_struct_type, captures, closure_name,
+                           cap_saw_types=None, modes=None):
         """Emit the environment destructor for an escaping closure (design 21b E1).
 
         Signature `void (i8* env)`: runs drop glue for each cleanup-needing
@@ -267,9 +307,14 @@ class ClosuresMixin:
         saved_builder = self.builder
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         self.builder = b
+        cap_saw_types = cap_saw_types or {}
+        modes = modes or {}
         env_typed = b.bitcast(fn.args[0], ir.PointerType(env_struct_type), name="env")
         for i, cap_name in enumerate(captures):
-            cap_saw = self.variable_types.get(cap_name)
+            # Borrow captures own nothing — never drop them.
+            if modes.get(cap_name) in ('ref', 'ref_var'):
+                continue
+            cap_saw = cap_saw_types.get(cap_name, self.variable_types.get(cap_name))
             if cap_saw is not None and self._needs_cleanup(cap_saw):
                 field_ptr = b.gep(
                     env_typed,
