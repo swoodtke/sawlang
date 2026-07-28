@@ -81,3 +81,19 @@ existing exclusivity_* acceptance tests must stay green.
 Per item: mechanism, where, verification. The variance rule chosen for
 the escaping bit (item 1) stated explicitly. Whether iteration APIs
 needed a Copy bound (item 6). Deviations; non-allowlisted commands.
+
+## Landed (Jul 28) — outcomes and deviations
+- Variance: escaping-typed values are accepted in non-escaping slots
+  (safe direction); non-escaping values into escaping slots error at
+  the value-transfer checkpoint; closure literals lower to the slot.
+- `Vector.each` shipped with `T: Copy` bound (one element copy per
+  visit via `get`; never a silent ExplicitCopy duplicate). The
+  accumulation idiom verified end to end.
+- **`map`/`fold` deferred**: they need method-level generic type
+  parameters (`map<U>`), which the compiler lacks, and the free-function
+  fallback hits the pre-existing monomorphization recursion on
+  `&Vector<T>` params (tracker L8). `each` + borrow-captured
+  accumulators subsumes both meanwhile (demonstrated in
+  `vector_each_fold_map.saw`).
+- Enabling fixes kept: `Void` as a builtin type name; `$N` scanning
+  through compound assignments.

@@ -73,11 +73,18 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Closures & iteration
 
-- **C1.** Full non-escaping closures with explicit bracketed reference
-  captures — UNBLOCKED (D8 decided); briefed with C2 as
-  `designs/29-nonescaping-closures-impl.md`. [16, 29]
-- **C2.** Stdlib iteration API (`Vector.each`/`map`/`fold`) — item 6 of
-  brief 29. [16, 29]
+- **C1.** Non-escaping closures — LANDED (brief 29, `c69d657`..`4b34f5c`):
+  escaping type bit + variance, bracketed capture lists, env-of-
+  references lowering, exclusivity join (iterator invalidation is a
+  compile error), forwarding rules. [16, 29]
+- **C2.** Iteration API — `Vector.each` LANDED (`T: Copy` bound);
+  **`map`/`fold` deferred on missing method-level generic type
+  parameters** (`map<U>` — no generic-method infrastructure; free-
+  function fallback hits L8). `each` + borrow captures subsumes both
+  meanwhile. New prerequisite item: generic methods. [29]
+- **C5.** Method-level generic type parameters (generic methods) —
+  needed for `Vector.map<U>`/`fold<A>`, surfaced by brief 29; also the
+  clean fix path for L7/L8's monomorphization gaps. [29]
 - **C3.** `Weak<T>` — Arc's weak-count slot is already reserved; build when
   stored callbacks give it a use case. [16, 21]
 - **C4. VERIFY:** general (non-spawn) escaping-closure environment
