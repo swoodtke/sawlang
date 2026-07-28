@@ -1,0 +1,171 @@
+// Channel<T: Send> - an unbounded MPMC message queue (design 21 item 6).
+//
+// Go-style: Channel is an ImplicitCopy HANDLE onto a shared, internally
+// refcounted queue. Cloning the handle (copy() == refcount bump) shares the
+// same queue; the last handle to drop drains and frees it. `T: Send` is required
+// on the type itself, so only thread-safe payloads can be enqueued.
+//
+// Shared block layout (allocated via saw_alloc, 16-aligned):
+//     [0,   64)  pthread_mutex_t   (conservative 64-byte slot; see mutex.saw)
+//     [64, 128)  pthread_cond_t    (conservative 64-byte slot; real max 48)
+//     [128,136)  refcount : i64    (handle count; ImplicitCopy/Deinit)
+//     [136,144)  count    : i64    (queued elements; guards head/tail validity)
+//     [144,152)  head     : i8*    (first node; valid only while count > 0)
+//     [152,160)  tail     : i8*    (last node;  valid only while count > 0)
+// Total 160 bytes.
+//
+// Node layout (saw_alloc'd per send):
+//     [0, 8)              next  : i8*   (valid only for non-tail nodes)
+//     [8, 8+sizeof(T))    value : T
+//
+// A `count` field (rather than null head/tail sentinels — Saw has no null
+// pointer literal) marks emptiness: head/tail are read only when count > 0, so
+// no null pointer is ever dereferenced.
+//
+// recv() blocks the calling thread on the condvar while the queue is empty.
+// DOCUMENTED: under the future cooperative engine recv becomes a suspension
+// point; the API shape (`recv() -> T`) is unchanged.
+
+extern "C" {
+    func saw_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
+    func saw_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
+
+    // Atomic seams (see arc.saw / core.py) for the handle refcount.
+    func __saw_atomic_add_i64(ptr: UnsafePointer<Int>, delta: Int) -> Int
+    func __saw_atomic_sub_i64_release(ptr: UnsafePointer<Int>, delta: Int) -> Int
+    func __saw_atomic_fence_acquire()
+
+    // pthread primitives (resolve from libSystem/libc; init wrappers in codegen).
+    func __saw_pthread_mutex_init_default(m: UnsafePointer<Int8>)
+    func __saw_pthread_cond_init_default(c: UnsafePointer<Int8>)
+    func pthread_mutex_lock(m: UnsafePointer<Int8>) -> Int
+    func pthread_mutex_unlock(m: UnsafePointer<Int8>) -> Int
+    func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int
+    func pthread_cond_wait(c: UnsafePointer<Int8>, m: UnsafePointer<Int8>) -> Int
+    func pthread_cond_signal(c: UnsafePointer<Int8>) -> Int
+    func pthread_cond_destroy(c: UnsafePointer<Int8>) -> Int
+}
+
+struct Channel<T: Send> {
+    // Shared block pointer. `None` only on the inert OOM path.
+    block: UnsafePointer<Int8>?
+}
+
+extension Channel<T: Send> {
+    // Create a fresh empty channel (refcount = 1, count = 0).
+    init() -> Channel<T> {
+        if let block = saw_alloc(160, 16) {
+            __saw_pthread_mutex_init_default(block)
+            let cond = (block + 64) as UnsafePointer<Int8>
+            __saw_pthread_cond_init_default(cond)
+            let refcount = (block + 128) as UnsafePointer<Int>
+            refcount[0] = 1
+            let count = (block + 136) as UnsafePointer<Int>
+            count[0] = 0
+            Channel<T>(block: block)
+        } else {
+            Channel<T>(block: None)
+        }
+    }
+
+    // Enqueue a value (ownership transferred in). Wakes one blocked receiver.
+    func send(&self, v: T) {
+        if let block = self.block {
+            pthread_mutex_lock(block)
+            // Allocate and fill a node { next, value }.
+            if let node = saw_alloc(8 + sizeof<T>(), 16) {
+                let val_slot = (node + 8) as UnsafePointer<T>
+                val_slot[0] = v
+                let count = (block + 136) as UnsafePointer<Int>
+                let head_slot = (block + 144) as UnsafePointer<UnsafePointer<Int8>>
+                let tail_slot = (block + 152) as UnsafePointer<UnsafePointer<Int8>>
+                if count[0] == 0 {
+                    head_slot[0] = node
+                    tail_slot[0] = node
+                } else {
+                    let old_tail = tail_slot[0]
+                    let old_tail_next = old_tail as UnsafePointer<UnsafePointer<Int8>>
+                    old_tail_next[0] = node
+                    tail_slot[0] = node
+                }
+                count[0] = count[0] + 1
+                let cond = (block + 64) as UnsafePointer<Int8>
+                pthread_cond_signal(cond)
+            }
+            pthread_mutex_unlock(block)
+        }
+    }
+
+    // Dequeue a value, blocking while the queue is empty.
+    func recv(&self) -> T {
+        if let block = self.block {
+            pthread_mutex_lock(block)
+            let count = (block + 136) as UnsafePointer<Int>
+            let cond = (block + 64) as UnsafePointer<Int8>
+            while count[0] == 0 {
+                pthread_cond_wait(cond, block)
+            }
+            let head_slot = (block + 144) as UnsafePointer<UnsafePointer<Int8>>
+            let tail_slot = (block + 152) as UnsafePointer<UnsafePointer<Int8>>
+            let node = head_slot[0]
+            let val_slot = (node + 8) as UnsafePointer<T>
+            let value = val_slot[0]
+            count[0] = count[0] - 1
+            if count[0] > 0 {
+                let node_next = node as UnsafePointer<UnsafePointer<Int8>>
+                head_slot[0] = node_next[0]
+            }
+            saw_dealloc(node, 8 + sizeof<T>(), 16)
+            pthread_mutex_unlock(block)
+            value
+        } else {
+            let empty: T? = None
+            empty!
+        }
+    }
+}
+
+// Deinit is registered before ImplicitCopy so the `ImplicitCopy: Deinit`
+// supertrait requirement is already satisfied when ImplicitCopy is checked.
+extension Channel<T: Send>: Deinit {
+    func deinit(&var self) {
+        if let block = self.block {
+            let refcount = (block + 128) as UnsafePointer<Int>
+            let old = __saw_atomic_sub_i64_release(refcount, 1)
+            if old == 1 {
+                // Last handle. Order other threads' final ops, then drain the
+                // queue (drop each remaining value, free each node) and tear the
+                // block down. No locking needed: no other handle survives.
+                __saw_atomic_fence_acquire()
+                let count = (block + 136) as UnsafePointer<Int>
+                let head_slot = (block + 144) as UnsafePointer<UnsafePointer<Int8>>
+                while count[0] > 0 {
+                    let node = head_slot[0]
+                    let val_slot = (node + 8) as UnsafePointer<T>
+                    __deinit_in_place(val_slot)
+                    count[0] = count[0] - 1
+                    if count[0] > 0 {
+                        let node_next = node as UnsafePointer<UnsafePointer<Int8>>
+                        head_slot[0] = node_next[0]
+                    }
+                    saw_dealloc(node, 8 + sizeof<T>(), 16)
+                }
+                let cond = (block + 64) as UnsafePointer<Int8>
+                pthread_cond_destroy(cond)
+                pthread_mutex_destroy(block)
+                saw_dealloc(block, 160, 16)
+            }
+        }
+    }
+}
+
+extension Channel<T: Send>: ImplicitCopy {
+    // Retain: a live handle keeps the queue alive, so monotonic is enough.
+    func copy(&self) -> Channel<T> {
+        if let block = self.block {
+            let refcount = (block + 128) as UnsafePointer<Int>
+            __saw_atomic_add_i64(refcount, 1)
+        }
+        Channel<T>(block: self.block)
+    }
+}

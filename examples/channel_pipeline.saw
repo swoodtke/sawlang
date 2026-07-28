@@ -1,0 +1,32 @@
+// Channel<T: Send> producer/consumer pipeline (design 21 item 6/7). A producer
+// task sends 1..100 through a shared channel; the consumer (main) receives 100
+// values and sums them. Deterministic by construction: the sum of 1..100 is
+// 5050 regardless of delivery interleaving, and the consumer receives exactly
+// as many values as were sent before joining the producer.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5050
+
+func main() {
+    let ch = Channel<Int>()
+
+    // The producer captures a retained handle to the same queue.
+    var producer = spawn {
+        var i = 1
+        while i <= 100 {
+            ch.send(i)
+            i = i + 1
+        }
+        true
+    }
+
+    var sum = 0
+    var n = 0
+    while n < 100 {
+        sum = sum + ch.recv()   // blocks until a value is available
+        n = n + 1
+    }
+
+    let _p = producer.join()
+    print(sum)   // 5050
+}

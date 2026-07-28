@@ -1312,7 +1312,23 @@ class ExpressionsMixin:
                 )
             else:
                 for type_param, type_arg in zip(struct_info.type_params, expr.type_args):
+                    resolved_arg = self._resolve_type(type_arg)
                     type_mapping[type_param.name] = type_arg
+                    # Enforce the struct's declared type-param bounds at
+                    # construction (e.g. `Channel<T: Send>` requires a Send `T`),
+                    # so a non-conforming instantiation is rejected here rather
+                    # than surfacing as a missing monomorphization in codegen.
+                    for bound in getattr(type_param, 'bounds', None) or []:
+                        if self.get_trait_info(bound) is None:
+                            continue  # unknown trait name reported elsewhere
+                        if not self._bound_satisfied(resolved_arg, bound):
+                            self._error(
+                                ErrorKind.TYPE_MISMATCH,
+                                f"type argument `{resolved_arg}` does not satisfy "
+                                f"bound `{type_param.name}: {bound}` on struct "
+                                f"`{expr.struct_name}`",
+                                expr.line, expr.column
+                            )
         provided_params = {field_name for field_name, _ in expr.field_inits}
         field_names = set(struct_info.fields.keys())
         matches_fields = provided_params == field_names

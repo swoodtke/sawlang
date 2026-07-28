@@ -683,6 +683,19 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.call(pmi, [fn.args[0], null])
         b.ret_void()
 
+        # __saw_pthread_cond_init_default(c): pthread_cond_init(c, NULL)
+        # (design 21 item 6). pthread_cond_t is 48 bytes on macOS and on glibc
+        # (x86_64 and aarch64); std/channel.saw reserves a conservative 64-byte
+        # slot and initializes within it via this wrapper — never a hardcoded
+        # platform struct, exactly as the mutex path does.
+        pci = self._libc_func("pthread_cond_init", i64, [i8ptr, i8ptr])
+        fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
+                         name="__saw_pthread_cond_init_default")
+        self.functions["__saw_pthread_cond_init_default"] = fn
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        b.call(pci, [fn.args[0], null])
+        b.ret_void()
+
         # Trampoline type: void* start_routine(void* arg).
         tramp_ty = ir.FunctionType(i8ptr, [i8ptr])
         tramp_ptr_ty = tramp_ty.as_pointer()

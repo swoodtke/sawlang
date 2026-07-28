@@ -1,0 +1,14 @@
+// design 21 item 6: `Channel<T: Send>` requires a Send payload. Constructing a
+// channel of a non-Send type (a struct holding a raw UnsafePointer) is rejected
+// at the type-parameter bound.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not satisfy bound `T: Send` on struct `Channel`
+
+struct Handle {
+    raw: UnsafePointer<Int8>
+}
+
+func main() {
+    let ch = Channel<Handle>()
+    let _c = ch
+}
