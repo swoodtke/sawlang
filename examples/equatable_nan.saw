@@ -1,0 +1,17 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+
+// Float `==` keeps IEEE semantics: NaN is never equal to anything, including
+// itself, and `!=` is the negation (design 32).
+func main() {
+    let nan = 0.0 / 0.0
+
+    if nan != nan { print(1) }        // NaN != NaN
+    if not (nan == nan) { print(2) }  // NaN == NaN is false
+
+    let x = 1.5
+    if x == 1.5 { print(3) }          // ordinary floats compare normally
+}

@@ -1,0 +1,24 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not conform to `Equatable`
+
+// Deriving `==` for a struct requires every field to be Equatable. `Inner` has
+// a String field but does not declare Equatable, so it is not Equatable, and
+// synthesizing `Outer`'s `==` fails naming the offending field (design 32).
+struct Inner {
+    name: String
+}
+
+struct Outer {
+    inner: Inner
+    tag: Int
+}
+
+extension Outer: Equatable {}
+
+func main() {
+    let a = Outer(inner: Inner(name: "x"), tag: 1)
+    let b = Outer(inner: Inner(name: "x"), tag: 1)
+    if a == b {
+        print(1)
+    }
+}

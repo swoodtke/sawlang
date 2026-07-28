@@ -1,0 +1,27 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+
+// A hand-written `equals` overrides the synthesized memberwise `==`
+// (design 32). Here equality ignores the `version` field: two docs with the
+// same id are equal regardless of version.
+struct Doc {
+    id: Int
+    version: Int
+}
+
+extension Doc: Equatable {
+    func equals(&self, other: Doc) -> Bool {
+        self.id == other.id
+    }
+}
+
+func main() {
+    let a = Doc(id: 1, version: 5)
+    let b = Doc(id: 1, version: 99)
+    let c = Doc(id: 2, version: 5)
+
+    if a == b { print(1) }   // same id, different version -> equal (custom)
+    if a != c { print(2) }   // different id -> not equal
+}

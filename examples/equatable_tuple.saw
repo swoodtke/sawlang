@@ -1,0 +1,23 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+
+// Tuples are Equatable iff every element type is (design 32 item 8): `==`
+// compares element by element, recursing into String content.
+func main() {
+    let a = (1, 2)
+    let b = (1, 2)
+    let c = (1, 9)
+
+    if a == b { print(1) }
+    if a != c { print(2) }
+
+    let s1 = (1, "hi")
+    let s2 = (1, "hi")
+    let s3 = (1, "bye")
+    if s1 == s2 { print(3) }   // string element compared by content
+    if s1 != s3 { print(4) }
+}

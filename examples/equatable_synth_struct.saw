@@ -1,0 +1,26 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+
+// A struct with a String field is not trivially copyable, so it does not
+// auto-conform; an empty `extension: Equatable {}` synthesizes the memberwise
+// `==` (design 32). String fields compare by content.
+struct Named {
+    id: Int
+    name: String
+}
+
+extension Named: Equatable {}
+
+func main() {
+    let a = Named(id: 7, name: "hello")
+    let b = Named(id: 7, name: "hello")
+    let c = Named(id: 7, name: "world")
+    let d = Named(id: 9, name: "hello")
+
+    if a == b { print(1) }   // same id and same string content
+    if a != c { print(2) }   // string content differs
+    if a != d { print(3) }   // int field differs
+}

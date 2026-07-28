@@ -1,0 +1,23 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+
+// A trivial (POD) struct auto-conforms to Equatable, exactly like it
+// auto-conforms to Copy (design 32) - no `extension` needed. `==` compares
+// memberwise; `!=` is the negation.
+struct Point {
+    x: Int
+    y: Int
+}
+
+func main() {
+    let a = Point(x: 3, y: 4)
+    let b = Point(x: 3, y: 4)
+    let c = Point(x: 3, y: 5)
+
+    if a == b { print(1) }   // all fields equal
+    if a != c { print(2) }   // one field differs
+    if not (a == c) { print(3) }
+}

@@ -1,0 +1,30 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+// 5
+
+// A payload-carrying enum opts in with an empty `extension: Equatable {}`,
+// which synthesizes payload-deep `==`: equal tag, then the active variant's
+// payload fields compared recursively (design 32).
+enum Shape {
+    case Circle(radius: Int),
+    case Rect(w: Int, h: Int),
+    case Unit
+}
+
+extension Shape: Equatable {}
+
+func main() {
+    // Same variant + same payload -> equal
+    if Shape.Circle(radius: 5) == Shape.Circle(radius: 5) { print(1) }
+    // Same variant + different payload -> NOT equal (deep, not tag-only)
+    if Shape.Circle(radius: 5) != Shape.Circle(radius: 6) { print(2) }
+    // Multi-field payload compared field by field
+    if Shape.Rect(w: 2, h: 3) == Shape.Rect(w: 2, h: 3) { print(3) }
+    if Shape.Rect(w: 2, h: 3) != Shape.Rect(w: 2, h: 9) { print(4) }
+    // Payload-free variant + different variant
+    if Shape.Unit != Shape.Circle(radius: 5) { print(5) }
+}
