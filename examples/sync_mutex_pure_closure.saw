@@ -1,0 +1,21 @@
+// Acceptance: a `sync`-typed closure parameter (`Mutex.lock`'s `body`) accepts a
+// closure whose body is transitively suspension-free, including calls to pure
+// helpers. The sync effect check passes and the critical section runs.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+
+func double(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    let m = Mutex<Int>(value: 3)
+    m.lock { &var c in
+        c = double(c)
+        true
+    }
+    if let v = m.get() {
+        print(v)   // 6
+    }
+}

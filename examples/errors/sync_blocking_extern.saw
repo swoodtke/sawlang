@@ -1,0 +1,15 @@
+// `extern blocking func` marks an unbounded FFI call as a suspension source
+// (design 18/22). Calling it from a `sync func` is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: blocking extern `slow_read`
+
+extern "C" {
+    blocking func slow_read() -> Int
+}
+
+sync func handler() -> Int {
+    slow_read()
+}
+
+func main() {}

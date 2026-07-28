@@ -1,0 +1,19 @@
+// The marquee consumer: `Mutex.lock`'s closure parameter is a `sync` function
+// type, so holding the lock across a suspension point is a COMPILE ERROR (the
+// async-mutex deadlock class, ruled out by construction — design 18).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in a `sync` closure context
+// EXPECT-ERROR-CONTAINS: __test_suspend
+
+func block_forever() {
+    __test_suspend()
+}
+
+func main() {
+    let m = Mutex<Int>(value: 0)
+    m.lock { &var c in
+        block_forever()
+        c = c + 1
+        true
+    }
+}

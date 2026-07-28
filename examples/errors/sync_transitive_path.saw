@@ -1,0 +1,20 @@
+// Transitive suspension (3 deep) surfaces the full suspension PATH in the
+// diagnostic, through the whole-program inference — no annotations on f/g.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: `f` → `g` → __test_suspend
+// EXPECT-ERROR-CONTAINS: `g` suspends at line
+
+sync func handler() {
+    f()
+}
+
+func f() {
+    g()
+}
+
+func g() {
+    __test_suspend()
+}
+
+func main() {}

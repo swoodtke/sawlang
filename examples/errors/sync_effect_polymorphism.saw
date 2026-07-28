@@ -1,0 +1,19 @@
+// KNOWN HARD CASE — effect polymorphism (design 22, surfaced not solved).
+// `apply` takes a non-`sync` function type, so it is CONSERVATIVELY suspending
+// even when passed a provably-pure closure. That makes higher-order utilities
+// unusable in `sync` contexts today. This EXPECT: error documents the designed
+// conservative behavior (NOT xfail). See designs/22-findings.md for the
+// recommended resolution (per-instantiation effect re-inference).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: `apply`
+
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+sync func handler() -> Int {
+    apply({ $0 * 2 }, 5)
+}
+
+func main() {}

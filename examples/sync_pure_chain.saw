@@ -1,0 +1,22 @@
+// Acceptance: a pure-compute call chain is usable in a `sync` context with ZERO
+// annotations — the whole-program inference proves compute/helper suspension-
+// free, so `sync func handler` type-checks.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 21
+
+sync func handler() -> Int {
+    compute(10)
+}
+
+func compute(n: Int) -> Int {
+    helper(n) + 1
+}
+
+func helper(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    print(handler())
+}

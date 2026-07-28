@@ -1,0 +1,13 @@
+// Calling through a NON-`sync` function-typed value conservatively marks the
+// caller suspending, so a `sync` context that does so is rejected — even though
+// no concrete suspension is reachable here. This is the designed conservative
+// rule (see designs/22-findings.md), not a bug.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: a call through a non-`sync` function value
+
+sync func run(action: (Int) -> Int) -> Int {
+    action(5)
+}
+
+func main() {}

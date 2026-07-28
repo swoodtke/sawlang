@@ -1,0 +1,15 @@
+// A `sync func` context that directly calls a suspending function is rejected
+// by the design-22 effect check.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: __test_suspend
+
+func suspends() {
+    __test_suspend()
+}
+
+sync func handler() {
+    suspends()
+}
+
+func main() {}
