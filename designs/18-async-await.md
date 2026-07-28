@@ -1,6 +1,16 @@
 # Option Paper 18 — Async/await and the concurrency model
 
-**Status: DECISION NEEDED (user).** Builds on: `designs/16` (escaping/
+**Status: DECIDED (Jul 28, 2026)** — staged stackless coroutines behind a
+tasks-only API (no user-facing threads, ever); **COLORLESS calls with a
+checked `sync` effect (the "flip" — see Axis B′; adopted for early
+investigation while the language is small)**; structured concurrency with
+**explicit-only cancellation**; the never-block invariant scoped to
+latency-unbounded external waits (poller-only v1 reactor; sync bounded
+local IO); sync closure-scoped Mutex (enforced by the `sync` effect);
+freestanding core per designs/19. Enabling condition satisfied: statics
+are Sync-only (designs/19), making mediated sharing a language theorem.
+Stage-1 implementation brief: `designs/21-concurrency-stage1.md`;
+effect-system investigation brief: `designs/22-sync-effect-prototype.md`. Builds on: `designs/16` (escaping/
 non-escaping closures — spawn's API), `designs/08` (exclusivity), the
 Send/Arc/Mutex analyses recorded in 16, and the atomic-String decision in
 `designs/07`. Spec currently tags all of §6 Concurrency as planned.
@@ -136,8 +146,40 @@ Every call is potentially suspending. Requires green threads (A2) or global
 CPS — conflicts with A1 recommendation and with readable cost-at-use-site
 philosophy (`await` marks suspension exactly like `move`/`.copy()` mark
 transfers; Saw is the language that marks things).
-**Recommendation: B1.** `await` is a cost/reentrancy marker in exactly the
-spirit of the rest of the language.
+~~Recommendation: B1.~~
+
+### Axis B′ — DECIDED (Jul 28): the FLIP — colorless calls, checked `sync` effect
+Supersedes B1/B2 and the earlier "infer async, require await" position.
+No `async` keyword, no `await` keyword. Any call may suspend; the compiler
+infers transitive suspendability (whole-program today; auto-written into
+module interfaces when separate compilation lands). The marker sits on the
+RARE side: **`sync` is a checked negative effect** — a `sync` context
+(Mutex.lock closures, ISR/callback function decls, `sync` function types)
+must be transitively suspension-free, verified at compile time.
+- Function TYPES default to may-suspend; `sync (Int) -> Int` where a
+  context demands it (handler tables, lock closures). Indirect calls
+  through non-sync function types conservatively mark callers suspending.
+- The three riders that make it sound: (1) `sync` is a real checked
+  effect in types; (2) **cancellation is explicit-only** — never implicit
+  at suspension points; a task is cancelled only where it checks
+  (`Task.cancelled()`) or at explicit select-style points, so there are
+  no invisible non-local exits; (3) tooling (LSP/doc-gen) surfaces
+  inferred suspendability in signatures.
+- Enabling condition (decided, designs/19): statics are Sync-only, so ALL
+  shared mutable state — globals included — is behind sync-checked
+  critical sections or channels; invisible suspension cannot expose a
+  torn invariant anywhere.
+- Known risks accepted for early investigation (the reason to do this
+  while the language is small): coroutine-set growth through indirect
+  calls (mitigation: `sync`-typed handler tables — kernel style anyway);
+  loss of visible suspension points for performance reading (tooling
+  rider); the Zig precedent (their colorless attempt collapsed — noting
+  their confounds: no whole-program effect checking, comptime). The
+  ratchet cuts the risky way (retrofitting markers later is ~impossible);
+  accepted consciously.
+- FFI: `extern blocking func` marks unbounded C calls (offload on hosted,
+  error/hazard freestanding); `extern` without it promises promptness and
+  is `sync`-callable.
 
 ## Axis C — task discipline
 
@@ -150,54 +192,50 @@ daemon case.
 ### C2. Free-floating tasks (JS/tokio-default style)
 Simpler to implement first, but leaks the lifetime discipline the whole
 language is built on.
-**Recommendation: C1**, with cooperative cancellation checked at suspension
-points (Swift model); cancellation is a thrown/Result-style signal, not
-preemption.
+**Recommendation: C1**, with **explicit-only cancellation** (revised for
+Axis B′): a task is cancelled only where it checks (`Task.cancelled()`)
+or at explicit select-style points — NEVER implicitly at suspension
+points, so there are no invisible non-local exits. Cancellation is a
+Result-style signal, not preemption.
 
 ## Mutex under the never-block invariant (decided-leaning, Jul 28)
 
-`Mutex.lock { &var data in ... }` STAYS SYNC, soundly: the closure is a
-sync closure, which in a colored world cannot contain `await` — so no
-critical section can suspend, lock-hold time is one bounded compute
-section, and the lock wait is bounded by construction (same category as
-disk reads under the refined invariant). Holding a lock across `await` —
-the async-mutex deadlock class — is thereby a COMPILE ERROR (an awaiting
-closure is async; `lock` takes sync). Hosted: brief thread park; embedded:
+`Mutex.lock { &var data in ... }` STAYS SYNC, soundly: `lock`'s closure
+parameter is a **`sync`-effect context** (Axis B′) — the body is verified
+transitively suspension-free — so no critical section can suspend,
+lock-hold time is one bounded compute section, and the lock wait is
+bounded by construction (same category as disk reads under the refined
+invariant). Holding a lock across a suspension — the async-mutex deadlock
+class — is thereby a COMPILE ERROR (the `sync` effect check). Hosted: brief thread park; embedded:
 spin/IRQ-mask; one API. Exclusion across suspension = the actor pattern
 (state owned by a task, channels), or a future explicitly-named
 `AsyncMutex` only if reality demands the dangerous shape as an opt-in.
 
-## Async inference (decided-leaning, Jul 28): infer `async`, require `await`
+## ~~Async inference: infer `async`, require `await`~~ — SUPERSEDED
 
-"Body contains `await`" ⇔ async — the declaration keyword is derivable
-(no fixpoint; mutual recursion works since both bodies contain `await`).
-Saw can do what Rust cannot because futures are not first-class: a
-suspending function returning `Int` honestly returns `Int`; there is no
-`impl Future` return-type rewrite for the keyword to express. The
-propagation cascade is not silent: calling async without `await` is a
-hard error at every affected caller. Explicit `async` remains REQUIRED
-where there is no body to infer from: function TYPES (param/stored
-closure signatures), trait method declarations; and OPTIONALLY on a
-definition as API reservation (declare async before the body awaits, so
-future changes don't break callers). `await` stays mandatory — the
-visible suspension marker, consistent with `move`/`.copy()`.
-Interlock with Mutex: an awaiting closure infers async and fails
-`lock`'s sync-closure parameter — inference is the enforcement mechanism
-for the sync-critical-section guarantee. Tooling note: doc-gen/LSP must
-surface inferred asyncness in signatures.
+Superseded by Axis B′ (the flip): with no `await`, suspendability is
+inferred purely from reaching suspension points (suspending stdlib waits,
+`extern blocking`, calls through non-`sync` function types), and the
+`sync` effect check is the enforcement mechanism everywhere the old
+design used async-inference mismatches. Two survivals from this section:
+futures remain non-first-class (a suspending function returning `Int`
+honestly returns `Int` — what makes keyword-free suspension coherent),
+and the tooling obligation (LSP/doc-gen surface inferred suspendability)
+carries over as rider 3.
 
-## Smaller decisions bundled here
-- **Futures are not user-facing values initially** (no `poll`, no `Future`
-  trait): `async func` + `await` + task groups only. Exposing a Future
-  abstraction is a later, compatible addition if combinators demand it.
-- `try await` ordering: `try await f()` (Swift order), `await` binds
-  tighter in the grammar; async closures are `escaping async` and follow
-  paper 16's capture rules (value/move/ImplicitCopy only — they're
-  escaping by definition).
-- `main` may be declared `async` (compiler wraps in `block_on`).
-- Async `deinit` is **forbidden** (deinit is synchronous, always — anything
-  else breaks deterministic destruction; Swift's async deinit pain is a
-  cautionary tale).
+## Smaller decisions bundled here (updated for Axis B′)
+- **Futures are not user-facing values** (no `poll`, no `Future` trait):
+  tasks + task groups only. Exposing a Future abstraction is a later,
+  compatible addition if combinators demand it.
+- ~~`try await` ordering / `escaping async` closures / `async main`~~ —
+  moot under the flip (no keywords). Escaping closures still follow paper
+  16's capture rules; their suspendability is an inferred effect in their
+  function type. `main` may suspend; the compiler provides the entry
+  executor when the program's `main` is (inferred) suspending.
+- `deinit` is a **`sync` context, always** (suspension in deinit is a
+  compile error — anything else breaks deterministic destruction; Swift's
+  async-deinit pain is the cautionary tale). Likewise ISRs and `sync`-typed
+  callbacks.
 
 ## Freestanding profile (added Jul 27 — initial-target requirement)
 
