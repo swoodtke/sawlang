@@ -115,13 +115,21 @@ class ResourcesMixin:
 
         A type needs cleanup if it declares a resource trait (Deinit / NoCopy /
         ImplicitCopy / ExplicitCopy) OR -- even with no declared conformance --
-        it is a struct that transitively holds a field needing cleanup. The
-        second clause is what lets a struct holding only `String` fields (which
-        the containment rules exempt from declaring Deinit, brief 11) still get
-        its fields released at scope exit.
+        it transitively holds a value needing cleanup:
+        - a struct with a cleanup-needing field (brief 17);
+        - an enum whose any variant carries a cleanup-needing payload field
+          (brief 23 item 1) -- enums dodge the containment rules entirely, so
+          this "needs cleanup" test is what makes an undeclared enum holding a
+          Deinit payload get its active variant released at scope exit;
+        - an `Optional<T>` whose inner `T` needs cleanup (brief 23 item 1 probe).
         """
         if self._get_cleanup_behavior(saw_type) != "none":
             return True
+        if saw_type.kind == TypeKind.ENUM:
+            return self._enum_needs_variant_cleanup(saw_type)
+        if saw_type.kind == TypeKind.OPTIONAL:
+            return (saw_type.inner_type is not None
+                    and self._needs_cleanup(saw_type.inner_type))
         return self._struct_needs_field_cleanup(saw_type)
 
     def _concrete_field_types(self, saw_type: SawType):
@@ -167,6 +175,38 @@ class ResourcesMixin:
                 if self._needs_cleanup(ftype):
                     result = True
                     break
+        self.type_field_cleanup[key] = result
+        return result
+
+    def _enum_key(self, saw_type: SawType) -> Optional[str]:
+        """The `enum_types` registry key for an enum SawType, or None if the enum
+        is not registered. Matches the mangling used at construction/match sites
+        (`mangle_named(enum_name, type_args)`)."""
+        if saw_type.kind != TypeKind.ENUM:
+            return None
+        key = mangle_type(saw_type)
+        return key if key in self.enum_types else None
+
+    def _enum_needs_variant_cleanup(self, saw_type: SawType) -> bool:
+        """Whether any variant of an enum carries a payload field needing cleanup.
+
+        Reads the registered (already-monomorphized, so concrete) variant field
+        types. Cached by the canonical enum symbol, seeded False before recursing
+        as a cycle guard (an enum could reach itself through an Optional payload).
+        """
+        key = self._enum_key(saw_type)
+        if key is None:
+            return False
+        cached = self.type_field_cleanup.get(key)
+        if cached is not None:
+            return cached
+        self.type_field_cleanup[key] = False
+        result = False
+        _, _, variant_info = self.enum_types[key]
+        for fields in variant_info.values():
+            if any(self._needs_cleanup(ftype) for _, ftype in fields):
+                result = True
+                break
         self.type_field_cleanup[key] = result
         return result
 
@@ -228,6 +268,12 @@ class ResourcesMixin:
             if fn is not None:
                 self.builder.call(fn, [ptr])
                 return
+        if saw_type.kind == TypeKind.ENUM:
+            self._emit_enum_cleanup_at(ptr, saw_type)
+            return
+        if saw_type.kind == TypeKind.OPTIONAL:
+            self._emit_optional_cleanup_at(ptr, saw_type)
+            return
         self._emit_field_cleanup_at(ptr, saw_type)
 
     def _emit_field_cleanup_at(self, struct_ptr, saw_type: SawType):
@@ -258,6 +304,97 @@ class ResourcesMixin:
                 ir.Constant(ir.IntType(32), idx)
             ], name=f"{field_name}_ptr")
             self._emit_drop_at(field_ptr, ftype)
+
+    def _emit_enum_cleanup_at(self, enum_ptr, saw_type: SawType):
+        """Release the active variant's cleanup-needing payload fields of the enum
+        at `enum_ptr`, by switching on the runtime tag (brief 23 item 1).
+
+        The enum is laid out `{ i32 tag, [N x i8] payload }`. For each variant
+        that carries any cleanup-needing field we emit a switch case that bitcasts
+        the payload bytes to that variant's field struct and drops those fields in
+        reverse declaration order (LIFO). Variants with nothing to release (and a
+        simple tag-only enum) fall through the switch default and do nothing, so
+        the inactive variants are never touched -- no double-free across variants.
+        """
+        key = self._enum_key(saw_type)
+        if key is None:
+            return
+        llvm_enum_type, variant_tags, variant_info = self.enum_types[key]
+        # Tag-only enum (no payload): nothing to release.
+        if isinstance(llvm_enum_type, ir.IntType):
+            return
+
+        cleanup_variants = [
+            name for name, fields in variant_info.items()
+            if any(self._needs_cleanup(ftype) for _, ftype in fields)
+        ]
+        if not cleanup_variants:
+            return
+
+        i32 = ir.IntType(32)
+        tag_ptr = self.builder.gep(
+            enum_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 0)], name="drop_tag_ptr")
+        tag = self.builder.load(tag_ptr, name="drop_tag")
+
+        func = self.builder.function
+        cont_bb = func.append_basic_block("enum_drop_cont")
+        switch = self.builder.switch(tag, cont_bb)
+
+        variant_blocks = []
+        for name in cleanup_variants:
+            bb = func.append_basic_block(f"enum_drop_{name}")
+            switch.add_case(ir.Constant(i32, variant_tags[name]), bb)
+            variant_blocks.append((name, bb))
+
+        for name, bb in variant_blocks:
+            self.builder.position_at_end(bb)
+            fields = variant_info[name]
+            param_types = [self._get_llvm_type(ftype) for _, ftype in fields]
+            param_struct_type = ir.LiteralStructType(param_types)
+            payload_ptr = self.builder.gep(
+                enum_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 1)],
+                name="drop_payload_ptr")
+            struct_ptr = self.builder.bitcast(
+                payload_ptr, ir.PointerType(param_struct_type),
+                name="drop_payload_struct")
+            for idx in reversed(range(len(fields))):
+                _, ftype = fields[idx]
+                if not self._needs_cleanup(ftype):
+                    continue
+                field_ptr = self.builder.gep(
+                    struct_ptr, [ir.Constant(i32, 0), ir.Constant(i32, idx)],
+                    name="drop_payload_field")
+                self._emit_drop_at(field_ptr, ftype)
+            self.builder.branch(cont_bb)
+
+        self.builder.position_at_end(cont_bb)
+
+    def _emit_optional_cleanup_at(self, opt_ptr, saw_type: SawType):
+        """Release the payload of an `Optional<T>` at `opt_ptr` when present (brief
+        23 item 1 probe). Optionals are `{ i1 is_some, T }`: branch on the flag and
+        drop the inner value only on the Some path. A None optional (flag 0, e.g. a
+        moved-out or never-set slot) is skipped, so this never over-releases.
+        """
+        inner = saw_type.inner_type
+        if inner is None or not self._needs_cleanup(inner):
+            return
+        i32 = ir.IntType(32)
+        flag_ptr = self.builder.gep(
+            opt_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 0)], name="opt_drop_flag_ptr")
+        is_some = self.builder.load(flag_ptr, name="opt_drop_is_some")
+
+        func = self.builder.function
+        some_bb = func.append_basic_block("opt_drop_some")
+        cont_bb = func.append_basic_block("opt_drop_cont")
+        self.builder.cbranch(is_some, some_bb, cont_bb)
+
+        self.builder.position_at_end(some_bb)
+        val_ptr = self.builder.gep(
+            opt_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 1)], name="opt_drop_val_ptr")
+        self._emit_drop_at(val_ptr, inner)
+        self.builder.branch(cont_bb)
+
+        self.builder.position_at_end(cont_bb)
 
     def _generate_copy(self, value, saw_type: SawType):
         """Generate a copy of a value, calling copy() for ImplicitCopy types.
