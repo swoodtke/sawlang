@@ -76,9 +76,35 @@ permanent sync/async ecosystem split. Rules that make it hold:
   hazards; the executor compensates (grow the pool when tasks block —
   simplified Go model), with `spawn_blocking`-style hinting as an
   optimization, never a correctness requirement.
-- Async-only *concurrency* ≠ async-only *IO*: sync functions keep plain
-  blocking IO; the runtime links only into programs that `spawn`.
-  Programs that never spawn pay nothing.
+- ~~Async-only concurrency ≠ async-only IO; sync blocking IO stays~~
+  **REVISED (Jul 28, user proposal): "tasks never block" is the model —
+  stdlib waiting APIs are async-only.** No sync `File.read`/`sleep`/
+  `accept`; sync functions are pure-compute by construction; everything
+  that can wait is a visible `await`. Amendments that make it sound:
+  - **Hybrid reactor, not poller-only:** kqueue/epoll covers only
+    pollable FDs — regular-file IO is NOT pollable (always-ready +
+    blocking reads), DNS/misc syscalls have no readiness. Hosted reactor =
+    poller for sockets/pipes/timers + hidden worker-pool offload for file
+    ops (io_uring as a later Linux upgrade). Task-facing API identical;
+    the pool is unobservable. (Go/libuv/tokio all do exactly this.)
+  - **Coloring STAYS** (this does not reopen colorless): implicit
+    suspension everywhere would force every function into a state machine
+    (whole-program CPS) or stackful tasks — the latter rejected for
+    KB-RAM targets. Colored `await` + async-only waiting APIs = Go's
+    invariant with visible markers.
+  - **Freestanding unification:** same Waker abstraction, reactor =
+    interrupts/WFI (the Embassy model verbatim) — hosted and kernel
+    runtimes are one design with different event sources plugged in.
+  - **FFI is the unclosable hole — annotate it:** `extern blocking func`
+    → offloaded to the pool on hosted, compile-error (or documented
+    hazard) freestanding; unannotated externs promise promptness.
+  - **`print` exempted** (console/UART treated as prompt) so trivial
+    programs need no executor.
+  - Residual, unfixable by IO design: long compute still starves a
+    cooperative executor — hosted mitigates via the multi-threaded
+    executor; embedded lives by cooperative discipline.
+  The runtime still links only into programs that spawn/await;
+  pure-compute programs pay nothing.
 - ~~Accepted scope cost: no-runtime environments get no concurrency~~
   **REVERSED (Jul 27): kernels and small embedded are the project's INITIAL
   targets** — freestanding support is a first-class requirement, and
