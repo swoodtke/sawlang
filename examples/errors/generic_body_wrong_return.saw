@@ -10,7 +10,6 @@
 // See todo_jul26.md must-fix #3 (generic bodies never type-checked).
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: should return `Int`
-// XFAIL: generic function bodies are not abstractly type-checked; an uninstantiated body returning the wrong concrete type compiles
 
 func bad<T>(x: T) -> Int {
     true

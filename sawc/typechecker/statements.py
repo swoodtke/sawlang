@@ -219,6 +219,134 @@ class StatementsMixin:
         self.current_method = None
         self.moved_bindings = saved_moves
 
+    def _reconcile_return_type(self, func, resolved_return_type, body_type):
+        """Reconcile a function body's type against its declared return type.
+
+        Reports a mismatch, and applies Result/Optional auto-wrapping to the
+        final expression where the declared return type is a concrete
+        Result/Optional. Shared by the ordinary path and the generic-body
+        decidable path (design 24 item 2).
+        """
+        if resolved_return_type.kind == TypeKind.VOID:
+            return
+        # Function can return a value via either:
+        # 1. An explicit return statement (found_return_with_value)
+        # 2. A final expression in the body (body_type)
+        if body_type is None and not self.found_return_with_value:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"function `{func.name}` should return `{resolved_return_type}` but body has no value",
+                func.line, func.column
+            )
+        elif body_type is not None and not self._types_compatible(body_type, resolved_return_type):
+            # Check for Result auto-wrapping on final expression
+            if resolved_return_type.is_result() and func.body.final_expr:
+                ok_type = resolved_return_type.unwrap_result_ok()
+                err_type = resolved_return_type.unwrap_result_err()
+
+                if body_type.is_result():
+                    # Already a Result but types don't match
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
+                        func.line, func.column
+                    )
+                elif self._types_compatible(body_type, ok_type):
+                    # Wrap in ResultOkWrap
+                    func.body.final_expr = ResultOkWrap(
+                        value=func.body.final_expr,
+                        result_type=resolved_return_type,
+                        line=func.body.final_expr.line,
+                        column=func.body.final_expr.column
+                    )
+                elif self._types_compatible(body_type, err_type):
+                    # Wrap in ResultErrWrap
+                    func.body.final_expr = ResultErrWrap(
+                        value=func.body.final_expr,
+                        result_type=resolved_return_type,
+                        line=func.body.final_expr.line,
+                        column=func.body.final_expr.column
+                    )
+                else:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}` "
+                        f"(doesn't match Ok type `{ok_type}` or Err type `{err_type}`)",
+                        func.line, func.column
+                    )
+            else:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
+                    func.line, func.column
+                )
+        elif body_type is not None and func.body.final_expr:
+            # Types are compatible - check if we need Optional wrapping
+            if resolved_return_type.is_optional() and not body_type.is_optional() and not body_type.is_none_literal():
+                func.body.final_expr = OptionalWrap(
+                    value=func.body.final_expr,
+                    target_type=resolved_return_type,
+                    line=func.body.final_expr.line,
+                    column=func.body.final_expr.column
+                )
+
+    def _return_type_is_decidable(self, resolved_return_type, body_type) -> bool:
+        """Design 24 item 2 decidability rule.
+
+        A generic body's return type can be reconciled abstractly ONLY when both
+        the declared return type and the body's produced type are fully concrete
+        — i.e. neither mentions an in-scope type parameter nor an unresolved
+        associated type. If either is abstract, the outcome depends on the
+        concrete instantiation (e.g. `-> T` returning a `T`, or `-> Int`
+        returning a `T` that might monomorphize to `Int`), so it is deferred to
+        monomorphization. This is what keeps the check conservative: it never
+        errors where the answer genuinely can't be decided without a concrete
+        instantiation.
+        """
+        if not self._is_concrete_type(resolved_return_type):
+            return False
+        if body_type is not None and not self._is_concrete_type(body_type):
+            return False
+        return True
+
+    def _is_concrete_type(self, t) -> bool:
+        """Whether `t` mentions no in-scope type parameter and no unresolved
+        associated-type name — i.e. it is fully decidable without a concrete
+        instantiation (design 24 item 2)."""
+        if t is None:
+            return False
+        type_params = getattr(self, 'current_type_params', {})
+        kind = t.kind
+        # Result<...> (parsed as STRUCT/ENUM named "Result"): concrete iff all
+        # type arguments are concrete.
+        if t.is_result():
+            return all(self._is_concrete_type(a) for a in (t.type_args or []))
+        if kind == TypeKind.STRUCT:
+            name = t.struct_name
+            if name in type_params:
+                return False
+            # A STRUCT-kind name that resolves to no struct is an associated
+            # type / unresolved placeholder — abstract.
+            if self.get_struct_info(name, from_type=t) is None:
+                return False
+            return all(self._is_concrete_type(a) for a in (t.type_args or []))
+        if kind == TypeKind.ENUM:
+            return all(self._is_concrete_type(a) for a in (t.type_args or []))
+        if kind == TypeKind.OPTIONAL:
+            return t.inner_type is None or self._is_concrete_type(t.inner_type)
+        if kind == TypeKind.TUPLE:
+            return all(self._is_concrete_type(e) for e in (t.element_types or []))
+        if kind == TypeKind.ARRAY:
+            return (t.array_element_type is None
+                    or self._is_concrete_type(t.array_element_type))
+        if kind == TypeKind.FUNCTION:
+            if not all(self._is_concrete_type(p) for p in (t.param_types or [])):
+                return False
+            return (t.func_return_type is None
+                    or self._is_concrete_type(t.func_return_type))
+        # Primitives (INT/FLOAT/BOOL/STRING/VOID) and anything else are concrete.
+        return True
+
     def _check_function(self, func: Function):
         """Type check a function body.
 
@@ -273,8 +401,21 @@ class StatementsMixin:
         body_type = self._check_block(func.body)
 
         if is_generic:
-            # Abstract check complete: annotations produced, body-level errors
-            # surfaced. Skip return-type reconciliation (see docstring).
+            # Abstract check complete: annotations produced and body-level errors
+            # surfaced. Reconcile the return type only where DECIDABLE against
+            # opaque type parameters (design 24 item 2). See
+            # `_return_type_is_decidable` for the rule: both the declared and the
+            # body's type must be fully concrete (mention no type parameter and
+            # no unresolved associated type). A concrete mismatch then errors and
+            # a concrete Result/Optional-of-concrete return auto-wraps, exactly
+            # as in the non-generic path. Anything mentioning a type parameter or
+            # associated type is deferred to monomorphization — a
+            # concrete-vs-abstract comparison here (e.g. `-> T`, `-> Item`) would
+            # be a false positive against the generic suite (the oracle).
+            if self._return_type_is_decidable(resolved_return_type, body_type):
+                if resolved_return_type.is_optional() and func.body.final_expr:
+                    self._propagate_optional_type(func.body.final_expr, resolved_return_type)
+                self._reconcile_return_type(func, resolved_return_type, body_type)
             self.current_type_params = prev_type_params
             self._effect_exit()
             self.current_function = None
@@ -285,68 +426,8 @@ class StatementsMixin:
         if resolved_return_type.is_optional() and func.body.final_expr:
             self._propagate_optional_type(func.body.final_expr, resolved_return_type)
 
-        # Check return type matches
-        if resolved_return_type.kind != TypeKind.VOID:
-            # Function can return a value via either:
-            # 1. An explicit return statement (found_return_with_value)
-            # 2. A final expression in the body (body_type)
-            if body_type is None and not self.found_return_with_value:
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"function `{func.name}` should return `{resolved_return_type}` but body has no value",
-                    func.line, func.column
-                )
-            elif body_type is not None and not self._types_compatible(body_type, resolved_return_type):
-                # Check for Result auto-wrapping on final expression
-                if resolved_return_type.is_result() and func.body.final_expr:
-                    ok_type = resolved_return_type.unwrap_result_ok()
-                    err_type = resolved_return_type.unwrap_result_err()
-
-                    if body_type.is_result():
-                        # Already a Result but types don't match
-                        self._error(
-                            ErrorKind.TYPE_MISMATCH,
-                            f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
-                            func.line, func.column
-                        )
-                    elif self._types_compatible(body_type, ok_type):
-                        # Wrap in ResultOkWrap
-                        func.body.final_expr = ResultOkWrap(
-                            value=func.body.final_expr,
-                            result_type=resolved_return_type,
-                            line=func.body.final_expr.line,
-                            column=func.body.final_expr.column
-                        )
-                    elif self._types_compatible(body_type, err_type):
-                        # Wrap in ResultErrWrap
-                        func.body.final_expr = ResultErrWrap(
-                            value=func.body.final_expr,
-                            result_type=resolved_return_type,
-                            line=func.body.final_expr.line,
-                            column=func.body.final_expr.column
-                        )
-                    else:
-                        self._error(
-                            ErrorKind.TYPE_MISMATCH,
-                            f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}` "
-                            f"(doesn't match Ok type `{ok_type}` or Err type `{err_type}`)",
-                            func.line, func.column
-                        )
-                else:
-                    self._error(
-                        ErrorKind.TYPE_MISMATCH,
-                        f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
-                        func.line, func.column
-                    )
-            elif body_type is not None and func.body.final_expr:
-                # Types are compatible - check if we need Optional wrapping
-                if resolved_return_type.is_optional() and not body_type.is_optional() and not body_type.is_none_literal():
-                    func.body.final_expr = OptionalWrap(
-                        value=func.body.final_expr,
-                        target_type=resolved_return_type,
-                        line=func.body.final_expr.line,
-                        column=func.body.final_expr.column
-                    )
+        # Check return type matches (and apply Result/Optional auto-wrapping).
+        self._reconcile_return_type(func, resolved_return_type, body_type)
 
         # Check NoCopy return - must use move for variable references
         # Check both the return type and the inner type if optional
