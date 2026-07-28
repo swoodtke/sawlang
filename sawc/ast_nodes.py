@@ -756,6 +756,9 @@ class ClosureExpr(Expression):
     shorthand_param_count: int = 0  # Number of $0, $1, etc. used
     captures: List[str] = field(default_factory=list)  # Filled by type checker
     has_reference_params: bool = False  # Filled by type checker (design 21 item 3)
+    escapes: bool = False  # Filled by type checker (design 21b E1): the closure
+                           # value outlives its creating frame (bound/returned/
+                           # passed to spawn), so its env is heap-allocated.
     line: int = 0
     column: int = 0
 

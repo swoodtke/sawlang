@@ -183,12 +183,37 @@ class ClosuresMixin:
         self.variable_types = saved_variable_types
         self.cleanup_stack = saved_cleanup_stack
 
-        # Create environment struct on stack and copy captured values
+        # Build the environment and copy captured values in. A NON-escaping
+        # closure (a direct call argument, e.g. Mutex.lock's body) keeps its env
+        # on the stack — it is consumed before the frame returns, so captures are
+        # borrowed and no retain/teardown is needed. An ESCAPING closure (design
+        # 21b E1: bound/returned/passed to spawn) heap-allocates its env via
+        # saw_alloc and transfers each capture in per the value-transfer rules:
+        # ImplicitCopy captures are retained (copy() == refcount bump); trivial
+        # captures are copied bitwise. A generated env-destructor runs the
+        # captures' drop glue exactly once and frees the block; for spawn the
+        # trampoline invokes it on the task thread after the body returns.
+        escapes = getattr(expr, 'escapes', False)
+        expr.codegen_env_dtor = None
         if captures and env_struct_type:
-            env_alloca = self._entry_alloca(env_struct_type, name="closure_env")
+            if escapes:
+                i64 = ir.IntType(64)
+                env_size = env_struct_type.get_abi_size(self.target_data)
+                raw = self.builder.call(
+                    self.functions["saw_alloc"],
+                    [ir.Constant(i64, env_size), ir.Constant(i64, 16)],
+                    name="env_raw")
+                env_alloca = self.builder.bitcast(
+                    raw, ir.PointerType(env_struct_type), name="env_heap")
+            else:
+                env_alloca = self._entry_alloca(env_struct_type, name="closure_env")
             for i, cap_name in enumerate(captures):
                 if cap_name in self.variables:
                     cap_value = self.builder.load(self.variables[cap_name], name=f"load_{cap_name}")
+                    cap_saw = self.variable_types.get(cap_name)
+                    if escapes and cap_saw is not None:
+                        # Retain ImplicitCopy captures (no-op for trivial types).
+                        cap_value = self._generate_copy(cap_value, cap_saw)
                     field_ptr = self.builder.gep(
                         env_alloca,
                         [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)],
@@ -196,6 +221,9 @@ class ClosuresMixin:
                     )
                     self.builder.store(cap_value, field_ptr)
             env_ptr_val = self.builder.bitcast(env_alloca, env_ptr_type, name="env_ptr")
+            if escapes:
+                expr.codegen_env_dtor = self._generate_env_dtor(
+                    env_struct_type, captures, closure_name)
         else:
             env_ptr_val = ir.Constant(env_ptr_type, None)
 
@@ -206,6 +234,44 @@ class ClosuresMixin:
         closure_val = self.builder.insert_value(closure_val, env_ptr_val, 1, name="closure_env")
 
         return closure_val
+
+    def _generate_env_dtor(self, env_struct_type, captures, closure_name):
+        """Emit the environment destructor for an escaping closure (design 21b E1).
+
+        Signature `void (i8* env)`: runs drop glue for each cleanup-needing
+        capture (releasing retained ImplicitCopy captures such as an `Arc`)
+        exactly once, then frees the heap env with `saw_dealloc`. For `spawn`
+        the trampoline calls this on the task thread after the body returns, so a
+        captured value's deinit runs on that thread, exactly once. For other
+        escapes (returned/stored closures) it is generated but currently
+        uninvoked — v1 conservatively leaks the env (documented); wiring general
+        closure Deinit is deferred.
+        """
+        i8 = ir.IntType(8)
+        i8ptr = i8.as_pointer()
+        i64 = ir.IntType(64)
+        void = ir.VoidType()
+        env_size = env_struct_type.get_abi_size(self.target_data)
+
+        fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
+                         name=f"{closure_name}_env_dtor")
+        saved_builder = self.builder
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        self.builder = b
+        env_typed = b.bitcast(fn.args[0], ir.PointerType(env_struct_type), name="env")
+        for i, cap_name in enumerate(captures):
+            cap_saw = self.variable_types.get(cap_name)
+            if cap_saw is not None and self._needs_cleanup(cap_saw):
+                field_ptr = b.gep(
+                    env_typed,
+                    [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)],
+                    name=f"env_drop_{i}")
+                self._emit_drop_at(field_ptr, cap_saw)
+        b.call(self.functions["saw_dealloc"],
+               [fn.args[0], ir.Constant(i64, env_size), ir.Constant(i64, 16)])
+        b.ret_void()
+        self.builder = saved_builder
+        return fn
 
     def _generate_closure_call(self, closure_val, arguments):
         """Generate code for calling a closure stored in a variable.

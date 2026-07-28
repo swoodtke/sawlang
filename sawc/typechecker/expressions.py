@@ -2396,6 +2396,36 @@ class ExpressionsMixin:
         captures = self._analyze_closure_captures(expr.body, outer_scope)
         expr.captures = captures
         expr.has_reference_params = has_reference_params
+        # Escape analysis (design 21b E1): a closure used in value position (bound
+        # to a let/var, returned, stored, or a struct field) outlives the frame
+        # that built it, so its environment must be heap-allocated with captured
+        # values transferred in per the transfer rules. A closure consumed
+        # directly as a call argument to an ordinary function (e.g. Mutex.lock's
+        # `sync` closure) does NOT escape — the callee runs it before returning,
+        # so a stack env is sound and cheaper. Reference-param closures are
+        # forced to be call arguments (checked below) and never escape. `spawn`
+        # is the exception: it is a call argument yet the task outlives the call,
+        # so the spawn handler overrides this to True.
+        expr.escapes = (not as_call_argument) and (not has_reference_params)
+        # A heap env transfers each capture in per the value-transfer rules
+        # (design 21b E1): trivial copy / ImplicitCopy retain are handled in
+        # codegen, but a move-only capture (NoCopy / ExplicitCopy) cannot be
+        # implicitly duplicated into the env — reject it with a clear message.
+        if expr.escapes:
+            for cap_name in captures:
+                cap_info = outer_scope.lookup(cap_name)
+                if cap_info is None:
+                    continue
+                ctype = cap_info.type
+                if self._is_no_copy_type(ctype) or self._is_explicit_copy_type(ctype):
+                    self._error(
+                        ErrorKind.CANNOT_COPY,
+                        f"cannot capture move-only value `{cap_name}` of type "
+                        f"`{ctype}` in an escaping closure",
+                        expr.line, expr.column,
+                        hint="wrap it in `Arc` for shared ownership, or restructure "
+                             "so the closure does not outlive its frame"
+                    )
         self.current_scope = outer_scope
         self.moved_bindings = saved_moves
         # A closure with reference parameters is non-storable: legal only as a
