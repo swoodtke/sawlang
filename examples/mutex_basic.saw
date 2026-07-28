@@ -1,0 +1,32 @@
+// Mutex<T>: mutual-exclusion wrapper. lock(body) runs the closure with &var
+// access to the guarded payload under the lock; get() snapshots it (T: Copy).
+// (Single task here; the cross-task counter lands with spawn in this stage.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 50
+
+func main() {
+    let m = Mutex<Int>(value: 0)
+
+    var i = 0
+    while i < 5 {
+        m.lock { &var c in
+            c = c + 1
+            true
+        }
+        i = i + 1
+    }
+    if let v = m.get() {
+        print(v)   // 5
+    }
+
+    // Mutate by a larger step, still under the lock.
+    m.lock { &var c in
+        c = c * 10
+        true
+    }
+    if let v = m.get() {
+        print(v)   // 50
+    }
+}
