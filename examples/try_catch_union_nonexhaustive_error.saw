@@ -1,0 +1,31 @@
+// Design 30 Ruling 2: `match error` over a multi-error catch union must be
+// exhaustive over exactly the propagated (deduplicated) error types. Covering
+// only one of the two propagated types is a compile error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: match is not exhaustive
+// EXPECT-ERROR-CONTAINS: IoError
+
+struct ParseError { code: Int }
+struct IoError { status: Int }
+
+func parseNumber(valid: Bool) -> Result<Int, ParseError> {
+    if valid { return 42 }
+    return ParseError(code: 1)
+}
+
+func readFile(exists: Bool) -> Result<Int, IoError> {
+    if exists { return 100 }
+    return IoError(status: 404)
+}
+
+func main() {
+    try {
+        let n = try parseNumber(false)
+        let m = try readFile(true)
+        print(n + m)
+    } catch {
+        match error {
+            case ParseError(e) -> print(e.code)
+        }
+    }
+}

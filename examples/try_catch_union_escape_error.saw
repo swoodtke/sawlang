@@ -1,0 +1,36 @@
+// Design 30 Ruling 2: the multi-error catch union is unnameable in surface
+// syntax, so it can never reach a written signature/field/return. The escape is
+// prevented structurally: `return error` from a function fails to type-check
+// because no written return type is compatible with the (unwritable) union.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: expected return type `ParseError`
+// EXPECT-ERROR-CONTAINS: <error union: ParseError | IoError>
+
+struct ParseError { code: Int }
+struct IoError { status: Int }
+
+func parseNumber(valid: Bool) -> Result<Int, ParseError> {
+    if valid { return 42 }
+    return ParseError(code: 1)
+}
+
+func readFile(exists: Bool) -> Result<Int, IoError> {
+    if exists { return 100 }
+    return IoError(status: 404)
+}
+
+// Adversarial: try to smuggle the union out through a written return type.
+func leak() -> ParseError {
+    try {
+        let n = try parseNumber(false)
+        let m = try readFile(true)
+        return ParseError(code: n + m)
+    } catch {
+        return error
+    }
+}
+
+func main() {
+    let x = leak()
+    print(x.code)
+}

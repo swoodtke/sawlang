@@ -83,6 +83,16 @@ class SawType:
         if self.kind == TypeKind.OPTIONAL and self.inner_type:
             return f"{self.inner_type}?"
         if self.kind == TypeKind.ENUM and self.enum_name:
+            # The multi-error catch union (design 30 Ruling 2) is a compiler-
+            # synthesized, unnameable enum named `_CatchError_<id>`. Never surface
+            # that internal name (nor its non-deterministic id) in diagnostics —
+            # render it as what it is so the message stays stable and the type
+            # reads as unwritable.
+            if self.enum_name.startswith("_CatchError_"):
+                variants = getattr(self.symbol, "variant_order", None)
+                if variants:
+                    return f"<error union: {' | '.join(variants)}>"
+                return "<error union>"
             if self.type_args:
                 args_str = ", ".join(str(t) for t in self.type_args)
                 return f"{self.enum_name}<{args_str}>"

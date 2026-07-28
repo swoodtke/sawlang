@@ -1,0 +1,66 @@
+// Design 30 Ruling 2 conformance: observable semantics of the catch error type.
+//  - Dedup: a try-body that propagates the SAME error type twice yields a single
+//    concrete, nameable error type (not a union), so direct field access works.
+//  - A genuine multi-type union supports `let e = error` local binding, an
+//    exhaustive `match` over exactly the propagated set, and an optional
+//    `case _ ->` catch-all on top.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 404
+// 7
+
+struct ParseError { code: Int }
+struct IoError { status: Int }
+
+func parseA(valid: Bool) -> Result<Int, ParseError> {
+    if valid { return 42 }
+    return ParseError(code: 7)
+}
+
+func parseB(valid: Bool) -> Result<Int, ParseError> {
+    if valid { return 42 }
+    return ParseError(code: 8)
+}
+
+func readFile(exists: Bool) -> Result<Int, IoError> {
+    if exists { return 100 }
+    return IoError(status: 404)
+}
+
+func main() {
+    // Dedup: two ParseError propagations collapse to the concrete ParseError.
+    // `error.code` field access proves it is the concrete type, not a union.
+    try {
+        let n = try parseA(false)
+        let m = try parseB(true)
+        print(n + m)
+    } catch {
+        print(error.code)          // 7
+    }
+
+    // Union: local binding + catch-all reached (IoError via `_`).
+    try {
+        let n = try parseA(true)
+        let m = try readFile(false)
+        print(n + m)
+    } catch {
+        let e = error
+        match e {
+            case ParseError(p) -> print(p.code),
+            case _ -> print(404)   // 404
+        }
+    }
+
+    // Union: exhaustive match over exactly the propagated set, no catch-all.
+    try {
+        let n = try parseA(false)
+        let m = try readFile(true)
+        print(n + m)
+    } catch {
+        match error {
+            case ParseError(p) -> print(p.code),   // 7 (parseA(false) -> code 7)
+            case IoError(io) -> print(io.status)
+        }
+    }
+}
