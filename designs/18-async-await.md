@@ -154,6 +154,38 @@ language is built on.
 points (Swift model); cancellation is a thrown/Result-style signal, not
 preemption.
 
+## Mutex under the never-block invariant (decided-leaning, Jul 28)
+
+`Mutex.lock { &var data in ... }` STAYS SYNC, soundly: the closure is a
+sync closure, which in a colored world cannot contain `await` — so no
+critical section can suspend, lock-hold time is one bounded compute
+section, and the lock wait is bounded by construction (same category as
+disk reads under the refined invariant). Holding a lock across `await` —
+the async-mutex deadlock class — is thereby a COMPILE ERROR (an awaiting
+closure is async; `lock` takes sync). Hosted: brief thread park; embedded:
+spin/IRQ-mask; one API. Exclusion across suspension = the actor pattern
+(state owned by a task, channels), or a future explicitly-named
+`AsyncMutex` only if reality demands the dangerous shape as an opt-in.
+
+## Async inference (decided-leaning, Jul 28): infer `async`, require `await`
+
+"Body contains `await`" ⇔ async — the declaration keyword is derivable
+(no fixpoint; mutual recursion works since both bodies contain `await`).
+Saw can do what Rust cannot because futures are not first-class: a
+suspending function returning `Int` honestly returns `Int`; there is no
+`impl Future` return-type rewrite for the keyword to express. The
+propagation cascade is not silent: calling async without `await` is a
+hard error at every affected caller. Explicit `async` remains REQUIRED
+where there is no body to infer from: function TYPES (param/stored
+closure signatures), trait method declarations; and OPTIONALLY on a
+definition as API reservation (declare async before the body awaits, so
+future changes don't break callers). `await` stays mandatory — the
+visible suspension marker, consistent with `move`/`.copy()`.
+Interlock with Mutex: an awaiting closure infers async and fails
+`lock`'s sync-closure parameter — inference is the enforcement mechanism
+for the sync-critical-section guarantee. Tooling note: doc-gen/LSP must
+surface inferred asyncness in signatures.
+
 ## Smaller decisions bundled here
 - **Futures are not user-facing values initially** (no `poll`, no `Future`
   trait): `async func` + `await` + task groups only. Exposing a Future
