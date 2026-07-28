@@ -1,0 +1,35 @@
+// Brief 17 item 4: a chain `a().b().c()` produces several intermediate owned
+// temporaries -- each method receiver plus the discarded final result. None is
+// bound, returned, or transferred, so all must be destroyed at the end of the
+// statement, LIFO (last created dies first).
+//
+// `R(id: 1).chain().chain()` builds:
+//   A = R(id: 1)            (receiver of the first .chain())
+//   B = A.chain() -> id 2   (receiver of the second .chain())
+//   C = B.chain() -> id 3   (discarded final result)
+// created in order A, B, C. LIFO destruction prints 3, 2, 1 at statement end,
+// then the next statement prints 100. Each temporary deinits exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 2
+// 1
+// 100
+
+struct R {
+    id: Int
+}
+
+extension R: Deinit {
+    func deinit(&var self) {
+        print(self.id)
+    }
+    func chain(&self) -> R {
+        R(id: self.id + 1)
+    }
+}
+
+func main() {
+    R(id: 1).chain().chain()
+    print(100)
+}

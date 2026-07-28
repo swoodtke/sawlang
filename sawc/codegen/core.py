@@ -133,6 +133,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Track moved variables - these should not be cleaned up or accessed
         self.moved_variables: set[str] = set()
 
+        # Statement-scoped temporaries (item 4): owned Deinit-needing values
+        # produced mid-statement that are neither bound, returned, nor
+        # transferred onward (e.g. the receiver of `makeResource().use()`).
+        # None outside a statement; a list (LIFO drop at statement end) while a
+        # full statement is being generated. Managed by `_generate_statement`.
+        self.statement_temps: Optional[List[tuple]] = None
+
         # Extern functions that return optionals (need NULL check at call site)
         # Maps function name -> inner SawType (unwrapped from optional)
         self.extern_optional_returns: dict[str, SawType] = {}

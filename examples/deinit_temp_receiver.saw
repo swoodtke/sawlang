@@ -3,17 +3,14 @@
 // method on it, and then the temporary receiver goes away -- its deinit must run.
 // Correct order: "use", then "R deinit", then "after".
 //
-// Today the temporary receiver is never cleaned up: "R deinit" never prints. Only
-// the receiver-of-a-method-result temporary is affected -- a temporary passed as
-// a plain call argument (ownership transferred to the callee) IS deinit'd. Brief
-// 11 report.
-// See todo_jul26.md "Known follow-ups" (method-result temporaries used as receivers).
+// Brief 17 item 4: the method-result temporary receiver is now registered as a
+// statement-scoped temporary and destroyed (LIFO) at the end of the statement
+// that produced it, so "R deinit" prints between "use" and "after".
 // EXPECT: success
 // EXPECT-OUTPUT:
 // use
 // R deinit
 // after
-// XFAIL: a method-result temporary receiver of a Deinit type is never destroyed
 
 struct R {
     id: Int

@@ -15,7 +15,8 @@ Usage:
 from typing import Optional, List
 from llvmlite import ir
 from ast_nodes import (SawType, TypeKind, MoveExpr, Identifier, MemberAccess,
-                       ArrayIndex, TupleIndex, SelfExpr)
+                       ArrayIndex, TupleIndex, SelfExpr,
+                       FunctionCall, MethodCall, StructInit, EnumInit)
 from .mangle import mangle_type
 
 
@@ -168,6 +169,31 @@ class ResourcesMixin:
                     break
         self.type_field_cleanup[key] = result
         return result
+
+    def _is_owned_temporary(self, expr) -> bool:
+        """Whether `expr` produces a fresh, owned value that no binding holds.
+
+        Calls and constructors mint a new value the caller owns: if it is not
+        bound, returned, or transferred onward, nobody will clean it, so it must
+        be registered as a statement-scoped temporary (item 4). An lvalue path
+        (Identifier / self / field / element access) instead *borrows* a value
+        owned by an existing binding, which runs its own cleanup -- registering
+        one of those as a temporary would double-free it.
+        """
+        return isinstance(expr, (FunctionCall, MethodCall, StructInit, EnumInit))
+
+    def _register_stmt_temp(self, value, saw_type: SawType):
+        """Spill an owned temporary `value` to a slot and register it for LIFO
+        release at the end of the enclosing full statement. No-op outside a
+        statement context or for values that need no cleanup."""
+        if self.statement_temps is None or value is None:
+            return None
+        if not self._needs_cleanup(saw_type):
+            return None
+        slot = self._entry_alloca(value.type, name="stmt_temp")
+        self.builder.store(value, slot)
+        self.statement_temps.append((slot, saw_type))
+        return slot
 
     def _generate_deinit_call(self, var_name: str, saw_type: SawType):
         """Generate cleanup (drop glue) for a variable at scope exit.

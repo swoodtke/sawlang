@@ -333,6 +333,19 @@ class CallsMixin:
 
         method_func = self.functions[mangled_name]
 
+        # Statement-scoped temporary receiver (item 4): when the receiver is a
+        # freshly-produced owned value (a call/constructor result) of a
+        # Deinit-needing type, nobody else owns it -- it is not bound, returned,
+        # or transferred onward. Spill it to a slot and register it for LIFO
+        # release at the end of the enclosing statement, so e.g.
+        # `makeResource().use()` destroys the temporary after the call. An lvalue
+        # receiver (Identifier / self / field) is owned by its binding and is
+        # NOT registered here, which would double-free it.
+        receiver_temp_slot = None
+        if self._is_owned_temporary(expr.object):
+            receiver_type = self._expr_type(expr.object)
+            receiver_temp_slot = self._register_stmt_temp(obj_val, receiver_type)
+
         # Generate arguments: [self, arg1, arg2, ...]
         # Check if method expects mutable self (pointer to the value)
         # For String: immutable self is i8*, mutable self is i8**
@@ -369,6 +382,11 @@ class CallsMixin:
                 # Handle nested mutable access like self.keys.push(...)
                 # We need a pointer to the field, not a copy
                 self_arg = self._get_member_pointer(expr.object)
+            elif receiver_temp_slot is not None:
+                # An owned-temporary receiver already spilled to a slot for
+                # statement-scoped cleanup: mutate through that same slot so the
+                # method's effects and the end-of-statement deinit agree.
+                self_arg = receiver_temp_slot
             else:
                 # Otherwise create a temporary
                 self_alloca = self._entry_alloca(obj_val.type, name="self_temp")

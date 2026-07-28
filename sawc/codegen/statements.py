@@ -30,7 +30,14 @@ class StatementsMixin:
     """
 
     def _generate_statement(self, stmt: Statement):
-        """Generate code for a statement."""
+        """Generate code for a statement.
+
+        Each full statement gets its own statement-scoped temporary list (item
+        4): owned Deinit-needing values produced mid-statement that no binding
+        takes ownership of (a method-call receiver, a discarded call result) are
+        registered here and released LIFO once the statement finishes. Loops
+        manage their own per-iteration scopes, so they keep the outer context.
+        """
         # Handle dual-purpose nodes (Expressions used as Statements)
         if isinstance(stmt, WhileExpr):
             self._generate_while_expr(stmt)
@@ -44,7 +51,20 @@ class StatementsMixin:
         visitor = getattr(self, method_name, None)
         if visitor is None:
             raise ValueError(f"Unknown statement type: {type(stmt)}")
-        visitor(stmt)
+
+        saved_temps = self.statement_temps
+        self.statement_temps = []
+        try:
+            visitor(stmt)
+            temps = self.statement_temps
+            # Release statement temporaries in reverse creation order (LIFO),
+            # unless the statement already terminated the block (e.g. `return`,
+            # which cleaned up through the scope machinery instead).
+            if temps and not self.builder.block.is_terminated:
+                for slot, saw_type in reversed(temps):
+                    self._emit_drop_at(slot, saw_type)
+        finally:
+            self.statement_temps = saved_temps
 
     # ===== Statement Visitor Methods =====
 
@@ -71,7 +91,14 @@ class StatementsMixin:
 
     def visit_ExpressionStatement(self, stmt: ExpressionStatement):
         # Expression used as statement - we don't need its result value
-        self._generate_expression(stmt.expression, need_result=False)
+        value = self._generate_expression(stmt.expression, need_result=False)
+        # A top-level owned temporary whose result is discarded (e.g. the final
+        # link of a `a().b().c()` chain) is neither bound nor transferred, so it
+        # must be released at statement end too. Register it LAST so it drops
+        # FIRST (LIFO), before any receiver temporaries it was built from.
+        if (self._is_owned_temporary(stmt.expression)
+                and not self.builder.block.is_terminated):
+            self._register_stmt_temp(value, self._expr_type(stmt.expression))
 
     def _generate_let_statement(self, stmt: LetStatement):
         """Generate code for a let binding."""
