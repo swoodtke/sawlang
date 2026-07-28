@@ -19,9 +19,10 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Language & semantics
 
-- **L1.** Partial moves — DECIDED forbidden on all structs (design 35);
-  remaining work is the small audit/diagnostic item in that doc
-  (destructure-move and take() deferred wait-and-see). [15, 35]
+- **L1.** Partial moves — DECIDED forbidden + LANDED (design 35,
+  `2829364`): field/nested/index forms all get naming diagnostics; the
+  audit found `move arr[i]` had been silently moving the whole array
+  into an ICE. Destructure-move and take() stay wait-and-see. [15, 35]
 - **L2.** Return-type reconciliation for type-param / associated-type
   returns in generic bodies — documented deferred looseness from brief 24.
   [02, 24]
