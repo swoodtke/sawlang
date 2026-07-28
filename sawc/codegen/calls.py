@@ -258,6 +258,11 @@ class CallsMixin:
         if getattr(expr, 'arc_forward_payload_type', None) is not None:
             return self._generate_arc_forward_call(expr)
 
+        # A call through a function-typed struct field (design 24 item 3): the
+        # typechecker resolved `obj.field(args)` as an indirect closure call.
+        if getattr(expr, 'is_field_call', False):
+            return self._generate_field_call(expr)
+
         # Check if this is a nested module function call: Parent.Child.symbol(args)
         if isinstance(expr.object, MemberAccess):
             # Check if it's a chain of module accesses
@@ -582,6 +587,23 @@ class CallsMixin:
         for arg in expr.arguments:
             args.append(self._gen_transfer_value(arg.value))
         return self.builder.call(method_func, args, name="arc_forward_call")
+
+    def _generate_field_call(self, expr: MethodCall):
+        """Lower a call through a function-typed struct field: `obj.field(args)`
+        (design 24 item 3).
+
+        The field holds a closure value `{ fn_ptr, env_ptr }` (the same ABI as a
+        closure bound to a local). Load the field via ordinary member access,
+        then invoke it exactly like an indirect closure call.
+        """
+        member = MemberAccess(
+            object=expr.object, member=expr.method_name,
+            line=expr.line, column=expr.column)
+        closure_val = self._generate_expression(member)
+        fn_ptr = self.builder.extract_value(closure_val, 0, name="field_fn_ptr")
+        env_ptr = self.builder.extract_value(closure_val, 1, name="field_env_ptr")
+        arg_vals = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
+        return self.builder.call(fn_ptr, [env_ptr] + arg_vals, name="field_closure_call")
 
     def _generate_static_method_call(self, expr: MethodCall, struct_name: str):
         """Generate a static method call: StructName.method(args)"""

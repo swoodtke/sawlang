@@ -1,0 +1,21 @@
+// design 24 item 3: a module-qualified call is wired into the suspend graph.
+// A `sync func` that reaches a suspending function through `module.fn()` is
+// rejected, with the full suspension PATH crossing the module boundary.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: `blockingRead` → __test_suspend
+
+module io {
+    public func blockingRead() -> Int {
+        __test_suspend()
+        42
+    }
+}
+
+func handler() sync -> Int {
+    io.blockingRead()
+}
+
+func main() {
+    print(1)
+}

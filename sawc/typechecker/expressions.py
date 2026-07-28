@@ -1387,6 +1387,10 @@ class ExpressionsMixin:
         else:
             method_info = matching_inits[0]
             expr.resolved_init_params = method_info.param_names
+            # design 24 item 3: a custom `init` runs user code — record the
+            # suspend-graph edge to it.
+            self._effect_call_method(
+                method_info, f"`{expr.struct_name}.init`", expr.line)
             init_values = []
             init_param_types = []
             for field_name, field_value in expr.field_inits:
@@ -1792,6 +1796,45 @@ class ExpressionsMixin:
         )
         return None
 
+    def _check_field_call(self, expr: MethodCall, func_type: SawType) -> Optional[SawType]:
+        """Check a call through a function-typed struct field: `obj.field(args)`
+        (design 24 item 3).
+
+        This is an indirect call. Suspendability follows the field's type: a
+        non-`sync` function-typed field conservatively marks the caller
+        suspending (`_effect_indirect_call`), exactly like a call through a
+        function-typed local or parameter. The node is flagged for codegen so it
+        lowers to a field load + closure invocation rather than method dispatch.
+        """
+        # design 22/24: indirect call — non-`sync` field type => caller suspends.
+        self._effect_indirect_call(func_type, expr.line)
+        expr.is_field_call = True  # consumed by codegen
+        param_types = func_type.param_types or []
+        return_type = func_type.func_return_type or SawType(TypeKind.VOID)
+        if len(expr.arguments) != len(param_types):
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"field `{expr.method_name}` is a function taking {len(param_types)} "
+                f"argument(s), but {len(expr.arguments)} were given",
+                expr.line, expr.column
+            )
+            return return_type
+        for i, (arg, expected_type) in enumerate(zip(expr.arguments, param_types)):
+            if isinstance(arg.value, ClosureExpr):
+                arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
+            else:
+                arg_type = self._check_expression(arg.value)
+            if arg_type and not self._types_compatible(arg_type, expected_type):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
+                    arg.value.line, arg.value.column
+                )
+            self._check_value_transfer(arg.value, expected_type, "call argument",
+                                       arg.value.line, arg.value.column)
+        self._check_call_exclusivity([a.value for a in expr.arguments], param_types)
+        return return_type
+
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
         """Check a method call, static method call, enum initialization, or module function call."""
         if isinstance(expr.object, MemberAccess):
@@ -1968,6 +2011,17 @@ class ExpressionsMixin:
                 method_info, type_subst = fwd
                 expr.arc_forward_payload_type = obj_type.type_args[0]
         if method_info is None:
+            # A call through a function-typed struct field: `obj.field(args)`
+            # where `field: (…) -> …` (design 24 item 3). Treated as an indirect
+            # call; the field's type drives suspendability — a non-`sync` field
+            # type conservatively suspends the caller.
+            fields = getattr(struct_info, 'fields', None)
+            field_type = fields.get(expr.method_name) if fields else None
+            if field_type is not None:
+                if type_subst:
+                    field_type = field_type.substitute(type_subst)
+                if field_type.kind == TypeKind.FUNCTION:
+                    return self._check_field_call(expr, field_type)
             # Collect available methods from both generic and specialized
             available = list(struct_info.methods.keys())
             if obj_type.type_args:
@@ -2060,6 +2114,12 @@ class ExpressionsMixin:
 
     def _check_module_function_call(self, expr: MethodCall, func_info) -> Optional[SawType]:
         """Check a module function call: ModuleName.function(args)"""
+        # design 24 item 3: record the suspend-graph edge for a module-qualified
+        # call. In the whole-program (single-file) path the callee's node is
+        # registered under its name and the edge connects; a cross-module callee
+        # into a separately-checked module resolves to no node and is a
+        # non-suspending leaf (design 22 §5), which is safe today.
+        self._effect_call_function(func_info, expr.method_name, expr.line)
         if len(expr.arguments) != len(func_info.param_types):
             self._error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
@@ -2150,6 +2210,9 @@ class ExpressionsMixin:
         else:
             # Custom init method
             method_info = matching_inits[0]
+            # design 24 item 3: record the suspend-graph edge to the custom init.
+            self._effect_call_method(
+                method_info, f"`{struct_name}.init`", expr.line)
             init_values = []
             init_param_types = []
             for field_name, field_value in field_inits:
@@ -2173,6 +2236,9 @@ class ExpressionsMixin:
     def _check_static_method_call(self, expr: MethodCall, struct_name: str,
                                    struct_info, method_info) -> Optional[SawType]:
         """Check a static method call: StructName.method(args)"""
+        # design 24 item 3: record the suspend-graph edge to the static method.
+        self._effect_call_method(
+            method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
         required_count = sum(1 for dv in method_info.default_values if dv is None)
         if len(expr.arguments) < required_count:
             self._error(

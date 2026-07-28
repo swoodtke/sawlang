@@ -485,6 +485,17 @@ class DeclarationsMixin:
         parameters, self_mutable, self_is_reference, is_static = self.parse_method_parameters()
         self.expect(TokenType.RPAREN)
 
+        # Post-parameter effect slot (designs 18/22, design 24 item 3): an
+        # extension method may be `func name(...) sync [-> T]` (ISR/callback
+        # style). `sync` is CONTEXTUAL here for the same reason as on a free
+        # function — after the parameter list only `->`, `{`, or a newline may
+        # follow, so a bare identifier is unambiguous. The body is a checked
+        # suspension-free context (`Method.is_sync`, honored by the effect graph).
+        is_sync = False
+        if self.match_ident('sync'):
+            is_sync = True
+            self.advance()
+
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)
         if self.match(TokenType.ARROW):
@@ -503,6 +514,7 @@ class DeclarationsMixin:
             self_mutable=self_mutable,
             self_is_reference=self_is_reference,
             is_static=is_static,
+            is_sync=is_sync,
             line=start.line,
             column=start.column,
             source_file=self.source_file

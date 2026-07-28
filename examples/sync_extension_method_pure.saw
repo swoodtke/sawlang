@@ -1,0 +1,21 @@
+// design 24 item 3 acceptance: a `sync` method in an extension whose body is
+// suspension-free type-checks and runs. `sync` sits in the post-parameter slot,
+// just like on a free function.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+
+struct Device {
+    id: Int
+}
+
+extension Device {
+    func poll(&self) sync -> Int {
+        self.id + 1
+    }
+}
+
+func main() {
+    let d = Device(id: 5)
+    print(d.poll())
+}

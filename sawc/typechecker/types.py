@@ -13,7 +13,7 @@ from typing import Optional, Tuple
 from ast_nodes import (
     SawType, TypeKind,
     Expression, Identifier, MoveExpr, ReferenceExpr, IntLiteral, Block,
-    MemberAccess, ArrayIndex, TupleIndex, SelfExpr
+    MemberAccess, ArrayIndex, TupleIndex, SelfExpr, ClosureExpr
 )
 from errors import ErrorKind
 from namespace import (
@@ -629,6 +629,28 @@ class TypeUtilsMixin:
         """
         if expr is None:
             return
+
+        # design 24 item 3 (the `sync` boundary): a `sync` function type accepts
+        # only a `sync` value. A closure LITERAL is exempt — it is effect-checked
+        # in the sync context it is passed into (`_effect_enter_closure` reads the
+        # expected type's `sync` flag). Any OTHER function value (a stored or
+        # forwarded function, a non-`sync` function-typed field) is rejected at
+        # the boundary unless its own type is `sync`, because it could suspend and
+        # a `sync` context must be transitively suspension-free.
+        if (target_type is not None and target_type.kind == TypeKind.FUNCTION
+                and getattr(target_type, 'func_is_sync', False)
+                and not isinstance(expr, ClosureExpr)):
+            src = getattr(expr, 'resolved_type', None)
+            if (src is not None and src.kind == TypeKind.FUNCTION
+                    and not getattr(src, 'func_is_sync', False)):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot pass a non-`sync` function value where a `{target_type}` "
+                    f"is expected",
+                    line, column,
+                    hint="pass a `sync`-typed function value or a closure literal "
+                         "that is checked suspension-free"
+                )
 
         # `move x` transfers ownership; a move is never a copy/NoCopy violation.
         # Moved-from recording happens in `_check_move_expr` (design 15).

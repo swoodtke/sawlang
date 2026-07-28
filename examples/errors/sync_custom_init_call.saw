@@ -1,0 +1,26 @@
+// design 24 item 3: a custom `init` call is wired into the suspend graph.
+// Constructing a value whose custom init suspends is a suspension point, so a
+// `sync func` that does so is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: Widget.init
+
+struct Widget {
+    v: Int
+}
+
+extension Widget {
+    init(seed: Int) -> Widget {
+        __test_suspend()
+        Widget(v: seed)
+    }
+}
+
+func handler() sync -> Int {
+    let w = Widget(seed: 5)
+    w.v
+}
+
+func main() {
+    print(1)
+}

@@ -1,0 +1,16 @@
+// design 24 item 3 (the `sync` boundary): a `sync` function-typed parameter
+// accepts only a `sync` value. A closure LITERAL is exempt (it is effect-checked
+// in place), but a non-literal function VALUE whose own type is not `sync` is
+// rejected at the boundary — it could suspend.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot pass a non-`sync` function value
+
+func needsSync(f: (Int) sync -> Int) -> Int {
+    5
+}
+
+func main() {
+    let g = { n: Int in n + 1 }
+    let r = needsSync(g)
+    print(r)
+}

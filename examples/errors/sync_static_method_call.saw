@@ -1,0 +1,24 @@
+// design 24 item 3: a static-method call is wired into the suspend graph. A
+// `sync func` reaching a suspending static method `Struct.method()` is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: Reader.load
+
+struct Reader {
+    fd: Int
+}
+
+extension Reader {
+    func load() -> Int {
+        __test_suspend()
+        7
+    }
+}
+
+func handler() sync -> Int {
+    Reader.load()
+}
+
+func main() {
+    print(1)
+}

@@ -1,0 +1,19 @@
+// design 24 item 3: a call through a function-typed STRUCT FIELD is an indirect
+// call. The field's type is non-`sync`, so the call conservatively suspends —
+// a `sync func` that does so is rejected (the same rule as any call through a
+// non-`sync` function value).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: a call through a non-`sync` function value
+
+struct Callback {
+    run: (Int) -> Int
+}
+
+func invoke(t: Callback) sync -> Int {
+    t.run(1)
+}
+
+func main() {
+    print(1)
+}

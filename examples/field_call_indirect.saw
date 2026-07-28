@@ -1,0 +1,19 @@
+// design 24 item 3 acceptance: a direct call through a function-typed struct
+// field, `obj.field(args)`, lowers to a field load + closure invocation and
+// runs. (Outside any `sync` context, calling through a non-`sync` field is fine.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 15
+
+struct Handler {
+    action: (Int) -> Int
+}
+
+func main() {
+    let h = Handler(action: { n: Int in n + 1 })
+    print(h.action(5))    // 6
+
+    let g = Handler(action: { n: Int in n * 3 })
+    print(g.action(5))    // 15
+}
