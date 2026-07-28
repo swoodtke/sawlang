@@ -71,7 +71,54 @@ class ConditionalsMixin:
             self.builder.position_at_start(merge_bb)
             return None
 
-        # Normal case - add branches if not terminated
+        # Case A: both branches yield same-typed values -> phi merge.
+        if (then_val is not None and else_val is not None
+                and then_val.type == else_val.type):
+            if not then_terminated:
+                self.builder.position_at_end(then_bb_end)
+                self.builder.branch(merge_bb)
+            if not else_terminated:
+                self.builder.position_at_end(else_bb_end)
+                self.builder.branch(merge_bb)
+            self.builder.position_at_start(merge_bb)
+            phi = self.builder.phi(then_val.type, name="iftmp")
+            phi.add_incoming(then_val, then_bb_end)
+            phi.add_incoming(else_val, else_bb_end)
+            return phi
+
+        # Case B: a no-else (or valueless-else) `if` that still yields a value
+        # from its then-branch. The then value is produced inside the then block
+        # and does NOT dominate the merge, so returning it directly emits an
+        # undominated SSA use (LLVM verify crash) whenever a caller consumes the
+        # result -- e.g. this `if` as the tail of an `if let` branch. Route
+        # through an entry-block result slot: default-initialise it in entry (so
+        # the else/fallthrough path has a defined value), store the then value on
+        # the taken path, and load at the merge. Every path stores, so the load
+        # dominates. (Mirror of the if-let result-slot idiom below.)
+        if (then_val is not None and else_val is None
+                and not isinstance(then_val.type, ir.VoidType)):
+            result_alloca = self._entry_alloca(then_val.type, name="if_result")
+            zero_val = ir.Constant(
+                then_val.type,
+                0 if isinstance(then_val.type, ir.IntType) else None)
+            entry_block = func.entry_basic_block
+            if entry_block.terminator is not None:
+                self.builder.position_before(entry_block.terminator)
+            else:
+                self.builder.position_at_end(entry_block)
+            self.builder.store(zero_val, result_alloca)
+
+            self.builder.position_at_end(then_bb_end)
+            if not then_terminated:
+                self.builder.store(then_val, result_alloca)
+                self.builder.branch(merge_bb)
+            self.builder.position_at_end(else_bb_end)
+            if not else_terminated:
+                self.builder.branch(merge_bb)
+            self.builder.position_at_start(merge_bb)
+            return self.builder.load(result_alloca, name="iftmp")
+
+        # Otherwise: no capturable value -> just wire the branches.
         if not then_terminated:
             self.builder.position_at_end(then_bb_end)
             self.builder.branch(merge_bb)
@@ -81,14 +128,6 @@ class ConditionalsMixin:
 
         # Merge block
         self.builder.position_at_start(merge_bb)
-
-        # If both branches produce values of the same type, create a phi node
-        if then_val is not None and else_val is not None:
-            if then_val.type == else_val.type:
-                phi = self.builder.phi(then_val.type, name="iftmp")
-                phi.add_incoming(then_val, then_bb_end)
-                phi.add_incoming(else_val, else_bb_end)
-                return phi
 
         return then_val
 

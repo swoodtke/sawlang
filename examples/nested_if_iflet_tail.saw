@@ -12,7 +12,6 @@
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 10
-// XFAIL: nested no-else if as an if-let branch tail emits an undominated SSA store (LLVM verify crash)
 
 func compute(x: Int) -> Int? {
     if x > 0 {
