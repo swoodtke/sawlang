@@ -64,3 +64,14 @@ methods" errors — the synthesis hook must run before that check).
 Per item: mechanism, verification. Every payload-enum test whose
 expected output flipped (item 4). Whether tuples made it. Deviations;
 non-allowlisted commands.
+
+## Landed (Jul 28) — deviations from the text above
+- Trait signature is `equals(&self, other: Self)` (by value), not
+  `&Self` — matches String's pre-existing `equals`; non-consuming in
+  practice because `==` never emits a consuming call.
+- Custom `equals` override works for structs only; enums accept only
+  the empty synthesizing extension (no enum-method infrastructure).
+- Auto-conform is trivially-copyable AND every-field-Equatable —
+  optional/array-bearing fields error cleanly at the comparison site
+  (`==` over those member kinds is a documented not-yet).
+- Tuple equality (stretch) shipped. Map gained `K: Equatable`.

@@ -44,6 +44,13 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   monomorphization gaps ("Undefined struct: T"); routing through a
   concrete-typed consumer works. Pre-existing, found in brief 30's
   generic lock-in test. [30 report]
+- **L8.** Generic function taking a generic container BY PARAMETER
+  (`unbox<T>(b: Box<T>)`) recurses in monomorphization — pre-existing,
+  broader sibling of L7, reproduced with zero equality involvement
+  (brief 32 report). [32 report]
+- **L9.** `==` over Optional- or array-bearing members not yet
+  lowerable (auto-conform deliberately excludes them; clean error at
+  comparison site). Extend the equals derivation when needed. [32]
 - **L4. VERIFY:** `Vector<File>.copy()`-style diagnostic — was a raw
   Python traceback (brief 09 report); brief 26's ICE wrapper now catches
   it, but it should be a proper user-facing typechecker error, not an ICE.
