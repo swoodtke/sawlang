@@ -18,6 +18,6 @@ func main() {
 
     var b = 100
     print(b)
-    increment(&b)
+    increment(&var b)
     print(b)
 }

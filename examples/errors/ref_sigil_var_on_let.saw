@@ -1,0 +1,13 @@
+// `&var x` requires `x` to be a `var` binding (design 34). A `&var` on a `let`
+// binding is rejected even though the parameter is `&var`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot take mutable reference to immutable variable `a`
+
+func bump(y: &var Int) {
+    y += 1
+}
+
+func main() {
+    let a = 5
+    bump(&var a)
+}

@@ -1,0 +1,10 @@
+// A `&var` reference is only valid as a call argument (design 34): it cannot be
+// stored or bound to a variable.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `&var` is only allowed as a call argument
+
+func main() {
+    var a = 5
+    let r = &var a
+    print(a)
+}

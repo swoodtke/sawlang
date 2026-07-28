@@ -12,12 +12,12 @@ func addRef(x: &var Int, delta: Int) {
 
 func main() {
     var v = 10
-    // `&v` is a reference arg; `5 &+ 3` is a wrapping add -> 8
-    addRef(&v, 5 &+ 3)
+    // `&var v` is a mutable reference arg; `5 &+ 3` is a wrapping add -> 8
+    addRef(&var v, 5 &+ 3)
     print(v)   // 18
 
     // Wrapping op and a plain reference-taking call in the same statement.
     var w = 1
-    addRef(&w, 1 &+ 1)
+    addRef(&var w, 1 &+ 1)
     print(w)   // 3
 }

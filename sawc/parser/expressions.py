@@ -518,11 +518,16 @@ class ExpressionsMixin:
             name = self.advance().value
             self.advance()  # consume ':'
             value = self.parse_expression()
-            return Argument(value=value, name=name)
         else:
             # Positional argument
             value = self.parse_expression()
-            return Argument(value=value, name=None)
+            name = None
+        # A `&`/`&var` reference at the top of an argument is the one legal
+        # position for a reference (design 34). Mark it so the typechecker can
+        # reject `&var` used anywhere else.
+        if isinstance(value, ReferenceExpr):
+            value.in_argument_position = True
+        return Argument(value=value, name=name)
 
     def parse_function_call(self, name_token, type_args: List[SawType] = None) -> FunctionCall:
         self.expect(TokenType.LPAREN)

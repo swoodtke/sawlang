@@ -1,0 +1,13 @@
+// `&x` against a `&var T` parameter is a mismatch (design 34): the call site
+// must mirror the parameter and write `&var x`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: parameter `y` is `&var Int`; write `&var b`
+
+func bump(y: &var Int) {
+    y += 1
+}
+
+func main() {
+    var b = 5
+    bump(&b)
+}

@@ -10,14 +10,14 @@
 
 func apply_mut(x: Int, body: (&var Int) -> Bool) -> Int {
     var v = x
-    body(&v)
+    body(&var v)
     v
 }
 
 func twice(x: Int, body: (&var Int) -> Bool) -> Int {
     var v = x
-    body(&v)
-    body(&v)
+    body(&var v)
+    body(&var v)
     v
 }
 

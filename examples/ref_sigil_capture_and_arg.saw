@@ -1,0 +1,22 @@
+// Hazard (design 34 x brief 29): a single call expression combines a `&var`
+// reference ARGUMENT (`combo(&var v)`) with a closure capture list that names a
+// `&var` reference PARAMETER (`{ &var n in ... }`). The two spellings occupy
+// different positions and the parser must keep them apart.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 105
+
+func combo(target: &var Int, body: (&var Int) -> Bool) {
+    target += 100        // mutate the &var argument directly
+    var local = 0
+    body(&var local)     // drive the closure through a &var reference
+}
+
+func main() {
+    var v = 5
+    combo(&var v) { &var n in
+        n = n + 1
+        true
+    }
+    print(v)   // 105
+}

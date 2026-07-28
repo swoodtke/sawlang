@@ -10,5 +10,5 @@ func swap(a: &var Int, b: &var Int) {
 
 func main() {
     var x = 5
-    swap(&x, &x)
+    swap(&var x, &var x)
 }

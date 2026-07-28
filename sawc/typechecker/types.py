@@ -846,21 +846,65 @@ class TypeUtilsMixin:
             return expr.name
         return "…"
 
+    def _check_reference_sigils(self, values, param_types, param_names=None):
+        """Validate each reference argument's sigil against its parameter (design 34).
+
+        Call sites mirror the parameter's reference spelling: `&x` lends to a
+        `&T` parameter, `&var x` lends to a `&var T` parameter. A mismatch in
+        EITHER direction is a compile error. `values` are the argument value
+        expressions; `param_types` is positionally aligned; `param_names`
+        (optional) names the parameter in the diagnostic when available.
+        """
+        if not param_types:
+            return
+        for i, value in enumerate(values):
+            if not isinstance(value, ReferenceExpr):
+                continue
+            if i >= len(param_types):
+                continue
+            ptype = param_types[i]
+            if ptype is None or ptype.kind != TypeKind.REFERENCE:
+                # Bare `&`/`&var` against a by-value parameter is a plain type
+                # mismatch, already reported by the caller's compatibility check.
+                continue
+            name = param_names[i] if param_names and i < len(param_names) else None
+            named = f"parameter `{name}` is " if name else "parameter is "
+            rendered = self._render_lvalue_path(value.expr)
+            if ptype.reference_mutable and not value.mutable:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"{named}`&var {ptype.inner_type}`; write `&var {rendered}`",
+                    value.line, value.column,
+                    hint="call sites mirror the parameter's reference spelling"
+                )
+            elif not ptype.reference_mutable and value.mutable:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"{named}`&{ptype.inner_type}`; write `&{rendered}`",
+                    value.line, value.column,
+                    hint="call sites mirror the parameter's reference spelling"
+                )
+
     def _check_call_exclusivity(self, values, param_types=None,
                                 receiver: Optional[Expression] = None,
-                                receiver_mutable: bool = False):
+                                receiver_mutable: bool = False,
+                                param_names=None):
         """Enforce the law of exclusivity across one call's by-reference paths.
 
         `values` are the argument value expressions; `param_types` (optional,
-        positionally aligned) let a `&`-argument bound to a `&var` parameter be
-        treated as mutable even when the call site wrote a plain `&` (Saw's call
-        sites do not repeat `var`). `receiver`/`receiver_mutable` describe a
-        method receiver: the receiver of a `var self` method is a mutable path.
+        positionally aligned). `receiver`/`receiver_mutable` describe a method
+        receiver: the receiver of a `var self` method is a mutable path.
+
+        Reference-argument sigils are validated first (design 34): after that,
+        each `&`/`&var` argument's mutability is read straight from its sigil,
+        which agrees with the parameter by construction.
 
         By-value arguments are NOT collected -- snapshot semantics (the copy
         happens at call setup), which is what makes a by-value argument that
         overlaps a `&var` well-defined.
         """
+        # Validate that each reference argument's sigil matches its parameter.
+        self._check_reference_sigils(values, param_types, param_names)
         # Each entry: (kind, path, name_expr, line, column) where kind is one of
         # 'mut', 'imm', 'moved'. name_expr renders the offending path.
         entries = []
@@ -879,15 +923,13 @@ class TypeUtilsMixin:
         if param_types is None:
             param_types = []
         for i, value in enumerate(values):
-            ptype = param_types[i] if i < len(param_types) else None
             if isinstance(value, ReferenceExpr):
                 path = self._build_access_path(value.expr)
                 if path is None:
                     continue
+                # Mutability comes from the sigil; `_check_reference_sigils` has
+                # already ensured it agrees with the parameter (design 34).
                 is_mut = bool(value.mutable)
-                if (ptype is not None and ptype.kind == TypeKind.REFERENCE
-                        and ptype.reference_mutable):
-                    is_mut = True
                 entries.append(('mut' if is_mut else 'imm', path, value.expr,
                                 value.line, value.column))
             elif isinstance(value, MoveExpr):

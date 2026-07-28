@@ -1,0 +1,24 @@
+// Call sites mirror the parameter's reference spelling (design 34): `&x` lends
+// immutably to a `&T` parameter, `&var x` lends mutably to a `&var T` parameter.
+// Both correct spellings compile and behave.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 6
+
+func readIt(x: &Int) -> Int {
+    x
+}
+
+func bump(y: &var Int) {
+    y += 1
+}
+
+func main() {
+    let a = 42
+    print(readIt(&a))   // 42
+
+    var b = 5
+    bump(&var b)
+    print(b)            // 6
+}

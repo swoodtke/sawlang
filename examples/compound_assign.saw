@@ -53,7 +53,7 @@ func main() {
 
     // Test compound assignment through reference
     var g = 3
-    addThree(&g)
+    addThree(&var g)
     print(g)  // 6
 }
 

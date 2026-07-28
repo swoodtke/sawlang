@@ -1,0 +1,13 @@
+// `&var x` against a `&T` parameter is a mismatch (design 34): the call site
+// must mirror the parameter and write `&x`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: parameter `x` is `&Int`; write `&a`
+
+func readIt(x: &Int) -> Int {
+    x
+}
+
+func main() {
+    var a = 5
+    print(readIt(&var a))
+}

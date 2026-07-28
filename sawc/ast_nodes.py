@@ -440,9 +440,13 @@ class ReferenceExpr(Expression):
 
     Used when passing arguments to functions that take reference parameters.
     The mutable flag indicates whether this is a mutable reference (&var).
+    `in_argument_position` is set by the parser when the reference is the whole
+    of a call/method/init argument; a `&var` reference anywhere else (design 34)
+    is rejected by the typechecker.
     """
     expr: Expression
     mutable: bool = False  # True for &var, False for &
+    in_argument_position: bool = False  # Set by the parser for call arguments
     line: int = 0
     column: int = 0
 

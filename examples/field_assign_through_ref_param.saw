@@ -21,6 +21,6 @@ func set(r: &var Box) {
 
 func main() {
     var b = Box(field: 0)
-    set(&b)
+    set(&var b)
     print(b.field)
 }

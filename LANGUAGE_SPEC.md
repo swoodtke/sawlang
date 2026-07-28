@@ -657,7 +657,7 @@ func append_greeting(s: &var String) {
 }
 
 var msg = String.from("Hello")
-append_greeting(&msg)  // & at call site
+append_greeting(&var msg)  // &var mirrors the &var parameter
 print(msg)  // "Hello, world!"
 
 // Multiple reference parameters. (The body is illustrative: because direct
@@ -667,7 +667,7 @@ func swap<T>(a: &var T, b: &var T) { /* ... */ }
 
 var x = 1
 var y = 2
-swap(&x, &y)  // x is now 2, y is now 1
+swap(&var x, &var y)  // x is now 2, y is now 1
 
 // Regular parameters are copied (caller's value unchanged)
 func process(s: String) {
@@ -684,6 +684,26 @@ process(original)  // original is copied, unchanged
 - Direct assignment through references is not allowed: `x = 5` is an error
 - Moving out of references is not allowed: `move x` where `x: &var T` is an error
 - References cannot escape: cannot return, store in structs, or capture in closures
+
+**Call-site reference sigils:** the call site mirrors the parameter's reference
+spelling. `&x` lends immutably to a `&T` parameter; `&var x` lends mutably to a
+`&var T` parameter. A mismatch in **either** direction is a compile error
+(`&x` to a `&var T` parameter, or `&var x` to a `&T` parameter), and `&var x`
+additionally requires `x` to be a `var` binding. A `&var` reference is only
+valid as a call/method/init argument — it cannot be stored, returned, or bound
+to a variable. This completes the sigil symmetry across types (`&T`/`&var T`),
+receivers (`&self`/`&var self`), closure capture (`&v`/`&var v`), and call
+sites.
+
+```saw
+func readIt(x: &Int) -> Int { x }
+func bump(y: &var Int) { y += 1 }
+
+var b = 5
+bump(&var b)        // OK — &var mirrors the &var parameter
+// bump(&b)         // error: parameter `y` is `&var Int`; write `&var b`
+// readIt(&var b)   // error: parameter `x` is `&Int`; write `&b`
+```
 
 **Method Self:**
 Methods use reference syntax for self:

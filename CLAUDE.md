@@ -29,7 +29,10 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 - Immutable by default (`let`)
 - Explicit `var` for mutable bindings
 - `var` parameters allow mutation of caller's value
-- `&` at call site indicates variable may be mutated: `foo(&x)`
+- Call sites mirror the parameter's reference spelling: `&x` lends immutably to
+  a `&T` param, `&var x` lends mutably to a `&var T` param. A mismatch either way
+  is a compile error, and `&var x` requires `x` to be a `var` binding. A `&var`
+  reference is only valid as a call argument.
 
 ### Type System
 - Algebraic data types (enums with data)
@@ -52,7 +55,8 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 
 ### Key Differences from Rust
 1. `var` instead of `let mut` (consistent use of `var` for mutability)
-2. No reference types or lifetimes - use `var` params with `&` at call site
+2. No lifetimes - reference params `&T`/`&var T`, and the call site mirrors the
+   sigil (`&x` / `&var x`)
 3. Copy trait family: trivial types copy, owning types move with explicit `.copy()`
 4. `T?` for optionals (postfix, Swift-style)
 5. `guard let` for early unwrapping

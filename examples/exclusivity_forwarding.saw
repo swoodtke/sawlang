@@ -10,10 +10,10 @@ func inner(a: &var Int, b: &var Int) {
 }
 
 func outer(a: &var Int, b: &var Int) {
-    inner(&a, &b)   // distinct params -> accepted here
+    inner(&var a, &var b)   // distinct params -> accepted here
 }
 
 func main() {
     var x = 0
-    outer(&x, &x)   // aliasing arrives here -> rejected
+    outer(&var x, &var x)   // aliasing arrives here -> rejected
 }
