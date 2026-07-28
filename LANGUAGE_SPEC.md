@@ -1184,17 +1184,45 @@ illustrative below.
   (self-deadlock on re-lock). The pthread opaque buffer is a conservative
   64-byte slot (real sizes: macOS 64, glibc/x86_64 40, glibc/aarch64 48),
   initialized via `pthread_mutex_init` — never a hardcoded platform struct.
+- **Escaping-closure heap environments** — a closure used in value position
+  (bound, returned, stored, or passed to `spawn`) outlives its creating frame,
+  so its captured environment is `saw_alloc`'d instead of stack-allocated.
+  Captures transfer in per the value-transfer rules (ImplicitCopy retained,
+  trivial copied bitwise; a move-only capture is rejected), and a generated
+  env-destructor runs the captures' drop glue exactly once and frees the block.
+  For `spawn` that destructor runs on the task thread after the body returns, so
+  a captured `Arc` is retained at capture and released once on the task thread.
+  Non-escaping closures (a direct call argument, e.g. `Mutex.lock`'s body) keep
+  a stack env. General stored/returned escaping closures currently leak their
+  env (documented); full closure `Deinit` is deferred.
+- **`Arc<T>` payload method forwarding** — an immutable `&self` method on the
+  payload `T` is callable through the `Arc` (`arc.method(...)`): the call borrows
+  the control block's payload slot. Sound because a live strong reference pins
+  the payload. A `&var self` payload method is rejected (aliased mutation — use
+  `Arc<Mutex<T>>`). This gives the `Arc<Mutex<T>>` idiom its access path:
+  `arc.lock { ... }` forwards to `Mutex.lock`.
+- **`spawn` / `Task<T>`** — `spawn { ... } -> Task<T>` launches the closure on a
+  fresh task (hosted pthread-per-task engine; thread identity is never exposed).
+  The Send capture-audit walks the closure's captures and rejects the first
+  whose type is not `Send`, naming the capture. `Task<T>` is `NoCopy + Deinit`:
+  `join` blocks for the result; dropping an unjoined `Task` **joins** it
+  (structured concurrency — a task's lifetime is a value's lifetime).
+- **`Channel<T: Send>`** — an `ImplicitCopy` handle onto a shared, internally
+  refcounted unbounded MPMC queue (cloning the handle shares the queue; the last
+  handle drains and frees it). Guarded by an internal pthread mutex + condvar
+  (conservative 64-byte condvar slot; real `pthread_cond_t` is ≤48 bytes),
+  initialized via `pthread_cond_init` — never a hardcoded struct. `send(v)`
+  enqueues under the lock and signals a waiter; `recv() -> T` blocks while empty.
+  `T: Send` is enforced on the type at construction.
 
-The atomic-ordering runtime (`__saw_atomic_*`, per the String protocol) that
-`Arc` and future channels share is in place. **`spawn`/`Task<T>` and
-`Channel<T>` (the task-launch and message-passing primitives) are specified in
-`designs/21` but not yet wired up** — they need the escaping-closure heap-env
-lowering (a task closure must outlive the spawning frame on another thread),
-which is the next increment, together with their `pthread_create`/`join` and
-condvar wrappers. Under the future cooperative engine, `recv()` and `lock`
-keep their shapes but `recv()`/channel waits become suspension points; `lock`'s
-critical section stays synchronous (a sync closure cannot `await`), which is how
-the never-block invariant makes holding a lock across `await` a compile error.
+The atomic-ordering runtime (`__saw_atomic_*`, per the String protocol) is
+shared by `Arc` and `Channel`; the `pthread_create`/`join` and condvar wrappers
+back `spawn`/`Task` and `Channel`. Under the future cooperative engine, `recv()`
+and channel waits become suspension points but keep their shapes; `lock`'s
+critical section stays synchronous (a `sync` closure cannot `await`), which is
+how the never-block invariant makes holding a lock across `await` a compile
+error. Task bodies may suspend under that engine, so a `spawn` closure is not a
+`sync` context.
 
 **Status of async/await below: planned.** The `Send`/`Sync` traits and the
 sharing wrappers above are real; async/await, `select`, and channels are still
