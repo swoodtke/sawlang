@@ -1,0 +1,18 @@
+// Callee-side forwarding (design 16/29 item 5): STORING a non-escaping closure
+// parameter in a struct field lets it escape the call — rejected. The field is
+// an escaping slot; the parameter is non-escaping.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: non-escaping closure into an escaping
+
+struct Box {
+    f: (Int) -> Int
+}
+
+func store(f: (Int) -> Int) -> Box {
+    Box(f: f)
+}
+
+func main() {
+    let b = store({ $0 + 1 })
+    print(b.f(4))
+}

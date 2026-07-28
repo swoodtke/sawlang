@@ -2936,6 +2936,22 @@ class ExpressionsMixin:
             if cap_info is None:
                 continue
             ctype = cap_info.type
+            # Forwarding rule (design 16/29 item 5): a non-escaping closure value
+            # (e.g. a non-escaping closure PARAMETER) may not be captured by an
+            # escaping closure — its own captures could borrow a frame that dies
+            # before the escaping closure runs. Genuinely-escaping function
+            # values are fine.
+            if (expr.escapes and ctype is not None
+                    and ctype.kind == TypeKind.FUNCTION
+                    and not getattr(ctype, 'func_is_escaping', False)):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot capture non-escaping closure `{cap_name}` in an "
+                    f"escaping closure",
+                    expr.line, expr.column,
+                    hint="an escaping closure outlives the frame; only call a "
+                         "non-escaping closure or forward it as a non-escaping argument")
+                continue
             if mode == 'move':
                 mv = MoveExpr(variable=cap_name, line=expr.line, column=expr.column)
                 self._check_move_expr(mv)
@@ -3005,6 +3021,10 @@ class ExpressionsMixin:
             elif isinstance(expr, CastExpr):
                 collect_names(expr.expr)
             elif isinstance(expr, FunctionCall):
+                # `f(x)` where `f` is an enclosing closure-typed binding is a
+                # capture of `f` (the final `outer_scope.lookup` filter drops
+                # top-level function names, which are not locals).
+                used_names.add(expr.name)
                 for arg in expr.arguments:
                     collect_names(arg.value)
             elif isinstance(expr, MethodCall):
