@@ -84,20 +84,9 @@ class ResultsMixin:
 
         self.builder.cbranch(is_ok, ok_bb, panic_bb)
 
-        # Panic block
+        # Panic block: emit the panic via the saw_panic seam.
         self.builder.position_at_end(panic_bb)
-        panic_msg = f"panic: try! failed at line {expr.line}\n\0"
-        panic_str = ir.Constant(ir.ArrayType(ir.IntType(8), len(panic_msg)),
-                                bytearray(panic_msg.encode('utf-8')))
-        panic_global = ir.GlobalVariable(self.module, panic_str.type,
-                                         name=f".panic_msg.try.{id(expr)}")
-        panic_global.global_constant = True
-        panic_global.initializer = panic_str
-        panic_global.linkage = 'private'
-        panic_ptr = self.builder.bitcast(panic_global, ir.PointerType(ir.IntType(8)))
-        self.builder.call(self.printf, [panic_ptr])
-        self.builder.call(self.abort, [])
-        self.builder.unreachable()
+        self._emit_panic(f"panic: try! failed at line {expr.line}")
 
         # OK block - extract value
         self.builder.position_at_end(ok_bb)

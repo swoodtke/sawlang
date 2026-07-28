@@ -26,26 +26,30 @@ class OperatorsMixin:
     """
 
     def _emit_panic(self, message: str):
-        """Emit a runtime panic: print `message` to stdout, then abort().
+        """Emit a runtime panic via the saw_panic seam, then terminate the block.
 
-        Mirrors the try!/force-unwrap panic machinery (codegen/results.py):
-        a private message global, a printf call, abort(), and unreachable to
-        terminate the block. The caller must have positioned the builder in the
-        block that should panic.
+        The single lowering for every compiler-emitted panic (div/mod by zero,
+        force-unwrap of None, try! on Err, ...): build the constant message as a
+        private byte global (exact text preserved — panic tests match on it) and
+        call saw_panic(ptr, len), which is noreturn. The `unreachable` terminates
+        the block. The caller must have positioned the builder in the panicking
+        block. In the hosted profile saw_panic prints the message and aborts; in
+        the freestanding profile the environment provides saw_panic.
         """
         msg = message if message.endswith("\n") else message + "\n"
-        msg += "\0"
-        panic_str = ir.Constant(ir.ArrayType(ir.IntType(8), len(msg)),
-                                bytearray(msg.encode('utf-8')))
-        panic_global = ir.GlobalVariable(self.module, panic_str.type,
+        encoded = msg.encode('utf-8')
+        n = len(encoded)
+        arr_type = ir.ArrayType(ir.IntType(8), n)
+        panic_global = ir.GlobalVariable(self.module, arr_type,
                                          name=f".panic_msg.{self.string_counter}")
         self.string_counter += 1
         panic_global.global_constant = True
-        panic_global.initializer = panic_str
+        panic_global.initializer = ir.Constant(arr_type, bytearray(encoded))
         panic_global.linkage = 'private'
-        panic_ptr = self.builder.bitcast(panic_global, ir.PointerType(ir.IntType(8)))
-        self.builder.call(self.printf, [panic_ptr])
-        self.builder.call(self.abort, [])
+        zero = ir.Constant(ir.IntType(32), 0)
+        panic_ptr = self.builder.gep(panic_global, [zero, zero], inbounds=True)
+        self.builder.call(self.functions["saw_panic"],
+                          [panic_ptr, ir.Constant(ir.IntType(64), n)])
         self.builder.unreachable()
 
     def _check_divisor_nonzero(self, divisor):

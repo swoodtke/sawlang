@@ -116,19 +116,9 @@ class OptionalsMixin:
 
         self.builder.cbranch(is_some, unwrap_ok_bb, unwrap_panic_bb)
 
-        # Panic block: print error and abort
+        # Panic block: emit the panic via the saw_panic seam.
         self.builder.position_at_end(unwrap_panic_bb)
-        panic_msg = f"panic: force unwrap of None at line {expr.line}\n\0"
-        panic_str = ir.Constant(ir.ArrayType(ir.IntType(8), len(panic_msg)),
-                                bytearray(panic_msg.encode('utf-8')))
-        panic_global = ir.GlobalVariable(self.module, panic_str.type, name=f".panic_msg.{id(expr)}")
-        panic_global.global_constant = True
-        panic_global.initializer = panic_str
-        panic_global.linkage = 'private'
-        panic_ptr = self.builder.bitcast(panic_global, ir.PointerType(ir.IntType(8)))
-        self.builder.call(self.printf, [panic_ptr])
-        self.builder.call(self.abort, [])
-        self.builder.unreachable()
+        self._emit_panic(f"panic: force unwrap of None at line {expr.line}")
 
         # OK block: extract and return the value
         self.builder.position_at_end(unwrap_ok_bb)
