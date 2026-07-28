@@ -981,9 +981,11 @@ extension Container: ImplicitCopy {
 
 ## 5. Error Handling
 
-**Status: implemented** — `Result<T, E>`, auto-wrap returns, `try`/`try?`/`try!`,
-inline `catch`, block `try { } catch { }` with the implicit `error` variable,
-multiple-error-type union with `match`, and explicit `match` on `Result`.
+**Status: implemented** — `Result<T, E>`, auto-wrap returns (with the `T == E`
+ambiguity rejected, design 30), `try`/`try?`/`try!`, inline `catch`, block
+`try { } catch { }` with the implicit `error` variable, the closed unnameable
+multiple-error-type union with `match` (design 30), and explicit `match` on
+`Result`.
 
 Saw uses `Result<T, E>` for recoverable errors with `try` expressions for ergonomic handling. Errors are explicit in function signatures—no hidden control flow.
 
@@ -1029,6 +1031,31 @@ func parse_number(valid: Bool) -> Result<Int, ParseError> {
 // - Return E → wraps in Err(error: E)
 // - Return Result<T, E> → no wrapping
 ```
+
+| Returned value | Declared return | Result |
+|----------------|-----------------|--------|
+| value of type `T` | `Result<T, E>`, `T != E` | wraps in `Ok(value:)` |
+| value of type `E` | `Result<T, E>`, `T != E` | wraps in `Err(error:)` |
+| a `Result<T, E>` value | `Result<T, E>` | returned unchanged |
+| value of type `T` (== `E`) | `Result<T, E>`, `T == E` | **compile error** (ambiguous) |
+
+When the Ok and Err types are the *same concrete type*, a bare `return expr`
+of that type is ambiguous — auto-wrap cannot tell which variant is meant — and
+is rejected. Write the explicit variant instead:
+
+```saw
+func divide(a: Int, b: Int) -> Result<Int, Int> {
+    if b == 0 {
+        return Result<Int, Int>.Err(error: -1)
+    }
+    return Result<Int, Int>.Ok(value: a / b)   // bare `return a / b` is an error
+}
+```
+
+Generic bodies are unaffected: a generic `Result<T, E>` function decides the
+wrap abstractly against its declared parameters (a `T`-typed value → `Ok`, an
+`E`-typed value → `Err`) and monomorphizes that choice consistently, even when
+an instantiation makes `T == E`.
 
 ### Try Variants
 
@@ -1106,6 +1133,45 @@ func load_config() {
 ```
 
 The compiler automatically creates a union type for multiple error types, allowing pattern matching in the catch block.
+
+### The error union
+
+When a `try { } catch { }` block propagates **more than one** error type, the
+implicit `error` variable has a compiler-synthesized **closed enum** over
+exactly the error types propagated in that block. Its observable semantics:
+
+- **Closed and exact.** `match error` must be exhaustive over exactly the
+  propagated (deduplicated) set of error types — no catch-all is required. A
+  `case _ ->` may be added but is not needed, and omitting a propagated type is
+  a compile error.
+- **Deduplicated.** If the block propagates the *same* error type more than
+  once, that is a single-error-type block: `error` keeps that one concrete,
+  nameable type (see below), not a union.
+- **Unnameable.** The union type cannot be written in surface syntax. It
+  therefore cannot appear in any signature, field, return type, or annotation —
+  escape is prevented structurally rather than by a special rule. Attempting to
+  return `error` from a function, for example, fails to type-check because no
+  written return type is compatible with the union. Local inferred bindings
+  (`let e = error`) are permitted and harmless.
+
+```saw
+try {
+    let a = try read_file("config.txt")     // IoError
+    let b = try parse_config(a)              // ParseError
+    use(b)
+} catch {
+    // `error` : closed union over { IoError, ParseError }
+    let e = error                            // ok: local inferred binding
+    match e {                                // must cover both; no catch-all needed
+        case IoError(io) -> print("io: {io.code}"),
+        case ParseError(p) -> print("parse: {p.line}")
+    }
+}
+```
+
+**Single error type.** When a try block propagates only one error type (after
+deduplication), `error` is that concrete, nameable type — no union is formed —
+so its fields are accessible directly (e.g. `error.code`).
 
 ### Explicit Result Handling
 
