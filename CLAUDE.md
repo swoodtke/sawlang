@@ -254,6 +254,12 @@ The compiler currently supports:
 - Trait bounds on generics: `func foo<T: Trait>(x: T)`
 - Bounded generic extensions: `extension Vector<T: Copy>: ExplicitCopy { ... }`
 - Associated types with resolution: `type Item` → `type Item = Int`
+- `Equatable` trait gates `==`/`!=` (design 32): trivial (POD) structs and
+  payload-free enums auto-conform (the auto-Copy set); primitives + `String`
+  builtin. Others opt in via `extension T: Equatable {}` — an empty body
+  synthesizes memberwise `==` (structs) / payload-deep `==` (enums); a
+  hand-written `equals` overrides. `!=` is the negation; Float keeps IEEE
+  semantics (`NaN != NaN`); `T: Equatable` bound grants `==` in generics.
 
 ### Memory & Safety
 - Copy trait family: auto-`Copy` trivial types, `ImplicitCopy`, `ExplicitCopy`,

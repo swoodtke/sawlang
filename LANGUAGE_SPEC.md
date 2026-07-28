@@ -1243,8 +1243,30 @@ func get_index(arr: [Int], i: Int) -> Int {
   **compile error** ("index out of range"), mirroring the tuple-index check.
   Bounds checking for *dynamic* array indices is not yet implemented.
 - **Tuple indexing** past the tuple's arity is a compile error.
-- **Struct equality** (a default `==` for structs) is unspecified / not
-  implemented — an open question.
+
+### Equality (`Equatable`)
+
+**Status: implemented** (`designs/32-equality.md`). The `Equatable` trait gates
+`==` / `!=`; conformance mirrors the Copy family's house rule:
+
+- **Auto-conform:** trivial (POD) structs — the exact set that auto-conforms to
+  `Copy` — and payload-free enums. Integers, `Bool`, `Float`, and `String`
+  conform builtin.
+- **Opt-in with synthesis:** every other struct/enum declares
+  `extension T: Equatable {}`. An empty body **synthesizes** the comparison:
+  memberwise `&&` for structs, payload-deep for enums (equal tag, then the
+  active variant's payload fields, recursively). A hand-written
+  `func equals(&self, other: Self) -> Bool` **overrides** the synthesis.
+- **Resource types never conform** (`File`, `Mutex`, ...): they are neither
+  trivially copyable nor accepted as Equatable conformers.
+- Tuples are Equatable iff every element is. A `T: Equatable` generic bound
+  grants `==`/`.equals` in a generic body.
+- `a == b` on a conforming user type lowers to its `equals`; primitives keep
+  direct `icmp`/`fcmp`. `!=` is always the negation of `==`. `String ==` is
+  content equality. **Float keeps IEEE semantics** — `NaN != NaN`.
+- **Migration note:** payload-carrying enums previously had a tag-only `==`
+  (so `Msg.Write("a") == Msg.Write("b")` was wrongly `true`). They now have no
+  `==` until they declare `Equatable`, and it is payload-deep.
 
 ---
 
