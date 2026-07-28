@@ -121,9 +121,13 @@ readable at every use site. Follow-ups it implies, in order:
    type — no special cases.
 
 ## Open questions to settle at decision time
-- Are fixed-size arrays of POD implicitly copyable (recommend yes — trivial)?
-  Arrays of owning types (recommend: move-only, `.copy()` derives per-element)?
-- Function-call args of trivially-copyable structs: any size threshold where
-  implicit copy should warn (recommend: no threshold now; revisit with data)?
-- Does `.copy()` on a generic `T` require a `Copyable` bound (recommend yes —
-  it becomes the idiomatic constraint name)?
+- ~~Arrays~~ **DECIDED (Jul 28, user): arrays inherit the element's copy
+  class** — `[POD; N]` trivial; `[ExplicitCopy; N]` is ExplicitCopy
+  (move by default, `.copy()` derives per-element); `[NoCopy; N]` is
+  NoCopy. The struct containment rule extended to arrays (an array is an
+  anonymous struct with uniform fields). Implementation + soundness
+  audit → `designs/33-array-copy-class.md`.
+- ~~Size threshold~~ **DECIDED (Jul 28, user): no threshold** — trivial
+  types copy silently at any size; revisit only with profiling evidence.
+- ~~`.copy()` bound~~ Settled by brief 09: unbounded `T` gets no
+  `.copy()`; `T: Copy` grants it.

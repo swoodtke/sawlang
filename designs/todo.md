@@ -22,10 +22,6 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   distinguish `&x` (immutable lend) from `&var x`, with the compiler
   enforcing the match? Flagged in briefs 10/12 as "design decision
   pending." [10, 12]
-- **D9. Arrays of owning types** — copy semantics (recommended: move-only
-  with per-element `.copy()`); plus whether to warn on implicit copies of
-  large trivially-copyable structs (recommended: no threshold for now).
-  [06]
 - **D10. Cortex-M0-class atomics** — lowering strategy for ARMv6-M (no
   CAS); decide with the first such port. [19, 20]
 
@@ -128,6 +124,11 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Recently resolved (recorded here to stop re-flagging)
 
+- **D9 (arrays of owning types) — DECIDED Jul 28 (user):** `[T; N]`
+  inherits T's copy class (trivial/ExplicitCopy/NoCopy); per-element
+  `.copy()`; no large-trivial-copy warning threshold. Suspected live
+  soundness hole (arrays never covered by containment/drop glue) —
+  probe-first implementation → design 33. [06, 33]
 - **D2 (equality) — DECIDED Jul 28 (user):** `Equatable` mirrors the
   Copy family — trivial structs + payload-free enums auto-conform;
   everything else opts in with synthesized memberwise/payload-deep `==`
