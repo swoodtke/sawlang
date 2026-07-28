@@ -34,6 +34,7 @@ from .types import TypeUtilsMixin
 from .registration import RegistrationMixin
 from .statements import StatementsMixin
 from .expressions import ExpressionsMixin
+from .effects import EffectsMixin
 
 
 @dataclass
@@ -72,7 +73,7 @@ class Scope:
         return self.variables.get(name)
 
 
-class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin):
+class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin):
     """Type checks a Saw program."""
 
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False):
@@ -104,6 +105,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._derived_copy_structs: set[str] = set()
         # Track if we're inside a try-catch block (errors go to catch, not caller)
         self.in_try_catch_block: bool = False
+
+        # design 22 effect system: whole-program suspend analysis state.
+        self._effect_init()
 
         # Unified namespace (Phase 0 of module system)
         # Populated in parallel with legacy dicts during migration
@@ -216,6 +220,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Eighth pass: type check method bodies
         for extension in program.extensions:
             self._check_extension(extension)
+
+        # Ninth pass: whole-program `sync` effect analysis (design 22).
+        self.finalize_effects()
 
         return not self.reporter.has_errors()
 
@@ -488,6 +495,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Restore old state
         self.namespace = old_namespace
         self.current_module_path = old_module_path
+
+        # Whole-program `sync` effect analysis (design 22). The entry module is
+        # checked last, after every other module's bodies have contributed their
+        # call-graph edges, so this runs once over the complete graph.
+        if is_entry:
+            self.finalize_effects()
 
         if self.reporter.has_errors():
             return None

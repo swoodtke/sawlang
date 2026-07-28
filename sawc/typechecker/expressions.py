@@ -454,6 +454,18 @@ class ExpressionsMixin:
                         arg.value.line, arg.value.column
                     )
             return SawType(TypeKind.VOID)
+        if expr.name == "__test_suspend":
+            # design 22: compiler-known synthetic suspension point. Typechecked
+            # as a suspension SOURCE (feeds the effect system); codegen lowers it
+            # to a no-op so programs still run. Takes no arguments, returns Void.
+            if len(expr.arguments) != 0:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`__test_suspend` takes no arguments, but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+            self._effect_direct_source("__test_suspend", expr.line)
+            return SawType(TypeKind.VOID)
         if expr.name == "sizeof":
             if len(expr.arguments) != 0:
                 self._error(
@@ -510,6 +522,9 @@ class ExpressionsMixin:
         var_info = self.current_scope.lookup(expr.name)
         if var_info and var_info.type.kind == TypeKind.FUNCTION:
             func_type = var_info.type
+            # design 22: a call through a function-typed value. If the value's
+            # type is not `sync`, the caller conservatively suspends.
+            self._effect_indirect_call(func_type, expr.line)
             param_types = func_type.param_types or []
             return_type = func_type.func_return_type or SawType(TypeKind.VOID)
             if len(expr.arguments) != len(param_types):
@@ -587,6 +602,9 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return None
+        # design 22: record the call edge in the suspend graph (blocking externs
+        # are a direct suspension source; other calls are edges to their node).
+        self._effect_call_function(func_info, expr.name, expr.line)
         if func_info.type_params:
             if not expr.type_args:
                 self._error(
@@ -1789,6 +1807,9 @@ class ExpressionsMixin:
                 hint="use a nested scope or `move` to transfer ownership if you need early cleanup"
             )
             return None
+        # design 22: record the call edge to the resolved method's suspend node.
+        self._effect_call_method(
+            method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
         param_offset = 1 if not method_info.is_init else 0
         total_params = len(method_info.param_types) - param_offset
         defaults_for_params = method_info.default_values[param_offset:] if method_info.default_values else []
@@ -2287,6 +2308,10 @@ class ExpressionsMixin:
         # move state (design 15); restore the enclosing state on exit.
         saved_moves = self.moved_bindings
         self.moved_bindings = {}
+        # design 22: analyze the closure body as its own suspend-graph node. If
+        # its target type is a `sync` function type (e.g. `Mutex.lock`'s param),
+        # the closure is a sync context checked transitively suspension-free.
+        self._effect_enter_closure(expr, expected_type)
         param_types = []
         has_reference_params = False
         if expr.parameters:
@@ -2388,6 +2413,7 @@ class ExpressionsMixin:
         # Record the resolved signature so codegen lowers parameter/return types
         # (including reference params) accurately rather than guessing.
         expr.resolved_type = result_type
+        self._effect_exit()
         return result_type
 
     def _analyze_closure_captures(self, body: Block, outer_scope) -> List[str]:

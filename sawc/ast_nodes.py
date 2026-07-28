@@ -57,6 +57,11 @@ class SawType:
     # For function types, this holds the parameter types and return type
     param_types: Optional[List['SawType']] = None
     func_return_type: Optional['SawType'] = None
+    # For function types (FUNCTION): True for a `sync` function type
+    # (`sync (Int) -> Int`) — a checked suspension-free effect context (design
+    # 22). Calls through a sync-typed value do not mark the caller suspending; a
+    # closure/function assigned to it is checked transitively suspension-free.
+    func_is_sync: bool = False
     # For pointer types (POINTER), True = UnsafePointer (mutable), False = UnsafeConstPointer
     pointer_mutable: Optional[bool] = None
     # For module types (during qualified access)
@@ -88,7 +93,8 @@ class SawType:
             return f"[{self.array_element_type}; {self.array_size}]"
         if self.kind == TypeKind.FUNCTION:
             params = ", ".join(str(t) for t in (self.param_types or []))
-            return f"({params}) -> {self.func_return_type}"
+            prefix = "sync " if self.func_is_sync else ""
+            return f"{prefix}({params}) -> {self.func_return_type}"
         if self.kind == TypeKind.SELF:
             return "Self"
         if self.kind == TypeKind.POINTER and self.inner_type:
@@ -260,7 +266,7 @@ class SawType:
         if self.kind == TypeKind.FUNCTION:
             substituted_params = [t.substitute(type_map) for t in (self.param_types or [])]
             substituted_return = self.func_return_type.substitute(type_map) if self.func_return_type else None
-            return SawType(TypeKind.FUNCTION, param_types=substituted_params, func_return_type=substituted_return)
+            return SawType(TypeKind.FUNCTION, param_types=substituted_params, func_return_type=substituted_return, func_is_sync=self.func_is_sync)
 
         # Primitives and other types don't need substitution
         return self
@@ -968,6 +974,7 @@ class Method(ASTNode):
     self_is_reference: bool = False  # True for '&self' or '&var self'
     is_static: bool = False  # True for methods without 'self' parameter
     is_derived_copy: bool = False  # True for a compiler-synthesized memberwise copy()
+    is_sync: bool = False  # True for a `sync func` method (checked suspension-free)
     line: int = 0
     column: int = 0
     source_file: str = ""
@@ -981,6 +988,9 @@ class Function(ASTNode):
     body: Block
     type_params: List[TypeParameter] = field(default_factory=list)  # Generic type parameters
     visibility: 'Visibility' = Visibility.PRIVATE
+    # `sync func` declaration (design 22): body checked transitively
+    # suspension-free at definition (ISR/callback style).
+    is_sync: bool = False
     line: int = 0
     column: int = 0
     source_file: str = ""
@@ -1003,6 +1013,10 @@ class ExternFunction(ASTNode):
     parameters: List[Parameter]
     return_type: 'SawType'
     is_variadic: bool = False  # True for functions like printf, open that take ...
+    # `extern blocking func` (design 18/22): an unbounded FFI call. For this
+    # prototype it is simply a suspension source; the pool-offload machinery
+    # (hosted) / freestanding-hazard handling is future work.
+    is_blocking: bool = False
     line: int = 0
     column: int = 0
 

@@ -53,6 +53,17 @@ class TypeParsingMixin:
         """Parse a non-optional base type."""
         token = self.current()
 
+        # Check for `sync` function type: sync (T, ...) -> R (design 22).
+        # A sync-typed function value is a checked suspension-free effect
+        # context. Only legal directly before a parenthesized function type.
+        if token.type == TokenType.SYNC:
+            self.advance()  # consume 'sync'
+            fn_type = self._parse_base_type()
+            if fn_type.kind != TypeKind.FUNCTION:
+                self.error("`sync` may only prefix a function type, e.g. `sync (Int) -> Int`")
+            fn_type.func_is_sync = True
+            return fn_type
+
         # Check for reference type: &T or &var T
         if token.type == TokenType.AMPERSAND:
             self.advance()  # consume '&'

@@ -41,6 +41,12 @@ class CallsMixin:
         Handles regular functions, generic functions, closures, struct
         initialization, and built-in functions.
         """
+        # design 22: `__test_suspend()` is a synthetic suspension point for the
+        # effect system. It has no runtime behavior — lower it to a no-op so
+        # programs that use it still compile and run.
+        if expr.name == "__test_suspend":
+            return None
+
         # Handle built-in print function
         if expr.name == "print":
             return self._generate_print(expr.arguments)

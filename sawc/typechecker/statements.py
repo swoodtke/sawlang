@@ -101,6 +101,10 @@ class StatementsMixin:
         self.found_return_with_value = False
         self.current_type_subst = type_subst or {}
 
+        # design 22: analyze this method body as a suspend-graph node (a `deinit`
+        # body and a `sync func` method are sync contexts).
+        self._effect_enter_method(struct_name, method)
+
         # Move state is function-local (design 15): fresh per method body.
         saved_moves = self.moved_bindings
         self.moved_bindings = {}
@@ -211,6 +215,7 @@ class StatementsMixin:
         self._check_no_copy_return(check_type, method.body.final_expr,
                                     f"method `{method.name}`", method.line, method.column)
 
+        self._effect_exit()
         self.current_method = None
         self.moved_bindings = saved_moves
 
@@ -233,6 +238,11 @@ class StatementsMixin:
 
         self.current_function = func
         self.found_return_with_value = False  # Reset for each function
+
+        # design 22: analyze this function body as a suspend-graph node (a
+        # `sync func` is a sync context). Generic bodies are analyzed abstractly,
+        # matching how they are type-checked.
+        self._effect_enter_function(func)
 
         # Move state is function-local (design 15): a fresh empty state per body,
         # restored on exit so a nested check (e.g. an inline module) can't leak.
@@ -266,6 +276,7 @@ class StatementsMixin:
             # Abstract check complete: annotations produced, body-level errors
             # surfaced. Skip return-type reconciliation (see docstring).
             self.current_type_params = prev_type_params
+            self._effect_exit()
             self.current_function = None
             self.moved_bindings = saved_moves
             return
@@ -346,6 +357,7 @@ class StatementsMixin:
                                     f"function `{func.name}`", func.line, func.column)
 
         self.current_type_params = prev_type_params
+        self._effect_exit()
         self.current_function = None
         self.moved_bindings = saved_moves
 

@@ -33,6 +33,11 @@ class FunctionSymbol:
     self_mutable: bool = False
     self_is_reference: bool = True  # True for '&self' or '&var self'
     is_variadic: bool = False
+    # design 22 effect system:
+    #  - is_sync: declared `sync func` (body checked suspension-free)
+    #  - is_blocking: `extern blocking func` (a suspension source)
+    is_sync: bool = False
+    is_blocking: bool = False
     visibility: Visibility = Visibility.PRIVATE
     # Type-param bounds from the enclosing extension, keyed by the extension's
     # type-param name (e.g. {"T": ["Copy"]} for `extension Vector<T: Copy>`).

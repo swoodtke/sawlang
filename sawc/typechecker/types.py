@@ -277,7 +277,7 @@ class TypeUtilsMixin:
             # Recursively resolve function param and return types
             resolved_params = [self._resolve_type(t) for t in (saw_type.param_types or [])]
             resolved_return = self._resolve_type(saw_type.func_return_type) if saw_type.func_return_type else None
-            return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return)
+            return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return, func_is_sync=saw_type.func_is_sync)
         return saw_type
 
     def _get_underlying_type(self, saw_type: SawType) -> SawType:

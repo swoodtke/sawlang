@@ -47,7 +47,12 @@ extension Mutex<T> {
     // Acquire the lock, run `body` with a &var borrow of the payload, release.
     // `lock` is on `&self` (interior mutability) so it composes with Arc's
     // immutable-borrow forwarding. The Bool result is the closure's result.
-    func lock(&self, body: (&var T) -> Bool) -> Bool {
+    //
+    // `body` is a `sync` function type (design 22): the critical section is a
+    // checked suspension-free effect context. Suspending while holding the lock
+    // (the async-mutex deadlock class) is therefore a COMPILE ERROR, and because
+    // `body` is sync, calling it below does not make `lock` itself suspend.
+    func lock(&self, body: sync (&var T) -> Bool) -> Bool {
         if let block = self.block {
             pthread_mutex_lock(block)
             let payload_ptr = (block + 64) as UnsafePointer<T>

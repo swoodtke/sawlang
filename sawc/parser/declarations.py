@@ -37,6 +37,12 @@ class DeclarationsMixin:
 
     def parse_function(self, visibility: Visibility = Visibility.PRIVATE) -> Function:
         start = self.current()
+        # `sync func ...` (design 22): the body is a checked suspension-free
+        # effect context. The `sync` keyword precedes `func`.
+        is_sync = False
+        if self.match(TokenType.SYNC):
+            is_sync = True
+            self.advance()
         self.expect(TokenType.FUNC)
 
         name_token = self.expect(TokenType.IDENT, "Expected function name")
@@ -65,6 +71,7 @@ class DeclarationsMixin:
             body=body,
             type_params=type_params,
             visibility=visibility,
+            is_sync=is_sync,
             line=start.line,
             column=start.column,
             source_file=self.source_file
@@ -406,8 +413,14 @@ class DeclarationsMixin:
         )
 
     def parse_extern_function(self) -> ExternFunction:
-        """Parse external function declaration: func name(params, ...) -> ReturnType"""
+        """Parse external function declaration: [blocking] func name(params, ...) -> ReturnType"""
         start = self.current()
+        # `extern blocking func` (design 18/22): an unbounded FFI call, treated
+        # as a suspension source. `blocking` is a soft keyword valid only here.
+        is_blocking = False
+        if self.match_ident("blocking"):
+            is_blocking = True
+            self.advance()
         self.expect(TokenType.FUNC, "Expected 'func' in extern block")
 
         name_token = self.expect(TokenType.IDENT, "Expected function name")
@@ -441,6 +454,7 @@ class DeclarationsMixin:
             parameters=parameters,
             return_type=return_type,
             is_variadic=is_variadic,
+            is_blocking=is_blocking,
             line=start.line,
             column=start.column
         )

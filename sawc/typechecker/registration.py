@@ -368,6 +368,7 @@ class RegistrationMixin:
             return_type=return_type,
             type_params=func.type_params,
             visibility=getattr(func, 'visibility', Visibility.PRIVATE),
+            is_sync=getattr(func, 'is_sync', False),
             ast_node=func if func.type_params else None
         ))
 
@@ -397,7 +398,8 @@ class RegistrationMixin:
             param_types=param_types,
             param_names=param_names,
             return_type=resolved_return_type,
-            is_variadic=extern_func.is_variadic
+            is_variadic=extern_func.is_variadic,
+            is_blocking=getattr(extern_func, 'is_blocking', False)
         ))
 
     # Built-in type names that indicate specialization when used in extension type params
