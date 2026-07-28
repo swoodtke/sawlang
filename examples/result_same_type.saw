@@ -3,16 +3,15 @@
 // 42
 // 999
 
-// Test Result<Int, Int> where Ok and Err have the same type
-// Auto-wrap is ambiguous here, so we use explicit construction
+// Test Result<Int, Int> where Ok and Err have the same type.
+// Design 30 Ruling 1: bare-value auto-wrap is ambiguous when T == E, so both
+// variants must be written explicitly. Explicit-variant returns are unaffected.
 
 func divide(a: Int, b: Int) -> Result<Int, Int> {
     if b == 0 {
-        // When T == E, auto-wrap prefers Ok, so we must be explicit for Err
         return Result<Int, Int>.Err(error: -1)
     }
-    // Auto-wrap: Int -> Ok(value: Int)
-    return a / b
+    return Result<Int, Int>.Ok(value: a / b)
 }
 
 func main() {

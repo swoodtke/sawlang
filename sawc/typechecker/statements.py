@@ -168,6 +168,10 @@ class StatementsMixin:
                             f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
                             method.line, method.column
                         )
+                    elif self._result_autowrap_ambiguous(
+                            expected_return, body_type, f"method `{method.name}`",
+                            method.line, method.column):
+                        pass  # design 30: ambiguity reported; no wrap
                     elif self._types_compatible(body_type, ok_type):
                         # Wrap in ResultOkWrap
                         method.body.final_expr = ResultOkWrap(
@@ -251,6 +255,10 @@ class StatementsMixin:
                         f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
                         func.line, func.column
                     )
+                elif self._result_autowrap_ambiguous(
+                        resolved_return_type, body_type, f"function `{func.name}`",
+                        func.line, func.column):
+                    pass  # design 30: ambiguity reported; no wrap
                 elif self._types_compatible(body_type, ok_type):
                     # Wrap in ResultOkWrap
                     func.body.final_expr = ResultOkWrap(
@@ -289,6 +297,41 @@ class StatementsMixin:
                     line=func.body.final_expr.line,
                     column=func.body.final_expr.column
                 )
+
+    def _result_autowrap_ambiguous(self, expected, value_type, context_desc, line, column) -> bool:
+        """Design 30 Ruling 1: reject an ambiguous bare-value Result auto-wrap.
+
+        When a bare value is returned from a function declared to return a
+        concrete `Result<T, E>` whose Ok and Err types BOTH accept the value —
+        the `T == E` case — auto-wrap can't tell which variant is meant. Rather
+        than silently defaulting to Ok (the pre-design-30 behavior), report the
+        ambiguity and demand the explicit variant.
+
+        Returns True (having emitted the error) when the wrap is ambiguous; the
+        caller must then skip auto-wrapping. Returns False otherwise.
+
+        Note on generics: in an abstract generic body the declared `Result<T, E>`
+        has distinct opaque type parameters T and E, which are not compatible
+        with each other, so a `T`-typed value matches only Ok — no ambiguity.
+        The per-parameter wrap decision therefore monomorphizes consistently even
+        when an instantiation makes `T == E` (brief 24).
+        """
+        ok_type = expected.unwrap_result_ok()
+        err_type = expected.unwrap_result_err()
+        if ok_type is None or err_type is None:
+            return False
+        if not (self._types_compatible(value_type, ok_type)
+                and self._types_compatible(value_type, err_type)):
+            return False
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"ambiguous Result auto-wrap: {context_desc} returns `{value_type}`, "
+            f"but `{expected}` has the same Ok and Err type, so a bare `return` "
+            f"can't tell which variant you mean; write the explicit "
+            f"`{expected}.Ok(value: ...)` or `{expected}.Err(error: ...)`",
+            line, column
+        )
+        return True
 
     def _return_type_is_decidable(self, resolved_return_type, body_type) -> bool:
         """Design 24 item 2 decidability rule.
@@ -934,6 +977,12 @@ class StatementsMixin:
                             f"expected return type `{expected}` but got `{value_type}`",
                             stmt.line, stmt.column
                         )
+                    # design 30: bare value fits both Ok and Err (T == E) - ambiguous
+                    elif self._result_autowrap_ambiguous(
+                            expected, value_type, "function", stmt.line, stmt.column):
+                        # ambiguity reported; treat as a value-return so we don't
+                        # also emit a misleading "body has no value" cascade.
+                        self.found_return_with_value = True
                     # Value matches T - wrap in ResultOkWrap
                     elif self._types_compatible(value_type, ok_type):
                         stmt.value = ResultOkWrap(

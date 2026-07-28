@@ -1,0 +1,15 @@
+// Design 30 Ruling 1: in a function returning a concrete Result<T, E> with
+// T == E, a bare `return expr` of that type is ambiguous (auto-wrap can't tell
+// Ok from Err) and must be a compile error demanding the explicit variant.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous Result auto-wrap
+// EXPECT-ERROR-CONTAINS: same Ok and Err type
+// EXPECT-ERROR-CONTAINS: Result<Int, Int>.Ok(value: ...)
+
+func makeIt(x: Int) -> Result<Int, Int> {
+    return x
+}
+
+func main() {
+    let r = makeIt(1)
+}
