@@ -170,6 +170,11 @@ class Namespace:
         # If True, all symbols are accessible (legacy/non-module mode)
         self.allow_all_access: bool = True
 
+        # Provenance for merge collision reporting: symbol name -> source label
+        # (e.g. a module path string). Populated by merge_into when a source
+        # label is supplied; used to name both sides of an ambiguity.
+        self._provenance: Dict[str, str] = {}
+
     # =========================================================================
     # Unified Resolution
     # =========================================================================
@@ -960,28 +965,50 @@ class Namespace:
     # Namespace Merging
     # =========================================================================
 
-    def merge_into(self, other: 'Namespace'):
+    def merge_into(self, other: 'Namespace', source_label: Optional[str] = None,
+                   collisions: Optional[List[Tuple[str, str, str, str]]] = None):
         """
         Merge another namespace's symbols into this one.
 
         Used for codegen when combining per-module namespaces into a unified
         namespace. Existing symbols in this namespace are NOT overwritten.
+
+        Collision policy (design 26 item 1): merging is a size-1-first-wins
+        operation, but a first-wins that silently drops a *different* symbol
+        object under an already-taken name is a genuine ambiguity — two modules
+        each defining `foo`. We surface those honestly. Builtins are shared by
+        reference across every module namespace (each module clones them via
+        `merge_into`), so re-merging the same object is benign and never flagged;
+        only a name bound to a *distinct* object counts as a collision.
+
+        Args:
+            source_label: A human-readable label for `other` (e.g. a module path
+                string). When provided, each first-seen symbol records this label
+                as its provenance so a later collision can name both sides.
+            collisions: Optional accumulator; when provided, each detected
+                collision appends a ``(category, name, existing_label, new_label)``
+                tuple. Collisions are checked for the value symbol categories
+                (structs, enums, functions, traits, type aliases), not for
+                module aliases or generic AST storage.
         """
-        for name, sym in other.structs.items():
-            if name not in self.structs:
-                self.structs[name] = sym
-        for name, sym in other.enums.items():
-            if name not in self.enums:
-                self.enums[name] = sym
-        for name, sym in other.functions.items():
-            if name not in self.functions:
-                self.functions[name] = sym
-        for name, sym in other.traits.items():
-            if name not in self.traits:
-                self.traits[name] = sym
-        for name, sym in other.type_aliases.items():
-            if name not in self.type_aliases:
-                self.type_aliases[name] = sym
+        def _merge(category: str, dst: Dict[str, Any], src: Dict[str, Any]):
+            for name, sym in src.items():
+                existing = dst.get(name)
+                if existing is None:
+                    dst[name] = sym
+                    if source_label is not None:
+                        self._provenance[name] = source_label
+                elif existing is not sym and collisions is not None:
+                    prev = self._provenance.get(name, "<unknown>")
+                    collisions.append((category, name, prev,
+                                       source_label if source_label is not None
+                                       else "<unknown>"))
+
+        _merge("struct", self.structs, other.structs)
+        _merge("enum", self.enums, other.enums)
+        _merge("function", self.functions, other.functions)
+        _merge("trait", self.traits, other.traits)
+        _merge("type alias", self.type_aliases, other.type_aliases)
         for name, sym in other.modules.items():
             if name not in self.modules:
                 self.modules[name] = sym

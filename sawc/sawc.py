@@ -18,7 +18,7 @@ import tempfile
 from lexer import Lexer
 from parser import Parser
 from codegen import CodeGenerator
-from errors import ErrorReporter
+from errors import ErrorReporter, ErrorKind
 from typechecker import TypeChecker
 from module_resolver import ModuleResolver
 
@@ -561,12 +561,29 @@ def compile_with_modules(source_path: str, output_path: str, entry_ast, entry_so
     # Start with builtin namespace, then merge all module namespaces
     from namespace import Namespace
     merged_ns = Namespace()
-    merged_ns.merge_into(builtin_ns)
+    collisions = []
+    merged_ns.merge_into(builtin_ns, source_label="<builtins>", collisions=collisions)
 
     for mod_path, (mod_ast, mod_ns) in checked_modules.items():
-        merged_ns.merge_into(mod_ns)
+        label = '.'.join(mod_path) if mod_path else "<entry>"
+        merged_ns.merge_into(mod_ns, source_label=label, collisions=collisions)
 
-    merged_ns.merge_into(entry_ns)
+    merged_ns.merge_into(entry_ns, source_label="<entry>", collisions=collisions)
+
+    # Design 26 item 1: a symbol name bound to two distinct definitions across
+    # merged module namespaces is an unresolvable ambiguity (two modules export
+    # the same name; the importer's bare use cannot pick one). Report it at
+    # check time instead of letting codegen crash with a DuplicatedNameError.
+    if collisions:
+        for category, name, src1, src2 in collisions:
+            reporter.error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"ambiguous {category} `{name}`: defined in both `{src1}` and `{src2}`",
+                1, 1,
+                hint=f"rename one definition, or import `{name}` from a single module"
+            )
+        reporter.print_all()
+        sys.exit(1)
 
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns

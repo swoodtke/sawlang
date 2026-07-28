@@ -10,7 +10,6 @@
 // See todo_jul26.md "Structural issues" (merge_into resolves collisions first-wins).
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: ambiguous
-// XFAIL: colliding imported symbols are not diagnosed; the duplicate name crashes codegen instead of raising an ambiguity error
 
 import modules.collide_a.*
 import modules.collide_b.*
