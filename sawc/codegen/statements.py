@@ -329,7 +329,20 @@ class StatementsMixin:
                     zero = ir.Constant(ir.IntType(64), 0)
                     elem_ptr = self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
                 elif isinstance(container_val.type, ir.PointerType):
-                    # Pointer: GEP with single index
+                    # Pointer: GEP with single index.
+                    #
+                    # PLACEMENT-MOVE PRIMITIVE (see LANGUAGE_SPEC "Placement
+                    # writes"): the store to `elem_ptr` below (`ptr[i] = value`)
+                    # bitwise-moves `value` into the target slot. The source is
+                    # consumed by the value-transfer checkpoint in the
+                    # typechecker, but — unlike the Identifier target above, which
+                    # calls _generate_deinit_call on the prior value first — this
+                    # path performs NO destination release. It assumes the slot
+                    # is uninitialized; using it on a slot that holds a live
+                    # value leaks that value (its deinit never runs). This is the
+                    # primitive stdlib containers use to fill fresh buffer slots;
+                    # the canonical user is Vector.push, which only ever writes
+                    # the never-yet-written tail slot at `length`.
                     elem_ptr = self.builder.gep(container_val, [index_val], name="ptr_elem")
                 else:
                     raise ValueError(f"Cannot index into type: {container_val.type}")

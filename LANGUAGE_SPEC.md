@@ -1700,8 +1700,10 @@ are unavailable. See `designs/19-freestanding-profile.md` for the full design.
 ## 10. Interoperability
 
 **Status: partially implemented.** `extern "C"` function declarations and the
-pointer types `UnsafePointer<T>` / `UnsafeConstPointer<T>` (plus a `sizeof<T>()`
-builtin) are used by the stdlib today. The `#[repr(C)]` / `#[no_mangle]`
+pointer types `UnsafePointer<T>` / `UnsafeConstPointer<T>` (plus `sizeof<T>()`
+and `alignof<T>()` builtins, which fold to the target's ABI size and alignment
+of `T` in bytes at monomorphization time) are used by the stdlib today. The
+`#[repr(C)]` / `#[no_mangle]`
 attributes, C-varargs, `extern "C"` *exports*, and `unsafe` blocks/functions/
 traits are *planned* — the examples below using them are illustrative. (The
 spec's `*Char`/`*var Void` shorthand is illustrative; the implemented spelling is
@@ -1754,6 +1756,52 @@ unsafe trait GlobalAlloc {
     unsafe func dealloc(ptr: *var Void, layout: Layout)
 }
 ```
+
+### Placement writes (the placement-move primitive)
+
+**Status: implemented (stdlib-internal).** A store through a typed raw pointer —
+`ptr[i] = value`, where `ptr: UnsafePointer<T>` — is Saw's **placement-move**
+primitive, and it is deliberately *not* the same operation as ordinary
+assignment to a live binding. Its exact contract:
+
+- **Bitwise move into the target slot.** The `T` value is moved into the memory
+  at `ptr + i` by a raw store. `value` is *consumed* — the same value-transfer
+  checkpoint that governs `move`/`.copy()` applies at the store, so the source
+  is not usable afterward (a non-`Copy` source must be `move`d in; an
+  `ImplicitCopy` source is retained by the checkpoint as usual).
+- **No destination release.** Unlike `x = value` on a live binding — which first
+  runs the old value's `deinit` — a placement write does **not** deinit whatever
+  bytes currently occupy the slot. It assumes the slot is **uninitialized**.
+- **Author's obligation.** Because there is no destination release, writing
+  through a pointer into a slot that already holds a *live* value **leaks** that
+  value (its `deinit` never runs). Placement writes are therefore only sound on
+  raw, uninitialized memory (a freshly allocated buffer, or a slot past a
+  container's live length). Conversely, using *ordinary* assignment semantics on
+  uninitialized memory would be a bug — it would run `deinit` on garbage bytes.
+  This primitive exists precisely to avoid that.
+
+The canonical user is **`Vector.push`**: after `grow()` guarantees spare
+capacity, `buf[self.length] = value` places the incoming element into the fresh,
+never-written tail slot and then bumps `length`. The loop invariant — only ever
+writing the slot at the current `length` — is what keeps every placement write
+landing on uninitialized memory, so no live element is ever silently leaked.
+
+### Allocators (`Allocator` trait, `Global`)
+
+**Status: implemented (internal, `Global`-only).** Alloc-layer stdlib types
+(`Vector`, `Map`, `Data`, `StringBuilder`, `Arc`, ...) obtain memory through the
+`Allocator` trait — `alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>?`
+and `dealloc(&self, ptr, size, align)` — rather than calling the `saw_alloc` /
+`saw_dealloc` seams directly. The one implementation today is `Global`, a
+zero-field unit struct that wraps the seams; because it is zero-sized,
+`Global().alloc(...)` monomorphizes to a direct seam call with no allocator
+value materialized at runtime. A fallible factory such as
+`Vector.try_with_capacity(n) -> Result<Vector<T>, AllocError>` surfaces
+allocation failure to the caller (tier 2 of the three-tier failure model) with
+`size`/`align` context, instead of the default infallible APIs' panic. Exposing
+the allocator as a public type parameter (`Vector<T, A: Allocator = Global>`) is
+future work; see `designs/19-freestanding-profile.md` §4 and
+`designs/28-allocator-stage3.md`.
 
 ---
 
