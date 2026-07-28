@@ -41,6 +41,25 @@ trait NoCopy: Deinit {
 }
 
 // =============================================================================
+// Thread-safety marker traits (design 21 item 1)
+// =============================================================================
+
+// Send - "a value of this type may be transferred to another task".
+// Sync - "a &-reference to this type may be shared across tasks".
+// Both are COMPILER-KNOWN and auto-derived STRUCTURALLY (the auto-Copy
+// pattern): a struct/enum is Send/Sync iff all its fields/payloads are.
+// Explicit conformance (`extension X: Send`) is rejected - derivation only.
+// They are declared here purely so they are nameable as generic bounds
+// (`T: Send`); the compiler never consults a registered conformance for them.
+trait Send {
+    // Marker trait - structurally derived, no methods
+}
+
+trait Sync {
+    // Marker trait - structurally derived, no methods
+}
+
+// =============================================================================
 // Iterator Support
 // =============================================================================
 

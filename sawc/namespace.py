@@ -690,10 +690,15 @@ class Namespace:
         """Whether a concrete type satisfies a single type-parameter bound.
 
         `Copy` is structural (trivially-copyable | ImplicitCopy | ExplicitCopy);
-        every other trait bound is an ordinary conformance lookup.
+        `Send`/`Sync` are structural marker traits (design 21 item 1); every
+        other trait bound is an ordinary conformance lookup.
         """
         if bound == "Copy":
             return self.type_satisfies_copy_bound(saw_type)
+        if bound == "Send":
+            return self.is_send(saw_type)
+        if bound == "Sync":
+            return self.is_sync(saw_type)
         name = None
         if saw_type is None:
             return False
@@ -706,6 +711,123 @@ class Namespace:
         if name is None:
             return False
         return self.type_conforms_to(name, bound)
+
+    # =========================================================================
+    # Send / Sync structural derivation (design 21 item 1)
+    #
+    # Compiler-known marker traits, auto-derived structurally (the auto-Copy
+    # pattern). No explicit `extension X: Send` is accepted; these two methods
+    # are the single source of truth for "is this concrete type Send / Sync",
+    # shared by the typechecker's bound checks and the spawn capture audit.
+    #
+    #   - Primitives, Bool, Float: Send + Sync.
+    #   - String: Send + Sync (immutable buffer, atomic refcount).
+    #   - UnsafePointer<T>: neither (poisons its containers structurally).
+    #   - Struct/enum: Send iff every field/payload is Send; Sync likewise.
+    #   - Name-keyed overrides for the concurrency wrappers, whose raw-pointer
+    #     fields would otherwise poison them structurally:
+    #       Arc<T>:     Send + Sync  iff  T: Send + Sync
+    #       Mutex<T>:   Send iff T: Send;   Sync iff T: Send
+    #       Channel<T>: Send + Sync  iff  T: Send   (an Arc-like shared handle)
+    #       Task<T>:    Send + Sync  iff  T: Send
+    # =========================================================================
+
+    def is_send(self, saw_type: SawType) -> bool:
+        return self._send_sync(saw_type, want_sync=False, visiting=set())
+
+    def is_sync(self, saw_type: SawType) -> bool:
+        return self._send_sync(saw_type, want_sync=True, visiting=set())
+
+    def _lookup_enum_deep(self, name: str) -> Optional[EnumSymbol]:
+        result = self.enums.get(name)
+        if result:
+            return result
+        for module_sym in self.modules.values():
+            if module_sym.namespace:
+                found = module_sym.namespace._lookup_enum_deep(name)
+                if found:
+                    return found
+        return None
+
+    def _send_sync(self, saw_type: SawType, want_sync: bool, visiting: set) -> bool:
+        if saw_type is None:
+            return False
+        kind = saw_type.kind
+        # Primitives / Bool / Float are trivially thread-safe.
+        if kind in self._TRIVIAL_PRIMITIVE_KINDS or kind == TypeKind.VOID:
+            return True
+        # String: immutable buffer + atomic refcount (designed Send/Sync payoff).
+        if kind == TypeKind.STRING:
+            return True
+        # UnsafePointer<T> is neither; it poisons any container structurally.
+        if kind == TypeKind.POINTER:
+            return False
+        # References/closures are not user-nameable as Send/Sync bounds (v1);
+        # closure-env Send-ness is audited at spawn sites, not here.
+        if kind in (TypeKind.REFERENCE, TypeKind.FUNCTION):
+            return False
+        if kind == TypeKind.OPTIONAL:
+            return self._send_sync(saw_type.inner_type, want_sync, visiting)
+        if kind == TypeKind.TUPLE:
+            return all(self._send_sync(e, want_sync, visiting)
+                       for e in (saw_type.element_types or []))
+        if kind == TypeKind.ARRAY:
+            return self._send_sync(saw_type.array_element_type, want_sync, visiting)
+        if kind == TypeKind.STRUCT:
+            name = saw_type.struct_name
+            args = saw_type.type_args or []
+            # Type alias flows to its underlying type.
+            alias_sym = self._lookup_type_alias_deep(name)
+            if alias_sym and alias_sym.aliased_type:
+                return self._send_sync(alias_sym.aliased_type, want_sync, visiting)
+            # Concurrency-wrapper overrides (raw-pointer fields must not poison).
+            if name == "Arc":
+                inner = args[0] if args else None
+                return (self._send_sync(inner, False, visiting) and
+                        self._send_sync(inner, True, visiting))
+            if name in ("Mutex", "Channel", "Task"):
+                inner = args[0] if args else None
+                # Send iff T: Send; Sync iff T: Send (the wrappers add the sync).
+                return self._send_sync(inner, False, visiting)
+            struct_sym = self._lookup_struct_deep(name)
+            if struct_sym is None:
+                # Opaque / unresolved type parameter: not structurally known.
+                # (Abstract `T: Send` bodies are handled at the call site via
+                # the parameter's declared bounds.)
+                return False
+            key = (name, tuple(str(a) for a in args))
+            if key in visiting:
+                return True  # co-recursive type: assume ok on the back-edge
+            visiting = visiting | {key}
+            subst = {}
+            for tp, arg in zip(struct_sym.type_params, args):
+                subst[tp.name] = arg
+            for ft in struct_sym.fields.values():
+                resolved = ft.substitute(subst) if subst else ft
+                if not self._send_sync(resolved, want_sync, visiting):
+                    return False
+            return True
+        if kind == TypeKind.ENUM:
+            name = saw_type.enum_name
+            args = saw_type.type_args or []
+            enum_sym = self._lookup_enum_deep(name)
+            if enum_sym is None:
+                return False
+            key = (name, tuple(str(a) for a in args))
+            if key in visiting:
+                return True
+            visiting = visiting | {key}
+            subst = {}
+            for tp, arg in zip(enum_sym.type_params, args):
+                subst[tp.name] = arg
+            for payload in enum_sym.variants.values():
+                for _field_name, ptype in payload:
+                    resolved = ptype.substitute(subst) if subst else ptype
+                    if not self._send_sync(resolved, want_sync, visiting):
+                        return False
+            return True
+        # TYPE_PARAM / SELF / MODULE and anything else: not structurally known.
+        return False
 
     def get_type_assignment(self, type_name: str, trait_name: str,
                            assoc_type_name: str) -> Optional[SawType]:

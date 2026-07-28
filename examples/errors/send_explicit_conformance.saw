@@ -1,0 +1,14 @@
+// Error: Send/Sync are structurally derived marker traits; an explicit
+// `extension X: Send` conformance is rejected (no unsafe-impl story in v1).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot explicitly implement `Send`
+
+struct Foo {
+    x: Int
+}
+
+extension Foo: Send {
+}
+
+func main() {
+}

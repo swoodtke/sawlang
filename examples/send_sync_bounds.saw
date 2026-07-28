@@ -1,0 +1,27 @@
+// Send/Sync are compiler-known marker traits, auto-derived structurally.
+// Primitives, Bool, String are Send+Sync; a struct of Send fields is Send.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+func needs_send<T: Send>(x: T) -> T {
+    x
+}
+
+func needs_sync<T: Sync>(x: T) -> T {
+    x
+}
+
+func main() {
+    let a = needs_send<Int>(42)
+    let _b = needs_send<Bool>(true)
+    let _f = needs_send<Float>(3.0)
+    let _s = needs_send<String>("hi")           // String is Send (atomic refcount)
+    let _p = needs_sync<Point>(Point(x: 1, y: 2))  // struct of Ints is Sync
+    print(a)
+}

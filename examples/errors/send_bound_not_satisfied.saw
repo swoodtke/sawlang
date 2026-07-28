@@ -1,0 +1,15 @@
+// Error: a struct containing an UnsafePointer is not Send (the pointer poisons
+// the type structurally), so a `T: Send` bound rejects it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not satisfy the `Send` bound
+
+struct RawHandle {
+    ptr: UnsafePointer<Int>
+}
+
+func needs_send<T: Send>() {
+}
+
+func main() {
+    needs_send<RawHandle>()
+}

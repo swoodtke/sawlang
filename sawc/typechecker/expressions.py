@@ -632,6 +632,18 @@ class ExpressionsMixin:
                                 expr.line, expr.column,
                                 hint="use a trivially-copyable type, or one implementing ImplicitCopy/ExplicitCopy"
                             )
+                    elif bound in ("Send", "Sync"):
+                        # Send/Sync are structural marker traits (design 21 item 1),
+                        # never explicit conformances. `_bound_satisfied` also honors
+                        # an abstract type parameter's own declared bounds.
+                        if not self._bound_satisfied(resolved_arg, bound):
+                            self._error(
+                                ErrorKind.TYPE_MISMATCH,
+                                f"type `{resolved_arg}` does not satisfy the `{bound}` bound",
+                                expr.line, expr.column,
+                                hint="Send/Sync are derived structurally; a field or payload of this type is not "
+                                     + bound
+                            )
                     elif concrete_type_name:
                         conformances = self.namespace.get_conformances(concrete_type_name)
                         if bound not in conformances:

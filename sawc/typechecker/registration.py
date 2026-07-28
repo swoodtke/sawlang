@@ -625,6 +625,19 @@ class RegistrationMixin:
 
         # Check trait conformances
         for trait_name in extension.conformances:
+            # Send/Sync are structurally auto-derived marker traits (design 21
+            # item 1): explicit conformance is never accepted (no unsafe-impl
+            # story in v1). Reject with a clear message and skip registration.
+            if trait_name in ("Send", "Sync"):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot explicitly implement `{trait_name}`: it is a marker trait "
+                    f"derived structurally by the compiler",
+                    extension.line, extension.column,
+                    hint=f"remove `: {trait_name}` - a type is {trait_name} automatically "
+                         f"iff all its fields are"
+                )
+                continue
             # Handle module-qualified trait names (e.g., "lib.Describable")
             if '.' in trait_name:
                 # Module-qualified: look up in module namespace
