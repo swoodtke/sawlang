@@ -125,9 +125,24 @@ runtime.
    stdlib (in Saw, over a static region) + `static` declarations design.
 
 ## Open questions (flagged, not decided)
-- `static` mutable data semantics (needed by slabs; interacts with
-  exclusivity — a static is a root reachable by everyone; likely requires
-  statics to be `Mutex`-wrapped or single-writer-blessed in kernels).
+- ~~`static` mutable data semantics~~ **DECIDED (Jul 28, user — Rust's
+  rule): statics must be `Sync`, const-initialized, immortal (never
+  deinit), and there is NO `static mut`, ever.** Mutation of global state
+  flows only through interior-synchronized types (`Mutex<T>`, `Atomic<T>`,
+  future `Once`/`Lazy<T>`). This satisfies paper 08's recorded global-
+  reachability constraint and makes "all shared mutable state is mediated"
+  a language-level theorem — the enabling condition for paper 18's
+  colorless option. Known implications (none unrepresentable, three need
+  dedicated types): runtime-initialized globals need `Once`/`Lazy<T>`
+  stdlib types; kernel per-CPU data needs a purpose-built `PerCpu<T>`
+  abstraction (not expressible as a plain Sync static); user-built
+  lock-free structures need a future `UnsafeCell`-equivalent + unsafe
+  story (until then the interior-mutable primitive set is closed and
+  compiler-known). Const-init starts minimal (literals/POD/byte arrays —
+  sufficient for slab regions); hosted `Mutex` in a static needs
+  const-friendly init (`PTHREAD_MUTEX_INITIALIZER` or first-lock atomic
+  lazy-init). Statics holding `Deinit` types never run deinit (immortal;
+  OS/reset reclaims) — standard, documented.
 - Cortex-M0-class atomics lowering (see §3).
 - ~~Whether `alloc` failure is optional or panic~~ **RESOLVED (Jul 27,
   refined from user proposal): three tiers, identical in both profiles.**

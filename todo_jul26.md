@@ -41,6 +41,12 @@ ledgered/noted: enum payloads not released on enum death (XFAIL
 `enum_payload_deinit.saw`); `if let` bindings of Deinit values never
 cleaned (pre-existing, needs a ledger test); receiver temporaries inside
 `return f().g()` leak (drain skipped after terminator).
+Freestanding stage 1 (brief 20, `designs/20`) is DONE: saw_alloc/dealloc/
+write/panic seams with weak hosted defaults, print on compiler itoa
+(byte-identical), --target and --freestanding flags, cross-triple object
+emission verified for bare-metal x86_64/aarch64. New latent bug found:
+`sizeof` error handler references nonexistent `ErrorKind.TYPE_ERROR`
+(unexercised; should be TYPE_MISMATCH).
 Known follow-ups: ~~use-after-move dataflow~~ DONE (brief 15, `designs/15`:
 per-binding may-move analysis, branch merge excluding diverged paths,
 conservative loop rule; 2 xfails flipped); bare `return` in `main` emits
