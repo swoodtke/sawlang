@@ -105,9 +105,11 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Freestanding & allocators
 
-- **F1.** `Allocator` trait + `Global` implementation — UNBLOCKED (D4
-  decided); briefed as `designs/28-allocator-stage3.md` with `alignof<T>()`
-  and the placement-write contract. [19, 28]
+- **F1.** `Allocator` trait + `Global` — LANDED (brief 28, `b516e2c`):
+  std/alloc.saw, alignof<T>(), all stdlib allocation through Global
+  (zero-cost verified in IR), placement-write contract documented,
+  try_with_capacity fallible factory + AllocError. Stage 4 (F2) next
+  when scheduled. [19, 28]
 - **F2.** Default type parameters (`A = Global`) — generics feature; stage
   4, after brief 28. [19]
 - **F3.** Slab allocators + `AllocatedBy` sugar. [19]
