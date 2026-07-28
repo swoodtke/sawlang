@@ -169,6 +169,16 @@ must be transitively suspension-free, verified at compile time.
   shared mutable state — globals included — is behind sync-checked
   critical sections or channels; invisible suspension cannot expose a
   torn invariant anywhere.
+- **PROTOTYPE VALIDATED (Jul 28, brief 22 — see `designs/22-findings.md`):**
+  the effect system landed against synthetic suspension sources; inference,
+  `sync` types/contexts, path diagnostics, and the Mutex.lock wiring all
+  work; suite green. Effect-polymorphism resolution recommended by the
+  findings: **monomorphization-time effect re-inference** (signatures stay
+  bare; the fixpoint re-runs per instantiation, like `T: Copy` re-checks) —
+  adopt at stage 2 unless new evidence emerges. Known follow-up gaps in
+  the prototype: module-qualified/static/function-field call edges,
+  `sync` methods in extensions, non-literal function values at `sync`
+  boundaries.
 - Known risks accepted for early investigation (the reason to do this
   while the language is small): coroutine-set growth through indirect
   calls (mitigation: `sync`-typed handler tables — kernel style anyway);
