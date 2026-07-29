@@ -41,10 +41,12 @@ Milestone: UART "blink" from a Saw kernel on the P4.
   Unsafe-prefix HOUSE RULE ratified. NEW tracker item: fence/barrier
   primitives for DMA ordering (F10).
 - **D13 → design 47**: platform-width Int/UInt (i32 on riscv32).
-- **D14 → design 48**: Hashable mirrors Equatable (auto trivial +
-  synthesis, streaming FNV-1a Hasher); Comparable opt-in only
-  (Ordering enum, synthesized lexicographic); Vector.sort/sort_by;
-  HashMap<K,V,A>; Map stays (deprecation = later decision).
+- **D14 → design 48 — LANDED** (`ea3021b`): Comparable (opt-in,
+  Ordering enum, synthesized lexicographic), Hashable (mirrors
+  Equatable, FNV-1a Hasher), Vector.sort/sort_by (both need `T: Copy`),
+  HashMap<K,V,A> (open-addressing/linear-probe/tombstone, NoCopy). Map
+  stays (deprecation later). Note: brief 49's original commit was lost
+  and recommitted (`307f9e4`) alongside 48 — see handoff.md.
 - **D15 → design 49**: panic(msg)/assert builtins (closes M4) +
   `blade test` convention (tests/ = ordinary programs, exit 0 = pass).
 - **F10.** Fence/barrier primitives (fence rw,io etc.) for DMA
