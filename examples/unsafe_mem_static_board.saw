@@ -1,0 +1,38 @@
+// The board-module idiom (design 46): UnsafeMemory statics const-initialized
+// from fixed addresses — a Device register block and Normal bootstrap regions.
+// This proves statics of UnsafeMemory type (const-init from an integer literal,
+// static-able, Sync by fiat) and that the whole accessor surface compiles. The
+// fixed addresses are unmapped on the host, so the accesses are guarded behind a
+// runtime flag that is always false — the code is generated and type-checked,
+// but never dereferenced here.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+
+struct UartRegs {
+    data:   UInt32,
+    status: ReadOnly<UInt32>,
+    ctrl:   UInt32,
+    intclr: WriteOnly<UInt32>,
+}
+
+static UART1:      UnsafeMemory<UartRegs, Device>       = UnsafeMemory(0x18003000)
+static BOOT_STACK: UnsafeMemory<[UInt8; 16384], Normal> = UnsafeMemory(0x3FC7C000)
+static EARLY_HEAP: UnsafeMemory<[UInt8; 65536], Normal> = UnsafeMemory(0x3FC80000)
+
+func main() {
+    var run = false
+    if run {
+        // Poll a read-only status register, then drive two writable ones.
+        let tx_full: UInt32 = 32
+        while (UART1.status.read() & tx_full) != 0 { }
+        UART1.data.write(65)
+        UART1.intclr.write(1)
+
+        // Bootstrap regions: stack top and early-heap handoff.
+        let sp = BOOT_STACK.end()
+        print((sp as Int))
+        print(EARLY_HEAP.len())
+    }
+    print(1)
+}

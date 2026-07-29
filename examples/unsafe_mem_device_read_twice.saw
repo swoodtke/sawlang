@@ -1,0 +1,28 @@
+// The not-elided oracle (design 46): two consecutive Device reads of the SAME
+// register must BOTH survive — a volatile load is never CSE'd away, unlike a
+// plain load. At runtime (backed by a real writable static so it executes) both
+// reads observe the current value. The load-count guarantee itself is verified
+// at the IR level: `sawc --emit-ir` on this file shows TWO `load volatile`
+// instructions to the same address even under the default O1 pipeline.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 21
+// 21
+
+struct Sensor { reading: ReadOnly<UInt32> }
+
+static BACKING: [UInt8; 4]
+
+func main() {
+    let base = ((&BACKING) as UnsafePointer<Int8>) as Int
+    let dev = UnsafeMemory<Sensor, Device>(base)
+
+    // Seed the backing register through a Normal alias.
+    let raw = UnsafeMemory<[UInt32; 1], Normal>(base)
+    raw[0].write(21)
+
+    let a = dev.reading.read()   // volatile load #1
+    let b = dev.reading.read()   // volatile load #2 (NOT merged with #1)
+    print(a)                     // 21
+    print(b)                     // 21
+}

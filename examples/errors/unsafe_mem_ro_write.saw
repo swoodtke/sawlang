@@ -1,0 +1,8 @@
+// design 46: writing a ReadOnly<T> register is a compile error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot `write()` a `ReadOnly` register
+
+struct Regs { status: ReadOnly<UInt32> }
+static DEV: UnsafeMemory<Regs, Device> = UnsafeMemory(0x40000000)
+
+func main() { DEV.status.write(1) }

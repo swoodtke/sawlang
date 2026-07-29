@@ -1,0 +1,44 @@
+// UnsafeMemory<T, Device> (design 46): a register block accessed through
+// volatile, scalar-only read()/write(). ReadOnly<T>/WriteOnly<T> gate which
+// accessor projection exposes; a plain field is read-write. To EXECUTE the
+// volatile accesses on a hosted host we back the "device" with a real writable
+// static byte array and construct the Device view over its address — the exact
+// same address arithmetic a real MMIO block would use. (The --emit-ir oracle
+// separately confirms the accesses are marked `volatile` and survive O1.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 100
+// 7
+// 42
+// 9
+
+struct Timer {
+    load:   UInt32,             // offset 0  — read/write
+    value:  ReadOnly<UInt32>,   // offset 4  — read only
+    ctrl:   UInt32,             // offset 8  — read/write
+    clear:  WriteOnly<UInt32>,  // offset 12 — write only
+}
+
+// 16 writable bytes standing in for the register block.
+static BACKING: [UInt8; 16]
+
+func main() {
+    let base = ((&BACKING) as UnsafePointer<Int8>) as Int
+    let t = UnsafeMemory<Timer, Device>(base)
+
+    t.load.write(100)          // volatile store, offset 0
+    print(t.load.read())       // 100 : volatile load reads it back
+
+    t.ctrl.write(7)            // volatile store, offset 8
+    print(t.ctrl.read())       // 7
+
+    // A ReadOnly register: read() only. Write byte 4 through a raw view first so
+    // there is something to observe, proving the RO accessor reads offset 4.
+    let raw = UnsafeMemory<[UInt32; 4], Normal>(base)
+    raw[1].write(42)           // element 1 == byte offset 4 == value register
+    print(t.value.read())      // 42
+
+    // A WriteOnly register: write() only. Prove it lands at offset 12.
+    t.clear.write(9)
+    print(raw[3].read())       // 9 : element 3 == byte offset 12 == clear register
+}

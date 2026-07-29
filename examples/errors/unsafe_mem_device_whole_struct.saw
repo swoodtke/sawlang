@@ -1,0 +1,9 @@
+// design 46: Device memory has NO whole-struct access — multi-register access
+// is never atomic and reads can have side effects. Project a scalar register.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Device memory has no whole-`Regs` access
+
+struct Regs { a: UInt32, b: UInt32 }
+static DEV: UnsafeMemory<Regs, Device> = UnsafeMemory(0x40000000)
+
+func main() { let r = DEV.read() }

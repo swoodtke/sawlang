@@ -1,0 +1,31 @@
+// Hosted MMIO simulation (design 46): a fake device is a real writable static
+// byte array, aliased through TWO Normal views at different base offsets AND
+// through direct array access. Every path uses the SAME address arithmetic real
+// memory-mapped I/O uses, so the offsets are verified observably.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 99
+// 99
+// 7
+// 7
+// 32
+
+static BUF: [UInt8; 32]
+
+func main() {
+    let base = ((&BUF) as UnsafePointer<Int8>) as Int
+    let whole = UnsafeMemory<[UInt8; 32], Normal>(base)
+    // A second view based 8 bytes into the SAME buffer: shifted[i] aliases
+    // whole[i + 8].
+    let shifted = UnsafeMemory<[UInt8; 32], Normal>(base + 8)
+
+    whole[8].write(99)
+    print(shifted[0].read())   // 99 : shifted[0] aliases whole[8]
+    print(BUF[8] as Int)       // 99 : direct array access sees the same byte
+
+    shifted[3].write(7)        // aliases whole[11]
+    print(whole[11].read())    // 7
+    print(BUF[11] as Int)      // 7
+
+    print(whole.len())         // 32 : region byte length
+}

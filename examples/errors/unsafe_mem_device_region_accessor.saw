@@ -1,0 +1,9 @@
+// design 46: ptr()/len()/end() are Normal region accessors; they are not
+// available on Device memory (registers use read()/write()).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `ptr()` is a `Normal` region accessor
+
+struct Regs { a: UInt32 }
+static DEV: UnsafeMemory<Regs, Device> = UnsafeMemory(0x40000000)
+
+func main() { let p = DEV.ptr() }

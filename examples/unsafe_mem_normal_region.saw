@@ -1,0 +1,34 @@
+// UnsafeMemory<T, Normal> (design 46): plain (non-volatile) loads/stores with
+// whole-struct/element access AND the region accessors ptr()/len()/end() —
+// e.g. `slab_init(HEAP.ptr(), HEAP.len())` or a stack top from `.end()`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 22
+// 11
+// 11
+// 32
+// 32
+
+struct Pair { x: Int, y: Int }
+
+static SLOT: Pair
+static HEAP: [Int; 4]
+
+func main() {
+    let sbase = ((&SLOT) as UnsafePointer<Int8>) as Int
+    let view = UnsafeMemory<Pair, Normal>(sbase)
+
+    view.write(Pair(x: 11, y: 22))   // whole-struct write (Normal allows it)
+    let p = view.read()              // whole-struct read
+    print(p.x)                       // 11
+    print(p.y)                       // 22
+    print(SLOT.x)                    // 11 : direct access sees the write
+    print(view.x.read())             // 11 : field projection on a Normal view
+
+    // Region accessors over a [Int; 4] handoff region.
+    let hbase = ((&HEAP) as UnsafePointer<Int8>) as Int
+    let region = UnsafeMemory<[Int; 4], Normal>(hbase)
+    print(region.len())                          // 32 : 4 * 8 bytes
+    print((region.end() as Int) - (region.ptr() as Int))  // 32
+}
