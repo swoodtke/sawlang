@@ -352,6 +352,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                             if name not in ns.traits:
                                 ns.register_trait(name, sym)
                             ns.make_accessible(name)
+                    for name, sym in source_ns.statics.items():
+                        if sym.visibility == Visibility.PUBLIC:
+                            if name not in ns.statics:
+                                ns.register_static(name, sym)
+                            ns.make_accessible(name)
             elif imp.symbols:
                 # import foo.{A, B} -> copy specific symbols to local namespace
                 if imp_path in checked_modules:
@@ -375,6 +380,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                             if sym.visibility == Visibility.PUBLIC:
                                 if sym_name not in ns.functions:
                                     ns.register_function(sym_name, sym)
+                                ns.make_accessible(sym_name)
+                        elif sym_name in source_ns.statics:
+                            sym = source_ns.statics[sym_name]
+                            if sym.visibility == Visibility.PUBLIC:
+                                if sym_name not in ns.statics:
+                                    ns.register_static(sym_name, sym)
                                 ns.make_accessible(sym_name)
                         elif sym_name in source_ns.traits:
                             sym = source_ns.traits[sym_name]

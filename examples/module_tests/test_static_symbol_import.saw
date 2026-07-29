@@ -1,0 +1,10 @@
+// A `public static` may also be brought into direct scope via a symbol import
+// (design 41 item 1) — read unqualified after `import mod.{NAME}`.
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+
+import static_config.{VERSION}
+
+func main() {
+    print(VERSION)   // 7
+}
