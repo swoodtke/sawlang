@@ -249,19 +249,18 @@ spec examples aspirational).
 
 ## Concurrency & async
 
-- **A1.** Stage 2 async — TRANSFORM COMPLETE for straight-line +
-  nested calls + methods (briefs 44/45 Part 0); single-task runtime
-  slice landed (yield_now/sleep as real suspension sources; suspending
-  main auto-wrapped in the entry executor; __wake protocol word).
-  Remaining, in order: **A1a** CFG-based split (suspends inside
-  loops/if/match — currently honest compile errors; pure
-  implementation); **A1b** cooperative spawn/join + cancellation +
-  suspending Channel.receive — BLOCKED ON D16 (type-erased task
-  handles: Saw has no function pointers or trait objects to put
-  heterogeneous frames in one run queue); generic driven functions
-  blocked on A5. Bonus fix en route: empty module datalayout made O1
-  and object emission disagree on struct offsets (pre-existing
-  miscompile class, now pinned everywhere). [44, 45]
+- **A1.** Stage 2 async — TRANSFORM FULLY COMPLETE: straight-line +
+  nested calls + methods (44/45) AND control-flow suspension (52 Part
+  0: CFG-walk state machine — while/for-range/if/match/break/continue,
+  arbitrary nesting; honest rejections: for-over-iterable suspension,
+  value-producing break from suspending loops, move in spanning
+  conditions). Single-task runtime landed (45). **Remaining: A1b =
+  brief 52b (in flight)** — TaskGroup-owned run queue (the C1 nursery
+  model; group Deinit runs the executor = structured join via LIFO),
+  spawn/TaskHandle/cancel/suspending-channel, on design 51's validated
+  erasure. Soundness catches en route: datalayout offsets (45),
+  struct-init optional wrap + if-let move-out double-free (52).
+  Generic driven functions still blocked on A5. [44, 45, 52, 52b]
 - **D16 — DECIDED Jul 29 (user): user-facing `any Trait` NOW**
   (design 51): contextual `any` keyword, erased values behind &/Box
   only (no hidden existential container), construct-erased-directly
