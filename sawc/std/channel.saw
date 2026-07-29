@@ -93,6 +93,40 @@ extension Channel<T: Send> {
         }
     }
 
+    // Non-blocking dequeue (design 52b): the head value if the queue is
+    // non-empty, else `None` IMMEDIATELY — it NEVER blocks the thread. This is
+    // the primitive the cooperative task engine builds its suspending receive on:
+    // a task loops
+    //     while true { if let v = ch.try_receive() { ...; break } else { yield_now() } }
+    // so an empty channel suspends the TASK (not the thread) and the executor
+    // reschedules it — wake-on-send folded into yield-requeue (Part 0 loop
+    // suspension). The cancellation-aware form adds `if cancelled() { ... }` to the
+    // loop, returning through normal control flow (NO forced destroy). The 21b
+    // thread engine's blocking `recv` (below) is untouched and coexists.
+    func try_receive(&self) -> T? {
+        if let block = self.block {
+            pthread_mutex_lock(block)
+            let count = (block + 136) as UnsafePointer<Int>
+            if count[0] == 0 {
+                pthread_mutex_unlock(block)
+                return None
+            }
+            let head_slot = (block + 144) as UnsafePointer<UnsafePointer<Int8>>
+            let node = head_slot[0]
+            let val_slot = (node + 8) as UnsafePointer<T>
+            let value = val_slot[0]
+            count[0] = count[0] - 1
+            if count[0] > 0 {
+                let node_next = node as UnsafePointer<UnsafePointer<Int8>>
+                head_slot[0] = node_next[0]
+            }
+            Global().dealloc(node, 8 + sizeof<T>(), 16)
+            pthread_mutex_unlock(block)
+            return value
+        }
+        return None
+    }
+
     // Dequeue a value, blocking while the queue is empty.
     func recv(&self) -> T {
         if let block = self.block {
