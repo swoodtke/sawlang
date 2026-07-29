@@ -29,6 +29,7 @@ identifier, so it can never appear inside a user type name):
     array          := '$Arr$' <size> '$' type
     pointer        := ('$PtrM$' | '$PtrC$') type
     reference      := ('$RefM$' | '$RefC$') type
+    existential    := '$Any$' TraitName                       # `any Trait` (design 51)
     function       := '$Fn$' <arity> ('$' type)* '$To$' type
     type_param     := '$P$' Name            # should be substituted before mangling
     self           := '$Self'               # should be resolved before mangling
@@ -112,6 +113,11 @@ def mangle_type(t: SawType) -> str:
         # caller, but stay total so it surfaces as a clear symbol rather than a
         # crash.
         return "$P$" + (t.type_param_name or "T")
+
+    if kind == TypeKind.EXISTENTIAL:
+        # `any Trait` (design 51): the erased type is identified by its trait, so
+        # `Box<any Shape>` and `&any Shape` monomorphize/lookup consistently.
+        return "$Any$" + (t.existential_trait or "")
 
     if kind == TypeKind.SELF:
         return "$Self"

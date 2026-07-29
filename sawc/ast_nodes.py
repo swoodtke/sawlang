@@ -25,6 +25,7 @@ class TypeKind(Enum):
     POINTER = auto()     # For raw pointers: UnsafePointer<T>, UnsafeMutablePointer<T>
     MODULE = auto()      # For module references during qualified access
     REFERENCE = auto()   # For reference types: &T (immutable), &var T (mutable)
+    EXISTENTIAL = auto() # For `any Trait` type-erased existentials (design 51)
     # Fixed-width integers
     INT8 = auto()
     INT16 = auto()
@@ -79,6 +80,10 @@ class SawType:
     module_name: Optional[str] = None
     # For reference types (REFERENCE), True = &var T (mutable), False = &T (immutable)
     reference_mutable: bool = False
+    # For EXISTENTIAL types (`any Trait`, design 51): the trait name being erased
+    # to. Legal only as `&any Trait` or `Box<any Trait, A>` (unsized discipline);
+    # represented at runtime as a fat pointer (data ptr, vtable ptr).
+    existential_trait: Optional[str] = None
     # Direct reference to type symbol (StructSymbol, EnumSymbol, etc.)
     symbol: Optional[Any] = None
 
@@ -130,6 +135,8 @@ class SawType:
             if self.reference_mutable:
                 return f"&var {self.inner_type}"
             return f"&{self.inner_type}"
+        if self.kind == TypeKind.EXISTENTIAL:
+            return f"any {self.existential_trait}"
         # Map TypeKind names to CamelCase display names
         display_names = {
             TypeKind.INT: "Int",
@@ -211,6 +218,10 @@ class SawType:
     def is_reference_type(self) -> bool:
         """Check if this is a reference type (&T or &var T)."""
         return self.kind == TypeKind.REFERENCE
+
+    def is_existential(self) -> bool:
+        """Check if this is an `any Trait` existential type (design 51)."""
+        return self.kind == TypeKind.EXISTENTIAL
 
     # ===== Transformation Methods =====
 

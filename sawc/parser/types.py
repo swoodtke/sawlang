@@ -132,6 +132,22 @@ class TypeParsingMixin:
             self.advance()
             name = token.value
 
+            # Contextual `any Trait` existential (design 51). `any` stays a valid
+            # identifier: it names an erased type ONLY when immediately followed by
+            # a trait name (two adjacent identifiers never form any other type), so
+            # `any` alone (or `any.Foo`, `any<...>`) still falls through to the
+            # normal named-type path below. The trait reference may be dotted
+            # (`any lib.Shape`); associated-type pinning (`any Iterator<Item=Int>`)
+            # is deferred, so no `<...>` is consumed here.
+            if name == "any" and self.match(TokenType.IDENT):
+                trait_tok = self.expect(TokenType.IDENT, "Expected trait name after 'any'")
+                trait_name = trait_tok.value
+                while self.match(TokenType.DOT):
+                    self.advance()
+                    part = self.expect(TokenType.IDENT, "Expected identifier after '.' in trait name")
+                    trait_name = f"{trait_name}.{part.value}"
+                return SawType(TypeKind.EXISTENTIAL, existential_trait=trait_name)
+
             # Check for built-in types (Int, String, Bool, etc.)
             if name in self.BUILTIN_TYPES:
                 return SawType(self.BUILTIN_TYPES[name])
