@@ -1,0 +1,34 @@
+// design 44 item 4: an explicit early `return` after a resume ends the
+// coroutine through normal control flow. Live frame fields are dropped exactly
+// once at frame death, in LIFO order (no forced destroy: cleanup is ordinary
+// control flow, never a per-suspension-point destroy path). Frame death happens
+// inside the driver, so the deinit prints precede the printed result.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 100
+// 999
+// 2
+// 1
+// 3
+
+struct Tracker { id: Int }
+extension Tracker: Deinit {
+    func deinit(&var self) { print(self.id) }
+}
+
+func work(early: Bool) -> Int {
+    let t = Tracker(id: 1)
+    __suspend()
+    if early {
+        return 100                // early: t dropped once, result 100
+    }
+    let u = Tracker(id: 2)
+    u.id + t.id                   // u(2) then t(1) dropped LIFO, result 3
+}
+
+func main() {
+    print(__drive(work(true)))
+    print(999)
+    print(__drive(work(false)))
+}

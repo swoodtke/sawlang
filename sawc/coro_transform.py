@@ -298,8 +298,13 @@ class _FrameBuilder:
         # ---- resume method body ------------------------------------------- #
         resume_stmts = []
         n_states = len(segments)  # states 0 .. n_states-1; last is completion
+        self._done_state = n_states
         for k, seg in enumerate(segments):
             seg_stmts = [self._lower_stmt(s, frame_field_names) for s in seg]
+            # An explicit `return X` anywhere in a segment ends the coroutine:
+            # store the result, mark done, signal Done (the live frame fields are
+            # dropped at frame death — normal-control-flow cleanup only).
+            seg_stmts = self._remap_returns(seg_stmts)
             if k < n_states - 1:
                 # A suspending state: run the segment, advance, yield Pending.
                 seg_stmts.append(AssignStatement(
@@ -337,6 +342,42 @@ class _FrameBuilder:
                               source_file=getattr(func, 'source_file', ""))
 
         return frame_struct, resume_ext, params, frame_locals
+
+    def _done_seq(self, value):
+        """Statements that end the coroutine at an explicit `return value`
+        (value already rewritten to frame-field reads by _lower_stmt)."""
+        seq = []
+        if value is not None and not self.is_void:
+            seq.append(AssignStatement(target=_self_field("__result"), value=value))
+        seq.append(AssignStatement(target=_self_field("__state"),
+                                   value=_int(self._done_state)))
+        seq.append(ReturnStatement(value=_poll("Done")))
+        return seq
+
+    def _remap_returns(self, stmts):
+        """Replace every `return X` in a (lowered) statement list with the
+        end-of-coroutine sequence, recursing into if/while/match blocks. v1 covers
+        top-level and nested-block returns; a return inside a loop that spans a
+        suspension is later control-flow work."""
+        out = []
+        for s in stmts:
+            if isinstance(s, ReturnStatement):
+                out.extend(self._done_seq(s.value))
+                continue
+            if isinstance(s, ExpressionStatement):
+                e = s.expression
+                if isinstance(e, IfExpr):
+                    e.then_branch.statements = self._remap_returns(e.then_branch.statements)
+                    if e.else_branch is not None:
+                        e.else_branch.statements = self._remap_returns(e.else_branch.statements)
+                elif isinstance(e, WhileExpr):
+                    e.body.statements = self._remap_returns(e.body.statements)
+                elif isinstance(e, MatchExpr):
+                    for arm in e.arms:
+                        if isinstance(arm.body, Block):
+                            arm.body.statements = self._remap_returns(arm.body.statements)
+            out.append(s)
+        return out
 
     def _lower_stmt(self, stmt, frame_field_names):
         """Rewrite a body statement for the resume method: a top-level `let`/`var`
