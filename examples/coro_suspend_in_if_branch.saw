@@ -1,0 +1,31 @@
+// design 52 Part 0: a suspension in ONE branch of an `if`. The CFG split routes
+// the then/else branches to separate state blocks that reconverge at a merge
+// state; only the taken branch's suspension executes. Both paths are exercised:
+// `pick(true)` suspends once (then-branch), `pick(false)` suspends twice
+// (else-branch), and each returns the branch's computed value.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 1
+// 22
+// 2
+
+func pick(hi: Bool) -> Int {
+    var r = 0
+    if hi {
+        __suspend()
+        r = 11
+    } else {
+        __suspend()
+        __suspend()
+        r = 22
+    }
+    r                    // merge state: r set on whichever branch ran
+}
+
+func main() {
+    print(__drive(pick(true)))         // 11
+    print(__drive_steps(pick(true)))   // 1 suspension (then-branch)
+    print(__drive(pick(false)))        // 22
+    print(__drive_steps(pick(false)))  // 2 suspensions (else-branch)
+}

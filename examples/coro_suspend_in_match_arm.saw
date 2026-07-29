@@ -1,0 +1,38 @@
+// design 52 Part 0: a suspension inside a `match` arm. The CFG split evaluates
+// the scrutinee once, carries each arm's payload binding into a frame field, and
+// dispatches to a per-arm state block; the arm's suspension then spans normally
+// and the binding survives it (read after the resume). Both arms exercised.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 43
+// 1
+// 8
+// 2
+
+enum Cmd {
+    case Add(n: Int),
+    case Twice(n: Int)
+}
+
+func run(c: Cmd) -> Int {
+    var r = 0
+    match c {
+        case Add(n) -> {
+            __suspend()
+            r = n + 1        // n survived the suspension (frame-resident binding)
+        },
+        case Twice(n) -> {
+            __suspend()
+            __suspend()
+            r = n + n
+        }
+    }
+    r
+}
+
+func main() {
+    print(__drive(run(Cmd.Add(n: 42))))          // 43
+    print(__drive_steps(run(Cmd.Add(n: 42))))    // 1 suspension
+    print(__drive(run(Cmd.Twice(n: 4))))         // 8
+    print(__drive_steps(run(Cmd.Twice(n: 4))))   // 2 suspensions
+}

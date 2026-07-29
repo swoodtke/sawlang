@@ -1,0 +1,27 @@
+// design 52 Part 0: a suspension nested TWO control-flow levels deep — inside an
+// `if` inside a `while`. The CFG split composes: the inner if's merge state feeds
+// the loop back-edge. Only even iterations suspend-and-count, so `hits` records
+// how many evens were seen and the driver step count matches. Counts evens in
+// 0..6: {0,2,4} -> 3 hits, 3 suspensions.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 3
+
+func evens() -> Int {
+    var i = 0
+    var hits = 0
+    while i < 6 {
+        if i % 2 == 0 {
+            __suspend()          // suspends inside the if inside the while
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func main() {
+    print(__drive(evens()))        // 3
+    print(__drive_steps(evens()))  // 3 suspensions (one per even)
+}

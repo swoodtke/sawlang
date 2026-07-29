@@ -1,0 +1,24 @@
+// design 52 Part 0: a suspension INSIDE a `while` body — the construct brief 45
+// rejected as an honest compile error is now lifted by the CFG-based state split.
+// The loop back-edge and condition test become state transitions; the loop
+// counter `i` is frame-resident, so it survives each suspension and the iteration
+// count is exact across resumes. `__drive` runs the frame to completion (result
+// 3); `__drive_steps` proves the body really suspended once per iteration (3).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 3
+
+func work() -> Int {
+    var i = 0
+    while i < 3 {
+        __suspend()      // suspends INSIDE the loop body, spanning the back-edge
+        i = i + 1        // i survived the suspension (frame-resident)
+    }
+    i                    // 3 after three counted iterations
+}
+
+func main() {
+    print(__drive(work()))        // 3
+    print(__drive_steps(work()))  // 3 suspensions (one per iteration)
+}

@@ -34,7 +34,8 @@ from ast_nodes import (
     Identifier, MemberAccess, SelfExpr, IntLiteral, BoolLiteral, NoneLiteral,
     FunctionCall, MethodCall, BinaryOp, UnaryOp, EnumInit, ForceUnwrap,
     IfExpr, MatchExpr, MatchArm, WhileExpr, ReturnStatement, ArrayIndex,
-    CastExpr, ReferenceExpr,
+    CastExpr, ReferenceExpr, RangeExpr, ForLoop,
+    BreakStatement, ContinueStatement,
     ExpressionStatement, LetStatement, AssignStatement, WhileExpr,
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
     Parameter, SawType, TypeKind, Visibility,
@@ -234,13 +235,16 @@ def _analyze_nesting(root_name, root_func, nodes):
 # --------------------------------------------------------------------------- #
 
 class _FrameBuilder:
-    def __init__(self, func, struct_name=None):
+    def __init__(self, func, struct_name=None, tc=None):
         # `func` is a Function (free-function root) or a Method (driven method,
         # Part 0c). For a method, `struct_name` is the receiver struct: the frame
         # holds a `__recv: UnsafePointer<Struct>` pointer into the task root's
         # storage (D6: `&var self` may span suspensions under task confinement),
         # and the method body's `self` is rewritten to `self.__recv[0]`.
+        # `tc` is the typechecker (design 52 Part 0: needed to resolve match-arm
+        # binding types when a suspension splits a `match` across states).
         self.func = func
+        self._tc = tc
         self.is_method = struct_name is not None
         self.struct_name = struct_name
         if self.is_method:
@@ -255,24 +259,164 @@ class _FrameBuilder:
         self.is_void = (self.ret.kind == TypeKind.VOID)
 
     def _collect_frame_locals(self):
-        """v1 conservative-by-scope liveness: every top-level `let`/`var` in the
-        function body has a lexical scope that spans the whole body (which
-        contains the suspensions), so it is frame-resident. Locals in nested
-        blocks are handled when nested control flow lands; for v1 straight-line
-        bodies there are none."""
+        """Conservative-by-scope liveness (design 52 Part 0): every local whose
+        lexical scope SPANS a suspension is frame-resident. A block "spans a
+        suspension" when it (transitively) contains a suspension point; every
+        `let`/`var` directly declared in such a block, plus a suspending `for`'s
+        loop variable + its synthesized end bound, plus the payload bindings of a
+        suspending `match`, live across a state boundary and so become frame
+        fields. Locals in scopes that do NOT span a suspension keep ordinary
+        real-local codegen (they never cross a state boundary). Larger frames than
+        a true live-range analysis, correct and simple."""
         locals_ = []  # (name, SawType)
         seen = set()
-        for stmt in self.func.body.statements:
-            if isinstance(stmt, LetStatement):
-                t = stmt.type_annotation or getattr(stmt.value, 'resolved_type', None)
-                if t is None:
-                    raise CoroTransformError(
-                        f"coroutine transform: local `{stmt.name}` in driven "
-                        f"`{self.name}` has no resolved type", stmt.line, stmt.column)
-                if stmt.name not in seen:
-                    seen.add(stmt.name)
-                    locals_.append((stmt.name, t))
+
+        def add(name, t, line=0, column=0):
+            if t is None:
+                raise CoroTransformError(
+                    f"coroutine transform: local `{name}` in driven "
+                    f"`{self.name}` has no resolved type", line, column)
+            if name not in seen:
+                seen.add(name)
+                locals_.append((name, t))
+
+        def walk_block(block):
+            scope_spans = self._spans_suspension(block)
+            for s in block.statements:
+                walk_stmt(s, scope_spans)
+
+        def walk_stmt(s, scope_spans):
+            if isinstance(s, LetStatement):
+                if scope_spans:
+                    t = s.type_annotation or getattr(s.value, 'resolved_type', None)
+                    add(s.name, t, s.line, s.column)
+                return
+            ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+            if isinstance(ctrl, IfExpr):
+                walk_block(ctrl.then_branch)
+                if ctrl.else_branch is not None:
+                    walk_block(ctrl.else_branch)
+            elif isinstance(ctrl, WhileExpr):
+                walk_block(ctrl.body)
+            elif isinstance(ctrl, MatchExpr):
+                if self._spans_suspension(ctrl):
+                    for nm, t in self._match_binding_types(ctrl).items():
+                        add(nm, t, ctrl.line, ctrl.column)
+                for arm in ctrl.arms:
+                    if isinstance(arm.body, Block):
+                        walk_block(arm.body)
+            elif isinstance(s, ForLoop):
+                if self._spans_suspension(s):
+                    add(s.variable, SawType(TypeKind.INT), s.line, s.column)
+                    add(f"__end_{s.variable}", SawType(TypeKind.INT), s.line, s.column)
+                walk_block(s.body)
+
+        walk_block(self.func.body)
         return locals_
+
+    # ------------------------------------------------------------------ #
+    # suspension analysis over the body (CFG split decisions, design 52)
+    # ------------------------------------------------------------------ #
+    def _spans_suspension(self, node):
+        """True if `node` (a Block/Statement/Expression subtree) transitively
+        contains a suspension point: a suspend primitive (`__suspend`/`yield_now`/
+        `sleep`) or a call to a suspending function in the driven closure. Decides
+        whether a control-flow construct must be CFG-split into states or can be
+        lowered in place unchanged."""
+        found = [False]
+
+        def scan(n):
+            if found[0]:
+                return
+            if isinstance(n, FunctionCall) and (
+                    n.name in _SUSPEND_CALLS or n.name in self._suspends):
+                found[0] = True
+                return
+            if isinstance(n, ASTNode):
+                for f in dataclasses.fields(n):
+                    scan_val(getattr(n, f.name))
+
+        def scan_val(v):
+            if found[0]:
+                return
+            if isinstance(v, (list, tuple)):
+                for x in v:
+                    scan_val(x)
+            elif isinstance(v, Argument):
+                scan_val(v.value)
+            elif isinstance(v, ASTNode):
+                scan(v)
+
+        scan(node)
+        return found[0]
+
+    def _match_binding_types(self, match_expr):
+        """Resolve every arm binding of `match_expr` to its payload type, via the
+        typechecker's enum info (the scrutinee's enum type was recorded on the
+        node during checking). Used to give a suspending match's bindings a frame
+        field type."""
+        out = {}
+        mt = getattr(match_expr, 'matched_enum_type', None)
+        if mt is None or self._tc is None:
+            return out
+        einfo = self._tc.get_enum_info(mt.enum_name, from_type=mt)
+        if einfo is None:
+            return out
+        mapping = {}
+        if einfo.type_params and mt.type_args:
+            for tp, ta in zip(einfo.type_params, mt.type_args):
+                mapping[tp.name] = ta
+        for arm in match_expr.arms:
+            if arm.variant_name == "_" or arm.variant_name not in einfo.variants:
+                continue
+            vps = einfo.variants[arm.variant_name]
+            if mapping:
+                vps = [(nm, t.substitute(mapping)) for nm, t in vps]
+            for bname, (_pn, ptype) in zip(arm.bindings, vps):
+                if bname != "_":
+                    out[bname] = ptype
+        return out
+
+    def _collect_calls(self):
+        """Walk the whole body for nested suspending call sites (top-level OR
+        inside control-flow bodies). Each embeds a callee frame by value; `sub`
+        names its field. Keyed by statement identity so the CFG walk can recover a
+        call's sub-frame field. A suspending call buried in an expression position
+        (not a bare `let x = g(...)` / `g(...)` statement) is rejected honestly."""
+        self.calls = []
+        self.call_by_id = {}
+
+        def visit_block(block):
+            for s in block.statements:
+                visit_stmt(s)
+
+        def visit_stmt(s):
+            info = self._classify_call(s)
+            if info is not None:
+                info['sub'] = f"__sub{len(self.calls)}"
+                self.calls.append(info)
+                self.call_by_id[id(s)] = info
+                return
+            ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+            if isinstance(ctrl, IfExpr):
+                visit_block(ctrl.then_branch)
+                if ctrl.else_branch is not None:
+                    visit_block(ctrl.else_branch)
+            elif isinstance(ctrl, WhileExpr):
+                visit_block(ctrl.body)
+            elif isinstance(ctrl, MatchExpr):
+                for arm in ctrl.arms:
+                    if isinstance(arm.body, Block):
+                        visit_block(arm.body)
+            elif isinstance(s, ForLoop):
+                visit_block(s.body)
+            elif not _is_suspend_stmt(s):
+                # A bare suspension-point statement is a legal state boundary; any
+                # OTHER leaf holding a suspending call in an expression position is
+                # not expressible and is rejected.
+                self._reject_buried_suspend_call(s)
+
+        visit_block(self.func.body)
 
     # ------------------------------------------------------------------ #
     # Phase 1: layout. Compute the frame's fields (params + across-suspension
@@ -288,18 +432,11 @@ class _FrameBuilder:
         # param — drop it if the parser placed it in `parameters`.
         self.params = [p for p in func.parameters
                        if not (self.is_method and p.name == "self")]
+        # Nested suspending call sites (whole body, incl. control-flow bodies).
+        # Each embeds a callee frame by value; `sub` names its field. Must run
+        # before local collection (both consult `self._suspends`).
+        self._collect_calls()
         self.frame_locals = self._collect_frame_locals()
-
-        # Nested suspending call sites (top-level statements only). Each embeds a
-        # callee frame by value; `sub` names its field.
-        self.calls = []
-        for stmt in func.body.statements:
-            info = self._classify_call(stmt)
-            if info is not None:
-                info['sub'] = f"__sub{len(self.calls)}"
-                self.calls.append(info)
-            else:
-                self._reject_buried_suspend_call(stmt)
 
         encmap = {}
         for p in self.params:
@@ -365,7 +502,8 @@ class _FrameBuilder:
         found = []
 
         def scan(n):
-            if isinstance(n, FunctionCall) and n.name in self._suspends:
+            if isinstance(n, FunctionCall) and (
+                    n.name in self._suspends or n.name in _SUSPEND_CALLS):
                 found.append(n)
             if isinstance(n, MethodCall):
                 mname = getattr(n, 'method_name', None)
@@ -395,96 +533,68 @@ class _FrameBuilder:
                 g.line, g.column)
 
     # ------------------------------------------------------------------ #
-    # Phase 2: the resume state machine. Split the body at `__suspend()` and at
-    # each nested suspending call; a plain suspend advances one state, a nested
-    # call builds+drives its embedded sub-frame across the caller's own
-    # suspensions before capturing the callee's result and advancing.
+    # Phase 2: the resume state machine, built by a CFG walk (design 52 Part 0).
+    #
+    # The body lowers into a list of basic BLOCKS, each a state. The resume method
+    # is an infinite `while { if __state == 0 {...}  if __state == 1 {...} ... }`
+    # dispatch loop. Each block ends in a terminator:
+    #   * suspend  — set __wake + __state = target; `return Pending`.
+    #   * done     — store __result + __state = <done>; `return Done`.
+    #   * goto     — set __state = target; `continue` (re-dispatch, same resume).
+    #   * branch   — `if cond { __state = A } else { __state = B }`; `continue`.
+    # Loop back-edges and branch merges are ordinary gotos, so a suspension INSIDE
+    # a while/for/if/match body just terminates its block and resumes at the next
+    # block — counted iterations survive across resumes because loop-carried
+    # locals are frame-resident. Straight-line bodies produce one block per
+    # segment exactly as the old top-level split did (backward compatible).
     # ------------------------------------------------------------------ #
     def build_resume(self, fbs):
         func = self.func
-        segments = [[]]
-        transitions = []  # ('suspend', wake_expr) | ('call', info) between segments
-        call_idx = 0
-        for stmt in func.body.statements:
-            if _is_suspend_stmt(stmt):
-                transitions.append(('suspend', _wake_expr(stmt)))
-                segments.append([])
-                continue
-            if self._classify_call(stmt) is not None:
-                # Reuse the prepared call record (it carries the sub-frame field
-                # name `sub`), matched by body order.
-                transitions.append(('call', self.calls[call_idx]))
-                call_idx += 1
-                segments.append([])
-                continue
-            segments[-1].append(stmt)
-        final_expr = func.body.final_expr
+        self._fbs = fbs
+        self._blocks = [[]]      # block 0 is the entry
+        self._term = set()       # ids of blocks already terminated
+        self._done_lits = []     # IntLiterals for the __state=<done> marker
+        self.cur = 0
 
-        # The final completion segment sits at `final_state`; `done_state` is one
-        # past it (the terminal marker written when the frame reports Done). A
-        # `return` in any earlier segment jumps straight to done_state, so it must
-        # be known before lowering any segment.
-        final_state = sum(2 if kind == 'call' else 1 for kind, _ in transitions)
-        self._done_state = final_state + 1
+        self._lower_stmts(func.body.statements, loop_ctx=None)
+        if self.cur not in self._term:
+            fe = func.body.final_expr
+            if fe is not None:
+                forgets = []
+                val = self._rewrite_expr(fe, forgets)
+                if forgets:
+                    raise CoroTransformError(
+                        f"coroutine transform: `move` of a frame-resident local of "
+                        f"`{self.name}` in tail-expression position is not "
+                        f"supported; move it in a `return` statement",
+                        func.line, func.column)
+                self._done(val)
+            else:
+                self._done(None)
 
-        resume_stmts = []
-        state = 0
-        for k, seg in enumerate(segments):
-            seg_stmts = self._lower_stmt_list(seg)
-            if k == len(segments) - 1:
-                # Completion: run the tail, store the result, mark done.
-                if final_expr is not None:
-                    tail_forgets = []
-                    tail_val = self._rewrite_expr(final_expr, tail_forgets)
-                    if tail_forgets:
-                        raise CoroTransformError(
-                            f"coroutine transform: `move` of a frame-resident "
-                            f"local of `{self.name}` in tail-expression position "
-                            f"is not supported; move it in a `return` statement",
-                            func.line, func.column)
-                    if self.is_void:
-                        # A void tail expression (e.g. `print(...)`) still runs for
-                        # its side effects; there is no result slot to store into.
-                        seg_stmts.append(ExpressionStatement(expression=tail_val))
-                    else:
-                        seg_stmts.append(AssignStatement(
-                            target=_self_field("__result"), value=tail_val))
-                seg_stmts.append(AssignStatement(
-                    target=_self_field("__state"), value=_int(self._done_state)))
-                seg_stmts.append(ReturnStatement(value=_poll("Done")))
-                resume_stmts.append(self._state_if(state, seg_stmts))
-                break
+        # The done marker is one past the last block id: no `if __state == k`
+        # matches it, so a stray re-dispatch after Done is inert (Done already
+        # returned to the executor, which never resumes a completed frame).
+        done_state = len(self._blocks)
+        for lit in self._done_lits:
+            lit.value = done_state
 
-            kind, info = transitions[k]
-            if kind == 'suspend':
-                wforgets = []
-                wake = self._rewrite_expr(info, wforgets)
-                seg_stmts.extend(self._forgets(wforgets))
-                seg_stmts.append(AssignStatement(
-                    target=_self_field("__wake"), value=wake))
-                seg_stmts.append(AssignStatement(
-                    target=_self_field("__state"), value=_int(state + 1)))
-                seg_stmts.append(ReturnStatement(value=_poll("Pending")))
-                resume_stmts.append(self._state_if(state, seg_stmts))
-                state += 1
-            else:  # nested suspending call
-                drive_state = state + 1
-                next_state = state + 2
-                seg_stmts.extend(self._build_sub_frame(info, fbs))
-                seg_stmts.append(AssignStatement(
-                    target=_self_field("__state"), value=_int(drive_state)))
-                seg_stmts.append(ReturnStatement(value=_poll("Pending")))
-                resume_stmts.append(self._state_if(state, seg_stmts))
-                resume_stmts.append(self._state_if(
-                    drive_state, self._drive_sub(info, fbs, next_state)))
-                state = next_state
+        if_chain = [self._state_if(k, self._blocks[k])
+                    for k in range(len(self._blocks))]
+        # A `while true` dispatch loop (a constant-true condition, NOT the
+        # infinite `while {}` expression form, which would demand a break): each
+        # block terminates with `return` (Pending/Done) or `continue` (re-dispatch
+        # after a state change), so the loop only ever exits via a return.
+        loop = ExpressionStatement(expression=WhileExpr(
+            condition=BoolLiteral(value=True),
+            body=Block(statements=if_chain, final_expr=None)))
 
         resume = Method(
             name="resume",
             parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True, reference_mutable=True)],
             return_type=SawType(TypeKind.ENUM, enum_name="__Poll"),
-            body=Block(statements=resume_stmts, final_expr=None),
+            body=Block(statements=[loop], final_expr=None),
             self_mutable=True, self_is_reference=True,
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
@@ -498,6 +608,303 @@ class _FrameBuilder:
             condition=BinaryOp(op="==", left=_self_field("__state"),
                                right=_int(state)),
             then_branch=Block(statements=stmts, final_expr=None)))
+
+    # ----------------------------------------------------- block plumbing
+    def _new_block(self):
+        self._blocks.append([])
+        return len(self._blocks) - 1
+
+    def _emit(self, stmts):
+        if self.cur in self._term:
+            return
+        self._blocks[self.cur].extend(stmts)
+
+    def _goto(self, target):
+        """Unconditional edge: set the state word and re-dispatch in the same
+        resume call (loop back-edge / branch merge)."""
+        if self.cur in self._term:
+            return
+        self._blocks[self.cur].append(
+            AssignStatement(target=_self_field("__state"), value=_int(target)))
+        self._blocks[self.cur].append(ContinueStatement())
+        self._term.add(self.cur)
+
+    def _branch(self, cond, then_target, else_target):
+        if self.cur in self._term:
+            return
+        self._blocks[self.cur].append(ExpressionStatement(expression=IfExpr(
+            condition=cond,
+            then_branch=Block(statements=[AssignStatement(
+                target=_self_field("__state"), value=_int(then_target))],
+                final_expr=None),
+            else_branch=Block(statements=[AssignStatement(
+                target=_self_field("__state"), value=_int(else_target))],
+                final_expr=None))))
+        self._blocks[self.cur].append(ContinueStatement())
+        self._term.add(self.cur)
+
+    def _suspend_to(self, wake, target):
+        if self.cur in self._term:
+            return
+        self._blocks[self.cur].append(
+            AssignStatement(target=_self_field("__wake"), value=wake))
+        self._blocks[self.cur].append(
+            AssignStatement(target=_self_field("__state"), value=_int(target)))
+        self._blocks[self.cur].append(ReturnStatement(value=_poll("Pending")))
+        self._term.add(self.cur)
+
+    def _done(self, value, forgets=None):
+        if self.cur in self._term:
+            return
+        self._blocks[self.cur].extend(self._done_seq(value, forgets or []))
+        self._term.add(self.cur)
+
+    # ----------------------------------------------------- the CFG walk
+    def _lower_stmts(self, stmts, loop_ctx):
+        for s in stmts:
+            if self.cur in self._term:
+                break  # unreachable tail after a return/break/continue
+            self._lower_stmt(s, loop_ctx)
+
+    def _lower_block(self, block, loop_ctx):
+        self._lower_stmts(block.statements, loop_ctx)
+        if block.final_expr is not None and self.cur not in self._term:
+            # A branch/loop-body tail expression in statement position: run it for
+            # its side effects (its value is discarded here).
+            self._lower_stmt(
+                ExpressionStatement(expression=block.final_expr), loop_ctx)
+
+    def _lower_stmt(self, s, loop_ctx):
+        # A suspension primitive: terminate this block, resume at a fresh one.
+        if _is_suspend_stmt(s):
+            wake = _wake_expr(s)
+            nxt = self._new_block()
+            self._suspend_to(wake, nxt)
+            self.cur = nxt
+            return
+        # A nested suspending call: embed + drive the callee sub-frame.
+        info = self.call_by_id.get(id(s))
+        if info is not None:
+            self._emit_nested_call(info, loop_ctx)
+            return
+        if isinstance(s, ReturnStatement):
+            forgets = []
+            value = (self._rewrite_expr(s.value, forgets)
+                     if s.value is not None else None)
+            self._done(value, forgets)
+            return
+        if isinstance(s, BreakStatement):
+            if s.value is not None:
+                raise CoroTransformError(
+                    f"coroutine transform: `break` with a value out of a "
+                    f"suspension-spanning loop in `{self.name}` is not supported",
+                    s.line, s.column)
+            if loop_ctx is None:
+                raise CoroTransformError(
+                    f"coroutine transform: `break` outside a loop in `{self.name}`",
+                    s.line, s.column)
+            self._goto(loop_ctx[1])
+            return
+        if isinstance(s, ContinueStatement):
+            if loop_ctx is None:
+                raise CoroTransformError(
+                    f"coroutine transform: `continue` outside a loop in "
+                    f"`{self.name}`", s.line, s.column)
+            self._goto(loop_ctx[0])
+            return
+
+        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        if isinstance(ctrl, IfExpr) and self._spans_suspension(ctrl):
+            self._split_if(ctrl, loop_ctx)
+            return
+        if isinstance(ctrl, WhileExpr) and self._spans_suspension(ctrl):
+            self._split_while(ctrl, loop_ctx)
+            return
+        if isinstance(s, ForLoop) and self._spans_suspension(s):
+            self._split_for(s, loop_ctx)
+            return
+        if isinstance(ctrl, MatchExpr) and self._spans_suspension(ctrl):
+            self._split_match(ctrl, loop_ctx)
+            return
+
+        # Non-suspending statement (incl. non-spanning control flow): lower in
+        # place — identifier→frame-field rewrites, drop-flag clears, returns→done.
+        self._emit(self._lower_inplace(s))
+
+    def _split_if(self, e, loop_ctx):
+        forgets = []
+        cond = self._rewrite_expr(e.condition, forgets)
+        if forgets:
+            raise CoroTransformError(
+                f"coroutine transform: `move` in the condition of a "
+                f"suspension-spanning `if` in `{self.name}` is not supported",
+                e.line, e.column)
+        then_b = self._new_block()
+        else_b = self._new_block() if e.else_branch is not None else None
+        merge = self._new_block()
+        self._branch(cond, then_b, else_b if else_b is not None else merge)
+        self.cur = then_b
+        self._lower_block(e.then_branch, loop_ctx)
+        if self.cur not in self._term:
+            self._goto(merge)
+        if else_b is not None:
+            self.cur = else_b
+            self._lower_block(e.else_branch, loop_ctx)
+            if self.cur not in self._term:
+                self._goto(merge)
+        self.cur = merge
+
+    def _split_while(self, e, loop_ctx):
+        if e.condition is not None:
+            header = self._new_block()
+            body_b = self._new_block()
+            exit_b = self._new_block()
+            self._goto(header)
+            self.cur = header
+            forgets = []
+            cond = self._rewrite_expr(e.condition, forgets)
+            if forgets:
+                raise CoroTransformError(
+                    f"coroutine transform: `move` in the condition of a "
+                    f"suspension-spanning `while` in `{self.name}` is not "
+                    f"supported", e.line, e.column)
+            self._branch(cond, body_b, exit_b)
+            self.cur = body_b
+            self._lower_block(e.body, loop_ctx=(header, exit_b))
+            if self.cur not in self._term:
+                self._goto(header)
+            self.cur = exit_b
+        else:
+            body_b = self._new_block()
+            exit_b = self._new_block()
+            self._goto(body_b)
+            self.cur = body_b
+            self._lower_block(e.body, loop_ctx=(body_b, exit_b))
+            if self.cur not in self._term:
+                self._goto(body_b)
+            self.cur = exit_b
+
+    def _split_for(self, s, loop_ctx):
+        if not isinstance(s.iterable, RangeExpr):
+            raise CoroTransformError(
+                f"coroutine transform: a suspension inside a `for` over a "
+                f"non-range iterable in `{self.name}` is not supported; "
+                f"use a `while` loop", s.line, s.column)
+        var = s.variable
+        end_name = f"__end_{var}"
+        lo_forgets, hi_forgets = [], []
+        lo = self._rewrite_expr(s.iterable.start, lo_forgets)
+        hi = self._rewrite_expr(s.iterable.end, hi_forgets)
+        init = [AssignStatement(target=_self_field(var), value=lo),
+                AssignStatement(target=_self_field(end_name), value=hi)]
+        self._emit(init + self._forgets(lo_forgets) + self._forgets(hi_forgets))
+        header = self._new_block()
+        body_b = self._new_block()
+        incr = self._new_block()
+        exit_b = self._new_block()
+        self._goto(header)
+        self.cur = header
+        cond = BinaryOp(op="<", left=_self_field(var),
+                        right=_self_field(end_name))
+        self._branch(cond, body_b, exit_b)
+        self.cur = body_b
+        self._lower_block(s.body, loop_ctx=(incr, exit_b))
+        if self.cur not in self._term:
+            self._goto(incr)
+        self.cur = incr
+        self._emit([AssignStatement(
+            target=_self_field(var),
+            value=BinaryOp(op="+", left=_self_field(var), right=_int(1)))])
+        self._goto(header)
+        self.cur = exit_b
+
+    def _split_match(self, e, loop_ctx):
+        forgets = []
+        scrut = self._rewrite_expr(e.matched_expr, forgets)
+        if forgets:
+            raise CoroTransformError(
+                f"coroutine transform: `move` of the scrutinee of a "
+                f"suspension-spanning `match` in `{self.name}` is not supported",
+                e.line, e.column)
+        merge = self._new_block()
+        arm_entries = []
+        new_arms = []
+        for arm in e.arms:
+            entry = self._new_block()
+            arm_entries.append((arm, entry))
+            dispatch = []
+            for bname in arm.bindings:
+                if bname == "_" or bname not in self.encmap:
+                    continue
+                # Carry the payload binding into its frame field, so the arm's
+                # (separately-dispatched) entry block can read it after a suspend.
+                dispatch.append(AssignStatement(
+                    target=_self_field(bname), value=Identifier(name=bname)))
+            dispatch.append(AssignStatement(
+                target=_self_field("__state"), value=_int(entry)))
+            new_arms.append(MatchArm(
+                variant_name=arm.variant_name, bindings=list(arm.bindings),
+                body=Block(statements=dispatch, final_expr=None)))
+        self._emit([ExpressionStatement(expression=MatchExpr(
+            matched_expr=scrut, arms=new_arms))])
+        self._blocks[self.cur].append(ContinueStatement())
+        self._term.add(self.cur)
+        for arm, entry in arm_entries:
+            self.cur = entry
+            if isinstance(arm.body, Block):
+                self._lower_block(arm.body, loop_ctx)
+            else:
+                self._lower_stmt(
+                    ExpressionStatement(expression=arm.body), loop_ctx)
+            if self.cur not in self._term:
+                self._goto(merge)
+        self.cur = merge
+
+    def _emit_nested_call(self, info, loop_ctx):
+        """Embed the callee frame (once) and drive it across the caller's own
+        resumes: the drive block resumes the sub-frame; on Pending it propagates
+        the callee's wake reason and returns Pending (staying in the drive block);
+        on Done it captures the callee's result and re-dispatches past the call."""
+        fbs = self._fbs
+        callee_fb = fbs[info['callee']]
+        sub = info['sub']
+        target = info['target']
+        self._emit(self._build_sub_frame(info, fbs))
+        drive = self._new_block()
+        self._goto(drive)
+        after = self._new_block()
+        done_body = []
+        if target is not None and not callee_fb.is_void:
+            res = MemberAccess(object=_self_field(sub), member="__result")
+            if callee_fb.result_enc == "opt":
+                res = ForceUnwrap(expr=res)
+            done_body.append(AssignStatement(
+                target=_self_field(target), value=res))
+            if callee_fb.result_enc == "opt":
+                done_body.append(ExpressionStatement(expression=FunctionCall(
+                    name="__forget", arguments=[Argument(name=None,
+                        value=MemberAccess(object=_self_field(sub),
+                                           member="__result"))])))
+        done_body.append(AssignStatement(
+            target=_self_field("__state"), value=_int(after)))
+        pending_body = [
+            AssignStatement(target=_self_field("__wake"),
+                            value=MemberAccess(object=_self_field(sub),
+                                               member="__wake")),
+            ReturnStatement(value=_poll("Pending")),
+        ]
+        resume_call = MethodCall(object=_self_field(sub), method_name="resume",
+                                 arguments=[])
+        match = MatchExpr(matched_expr=resume_call, arms=[
+            MatchArm(variant_name="Pending", bindings=[], body=Block(
+                statements=pending_body, final_expr=None)),
+            MatchArm(variant_name="Done", bindings=[], body=Block(
+                statements=done_body, final_expr=None)),
+        ])
+        self._blocks[drive].append(ExpressionStatement(expression=match))
+        self._blocks[drive].append(ContinueStatement())
+        self._term.add(drive)
+        self.cur = after
 
     def _build_sub_frame(self, info, fbs):
         """Construct the embedded callee frame from the call's arguments (the
@@ -513,61 +920,15 @@ class _FrameBuilder:
         out.extend(self._forgets(forgets))
         return out
 
-    def _drive_sub(self, info, fbs, next_state):
-        """The drive state for a nested call: resume the sub-frame; on Pending
-        stay (return Pending); on Done capture the callee's result into the target
-        local (moving it out of the sub-frame with a `__forget`) and advance."""
-        callee_fb = fbs[info['callee']]
-        sub = info['sub']
-        done_body = []
-        target = info['target']
-        if target is not None and not callee_fb.is_void:
-            res = MemberAccess(object=_self_field(sub), member="__result")
-            if callee_fb.result_enc == "opt":
-                res = ForceUnwrap(expr=res)
-            done_body.append(AssignStatement(
-                target=_self_field(target), value=res))
-            if callee_fb.result_enc == "opt":
-                done_body.append(ExpressionStatement(expression=FunctionCall(
-                    name="__forget", arguments=[Argument(name=None,
-                        value=MemberAccess(object=_self_field(sub),
-                                           member="__result"))])))
-        done_body.append(AssignStatement(
-            target=_self_field("__state"), value=_int(next_state)))
-        done_body.append(ReturnStatement(value=_poll("Pending")))
-
-        # On the callee's Pending, propagate its wake reason up so the executor
-        # sees the innermost sleep/yield, then stay in this drive state.
-        pending_body = [
-            AssignStatement(target=_self_field("__wake"),
-                            value=MemberAccess(object=_self_field(sub),
-                                               member="__wake")),
-            ReturnStatement(value=_poll("Pending")),
-        ]
-        resume_call = MethodCall(object=_self_field(sub), method_name="resume",
-                                 arguments=[])
-        match = MatchExpr(matched_expr=resume_call, arms=[
-            MatchArm(variant_name="Pending", bindings=[], body=Block(
-                statements=pending_body, final_expr=None)),
-            MatchArm(variant_name="Done", bindings=[], body=Block(
-                statements=done_body, final_expr=None)),
-        ])
-        return [ExpressionStatement(expression=match)]
-
-    # -------------------------------------------------- frame-aware lowering
+    # -------------------------------------------------- in-place lowering
     #
-    # `_lower_stmt_list` walks a statement list of the driven body and rewrites
-    # it for the resume method. Per statement it:
-    #   * turns a `let`/`var` of a frame-resident local into an assignment to the
-    #     pre-declared `self.<name>` field;
-    #   * rewrites identifier reads to `self.<field>` and a `move <frame local>`
-    #     to the field read, recording opt-encoded moves so a `__forget(self.f)`
-    #     is emitted right after the statement (Part 0a: the frame drop-flag
-    #     clear-without-drop — the frame's own Deinit then skips the moved field);
-    #   * turns `return X` into the end-of-coroutine sequence (store result, mark
-    #     done, signal Done — normal-control-flow cleanup only, no forced destroy);
-    #   * recurses into if/while/match blocks so a move (and its `__forget`) or a
-    #     `return` lands on exactly the branch that executes it.
+    # `_lower_inplace` rewrites a NON-suspending statement (or a non-spanning
+    # control-flow construct) for the resume method without splitting states:
+    #   * `let`/`var` of a frame-resident local -> assignment to `self.<name>`;
+    #   * identifier reads -> `self.<field>`; a `move <frame local>` -> the field
+    #     read plus a `__forget(self.f)` clearing the frame drop flag (Part 0a);
+    #   * `return X` -> the end-of-coroutine done sequence;
+    #   * nested non-spanning if/while/for/match blocks lowered in place.
 
     def _forget_stmt(self, name):
         return ExpressionStatement(expression=FunctionCall(
@@ -619,21 +980,17 @@ class _FrameBuilder:
     def _lower_stmt_list(self, stmts):
         out = []
         for s in stmts:
-            out.extend(self._lower_one(s))
+            out.extend(self._lower_inplace(s))
         return out
 
-    def _lower_one(self, s):
-        # A `__suspend()` reached HERE is nested inside control flow (an if/while/
-        # match body) rather than at the function's top level. The state split is
-        # over top-level statements only, so a nested suspension would silently
-        # become a no-op (it would not actually suspend). Reject it honestly
-        # rather than miscompile -- a suspension spanning a loop/branch needs a
-        # CFG-based split (a later item; not built here).
+    def _lower_inplace(self, s):
+        # Reached only for a NON-spanning statement (the CFG walk splits every
+        # suspension-spanning construct before it gets here), so a suspension in
+        # this subtree would be a compiler bug — guard defensively.
         if _is_suspend_stmt(s):
             raise CoroTransformError(
-                f"coroutine transform: a suspension inside nested control flow "
-                f"(loop/if/match) in `{self.name}` is not supported; the state "
-                f"split is over top-level statements only",
+                f"coroutine transform: internal error — suspension reached "
+                f"in-place lowering in `{self.name}`",
                 getattr(s, 'line', self.func.line), getattr(s, 'column', 0))
         if isinstance(s, ReturnStatement):
             forgets = []
@@ -725,9 +1082,14 @@ class _FrameBuilder:
         seq = []
         if value is not None and not self.is_void:
             seq.append(AssignStatement(target=_self_field("__result"), value=value))
+        elif value is not None and self.is_void:
+            # A void `return foo()` (foo void) still runs its side effects; there
+            # is no result slot to store into.
+            seq.append(ExpressionStatement(expression=value))
         seq.extend(self._forgets(forgets))
-        seq.append(AssignStatement(target=_self_field("__state"),
-                                   value=_int(self._done_state)))
+        done_lit = _int(0)  # patched to the done-state marker after CFG assembly
+        self._done_lits.append(done_lit)
+        seq.append(AssignStatement(target=_self_field("__state"), value=done_lit))
         seq.append(ReturnStatement(value=_poll("Done")))
         return seq
 
@@ -1001,7 +1363,7 @@ def transform_program(program, typechecker):
     # Phase 1: build every frame's layout (so a caller can embed a callee frame
     # by value). Phase 2: generate every resume state machine.
     suspends_set = set(closure)
-    fbs = {n: _FrameBuilder(funcs_by_name[n]) for n in closure}
+    fbs = {n: _FrameBuilder(funcs_by_name[n], tc=typechecker) for n in closure}
     for n in closure:
         new_structs.append(fbs[n].prepare(suspends_set))
     for n in closure:
@@ -1034,7 +1396,7 @@ def transform_program(program, typechecker):
                 f"`{struct_name}.{method_name}` is not supported "
                 f"(effect-polymorphism, design 18 A5)",
                 method_ast.line, method_ast.column)
-        mfb = _FrameBuilder(method_ast, struct_name=struct_name)
+        mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker)
         new_structs.append(mfb.prepare(suspends_set))
         _, resume_ext = mfb.build_resume(fbs)
         new_extensions.append(resume_ext)

@@ -1,0 +1,22 @@
+// design 52 Part 0: a suspension inside a `for`-over-range body. The range loop
+// desugars to a frame-resident counter + end bound; the CFG split makes the
+// header test, body, and increment separate states, so the suspension in the
+// body spans the back-edge. Accumulates 0+1+2+3+4 = 10 across five suspensions.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 5
+
+func total() -> Int {
+    var sum = 0
+    for i in 0..5 {
+        __suspend()      // suspends inside the for body
+        sum = sum + i    // sum and i both survive the suspension
+    }
+    sum                  // 10
+}
+
+func main() {
+    print(__drive(total()))        // 10
+    print(__drive_steps(total()))  // 5 suspensions (one per iteration)
+}
