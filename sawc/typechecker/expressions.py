@@ -651,6 +651,39 @@ class ExpressionsMixin:
             return SawType(TypeKind.STRUCT, struct_name="Atomic",
                            type_args=[SawType(TypeKind.INT)])
 
+        # UnsafeMemory construction (design 46): `UnsafeMemory(<int>)` — a
+        # compiler-known one-word wrapper over a fixed address. Like Atomic it is
+        # positional, so intercept before the named struct-init path. The `T`/
+        # `Use` come from the surrounding declared type (a static's annotation),
+        # so a bare construction yields an un-parameterized `UnsafeMemory` that is
+        # compatible with any `UnsafeMemory<T, Use>` target (the struct-arg
+        # comparison treats an empty arg list as "matches any instantiation").
+        # Explicit `UnsafeMemory<T, Use>(<int>)` is also accepted.
+        if expr.name == "UnsafeMemory":
+            if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    "`UnsafeMemory(...)` takes exactly one positional Int address",
+                    expr.line, expr.column
+                )
+                return None
+            arg_type = self._check_expression(expr.arguments[0].value)
+            if arg_type is not None and self._get_underlying_type(arg_type).kind not in (
+                    TypeKind.INT, TypeKind.UINT):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`UnsafeMemory(...)` expects an Int address, got `{arg_type}`",
+                    expr.line, expr.column
+                )
+            expr.is_unsafe_mem_construct = True
+            if expr.type_args:
+                resolved = [self._resolve_type(t) for t in expr.type_args]
+                result = SawType(TypeKind.STRUCT, struct_name="UnsafeMemory",
+                                 type_args=resolved)
+                self._validate_unsafe_memory_type(result, expr.line, expr.column)
+                return result
+            return SawType(TypeKind.STRUCT, struct_name="UnsafeMemory")
+
         if expr.name == "print":
             if len(expr.arguments) > 1:
                 self._error(
@@ -1402,6 +1435,10 @@ class ExpressionsMixin:
         container_type = self._check_expression(expr.array_expr)
         if container_type is None:
             return None
+        # design 46: index projection through a `UnsafeMemory<[E; N], Use>`
+        # region yields `UnsafeMemory<E, Use>` at base + i*stride (no load).
+        if self._is_unsafe_memory(container_type):
+            return self._check_um_index_projection(expr, container_type)
         index_type = self._check_expression(expr.index)
         if index_type is None:
             return None
@@ -1454,6 +1491,232 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return None
+
+    # =====================================================================
+    # UnsafeMemory<T, Use> — typed memory at a fixed address (design 46)
+    # =====================================================================
+
+    # Types that a Device register view may `read()`/`write()`: whole-struct and
+    # whole-array access is forbidden (multi-register access is never atomic).
+    _UM_SCALAR_KINDS = frozenset({
+        TypeKind.INT, TypeKind.UINT, TypeKind.BOOL, TypeKind.FLOAT,
+        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+    })
+
+    def _is_unsafe_memory(self, t: Optional[SawType]) -> bool:
+        return (t is not None and t.kind == TypeKind.STRUCT
+                and t.struct_name == "UnsafeMemory")
+
+    def _um_view_and_use(self, t: SawType):
+        """(viewed-type T, Use-marker) for a `UnsafeMemory<T, Use>`; (None, None)
+        if the type is not fully parameterized."""
+        args = t.type_args or []
+        if len(args) < 2:
+            return (None, None)
+        return (args[0], args[1])
+
+    def _um_use_name(self, use: Optional[SawType]) -> Optional[str]:
+        if use is not None and use.kind == TypeKind.STRUCT:
+            return use.struct_name
+        return None
+
+    def _um_unwrap_marker(self, view: SawType):
+        """Peel a `ReadOnly<T>`/`WriteOnly<T>` field marker off a projected view,
+        returning `(inner_scalar_type, mode)` with mode in {'ro','wo','rw'}."""
+        if (view is not None and view.kind == TypeKind.STRUCT
+                and view.struct_name in ("ReadOnly", "WriteOnly")
+                and view.type_args):
+            mode = 'ro' if view.struct_name == "ReadOnly" else 'wo'
+            return (view.type_args[0], mode)
+        return (view, 'rw')
+
+    def _um_is_scalar(self, t: SawType) -> bool:
+        return t is not None and t.kind in self._UM_SCALAR_KINDS
+
+    def _validate_unsafe_memory_type(self, t: SawType, line: int, column: int) -> bool:
+        """Enforce the shape `UnsafeMemory<T, Use>` with `Use` an EXPLICIT intent
+        marker (`Device` or `Normal`) — no default (design 46)."""
+        args = t.type_args or []
+        if len(args) != 2:
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                "`UnsafeMemory` takes exactly two type arguments: the viewed type "
+                "and the intent marker `Device` or `Normal`",
+                line, column,
+                hint="the intent marker is EXPLICIT — write `UnsafeMemory<T, Device>` "
+                     "or `UnsafeMemory<T, Normal>`"
+            )
+            return False
+        use_name = self._um_use_name(args[1])
+        if use_name not in ("Device", "Normal"):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"the intent marker of `UnsafeMemory` must be `Device` or `Normal`, "
+                f"got `{args[1]}`",
+                line, column,
+                hint="`Device` = volatile register block; `Normal` = plain RAM region"
+            )
+            return False
+        return True
+
+    def _check_um_projection(self, expr: MemberAccess, um_type: SawType) -> Optional[SawType]:
+        """Project `UM<Struct, Use>.field` -> `UM<Field, Use>` (design 46)."""
+        view, use = self._um_view_and_use(um_type)
+        if view is None:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "cannot project through an under-specified `UnsafeMemory` type",
+                expr.line, expr.column)
+            return None
+        if view.kind != TypeKind.STRUCT:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot access field `{expr.member}` — the memory views `{view}`, "
+                f"not a struct",
+                expr.line, expr.column)
+            return None
+        struct_info = self.get_struct_info(view.struct_name, from_type=view)
+        if struct_info is None or expr.member not in struct_info.fields:
+            avail = ', '.join(struct_info.field_order) if struct_info else ''
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"struct `{view.struct_name}` has no field `{expr.member}`",
+                expr.line, expr.column,
+                hint=f"available fields: {avail}" if avail else None)
+            return None
+        field_type = self._resolve_type(struct_info.fields[expr.member])
+        expr.um_projection = True
+        return SawType(TypeKind.STRUCT, struct_name="UnsafeMemory",
+                       type_args=[field_type, use])
+
+    def _check_um_index_projection(self, expr: ArrayIndex, um_type: SawType) -> Optional[SawType]:
+        """Project `UM<[E; N], Use>[i]` -> `UM<E, Use>` (design 46)."""
+        view, use = self._um_view_and_use(um_type)
+        index_type = self._check_expression(expr.index)
+        if index_type is not None and self._get_underlying_type(index_type).kind != TypeKind.INT:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"index must be Int, got `{index_type}`",
+                expr.index.line, expr.index.column)
+            return None
+        if view is None or view.kind != TypeKind.ARRAY:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot index a `UnsafeMemory` view of non-array type `{view}`",
+                expr.line, expr.column)
+            return None
+        if (isinstance(expr.index, IntLiteral) and view.array_size is not None
+                and (expr.index.value < 0 or expr.index.value >= view.array_size)):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"array index {expr.index.value} out of range for region with "
+                f"{view.array_size} elements",
+                expr.line, expr.column)
+            return None
+        expr.um_projection = True
+        return SawType(TypeKind.STRUCT, struct_name="UnsafeMemory",
+                       type_args=[view.array_element_type, use])
+
+    def _check_um_method(self, expr: MethodCall, um_type: SawType) -> Optional[SawType]:
+        """Check a `read`/`write`/`ptr`/`len`/`end` accessor on `UnsafeMemory`."""
+        view, use = self._um_view_and_use(um_type)
+        use_name = self._um_use_name(use)
+        method = expr.method_name
+        if view is None:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "cannot access an under-specified `UnsafeMemory` value",
+                expr.line, expr.column)
+            return None
+        expr.um_use_name = use_name
+        expr.um_volatile = (use_name == "Device")
+
+        if method in ("read", "write"):
+            inner, mode = self._um_unwrap_marker(view)
+            if use_name == "Device":
+                if not self._um_is_scalar(inner):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"Device memory has no whole-`{view}` access — multi-register "
+                        f"access is never atomic; project a scalar register field",
+                        expr.line, expr.column,
+                        hint="access one register at a time (`REGS.field.read()`)")
+                    return None
+                if method == "read" and mode == 'wo':
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        "cannot `read()` a `WriteOnly` register",
+                        expr.line, expr.column)
+                    return None
+                if method == "write" and mode == 'ro':
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        "cannot `write()` a `ReadOnly` register",
+                        expr.line, expr.column)
+                    return None
+            else:
+                # Normal: plain access; whole-struct / element allowed. Markers
+                # are a Device-only concept, so the inner type is the view itself.
+                inner = view
+            expr.um_method = method
+            expr.um_scalar_type = inner
+            if method == "read":
+                if len(expr.arguments) != 0:
+                    self._error(ErrorKind.WRONG_ARGUMENT_COUNT,
+                                "`read()` takes no arguments", expr.line, expr.column)
+                    return None
+                return inner
+            # write(v)
+            if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
+                self._error(ErrorKind.WRONG_ARGUMENT_COUNT,
+                            "`write(v)` takes exactly one positional argument",
+                            expr.line, expr.column)
+                return None
+            val_type = self._check_expression(expr.arguments[0].value)
+            if val_type is not None and not self._types_compatible(val_type, inner):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`write` expects `{inner}`, got `{val_type}`",
+                    expr.line, expr.column)
+            return SawType(TypeKind.VOID)
+
+        # Region accessors — Normal only.
+        if method in ("ptr", "len", "end"):
+            if use_name != "Normal":
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`{method}()` is a `Normal` region accessor; it is not available "
+                    f"on `Device` memory",
+                    expr.line, expr.column,
+                    hint="Device registers are accessed with `read()`/`write()`")
+                return None
+            if len(expr.arguments) != 0:
+                self._error(ErrorKind.WRONG_ARGUMENT_COUNT,
+                            f"`{method}()` takes no arguments", expr.line, expr.column)
+                return None
+            expr.um_method = method
+            if method == "ptr":
+                return SawType(TypeKind.POINTER,
+                               inner_type=SawType(TypeKind.INT8), pointer_mutable=True)
+            if method == "end":
+                return SawType(TypeKind.POINTER,
+                               inner_type=SawType(TypeKind.INT8), pointer_mutable=True)
+            # len(): region byte length
+            if view.kind != TypeKind.ARRAY:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`len()` needs an array region view, got `{view}`",
+                    expr.line, expr.column)
+                return None
+            return SawType(TypeKind.INT)
+
+        self._error(
+            ErrorKind.UNDEFINED_FUNCTION,
+            f"`UnsafeMemory` has no method `{method}`",
+            expr.line, expr.column,
+            hint="Device: `read()`/`write(v)`; Normal: also `ptr()`/`len()`/`end()`")
+        return None
 
     def _check_member_access(self, expr: MemberAccess) -> Optional[SawType]:
         """Check member access for struct fields, enum variants, or module symbols."""
@@ -1612,6 +1875,11 @@ class ExpressionsMixin:
         obj_type = self._check_expression(expr.object)
         if obj_type is None:
             return None
+        # design 46: member access on `UnsafeMemory<Struct, Use>` PROJECTS to
+        # `UnsafeMemory<Field, Use>` at base + compile-time offset — the shared
+        # projection engine. No memory is loaded.
+        if self._is_unsafe_memory(obj_type):
+            return self._check_um_projection(expr, obj_type)
         if obj_type.kind != TypeKind.STRUCT:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -2393,6 +2661,12 @@ class ExpressionsMixin:
         obj_type = self._check_expression(expr.object)
         if obj_type is None:
             return None
+
+        # design 46: accessors on `UnsafeMemory<T, Use>` — `read()`/`write(v)`
+        # (Device: volatile, scalar-only, RO/WO gated) and the Normal region
+        # accessors `ptr()`/`len()`/`end()`.
+        if self._is_unsafe_memory(obj_type):
+            return self._check_um_method(expr, obj_type)
 
         # `.copy()` — the umbrella Copy operation. Handles auto-Copy of trivial
         # types and `.copy()` through a `T: Copy`-family bound. Types that carry

@@ -85,6 +85,19 @@ class TypesMixin:
             # Look up the struct type (might actually be an enum, type param, or type alias)
             if saw_type.struct_name is None:
                 raise ValueError("Struct type missing name")
+            # design 46: UnsafeMemory<T, Use> is ONE WORD — the raw address.
+            # Its `T`/`Use` are phantom (the declared `{ addr: Int }` body is
+            # never materialized); every access is intercepted, so the value that
+            # flows through codegen is just the i64 address.
+            if saw_type.struct_name == "UnsafeMemory":
+                return ir.IntType(64)
+            # design 46: ReadOnly<T> / WriteOnly<T> are LAYOUT-TRANSPARENT field
+            # markers — a `ReadOnly<UInt32>` field occupies exactly a `UInt32`,
+            # so it lowers to the inner type's layout (no wrapper struct). This is
+            # what makes projection offsets land on the real register.
+            if (saw_type.struct_name in ("ReadOnly", "WriteOnly")
+                    and saw_type.type_args):
+                return self._get_llvm_type(saw_type.type_args[0])
             # Check if it's a type alias (use namespace)
             alias_sym = self.namespace.lookup_type_alias(saw_type.struct_name)
             if alias_sym and alias_sym.aliased_type:

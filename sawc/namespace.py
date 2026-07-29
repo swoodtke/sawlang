@@ -910,6 +910,18 @@ class Namespace:
                 inner = args[0] if args else None
                 # Send iff T: Send; Sync iff T: Send (the wrappers add the sync).
                 return self._send_sync(inner, False, visiting)
+            # design 46: UnsafeMemory<T, Use> is Send + Sync BY FIAT (the Atomic
+            # precedent). It is one word (a fixed address); statics of this type
+            # are shared across every task, so it must be Sync regardless of the
+            # phantom `T` it views. Synchronization of the memory it names is the
+            # programmer's responsibility (the Unsafe-prefix house rule).
+            if name == "UnsafeMemory":
+                return True
+            # design 46: the layout-transparent field markers inherit their inner
+            # type's thread-safety (they add no storage of their own).
+            if name in ("ReadOnly", "WriteOnly"):
+                inner = args[0] if args else None
+                return self._send_sync(inner, want_sync, visiting)
             struct_sym = self._lookup_struct_deep(name)
             if struct_sym is None:
                 # Opaque / unresolved type parameter: not structurally known.

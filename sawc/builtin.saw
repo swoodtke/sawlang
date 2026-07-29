@@ -105,6 +105,45 @@ extension Atomic<T> {
 }
 
 // =============================================================================
+// UnsafeMemory<T, Use> — typed memory at a fixed address (design 46)
+// =============================================================================
+
+// UnsafeMemory<T, Use> is a compiler-known one-word wrapper over a fixed
+// machine address (`static UART1: UnsafeMemory<UartRegs, Device> =
+// UnsafeMemory(0x18003000)`). The `Use` parameter is an INTENT MARKER,
+// EXPLICIT ALWAYS (no default): the compiler derives the access discipline
+// from it.
+//   - `Device` (register blocks): accesses lower to VOLATILE loads/stores;
+//     `read()`/`write(v)` on scalar-typed views ONLY (no whole-struct access —
+//     multi-register access is never atomic and reads have side effects).
+//   - `Normal` (bootstrap / DMA-visible RAM): plain loads/stores; whole-struct
+//     and element access allowed; region accessors `ptr()`/`len()`/`end()`.
+// Member/index access PROJECTS to `UnsafeMemory<Field, Use>` at base +
+// compile-time offset (no memory is ever touched). Construction, projection,
+// and every accessor are intercepted by the compiler; the `addr` field below is
+// the one-word representation and is never accessed at the source level.
+// Sync by fiat (the Atomic precedent) — statics of this type are shared across
+// all tasks. Volatile is NOT atomic (documented).
+struct UnsafeMemory<T, Use> {
+    addr: Int
+}
+
+// Intent markers (phantom — carried only in the `Use` type parameter).
+struct Device {}
+struct Normal {}
+
+// Layout-transparent field markers gating which accessor a Device projection
+// exposes: `ReadOnly<T>` fields expose `read()` only, `WriteOnly<T>` expose
+// `write()` only, a plain field is read-write. A field of type `ReadOnly<T>` /
+// `WriteOnly<T>` lays out IDENTICALLY to `T` (the marker adds no storage).
+struct ReadOnly<T> {
+    value: T
+}
+struct WriteOnly<T> {
+    value: T
+}
+
+// =============================================================================
 // Iterator Support
 // =============================================================================
 

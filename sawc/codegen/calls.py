@@ -61,6 +61,10 @@ class CallsMixin:
             cell = ir.Constant(atomic_llvm, ir.Undefined)
             return self.builder.insert_value(cell, val, 0, name="atomic_new")
 
+        # UnsafeMemory construction (design 46): the value IS the address (i64).
+        if getattr(expr, 'is_unsafe_mem_construct', False):
+            return self._generate_expression(expr.arguments[0].value)
+
         # Handle built-in print function
         if expr.name == "print":
             return self._generate_print(expr.arguments)
@@ -369,6 +373,11 @@ class CallsMixin:
                 and expr.method_name in ("load", "store", "fetch_add", "compare_exchange")):
             return self._generate_atomic_method(expr, recv_saw)
 
+        # UnsafeMemory accessors (design 46): read/write (volatile on Device) and
+        # the Normal region accessors ptr/len/end. The typechecker tagged the node.
+        if getattr(expr, 'um_method', None) is not None:
+            return self._generate_um_method(expr)
+
         # Check if this is a nested module function call: Parent.Child.symbol(args)
         if isinstance(expr.object, MemberAccess):
             # Check if it's a chain of module accesses
@@ -651,6 +660,113 @@ class CallsMixin:
                                         name="atomic_cmpxchg")
             return self.builder.extract_value(pair, 1, name="atomic_cmpxchg_ok")
         raise ValueError(f"unknown Atomic method: {method}")
+
+    # =====================================================================
+    # UnsafeMemory<T, Use> — typed memory at a fixed address (design 46)
+    # =====================================================================
+
+    def _um_view_type(self, um_expr):
+        """The viewed type `T` of a `UnsafeMemory<T, Use>`-typed expression."""
+        t = getattr(um_expr, 'resolved_type', None)
+        if t is not None and t.type_args:
+            return t.type_args[0]
+        return None
+
+    def _um_field_order(self, view_saw, view_llvm):
+        """Field order for a struct view — by name, falling back to LLVM-type
+        identity for monomorphized/aliased structs (mirrors _get_member_pointer)."""
+        name = getattr(view_saw, 'struct_name', None)
+        if name in self.struct_types:
+            return self.struct_types[name][1]
+        for n, (lt, order) in self.struct_types.items():
+            if str(lt) == str(view_llvm):
+                return order
+        raise ValueError(f"UnsafeMemory projection: unknown struct view {view_saw}")
+
+    def _generate_um_member_projection(self, expr):
+        """`UM<Struct, Use>.field` -> base + offsetof(field) as an i64 address.
+
+        Computed with an inbounds GEP through a typed pointer materialized by
+        inttoptr — LLVM's own layout arithmetic, folded to a constant offset at
+        O1. The aggregate is NEVER loaded (address computation only)."""
+        base_addr = self._generate_expression(expr.object)  # i64 address
+        view_saw = self._um_view_type(expr.object)
+        view_llvm = self._get_llvm_type(view_saw)
+        field_order = self._um_field_order(view_saw, view_llvm)
+        field_index = field_order.index(expr.member)
+        typed_ptr = self.builder.inttoptr(base_addr, view_llvm.as_pointer(),
+                                          name="um_base")
+        zero = ir.Constant(ir.IntType(32), 0)
+        idx = ir.Constant(ir.IntType(32), field_index)
+        field_ptr = self.builder.gep(typed_ptr, [zero, idx], inbounds=True,
+                                     name="um_field")
+        return self.builder.ptrtoint(field_ptr, ir.IntType(64), name="um_field_addr")
+
+    def _generate_um_index_projection(self, expr):
+        """`UM<[E; N], Use>[i]` -> base + i*sizeof(E) as an i64 address (no load)."""
+        base_addr = self._generate_expression(expr.array_expr)  # i64 address
+        view_saw = self._um_view_type(expr.array_expr)
+        view_llvm = self._get_llvm_type(view_saw)  # [N x E]
+        index_val = self._generate_expression(expr.index)
+        typed_ptr = self.builder.inttoptr(base_addr, view_llvm.as_pointer(),
+                                          name="um_base")
+        zero = ir.Constant(ir.IntType(64), 0)
+        elem_ptr = self.builder.gep(typed_ptr, [zero, index_val], inbounds=True,
+                                    name="um_elem")
+        return self.builder.ptrtoint(elem_ptr, ir.IntType(64), name="um_elem_addr")
+
+    def _generate_um_method(self, expr):
+        """Lower a `UnsafeMemory` accessor (design 46).
+
+        Device `read()`/`write()` emit VOLATILE loads/stores (the volatile flag
+        survives the O1 pipeline — the not-elided oracle); Normal emits plain
+        access. `ptr()`/`len()`/`end()` are Normal region accessors.
+        """
+        method = expr.um_method
+        base_addr = self._generate_expression(expr.object)  # i64 address
+        volatile = bool(getattr(expr, 'um_volatile', False))
+        i8ptr = ir.IntType(8).as_pointer()
+
+        if method in ("read", "write"):
+            scalar_llvm = self._get_llvm_type(expr.um_scalar_type)
+            typed_ptr = self.builder.inttoptr(base_addr, scalar_llvm.as_pointer(),
+                                              name="um_addr")
+            if method == "read":
+                ld = self.builder.load(typed_ptr, name="um_read")
+                if volatile:
+                    ld.volatile = True
+                return ld
+            val = self._generate_expression(expr.arguments[0].value)
+            # Coerce an Int-literal value to the register width (Int -> UInt32 etc).
+            if (isinstance(val.type, ir.IntType) and isinstance(scalar_llvm, ir.IntType)
+                    and val.type.width != scalar_llvm.width):
+                if val.type.width > scalar_llvm.width:
+                    val = self.builder.trunc(val, scalar_llvm, name="um_wtrunc")
+                else:
+                    val = self.builder.sext(val, scalar_llvm, name="um_wsext")
+            st = self.builder.store(val, typed_ptr)
+            if volatile:
+                st.volatile = True
+            return None
+
+        if method == "ptr":
+            return self.builder.inttoptr(base_addr, i8ptr, name="um_ptr")
+
+        if method == "len":
+            view_saw = self._um_view_type(expr.object)  # [N x E]
+            view_llvm = self._get_llvm_type(view_saw)
+            size = view_llvm.get_abi_size(self.target_data)
+            return ir.Constant(ir.IntType(64), size)
+
+        if method == "end":
+            view_saw = self._um_view_type(expr.object)
+            view_llvm = self._get_llvm_type(view_saw)
+            size = view_llvm.get_abi_size(self.target_data)
+            end_addr = self.builder.add(base_addr, ir.Constant(ir.IntType(64), size),
+                                        name="um_end_addr")
+            return self.builder.inttoptr(end_addr, i8ptr, name="um_end")
+
+        raise ValueError(f"unknown UnsafeMemory method: {method}")
 
     def _generate_spawn(self, expr: FunctionCall):
         """Lower `spawn { ... }` to a pthread launch (design 21 item 5, 21b).

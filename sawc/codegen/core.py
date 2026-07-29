@@ -42,6 +42,46 @@ from .results import ResultsMixin
 import copy
 
 
+def _install_volatile_ir_support():
+    """Teach llvmlite's textual IR to render `volatile` on loads/stores.
+
+    llvmlite 0.48 has no first-class volatile flag: `builder.load`/`store` emit a
+    plain `load`/`store`. design 46 needs volatile MMIO accesses that survive the
+    O1 pipeline, so we honor a per-instruction `.volatile = True` by splicing the
+    keyword into the rendered instruction. The bit is then set on the real LLVM
+    instruction when `binding.parse_assembly` re-reads the text, and every opt
+    pass preserves it (the not-elided oracle). Idempotent; applied once at import.
+    """
+    from llvmlite.ir import instructions as _instrs
+    if getattr(_instrs.LoadInstr, "_saw_volatile_patched", False):
+        return
+    _orig_load = _instrs.LoadInstr.descr
+    _orig_store = _instrs.StoreInstr.descr
+
+    def _load_descr(self, buf):
+        tmp = []
+        _orig_load(self, tmp)
+        s = "".join(tmp)
+        if getattr(self, "volatile", False):
+            s = s.replace("load ", "load volatile ", 1)
+        buf.append(s)
+
+    def _store_descr(self, buf):
+        tmp = []
+        _orig_store(self, tmp)
+        s = "".join(tmp)
+        if getattr(self, "volatile", False):
+            s = s.replace("store ", "store volatile ", 1)
+        buf.append(s)
+
+    _instrs.LoadInstr.descr = _load_descr
+    _instrs.StoreInstr.descr = _store_descr
+    _instrs.LoadInstr._saw_volatile_patched = True
+
+
+_install_volatile_ir_support()
+
+
 class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, TypesMixin, ResourcesMixin):
     def __init__(self, namespace: Namespace, target_triple: Optional[str] = None,
                  freestanding: bool = False):
@@ -766,6 +806,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # Atomic<Int> is `{ i64 }`; initialize the value slot.
             val = self._const_from_expr(expr.arguments[0].value, SawType(TypeKind.INT))
             return ir.Constant(llvm_type, [val])
+        if isinstance(expr, FunctionCall) and getattr(expr, 'is_unsafe_mem_construct', False):
+            # design 46: UnsafeMemory<T, Use> is one word — the raw address. Its
+            # LLVM type is i64 (`llvm_type` here), so the const is just the literal.
+            return self._const_from_expr(expr.arguments[0].value, SawType(TypeKind.INT))
         if isinstance(expr, StructInit):
             base = saw_type.struct_name
             field_order = self.struct_types[base][1]

@@ -5,17 +5,17 @@
 // EXPECT-OUTPUT:
 // 6
 
-struct Device {
+struct Sensor {
     id: Int
 }
 
-extension Device {
+extension Sensor {
     func poll(&self) sync -> Int {
         self.id + 1
     }
 }
 
 func main() {
-    let d = Device(id: 5)
+    let d = Sensor(id: 5)
     print(d.poll())
 }

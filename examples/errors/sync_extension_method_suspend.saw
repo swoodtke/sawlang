@@ -5,11 +5,11 @@
 // EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` method
 // EXPECT-ERROR-CONTAINS: __test_suspend
 
-struct Device {
+struct Sensor {
     id: Int
 }
 
-extension Device {
+extension Sensor {
     func poll(&self) sync -> Int {
         __test_suspend()
         self.id

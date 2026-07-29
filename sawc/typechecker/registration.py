@@ -446,6 +446,11 @@ class RegistrationMixin:
 
         resolved_type = self._resolve_type(static.type)
 
+        # design 46: `UnsafeMemory<T, Use>` statics — validate the intent marker
+        # is present and explicit (`Device`/`Normal`).
+        if self._is_unsafe_memory(resolved_type):
+            self._validate_unsafe_memory_type(resolved_type, static.line, static.column)
+
         # Const-init only. A bare declaration (no initializer) is a zero-init,
         # permitted only for POD / fixed-array statics (design 41 item 2: no
         # repeat-literal exists, so bare zero-init is the chosen mechanism for
@@ -544,6 +549,9 @@ class RegistrationMixin:
         if isinstance(expr, StructInit):
             return all(self._is_const_init(v) for _n, v in expr.field_inits)
         if isinstance(expr, FunctionCall) and getattr(expr, 'is_atomic_construct', False):
+            return all(self._is_const_init(a.value) for a in expr.arguments)
+        # design 46: `UnsafeMemory(<int>)` is a const-init from an address literal.
+        if isinstance(expr, FunctionCall) and getattr(expr, 'is_unsafe_mem_construct', False):
             return all(self._is_const_init(a.value) for a in expr.arguments)
         return False
 

@@ -93,6 +93,11 @@ class StructsMixin:
 
     def _generate_member_access(self, expr: MemberAccess):
         """Generate code for member access on structs or enum variant access."""
+        # design 46: UnsafeMemory projection — `UM<Struct, Use>.field` computes
+        # base + compile-time field offset WITHOUT loading the aggregate.
+        if getattr(expr, 'um_projection', False):
+            return self._generate_um_member_projection(expr)
+
         # Module-qualified static read (design 41): `mod.NAME`. The typechecker
         # tagged the member; codegen resolves the static by simple name in the
         # merged module and loads through its global.

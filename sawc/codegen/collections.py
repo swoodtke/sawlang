@@ -67,6 +67,10 @@ class CollectionsMixin:
 
     def _generate_array_index(self, expr: ArrayIndex):
         """Generate code for array or tuple indexing with [index] syntax."""
+        # design 46: UnsafeMemory region indexing projects to an element address.
+        if getattr(expr, 'um_projection', False):
+            return self._generate_um_index_projection(expr)
+
         container_val = self._generate_expression(expr.array_expr)
 
         # Check if it's a tuple (struct type in LLVM) or array
