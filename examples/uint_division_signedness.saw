@@ -1,0 +1,17 @@
+// Out-of-scope discovery while verifying design 40 item 3 (L6): integer `/` and
+// `%` codegen (codegen/operators.py) hardcode `sdiv`/`srem` and only consult the
+// signedness annotation to gate the INT_MIN/-1 overflow check — never to pick
+// `udiv`/`urem`. So UInt division with the high bit set yields the signed result.
+// 10000000000000000000 / 2 should be 5000000000000000000 (unsigned) but the
+// signed divide produces 14223372036854775808. This is a distinct bug from L6
+// (the operand IS correctly annotated UInt); ledgered here to preserve the
+// finding. Fix: select udiv/urem when _int_is_signed(expr.left) is False.
+// EXPECT: success
+// EXPECT-OUTPUT: 5000000000000000000
+// XFAIL: integer / and % always emit sdiv/srem; UInt division is signed (design 40 L6 sidecar)
+
+func main() {
+    let u: UInt = 10000000000000000000
+    let r = u / 2
+    print("{r}")
+}

@@ -1,0 +1,15 @@
+// Design 40 item 3 (L6): a UInt field reached through a module-qualified struct
+// value must keep its unsigned annotation into codegen. The sum 5e18 + 5e18 =
+// 1e19 fits UInt but exceeds the SIGNED 64-bit max, so the overflow check — the
+// path that actually consults the signedness annotation (_int_is_signed) — must
+// use the unsigned intrinsic. If the member-access annotation were lost and the
+// codegen fallback defaulted to signed, this would panic instead of printing.
+// EXPECT: success
+// EXPECT-OUTPUT: 10000000000000000000
+import modules.l6_pair
+
+func main() {
+    let p = l6_pair.makePair()
+    let r = p.a + p.b
+    print("{r}")
+}

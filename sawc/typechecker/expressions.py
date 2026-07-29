@@ -1258,6 +1258,13 @@ class ExpressionsMixin:
         """Check member access for struct fields, enum variants, or module symbols."""
         if isinstance(expr.object, MemberAccess):
             obj_type = self._check_member_access(expr.object)
+            # Design 40 item 3 (L6): this recursion bypasses the
+            # `_check_expression` chokepoint, so the nested module-qualified
+            # object node would otherwise reach codegen without a
+            # `resolved_type`. Stamp it here (the module member-access checker)
+            # so signedness/type-driven lowering never falls back for these.
+            if obj_type is not None:
+                expr.object.resolved_type = obj_type
             if obj_type and obj_type.kind == TypeKind.MODULE:
                 inner_module_sym = getattr(expr.object, 'resolved_module_symbol', None)
                 if inner_module_sym and inner_module_sym.namespace:

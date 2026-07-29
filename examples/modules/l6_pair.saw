@@ -1,0 +1,10 @@
+// Library fixture for l6_module_uint_field.saw (design 40 item 3).
+// A struct with UInt fields, plus a factory, all exported.
+public struct Pair {
+    a: UInt
+    b: UInt
+}
+
+public func makePair() -> Pair {
+    Pair(a: 5000000000000000000, b: 5000000000000000000)
+}
