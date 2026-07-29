@@ -44,8 +44,11 @@ implementation wins and this document is the bug.
 ## 2. Basic Syntax
 
 **Status: implemented**, except where a construct is marked *(illustrative)*
-below (default parameter values, method-chained closures such as `.map`, and
-the `loop { }` keyword are planned; use `while { }` for infinite loops today).
+below (default parameter values, the array-literal `.map` shorthand shown below,
+and the `loop { }` keyword are planned; use `while { }` for infinite loops
+today). Note the stdlib `Vector` does provide real `map<U>`/`fold<A>` methods
+(see [Generics](#generics)); the illustrative example below is about method
+chaining directly on array literals, which is separate and still planned.
 
 ### Variables and Mutability
 
@@ -1458,6 +1461,35 @@ func dup<T: Copy>(x: T) -> T {
     x.copy()
 }
 ```
+
+**Method-level generic type parameters.** An extension method may introduce its
+own generic type parameters, *in addition to* the type's own — the canonical
+case being a transform whose output type is independent of the element type:
+
+```saw
+extension Vector<T: Copy> {
+    // `U` is a METHOD-level type parameter, distinct from the element type `T`.
+    func map<U>(&self, transform: (T) -> U) -> Vector<U> { /* ... */ }
+
+    // `A` is the accumulator type.
+    func fold<A>(&self, initial: A, combine: (A, T) -> A) -> A { /* ... */ }
+}
+
+var v = Vector<Int>()
+// ...
+let labels = v.map<String> { "n={$0}" }   // Vector<Int> -> Vector<String>
+let sum    = v.fold<Int>(0) { $0 + $1 }    // -> Int
+```
+
+The method's type arguments are supplied **explicitly** at the call site
+(`v.map<String>(...)`) — type-argument **inference is not yet implemented**, so a
+generic method requires its `<...>`, exactly like a generic free function, and a
+non-generic method rejects type arguments. The method body is checked abstractly
+with its own type parameters in scope (the same abstract-body checking as any
+generic). Each instantiation monomorphizes per `(receiver type arguments, method
+type arguments)` pair; the mangled symbol composes the two
+(`Vector<Int>.map<String>` → `Vector$1$Int_map$1$String`). `init` methods take no
+type parameters of their own — they construct the extension's type.
 
 **Status: planned** — const generics (`struct Array<T, const N: Int>`) and
 `where` clauses are *illustrative* below and not yet implemented:

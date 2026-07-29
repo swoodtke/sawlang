@@ -209,6 +209,9 @@ The compiler currently supports:
 - Generic functions: `func identity<T>(x: T) -> T`
 - Generic structs: `struct Box<T> { value: T }`
 - Generic enums: `enum Maybe<T> { case Just(value: T), case Nothing }`
+- Generic methods (method-level type params): `func map<U>(&self, f: (T) -> U) -> Vector<U>`
+  in an extension. Type args are explicit at the call site (`v.map<Int>(...)`);
+  inference is future work. Monomorphized per (receiver args, method args) pair.
 - Basic types: Int, Float, Bool, String
 - Variables: `let` (immutable) and `var` (mutable)
 - Arithmetic: `+`, `-`, `*`, `/`, `%` (modulo)
@@ -257,6 +260,9 @@ The compiler currently supports:
 - Multiple trait conformance: `extension Type: A, B { ... }`
 - Trait bounds on generics: `func foo<T: Trait>(x: T)`
 - Bounded generic extensions: `extension Vector<T: Copy>: ExplicitCopy { ... }`
+- Method-level generic type params: `func map<U>(&self, ...) -> Vector<U>` — a
+  method introduces type params beyond the extension's; explicit call-site args
+  (`v.map<Int>(...)`), inference not yet implemented. `Vector.map`/`fold` use them.
 - Associated types with resolution: `type Item` → `type Item = Int`
 - `Equatable` trait gates `==`/`!=` (design 32): trivial (POD) structs and
   payload-free enums auto-conform (the auto-Copy set); primitives + `String`
