@@ -1,0 +1,12 @@
+// Design 55, closure-argument rule: when candidates tie and differ ONLY in
+// closure parameter types, resolution stays ambiguous (it will not use the
+// closure body to break the tie — keeps expected-type inference single-target).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous call to `apply`
+
+func apply(f: (Int) -> Int) -> Int { f(3) }
+func apply(f: (String) -> Int) -> Int { 0 }
+
+func main() {
+    print(apply({ x in x + 1 }))
+}

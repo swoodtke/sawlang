@@ -1,0 +1,22 @@
+// Design 55: the negative half of per-overload effect edges. A `sync` context
+// calling the SUSPENDING overload of `work` is diagnosed — the effect edge is
+// keyed to the resolved overload, not the shared name.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func`
+
+func work(x: Int) {
+    __test_suspend()   // this overload suspends
+}
+
+func work(x: String) {
+    // suspension-free
+}
+
+func caller() sync {
+    work(5)   // resolves to the suspending overload -> sync violation
+}
+
+func main() {
+    caller()
+    print(0)
+}

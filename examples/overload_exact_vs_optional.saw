@@ -1,0 +1,16 @@
+// Design 55, tie-break rule 1: an exact match beats an optional-wrap match.
+// `pick(5)` prefers `pick(Int)` over `pick(Int?)`; an `Int?` argument selects
+// the optional overload exactly.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 100
+// 200
+
+func pick(x: Int) -> Int { 100 }
+func pick(x: Int?) -> Int { 200 }
+
+func main() {
+    print(pick(5))       // exact Int -> 100 (not the Int? wrap)
+    let o: Int? = 7
+    print(pick(o))       // exact Int? -> 200
+}

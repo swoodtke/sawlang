@@ -1,0 +1,18 @@
+// Design 55: same-arity overloads dispatched by argument type.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 5
+
+func describe(x: Int) -> Int {
+    x + 1
+}
+
+func describe(x: String) -> Int {
+    x.len()
+}
+
+func main() {
+    print(describe(10))       // Int overload -> 11
+    print(describe("hello"))  // String overload -> 5
+}

@@ -1,0 +1,43 @@
+// Design 55: overloading works for both instance methods and static methods.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 33
+// 5
+// 11
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point {
+    // Instance-method overloads (resolved by argument type/arity).
+    func shift(&self, dx: Int) -> Int {
+        self.x + dx
+    }
+
+    func shift(&self, dx: Int, dy: Int) -> Int {
+        self.x + dx + self.y + dy
+    }
+
+    // Static-method overloads (no self).
+    func of(x: Int) -> Point {
+        Point(x: x, y: 0)
+    }
+
+    func of(x: Int, y: Int) -> Point {
+        Point(x: x, y: y)
+    }
+}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    print(p.shift(10))       // 11
+    print(p.shift(10, 20))   // 33
+
+    let a = Point.of(5)
+    let b = Point.of(3, 8)
+    print(a.x)               // 5
+    print(b.x + b.y)         // 11
+}

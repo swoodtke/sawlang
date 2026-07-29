@@ -1,0 +1,24 @@
+// Design 55: per-overload effect edges. `work` has a suspending overload (Int)
+// and a suspension-free overload (String). A `sync` context calling the
+// suspension-free overload compiles, proving the effect edge is recorded to the
+// RESOLVED overload rather than merged across the name.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+
+func work(x: Int) {
+    __test_suspend()   // this overload suspends
+}
+
+func work(x: String) {
+    // suspension-free
+}
+
+func caller() sync {
+    work("ok")   // resolves to the suspension-free overload -> fine in `sync`
+}
+
+func main() {
+    caller()
+    print(0)
+}

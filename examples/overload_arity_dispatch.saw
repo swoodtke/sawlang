@@ -1,0 +1,18 @@
+// Design 55: overloads distinguished by arity (different parameter counts).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 7
+
+func combine(x: Int) -> Int {
+    x
+}
+
+func combine(x: Int, y: Int) -> Int {
+    x + y
+}
+
+func main() {
+    print(combine(10))    // 1-arg overload -> 10
+    print(combine(3, 4))  // 2-arg overload -> 7
+}

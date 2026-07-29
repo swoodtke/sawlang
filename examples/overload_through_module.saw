@@ -1,0 +1,20 @@
+// Design 55: overloading resolves through module-qualified calls too.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 1
+
+module conv {
+    public func to_int(x: Int) -> Int {
+        x
+    }
+
+    public func to_int(x: Bool) -> Int {
+        if x { 1 } else { 0 }
+    }
+}
+
+func main() {
+    print(conv.to_int(42))    // Int overload -> 42
+    print(conv.to_int(true))  // Bool overload -> 1
+}

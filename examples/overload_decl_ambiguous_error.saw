@@ -1,0 +1,12 @@
+// Design 55: two generic overloads with the same normalized signature
+// (f<T>(T) and f<U>(U) both fold to a single type-param placeholder) cannot be
+// separated by any tie-break rule, so they are a declaration-site error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: already defined with an indistinguishable signature
+
+func f<T>(x: T) -> Int { 1 }
+func f<U>(x: U) -> Int { 2 }
+
+func main() {
+    print(f<Int>(3))
+}
