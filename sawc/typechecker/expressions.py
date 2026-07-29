@@ -2364,6 +2364,20 @@ class ExpressionsMixin:
                 )
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
+        # Design 40 item 6 (L11): a `&var self` method mutates its receiver, so
+        # it may not be called on an immutable `let` (or `&`) binding — the same
+        # rule as a `p.x = ...` field write. (`init` builds a fresh value; not a
+        # receiver mutation.)
+        if getattr(method_info, "self_mutable", False) and not method_info.is_init:
+            imm_root = self._assign_target_immutable_struct_root(expr.object)
+            if imm_root is not None:
+                self._error(
+                    ErrorKind.IMMUTABLE_ASSIGNMENT,
+                    f"cannot call `&var self` method `{expr.method_name}` on "
+                    f"immutable variable `{imm_root}`",
+                    expr.line, expr.column,
+                    hint="consider using `var` instead of `let` to make it mutable",
+                )
         # Exclusivity: the receiver of a `var self` method is a mutable path;
         # its parameter types (excluding self) align with the arguments.
         self._check_call_exclusivity(

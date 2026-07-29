@@ -15,7 +15,7 @@ func main() {
 
     // Create and write to a file
     print("Writing to file...")
-    if let f = File.create(test_file) {
+    if var f = File.create(test_file) {
         // Create Data with "Hello, World!" bytes
         var data = Data()
         data.push(72 as UInt8)   // H
@@ -43,7 +43,7 @@ func main() {
 
     // Read the file back
     print("Reading file...")
-    if let f = File.open(test_file) {
+    if var f = File.open(test_file) {
         if let data = f.read() {
             print("Read {data.len()} bytes")
             if let b = data.get(0) {

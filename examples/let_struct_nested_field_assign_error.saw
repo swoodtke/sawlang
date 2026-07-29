@@ -1,0 +1,17 @@
+// Design 40 item 6 (L11): the rule reaches through nested fields — a `let`
+// binding's field-of-a-field is just as immutable.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to field of immutable variable `o`
+struct Inner {
+    v: Int
+}
+
+struct Outer {
+    inner: Inner
+}
+
+func main() {
+    let o = Outer(inner: Inner(v: 1))
+    o.inner.v = 5
+    print(o.inner.v)
+}

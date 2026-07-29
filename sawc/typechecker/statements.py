@@ -715,6 +715,33 @@ class StatementsMixin:
             else:
                 return None
 
+    def _assign_target_immutable_struct_root(self, target):
+        """Design 40 item 6 (L11): if a field-assignment lvalue is a chain of
+        MemberAccess reaching a `let`-bound (immutable, non-`&var`) variable,
+        return that variable's name; else None.
+
+        Assigning to a field through an immutable binding
+        (`let p = Point(...); p.x = 5`, nested `p.inner.x = 5`) is rejected
+        just like element assignment on a `let` array. The walk stops at the
+        first non-MemberAccess node: a `self` receiver (SelfExpr) is governed by
+        `&self`/`&var self`, and an array-element base is handled by the array
+        rule — neither is a `let`-binding question.
+        """
+        expr = target
+        while isinstance(expr, MemberAccess):
+            expr = expr.object
+        if isinstance(expr, Identifier):
+            info = self.current_scope.lookup(expr.name)
+            if info is None or info.mutable:
+                return None
+            # A `&var` reference parameter is a mutable path to the callee's
+            # value; an immutable `&` reference (or a plain `let`) is not.
+            if (info.type is not None and info.type.kind == TypeKind.REFERENCE
+                    and info.type.reference_mutable):
+                return None
+            return expr.name
+        return None
+
     def _check_assign_statement(self, stmt: AssignStatement):
         """Check an assignment statement."""
         # Handle both simple variable assignment and field assignment
@@ -782,6 +809,17 @@ class StatementsMixin:
                     stmt.line, stmt.column,
                     hint="consider using `var` instead of `let` to make it mutable"
                 )
+            else:
+                # Design 40 item 6 (L11): field assignment through an immutable
+                # `let` (or `&`) binding is rejected, mirroring the array rule.
+                imm_root = self._assign_target_immutable_struct_root(stmt.target)
+                if imm_root is not None:
+                    self._error(
+                        ErrorKind.IMMUTABLE_ASSIGNMENT,
+                        f"cannot assign to field of immutable variable `{imm_root}`",
+                        stmt.line, stmt.column,
+                        hint="consider using `var` instead of `let` to make it mutable"
+                    )
 
             obj_type = self._check_expression(stmt.target.object)
             if not obj_type:
