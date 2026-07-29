@@ -74,6 +74,33 @@ class EffectsMixin:
         # and id(ClosureExpr) for closures.
         self._suspend_nodes: Dict[Any, SuspendNode] = {}
         self._suspend_stack: List[SuspendNode] = []
+        # design 44: free-function names driven by a `__drive(...)` /
+        # `__drive_steps(...)` site, mapped to the set of driver modes requested
+        # ({"value", "steps"}). A driven root and its suspending callees are the
+        # closure the coroutine transform rewrites into frames + resume methods.
+        self._driven_roots: Dict[str, set] = {}
+
+    def _effect_record_driven(self, name: str, mode: str):
+        self._driven_roots.setdefault(name, set()).add(mode)
+
+    def _effect_absorb_scope(self):
+        """A context manager-ish pair: push a throwaway suspend node so effect
+        edges recorded while checking a `__drive` argument attach to it (and are
+        discarded) rather than to the enclosing function — the driver ABSORBS the
+        callee's suspension (like `block_on`), so `__drive`'s caller does not
+        become suspending. Returns the sentinel to pass back to `_effect_unabsorb`.
+        """
+        sentinel = SuspendNode(key=None, short="<driver>", desc="<driver>",
+                               line=0, column=0, source_file=None)
+        self._suspend_stack.append(sentinel)
+        return sentinel
+
+    def _effect_unabsorb(self, sentinel):
+        # Pop until (and including) the sentinel, staying robust to nested pushes.
+        while self._suspend_stack:
+            top = self._suspend_stack.pop()
+            if top is sentinel:
+                break
 
     # ------------------------------------------------------- node entry / exit
     def _effect_enter_function(self, func):

@@ -591,6 +591,27 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         reporter.print_all()
         sys.exit(1)
 
+    # design 44: the source-level coroutine transform. If the program drove any
+    # suspending function (`__drive(...)` recorded roots during the effect
+    # analysis above), rewrite those roots into frame structs + resume methods on
+    # the entry AST and re-run this front half. The rewrite deletes the `__drive`
+    # sites, so the recursive pass finds NO driven roots and proceeds straight to
+    # codegen — a natural base case. Non-driven programs never enter this branch,
+    # so the transform is OFF by construction and their path is unchanged.
+    driven = getattr(typechecker, "_driven_roots", None)
+    if driven:
+        from coro_transform import transform_program, CoroTransformError
+        try:
+            changed = transform_program(entry_ast, typechecker)
+        except CoroTransformError as e:
+            print(f"\033[1;31merror\033[0m: {e.message}", file=sys.stderr)
+            sys.exit(1)
+        if changed:
+            if verbose:
+                print("  Applied coroutine transform; re-checking...")
+            return _prepare_codegen(source_path, entry_ast, entry_source, verbose,
+                                    object_only, target_triple, freestanding)
+
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns
 

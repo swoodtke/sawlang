@@ -657,6 +657,41 @@ class ExpressionsMixin:
                 )
             self._effect_direct_source(expr.name, expr.line)
             return SawType(TypeKind.VOID)
+        if expr.name in ("__drive", "__drive_steps"):
+            # design 44: the test-only executor entry. `__drive(f(args))` creates
+            # a frame for the suspending call `f(args)`, drives it to completion,
+            # and yields f's result; `__drive_steps(f(args))` yields the number of
+            # suspensions observed (an Int). It ABSORBS the callee's suspension —
+            # the enclosing function does NOT become suspending — which is how a
+            # non-suspending `main` can drive a coroutine with no executor yet.
+            if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`{expr.name}(...)` takes exactly one positional argument: a "
+                    f"call to a suspending function",
+                    expr.line, expr.column
+                )
+                return None
+            inner = expr.arguments[0].value
+            from ast_nodes import FunctionCall as _FC
+            if not isinstance(inner, _FC):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`{expr.name}(...)` expects a direct call to a suspending "
+                    f"function, e.g. `{expr.name}(work())`",
+                    expr.line, expr.column
+                )
+                return None
+            # Type-check the inner call inside an absorbing scope so its suspend
+            # edge does not taint the caller. This also stamps inner.resolved_type
+            # and validates the argument types.
+            sentinel = self._effect_absorb_scope()
+            inner_type = self._check_expression(inner)
+            self._effect_unabsorb(sentinel)
+            self._effect_record_driven(inner.name, "value" if expr.name == "__drive" else "steps")
+            if expr.name == "__drive_steps":
+                return SawType(TypeKind.INT)
+            return inner_type if inner_type is not None else SawType(TypeKind.VOID)
         if expr.name == "spawn":
             return self._check_spawn(expr)
         if expr.name == "sizeof":
