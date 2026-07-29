@@ -228,19 +228,26 @@ class OperatorsMixin:
                 # Float division keeps IEEE inf/nan semantics (untouched).
                 return self.builder.fdiv(left, right, name="divtmp")
             # Integer division: panic on a zero divisor instead of returning
-            # garbage (arm64 does not trap), and on INT_MIN / -1 overflow.
+            # garbage (arm64 does not trap). Signed division also panics on the
+            # INT_MIN / -1 overflow and uses sdiv; unsigned division has no such
+            # overflow and must use udiv (design 41 item 0 / design 40 L6 sidecar
+            # -- an unsigned operand with the high bit set gives the wrong result
+            # under sdiv).
             self._check_divisor_nonzero(right)
             if self._int_is_signed(expr.left):
                 self._check_div_no_overflow(left, right)
-            return self.builder.sdiv(left, right, name="divtmp")
+                return self.builder.sdiv(left, right, name="divtmp")
+            return self.builder.udiv(left, right, name="udivtmp")
 
         elif expr.op == '%':
-            # Modulo only works on integers; same zero-divisor and INT_MIN / -1
-            # overflow panics as /.
+            # Modulo only works on integers; same zero-divisor panic as /, and
+            # the same signed/unsigned split: srem (with the INT_MIN / -1 overflow
+            # panic) for signed operands, urem for unsigned.
             self._check_divisor_nonzero(right)
             if self._int_is_signed(expr.left):
                 self._check_div_no_overflow(left, right)
-            return self.builder.srem(left, right, name="modtmp")
+                return self.builder.srem(left, right, name="modtmp")
+            return self.builder.urem(left, right, name="umodtmp")
 
         elif expr.op == '==':
             # Equality (design 32): lower via the recursive Equatable helper.

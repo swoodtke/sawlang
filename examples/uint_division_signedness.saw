@@ -8,7 +8,6 @@
 // finding. Fix: select udiv/urem when _int_is_signed(expr.left) is False.
 // EXPECT: success
 // EXPECT-OUTPUT: 5000000000000000000
-// XFAIL: integer / and % always emit sdiv/srem; UInt division is signed (design 40 L6 sidecar)
 
 func main() {
     let u: UInt = 10000000000000000000
