@@ -40,15 +40,13 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   gap, worked around non-fatally in brief 31's signedness probe
   (defaults to signed). Close by annotating in the module member-access
   checker. [31 report]
-- **L7.** Consuming a generic-instantiated `Result<T,E>` via direct
-  `match`/`try!` at the instantiation's binding site hits
-  monomorphization gaps ("Undefined struct: T"); routing through a
-  concrete-typed consumer works. Pre-existing, found in brief 30's
-  generic lock-in test. [30 report]
-- **L8.** Generic function taking a generic container BY PARAMETER
-  (`unbox<T>(b: Box<T>)`) recurses in monomorphization — pre-existing,
-  broader sibling of L7, reproduced with zero equality involvement
-  (brief 32 report). [32 report]
+- **L7.** ~~Generic Result direct consumption~~ — FIXED (brief 36):
+  return-type substitution + match scrutinee normalization; red-proven
+  tests kept. [30 report, 36]
+- **L8.** ~~Generic-container-parameter monomorphization recursion~~ —
+  FIXED (brief 36): type_args substituted against the active
+  type_param_context before nested monomorphization; red-proven tests
+  kept. [32 report, 36]
 - **L9.** `==` over Optional- or array-bearing members not yet
   lowerable (auto-conform deliberately excludes them; clean error at
   comparison site). Extend the equals derivation when needed. [32]
@@ -77,14 +75,13 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   escaping type bit + variance, bracketed capture lists, env-of-
   references lowering, exclusivity join (iterator invalidation is a
   compile error), forwarding rules. [16, 29]
-- **C2.** Iteration API — `Vector.each` LANDED (`T: Copy` bound);
-  **`map`/`fold` deferred on missing method-level generic type
-  parameters** (`map<U>` — no generic-method infrastructure; free-
-  function fallback hits L8). `each` + borrow captures subsumes both
-  meanwhile. New prerequisite item: generic methods. [29]
-- **C5.** Method-level generic type parameters (generic methods) —
-  needed for `Vector.map<U>`/`fold<A>`, surfaced by brief 29; also the
-  clean fix path for L7/L8's monomorphization gaps. [29]
+- **C2.** Iteration API — FULLY LANDED: `each` (brief 29) + `map<U>`/
+  `fold<A>` (brief 36, on generic methods). [29, 36]
+- **C5.** ~~Generic methods~~ — LANDED (brief 36): method-level type
+  params with explicit call-site instantiation
+  (`v.map<String>(...)`), (struct × method) canonical mangling,
+  per-pair monomorphization. Type-argument INFERENCE remains future
+  work. [36]
 - **C3.** `Weak<T>` — Arc's weak-count slot is already reserved; build when
   stored callbacks give it a use case. [16, 21]
 - **C4. VERIFY:** general (non-spawn) escaping-closure environment
