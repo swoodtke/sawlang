@@ -1,0 +1,30 @@
+// Box<String> is refcount-correct (design 42 item 1). The payload String is
+// MOVED into the Box (no extra retain) and released exactly once on deinit;
+// `value()` hands back a retain-copy (leaving the box's own payload live). A
+// stress loop makes retain/release imbalance observable: a leak or double-free
+// would drift the atomic refcount and eventually corrupt the heap, so stable
+// completion is the oracle (cf. string_lifetime.saw).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 5
+// done
+
+func main() {
+    let b = Box<String>.make("hello")
+    let s = b.value()       // retain-copy of the payload String
+    print(s.len())          // 5
+    let t = b.value()       // second independent retain-copy
+    print(t.len())          // 5
+
+    // Balance stress: make/read/drop a Box<String> many times.
+    var i = 0
+    while i < 2000 {
+        let bb = Box<String>.make("xyz")
+        let c = bb.value()
+        i = i + 1
+        // bb and c both die each iteration; refcount returns to baseline.
+    }
+    print("done")
+    // b, s, t die here; each String released exactly once.
+}

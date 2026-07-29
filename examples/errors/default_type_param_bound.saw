@@ -8,14 +8,14 @@ trait Marker { func tag(&self) -> Int }
 struct Def {}
 extension Def: Marker { func tag(&self) -> Int { 1 } }
 
-struct Box<T, A: Marker = Int> {
+struct Crate<T, A: Marker = Int> {
     value: T
 }
-extension Box<T, A: Marker = Int> {
-    init(v: T) -> Box<T, A> { Box<T, A>(value: v) }
+extension Crate<T, A: Marker = Int> {
+    init(v: T) -> Crate<T, A> { Crate<T, A>(value: v) }
 }
 
 func main() {
-    let b = Box<Int>(v: 5)
+    let b = Crate<Int>(v: 5)
     print(b.value)
 }

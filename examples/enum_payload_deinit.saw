@@ -1,5 +1,5 @@
 // Brief 17 item 5 (probe): when an enum value holding a Deinit-conforming
-// payload dies, the payload's deinit must run. Here `Box.Full` carries an `R`
+// payload dies, the payload's deinit must run. Here `Crate.Full` carries an `R`
 // (Deinit, prints its id on drop); when `b` goes out of scope at the end of
 // main the payload `R(id: 7)` should print `7`, after the `100` marker.
 //
@@ -7,7 +7,7 @@
 // active variant carries a cleanup-needing payload, and `_emit_enum_cleanup_at`
 // switches on the tag and releases that variant's payload fields (reverse order)
 // via the shared `_emit_drop_at` drop glue. Enums dodge the containment rules,
-// so an undeclared `Box` holding a Deinit payload is cleaned automatically.
+// so an undeclared `Crate` holding a Deinit payload is cleaned automatically.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 100
@@ -23,12 +23,12 @@ extension R: Deinit {
     }
 }
 
-enum Box {
+enum Crate {
     case Full(r: R),
     case Empty
 }
 
 func main() {
-    let b = Box.Full(r: R(id: 7))
+    let b = Crate.Full(r: R(id: 7))
     print(100)
 }

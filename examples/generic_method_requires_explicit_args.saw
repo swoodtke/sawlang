@@ -4,14 +4,14 @@
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: requires explicit type argument
 
-struct Box<T> { value: T }
+struct Crate<T> { value: T }
 
-extension Box<T> {
+extension Crate<T> {
     func get(&self) -> T { self.value }
     func stashed<U>(&self, other: U) -> U { other }
 }
 
 func main() {
-    let b = Box<Int>(value: 5)
+    let b = Crate<Int>(value: 5)
     print(b.stashed(42))  // missing <Int> — inference not supported
 }

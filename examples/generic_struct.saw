@@ -4,17 +4,17 @@
 // 42
 // hello
 
-struct Box<T> {
+struct Crate<T> {
     value: T
 }
-extension Box<T> {
+extension Crate<T> {
     func get(&self) -> T {
         self.value
     }
 }
 func main() {
-    let intBox = Box<Int>(value: 42)
-    print(intBox.get())
-    let strBox = Box<String>(value: "hello")
-    print(strBox.get())
+    let intCrate = Crate<Int>(value: 42)
+    print(intCrate.get())
+    let strCrate = Crate<String>(value: "hello")
+    print(strCrate.get())
 }

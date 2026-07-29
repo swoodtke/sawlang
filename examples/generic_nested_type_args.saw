@@ -1,16 +1,16 @@
 // A generic function instantiated with two different *nested* generic type
 // arguments must produce two distinct monomorphizations.
 // Before the canonical mangler, codegen's _type_to_string ignored a struct's
-// type args, so identity<Box<Int>> and identity<Box<String>> both mangled to
-// "identity$Box" and collided on a single instantiation -> the second call
-// reused the first (Box<Int>) body and miscompiled.
+// type args, so identity<Crate<Int>> and identity<Crate<String>> both mangled to
+// "identity$Crate" and collided on a single instantiation -> the second call
+// reused the first (Crate<Int>) body and miscompiled.
 // See todo_jul26.md must-fix #4 (three divergent manglers; types.py dropped type args).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 42
 // hi
 
-struct Box<T> {
+struct Crate<T> {
     value: T
 }
 
@@ -19,8 +19,8 @@ func identity<T>(x: T) -> T {
 }
 
 func main() {
-    let a = identity<Box<Int>>(Box<Int>(value: 42))
-    let b = identity<Box<String>>(Box<String>(value: "hi"))
+    let a = identity<Crate<Int>>(Crate<Int>(value: 42))
+    let b = identity<Crate<String>>(Crate<String>(value: "hi"))
     print(a.value)
     print(b.value)
 }

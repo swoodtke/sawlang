@@ -3,13 +3,13 @@
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: is not generic but was called with type arguments
 
-struct Box<T> { value: T }
+struct Crate<T> { value: T }
 
-extension Box<T> {
+extension Crate<T> {
     func get(&self) -> T { self.value }
 }
 
 func main() {
-    let b = Box<Int>(value: 5)
+    let b = Crate<Int>(value: 5)
     print(b.get<Int>())  // get takes no method type params
 }

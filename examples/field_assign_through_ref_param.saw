@@ -11,16 +11,16 @@
 // EXPECT-OUTPUT:
 // 5
 
-struct Box {
+struct Crate {
     field: Int
 }
 
-func set(r: &var Box) {
+func set(r: &var Crate) {
     r.field = 5
 }
 
 func main() {
-    var b = Box(field: 0)
+    var b = Crate(field: 0)
     set(&var b)
     print(b.field)
 }

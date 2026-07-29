@@ -1,7 +1,7 @@
 // Default type parameters (design 37 item 1). A trailing type parameter with a
 // declared default (`A: Marker = Def`) may be omitted at every reference site;
-// resolution fills it BEFORE mangling, so `Box<Int>` and `Box<Int, Def>` are
-// ONE type with one monomorphization. A custom argument (`Box<Int, Loud>`)
+// resolution fills it BEFORE mangling, so `Crate<Int>` and `Crate<Int, Def>` are
+// ONE type with one monomorphization. A custom argument (`Crate<Int, Loud>`)
 // selects a different type. Dispatch through `A()` is a zero-sized construction
 // that monomorphizes to a direct call on the concrete marker.
 // EXPECT: success
@@ -27,13 +27,13 @@ extension Loud: Marker {
     func tag(&self) -> Int { 2 }
 }
 
-struct Box<T, A: Marker = Def> {
+struct Crate<T, A: Marker = Def> {
     value: T
 }
 
-extension Box<T, A: Marker = Def> {
-    init(v: T) -> Box<T, A> {
-        Box<T, A>(value: v)
+extension Crate<T, A: Marker = Def> {
+    init(v: T) -> Crate<T, A> {
+        Crate<T, A>(value: v)
     }
     func which(&self) -> Int {
         A().tag()
@@ -45,19 +45,19 @@ extension Box<T, A: Marker = Def> {
 
 // Takes the DEFAULT form; the explicit-Def form must be an accepted argument
 // (same type identity).
-func report(b: Box<Int>) -> Int {
+func report(b: Crate<Int>) -> Int {
     b.which()
 }
 
 func main() {
-    let a = Box<Int>(v: 10)        // default A = Def
-    let b = Box<Int, Def>(v: 20)   // explicit Def — same type as Box<Int>
-    let c = Box<Int, Loud>(v: 30)  // custom Loud
+    let a = Crate<Int>(v: 10)        // default A = Def
+    let b = Crate<Int, Def>(v: 20)   // explicit Def — same type as Crate<Int>
+    let c = Crate<Int, Loud>(v: 30)  // custom Loud
 
     print(a.which())        // 1
     print(b.which())        // 1
     print(c.which())        // 2
     print(report(a))        // 1
-    print(report(move b))   // 1 — Box<Int, Def> accepted where Box<Int> expected
+    print(report(move b))   // 1 — Crate<Int, Def> accepted where Crate<Int> expected
     print(a.get())          // 10
 }

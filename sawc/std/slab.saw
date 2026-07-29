@@ -1,0 +1,108 @@
+// Slab allocator machinery — fixed-chunk allocation over a caller-owned static
+// region (design 42 item 2, design 19 §4 kernel idiom).
+//
+// This is freestanding-compatible: it touches no libc, only `Atomic<Int>` CAS
+// loops (design 41) and raw pointer arithmetic. A slab hands out fixed-size
+// chunks from a contiguous byte region the CALLER owns as a module static (a
+// bare-declared zero-init array — `.bss`, design 41 item 2). The slab keeps its
+// mutable bookkeeping in a `SlabHead` static (interior-mutable, so writable).
+//
+// WIRING (a user unit-struct allocator in ~10 lines) — see std docs / the
+// `kernel_slab_idiom` example:
+//
+//     static TASK_REGION: [Int8; 64 * 4]                 // 4 chunks of 64 bytes
+//     static TASK_HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
+//     struct TaskSlab {}
+//     extension TaskSlab: Allocator {
+//         func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+//             slab_alloc((&TASK_REGION) as UnsafePointer<Int8>, 4, 64, &TASK_HEAD)
+//         }
+//         func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+//             slab_dealloc(ptr, &TASK_HEAD)
+//         }
+//     }
+//     type TaskBox = Box<Task, TaskSlab>                 // the kernel idiom
+//
+// THREAD-SAFETY / ABA: alloc and dealloc are lock-free CAS loops over the head's
+// atomics. Because the free-list threads the *address* of the next free chunk
+// through each freed chunk's own first word, a classic ABA race is possible: a
+// chunk freed, re-allocated, and re-freed between one thread's load and CAS can
+// let a stale next-pointer be reinstated. This is ACCEPTABLE at this stage — the
+// required exhaustion test is single-threaded, and ABA-hardening (tagged
+// pointers / hazard pointers) is future work. Documented honestly, not hidden.
+
+// SlabHead — a slab's mutable bookkeeping, kept in a caller static.
+//   `bump` — number of chunks already handed out from the never-yet-used tail
+//            (monotonic, capped at chunk_count).
+//   `free` — LIFO free-list head: the ADDRESS of the most recently freed chunk,
+//            or 0 when the free-list is empty. A freed chunk stores the previous
+//            free-head address in its own first 8 bytes, so no side table exists.
+// Both fields are `Atomic<Int>`, so `SlabHead` is Sync and const-initializable
+// as a static (`SlabHead(bump: Atomic(0), free: Atomic(0))`).
+struct SlabHead {
+    bump: Atomic<Int>
+    free: Atomic<Int>
+}
+
+// Hand out one uninitialized chunk, or `None` when the slab is exhausted.
+//
+//   region      — start of the caller's byte region (`(&STATIC) as UnsafePointer<Int8>`)
+//   chunk_count — number of chunks the region holds
+//   chunk_size  — bytes per chunk; MUST be >= 8 so a freed chunk can store the
+//                 free-list next-address in its first word (and >= the payload)
+//   head        — the slab's bookkeeping static, lent immutably (its atomics
+//                 mutate interiorly)
+//
+// The returned chunk is UNINITIALIZED memory — the caller (e.g. `Box.make`)
+// placement-moves a value into it. `None` feeds the three-tier failure model:
+// an infallible factory panics on it, a fallible one returns `Err`.
+func slab_alloc(region: UnsafePointer<Int8>, chunk_count: Int, chunk_size: Int, head: &SlabHead) -> UnsafePointer<Int8>? {
+    // 1. Reuse a freed chunk if the free-list is non-empty (LIFO pop).
+    while true {
+        let f = head.free.load()
+        if f == 0 {
+            // Free-list empty — fall through to the bump path.
+            break
+        }
+        let chunk = f as UnsafePointer<Int8>
+        // The freed chunk's first word holds the previous free-head address.
+        let link = chunk as UnsafePointer<Int>
+        let next = link[0]
+        if head.free.compare_exchange(f, next) {
+            return chunk
+        }
+        // Lost the CAS race; reload and retry.
+    }
+    // 2. Bump a fresh chunk from the never-yet-used tail.
+    while true {
+        let b = head.bump.load()
+        if b >= chunk_count {
+            return None
+        }
+        if head.bump.compare_exchange(b, b + 1) {
+            return region + b * chunk_size
+        }
+        // Lost the CAS race; reload and retry.
+    }
+    // Unreachable — both loops return or continue. Satisfies the type checker.
+    None
+}
+
+// Return a chunk to the slab (LIFO push onto the free-list). `ptr` must be a
+// chunk previously handed out by `slab_alloc` over the SAME `head`. The chunk's
+// payload is already dead (the caller ran its deinit); this reuses the chunk's
+// first word to link it into the free-list.
+func slab_dealloc(ptr: UnsafePointer<Int8>, head: &SlabHead) {
+    let addr = ptr as Int
+    let link = ptr as UnsafePointer<Int>
+    while true {
+        let f = head.free.load()
+        // Store the current free-head as this chunk's next pointer, then try to
+        // make this chunk the new head.
+        link[0] = f
+        if head.free.compare_exchange(f, addr) {
+            return
+        }
+        // Lost the CAS race; reload and retry.
+    }
+}

@@ -1,0 +1,62 @@
+// The kernel idiom, end to end (design 42 item 3, design 19 §4). A per-type slab
+// allocator `JobSlab` — a zero-field unit struct whose storage is a static
+// region — backs `Box<Job, JobSlab>` (`type JobBox`). Box is the slab's
+// consumer: fixed-size Job chunks, not a variable-size Vector. Proves:
+//   * N allocations succeed, the (N+1)th `make_or` returns Err (exhaustion),
+//   * scope death returns the chunks (Box deinit routes dealloc through JobSlab),
+//   * re-allocation then succeeds over the reclaimed chunks.
+//
+// The USER wiring is ~10 lines: two statics + a unit struct + its Allocator impl.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 4
+// 999
+// 6
+
+struct Job { id: Int, priority: Int }
+extension Job {
+    func tid(&self) -> Int { self.id }
+}
+
+// ---- JobSlab wiring (the ~10-line user idiom) --------------------------------
+static JOB_REGION: [Int8; 64]                                    // 4 chunks * 16B
+static JOB_HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
+struct JobSlab {}
+extension JobSlab: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+        slab_alloc((&JOB_REGION) as UnsafePointer<Int8>, 4, 16, &JOB_HEAD)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+        slab_dealloc(ptr, &JOB_HEAD)
+    }
+}
+type JobBox = Box<Job, JobSlab>
+// -------------------------------------------------------------------------------
+
+// Fill the 4-chunk slab, hold the boxes, then hit exhaustion. Returns the
+// exhaustion sentinel; b1..b4 drop at scope exit, returning their chunks.
+func fill_and_exhaust() -> Int {
+    let b1 = Box<Job, JobSlab>.make(Job(id: 1, priority: 10))
+    let b2 = Box<Job, JobSlab>.make(Job(id: 2, priority: 20))
+    let b3 = Box<Job, JobSlab>.make(Job(id: 3, priority: 30))
+    let b4 = Box<Job, JobSlab>.make(Job(id: 4, priority: 40))
+    print(b1.tid())   // 1  — forwarded read
+    print(b4.tid())   // 4
+
+    // 5th allocation: the slab is full -> the fallible factory returns Err.
+    match Box<Job, JobSlab>.make_or(Job(id: 5, priority: 50)) {
+        case Ok(bad) -> bad.tid(),
+        case Err(e) -> 999
+    }
+    // b1..b4 drop here (LIFO), each returning its chunk to the free-list.
+}
+
+func main() {
+    print(fill_and_exhaust())   // 999 — exhausted at the 5th
+
+    // The four chunks were reclaimed at scope death, so a fresh allocation over
+    // JobSlab now succeeds.
+    let again = Box<Job, JobSlab>.make(Job(id: 6, priority: 60))
+    print(again.tid())          // 6
+}

@@ -1,0 +1,25 @@
+// Box<Int> over the default Global allocator (design 42 item 1): the infallible
+// factory `make` allocates + placement-moves the value, `value()` reads a Copy
+// payload back, and the single heap Int is freed when the Box dies. Box is
+// NoCopy, so it is moved, never silently duplicated.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 42
+// 7
+
+func take(b: Box<Int>) -> Int {
+    b.value()
+}
+
+func main() {
+    let a = Box<Int>.make(42)
+    print(a.value())        // 42
+
+    // NoCopy: transfer requires `move`; the callee then owns and frees it.
+    print(take(move a))     // 42
+
+    let b = Box<Int>.make(7)
+    print(b.value())        // 7
+    // b dies here -> its heap Int is freed exactly once.
+}

@@ -10,9 +10,9 @@
 // 10
 // v=5
 
-struct Box<T> { value: T }
+struct Crate<T> { value: T }
 
-extension Box<T> {
+extension Crate<T> {
     func get(&self) -> T { self.value }
 
     // A method type param unrelated to the closure/container — just passed back.
@@ -21,16 +21,16 @@ extension Box<T> {
     }
 }
 
-extension Box<T: Copy> {
+extension Crate<T: Copy> {
     // Method type param `U` in BOTH a closure parameter type and the return
     // container type — the shape Vector.map has.
-    func map<U>(&self, f: (T) -> U) -> Box<U> {
-        Box<U>(value: f(self.get()))
+    func map<U>(&self, f: (T) -> U) -> Crate<U> {
+        Crate<U>(value: f(self.get()))
     }
 }
 
 func main() {
-    let b = Box<Int>(value: 5)
+    let b = Crate<Int>(value: 5)
 
     // Two instantiations of the same generic method, crossing type families.
     print(b.stashed<Int>(42))     // 42

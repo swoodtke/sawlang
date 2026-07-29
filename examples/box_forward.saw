@@ -1,0 +1,21 @@
+// Box payload method forwarding (design 42 item 1, mirroring Arc): an immutable
+// `&self` method on the payload struct that is NOT defined on Box is callable
+// through the Box — the call borrows the heap payload at `ptr[0]`. Forwarding
+// with arguments composes too.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 14
+
+struct Point { x: Int, y: Int }
+
+extension Point {
+    func sum(&self) -> Int { self.x + self.y }
+    func scaled(&self, k: Int) -> Int { (self.x + self.y) * k }
+}
+
+func main() {
+    let b = Box<Point>.make(Point(x: 3, y: 4))
+    print(b.sum())        // 7  — forwarded &self method
+    print(b.scaled(2))    // 14 — forwarding with an argument
+}

@@ -1,6 +1,6 @@
 // A generic struct with a Deinit conformance must have its deinit run when an
 // instance goes out of scope, exactly like a non-generic Deinit struct
-// (cf. deinit_automatic.saw). Here `Box<Int>` should print "box deinit" when `b`
+// (cf. deinit_automatic.saw). Here `Crate<Int>` should print "box deinit" when `b`
 // is destroyed at the end of main.
 //
 // Today it compiles and runs, but "box deinit" never prints: the scope-cleanup
@@ -15,18 +15,18 @@
 // 42
 // box deinit
 
-struct Box<T> {
+struct Crate<T> {
     value: T
 }
 
-extension Box<T>: Deinit {
+extension Crate<T>: Deinit {
     func deinit(&var self) {
         print("box deinit")
     }
 }
 
 func main() {
-    let b = Box<Int>(value: 42)
+    let b = Crate<Int>(value: 42)
     print(b.value)
     // b goes out of scope here: "box deinit" must print
 }

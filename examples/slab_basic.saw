@@ -1,0 +1,56 @@
+// Slab machinery directly (design 42 item 2): fixed-chunk allocation over a
+// caller-owned static region, with a lock-free CAS bump + LIFO free-list keyed
+// on the SlabHead's two atomics. Exercises exhaustion (None past capacity),
+// dealloc (chunk returned), and LIFO reuse (freed chunk handed back next).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 1
+// 0
+// 1
+// 128
+// 0
+
+static REGION: [Int8; 256]
+static HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
+
+func region_ptr() -> UnsafePointer<Int8> {
+    (&REGION) as UnsafePointer<Int8>
+}
+
+func ok(p: UnsafePointer<Int8>?) -> Int {
+    if let _x = p { 1 } else { 0 }
+}
+
+func main() {
+    // Hand out all 4 chunks (64 bytes each).
+    let a = slab_alloc(region_ptr(), 4, 64, &HEAD)
+    let b = slab_alloc(region_ptr(), 4, 64, &HEAD)
+    let c = slab_alloc(region_ptr(), 4, 64, &HEAD)
+    let d = slab_alloc(region_ptr(), 4, 64, &HEAD)
+    print(ok(a))   // 1
+    print(ok(d))   // 1
+
+    // Exhausted: the 5th request is None.
+    print(ok(slab_alloc(region_ptr(), 4, 64, &HEAD)))   // 0
+
+    // Free one chunk, re-allocate: succeeds, and LIFO hands back that same chunk.
+    if let p = b {
+        slab_dealloc(p, &HEAD)
+    }
+    let e = slab_alloc(region_ptr(), 4, 64, &HEAD)
+    print(ok(e))   // 1
+
+    // c and a are two chunks apart -> 128 bytes.
+    if let pa = a {
+        if let pc = c {
+            print((pc as Int) - (pa as Int))   // 128
+        }
+    }
+    // Reused chunk e equals freed chunk b (LIFO).
+    if let pb = b {
+        if let pe = e {
+            print((pe as Int) - (pb as Int))   // 0
+        }
+    }
+}

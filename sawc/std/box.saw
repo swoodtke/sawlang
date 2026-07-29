@@ -1,0 +1,108 @@
+// Box<T, A> — a single owned heap allocation (design 42 item 1).
+//
+// `Box<T, A: Allocator = Global>` owns one `T` allocated through allocator `A`.
+// Hosted code writes `Box<T>` (the default fills `A = Global`); a kernel writes
+// `Box<Task, TaskSlab>` to place the value in a per-type slab — the design-19 §4
+// "kernel idiom". Box is NoCopy: transferring it is a `move`, and its single
+// heap `T` is released exactly once on deinit.
+//
+// FACTORY SURFACE (design 42 item 1, "report the surface chosen"): the two
+// constructors are STATIC METHODS on Box, reached through the brief-28
+// static-factory path — `Box<T>.make(v)` and `Box<T>.make_or(v)`. Static methods
+// on the generic struct were chosen over free `MakeBox`/`MakeBoxOr` functions
+// because the struct's own type arguments (and their `A = Global` default) are
+// supplied and defaulted at the call site by the same generics machinery Vector's
+// `try_with_capacity` already uses, with no free-function type-inference gap.
+// `make` IS the D4-pinned infallible `MakeBox`; `make_or` is the fallible
+// `MakeBoxOr`.
+//
+// There is no `init(value:)`: allocation is a fallible action, and the three-tier
+// failure model (design 19) wants that split visible — `make` panics on OOM
+// (infallible tier), `make_or` returns `Err` (fallible tier). A memberwise
+// `Box(ptr:)` still exists (used internally) but is a raw wrapper, not the API.
+
+struct Box<T, A: Allocator = Global> {
+    // Points directly at the heap `T`. Always valid in a live Box: `make` panics
+    // rather than construct a null Box, and `make_or` returns `Err` without
+    // constructing one, so no inert/None state exists (unlike Arc's OOM path).
+    ptr: UnsafePointer<T>
+}
+
+extension Box<T, A: Allocator = Global> {
+    // MakeBox — the infallible constructor. Allocates one `T`-sized chunk through
+    // `A`, placement-moves `value` into it, and wraps it. On allocator failure it
+    // PANICS (design 19 three-tier model, infallible tier): a kernel's `saw_panic`
+    // handler decides the policy (oops / kill-task / reboot).
+    func make(value: T) -> Box<T, A> {
+        let size = sizeof<T>()
+        let align = alignof<T>()
+        if let raw = A().alloc(size, align) {
+            let ptr = raw as UnsafePointer<T>
+            // PLACEMENT-MOVE (LANGUAGE_SPEC "Placement writes"): `ptr[0]` is an
+            // uninitialized, freshly-allocated chunk, so this store bitwise-moves
+            // `value` in and does NOT release any prior occupant. `value` is
+            // consumed by the value-transfer checkpoint.
+            ptr[0] = move value
+            return Box<T, A>(ptr: ptr)
+        }
+        // Allocation failed: the infallible tier panics deterministically. (Saw
+        // has no user `panic()` builtin yet; force-unwrapping a None Box is the
+        // stdlib idiom — same mechanism Task.join uses for misuse — and yields the
+        // Box return type so control flow stays total.)
+        let failed: Box<T, A>? = None
+        return failed!
+    }
+
+    // MakeBoxOr — the fallible constructor. Identical success path; on allocator
+    // failure returns `Err(AllocError)` carrying the request's size/align instead
+    // of panicking. Because `value` is NOT moved on the failure path, it stays a
+    // live local and its `deinit` runs at scope exit — the value is cleanly
+    // destroyed, never leaked (design 42's "value cleanly deinit'd on failure").
+    func make_or(value: T) -> Result<Box<T, A>, AllocError> {
+        let size = sizeof<T>()
+        let align = alignof<T>()
+        if let raw = A().alloc(size, align) {
+            let ptr = raw as UnsafePointer<T>
+            ptr[0] = move value
+            return Box<T, A>(ptr: ptr)
+        }
+        // `value` unmoved -> deinit'd at scope exit; surface the failure.
+        return AllocError(size: size, align: align)
+    }
+}
+
+// Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
+// requirement is already satisfied when NoCopy is checked (mirrors Task/Arc).
+extension Box<T, A: Allocator = Global>: Deinit {
+    func deinit(&var self) {
+        // Release the LIVE payload in place (its own drop glue), THEN free the
+        // chunk through THIS box's own allocator `A` — a Box<T, TaskSlab> frees
+        // through the slab, never Global. Exactly one release of the payload.
+        __deinit_in_place(self.ptr)
+        let raw = self.ptr as UnsafePointer<Int8>
+        A().dealloc(raw, sizeof<T>(), alignof<T>())
+    }
+}
+
+extension Box<T, A: Allocator = Global>: NoCopy {
+}
+
+// Read accessor for a Copy payload (design 42 item 1). Bounded `T: Copy`: it
+// hands back a COPY of the payload (`.copy()` — bitwise for a trivial T, a
+// refcount bump for an ImplicitCopy T like String), leaving the box's own `T`
+// intact. A NoCopy payload has no `.copy()`, so `value()` is simply unavailable
+// there — reach such a payload through method forwarding (below) instead.
+extension Box<T: Copy, A: Allocator = Global> {
+    func value(&self) -> T {
+        self.ptr[0].copy()
+    }
+}
+
+// PAYLOAD METHOD FORWARDING (design 42 item 1, "like Arc"): an immutable `&self`
+// method on the payload `T` that is NOT defined on Box itself is callable through
+// the Box — `box.peek()` forwards to `T.peek()` — resolved and lowered by the
+// compiler (typechecker `_resolve_arc_forward` keyed on struct name "Box";
+// codegen borrows the payload at `ptr[0]`). A `&var self` payload method is
+// REJECTED, same as through Arc: aliased mutation of owned-through-a-handle state
+// is exactly what a `Mutex` payload exists to make safe. No Saw-level code is
+// needed here; this comment documents where the mechanism lives.

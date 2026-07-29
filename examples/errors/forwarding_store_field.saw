@@ -4,12 +4,12 @@
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: non-escaping closure into an escaping
 
-struct Box {
+struct Crate {
     f: (Int) -> Int
 }
 
-func store(f: (Int) -> Int) -> Box {
-    Box(f: f)
+func store(f: (Int) -> Int) -> Crate {
+    Crate(f: f)
 }
 
 func main() {
