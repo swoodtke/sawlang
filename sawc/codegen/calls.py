@@ -44,7 +44,11 @@ class CallsMixin:
         # design 22: `__test_suspend()` is a synthetic suspension point for the
         # effect system. It has no runtime behavior — lower it to a no-op so
         # programs that use it still compile and run.
-        if expr.name == "__test_suspend":
+        # design 44: `__suspend()` is the coroutine-transform state boundary. Any
+        # `__suspend` reaching codegen is one OUTSIDE a driven closure (the
+        # transform rewrites the driven ones before codegen), so it too is a
+        # no-op here — a lone `__suspend` behaves like `__test_suspend`.
+        if expr.name in ("__test_suspend", "__suspend"):
             return None
 
         # Atomic construction (design 41 item 4): `Atomic(<int>)` builds the

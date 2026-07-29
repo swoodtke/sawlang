@@ -639,17 +639,23 @@ class ExpressionsMixin:
                         arg.value.line, arg.value.column
                     )
             return SawType(TypeKind.VOID)
-        if expr.name == "__test_suspend":
-            # design 22: compiler-known synthetic suspension point. Typechecked
-            # as a suspension SOURCE (feeds the effect system); codegen lowers it
-            # to a no-op so programs still run. Takes no arguments, returns Void.
+        if expr.name in ("__test_suspend", "__suspend"):
+            # design 22: `__test_suspend` — compiler-known synthetic suspension
+            # point, effect-only (feeds the suspendability inference; codegen is a
+            # no-op; NO state-machine transform — that is design-22's scope guard).
+            # design 44: `__suspend` — the coroutine-transform state boundary. It
+            # is ALSO an effect source, but inside a DRIVEN function (reached from
+            # a `__drive` site) the transform splits the body at it. Outside any
+            # driven closure it lowers to the same no-op, so a lone `__suspend`
+            # behaves exactly like `__test_suspend` (effect-suspending, runs).
+            # Both take no arguments and return Void.
             if len(expr.arguments) != 0:
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"`__test_suspend` takes no arguments, but {len(expr.arguments)} were given",
+                    f"`{expr.name}` takes no arguments, but {len(expr.arguments)} were given",
                     expr.line, expr.column
                 )
-            self._effect_direct_source("__test_suspend", expr.line)
+            self._effect_direct_source(expr.name, expr.line)
             return SawType(TypeKind.VOID)
         if expr.name == "spawn":
             return self._check_spawn(expr)
