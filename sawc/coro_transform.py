@@ -284,6 +284,7 @@ class _FrameBuilder:
                               source_file=getattr(func, 'source_file', ""))
         self.encmap = encmap
         frame_field_names = encmap
+        self._reject_frame_moves(func.body, encmap)
 
         # ---- state split -------------------------------------------------- #
         # Segments of top-level statements split at each `__suspend()`.
@@ -342,6 +343,37 @@ class _FrameBuilder:
                               source_file=getattr(func, 'source_file', ""))
 
         return frame_struct, resume_ext, params, frame_locals
+
+    def _reject_frame_moves(self, node, encmap):
+        """A `move` of a frame-resident local (a conditional move across a
+        suspension) needs a frame-resident Bool DROP FLAG that is cleared without
+        dropping — the optional-encoding used for cleanup fields cannot express
+        clear-without-drop (assignment always drops the old value). Reject it with
+        a precise boundary message rather than a confusing downstream error."""
+        from ast_nodes import MoveExpr
+        stack = [node]
+        while stack:
+            n = stack.pop()
+            if isinstance(n, MoveExpr) and n.variable in encmap:
+                raise CoroTransformError(
+                    f"coroutine transform (v1): `move {n.variable}` transfers a "
+                    f"frame-resident local of driven `{self.name}` across a "
+                    f"suspension; conditional move across a suspend needs a "
+                    f"frame drop flag (design 44's Bool flags), which is "
+                    f"remaining work. Avoid moving frame locals for now.",
+                    getattr(n, 'line', self.func.line),
+                    getattr(n, 'column', self.func.column))
+            if isinstance(n, ASTNode):
+                for f in dataclasses.fields(n):
+                    v = getattr(n, f.name)
+                    if isinstance(v, list):
+                        stack.extend(x for x in v if isinstance(x, (ASTNode,)))
+                        stack.extend(x.value for x in v
+                                     if isinstance(x, Argument))
+                    elif isinstance(v, Argument):
+                        stack.append(v.value)
+                    elif isinstance(v, ASTNode):
+                        stack.append(v)
 
     def _done_seq(self, value):
         """Statements that end the coroutine at an explicit `return value`
