@@ -1110,7 +1110,13 @@ class CallsMixin:
         if type_args and struct_name in self.generic_structs:
             struct_name = self._ensure_monomorphized_struct(struct_name, type_args)
 
-        mangled_name = self._mangle_method_name(struct_name, expr.method_name)
+        # Overloading (design 55): the typechecker resolved the static overload
+        # and stamped its exact codegen symbol.
+        resolved_symbol = getattr(expr, 'resolved_symbol', None)
+        if resolved_symbol is not None:
+            mangled_name = resolved_symbol
+        else:
+            mangled_name = self._mangle_method_name(struct_name, expr.method_name)
 
         if mangled_name not in self.functions:
             raise ValueError(f"Undefined static method: {struct_name}.{expr.method_name}")

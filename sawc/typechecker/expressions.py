@@ -3263,6 +3263,12 @@ class ExpressionsMixin:
                 if expr.method_name in struct_info.methods:
                     method_info = struct_info.methods[expr.method_name]
                     if method_info.is_static:
+                        # Overloading (design 55): resolve among static overloads.
+                        so = self.namespace.lookup_method_overloads(
+                            struct_name, expr.method_name)
+                        if len(so) > 1:
+                            return self._check_overloaded_static_method_call(
+                                expr, struct_name, struct_info, so)
                         return self._check_static_method_call(expr, struct_name, struct_info, method_info)
         if isinstance(expr.object, Identifier) and self.get_enum_info(expr.object.name):
             enum_init = EnumInit(
@@ -3546,6 +3552,43 @@ class ExpressionsMixin:
         self._check_call_exclusivity([a.value for a in expr.arguments], param_types,
                                      param_names=func_info.param_names)
         return func_info.return_type
+
+    def _check_overloaded_static_method_call(self, expr, struct_name,
+                                             struct_info, candidates):
+        """Resolve and check an overloaded static method call (design 55):
+        `StructName.method(args)` with 2+ static overloads."""
+        arg_types = self._overload_arg_types(expr)
+        method_info = self._resolve_overload(
+            f"{struct_name}.{expr.method_name}", candidates, arg_types,
+            bool(expr.type_args), is_method=True, line=expr.line, column=expr.column)
+        if method_info is None:
+            return None
+        if method_info.mangled_name:
+            expr.resolved_symbol = method_info.mangled_name
+        self._effect_call_method(
+            method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
+        # Build the struct type-param -> concrete map from the receiver's type
+        # args (default-filled), as _check_static_method_call does, so a factory
+        # whose parameters mention the struct's type params checks concretely.
+        obj_type_args = getattr(expr.object, 'type_args', None)
+        struct_type_params = getattr(struct_info, 'type_params', None)
+        type_map = {}
+        if obj_type_args and struct_type_params:
+            resolved_args = [self._resolve_type(ta) for ta in obj_type_args]
+            resolved_args = self._append_default_type_args(struct_name, resolved_args)
+            for tp, ta in zip(struct_type_params, resolved_args):
+                type_map[tp.name] = ta
+        param_types = method_info.param_types  # static: no self slot
+        if type_map:
+            param_types = [t.substitute(type_map) if t is not None else t
+                           for t in param_types]
+        self._finish_overloaded_args(expr, param_types, arg_types)
+        self._check_call_exclusivity([a.value for a in expr.arguments], param_types,
+                                     param_names=method_info.param_names)
+        ret = method_info.return_type
+        if ret is not None and type_map:
+            ret = ret.substitute(type_map)
+        return ret
 
     def _check_module_function_call(self, expr: MethodCall, func_info) -> Optional[SawType]:
         """Check a module function call: ModuleName.function(args)"""
