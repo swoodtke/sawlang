@@ -16,6 +16,17 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 - **D10. Cortex-M0-class atomics** — lowering strategy for ARMv6-M (no
   CAS); decide with the first such port. [19, 20]
+- **D11. Async stage-2 lowering path** (NEW, from the coro probe,
+  `designs/43-coro-probe-findings.md`): LLVM coro intrinsics work end
+  to end through llvmlite (proven native suspend/resume; ~10-line
+  shims), BUT the frame size is only known to LLVM post-CoroSplit —
+  invisible to the front-end where `.bss` static task frames (the
+  Embassy model, kernels/embedded as initial targets) need it. Question
+  for the user: **how soon must static task frames work?** Embedded-
+  soon → source-level state-machine transform first (the sync-effect
+  graph already knows every suspension point); hosted-first → LLVM path
+  as the faster proven start, architected as a swappable backend.
+  [18, 43]
 
 ## Language & semantics
 
@@ -117,8 +128,9 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Concurrency & async
 
-- **A1.** Stage 2 async: stackless coroutine / state-machine transform
-  (start with the llvmlite coro-intrinsics probe). [18]
+- **A1.** Stage 2 async: stackless coroutine / state-machine transform —
+  PROBED (designs/43): both paths viable, stage-2 brief skeleton
+  written; blocked only on D11 (lowering-path choice). [18, 43]
 - **A2.** Stage 3: multi-threaded work-stealing executor +
   Send-on-coroutine-frames check. [18]
 - **A3.** Explicit-only cancellation (`Task.cancelled()`, select points).
