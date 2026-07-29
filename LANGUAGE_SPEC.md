@@ -1553,6 +1553,14 @@ Observable rules:
   caller's frame; the caller's state machine drives that sub-frame to `Done`
   across its own suspensions, then captures `g`'s result. Flat frames → whole-task
   size is a compile-time constant.
+- **Suspension inside control flow** (design 52 Part 0): a suspension that spans a
+  `while`/`for`/`if`/`match` body is supported by a **CFG-based state split**. The
+  `resume` state machine is a dispatch loop over basic blocks; a loop back-edge or
+  branch merge is a state transition, a suspension inside a construct just
+  terminates its block, and the counter/binding it carries is frame-resident so
+  counted iterations survive across resumes. `break`/`continue` in a
+  suspension-spanning loop are supported; a `for` is over a range (a non-range
+  iterable inside a suspending loop is a diagnostic, not a miscompile).
 - **Suspending recursion is a compile error.** A cycle in the suspending-call
   graph would have no finite frame size (frames embed by value), so it is rejected
   with a diagnostic that names the cycle (e.g. `ping -> pong -> ping`). Ordinary
@@ -1565,10 +1573,11 @@ Observable rules:
   suspensions; the caller observes the mutation.
 - **`deinit` may not suspend** — a destructor is always a `sync` context, so a
   suspension inside one is a compile error (deterministic destruction).
-- **Not yet supported** (rejected with a diagnostic, not miscompiled): a
-  suspension inside a loop/`if`/`match` body that spans the suspension (needs a
-  CFG-based split), and transforming a *generic* suspending function/method
-  (blocked on effect-polymorphism re-inference, design 18 A5).
+- **Not yet supported** (rejected with a diagnostic, not miscompiled):
+  transforming a *generic* suspending function/method (blocked on
+  effect-polymorphism re-inference, design 18 A5); a suspension inside a `for`
+  over a non-range iterable; and a value-producing `break` out of a
+  suspension-spanning loop.
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately
