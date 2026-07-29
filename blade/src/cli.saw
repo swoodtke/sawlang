@@ -8,6 +8,7 @@
 public enum BladeCommand {
     case Build,
     case Run(args: Vector<String>),
+    case Test,
     case New(name: String),
     case Help,
     case Version,
@@ -58,6 +59,8 @@ public extension Cli {
                 i = i + 1
             }
             Cli(command: BladeCommand.Run(args: move run_args))
+        } else if cmd.equals("test") {
+            Cli(command: BladeCommand.Test)
         } else if cmd.equals("new") {
             guard let name = args.get(2) else {
                 return ParseError(msg: "blade new requires a project name")

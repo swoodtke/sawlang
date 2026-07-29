@@ -1,0 +1,33 @@
+// Test: the TOML parser reads sections and key/value pairs correctly.
+// A Blade test is an ordinary Saw program: it PASSES by exiting 0, and FAILS by
+// panicking (a failed `assert`) or returning nonzero. `blade test` runs it.
+
+import src.toml
+
+func main() {
+    let content = "# a comment\n[package]\nname = \"demo\"\nversion = \"1.2.3\"\n"
+
+    match toml.TomlDoc.parse(content) {
+        case Ok(doc) -> {
+            guard let pkg = doc.get_section("package") else {
+                panic("expected a [package] section")
+            }
+
+            let name = pkg.get("name") ?? "MISSING"
+            let version = pkg.get("version") ?? "MISSING"
+
+            assert(name.equals("demo"), "name should be demo")
+            assert(version.equals("1.2.3"), "version should be 1.2.3")
+
+            // A key that does not exist must come back as None.
+            if let _present = pkg.get("license") {
+                panic("missing key should be None, got a value")
+            }
+
+            print("toml_parsing: ok")
+        },
+        case Err(e) -> {
+            panic("parse should have succeeded: {e.message}")
+        }
+    }
+}

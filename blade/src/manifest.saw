@@ -40,7 +40,7 @@ public extension Manifest {
             return ManifestError(msg: "Saw.toml not found in current directory")
         }
 
-        guard let file = File.open(manifest_path) else {
+        guard var file = File.open(manifest_path) else {
             return ManifestError(msg: "Could not open Saw.toml")
         }
 
@@ -84,7 +84,7 @@ public extension Manifest {
             return ManifestError(msg: "Saw.toml not found in {dir.as_str()}")
         }
 
-        guard let file = File.open(manifest_path) else {
+        guard var file = File.open(manifest_path) else {
             return ManifestError(msg: "Could not open Saw.toml")
         }
 

@@ -1,0 +1,10 @@
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: assertion failed: x must equal 42
+
+// A false `assert` panics with "assertion failed: {message} (line N)".
+func main() {
+    let x = 41
+    print("checking")
+    assert(x == 42, "x must equal 42")
+    print("passed")  // unreachable
+}

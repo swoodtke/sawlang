@@ -1,0 +1,29 @@
+// Test: asking a document for a section it does not have returns None (not a
+// crash), and a well-formed but sectionless lookup is handled gracefully.
+
+import src.toml
+
+func main() {
+    let content = "[server]\nhost = \"localhost\"\n"
+
+    match toml.TomlDoc.parse(content) {
+        case Ok(doc) -> {
+            // The section that IS present resolves.
+            guard let server = doc.get_section("server") else {
+                panic("expected a [server] section")
+            }
+            let host = server.get("host") ?? "MISSING"
+            assert(host.equals("localhost"), "host should be localhost")
+
+            // A section that is absent must be None.
+            if let _present = doc.get_section("package") {
+                panic("absent section should be None, got a value")
+            }
+
+            print("toml_missing_section: ok")
+        },
+        case Err(e) -> {
+            panic("parse should have succeeded: {e.message}")
+        }
+    }
+}

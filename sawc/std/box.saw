@@ -45,12 +45,12 @@ extension Box<T, A: Allocator = Global> {
             ptr[0] = move value
             return Box<T, A>(ptr: ptr)
         }
-        // Allocation failed: the infallible tier panics deterministically. (Saw
-        // has no user `panic()` builtin yet; force-unwrapping a None Box is the
-        // stdlib idiom — same mechanism Task.join uses for misuse — and yields the
-        // Box return type so control flow stays total.)
-        let failed: Box<T, A>? = None
-        return failed!
+        // Allocation failed: the infallible tier panics deterministically via the
+        // `panic(...)` builtin (design 49 item 1), which routes through the
+        // saw_panic seam — a kernel's handler decides the policy (oops /
+        // kill-task / reboot). `panic` returns Never, so control never continues
+        // past it and no return value is needed on this path.
+        panic("allocation failed")
     }
 
     // MakeBoxOr — the fallible constructor. Identical success path; on allocator

@@ -1,0 +1,17 @@
+// Test: Manifest.load() reads Blade's own Saw.toml (the test runs from the
+// project root) and exposes the package name and version fields.
+
+import src.manifest
+
+func main() {
+    match manifest.Manifest.load() {
+        case Ok(m) -> {
+            assert(m.name().equals("blade"), "package name should be blade")
+            assert(m.version().equals("0.1.0"), "package version should be 0.1.0")
+            print("manifest_fields: ok")
+        },
+        case Err(e) -> {
+            panic("Saw.toml should load: {e.message}")
+        }
+    }
+}

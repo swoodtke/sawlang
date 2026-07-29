@@ -4,6 +4,13 @@
 import src.cli
 import src.manifest
 import src.builder
+import src.tester
+
+// libc exit — lets `blade test` set a nonzero process exit code when a test
+// fails (so CI fails the build). exit() terminates the process immediately.
+extern "C" {
+    func exit(code: Int32)
+}
 
 // =============================================================================
 // Help and Version
@@ -17,6 +24,7 @@ func print_help() {
     print("Commands:")
     print("  build       Compile the current project")
     print("  run         Build and run the project")
+    print("  test        Compile and run the project's tests/")
     print("  new <name>  Create a new Saw project")
     print("  help        Show this help message")
     print("  version     Show version information")
@@ -56,7 +64,7 @@ func create_new_project(name: String) -> Int {
     let toml_path = project_path.join("Saw.toml")
     if let f = File.create(toml_path) {
         let toml_data = toml_content.to_data()
-        f.write(toml_data)
+        f.write(move toml_data)
     } else {
         print("Error: Could not create Saw.toml")
         return 1
@@ -67,7 +75,7 @@ func create_new_project(name: String) -> Int {
     let main_path = src_path.join("main.saw")
     if let f = File.create(main_path) {
         let main_data = main_content.to_data()
-        f.write(main_data)
+        f.write(move main_data)
     } else {
         print("Error: Could not create main.saw")
         return 1
@@ -105,12 +113,25 @@ func main() {
                     match manifest.Manifest.load() {
                         case Ok(m) -> {
                             let b = builder.Builder(m: m)
-                            match b.run(args) {
+                            match b.run(move args) {
                                 case Ok(_) -> {},
                                 case Err(e) -> print("error: {e.message}")
                             }
                         },
                         case Err(e) -> print("error: {e.message}")
+                    }
+                },
+                case Test -> {
+                    match manifest.Manifest.load() {
+                        case Ok(m) -> {
+                            let t = tester.Tester(m: m)
+                            let code = t.run_all()
+                            exit(code as Int32)
+                        },
+                        case Err(e) -> {
+                            print("error: {e.message}")
+                            exit(1 as Int32)
+                        }
                     }
                 },
                 case New(name) -> {

@@ -1,6 +1,9 @@
 # Build output
 .build/
 
+# Blade's `blade test` scratch directory (compiled test binaries)
+.blade/
+
 # Python
 __pycache__/
 *.pyc

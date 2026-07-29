@@ -1,0 +1,6 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `panic` expects a String message
+
+func main() {
+    panic(42)
+}

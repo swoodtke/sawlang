@@ -38,9 +38,8 @@ extension Task<T> {
     func join(&var self) -> T {
         if self.joined {
             // Already joined (or inert): no result to hand back. Misuse —
-            // force-unwrapping None panics deterministically.
-            let empty: T? = None
-            empty!
+            // panic deterministically (design 49).
+            panic("Task.join: task already joined")
         } else {
             if let h = self.handle {
                 __saw_pthread_join(h)
@@ -50,8 +49,7 @@ extension Task<T> {
                 self.joined = true
                 result
             } else {
-                let empty: T? = None
-                empty!
+                panic("Task.join: task has no result handle")
             }
         }
     }

@@ -118,6 +118,31 @@ class ConditionalsMixin:
             self.builder.position_at_start(merge_bb)
             return self.builder.load(result_alloca, name="iftmp")
 
+        # Case B-mirror: the then-branch diverges (terminated with no value, e.g.
+        # `if cond { panic(...) } else { v }`, design 49) while the else-branch
+        # yields a value. Only the else path reaches the merge; route its value
+        # through an entry-block slot so the load at the merge dominates (the then
+        # path never stores, but it never reaches the merge either).
+        if (then_terminated and else_val is not None
+                and not isinstance(else_val.type, ir.VoidType)):
+            result_alloca = self._entry_alloca(else_val.type, name="if_result")
+            zero_val = ir.Constant(
+                else_val.type,
+                0 if isinstance(else_val.type, ir.IntType) else None)
+            entry_block = func.entry_basic_block
+            if entry_block.terminator is not None:
+                self.builder.position_before(entry_block.terminator)
+            else:
+                self.builder.position_at_end(entry_block)
+            self.builder.store(zero_val, result_alloca)
+
+            self.builder.position_at_end(else_bb_end)
+            if not else_terminated:
+                self.builder.store(else_val, result_alloca)
+                self.builder.branch(merge_bb)
+            self.builder.position_at_start(merge_bb)
+            return self.builder.load(result_alloca, name="iftmp")
+
         # Otherwise: no capturable value -> just wire the branches.
         if not then_terminated:
             self.builder.position_at_end(then_bb_end)

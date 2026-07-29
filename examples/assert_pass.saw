@@ -1,0 +1,10 @@
+// EXPECT: success
+// EXPECT-OUTPUT: ok
+
+// A true `assert` condition is a no-op (design 49 item 2).
+func main() {
+    let x = 21
+    assert(x + x == 42, "x should be 21")
+    assert(x > 0, "x should be positive")
+    print("ok")
+}

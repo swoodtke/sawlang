@@ -1,0 +1,115 @@
+// Tester - `blade test` implementation for Blade (design 49 item 3).
+//
+// Tests are ordinary Saw programs living in `tests/*.saw`. A test PASSES when it
+// compiles and exits 0; any nonzero exit (a failed `assert`, a `panic`, a normal
+// nonzero return) is a FAILURE. `blade test` discovers them, compiles each with
+// the same compiler invocation `blade build` uses, runs it, and reports
+// per-test ok/FAILED plus a summary. Execution is sequential (parallelism is a
+// later refinement). No new language surface: the test harness is just Saw.
+
+import src.manifest.*
+
+extern "C" {
+    // Run a command line through the shell and return its raw wait status. A
+    // test PASSES iff this is exactly 0 — that rejects a nonzero exit AND a
+    // signal death (a `panic`/failed `assert` aborts with SIGABRT, which a
+    // naive `status / 256` exit-code extraction would misread as 0).
+    func system(command: UnsafePointer<Int8>) -> Int32
+}
+
+public struct Tester {
+    manifest: Manifest
+}
+
+public extension Tester {
+    init(m: Manifest) -> Tester {
+        Tester(manifest: m)
+    }
+
+    // The compiler command. `blade build` shells out to `sawc`; the tester does
+    // the same, but honours a `SAWC` override so a not-yet-installed compiler
+    // (e.g. the in-tree `./.venv/bin/python sawc/sawc.py`) can drive the loop.
+    func compiler(&self) -> String {
+        if let c = Env.get("SAWC") {
+            c
+        } else {
+            "sawc"
+        }
+    }
+
+    // Run `cmd` through the shell with output suppressed (so the report stays
+    // clean — a test's own stdout/stderr is not what we judge, only its status).
+    // Passes iff the raw wait status is exactly 0.
+    func shell_ok(&self, cmd: String) -> Bool {
+        let quiet = "{cmd} > /dev/null 2>&1"
+        let ptr = quiet as UnsafePointer<Int8>
+        system(ptr) == (0 as Int32)
+    }
+
+    // Compile `source` to `bin`, then run it. Passes iff both succeed.
+    func run_one(&self, source: Path, bin: Path) -> Bool {
+        let compile_cmd = "{self.compiler()} {source.as_str()} -o {bin.as_str()}"
+        if not self.shell_ok(compile_cmd) {
+            return false
+        }
+        self.shell_ok(bin.as_str())
+    }
+
+    // Discover tests/*.saw, run each, report. Returns the process exit code:
+    // 0 when every test passed, 1 when any failed (so CI fails the build).
+    func run_all(&self) -> Int {
+        let tests_dir = Path(s: "tests")
+
+        guard let entries = Directory.list(tests_dir) else {
+            print("error: no tests/ directory found")
+            return 1
+        }
+
+        // A scratch directory for compiled test binaries (created if absent;
+        // create() failing because it already exists is harmless).
+        let made_base = Directory.create(Path(s: ".blade"))
+        let out_dir = Path(s: ".blade/tests")
+        let made_out = Directory.create(out_dir)
+        // create() returns false when the directory already exists; either way
+        // the directory now exists, so the results are advisory only.
+        if made_base && made_out {
+            // fresh scratch dirs — nothing else to do
+        }
+
+        print("   Testing {self.manifest.name()} v{self.manifest.version()}")
+
+        var total = 0
+        var passed = 0
+
+        var i = 0
+        while i < entries.len() {
+            if let entry = entries.get(i) {
+                if let ext_str = entry.ext() {
+                    if ext_str.equals("saw") {
+                        total = total + 1
+                        let name = entry.stem() ?? entry.as_str()
+                        let bin = out_dir.join(name)
+
+                        if self.run_one(entry, bin) {
+                            passed = passed + 1
+                            print("test {name} ... ok")
+                        } else {
+                            print("test {name} ... FAILED")
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+
+        let failed = total - passed
+        print("")
+        if failed == 0 {
+            print("test result: ok. {passed} passed; 0 failed ({total} total)")
+            0
+        } else {
+            print("test result: FAILED. {passed} passed; {failed} failed ({total} total)")
+            1
+        }
+    }
+}

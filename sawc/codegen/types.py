@@ -42,6 +42,12 @@ class TypesMixin:
             return ir.DoubleType()
         elif saw_type.kind == TypeKind.BOOL:
             return ir.IntType(1)
+        elif saw_type.kind == TypeKind.NEVER:
+            # Bottom type (design 49): a diverging `panic(...)` produces no value.
+            # A concrete LLVM type is never actually needed (codegen terminates
+            # the block with `unreachable`), but map it to i8 as a harmless
+            # placeholder so any incidental type query does not crash.
+            return ir.IntType(8)
         elif saw_type.kind == TypeKind.STRING:
             return ir.PointerType(ir.IntType(8))
         # Fixed-width integers

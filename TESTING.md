@@ -307,6 +307,56 @@ each one encodes a known, reproducible correctness gap. Fixing one flips it
 to XPASS and breaks the build until its marker is removed, so the ledger
 can't silently rot.
 
+## Application-Level Testing with `blade test`
+
+The `test_runner.py` harness above tests the **compiler itself**. A Saw
+*application* (or library) tests its own logic a different way, using the Blade
+package manager — no new language surface, just ordinary Saw programs (design
+49).
+
+A test is a `.saw` file under the project's `tests/` directory with its own
+`main()`. It **passes by exiting 0** and **fails by any nonzero exit** — most
+naturally a failed `assert(...)` or a `panic(...)`, both of which abort the
+process. `blade test`:
+
+1. discovers every `tests/*.saw`,
+2. compiles each with the project's sources (the same compiler invocation
+   `blade build` uses),
+3. runs the resulting binary,
+4. reports per-test `ok` / `FAILED`, a summary line, and exits nonzero if any
+   test failed (so CI fails the build).
+
+```saw
+// tests/toml_parsing.saw
+import src.toml
+
+func main() {
+    match toml.TomlDoc.parse("[package]\nname = \"demo\"\n") {
+        case Ok(doc) -> {
+            guard let pkg = doc.get_section("package") else {
+                panic("expected a [package] section")
+            }
+            assert((pkg.get("name") ?? "").equals("demo"), "name should be demo")
+            print("toml_parsing: ok")
+        },
+        case Err(e) -> panic("parse failed: {e.message}")
+    }
+}
+```
+
+```bash
+blade test
+#    Testing myproject v0.1.0
+# test toml_parsing ... ok
+#
+# test result: ok. 1 passed; 0 failed (1 total)
+```
+
+The compiler command defaults to `sawc`; set the `SAWC` environment variable to
+point `blade test` at a not-yet-installed compiler (e.g. an in-tree build). This
+is entirely separate from `test_runner.py` — the compiler suite and an app's
+`blade test` suite do not share machinery or semantics.
+
 ## Test Runner Implementation
 
 The test runner (`test_runner.py`):
