@@ -34,18 +34,23 @@ extension Vector<T> {
 // Map<K, V> - A key-value map
 // =============================================================================
 
-struct Map<K, V> {
-    keys: Vector<K>
-    values: Vector<V>
+// Map threads the allocator `A` (design 37) into both backing vectors, so a
+// `Map<K, V, A>` allocates its keys and values through the SAME allocator. The
+// default `A = Global` keeps hosted `Map<K, V>` unchanged (one identity with
+// `Map<K, V, Global>`); the parameter falls out mechanically because Map's only
+// storage is two `Vector`s, which already carry `A` (brief 37 item 2).
+struct Map<K, V, A: Allocator = Global> {
+    keys: Vector<K, A>
+    values: Vector<V, A>
 }
 
 // A Map needs to compare keys, so its lookup/insert operations require
 // `K: Equatable` (design 32). The bound rides on the whole extension; every
 // Map key type used with these methods (Int, String, ...) is Equatable.
-extension Map<K: Equatable, V> {
+extension Map<K: Equatable, V, A: Allocator = Global> {
     // Create an empty map
-    init() -> Map<K, V> {
-        Map<K, V>(keys: Vector<K>(), values: Vector<V>())
+    init() -> Map<K, V, A> {
+        Map<K, V, A>(keys: Vector<K, A>(), values: Vector<V, A>())
     }
 
     // Get the number of key-value pairs
@@ -139,9 +144,9 @@ extension Map<K: Equatable, V> {
 // the conformance is conditional on `<K: Copy, V: Copy>`. A Map whose keys or
 // values are not Copy is still constructible and move-only; it just has no
 // copy() (calling it names the unmet bound), mirroring Vector.
-extension Map<K: Copy, V: Copy>: ExplicitCopy {
-    func copy(&self) -> Map<K, V> {
-        Map<K, V>(keys: self.keys.copy(), values: self.values.copy())
+extension Map<K: Copy, V: Copy, A: Allocator = Global>: ExplicitCopy {
+    func copy(&self) -> Map<K, V, A> {
+        Map<K, V, A>(keys: self.keys.copy(), values: self.values.copy())
     }
 
     func deinit(&var self) {
