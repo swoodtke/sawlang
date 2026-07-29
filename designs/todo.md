@@ -168,9 +168,26 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Concurrency & async
 
-- **A1.** Stage 2 async — UNBLOCKED, briefed: transform core =
-  `designs/44-coro-transform.md` (in flight), runtime =
-  `designs/45-async-runtime.md` (queued). [18, 43, 44, 45]
+- **A1.** Stage 2 async — TRANSFORM COMPLETE for straight-line +
+  nested calls + methods (briefs 44/45 Part 0); single-task runtime
+  slice landed (yield_now/sleep as real suspension sources; suspending
+  main auto-wrapped in the entry executor; __wake protocol word).
+  Remaining, in order: **A1a** CFG-based split (suspends inside
+  loops/if/match — currently honest compile errors; pure
+  implementation); **A1b** cooperative spawn/join + cancellation +
+  suspending Channel.receive — BLOCKED ON D16 (type-erased task
+  handles: Saw has no function pointers or trait objects to put
+  heterogeneous frames in one run queue); generic driven functions
+  blocked on A5. Bonus fix en route: empty module datalayout made O1
+  and object emission disagree on struct offsets (pre-existing
+  miscompile class, now pinned everywhere). [44, 45]
+- **D16 (NEW, needs user).** Type-erasure mechanism for the async run
+  queue (and eventually dyn trait objects, which the spec already
+  sketches as `[dyn Shape]`): options range from a compiler-internal
+  task vtable (minimal, executor-only, no user-facing feature) to
+  real `dyn Trait` objects (bigger, user-facing, also unlocks
+  heterogeneous collections + the planned Error-trait story). [45
+  report, 18]
 - **A2.** Stage 3: multi-threaded work-stealing executor +
   Send-on-coroutine-frames check. [18]
 - **A3.** Explicit-only cancellation (`Task.cancelled()`, select points).
