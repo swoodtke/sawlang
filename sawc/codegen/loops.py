@@ -105,7 +105,7 @@ class LoopsMixin:
             self.builder.store(range_val, iter_alloca)
 
             next_func = self.functions["Range_next"]
-            item_type = ir.IntType(64)
+            item_type = self.int_type
         else:
             # Custom iterator: generate the iterator expression and call its next() method
             iter_val = self._generate_expression(stmt.iterable)
@@ -217,7 +217,7 @@ class LoopsMixin:
             self.builder.store(range_val, iter_alloca)
 
             next_func = self.functions["Range_next"]
-            item_type = ir.IntType(64)
+            item_type = self.int_type
         else:
             # Custom iterator: generate the iterator expression and call its next() method
             iter_val = self._generate_expression(expr.iterable)
@@ -249,7 +249,7 @@ class LoopsMixin:
             inner_type = self._get_llvm_type(expr.result_type.inner_type)
         else:
             # Fallback if no type annotation
-            inner_type = ir.IntType(64)
+            inner_type = self.int_type
         optional_result_type = ir.LiteralStructType([ir.IntType(1), inner_type])
         result_alloca = self._entry_alloca(optional_result_type, name="for.result")
 
@@ -319,13 +319,13 @@ class LoopsMixin:
                 inner_type = self._get_llvm_type(expr.result_type.inner_type)
             elif is_conditional:
                 # Fallback for void result
-                inner_type = ir.IntType(64)
+                inner_type = self.int_type
             else:
                 # Infinite loop: result_type is T directly
                 inner_type = self._get_llvm_type(expr.result_type)
         else:
             # Fallback if no type annotation
-            inner_type = ir.IntType(64)
+            inner_type = self.int_type
 
         if is_conditional:
             # Conditional loop returns Optional<T>

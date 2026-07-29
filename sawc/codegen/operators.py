@@ -55,8 +55,9 @@ class OperatorsMixin:
         panic_global.linkage = 'private'
         zero = ir.Constant(ir.IntType(32), 0)
         panic_ptr = self.builder.gep(panic_global, [zero, zero], inbounds=True)
+        # saw_panic takes a platform-width length (design 47).
         self.builder.call(self.functions["saw_panic"],
-                          [panic_ptr, ir.Constant(ir.IntType(64), n)])
+                          [panic_ptr, ir.Constant(self.int_type, n)])
         self.builder.unreachable()
 
     def _check_divisor_nonzero(self, divisor):

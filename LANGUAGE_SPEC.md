@@ -189,8 +189,8 @@ Common types — `Int`, `UInt`, the sized `Int8`…`Int64`/`UInt8`…`UInt64`,
 // Integers
 Int8, Int16, Int32, Int64, Int128
 UInt8, UInt16, UInt32, UInt64, UInt128
-Int    // Platform-native signed (i64 on 64-bit)
-UInt   // Platform-native unsigned
+Int    // Platform-native signed — pointer width (i64 on 64-bit, i32 on riscv32)
+UInt   // Platform-native unsigned — pointer width
 
 // Floating point
 Float32, Float64
@@ -202,6 +202,25 @@ Char        // Unicode scalar value
 String      // Immutable, refcounted byte string (see "String" below)
 Never       // Bottom type (function never returns)
 ```
+
+**`Int`/`UInt` are pointer-width** (Swift's model, design 47): 64-bit on
+x86-64/aarch64, **32-bit on riscv32** (e.g. ESP32-P4). `Int` is the type of an
+index, a length, a size (`sizeof`/`alignof`), and an address, so it matches the
+machine word on every target — no forced 64-bit instruction pairs or 64-bit
+division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
+
+- The representable **range of `Int` (its max/min) is target-dependent**:
+  `-2^63 … 2^63 - 1` on a 64-bit target, `-2^31 … 2^31 - 1` on riscv32 (and
+  likewise `UInt`'s max). Code that must reason about a specific range should use
+  a fixed-width type. (`Int.max`/`Int.min` named constants are not yet provided.)
+- An **integer literal is a platform `Int`**; a literal that does not fit the
+  target word is a compile error *at the literal* (so `9_999_999_999` compiles on
+  a 64-bit host but is rejected under a 32-bit target).
+- **Use the fixed-width types (`Int8`…`Int64`, `UInt8`…`UInt64`) for anything
+  whose layout must be stable across targets** — wire formats, on-disk
+  structures, and device/MMIO register maps. Their widths never change, and D1's
+  checked arithmetic makes any narrow-width overflow a loud panic rather than a
+  silent wrap. `Int64` is the escape hatch for a value wider than a 32-bit word.
 
 ### String
 
@@ -1300,9 +1319,10 @@ func get_index(arr: [Int], i: Int) -> Int {
   plain logical shift for both.
 - **Integer literals** may be written in hex (`0xFF`), binary (`0b1010`), or
   octal (`0o755`), and any integer literal may use `_` digit separators
-  (`0xDEAD_BEEF`, `1_000_000`). A literal wider than 64 bits (with `Int`/`UInt`
-  at their current 64-bit width — design 47 not yet landed) is a compile error at
-  the literal.
+  (`0xDEAD_BEEF`, `1_000_000`). A literal is a **platform `Int`** (pointer-width,
+  design 47): one that does not fit the target word is a compile error at the
+  literal — so a value beyond `2^32` compiles on a 64-bit host but is rejected
+  under a 32-bit target. Use a wider fixed-width field type for such constants.
 
 ### Runtime Semantics and Traps
 

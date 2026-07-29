@@ -249,6 +249,16 @@ The compiler currently supports:
   `Vector<Int, Global>` are one type / one monomorphization. Too-few-with-no-default
   and a default that fails its bound are errors.
 - Basic types: Int, Float, Bool, String
+- `Int`/`UInt` are **pointer-width** (design 47): i64 on x86-64/aarch64, i32 on
+  riscv32. The `Int` range (max/min) is target-dependent; an integer literal is a platform
+  `Int` and one exceeding the target word errors at the literal. Fixed-width
+  `Int8`…`Int64`/`UInt8`…`UInt64` have stable layouts — use them for wire
+  formats. One `self.int_type` (from the target datalayout pointer size) drives
+  every platform-`Int` lowering. Genuinely-64 sites are only the fixed-width
+  `Int64`/`UInt64` types; the runtime seams (`saw_alloc`/`write`/`panic` sizes),
+  the String header (`{ isize refcount, isize len, bytes }`), and the Arc/Channel
+  atomic refcount all follow the platform word too — the stdlib already types
+  them `Int`, so hosted (64-bit) codegen is byte-for-byte unchanged.
 - Variables: `let` (immutable) and `var` (mutable)
 - Arithmetic: `+`, `-`, `*`, `/`, `%` (modulo); wrapping `&+ &- &*`
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`

@@ -234,7 +234,8 @@ class CallsMixin:
         g = cache[data]
         zero = ir.Constant(ir.IntType(32), 0)
         ptr = self.builder.gep(g, [zero, zero], inbounds=True)
-        return ptr, ir.Constant(ir.IntType(64), len(encoded))
+        # Length feeds the platform-width saw_write seam (design 47).
+        return ptr, ir.Constant(self.int_type, len(encoded))
 
     def _generate_print(self, arguments: List[Argument]):
         """Generate code for the print built-in function.
@@ -271,18 +272,22 @@ class CallsMixin:
                 str_len = self.builder.select(value, true_len, false_len)
                 self.builder.call(saw_write, [str_ptr, str_len])
             else:
-                # Integer family: widen to i64 exactly as the old printf %lld path
-                # did (sext signed, zext unsigned<64), then format via itoa.
-                if value.type.width < 64:
+                # Integer family: bring the value to the platform Int width
+                # (design 47) with exactly the sign-/zero-extension the old printf
+                # %lld path used (sext signed, zext unsigned), then format via the
+                # width-parametric itoa. On a 64-bit target this is the pre-47 i64
+                # path unchanged; on riscv32 it formats at 32 bits (no __udivdi3).
+                iw = self.int_width
+                if value.type.width < iw:
                     saw_type = self._expr_type(arg.value)
                     unsigned_kinds = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}
                     if saw_type and saw_type.kind in unsigned_kinds:
-                        value = self.builder.zext(value, ir.IntType(64), name="print_ext")
+                        value = self.builder.zext(value, self.int_type, name="print_ext")
                     else:
-                        value = self.builder.sext(value, ir.IntType(64), name="print_ext")
-                elif value.type.width > 64:
-                    value = self.builder.trunc(value, ir.IntType(64), name="print_trunc")
-                self.builder.call(self.functions["__saw_print_i64"], [value])
+                        value = self.builder.sext(value, self.int_type, name="print_ext")
+                elif value.type.width > iw:
+                    value = self.builder.trunc(value, self.int_type, name="print_trunc")
+                self.builder.call(self.functions["__saw_print_int"], [value])
 
         elif isinstance(value.type, ir.DoubleType):
             # Float stays printf-based (identical %f formatting; shares stdio with
@@ -316,7 +321,7 @@ class CallsMixin:
             saw_type = self.type_param_context[saw_type.struct_name]
         llvm_type = self._get_llvm_type(saw_type)
         size = llvm_type.get_abi_size(self.target_data)
-        return ir.Constant(ir.IntType(64), size)
+        return ir.Constant(self.int_type, size)  # sizeof<T>() -> platform Int
 
     def _generate_alignof(self, expr: FunctionCall):
         """Generate code for alignof<T>() - returns the ABI alignment of T in bytes.
@@ -335,7 +340,7 @@ class CallsMixin:
             saw_type = self.type_param_context[saw_type.struct_name]
         llvm_type = self._get_llvm_type(saw_type)
         align = llvm_type.get_abi_alignment(self.target_data)
-        return ir.Constant(ir.IntType(64), align)
+        return ir.Constant(self.int_type, align)  # alignof<T>() -> platform Int
 
     def _generate_method_call(self, expr: MethodCall):
         """Generate code for method call, static method call, enum initialization, or module function call.
@@ -700,7 +705,7 @@ class CallsMixin:
         idx = ir.Constant(ir.IntType(32), field_index)
         field_ptr = self.builder.gep(typed_ptr, [zero, idx], inbounds=True,
                                      name="um_field")
-        return self.builder.ptrtoint(field_ptr, ir.IntType(64), name="um_field_addr")
+        return self.builder.ptrtoint(field_ptr, self.int_type, name="um_field_addr")
 
     def _generate_um_index_projection(self, expr):
         """`UM<[E; N], Use>[i]` -> base + i*sizeof(E) as an i64 address (no load)."""
@@ -713,7 +718,7 @@ class CallsMixin:
         zero = ir.Constant(ir.IntType(64), 0)
         elem_ptr = self.builder.gep(typed_ptr, [zero, index_val], inbounds=True,
                                     name="um_elem")
-        return self.builder.ptrtoint(elem_ptr, ir.IntType(64), name="um_elem_addr")
+        return self.builder.ptrtoint(elem_ptr, self.int_type, name="um_elem_addr")
 
     def _generate_um_method(self, expr):
         """Lower a `UnsafeMemory` accessor (design 46).
@@ -756,13 +761,13 @@ class CallsMixin:
             view_saw = self._um_view_type(expr.object)  # [N x E]
             view_llvm = self._get_llvm_type(view_saw)
             size = view_llvm.get_abi_size(self.target_data)
-            return ir.Constant(ir.IntType(64), size)
+            return ir.Constant(self.int_type, size)  # len() -> platform Int
 
         if method == "end":
             view_saw = self._um_view_type(expr.object)
             view_llvm = self._get_llvm_type(view_saw)
             size = view_llvm.get_abi_size(self.target_data)
-            end_addr = self.builder.add(base_addr, ir.Constant(ir.IntType(64), size),
+            end_addr = self.builder.add(base_addr, ir.Constant(self.int_type, size),
                                         name="um_end_addr")
             return self.builder.inttoptr(end_addr, i8ptr, name="um_end")
 

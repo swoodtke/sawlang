@@ -127,6 +127,23 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # makes optimization and emission agree.
         self.module.data_layout = str(target_machine.target_data)
 
+        # Design 47: Int/UInt are POINTER-WIDTH — 64-bit on x86-64/aarch64,
+        # 32-bit on riscv32 (ESP32-P4) — matching Swift's model and the spec's
+        # long-standing promise. `self.int_type` is the single derived LLVM type
+        # for platform `Int`/`UInt`; every platform-Int lowering (literals,
+        # arithmetic + overflow intrinsics, sizeof/alignof/len results, loop
+        # induction, Range items, UnsafeMemory addresses) uses it instead of a
+        # hardcoded i64. Fixed-width Int8..Int64/UInt8..UInt64 keep their own
+        # widths (stable layouts), and the runtime ABI seams (saw_alloc/write/
+        # panic sizes, String header + refcount, Arc atomic refcount) stay
+        # pinned at i64 — see the audit split in designs/47. The width comes
+        # from the target's address-space-0 pointer size in the data layout, so
+        # it always agrees with the target machine used for optimization and
+        # object emission. Hosted targets are 64-bit, so `int_type is i64` there
+        # and every migrated site is byte-identical to the pre-47 compiler.
+        self.int_width = self._pointer_size_bits(self.module.data_layout)
+        self.int_type = ir.IntType(self.int_width)
+
         # Builder will be set when generating function bodies
         self.builder: ir.IRBuilder = None
 
@@ -382,15 +399,44 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     # -1 and are never retained/released (a plain load + branch guards every
     # atomic, so literals incur zero atomic traffic).
 
+    @staticmethod
+    def _pointer_size_bits(data_layout: str) -> int:
+        """Extract the address-space-0 pointer size (bits) from an LLVM data
+        layout string — this is the platform `Int`/`UInt` width (design 47).
+
+        The layout is `-`-separated specs; a pointer spec is
+        `p[<addrspace>]:<size>:<abi>[:<pref>]`. Address space 0 is written `p:`
+        or `p0:` (e.g. riscv32's `p:32:32`); other address spaces (x86's
+        `p270:32:32` segment selectors) are ignored. LLVM's default when no
+        as-0 pointer spec is present is 64, which is what every 64-bit hosted
+        triple relies on (they only override the exotic address spaces).
+        """
+        import re
+        for spec in data_layout.split('-'):
+            m = re.match(r'^p(\d*):(\d+)', spec)
+            if m and m.group(1) in ('', '0'):
+                return int(m.group(2))
+        return 64
+
     def _saw_string_header_ptrs(self, builder, p):
-        """Return (block_start_i8ptr, refcount_i64ptr, len_i64ptr) for a String
-        bytes pointer `p`."""
-        i64 = ir.IntType(64)
-        i64ptr = i64.as_pointer()
-        block = builder.gep(p, [ir.Constant(i64, -16)], inbounds=True, name="hdr")
-        rc_ptr = builder.bitcast(block, i64ptr, name="rc_ptr")
-        len_raw = builder.gep(p, [ir.Constant(i64, -8)], inbounds=True)
-        len_ptr = builder.bitcast(len_raw, i64ptr, name="len_ptr")
+        """Return (block_start_i8ptr, refcount_ptr, len_ptr) for a String bytes
+        pointer `p`.
+
+        Design 47: the String header `{ isize refcount, isize len, bytes }` is
+        platform-width (the stdlib types `__saw_string_len`/`_alloc` and String's
+        refcount protocol as `Int`), so the header is two machine words: refcount
+        at `p - 2*wordbytes`, len at `p - wordbytes`. On a 64-bit target this is
+        the pre-47 `-16`/`-8`/i64 layout byte-for-byte; on riscv32 it is a
+        `-8`/`-4`/i32 header, and the refcount atomics run at the native width.
+        """
+        i64 = ir.IntType(64)  # GEP byte offsets (index width is immaterial)
+        word = self.int_type
+        wordptr = word.as_pointer()
+        wb = self.int_width // 8
+        block = builder.gep(p, [ir.Constant(i64, -2 * wb)], inbounds=True, name="hdr")
+        rc_ptr = builder.bitcast(block, wordptr, name="rc_ptr")
+        len_raw = builder.gep(p, [ir.Constant(i64, -wb)], inbounds=True)
+        len_ptr = builder.bitcast(len_raw, wordptr, name="len_ptr")
         return block, rc_ptr, len_ptr
 
     def _declare_seams(self):
@@ -418,7 +464,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
-        i64 = ir.IntType(64)
+        # Design 47: the seam sizes/aligns/lengths are size_t/usize quantities —
+        # the stdlib declares them `Int` (e.g. `saw_alloc(size: Int, align: Int)`
+        # in std/alloc.saw), so they are platform-width. `i64` below is bound to
+        # the platform Int (i64 on hosted, i32 on riscv32); on hosted this is the
+        # pre-47 i64 seam ABI byte-for-byte. The hosted libc wrappers (malloc /
+        # free / fwrite) take/return size_t, which is likewise pointer-width.
+        i64 = self.int_type
         void = ir.VoidType()
 
         saw_alloc = ir.Function(self.module, ir.FunctionType(i8ptr, [i64, i64]),
@@ -512,29 +564,33 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return "apple" in t or "darwin" in t or "macos" in t or "ios" in t
 
     def _declare_print_runtime(self):
-        """Emit __saw_print_i64: format a signed 64-bit integer as decimal plus a
-        trailing newline, then emit it with a single saw_write.
+        """Emit __saw_print_int: format a signed platform-width integer as decimal
+        plus a trailing newline, then emit it with a single saw_write.
 
-        This replaces printf("%lld\\n", n) for the whole integer family. Callers
-        first widen the value to i64 with exactly the sign-/zero-extension the old
-        printf path used (sext for signed, zext for unsigned narrower than 64),
-        so the i64 seen here matches %lld's argument bit-for-bit; formatting it as
-        signed decimal therefore reproduces printf output byte-for-byte across the
-        full i64 range, INT64_MIN included.
+        This replaces printf("%lld\\n", n) for the whole integer family. The value
+        is formatted at the platform Int width (`self.int_type`) — design 47.
+        Callers first bring the value to that width with exactly the sign-/zero-
+        extension the old printf path used (sext for signed, zext for unsigned
+        narrower than the word), so on a 64-bit target the argument matches
+        %lld's bit-for-bit and formatting reproduces printf output byte-for-byte
+        across the full i64 range, INT64_MIN included. Formatting at the platform
+        width is also what keeps this libcall-free on riscv32: the digit-extract
+        udiv/urem run at 32 bits (native), never pulling __udivdi3.
 
-        INT64_MIN handling: the magnitude is computed as an *unsigned* value
-        (`select(neg, 0 - n, n)` — the wrapping negation of 0x8000...0 is itself,
-        which read unsigned is 9223372036854775808), and digits are extracted with
-        unsigned udiv/urem, so no signed overflow occurs.
+        MIN handling: the magnitude is computed as an *unsigned* value
+        (`select(neg, 0 - n, n)` — the wrapping negation of the signed minimum is
+        itself, which read unsigned is its magnitude), and digits are extracted
+        with unsigned udiv/urem, so no signed overflow occurs.
         """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
-        i64 = ir.IntType(64)
+        i64 = ir.IntType(64)        # pointer arithmetic offsets (structural)
+        iw = self.int_type          # platform Int width (the value being formatted)
         void = ir.VoidType()
 
-        fn = ir.Function(self.module, ir.FunctionType(void, [i64]),
-                         name="__saw_print_i64")
-        self.functions["__saw_print_i64"] = fn
+        fn = ir.Function(self.module, ir.FunctionType(void, [iw]),
+                         name="__saw_print_int")
+        self.functions["__saw_print_int"] = fn
         n = fn.args[0]; n.name = "n"
 
         entry = fn.append_basic_block("entry")
@@ -547,23 +603,23 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         endp = b.gep(bufp, [ir.Constant(i64, 24)], inbounds=True, name="end")
         nlpos = b.gep(endp, [ir.Constant(i64, -1)], inbounds=True, name="nlpos")
         b.store(ir.Constant(i8, ord('\n')), nlpos)
-        neg = b.icmp_signed('<', n, ir.Constant(i64, 0), name="neg")
-        mag = b.select(neg, b.sub(ir.Constant(i64, 0), n), n, name="mag")
+        neg = b.icmp_signed('<', n, ir.Constant(iw, 0), name="neg")
+        mag = b.select(neg, b.sub(ir.Constant(iw, 0), n), n, name="mag")
         b.branch(loop)
 
         b = ir.IRBuilder(loop)
-        m = b.phi(i64, name="m")
+        m = b.phi(iw, name="m")
         writep = b.phi(i8ptr, name="writep")
         m.add_incoming(mag, entry)
         writep.add_incoming(nlpos, entry)
-        digit = b.urem(m, ir.Constant(i64, 10), name="digit")
-        ch = b.trunc(b.add(digit, ir.Constant(i64, ord('0'))), i8, name="ch")
+        digit = b.urem(m, ir.Constant(iw, 10), name="digit")
+        ch = b.trunc(b.add(digit, ir.Constant(iw, ord('0'))), i8, name="ch")
         newwritep = b.gep(writep, [ir.Constant(i64, -1)], inbounds=True, name="w")
         b.store(ch, newwritep)
-        m2 = b.udiv(m, ir.Constant(i64, 10), name="m2")
+        m2 = b.udiv(m, ir.Constant(iw, 10), name="m2")
         m.add_incoming(m2, loop)
         writep.add_incoming(newwritep, loop)
-        done = b.icmp_unsigned('==', m2, ir.Constant(i64, 0), name="done")
+        done = b.icmp_unsigned('==', m2, ir.Constant(iw, 0), name="done")
         b.cbranch(done, after, loop)
 
         b = ir.IRBuilder(after)
@@ -571,7 +627,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         signp = b.gep(newwritep, [ir.Constant(i64, -1)], inbounds=True, name="signp")
         b.store(ir.Constant(i8, ord('-')), signp)
         startp = b.select(neg, signp, newwritep, name="startp")
-        length = b.sub(b.ptrtoint(endp, i64), b.ptrtoint(startp, i64), name="len")
+        # saw_write takes a platform-width length (design 47), so measure at iw.
+        length = b.sub(b.ptrtoint(endp, iw), b.ptrtoint(startp, iw), name="len")
         b.call(self.functions["saw_write"], [startp, length])
         b.ret_void()
 
@@ -586,7 +643,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
-        i64 = ir.IntType(64)
+        i64 = ir.IntType(64)   # pointer-arithmetic GEP byte offsets (index width)
+        # Design 47: the String header `{ isize refcount, isize len, bytes }` is
+        # platform-width — the stdlib types `__saw_string_len`/`_alloc`/refcount
+        # as `Int` — so refcount, len, and allocation sizes use `word`, and the
+        # header spans two machine words (`hb` = header bytes). Hosted (word=i64,
+        # hb=16) reproduces the pre-47 layout byte-for-byte.
+        word = self.int_type
+        wb = self.int_width // 8      # bytes per machine word
+        hb = 2 * wb                   # header bytes (refcount + len)
         void = ir.VoidType()
         null = ir.Constant(i8ptr, None)
 
@@ -595,8 +660,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # (it is not a seam and is available freestanding via compiler-rt).
         saw_alloc_fn = self.functions["saw_alloc"]
         saw_dealloc_fn = self.functions["saw_dealloc"]
-        memcpy_fn = self._libc_func("memcpy", i8ptr, [i8ptr, i8ptr, i64])
-        align16 = ir.Constant(i64, 16)
+        memcpy_fn = self._libc_func("memcpy", i8ptr, [i8ptr, i8ptr, word])
+        align16 = ir.Constant(word, 16)
 
         # ---- __saw_string_retain(i8* s) -------------------------------------
         fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
@@ -607,9 +672,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         with b.if_then(b.icmp_unsigned('!=', s, null)):
             _, rc_ptr, _ = self._saw_string_header_ptrs(b, s)
             rc = b.load(rc_ptr, name="rc")  # plain load: immortal check first
-            with b.if_then(b.icmp_signed('!=', rc, ir.Constant(i64, -1))):
+            with b.if_then(b.icmp_signed('!=', rc, ir.Constant(word, -1))):
                 # a live reference keeps the object alive; relaxed is enough
-                b.atomic_rmw('add', rc_ptr, ir.Constant(i64, 1), ordering='monotonic')
+                b.atomic_rmw('add', rc_ptr, ir.Constant(word, 1), ordering='monotonic')
         b.ret_void()
 
         # ---- __saw_string_release(i8* s) ------------------------------------
@@ -621,23 +686,23 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         with b.if_then(b.icmp_unsigned('!=', s, null)):
             block, rc_ptr, _ = self._saw_string_header_ptrs(b, s)
             rc = b.load(rc_ptr, name="rc")  # plain load: immortal check first
-            with b.if_then(b.icmp_signed('!=', rc, ir.Constant(i64, -1))):
-                old = b.atomic_rmw('sub', rc_ptr, ir.Constant(i64, 1),
+            with b.if_then(b.icmp_signed('!=', rc, ir.Constant(word, -1))):
+                old = b.atomic_rmw('sub', rc_ptr, ir.Constant(word, 1),
                                    ordering='release')
-                with b.if_then(b.icmp_signed('==', old, ir.Constant(i64, 1))):
+                with b.if_then(b.icmp_signed('==', old, ir.Constant(word, 1))):
                     # last owner observed count->0: order every other thread's
                     # final reads before the free, then free the whole block.
                     b.fence(ordering='acquire')
-                    # dealloc size = 16 (header) + len + 1 (NUL); len lives at
-                    # ptr-8, so it is always available at the free site.
+                    # dealloc size = header (hb) + len + 1 (NUL); len lives at
+                    # ptr-wb, so it is always available at the free site.
                     _, _, len_ptr = self._saw_string_header_ptrs(b, s)
                     slen = b.load(len_ptr, name="len")
-                    total = b.add(slen, ir.Constant(i64, 17), name="dealloc_size")
+                    total = b.add(slen, ir.Constant(word, hb + 1), name="dealloc_size")
                     b.call(saw_dealloc_fn, [block, total, align16])
         b.ret_void()
 
-        # ---- __saw_string_alloc(i64 len) -> i8*  (NULL on OOM) ---------------
-        fn = ir.Function(self.module, ir.FunctionType(i8ptr, [i64]),
+        # ---- __saw_string_alloc(word len) -> i8*  (NULL on OOM) -------------
+        fn = ir.Function(self.module, ir.FunctionType(i8ptr, [word]),
                          name="__saw_string_alloc")
         self.functions["__saw_string_alloc"] = fn
         length = fn.args[0]; length.name = "len"
@@ -645,25 +710,25 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         oom = fn.append_basic_block("oom")
         ok = fn.append_basic_block("ok")
         b = ir.IRBuilder(entry)
-        total = b.add(length, ir.Constant(i64, 17), name="total")  # 16 hdr + len + NUL
+        total = b.add(length, ir.Constant(word, hb + 1), name="total")  # hdr + len + NUL
         block = b.call(saw_alloc_fn, [total, align16], name="block")
         b.cbranch(b.icmp_unsigned('==', block, null), oom, ok)
         b = ir.IRBuilder(oom)
         b.ret(null)
         b = ir.IRBuilder(ok)
-        i64ptr = i64.as_pointer()
-        rc_ptr = b.bitcast(block, i64ptr, name="rc_ptr")
-        b.store(ir.Constant(i64, 1), rc_ptr)
-        len_raw = b.gep(block, [ir.Constant(i64, 8)], inbounds=True)
-        len_ptr = b.bitcast(len_raw, i64ptr, name="len_ptr")
+        wordptr = word.as_pointer()
+        rc_ptr = b.bitcast(block, wordptr, name="rc_ptr")
+        b.store(ir.Constant(word, 1), rc_ptr)
+        len_raw = b.gep(block, [ir.Constant(i64, wb)], inbounds=True)
+        len_ptr = b.bitcast(len_raw, wordptr, name="len_ptr")
         b.store(length, len_ptr)
-        bytes_ptr = b.gep(block, [ir.Constant(i64, 16)], inbounds=True, name="bytes")
+        bytes_ptr = b.gep(block, [ir.Constant(i64, hb)], inbounds=True, name="bytes")
         nul_ptr = b.gep(bytes_ptr, [length], inbounds=True, name="nul")
         b.store(ir.Constant(i8, 0), nul_ptr)
         b.ret(bytes_ptr)
 
-        # ---- __saw_string_from_bytes(i8* src, i64 len) -> i8* ----------------
-        fn = ir.Function(self.module, ir.FunctionType(i8ptr, [i8ptr, i64]),
+        # ---- __saw_string_from_bytes(i8* src, word len) -> i8* --------------
+        fn = ir.Function(self.module, ir.FunctionType(i8ptr, [i8ptr, word]),
                          name="__saw_string_from_bytes")
         self.functions["__saw_string_from_bytes"] = fn
         src = fn.args[0]; src.name = "src"
@@ -674,8 +739,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             b.call(memcpy_fn, [bytes_ptr, src, length])
         b.ret(bytes_ptr)
 
-        # ---- __saw_string_len(i8* s) -> i64 ---------------------------------
-        fn = ir.Function(self.module, ir.FunctionType(i64, [i8ptr]),
+        # ---- __saw_string_len(i8* s) -> word --------------------------------
+        fn = ir.Function(self.module, ir.FunctionType(word, [i8ptr]),
                          name="__saw_string_len")
         self.functions["__saw_string_len"] = fn
         s = fn.args[0]; s.name = "s"
@@ -685,7 +750,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b = ir.IRBuilder(entry)
         b.cbranch(b.icmp_unsigned('==', s, null), null_b, ok)
         b = ir.IRBuilder(null_b)
-        b.ret(ir.Constant(i64, 0))
+        b.ret(ir.Constant(word, 0))
         b = ir.IRBuilder(ok)
         _, _, len_ptr = self._saw_string_header_ptrs(b, s)
         b.ret(b.load(len_ptr, name="len"))
@@ -725,12 +790,21 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         Emitted as real definitions BEFORE extern blocks so the stdlib's
         `extern func __saw_atomic_*` declarations resolve to these.
+
+        Design 47: the refcount these operate on is a platform-`Int` counter —
+        the stdlib types the seams `(ptr: UnsafePointer<Int>, delta: Int) -> Int`
+        and both Arc's control block and Channel's shared block store the count
+        as `Int`. So the atomic width follows the platform word (i64 hosted, i32
+        riscv32); the `_i64` in the symbol name is historical. A handle count
+        never approaches 2^31, and a word-width atomic is the native AMO on the
+        target (no forced 64-bit atomic libcall on a 32-bit machine).
         """
-        i64 = ir.IntType(64)
-        i64ptr = i64.as_pointer()
+        word = self.int_type
+        i64 = word           # historical name; the counter is platform-width
+        i64ptr = word.as_pointer()
         void = ir.VoidType()
 
-        # __saw_atomic_add_i64(i64* ptr, i64 delta) -> i64 (old value), monotonic
+        # __saw_atomic_add_i64(word* ptr, word delta) -> word (old), monotonic
         fn = ir.Function(self.module, ir.FunctionType(i64, [i64ptr, i64]),
                          name="__saw_atomic_add_i64")
         self.functions["__saw_atomic_add_i64"] = fn
@@ -738,7 +812,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         old = b.atomic_rmw('add', fn.args[0], fn.args[1], ordering='monotonic')
         b.ret(old)
 
-        # __saw_atomic_sub_i64_release(i64* ptr, i64 delta) -> i64 (old), release
+        # __saw_atomic_sub_i64_release(word* ptr, word delta) -> word, release
         fn = ir.Function(self.module, ir.FunctionType(i64, [i64ptr, i64]),
                          name="__saw_atomic_sub_i64_release")
         self.functions["__saw_atomic_sub_i64_release"] = fn
@@ -941,7 +1015,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         encoded = value.encode('utf-8')
         n = len(encoded)
         arr_type = ir.ArrayType(ir.IntType(8), n + 1)
-        hdr_type = ir.LiteralStructType([ir.IntType(64), ir.IntType(64), arr_type])
+        # Design 47: header words are platform-width (isize), matching the String
+        # runtime layout. On hosted this is the pre-47 { i64, i64, bytes } block.
+        word = self.int_type
+        hdr_type = ir.LiteralStructType([word, word, arr_type])
 
         name = f".sawstr.{self.string_counter}"
         self.string_counter += 1
@@ -949,8 +1026,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         g.linkage = 'private'
         g.global_constant = True
         g.initializer = ir.Constant(hdr_type, [
-            ir.Constant(ir.IntType(64), -1),   # immortal sentinel
-            ir.Constant(ir.IntType(64), n),
+            ir.Constant(word, -1),   # immortal sentinel
+            ir.Constant(word, n),
             ir.Constant(arr_type, bytearray(encoded + b'\0')),
         ])
         self.string_literal_globals[value] = g
@@ -1437,7 +1514,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     # ===== Expression Visitor Methods =====
 
     def visit_IntLiteral(self, expr: IntLiteral):
-        return ir.Constant(ir.IntType(64), expr.value)
+        # Design 47: an integer literal is a platform `Int`, materialized at the
+        # target's pointer width. A literal that does not fit the platform word
+        # (signed low bound through unsigned high bound, so both Int.min's
+        # magnitude and the full UInt range are admitted) is a compile error at
+        # the literal — on a 32-bit target this loudly rejects a constant that
+        # would otherwise silently truncate. Hosted targets are 64-bit, so every
+        # literal the pre-47 compiler accepted still fits.
+        w = self.int_width
+        if not (-(1 << (w - 1)) <= expr.value < (1 << w)):
+            raise ValueError(
+                f"integer literal {expr.value} does not fit in the {w}-bit "
+                f"platform Int of target '{self.triple}'; use a fixed-width type "
+                f"(e.g. Int64) for a value wider than the platform word")
+        return ir.Constant(self.int_type, expr.value)
 
     def visit_FloatLiteral(self, expr: FloatLiteral):
         return ir.Constant(ir.DoubleType(), expr.value)
@@ -1465,7 +1555,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         zero = ir.Constant(ir.IntType(32), 0)
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
-        i64 = ir.IntType(64)
+        # Design 47: strlen returns size_t and __saw_string_alloc takes a
+        # platform-width length, so the length math runs at the platform word.
+        i64 = self.int_type
 
         # Convert every interpolated expression to a C string pointer once; the
         # same pointers are reused for both the length pass and the build pass.

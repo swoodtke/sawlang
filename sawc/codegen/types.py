@@ -35,9 +35,9 @@ class TypesMixin:
         - Generic type parameters
         """
         if saw_type.kind == TypeKind.INT:
-            return ir.IntType(64)
+            return self.int_type  # design 47: platform-width (pointer-width)
         elif saw_type.kind == TypeKind.UINT:
-            return ir.IntType(64)  # System-width unsigned (64-bit)
+            return self.int_type  # design 47: platform-width unsigned
         elif saw_type.kind == TypeKind.FLOAT:
             return ir.DoubleType()
         elif saw_type.kind == TypeKind.BOOL:
@@ -88,9 +88,11 @@ class TypesMixin:
             # design 46: UnsafeMemory<T, Use> is ONE WORD — the raw address.
             # Its `T`/`Use` are phantom (the declared `{ addr: Int }` body is
             # never materialized); every access is intercepted, so the value that
-            # flows through codegen is just the i64 address.
+            # flows through codegen is just the pointer-width address (design 47:
+            # addresses are pointer-width, so a fixed MMIO address like
+            # 0x18003000 is a 32-bit value under a riscv32 target).
             if saw_type.struct_name == "UnsafeMemory":
-                return ir.IntType(64)
+                return self.int_type
             # design 46: ReadOnly<T> / WriteOnly<T> are LAYOUT-TRANSPARENT field
             # markers — a `ReadOnly<UInt32>` field occupies exactly a `UInt32`,
             # so it lowers to the inner type's layout (no wrapper struct). This is
@@ -134,8 +136,8 @@ class TypesMixin:
         elif saw_type.kind == TypeKind.OPTIONAL:
             # Optionals are represented as { i1, T } where i1 indicates presence
             if saw_type.inner_type is None:
-                # None literal with unknown type - use i64 as placeholder
-                inner_llvm_type = ir.IntType(64)
+                # None literal with unknown type - platform Int placeholder
+                inner_llvm_type = self.int_type
             else:
                 inner_llvm_type = self._get_llvm_type(saw_type.inner_type)
             return ir.LiteralStructType([ir.IntType(1), inner_llvm_type])

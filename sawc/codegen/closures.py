@@ -54,7 +54,7 @@ class ClosuresMixin:
                 if saw_t is not None:
                     param_types.append(self._get_llvm_type(saw_t))
                 else:
-                    param_types.append(ir.IntType(64))  # fallback
+                    param_types.append(self.int_type)  # fallback
                 param_saw_types.append(saw_t)
                 param_names.append(param.name)
         elif expr.shorthand_param_count > 0:
@@ -64,7 +64,7 @@ class ClosuresMixin:
                 if resolved_params and i < len(resolved_params):
                     saw_t = resolved_params[i]
                 param_types.append(self._get_llvm_type(saw_t) if saw_t is not None
-                                   else ir.IntType(64))
+                                   else self.int_type)
                 param_saw_types.append(saw_t)
                 param_names.append(f"${i}")
 
@@ -75,7 +75,7 @@ class ClosuresMixin:
         elif ret_saw_type is not None and ret_saw_type.kind == TypeKind.VOID:
             ret_type = ir.VoidType()
         elif expr.body.final_expr:
-            ret_type = ir.IntType(64)  # Default return type
+            ret_type = self.int_type  # Default return type
         else:
             ret_type = ir.VoidType()
 
@@ -93,7 +93,7 @@ class ClosuresMixin:
                 return self._get_llvm_type(self.variable_types[cap_name])
             elif cap_name in self.variables:
                 return self.variables[cap_name].type.pointee
-            return ir.IntType(64)  # Fallback
+            return self.int_type  # Fallback
 
         # Referent Saw types captured before the closure scope is reset, so the
         # body can type reads/writes through borrowed and by-value captures.
@@ -227,7 +227,7 @@ class ClosuresMixin:
         expr.codegen_env_dtor = None
         if captures and env_struct_type:
             if escapes:
-                i64 = ir.IntType(64)
+                i64 = self.int_type  # design 47: saw_alloc size/align are platform-width
                 env_size = env_struct_type.get_abi_size(self.target_data)
                 raw = self.builder.call(
                     self.functions["saw_alloc"],
@@ -301,7 +301,7 @@ class ClosuresMixin:
         """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
-        i64 = ir.IntType(64)
+        i64 = self.int_type  # design 47: saw_dealloc size/align are platform-width
         void = ir.VoidType()
         env_size = env_struct_type.get_abi_size(self.target_data)
 
