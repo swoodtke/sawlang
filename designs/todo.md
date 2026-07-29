@@ -68,6 +68,63 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 - **D10. Cortex-M0-class atomics** — lowering strategy for ARMv6-M (no
   CAS); decide with the first such port. [19, 20]
 
+## SPEC-GAP PRIORITIES (Jul 29 sweep of LANGUAGE_SPEC planned-not-implemented)
+
+Full extraction lives in the sweep report (agent transcript); this is
+the prioritized digest. Excludes items ALREADY queued: T1b bounds,
+T1d patterns, 48 Ord/Hash, 49 assert/blade-test, 51 any (in flight),
+A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
+
+### NEED TO HAVE (blocks App-1 Blade or App-2 kernel)
+- **N1. Trait default method bodies** — spec'd since day one; unlocks
+  Display/Debug/Error ergonomics. [App-1]
+- **N2. Display trait + user types in string interpolation** — rides
+  N1; Blade output quality. [App-1]
+- **N3. Error trait** (`message()`, catch-all matching) — buildable
+  once 51 lands (`any Error`). [App-1]
+- **N4. Map iteration (keys/values/entries) + string→number parsing
+  helpers** — Blade TOML tables, semver, lock files. [App-1]
+- **N5. std.time (Instant/Duration, hosted)** — blade test timing,
+  build reports. [App-1]
+- **N6. Minimal attribute grammar + C-callable exports** —
+  no_mangle-equivalent, repr(C), extern exports; the kernel entry
+  symbol (F7) needs it; also unlocks future #[test]/derive surface.
+  [App-2]
+- **N7. Built-in type extensions where still missing (extension Int
+  etc.)** — small; String already has them. [App-1]
+
+### NICE TO HAVE (real weight, not blocking)
+Default parameter values; `..=` + enumerate(); Int.max/min constants +
+fixed-width literal suffixes (the design-47 literal note); Set<T>
+(HashMap-backed) + Map/Set literals; unsafe blocks (formalize the
+naming convention into scoping); slices (needs its own design —
+interacts with no-escape refs); where clauses; static_assert;
+\x/\u{} escapes (string model reserved room); import aliasing `as`;
+submodule directories; Vector literals; std.io Read/Write traits (on
+N1+51); `loop` keyword; computed properties; conditional extensions;
+method overloading beyond init; use-before-init detection.
+
+### MAYBE LATER (research-tier or post-both-apps)
+Const generics; const fn; macros (declarative/derive beyond N6's
+minimal attributes); compile-time reflection (future consumer: board
+PMP generation per design 46); Char / Never / Int128 / Float32; `**`
+and `::` operators; Deque; RwLock/Barrier; std.net (waits on A4
+reactor by design); async `select`; Sender/Receiver split handles;
+generic-method type-arg inference; §11 futures (effect system,
+dependent/linear/refinement types, first-class modules); REPL/LSP/
+formatter; `defer`/`do`/`ref` keywords (candidates to DROP from the
+reserved list — no designs exist).
+
+### Resolved-by-decision / stale-spec (fix docs, no work)
+Rc (Arc-only, decided design 16); thread API + async/await (colorless
+— never); `=>` arrows (superseded); swapAt (landed as Vector.swap,
+brief 40 — spec stale); StringBuilder "future work" note (landed 38);
+`dyn` reservation (retired by D16). **Verify-then-fix the four
+spec/TODO contradictions:** multiple bounds `A + B`, glob imports,
+scoped visibility (all probably landed — spec markers stale), named
+tuple field access + `.value` on distinct types (probably NOT landed —
+spec examples aspirational).
+
 ## Language & semantics
 
 - **BRIEF 40 SWEEP (Jul 29) — L3, L4, L6, L9, L10, L11, M1, M3, C6 all

@@ -1,0 +1,15 @@
+// design 51 unsized discipline: `any Shape` as a plain container element (not
+// behind Box) is rejected. This also covers `Arc<any Shape>` (deferred): any
+// generic slot other than `Box`'s payload is illegal.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: unsized
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+func use(v: Vector<any Shape>) {
+}
+
+func main() {
+}

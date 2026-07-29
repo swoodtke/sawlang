@@ -584,6 +584,10 @@ class StatementsMixin:
             # closure type there is escaping; the `escaping` marker is redundant.
             self._stamp_escaping_roles(resolved_type, is_param=False,
                                        report_at=(stmt.line, stmt.column))
+            # Enforce the `any Trait` unsized discipline + object safety on the
+            # binding annotation (design 51): a bare `let x: any Shape` is
+            # rejected; `let b: Box<any Shape>` is fine.
+            self._validate_existential_type(resolved_type, stmt.line, stmt.column)
             # allow_literal_to_distinct=True because let/var initialization allows primitives to
             # initialize distinct types (e.g., `let x: MyInt = 21`)
             if not self._types_compatible(value_type, resolved_type, allow_literal_to_distinct=True):

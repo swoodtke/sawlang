@@ -206,6 +206,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for extension in program.extensions:
             self._register_extension(extension)
 
+        # Fifth-a.5 pass: validate `any Trait` existentials in all declared
+        # signatures/fields (design 51 object safety + unsized discipline). Runs
+        # after traits are registered so object safety is decidable.
+        self._validate_existentials_in_program(program)
+
         # Fifth-b pass: check resource management containment rules
         self._check_no_copy_containment()
         self._check_implicit_copy_containment()
@@ -465,6 +470,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Register extensions
         for extension in module_ast.extensions:
             self._register_extension(extension)
+
+        # Validate `any Trait` existentials in declared signatures (design 51).
+        self._validate_existentials_in_program(module_ast)
 
         # Check resource containment rules
         self._check_no_copy_containment()

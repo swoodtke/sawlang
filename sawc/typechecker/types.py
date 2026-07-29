@@ -223,6 +223,182 @@ class TypeUtilsMixin:
         return self.namespace.lookup_method(struct_name, method_name)
 
     # =========================================================================
+    # design 51: `any Trait` existential validation
+    #
+    # Two rules, both checked on DECLARED types (signatures, fields, bindings):
+    #   1. Unsized discipline: `any Trait` is legal ONLY as the pointee of a
+    #      reference (`&any Trait`) or the first type argument of `Box`
+    #      (`Box<any Trait, A>`). Anywhere else it is rejected with a clean
+    #      message — erased values live only behind explicit ownership.
+    #   2. Object safety (v1): the trait must be dispatchable — not a marker
+    #      (no methods), no associated types, and no method that takes/returns
+    #      `Self` by value (the Copy family) or is generic. The `&var self`
+    #      RECEIVER is always fine: it is not a `Self`-by-value parameter (the
+    #      receiver slot is a VOID placeholder in `param_types`), so a mutating
+    #      trait method is any-able (the future `Resumable` executor consumer).
+    # =========================================================================
+
+    # Compiler-known non-dispatchable marker traits: erasing them to `any` has
+    # nothing to call. Send/Sync are structural markers; NoCopy is a pure marker
+    # whose only resolved method is the inherited `deinit` (not a dispatch
+    # surface); Copy/ImplicitCopy/ExplicitCopy are Self-by-value anyway.
+    _EXISTENTIAL_MARKER_TRAITS = {"Send", "Sync", "NoCopy"}
+
+    def _validate_existential_type(self, t: Optional[SawType], line: int,
+                                   column: int, slot_ok: bool = False):
+        """Recursively enforce design 51's unsized discipline + object safety.
+
+        `slot_ok` is True exactly at the two positions where an erased value is
+        legal: the immediate pointee of a reference and `Box`'s first type arg.
+        """
+        if t is None:
+            return
+        kind = t.kind
+        if kind == TypeKind.EXISTENTIAL:
+            if not slot_ok:
+                tn = t.existential_trait
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`any {tn}` is unsized and cannot be used by value here",
+                    line, column,
+                    hint=f"an erased value is legal only behind explicit "
+                         f"ownership: `&any {tn}` (borrowed) or `Box<any {tn}>` "
+                         f"(owned) — design 51")
+                return
+            self._check_object_safety(t.existential_trait, line, column)
+            return
+        if kind == TypeKind.REFERENCE:
+            self._validate_existential_type(t.inner_type, line, column, slot_ok=True)
+            return
+        if kind == TypeKind.STRUCT:
+            is_box = (t.struct_name == "Box")
+            for i, a in enumerate(t.type_args or []):
+                self._validate_existential_type(
+                    a, line, column, slot_ok=(is_box and i == 0))
+            return
+        if kind == TypeKind.OPTIONAL:
+            self._validate_existential_type(t.inner_type, line, column, slot_ok=False)
+            return
+        if kind == TypeKind.POINTER:
+            self._validate_existential_type(t.inner_type, line, column, slot_ok=False)
+            return
+        if kind == TypeKind.ARRAY:
+            self._validate_existential_type(
+                t.array_element_type, line, column, slot_ok=False)
+            return
+        if kind == TypeKind.TUPLE:
+            for e in (t.element_types or []):
+                self._validate_existential_type(e, line, column, slot_ok=False)
+            return
+        if kind == TypeKind.ENUM:
+            for a in (t.type_args or []):
+                self._validate_existential_type(a, line, column, slot_ok=False)
+            return
+        if kind == TypeKind.FUNCTION:
+            for p in (t.param_types or []):
+                self._validate_existential_type(p, line, column, slot_ok=False)
+            self._validate_existential_type(
+                t.func_return_type, line, column, slot_ok=False)
+            return
+
+    def _check_object_safety(self, trait_name: str, line: int, column: int):
+        """Diagnose why `any Trait` is (not) object-safe. Reported once per trait
+        name to avoid duplicate diagnostics across many use sites."""
+        reported = getattr(self, "_obj_safety_reported", None)
+        if reported is None:
+            reported = set()
+            self._obj_safety_reported = reported
+
+        simple = trait_name.split('.')[-1]
+        trait = self.get_trait_info(simple, qualified_path=trait_name)
+        if trait is None:
+            trait = self.get_trait_info(simple)
+        if trait is None:
+            if trait_name not in reported:
+                reported.add(trait_name)
+                self._error(
+                    ErrorKind.UNKNOWN_TYPE,
+                    f"unknown trait `{trait_name}` in `any {trait_name}`",
+                    line, column)
+            return
+
+        if trait.name in reported:
+            return
+
+        def fail(msg, hint=None):
+            reported.add(trait.name)
+            self._error(ErrorKind.TYPE_MISMATCH,
+                        f"cannot form `any {trait_name}`: {msg}", line, column,
+                        hint=hint)
+
+        # Marker / non-dispatchable.
+        if trait.name in self._EXISTENTIAL_MARKER_TRAITS or len(trait.methods) == 0:
+            fail(f"`{trait.name}` is a marker trait with no methods to dispatch",
+                 hint="only a trait with instance methods can be erased to `any`")
+            return
+
+        # Associated types (pinning `any T<Item = ...>` is deferred).
+        if trait.associated_types:
+            fail(f"`{trait.name}` has an associated type "
+                 f"`{trait.associated_types[0]}` — `any` over a trait with "
+                 f"associated types is not yet supported")
+            return
+
+        # Per-method safety: Self-by-value params/returns, generic methods.
+        for mname, m in trait.methods.items():
+            rt = m.return_type
+            if rt is not None and rt.kind == TypeKind.SELF:
+                fail(f"method `{mname}` returns `Self` by value "
+                     f"(Self-by-value signatures, including the Copy family, are "
+                     f"not object-safe)")
+                return
+            for pt in (m.param_types or []):
+                if pt is not None and pt.kind == TypeKind.SELF:
+                    fail(f"method `{mname}` takes `Self` by value "
+                         f"(Self-by-value parameters are not object-safe)")
+                    return
+            if getattr(m, "type_params", None):
+                fail(f"method `{mname}` is generic — generic methods are not "
+                     f"object-safe")
+                return
+
+    def _validate_existentials_in_program(self, program):
+        """Signature-level pass: validate every declared `any Trait` occurrence in
+        struct fields, enum payloads, function/method signatures, and trait
+        method signatures. Binding annotations are validated in the statement
+        checker. Runs after trait registration so object safety can be judged."""
+        for struct in getattr(program, 'structs', []):
+            for field in struct.fields:
+                self._validate_existential_type(
+                    field.type, getattr(field, 'line', struct.line),
+                    getattr(field, 'column', struct.column))
+        for enum in getattr(program, 'enums', []):
+            for variant in enum.variants:
+                for payload in (variant.associated_types or []):
+                    pt = payload[1] if isinstance(payload, tuple) else payload
+                    self._validate_existential_type(pt, enum.line, enum.column)
+        for func in getattr(program, 'functions', []):
+            self._validate_function_signature_existentials(func)
+        for ext in getattr(program, 'extensions', []):
+            for method in ext.methods:
+                self._validate_function_signature_existentials(method)
+        for trait in getattr(program, 'traits', []):
+            for tm in trait.methods:
+                for p in tm.parameters:
+                    self._validate_existential_type(
+                        getattr(p, 'type', None), tm.line, tm.column)
+                self._validate_existential_type(
+                    tm.return_type, tm.line, tm.column)
+
+    def _validate_function_signature_existentials(self, fn):
+        line = getattr(fn, 'line', 0)
+        column = getattr(fn, 'column', 0)
+        for p in getattr(fn, 'parameters', []):
+            self._validate_existential_type(getattr(p, 'type', None), line, column)
+        self._validate_existential_type(
+            getattr(fn, 'return_type', None), line, column)
+
+    # =========================================================================
     # Type Resolution Methods
     # =========================================================================
 

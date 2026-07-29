@@ -1,0 +1,15 @@
+// design 51 object safety: a trait with an associated type needs pinning
+// (`any Iterator<Item = Int>`), which is deferred — reject `any Producer`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: associated type
+
+trait Producer {
+    type Item
+    func count(&self) -> Int
+}
+
+func use(x: &any Producer) {
+}
+
+func main() {
+}
