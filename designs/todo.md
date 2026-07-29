@@ -149,6 +149,23 @@ scoped visibility (all probably landed — spec markers stale), named
 tuple field access + `.value` on distinct types (probably NOT landed —
 spec examples aspirational).
 
+## BLADE DOGFOOD FINDINGS (brief 49, Jul 29 — feed N-family / small fixes)
+- **DF1.** `let _` is not a discard — it's a real binding, so two
+  `let _ =` collide. A real `_` wildcard discard is missing and
+  idiomatic. Small, high-value. → fold into brief 53 (ergonomics).
+- **DF2.** `Command`/`system()`/`.run()`/`.output()` divide wait
+  status by 256, silently discarding signal-death info — a SIGABRT
+  (failed assert/panic) is misreported as success. Real std/process
+  bug (same family as the old process_simple issue). → std fix brief.
+- **DF3.** Bare `Int` literal → `Int?` parameter not auto-wrapped at
+  call sites (pre-existing; N4/parsing-adjacent). Optional auto-wrap
+  at call boundaries — decide scope.
+- **DF4.** Blade bit-rot: needed `guard var` (was `guard let` + &var
+  method) and `move` for Data/Vector args — expected migration, not a
+  bug, but Blade needs periodic re-validation as the compiler tightens.
+- **DF5.** `extension` (and other keywords) can't be identifiers —
+  expected; noted for the eventual contextual-keyword sweep.
+
 ## Language & semantics
 
 - **BRIEF 40 SWEEP (Jul 29) — L3, L4, L6, L9, L10, L11, M1, M3, C6 all
