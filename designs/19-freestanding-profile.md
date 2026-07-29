@@ -134,6 +134,14 @@ runtime.
    internally (hardcoded `Global`).
 4. Default type parameters; expose `A` publicly; slab allocator in the
    stdlib (in Saw, over a static region) + `static` declarations design.
+   **LANDED (brief 37) except slabs/statics:** default type parameters
+   (`struct Vector<T, A: Allocator = Global>`) ship, and `A` is now a public
+   type parameter on `Vector` and `Map` — `Vector<T>` fills `A = Global`
+   before mangling (one identity, one monomorphization), `A().alloc(...)`
+   monomorphizes to a direct seam call, and a custom allocator
+   (`Vector<Int, LoudAlloc>`) is a distinct type that routes alloc/grow/deinit
+   through its own `A`. Still open here: per-type **slab allocators** (F3) and
+   module-level **`static`** declarations (F4) — a later brief.
 
 ## Open questions (flagged, not decided)
 - ~~`static` mutable data semantics~~ **DECIDED (Jul 28, user — Rust's

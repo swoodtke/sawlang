@@ -2,13 +2,15 @@
 // Part of the Saw standard library — design 19 §4, brief 28 (stage 3)
 //
 // This is the alloc-layer allocation surface. Alloc-layer containers (Vector,
-// Arc, Map via Vector, ...) route every allocation through the `Allocator`
-// trait rather than calling the `saw_alloc`/`saw_dealloc` seams directly. In
-// stage 3 the allocator is hardcoded to `Global`; stage 4 will thread it as a
-// public type parameter (`Vector<T, A: Allocator = Global>`) via default type
-// parameters, at which point this internal threading becomes a mechanical
-// parameter exposure. The core/alloc/std layer split (design 19 §1) is future
-// work — this file builds no layer enforcement.
+// Map, Arc, ...) route every allocation through the `Allocator` trait rather
+// than calling the `saw_alloc`/`saw_dealloc` seams directly. As of stage 4
+// (brief 37) the allocator is a PUBLIC type parameter with a default —
+// `Vector<T, A: Allocator = Global>`, `Map<K, V, A = Global>` — so hosted code
+// omits it (`Vector<T>` fills `A = Global`) while a custom allocator is a
+// distinct type end to end. `Global` remains the default and the seam wrapper.
+// Still future work: per-type slab allocators (F3) and module-level `static`
+// declarations (F4). The core/alloc/std layer split (design 19 §1) is also
+// future work — this file builds no layer enforcement.
 
 // =============================================================================
 // The global allocation seams (design 20)

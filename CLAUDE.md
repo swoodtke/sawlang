@@ -24,6 +24,13 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
   Mutable aliasing is caught statically by the Law of Exclusivity
 - Shared ownership via `Rc<T>`/`Arc<T>` wrapper types (planned)
 - Synchronized access via `Mutex<T>`/`RwLock<T>` (planned)
+- Pluggable allocation: the allocator is a public **default type parameter**
+  on alloc-layer containers — `Vector<T, A: Allocator = Global>`,
+  `Map<K, V, A = Global>` (landed in `designs/37`). Hosted code writes
+  `Vector<T>` (fills `A = Global`, one identity with `Vector<T, Global>`); a
+  custom zero-sized allocator gives a *distinct* type that routes
+  alloc/grow/deinit through its own `A` as a direct call. Per-type slab
+  allocators and `static` declarations are still future work.
 
 ### Mutability
 - Immutable by default (`let`)
@@ -209,9 +216,13 @@ The compiler currently supports:
 - Generic functions: `func identity<T>(x: T) -> T`
 - Generic structs: `struct Box<T> { value: T }`
 - Generic enums: `enum Maybe<T> { case Just(value: T), case Nothing }`
-- Generic methods (method-level type params): `func map<U>(&self, f: (T) -> U) -> Vector<U>`
+- Generic methods (method-level type params): `func map<U>(&self, f: (T) -> U) -> Vector<U, A>`
   in an extension. Type args are explicit at the call site (`v.map<Int>(...)`);
   inference is future work. Monomorphized per (receiver args, method args) pair.
+- Default type parameters: `struct Vector<T, A: Allocator = Global>` — an omitted
+  trailing arg is filled from its default BEFORE mangling, so `Vector<Int>` and
+  `Vector<Int, Global>` are one type / one monomorphization. Too-few-with-no-default
+  and a default that fails its bound are errors.
 - Basic types: Int, Float, Bool, String
 - Variables: `let` (immutable) and `var` (mutable)
 - Arithmetic: `+`, `-`, `*`, `/`, `%` (modulo)
@@ -279,6 +290,11 @@ The compiler currently supports:
 - `Deinit` with automatic LIFO cleanup (manual `deinit()` calls are rejected)
 - Reference parameters `&T` / `&var T` (mutate via compound assignment; no escape)
 - String: immutable, reference-counted (atomic refcount), O(1) `len()`
+- Pluggable allocation: `Allocator` trait + `Global`; alloc-layer containers
+  carry the allocator as a public default type parameter
+  (`Vector<T, A: Allocator = Global>`, `Map<K, V, A = Global>`). `A().alloc(...)`
+  is a zero-cost direct call; a custom allocator yields a distinct type and
+  deinit frees through the value's own `A`
 
 ### Runtime & Tooling
 - Division / modulo by zero panics ("division by zero")

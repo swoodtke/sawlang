@@ -1467,12 +1467,14 @@ own generic type parameters, *in addition to* the type's own — the canonical
 case being a transform whose output type is independent of the element type:
 
 ```saw
-extension Vector<T: Copy> {
-    // `U` is a METHOD-level type parameter, distinct from the element type `T`.
-    func map<U>(&self, transform: (T) -> U) -> Vector<U> { /* ... */ }
+extension Vector<T: Copy, A: Allocator = Global> {
+    // `U` is a METHOD-level type parameter, distinct from the element type `T`
+    // and the allocator `A` (which the result vector inherits).
+    func map<U>(&self, transform: (T) -> U) -> Vector<U, A> { /* ... */ }
 
-    // `A` is the accumulator type.
-    func fold<A>(&self, initial: A, combine: (A, T) -> A) -> A { /* ... */ }
+    // `Acc` is the accumulator type (named `Acc`, not `A`, since `A` is now
+    // the extension's allocator type parameter).
+    func fold<Acc>(&self, initial: Acc, combine: (Acc, T) -> Acc) -> Acc { /* ... */ }
 }
 
 var v = Vector<Int>()
@@ -1488,8 +1490,35 @@ non-generic method rejects type arguments. The method body is checked abstractly
 with its own type parameters in scope (the same abstract-body checking as any
 generic). Each instantiation monomorphizes per `(receiver type arguments, method
 type arguments)` pair; the mangled symbol composes the two
-(`Vector<Int>.map<String>` → `Vector$1$Int_map$1$String`). `init` methods take no
-type parameters of their own — they construct the extension's type.
+(`Vector<Int>.map<String>` → `Vector$2$Int$Global_map$1$String`). `init` methods
+take no type parameters of their own — they construct the extension's type.
+
+**Default type parameters.** A trailing type parameter may declare a **default
+type** with `= Type` in the parameter list (types only — there are no value
+defaults). A reference site may then omit that (and every following) argument,
+and it is filled from the default:
+
+```saw
+struct Vector<T, A: Allocator = Global> { /* ... */ }
+
+var xs = Vector<Int>()           // A defaults to Global
+var ys = Vector<Int, Global>()   // identical type to `xs`
+var zs = Vector<Int, MySlab>()   // a distinct type over a custom allocator
+```
+
+The **identity rule** is the load-bearing guarantee: defaults are applied
+**before name mangling**, so `Vector<Int>` and `Vector<Int, Global>` produce the
+*same* mangled name and the *same* monomorphized struct — they are one type, not
+two that happen to coincide. Consequences:
+- A function declared over `Vector<Int>` accepts a `Vector<Int, Global>` value,
+  and vice-versa — they are interchangeable everywhere.
+- A `Vector<Int, MySlab>` is a **distinct type**: passing it where `Vector<Int>`
+  is expected is a compile error. Allocator identity is part of the type (this is
+  what makes cross-allocator mixing unrepresentable rather than a runtime bug).
+- Omitting an argument for a parameter that has **no default** is an arity error,
+  and a default that fails its parameter's bound (`A: Allocator = SomeNonAllocator`)
+  is rejected. Defaults referencing an earlier parameter are not supported (every
+  stdlib default is a ground type such as `Global`).
 
 **Status: planned** — const generics (`struct Array<T, const N: Int>`) and
 `where` clauses are *illustrative* below and not yet implemented:
@@ -1818,22 +1847,46 @@ never-written tail slot and then bumps `length`. The loop invariant — only eve
 writing the slot at the current `length` — is what keeps every placement write
 landing on uninitialized memory, so no live element is ever silently leaked.
 
-### Allocators (`Allocator` trait, `Global`)
+### Allocators (`Allocator` trait, `Global`, public `A` parameter)
 
-**Status: implemented (internal, `Global`-only).** Alloc-layer stdlib types
-(`Vector`, `Map`, `Data`, `StringBuilder`, `Arc`, ...) obtain memory through the
-`Allocator` trait — `alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>?`
-and `dealloc(&self, ptr, size, align)` — rather than calling the `saw_alloc` /
-`saw_dealloc` seams directly. The one implementation today is `Global`, a
-zero-field unit struct that wraps the seams; because it is zero-sized,
-`Global().alloc(...)` monomorphizes to a direct seam call with no allocator
-value materialized at runtime. A fallible factory such as
-`Vector.try_with_capacity(n) -> Result<Vector<T>, AllocError>` surfaces
+**Status: implemented — public type parameter, `Global` default.** Alloc-layer
+stdlib types (`Vector`, `Map`, `Data`, `StringBuilder`, `Arc`, ...) obtain memory
+through the `Allocator` trait — `alloc(&self, size: Int, align: Int) ->
+UnsafePointer<Int8>?` and `dealloc(&self, ptr, size, align)` — rather than
+calling the `saw_alloc` / `saw_dealloc` seams directly. `Global` is a zero-field
+unit struct that wraps the seams; because it is zero-sized, `Global().alloc(...)`
+monomorphizes to a direct seam call with no allocator value materialized at
+runtime.
+
+The allocator is a **public type parameter with a default**:
+`Vector<T, A: Allocator = Global>` and `Map<K, V, A = Global>`. Hosted code
+writes `Vector<T>` unchanged — the default fills `A = Global` before mangling, so
+`Vector<T>` and `Vector<T, Global>` are one type (see
+[Default type parameters](#generics)). A custom allocator is written as a
+zero-field unit struct conforming to `Allocator`:
+
+```saw
+struct MySlab {}
+extension MySlab: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? { /* ... */ }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) { /* ... */ }
+}
+
+var v = Vector<Int, MySlab>()   // grow/deinit route through MySlab; A().alloc is
+                                // a direct, statically-dispatched call — no stored
+                                // allocator, no vtable
+```
+
+`Vector<Int, MySlab>` is a **distinct type** from `Vector<Int>`; a value of one
+cannot be passed where the other is expected. Deinit frees through the vector's
+own `A`, so allocations never cross heaps. A fallible factory such as
+`Vector.try_with_capacity(n) -> Result<Vector<T, A>, AllocError>` surfaces
 allocation failure to the caller (tier 2 of the three-tier failure model) with
-`size`/`align` context, instead of the default infallible APIs' panic. Exposing
-the allocator as a public type parameter (`Vector<T, A: Allocator = Global>`) is
-future work; see `designs/19-freestanding-profile.md` §4 and
-`designs/28-allocator-stage3.md`.
+`size`/`align` context, instead of the default infallible APIs' panic.
+
+Still future work: per-type **slab allocators** and module-level **`static`**
+declarations (the storage a slab's methods reference). See
+`designs/19-freestanding-profile.md` §4 and `designs/37-allocator-stage4.md`.
 
 ---
 
