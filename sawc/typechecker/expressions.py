@@ -2549,10 +2549,16 @@ class ExpressionsMixin:
         obj_type_args = getattr(expr.object, 'type_args', None)
         struct_type_params = getattr(struct_info, 'type_params', None)
         if ret is not None and obj_type_args and struct_type_params:
+            # Default-fill the receiver's type args first (design 37), so
+            # `Vector<Int>.try_with_capacity(...)` binds A=Global and the return
+            # type resolves to `Result<Vector<Int, Global>, AllocError>` rather
+            # than leaving the allocator parameter abstract (which would leave
+            # the extracted vector unable to find `push`).
+            resolved_args = [self._resolve_type(ta) for ta in obj_type_args]
+            resolved_args = self._append_default_type_args(struct_name, resolved_args)
             type_map = {}
-            for tp, ta in zip(struct_type_params, obj_type_args):
-                resolved = self._resolve_type(ta)
-                type_map[tp.name] = resolved if resolved is not None else ta
+            for tp, ta in zip(struct_type_params, resolved_args):
+                type_map[tp.name] = ta
             if type_map:
                 ret = ret.substitute(type_map)
         return ret

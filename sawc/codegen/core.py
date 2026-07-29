@@ -199,6 +199,23 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         return tuple(type_args)
 
+    def _pad_spec_key_with_defaults(self, struct_name, spec_key, struct_type_params_by_name):
+        """Design 37: extend a specialized-extension key with the struct's
+        declared trailing default type-arg names, so a spec extension written
+        against the default-omitted form matches the fully-applied lookup key.
+        `extension Vector<String>` -> `("String", "Global")`."""
+        params = struct_type_params_by_name.get(struct_name)
+        if not params or len(spec_key) >= len(params):
+            return spec_key
+        padded = list(spec_key)
+        for i in range(len(spec_key), len(params)):
+            default = getattr(params[i], 'default', None)
+            if (default is None or default.kind != TypeKind.STRUCT
+                    or default.struct_name is None):
+                break
+            padded.append(default.struct_name)
+        return tuple(padded)
+
     def _declare_external_functions(self):
         # Declare printf
         printf_type = ir.FunctionType(
@@ -793,10 +810,19 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # This must happen before struct registration since structs with generic
         # field types (e.g., Vector<Foo>) trigger monomorphization which needs
         # access to generic extensions.
+        # Design 37: a specialized extension written against the default-omitted
+        # form (`extension Vector<String>`) must key by the FULLY-APPLIED type
+        # args (`("String", "Global")`) so it matches a lookup on the resolved
+        # `Vector<String, Global>`. Pad the concrete spec key with the struct's
+        # declared trailing defaults. The struct ASTs carry the defaults; build a
+        # lookup now (generic_structs is populated later, after this loop).
+        struct_type_params_by_name = {s.name: s.type_params for s in program.structs}
         for extension in program.extensions:
             if extension.type_params:
                 spec_key = self._get_extension_specialization(extension)
                 if spec_key:
+                    spec_key = self._pad_spec_key_with_defaults(
+                        extension.struct_name, spec_key, struct_type_params_by_name)
                     # Specialized extension (e.g., extension Vector<String>)
                     full_key = (extension.struct_name, spec_key)
                     if full_key not in self.specialized_extensions:

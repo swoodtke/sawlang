@@ -5,46 +5,51 @@
 // FFI declarations for memory management
 // =============================================================================
 
-// Vector is an alloc-layer type: it allocates through the `Global` allocator
-// (design 19 §4 / brief 28), which wraps the runtime seams — never libc
-// directly — so it works in the freestanding profile over a user-provided
-// allocator. Buffer alignment comes from `alignof<T>()`, so element types get a
-// correctly-aligned backing store rather than a hardcoded constant. In stage 4
-// the allocator becomes a public type parameter (`Vector<T, A = Global>`); the
-// `Global()` calls below are the seam that exposure will thread. memcpy is a
-// compiler builtin, not a seam.
+// Vector is an alloc-layer type: it allocates through an `Allocator` (design
+// 19 §4 / brief 28/37), which wraps the runtime seams — never libc directly —
+// so it works in the freestanding profile over a user-provided allocator.
+// Buffer alignment comes from `alignof<T>()`, so element types get a
+// correctly-aligned backing store rather than a hardcoded constant.
+//
+// STAGE 4 (brief 37): the allocator is now a PUBLIC type parameter
+// `A: Allocator = Global`. Hosted code writes `Vector<T>` unchanged — the
+// default fills `A = Global` before mangling, so `Vector<T>` and
+// `Vector<T, Global>` are one type. `A()` is a zero-sized construction that
+// monomorphizes to a direct call into the concrete allocator's methods, with no
+// allocator value stored per Vector (A is a phantom type parameter — it appears
+// in no field). memcpy is a compiler builtin, not a seam.
 extern "C" {
     func memcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, n: Int) -> UnsafePointer<Int8>
 }
 
 // =============================================================================
-// Vector<T> - A dynamically-sized array
+// Vector<T, A> - A dynamically-sized array over allocator `A`
 // =============================================================================
 
-struct Vector<T> {
+struct Vector<T, A: Allocator = Global> {
     buffer: UnsafePointer<T>?
     length: Int
     capacity: Int
 }
 
-extension Vector<T> {
+extension Vector<T, A: Allocator = Global> {
     // Create an empty vector
-    init() -> Vector<T> {
-        Vector<T>(buffer: None, length: 0, capacity: 0)
+    init() -> Vector<T, A> {
+        Vector<T, A>(buffer: None, length: 0, capacity: 0)
     }
 
     // Create a vector with pre-allocated capacity
-    init(capacity: Int) -> Vector<T> {
+    init(capacity: Int) -> Vector<T, A> {
         if capacity <= 0 {
-            Vector<T>(buffer: None, length: 0, capacity: 0)
+            Vector<T, A>(buffer: None, length: 0, capacity: 0)
         } else {
             let byte_size = capacity * sizeof<T>()
-            if let raw_ptr = Global().alloc(byte_size, alignof<T>()) {
+            if let raw_ptr = A().alloc(byte_size, alignof<T>()) {
                 let typed_ptr = raw_ptr as UnsafePointer<T>
-                Vector<T>(buffer: typed_ptr, length: 0, capacity: capacity)
+                Vector<T, A>(buffer: typed_ptr, length: 0, capacity: capacity)
             } else {
                 // Allocation failed, return empty vector
-                Vector<T>(buffer: None, length: 0, capacity: 0)
+                Vector<T, A>(buffer: None, length: 0, capacity: 0)
             }
         }
     }
@@ -57,14 +62,14 @@ extension Vector<T> {
     // context) instead of proceeding with a smaller-than-asked buffer. The
     // success path is identical to `init(capacity:)`. A non-positive request
     // needs no allocation and trivially succeeds with an empty vector.
-    func try_with_capacity(n: Int) -> Result<Vector<T>, AllocError> {
+    func try_with_capacity(n: Int) -> Result<Vector<T, A>, AllocError> {
         if n <= 0 {
-            return Vector<T>()
+            return Vector<T, A>()
         }
         let byte_size = n * sizeof<T>()
-        if let raw_ptr = Global().alloc(byte_size, alignof<T>()) {
+        if let raw_ptr = A().alloc(byte_size, alignof<T>()) {
             let typed_ptr = raw_ptr as UnsafePointer<T>
-            return Vector<T>(buffer: typed_ptr, length: 0, capacity: n)
+            return Vector<T, A>(buffer: typed_ptr, length: 0, capacity: n)
         }
         // Allocator returned None -> surface the failure with size context.
         return AllocError(size: byte_size, align: alignof<T>())
@@ -151,15 +156,15 @@ extension Vector<T> {
             // allocate a fresh buffer, copy the live bytes, and release the old.
             let raw_ptr = buf as UnsafePointer<Int8>
             let old_byte_size = self.capacity * sizeof<T>()
-            if let new_raw = Global().alloc(new_byte_size, alignof<T>()) {
+            if let new_raw = A().alloc(new_byte_size, alignof<T>()) {
                 memcpy(new_raw, raw_ptr, old_byte_size)
-                Global().dealloc(raw_ptr, old_byte_size, alignof<T>())
+                A().dealloc(raw_ptr, old_byte_size, alignof<T>())
                 self.buffer = new_raw as UnsafePointer<T>
                 self.capacity = new_capacity
             }
         } else {
             // First allocation
-            if let raw_ptr = Global().alloc(new_byte_size, alignof<T>()) {
+            if let raw_ptr = A().alloc(new_byte_size, alignof<T>()) {
                 self.buffer = raw_ptr as UnsafePointer<T>
                 self.capacity = new_capacity
             }
@@ -183,7 +188,7 @@ extension Vector<T> {
 // compiler-internal `__deinit_in_place` intrinsic (usable only inside a deinit
 // body). Elements popped/moved out first decrement `length`, so the loop below
 // never touches them and cannot double-free.
-extension Vector<T>: Deinit {
+extension Vector<T, A: Allocator = Global>: Deinit {
     func deinit(&var self) {
         if let buf = self.buffer {
             var i = 0
@@ -192,7 +197,9 @@ extension Vector<T>: Deinit {
                 i = i + 1
             }
             let raw_ptr = buf as UnsafePointer<Int8>
-            Global().dealloc(raw_ptr, self.capacity * sizeof<T>(), alignof<T>())
+            // Deinit routes back to THIS vector's own allocator `A` — a
+            // `Vector<T, LoudAlloc>` frees through `LoudAlloc`, never `Global`.
+            A().dealloc(raw_ptr, self.capacity * sizeof<T>(), alignof<T>())
         }
     }
 }
@@ -206,10 +213,11 @@ extension Vector<T>: Deinit {
 // `.copy()` a compile error naming the element type at monomorphization.
 // (Deinit is provided unconditionally above; ExplicitCopy: Deinit is satisfied
 // by that separate conformance.)
-extension Vector<T: Copy>: ExplicitCopy {
-    // Deep copy: allocate a fresh buffer and copy each element.
-    func copy(&self) -> Vector<T> {
-        var result = Vector<T>(capacity: self.capacity)
+extension Vector<T: Copy, A: Allocator = Global>: ExplicitCopy {
+    // Deep copy: allocate a fresh buffer (through the SAME allocator `A`) and
+    // copy each element. The copy of a `Vector<T, A>` is a `Vector<T, A>`.
+    func copy(&self) -> Vector<T, A> {
+        var result = Vector<T, A>(capacity: self.capacity)
         var i = 0
         while i < self.length {
             if let buf = self.buffer {
@@ -240,7 +248,7 @@ extension Vector<T: Copy>: ExplicitCopy {
 // same bound `Vector`'s own `.copy()` carries. A `Vector<File>` (NoCopy
 // element) therefore cannot call `each`/`map`/`fold`; a future by-reference
 // (`(&T)`) overload would lift that, but is out of scope here.
-extension Vector<T: Copy> {
+extension Vector<T: Copy, A: Allocator = Global> {
     // Visit each element in order, passing it to `body`.
     func each(&self, body: (T) -> Void) {
         var i = 0
@@ -262,8 +270,8 @@ extension Vector<T: Copy> {
     // extension for the same reason `each` needs it: an element is handed to the
     // closure BY VALUE, which is a copy at the source (see the COPY-FAMILY note
     // above).
-    func map<U>(&self, transform: (T) -> U) -> Vector<U> {
-        var result = Vector<U>()
+    func map<U>(&self, transform: (T) -> U) -> Vector<U, A> {
+        var result = Vector<U, A>()
         var i = 0
         while i < self.length {
             if let elem = self.get(i) {
@@ -274,13 +282,15 @@ extension Vector<T: Copy> {
         move result
     }
 
-    // Left fold: thread an accumulator of METHOD-level generic type `A` through
-    // the elements, combining each with `combine` (brief 36 item 3). `A` is
-    // supplied explicitly (`v.fold<Int>(0, ...)`). The accumulator is `move`d in
-    // and out of `combine` on each step, so an `ExplicitCopy` accumulator is
-    // threaded without a silent duplicate; a trivial accumulator (e.g. `Int`)
-    // moves bitwise. `T: Copy` is again inherited for by-value element access.
-    func fold<A>(&self, initial: A, combine: (A, T) -> A) -> A {
+    // Left fold: thread an accumulator of METHOD-level generic type `Acc`
+    // through the elements, combining each with `combine` (brief 36 item 3).
+    // `Acc` is supplied explicitly (`v.fold<Int>(0, ...)`). The accumulator is
+    // `move`d in and out of `combine` on each step, so an `ExplicitCopy`
+    // accumulator is threaded without a silent duplicate; a trivial accumulator
+    // (e.g. `Int`) moves bitwise. `T: Copy` is again inherited for by-value
+    // element access. (The accumulator param is named `Acc`, not `A`, because
+    // `A` is now the extension's allocator type parameter — brief 37.)
+    func fold<Acc>(&self, initial: Acc, combine: (Acc, T) -> Acc) -> Acc {
         var acc = move initial
         var i = 0
         while i < self.length {

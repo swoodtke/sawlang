@@ -503,14 +503,16 @@ class TypeUtilsMixin:
                 # must match. This is the D4 cross-heap-unrepresentable property
                 # (design 37): a `Vector<Int, LoudAlloc>` is NOT compatible with
                 # a `Vector<Int>` (= `Vector<Int, Global>`) because the allocator
-                # type parameter differs — both are default-filled, so an omitted
-                # allocator compares equal to an explicit `Global`. A bare named
-                # type on either side (a trait's `Self` resolved to the plain
-                # struct name, or an abstract receiver with no applied args)
-                # matches any instantiation of that name, preserving conformance
-                # and Self checks unchanged.
-                a_args = a.type_args or []
-                b_args = b.type_args or []
+                # type parameter differs. Both operands are default-filled here
+                # (the comparison chokepoint), so a site that supplied a raw
+                # `Vector<Int>` — an unresolved field/return annotation — still
+                # compares equal to a resolved `Vector<Int, Global>` value: the
+                # canonical identity holds regardless of which paths ran. A bare
+                # named type on either side (a trait's `Self` resolved to the
+                # plain struct name, or an abstract receiver with no applied
+                # args) matches any instantiation, preserving conformance/Self.
+                a_args = self._append_default_type_args(a.struct_name, a.type_args or [])
+                b_args = self._append_default_type_args(b.struct_name, b.type_args or [])
                 if a_args and b_args:
                     if len(a_args) != len(b_args):
                         return False

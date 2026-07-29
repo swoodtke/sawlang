@@ -457,6 +457,19 @@ class RegistrationMixin:
                 # If any param is NOT a known type, this is a generic extension
                 return ()
 
+        # Design 37: pad omitted trailing parameters with the struct's declared
+        # defaults so `extension Vector<String>` keys as `("String", "Global")`,
+        # matching a lookup on the fully-applied `Vector<String, Global>`.
+        struct_info = self.get_struct_info(extension.struct_name)
+        params = getattr(struct_info, 'type_params', None) if struct_info else None
+        if params and len(type_args) < len(params):
+            for i in range(len(type_args), len(params)):
+                default = getattr(params[i], 'default', None)
+                if (default is None or default.kind != TypeKind.STRUCT
+                        or default.struct_name is None):
+                    break
+                type_args.append(default.struct_name)
+
         return tuple(type_args)
 
     def _register_enum_equatable_extension(self, extension: Extension):
