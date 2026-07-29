@@ -75,12 +75,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         target = binding.Target.from_triple(self.triple)
         target_machine = target.create_target_machine()
         self.target_data = binding.create_target_data(str(target_machine.target_data))
-        # When a triple is given explicitly, pin the module data layout so the
-        # emitted object and compile-time sizeof() agree for that target. The
-        # default (host) path leaves data_layout unset to stay byte-identical to
-        # the pre-existing output.
-        if self._explicit_target:
-            self.module.data_layout = str(target_machine.target_data)
+        # Pin the module data layout to the target machine's, ALWAYS (host and
+        # cross alike). Without it the module carries an empty datalayout, and the
+        # O1 pipeline then computes struct field offsets from LLVM's *generic*
+        # default layout while object emission uses the real target layout — a
+        # silent disagreement for any struct whose field offsets differ between
+        # the two (e.g. an `i1` followed by an aggregate containing an `i64`, as
+        # in a coroutine frame `{ i1, { i1, T }, i64, i64 }`). The optimized IR
+        # then reads/writes a field at the wrong byte offset (the coroutine state
+        # word never advances → the driver loop spins forever). Setting the layout
+        # makes optimization and emission agree.
+        self.module.data_layout = str(target_machine.target_data)
 
         # Builder will be set when generating function bodies
         self.builder: ir.IRBuilder = None
