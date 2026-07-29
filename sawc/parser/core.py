@@ -151,9 +151,19 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 bound_token = self.expect(TokenType.IDENT, "Expected trait name after '+'")
                 bounds.append(bound_token.value)
 
+        # Parse optional default: `A: Allocator = Global` (design 37). Default
+        # type parameters — a TYPE after `=`, never a value. Enables the allocator
+        # to be omitted at hosted reference sites (`Vector<Int>`) while the type
+        # system still carries the full `Vector<Int, Global>` identity.
+        default = None
+        if self.match(TokenType.ASSIGN):
+            self.advance()  # consume '='
+            default = self.parse_type()
+
         return TypeParameter(
             name=name_token.value,
             bounds=bounds,
+            default=default,
             line=start.line,
             column=start.column
         )

@@ -1,0 +1,21 @@
+// A default type argument that fails the parameter's bound (design 37 item 1).
+// `A: Marker = Int` declares `Int` as the default, but `Int` does not conform
+// to `Marker`, so filling it at a reference site is a bound violation.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Int` does not satisfy bound `A: Marker`
+
+trait Marker { func tag(&self) -> Int }
+struct Def {}
+extension Def: Marker { func tag(&self) -> Int { 1 } }
+
+struct Box<T, A: Marker = Int> {
+    value: T
+}
+extension Box<T, A: Marker = Int> {
+    init(v: T) -> Box<T, A> { Box<T, A>(value: v) }
+}
+
+func main() {
+    let b = Box<Int>(v: 5)
+    print(b.value)
+}

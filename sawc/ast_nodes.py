@@ -303,6 +303,12 @@ class TypeParameter:
     """A type parameter in a generic function, struct, or enum (e.g., T in func foo<T>)."""
     name: str
     bounds: List[str] = field(default_factory=list)  # Trait bounds (Phase 3)
+    # Default type for an omitted trailing argument (design 37): the `Global` in
+    # `struct Vector<T, A: Allocator = Global>`. TYPES only — no value defaults.
+    # When a reference site omits this (and every following) parameter, the
+    # default is substituted BEFORE mangling, so `Vector<Int>` and
+    # `Vector<Int, Global>` collapse to one identity / one monomorphization.
+    default: Optional['SawType'] = None
     line: int = 0
     column: int = 0
 

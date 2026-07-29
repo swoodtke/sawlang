@@ -753,6 +753,25 @@ class ExpressionsMixin:
                 if hasattr(struct_init, 'resolved_init_params'):
                     expr.resolved_init_params = struct_init.resolved_init_params
                 return result
+            # `A()` — constructing a value of an in-scope type parameter (design
+            # 37). The allocator model relies on this: inside `Vector<T, A>`, the
+            # container writes `A().alloc(...)` and monomorphization lowers `A`
+            # to the concrete zero-sized allocator (`Global`, `LoudAlloc`), so
+            # the construction becomes a direct zero-size placeholder and the
+            # `.alloc`/`.dealloc` calls dispatch statically. The value's type is
+            # the type parameter itself, kept abstract for the body check; a
+            # trait method on it resolves through the parameter's bounds
+            # (`_check_type_param_method_call`).
+            type_params = getattr(self, 'current_type_params', {})
+            if expr.name in type_params:
+                if expr.arguments:
+                    self._error(
+                        ErrorKind.WRONG_ARGUMENT_COUNT,
+                        f"constructing a value of type parameter `{expr.name}` "
+                        f"takes no arguments",
+                        expr.line, expr.column
+                    )
+                return SawType(TypeKind.STRUCT, struct_name=expr.name)
             self._error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 f"undefined function `{expr.name}`",
@@ -1417,6 +1436,51 @@ class ExpressionsMixin:
             return self._check_closure(value, expected_type)
         return self._check_expression(value)
 
+    def _fill_or_report_type_args(self, provided, type_params, what, line, column):
+        """Design 37 — validate type-argument arity, filling omitted trailing
+        arguments from their declared defaults.
+
+        Returns the fully-applied argument list (length == len(type_params)), or
+        None after reporting a precise arity error. `what` is a noun phrase such
+        as ``struct `Vector` ``. Too many args, or too few with no default on a
+        missing trailing parameter, are the two error cases of design 37 item 1.
+        """
+        n = len(type_params)
+        provided = list(provided or [])
+        if len(provided) == n:
+            return provided
+        if len(provided) > n:
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"{what} expected {n} type argument(s), got {len(provided)}",
+                line, column
+            )
+            return None
+        # Fewer than declared: every omitted trailing parameter must have a
+        # default. Defaults are resolved (and thus themselves default-filled).
+        missing = type_params[len(provided):]
+        if all(getattr(tp, 'default', None) is not None for tp in missing):
+            filled = list(provided)
+            for tp in missing:
+                filled.append(self._resolve_type(tp.default))
+            return filled
+        if not provided:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"generic {what} requires type arguments",
+                line, column,
+            )
+            return None
+        first_no_default = next(
+            tp for tp in missing if getattr(tp, 'default', None) is None)
+        self._error(
+            ErrorKind.WRONG_ARGUMENT_COUNT,
+            f"{what} expected {n} type argument(s), got {len(provided)} "
+            f"(type parameter `{first_no_default.name}` has no default)",
+            line, column
+        )
+        return None
+
     def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
         """Check struct initialization with parameter-based resolution."""
         struct_info = self.get_struct_info(expr.struct_name)
@@ -1429,21 +1493,16 @@ class ExpressionsMixin:
             return None
         type_mapping: Dict[str, SawType] = {}
         if struct_info.type_params:
-            if not expr.type_args:
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"generic struct `{expr.struct_name}` requires type arguments",
-                    expr.line, expr.column,
-                    hint=f"use `{expr.struct_name}<...>(...)`"
-                )
-            elif len(expr.type_args) != len(struct_info.type_params):
-                self._error(
-                    ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"expected {len(struct_info.type_params)} type argument(s), got {len(expr.type_args)}",
-                    expr.line, expr.column
-                )
-            else:
-                for type_param, type_arg in zip(struct_info.type_params, expr.type_args):
+            filled_args = self._fill_or_report_type_args(
+                expr.type_args, struct_info.type_params,
+                f"struct `{expr.struct_name}`", expr.line, expr.column)
+            if filled_args is not None:
+                # Canonicalize the node's type args to the fully-applied form
+                # (design 37) so codegen mangles the same identity the
+                # typechecker validated — `Vector<Int>` and `Vector<Int, Global>`
+                # share one monomorphization.
+                expr.type_args = filled_args
+                for type_param, type_arg in zip(struct_info.type_params, filled_args):
                     resolved_arg = self._resolve_type(type_arg)
                     type_mapping[type_param.name] = type_arg
                     # Enforce the struct's declared type-param bounds at

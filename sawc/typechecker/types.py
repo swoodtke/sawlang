@@ -214,6 +214,35 @@ class TypeUtilsMixin:
         else:
             return saw_type
 
+    def _append_default_type_args(self, name: str, args, is_enum: bool = False):
+        """Design 37 — canonical default-type-parameter fill.
+
+        Given the type arguments written at a reference site for a named
+        struct/enum, append the declared DEFAULTS for any omitted trailing type
+        parameters, so `Vector<Int>` canonicalizes to `Vector<Int, Global>`
+        BEFORE the type is ever used for identity/mangling. This is the single
+        identity rule: because every resolution path funnels through here,
+        `Vector<Int>` and `Vector<Int, Global>` collapse to one type, one
+        mangled name, one monomorphized struct — they can never diverge.
+
+        Total and non-diagnostic: if a missing trailing parameter has no default
+        the arg list is left under-applied (the arity error is raised at the
+        construction/annotation check, not here). Defaults referencing an
+        earlier parameter are not supported — every default in the stdlib is a
+        ground type (`Global`); such a default is resolved as written.
+        """
+        info = self.get_enum_info(name) if is_enum else self.get_struct_info(name)
+        params = getattr(info, 'type_params', None) if info is not None else None
+        if not params or len(args) >= len(params):
+            return args
+        filled = list(args)
+        for i in range(len(args), len(params)):
+            default = getattr(params[i], 'default', None)
+            if default is None:
+                break
+            filled.append(self._resolve_type(default))
+        return filled
+
     def _resolve_type(self, saw_type: SawType) -> SawType:
         """Resolve user-defined types (ENUMs parsed as STRUCT).
 
@@ -247,8 +276,12 @@ class TypeUtilsMixin:
                     if symbol:
                         resolved_args = [self._resolve_type(t) for t in saw_type.type_args] if saw_type.type_args else None
                         if symbol.kind == SymbolKind.STRUCT:
+                            if resolved_args:
+                                resolved_args = self._append_default_type_args(simple_name, resolved_args)
                             return SawType(TypeKind.STRUCT, struct_name=simple_name, type_args=resolved_args, symbol=symbol)
                         elif symbol.kind == SymbolKind.ENUM:
+                            if resolved_args:
+                                resolved_args = self._append_default_type_args(simple_name, resolved_args, is_enum=True)
                             return SawType(TypeKind.ENUM, enum_name=simple_name, type_args=resolved_args, symbol=symbol)
 
             # Check if this is actually an enum (NOT a type alias - those stay as STRUCT)
@@ -256,10 +289,16 @@ class TypeUtilsMixin:
             enum_symbol = self.get_enum_info(struct_name, from_type=saw_type)
             if enum_symbol:
                 resolved_args = [self._resolve_type(t) for t in saw_type.type_args] if saw_type.type_args else None
+                if resolved_args:
+                    resolved_args = self._append_default_type_args(struct_name, resolved_args, is_enum=True)
                 return SawType(TypeKind.ENUM, enum_name=struct_name, type_args=resolved_args, symbol=enum_symbol)
             # Recursively resolve type args
             if saw_type.type_args:
                 resolved_args = [self._resolve_type(t) for t in saw_type.type_args]
+                # Design 37: fill omitted trailing type args from their defaults
+                # (`Vector<Int>` -> `Vector<Int, Global>`) so the canonical
+                # identity is fixed at resolution time.
+                resolved_args = self._append_default_type_args(struct_name, resolved_args)
                 return SawType(TypeKind.STRUCT, struct_name=struct_name, type_args=resolved_args)
         elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
             # Recursively resolve optional inner types
@@ -272,6 +311,7 @@ class TypeUtilsMixin:
         elif saw_type.kind == TypeKind.ENUM and saw_type.type_args:
             # Recursively resolve enum type args
             resolved_args = [self._resolve_type(t) for t in saw_type.type_args]
+            resolved_args = self._append_default_type_args(saw_type.enum_name, resolved_args, is_enum=True)
             return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=resolved_args, symbol=saw_type.symbol)
         elif saw_type.kind == TypeKind.FUNCTION:
             # Recursively resolve function param and return types
@@ -459,6 +499,23 @@ class TypeUtilsMixin:
         # For struct types, check struct names match
         if a.is_struct():
             if a.struct_name == b.struct_name:
+                # Same named struct — when BOTH sides carry type arguments they
+                # must match. This is the D4 cross-heap-unrepresentable property
+                # (design 37): a `Vector<Int, LoudAlloc>` is NOT compatible with
+                # a `Vector<Int>` (= `Vector<Int, Global>`) because the allocator
+                # type parameter differs — both are default-filled, so an omitted
+                # allocator compares equal to an explicit `Global`. A bare named
+                # type on either side (a trait's `Self` resolved to the plain
+                # struct name, or an abstract receiver with no applied args)
+                # matches any instantiation of that name, preserving conformance
+                # and Self checks unchanged.
+                a_args = a.type_args or []
+                b_args = b.type_args or []
+                if a_args and b_args:
+                    if len(a_args) != len(b_args):
+                        return False
+                    return all(self._types_compatible(at, bt)
+                               for at, bt in zip(a_args, b_args))
                 return True
             # Check if b is a trait that a conforms to
             if self.namespace.has_trait(b.struct_name):

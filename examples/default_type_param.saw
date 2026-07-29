@@ -1,0 +1,63 @@
+// Default type parameters (design 37 item 1). A trailing type parameter with a
+// declared default (`A: Marker = Def`) may be omitted at every reference site;
+// resolution fills it BEFORE mangling, so `Box<Int>` and `Box<Int, Def>` are
+// ONE type with one monomorphization. A custom argument (`Box<Int, Loud>`)
+// selects a different type. Dispatch through `A()` is a zero-sized construction
+// that monomorphizes to a direct call on the concrete marker.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 1
+// 2
+// 1
+// 1
+// 10
+
+trait Marker {
+    func tag(&self) -> Int
+}
+
+struct Def {}
+extension Def: Marker {
+    func tag(&self) -> Int { 1 }
+}
+
+struct Loud {}
+extension Loud: Marker {
+    func tag(&self) -> Int { 2 }
+}
+
+struct Box<T, A: Marker = Def> {
+    value: T
+}
+
+extension Box<T, A: Marker = Def> {
+    init(v: T) -> Box<T, A> {
+        Box<T, A>(value: v)
+    }
+    func which(&self) -> Int {
+        A().tag()
+    }
+    func get(&self) -> T {
+        self.value
+    }
+}
+
+// Takes the DEFAULT form; the explicit-Def form must be an accepted argument
+// (same type identity).
+func report(b: Box<Int>) -> Int {
+    b.which()
+}
+
+func main() {
+    let a = Box<Int>(v: 10)        // default A = Def
+    let b = Box<Int, Def>(v: 20)   // explicit Def — same type as Box<Int>
+    let c = Box<Int, Loud>(v: 30)  // custom Loud
+
+    print(a.which())        // 1
+    print(b.which())        // 1
+    print(c.which())        // 2
+    print(report(a))        // 1
+    print(report(move b))   // 1 — Box<Int, Def> accepted where Box<Int> expected
+    print(a.get())          // 10
+}

@@ -89,6 +89,26 @@ class CallsMixin:
                 arg_vals = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
                 return self.builder.call(fn_ptr, [env_ptr] + arg_vals, name="closure_call")
 
+        # `A()` where `A` is a type parameter bound to the concrete allocator in
+        # the current monomorphization (design 37). Resolve `A` to its concrete
+        # zero-sized allocator struct (e.g. `Global`, `LoudAlloc`) and construct
+        # that — a zero-size placeholder over which `.alloc`/`.dealloc` dispatch
+        # as direct calls, with no allocator value materialized at runtime.
+        if expr.name in self.type_param_context:
+            concrete = self.type_param_context[expr.name]
+            if (concrete.kind == TypeKind.STRUCT and concrete.struct_name is not None
+                    and (concrete.struct_name in self.generic_structs
+                         or concrete.struct_name in self.struct_types)):
+                field_inits = [(arg.name, arg.value) for arg in expr.arguments if arg.name]
+                struct_init = StructInit(
+                    struct_name=concrete.struct_name,
+                    field_inits=field_inits,
+                    type_args=concrete.type_args,
+                    line=expr.line,
+                    column=expr.column
+                )
+                return self._generate_struct_init(struct_init)
+
         # Check if this is actually a struct init (parser treats empty parens as function call)
         if expr.name in self.generic_structs or expr.name in self.struct_types:
             # Convert to struct init and generate that instead

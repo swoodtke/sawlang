@@ -124,13 +124,41 @@ class GenericsMixin:
         """
         return mangle_method(struct_name, method_name, param_names, method_type_args)
 
+    def _fill_default_type_args(self, base_name: str, type_args: List[SawType]) -> List[SawType]:
+        """Design 37 — append declared defaults for omitted trailing type args,
+        the codegen twin of the typechecker's identity rule.
+
+        The typechecker canonicalizes most types to their fully-applied form,
+        but codegen also derives struct identities from raw AST annotations and
+        substituted field/return types, so it must fill here too. This is the
+        chokepoint: because every mangling and monomorphization of a named type
+        funnels through the functions that call this, `Vector<Int>` and
+        `Vector<Int, Global>` produce ONE mangled name and ONE monomorphized
+        struct — the miscompile-class dual-identity hazard is closed. Idempotent:
+        already-full argument lists pass through unchanged.
+        """
+        decl = self.generic_structs.get(base_name) or self.generic_enums.get(base_name)
+        params = getattr(decl, 'type_params', None) if decl is not None else None
+        if not params or len(type_args) >= len(params):
+            return type_args
+        filled = list(type_args)
+        for i in range(len(type_args), len(params)):
+            default = getattr(params[i], 'default', None)
+            if default is None:
+                break
+            filled.append(self._substitute_saw_type(default, self.type_param_context))
+        return filled
+
     def _mangle_generic_struct_name(self, base_name: str, type_args: List[SawType]) -> str:
         """Generate mangled name for a generic struct/enum monomorphization.
 
         Delegates to the canonical mangler (see codegen/mangle.py). Both the
         producer that registers the specialized type and every consumer that
         looks it up route through this one function, guaranteeing symmetry.
+        Default type args are filled first (design 37) so an under-applied
+        `Vector<Int>` mangles identically to the explicit `Vector<Int, Global>`.
         """
+        type_args = self._fill_default_type_args(base_name, type_args)
         return mangle_named(base_name, type_args)
 
     def _substitute_saw_type(self, saw_type: SawType, type_mapping: dict[str, SawType]) -> SawType:
@@ -173,6 +201,10 @@ class GenericsMixin:
     def _ensure_monomorphized_struct(self, struct_name: str, type_args: List[SawType]) -> str:
         """Ensure a monomorphized version of a generic struct exists.
         Returns the mangled name of the monomorphized struct."""
+        # Design 37: fill omitted trailing type args from defaults BEFORE building
+        # the type mapping, so `Vector<Int>` binds A=Global (not leaving A
+        # unbound) and produces the same struct identity as `Vector<Int, Global>`.
+        type_args = self._fill_default_type_args(struct_name, type_args)
         mangled_name = self._mangle_generic_struct_name(struct_name, type_args)
 
         # Already generated
@@ -221,6 +253,8 @@ class GenericsMixin:
     def _ensure_monomorphized_enum(self, enum_name: str, type_args: List[SawType]) -> str:
         """Ensure a monomorphized version of a generic enum exists.
         Returns the mangled name of the monomorphized enum."""
+        # Design 37: fill omitted trailing type args from defaults (identity rule).
+        type_args = self._fill_default_type_args(enum_name, type_args)
         mangled_name = self._mangle_generic_struct_name(enum_name, type_args)
 
         # Already generated
