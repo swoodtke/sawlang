@@ -1,0 +1,27 @@
+// Binary bitwise AND / OR / XOR on integers, including all-ones and
+// alternating-bit boundary patterns (design 50).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 255
+// 6
+// 48
+// 21845
+// 4294967295
+// 3735928559
+// 0
+
+func main() {
+    print(0xF0 & 0x0F)      // 0   (disjoint nibbles)
+    print(0xF0 | 0x0F)      // 255 (union)
+    print(0b1100 ^ 0b1010)  // 6   (0110)
+    print(0xFF & 0x30)      // 48
+    print(0xAAAA ^ 0xFFFF)  // 21845 (0x5555, flips every set bit)
+
+    // 32-bit all-ones pattern via OR of halves
+    print(0xFFFF0000 | 0x0000FFFF)  // 4294967295
+
+    // XOR with 0 is identity; AND with 0 is annihilation
+    print(0xDEAD_BEEF ^ 0)  // 3735928559
+    print(0xDEAD_BEEF & 0)  // 0
+}

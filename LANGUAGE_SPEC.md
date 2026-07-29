@@ -1279,6 +1279,31 @@ func get_index(arr: [Int], i: Int) -> Int {
   against a call-site reference `&x` (a prefix position) and a bare binary `&`.
 - **Float arithmetic** is untouched: IEEE semantics (inf/nan), no overflow trap.
 
+### Bitwise and Shift Operators
+
+**Status: implemented (design 50).**
+
+- **Operators.** Binary `&` (AND), `|` (OR), `^` (XOR), the shifts `<<` / `>>`,
+  and the unary complement `~`, plus the compound forms `&= |= ^= <<= >>=`.
+  **Integer operands only** — a `Float` or `Bool` operand is a type error (`Bool`
+  uses the logical `&&`/`||`/`not`). The result takes the left operand's type.
+- **Precedence** is C-family (see Appendix B): shifts bind tighter than
+  comparison but looser than `+ -`; among the bitwise operators `&` binds tighter
+  than `^`, which binds tighter than `|`. So `a | b & c` == `a | (b & c)` and
+  `x << 2 + 1` == `x << (2 + 1)`.
+- **Shift range is checked.** A shift amount that is **negative or `>=` the left
+  operand's bit width panics** with "shift out of range" — the same
+  checked-by-default house rule as arithmetic overflow (Rust-debug precedent).
+  Wrapping-shift variants are not shipped.
+- **`>>` is arithmetic on signed, logical on unsigned.** A signed left operand
+  sign-extends (`ashr`); an unsigned left operand zero-fills (`lshr`). `<<` is a
+  plain logical shift for both.
+- **Integer literals** may be written in hex (`0xFF`), binary (`0b1010`), or
+  octal (`0o755`), and any integer literal may use `_` digit separators
+  (`0xDEAD_BEEF`, `1_000_000`). A literal wider than 64 bits (with `Int`/`UInt`
+  at their current 64-bit width — design 47 not yet landed) is a compile error at
+  the literal.
+
 ### Runtime Semantics and Traps
 
 **Status: implemented.**
@@ -2196,9 +2221,10 @@ some  unsafe  where
 Implemented
   Arithmetic:     +  -  *  /  %        (overflow panics — see Integer Arithmetic)
   Wrapping:       &+ &- &*             (two's-complement wrap; integer-only)
+  Bitwise:        &  |  ^  ~  << >>    (integer-only — see Bitwise & Shift)
   Comparison:     == != <  >  <= >=
   Logical:        &&  ||  not        (`not` is logical NOT — not `!`)
-  Assignment:     =  += -= *= /= %=
+  Assignment:     =  += -= *= /= %=  &= |= ^= <<= >>=
   Range:          ..                 (half-open, e.g. `for i in 0..5`)
   Optional:       ?  ??  ?.  !        (`!` is force-unwrap; `?.` optional chain)
   Reference:      &  &var             (`&x` at a call site; `&var` params)
@@ -2207,17 +2233,36 @@ Implemented
 
 Planned (parsed shape may differ or be rejected today)
   Arithmetic:     **                 (power)
-  Bitwise:        |  ^  ~  << >>      and their compound-assign forms
-                                     (binary `&` reserved; `&+ &- &*` already
-                                      take the wrapping-op meaning)
   Range:          ..=                (inclusive)
   Match arrow:    =>                 (superseded — Saw match arms use `->`)
   Path:           ::
 ```
 
-Note: `!` is **force-unwrap only**, never logical NOT; earlier drafts listed it
-as logical NOT (superseded). Bitwise operators and `**` are not implemented; the
-lexer will suggest `||`/`&&` if you write `|`/`&` as an infix boolean operator.
+**Precedence** (tightest binding at the top; each row binds tighter than the
+rows below it). C-family: shifts sit above comparison, and `&` above `^` above
+`|`. So `a | b & c` parses as `a | (b & c)`, and `x << 2 + 1` as `x << (2 + 1)`.
+
+```
+  unary            - x    not x    ~ x    &x  &var x   (prefix)
+  cast             as
+  multiplicative   *  /  %  &*
+  additive         +  -  &+  &-
+  shift            <<  >>
+  range            ..
+  comparison       == != <  >  <= >=
+  bitwise AND      &
+  bitwise XOR      ^
+  bitwise OR       |
+  logical AND      &&
+  logical OR       ||
+  nil-coalesce     ??
+```
+
+The four meanings of `&` are disambiguated purely by position: a *prefix* `&x` /
+`&var x` is a call-site reference; the *single tokens* `&+ &- &*` are the
+wrapping operators; an *infix* `&` between two full operands is bitwise AND. `~`
+is bitwise complement (integer); `not` is Boolean negation. `!` is
+**force-unwrap only**, never logical NOT.
 
 ---
 

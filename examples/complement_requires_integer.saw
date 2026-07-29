@@ -1,0 +1,9 @@
+// Unary `~` is integer-only; `~` on a Bool is a type error (use `not` for the
+// logical negation) — design 50.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: operator `~` requires an integer operand
+
+func main() {
+    let flipped = ~true
+    print(flipped)
+}

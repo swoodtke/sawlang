@@ -1,0 +1,9 @@
+// A negative shift amount panics with the same "shift out of range" message
+// (design 50): a negative amount reinterpreted as unsigned is >= the width.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: shift out of range
+
+func main() {
+    let n = -1
+    print(256 >> n)
+}

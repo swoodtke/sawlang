@@ -172,11 +172,68 @@ class OperatorsMixin:
 
         self.builder.position_at_end(cont_bb)
 
+    @staticmethod
+    def _reconcile_int_width(builder, value, target_type):
+        """Adapt an integer `value` to `target_type`'s width via trunc/zext.
+
+        The typechecker admits mixed integer *kinds* in a bitwise/shift op (it
+        returns the left operand's type); LLVM `and`/`or`/`xor`/`shl` require both
+        operands at the same width, so the right operand is brought to the left's.
+        """
+        if value.type.width == target_type.width:
+            return value
+        if value.type.width > target_type.width:
+            return builder.trunc(value, target_type, name="bwadj")
+        return builder.zext(value, target_type, name="bwadj")
+
+    def _emit_bitwise(self, op: str, left, right):
+        """Bitwise AND/OR/XOR on integers (design 50)."""
+        right = self._reconcile_int_width(self.builder, right, left.type)
+        if op == '&':
+            return self.builder.and_(left, right, name="andtmp")
+        if op == '|':
+            return self.builder.or_(left, right, name="ortmp")
+        return self.builder.xor(left, right, name="xortmp")
+
+    def _emit_shift(self, op: str, left, right, signed: bool):
+        """Emit `<<` / `>>` with a runtime range check (design 50).
+
+        A shift amount that is negative or >= the left operand's bit width panics
+        with "shift out of range" (the checked-arithmetic house rule; Rust-debug
+        precedent). Both cases fold into one *unsigned* `amount >= width` compare:
+        a negative signed amount reinterpreted as unsigned is enormous, so it is
+        caught too. The compare runs at the amount's own width *before* narrowing,
+        so a large amount can't be truncated down into the legal range first.
+        `>>` lowers to `ashr` (arithmetic) for a signed left operand, `lshr`
+        (logical) for an unsigned one.
+        """
+        width = left.type.width
+        wconst = ir.Constant(right.type, width)
+        oob = self.builder.icmp_unsigned('>=', right, wconst, name="shift_oob")
+
+        func = self.builder.function
+        panic_bb = func.append_basic_block(name="shift_panic")
+        cont_bb = func.append_basic_block(name="shift_cont")
+        self.builder.cbranch(oob, panic_bb, cont_bb)
+
+        self.builder.position_at_end(panic_bb)
+        self._emit_panic("panic: shift out of range")
+
+        self.builder.position_at_end(cont_bb)
+        # In-range now (amount < width <= 64): safe to narrow to the shift width.
+        amt = self._reconcile_int_width(self.builder, right, left.type)
+        if op == '<<':
+            return self.builder.shl(left, amt, name="shltmp")
+        if signed:
+            return self.builder.ashr(left, amt, name="ashrtmp")
+        return self.builder.lshr(left, amt, name="lshrtmp")
+
     def _generate_binary_op(self, expr: BinaryOp):
         """Generate code for binary operations.
 
         Handles arithmetic (+, -, *, /, %), wrapping arithmetic (&+, &-, &*),
-        comparison (==, !=, <, >, <=, >=), and logical (&&, ||) operators.
+        bitwise (&, |, ^, <<, >>), comparison (==, !=, <, >, <=, >=), and
+        logical (&&, ||) operators.
         """
         # Handle short-circuit logical operators specially
         if expr.op == '&&':
@@ -199,6 +256,15 @@ class OperatorsMixin:
             return self.builder.sub(left, right, name="wrapsubtmp")
         elif expr.op == '&*':
             return self.builder.mul(left, right, name="wrapmultmp")
+
+        # Bitwise AND/OR/XOR and shifts (design 50). Integer-only (enforced by the
+        # typechecker). `>>` is arithmetic on a signed left operand, logical on an
+        # unsigned one; shifts range-check the amount at runtime.
+        if expr.op in ('&', '|', '^'):
+            return self._emit_bitwise(expr.op, left, right)
+        elif expr.op in ('<<', '>>'):
+            return self._emit_shift(expr.op, left, right,
+                                    self._int_is_signed(expr.left))
 
         if expr.op == '+':
             if isinstance(left.type, ir.PointerType):
@@ -604,6 +670,11 @@ class OperatorsMixin:
         elif expr.op == 'not':
             # Logical NOT: flip the boolean (XOR with 1)
             return self.builder.xor(operand, ir.Constant(ir.IntType(1), 1), name="nottmp")
+
+        elif expr.op == '~':
+            # Bitwise complement (design 50): flip every bit (XOR with all-ones).
+            # `builder.not_` emits `xor value, -1` at the operand's integer width.
+            return self.builder.not_(operand, name="bnottmp")
 
         else:
             raise ValueError(f"Unknown unary operator: {expr.op}")

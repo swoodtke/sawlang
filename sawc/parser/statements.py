@@ -26,6 +26,12 @@ COMPOUND_ASSIGN_OPS = {
     TokenType.STAR_ASSIGN: '*',
     TokenType.SLASH_ASSIGN: '/',
     TokenType.PERCENT_ASSIGN: '%',
+    # Bitwise compound assignments (design 50).
+    TokenType.AMP_ASSIGN: '&',
+    TokenType.PIPE_ASSIGN: '|',
+    TokenType.CARET_ASSIGN: '^',
+    TokenType.SHL_ASSIGN: '<<',
+    TokenType.SHR_ASSIGN: '>>',
 }
 
 

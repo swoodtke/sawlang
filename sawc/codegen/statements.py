@@ -461,6 +461,13 @@ class StatementsMixin:
             if signed:
                 self._check_div_no_overflow(left, right)
             return self.builder.srem(left, right, name="modtmp")
+        elif op in ('&', '|', '^'):
+            # Bitwise compound assignment (design 50): `x &= y` is `x = x & y`.
+            return self._emit_bitwise(op, left, right)
+        elif op in ('<<', '>>'):
+            # `x <<= y` / `x >>= y` reuse the range-checked shift lowering; the
+            # target's signedness picks arithmetic vs logical `>>`.
+            return self._emit_shift(op, left, right, signed)
         else:
             raise ValueError(f"Unknown compound operator: {op}")
 

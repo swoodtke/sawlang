@@ -250,9 +250,14 @@ The compiler currently supports:
   and a default that fails its bound are errors.
 - Basic types: Int, Float, Bool, String
 - Variables: `let` (immutable) and `var` (mutable)
-- Arithmetic: `+`, `-`, `*`, `/`, `%` (modulo)
+- Arithmetic: `+`, `-`, `*`, `/`, `%` (modulo); wrapping `&+ &- &*`
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - Logical: `&&`, `||`, `not`
+- Bitwise: `&`, `|`, `^`, `~`, `<<`, `>>` (integer-only) + compound `&= |= ^= <<= >>=`;
+  C-family precedence; `>>` arithmetic on signed / logical on unsigned; a shift
+  amount that is negative or `>=` the width panics ("shift out of range")
+- Integer literals: decimal, hex `0xFF`, binary `0b1010`, octal `0o755`, with
+  `_` digit separators (`0xDEAD_BEEF`, `1_000_000`)
 - Arrays: literals `[1, 2, 3]`, indexing `arr[i]`, type `[Int; 5]`
 - Control flow: `if`/`else` expressions, `while` loops, `for` loops
 - Loop control: `break`, `continue`
@@ -349,6 +354,8 @@ The compiler currently supports:
   via `llvm.{s,u}{add,sub,mul}.with.overflow` (decided in `designs/31`, landed).
   Intentional two's-complement wraparound uses the `&+`/`&-`/`&*` operators
   (integer-only, same precedence as `+`/`-`/`*`)
+- Shift by a negative amount or `>=` the operand width panics ("shift out of
+  range") — same house rule as overflow (decided in `designs/50`, landed)
 - Compiler flags: `-o`, `-v`, `-c`, `--emit-ir`, `--emit-ast`, `-O0`
   (default is an O1-style pass pipeline)
 

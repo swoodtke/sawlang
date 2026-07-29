@@ -1,0 +1,27 @@
+// Shifts `<< >>`: `>>` is arithmetic (sign-extending) on a signed left operand
+// and logical (zero-filling) on an unsigned one (design 50).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 16
+// 64
+// -4
+// -1
+// 4
+// 1
+
+func main() {
+    print(1 << 4)         // 16
+    print(256 >> 2)       // 64
+
+    // Signed >> keeps the sign bit (arithmetic shift).
+    let s: Int = -16
+    print(s >> 2)         // -4
+    let neg: Int = -1
+    print(neg >> 40)      // -1 (sign-extends forever)
+
+    // Unsigned >> zero-fills (logical shift). All-ones UInt >> 62 == 3? use 63.
+    let u: UInt = 16
+    print(u >> 2)         // 4
+    let allones: UInt = ~(0 as UInt)
+    print(allones >> 63)  // 1 (logical: high bits are zero-filled)
+}

@@ -464,6 +464,21 @@ class ExpressionsMixin:
                     expr.line, expr.column
                 )
                 return None
+        elif expr.op in ['&', '|', '^', '<<', '>>']:
+            # Bitwise AND/OR/XOR and shifts (design 50): integer operands only
+            # (Bool uses `&&`/`||`; Float and everything else is rejected). The
+            # result takes the left operand's type — for `>>` that also fixes the
+            # arithmetic-vs-logical choice (signed left → arithmetic shift).
+            if left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
+                return left_type
+            else:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"operator `{expr.op}` requires integer operands, "
+                    f"got `{left_type}` and `{right_type}`",
+                    expr.line, expr.column
+                )
+                return None
         elif expr.op in ['&&', '||']:
             if left_underlying.kind == TypeKind.BOOL and right_underlying.kind == TypeKind.BOOL:
                 return SawType(TypeKind.BOOL)
@@ -538,6 +553,23 @@ class ExpressionsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `not` requires Bool operand, got `{operand_type}`",
+                    expr.line, expr.column
+                )
+                return None
+        elif expr.op == '~':
+            # Bitwise complement (design 50): integer-only. `not` is the Bool
+            # logical negation; `~` flips all bits of an integer.
+            int_kinds = {
+                TypeKind.INT, TypeKind.UINT,
+                TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+                TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
+            }
+            if underlying.kind in int_kinds:
+                return operand_type
+            else:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"operator `~` requires an integer operand, got `{operand_type}`",
                     expr.line, expr.column
                 )
                 return None

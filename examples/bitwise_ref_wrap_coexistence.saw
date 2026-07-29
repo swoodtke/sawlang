@@ -1,0 +1,38 @@
+// The four meanings of `&` coexist in one program (design 50 hazard):
+//   - binary bitwise AND (infix operator position)
+//   - unary reference-taking `&x` / `&var x` (call-site prefix position)
+//   - the wrapping operators `&+ &- &*` (distinct single tokens)
+// Plus unary `~` and shifts in the same expressions. This is the disambiguation
+// regression oracle: if the lexer/parser confuses these, it fails here.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 89
+// 3
+// 240
+
+func addRef(x: &var Int, delta: Int) {
+    x += delta
+}
+
+func clearLowNibble(r: &var Int) {
+    // Binary `&` with a complemented mask `~0x0F`, via compound assignment
+    // (assigning through a reference uses the compound form).
+    r &= ~0x0F
+}
+
+func main() {
+    // Delta mixes binary `&`, wrapping `&+`, and a shift, all in one expression.
+    var v = 10
+    addRef(&var v, (0xFF & 0x3F) &+ (1 << 4))  // (63) &+ (16) = 79; v = 89
+    print(v)                                    // 89
+
+    // Wrapping op and a mutable-reference call argument together.
+    var w = 1
+    addRef(&var w, 1 &+ 1)                       // w = 3
+    print(w)                                     // 3
+
+    // `~` inside a masked field-clear, mutated through a `&var` reference.
+    var reg = 0xFF
+    clearLowNibble(&var reg)                     // reg & ~0x0F = 0xF0 = 240
+    print(reg)                                   // 240
+}

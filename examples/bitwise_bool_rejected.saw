@@ -1,0 +1,9 @@
+// `&` / `|` on Bool is a type error — Saw keeps bitwise and logical distinct:
+// use `&&` / `||` for booleans, `& |` only on integers (design 50).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: operator `|` requires integer operands
+
+func main() {
+    let ok = true | false
+    print(ok)
+}

@@ -1,0 +1,21 @@
+// Based integer literals: hex (0x), binary (0b), octal (0o), with underscore
+// digit separators in every form (design 50).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 255
+// 10
+// 493
+// 3735928559
+// 1000000
+// 65535
+// 43981
+
+func main() {
+    print(0xFF)           // 255
+    print(0b1010)         // 10
+    print(0o755)          // 493 (7*64 + 5*8 + 5)
+    print(0xDEAD_BEEF)    // 3735928559, underscores allowed
+    print(1_000_000)      // 1000000, decimal underscores
+    print(0b1111_1111_1111_1111)  // 65535
+    print(0xABCD)         // 43981
+}

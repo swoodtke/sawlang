@@ -73,11 +73,11 @@ class ExpressionsMixin:
 
     def parse_and(self) -> Expression:
         """Parse logical AND: expr && expr"""
-        left = self.parse_comparison()
+        left = self.parse_bitor()
 
         while self.match(TokenType.AND):
             op_token = self.advance()
-            right = self.parse_comparison()
+            right = self.parse_bitor()
             left = BinaryOp(
                 op='&&',
                 left=left,
@@ -85,6 +85,54 @@ class ExpressionsMixin:
                 line=op_token.line,
                 column=op_token.column
             )
+
+        return left
+
+    # Bitwise tiers (design 50), C-family: `&` binds tighter than `^`, which
+    # binds tighter than `|`; all three sit between logical `&&` and the
+    # comparison operators. Integer-only — enforced by the typechecker.
+
+    def parse_bitor(self) -> Expression:
+        """Parse bitwise OR: expr | expr"""
+        left = self.parse_bitxor()
+
+        while self.match(TokenType.PIPE):
+            op_token = self.advance()
+            right = self.parse_bitxor()
+            left = BinaryOp(op='|', left=left, right=right,
+                            line=op_token.line, column=op_token.column)
+
+        return left
+
+    def parse_bitxor(self) -> Expression:
+        """Parse bitwise XOR: expr ^ expr"""
+        left = self.parse_bitand()
+
+        while self.match(TokenType.CARET):
+            op_token = self.advance()
+            right = self.parse_bitand()
+            left = BinaryOp(op='^', left=left, right=right,
+                            line=op_token.line, column=op_token.column)
+
+        return left
+
+    def parse_bitand(self) -> Expression:
+        """Parse bitwise AND: expr & expr.
+
+        The infix `&` is disambiguated from its three other meanings purely by
+        recursive-descent position: a *prefix* `&x` / `&var x` (call-site
+        reference) is consumed by `parse_unary` as part of the left operand, and
+        the wrapping ops `&+ &- &*` are distinct single tokens (WRAP_*), never
+        AMPERSAND. So an AMPERSAND reaching this loop is always the binary
+        bitwise-AND operator, sitting in infix position after a full left operand.
+        """
+        left = self.parse_comparison()
+
+        while self.match(TokenType.AMPERSAND):
+            op_token = self.advance()
+            right = self.parse_comparison()
+            left = BinaryOp(op='&', left=left, right=right,
+                            line=op_token.line, column=op_token.column)
 
         return left
 
@@ -107,11 +155,11 @@ class ExpressionsMixin:
 
     def parse_range(self) -> Expression:
         """Parse range expressions: start..end"""
-        left = self.parse_additive()
+        left = self.parse_shift()
 
         if self.match(TokenType.DOTDOT):
             op_token = self.advance()
-            right = self.parse_additive()
+            right = self.parse_shift()
             return RangeExpr(
                 start=left,
                 end=right,
@@ -120,6 +168,58 @@ class ExpressionsMixin:
             )
 
         return left
+
+    def parse_shift(self) -> Expression:
+        """Parse bit shifts `<< >>` (design 50), tighter than comparison but
+        looser than `+ -` (C-family: `x << 2 + 1` == `x << (2 + 1)`).
+
+        The lexer keeps bare `<`/`>` as individual tokens so nested generic
+        closings (`Vector<Box<Int>>`) are unaffected; here in expression position
+        two *immediately adjacent* `<<` or `>>` tokens are combined into a shift.
+        Adjacency (no interior whitespace) keeps `a < b` / `a > b` comparisons
+        and a spaced `a > > b` from ever being read as a shift.
+        """
+        left = self.parse_additive()
+
+        while True:
+            tok = self.current()
+            nxt = self.peek(1)
+            if (tok.type == TokenType.LT and nxt.type == TokenType.LT
+                    and self._tokens_adjacent(tok, nxt)):
+                self.advance()
+                self.advance()
+                right = self.parse_additive()
+                left = BinaryOp(op='<<', left=left, right=right,
+                                line=tok.line, column=tok.column)
+            elif (tok.type == TokenType.GT and nxt.type == TokenType.GT
+                    and self._tokens_adjacent(tok, nxt)):
+                self.advance()
+                self.advance()
+                right = self.parse_additive()
+                left = BinaryOp(op='>>', left=left, right=right,
+                                line=tok.line, column=tok.column)
+            else:
+                break
+
+        return left
+
+    @staticmethod
+    def _tokens_adjacent(a, b) -> bool:
+        """True if token `b` immediately follows `a` with no whitespace between."""
+        return a.line == b.line and b.column == a.column + 1
+
+    @staticmethod
+    def _decode_int_literal(text: str) -> int:
+        """Decode an INT token's canonical text (prefix kept, underscores already
+        stripped by the lexer) into its integer value (design 50)."""
+        low = text[:2].lower()
+        if low == '0x':
+            return int(text, 16)
+        if low == '0b':
+            return int(text, 2)
+        if low == '0o':
+            return int(text, 8)
+        return int(text, 10)
 
     def parse_additive(self) -> Expression:
         left = self.parse_multiplicative()
@@ -174,6 +274,18 @@ class ExpressionsMixin:
             operand = self.parse_unary()
             return UnaryOp(
                 op='not',
+                operand=operand,
+                line=op_token.line,
+                column=op_token.column
+            )
+
+        if self.match(TokenType.TILDE):
+            # Unary bitwise complement `~x` (design 50); integer-only, enforced
+            # by the typechecker.
+            op_token = self.advance()
+            operand = self.parse_unary()
+            return UnaryOp(
+                op='~',
                 operand=operand,
                 line=op_token.line,
                 column=op_token.column
@@ -393,7 +505,8 @@ class ExpressionsMixin:
 
         if self.match(TokenType.INT):
             self.advance()
-            return IntLiteral(value=int(token.value), line=token.line, column=token.column)
+            return IntLiteral(value=self._decode_int_literal(token.value),
+                              line=token.line, column=token.column)
 
         elif self.match(TokenType.FLOAT):
             self.advance()

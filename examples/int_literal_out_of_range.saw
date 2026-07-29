@@ -1,0 +1,10 @@
+// An integer literal wider than 64 bits is a compile error at the literal.
+// Without design 47 (platform-width Int), Int/UInt are 64-bit, so the widest
+// legal literal is UInt64.max = 18446744073709551615 (design 50).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: out of range for a 64-bit integer
+
+func main() {
+    let too_big = 0x1_0000_0000_0000_0000   // 2**64, one past the max
+    print(too_big)
+}

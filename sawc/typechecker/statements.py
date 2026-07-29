@@ -1079,6 +1079,16 @@ class StatementsMixin:
                     f"operator `%=` requires integer operands, got `{target_type}` and `{value_type}`",
                     stmt.line, stmt.column
                 )
+        elif stmt.op in ['&', '|', '^', '<<', '>>']:
+            # Bitwise compound assignments (design 50): integer operands only.
+            if target_underlying.kind in int_kinds and value_underlying.kind in int_kinds:
+                pass  # OK
+            else:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"operator `{stmt.op}=` requires integer operands, got `{target_type}` and `{value_type}`",
+                    stmt.line, stmt.column
+                )
 
     def _check_return_statement(self, stmt: ReturnStatement):
         """Check a return statement."""

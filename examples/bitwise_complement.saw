@@ -1,0 +1,21 @@
+// Unary bitwise complement `~` (integer-only), on signed and on a narrow
+// unsigned width (design 50).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -1
+// -256
+// 0
+// 15
+
+func main() {
+    // Signed: ~0 == -1, ~255 == -256 (two's complement)
+    print(~0)                 // -1
+    print(~255)               // -256
+
+    // Narrow width via cast: complement stays inside the 8-bit width.
+    let full = 0xFF as UInt8
+    print(~full as UInt8)     // 0   (all bits flipped off)
+
+    let low = 0xF0 as UInt8
+    print(~low as UInt8)      // 15  (0x0F)
+}

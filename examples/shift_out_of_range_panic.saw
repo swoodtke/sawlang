@@ -1,0 +1,9 @@
+// A shift amount >= the operand's bit width panics (checked-arithmetic house
+// rule; design 50). Here Int is 64-bit, so shifting by 64 is out of range.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: shift out of range
+
+func main() {
+    let n = 64
+    print(1 << n)
+}

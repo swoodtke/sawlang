@@ -1,0 +1,9 @@
+// Bitwise operators are integer-only: a Float operand to `&` is a type error
+// (design 50). Bool uses the logical `&&`/`||`, not `&`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: operator `&` requires integer operands
+
+func main() {
+    let a = 1.5 & 2.5
+    print(a)
+}

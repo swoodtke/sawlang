@@ -75,7 +75,10 @@ class TokenType(Enum):
     GTE = auto()
     AND = auto()            # && for logical and
     OR = auto()             # || for logical or
-    AMPERSAND = auto()      # & for references
+    AMPERSAND = auto()      # & for references / binary bitwise AND
+    PIPE = auto()           # | binary bitwise OR
+    CARET = auto()          # ^ binary bitwise XOR
+    TILDE = auto()          # ~ unary bitwise complement
     WRAP_ADD = auto()       # &+ wrapping (two's-complement) addition
     WRAP_SUB = auto()       # &- wrapping (two's-complement) subtraction
     WRAP_MUL = auto()       # &* wrapping (two's-complement) multiplication
@@ -87,6 +90,11 @@ class TokenType(Enum):
     STAR_ASSIGN = auto()    # *= compound assignment
     SLASH_ASSIGN = auto()   # /= compound assignment
     PERCENT_ASSIGN = auto() # %= compound assignment
+    AMP_ASSIGN = auto()     # &= bitwise-AND compound assignment
+    PIPE_ASSIGN = auto()    # |= bitwise-OR compound assignment
+    CARET_ASSIGN = auto()   # ^= bitwise-XOR compound assignment
+    SHL_ASSIGN = auto()     # <<= shift-left compound assignment
+    SHR_ASSIGN = auto()     # >>= shift-right compound assignment
     QUESTION = auto()       # ? for optional types
     DOUBLE_QUESTION = auto() # ?? for nil coalescing
     EXCLAIM = auto()        # ! for force unwrap
@@ -259,12 +267,49 @@ class Lexer:
         self.advance()  # consume closing quote
         return (''.join(result), has_interpolation)
 
+    # Without design 47, `Int`/`UInt` are 64-bit, so an integer literal must be
+    # representable in 64 bits — as a signed OR unsigned value (literals are
+    # non-negative; unary minus is a separate operator). The widest legal literal
+    # is UInt64.max = 2**64 - 1; anything larger is a compile error at the literal.
+    INT_LITERAL_MAX = (1 << 64) - 1
+
+    def _check_int_range(self, value: int, start_col: int):
+        if value > self.INT_LITERAL_MAX:
+            raise SyntaxError(
+                f"Lexer error at {self.line}:{start_col}: integer literal {value} "
+                f"is out of range for a 64-bit integer "
+                f"(max {self.INT_LITERAL_MAX})"
+            )
+
     def read_number(self) -> Token:
         start_col = self.column
+
+        # Based integer literals: 0x.. (hex), 0b.. (binary), 0o.. (octal).
+        # Underscores may separate digits (`0xDEAD_BEEF`). The canonical token
+        # value keeps the prefix and strips underscores so the parser can decode
+        # it with the matching base.
+        nxt = self.peek(1)
+        if self.peek() == '0' and nxt is not None and nxt in 'xXbBoO':
+            prefix = nxt.lower()
+            self.advance()  # '0'
+            self.advance()  # base char
+            digit_sets = {'x': '0123456789abcdefABCDEF_', 'b': '01_', 'o': '01234567_'}
+            allowed = digit_sets[prefix]
+            digits = []
+            while self.peek() is not None and self.peek() in allowed:
+                digits.append(self.advance())
+            digit_str = ''.join(digits).replace('_', '')
+            if not digit_str:
+                self.error(f"integer literal has no digits after '0{prefix}'")
+            base = {'x': 16, 'b': 2, 'o': 8}[prefix]
+            value = int(digit_str, base)
+            self._check_int_range(value, start_col)
+            return Token(TokenType.INT, '0' + prefix + digit_str, self.line, start_col)
+
+        # Decimal integer or float, with underscore digit separators (`1_000_000`).
         result = []
         is_float = False
-
-        while self.peek() and (self.peek().isdigit() or self.peek() == '.'):
+        while self.peek() and (self.peek().isdigit() or self.peek() == '.' or self.peek() == '_'):
             if self.peek() == '.':
                 # Check if this is a range operator (..) - don't consume the dot
                 if self.peek(1) == '.':
@@ -274,9 +319,11 @@ class Lexer:
                 is_float = True
             result.append(self.advance())
 
-        value = ''.join(result)
-        token_type = TokenType.FLOAT if is_float else TokenType.INT
-        return Token(token_type, value, self.line, start_col)
+        value = ''.join(result).replace('_', '')
+        if is_float:
+            return Token(TokenType.FLOAT, value, self.line, start_col)
+        self._check_int_range(int(value), start_col)
+        return Token(TokenType.INT, value, self.line, start_col)
 
     def read_identifier(self) -> Token:
         start_col = self.column
@@ -382,6 +429,12 @@ class Lexer:
                     self.add_token(TokenType.WRAP_MUL, '&*')
                     self.advance()
                     self.advance()
+                elif self.peek(1) == '=':
+                    # &= bitwise-AND compound assignment (design 50). Distinct
+                    # from `&&`, `&+/-/*`, and a bare `&`.
+                    self.add_token(TokenType.AMP_ASSIGN, '&=')
+                    self.advance()
+                    self.advance()
                 else:
                     self.add_token(TokenType.AMPERSAND, '&')
                     self.advance()
@@ -390,8 +443,24 @@ class Lexer:
                     self.add_token(TokenType.OR, '||')
                     self.advance()
                     self.advance()
+                elif self.peek(1) == '=':
+                    self.add_token(TokenType.PIPE_ASSIGN, '|=')
+                    self.advance()
+                    self.advance()
                 else:
-                    self.error(f"Unexpected character: {ch} (did you mean '||'?)")
+                    self.add_token(TokenType.PIPE, '|')
+                    self.advance()
+            elif ch == '^':
+                if self.peek(1) == '=':
+                    self.add_token(TokenType.CARET_ASSIGN, '^=')
+                    self.advance()
+                    self.advance()
+                else:
+                    self.add_token(TokenType.CARET, '^')
+                    self.advance()
+            elif ch == '~':
+                self.add_token(TokenType.TILDE, '~')
+                self.advance()
             elif ch == '=':
                 if self.peek(1) == '=':
                     self.add_token(TokenType.EQ, '==')
@@ -421,7 +490,17 @@ class Lexer:
                     self.add_token(TokenType.QUESTION, '?')
                     self.advance()
             elif ch == '<':
-                if self.peek(1) == '=':
+                # `<<=` is a single compound-assign token (design 50). Bare `<<`
+                # is intentionally left as two `<` tokens so nested generic
+                # closings like `Vector<Box<Int>>` are unaffected; the parser
+                # combines two adjacent `<`/`>` into a shift only in expression
+                # position (see parse_shift).
+                if self.peek(1) == '<' and self.peek(2) == '=':
+                    self.add_token(TokenType.SHL_ASSIGN, '<<=')
+                    self.advance()
+                    self.advance()
+                    self.advance()
+                elif self.peek(1) == '=':
                     self.add_token(TokenType.LTE, '<=')
                     self.advance()
                     self.advance()
@@ -429,7 +508,12 @@ class Lexer:
                     self.add_token(TokenType.LT, '<')
                     self.advance()
             elif ch == '>':
-                if self.peek(1) == '=':
+                if self.peek(1) == '>' and self.peek(2) == '=':
+                    self.add_token(TokenType.SHR_ASSIGN, '>>=')
+                    self.advance()
+                    self.advance()
+                    self.advance()
+                elif self.peek(1) == '=':
                     self.add_token(TokenType.GTE, '>=')
                     self.advance()
                     self.advance()
