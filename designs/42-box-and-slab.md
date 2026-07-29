@@ -1,5 +1,19 @@
 # Design Brief 42 — Box<T, A> and the slab allocator: the kernel idiom end to end
 
+**Status: LANDED.** `std/box.saw` (`Box<T, A: Allocator = Global>`, NoCopy, static
+factories `make`/`make_or`, placement-move construction, `__deinit_in_place` +
+`A().dealloc` teardown, payload method forwarding + `value()`) and `std/slab.saw`
+(`SlabHead` + `slab_alloc`/`slab_dealloc`, lock-free CAS bump + LIFO free-list over
+a caller `static` region) ship. The kernel idiom `Box<Job, JobSlab>` works end to
+end (allocate to exhaustion → `Err`, scope-death reclaim, re-allocate). Full suite
+green, zero xfails; verified `--freestanding` (region in `.bss`, no libc added).
+Factory surface chosen: **static methods** on the struct (`Box<T>.make(v)` /
+`.make_or(v)`) — the brief-28 static-factory path. Enabling compiler work:
+conditional-move **drop flags** (fixed a pre-existing leak so `make_or`'s failure
+path drops the un-moved value cleanly), `&T`→pointer / pointer↔`Int` casts,
+writable `.bss` for bare-declared statics, and static-factory param-type
+substitution. Deferred (per paper 19): the `AllocatedBy<Slab>` per-type sugar.
+
 **Source:** tracker F3 (paper 19 stage-4 tail) + paper 19's "kernel
 idiom" (`type TaskBox = Box<Task, TaskSlab>`). Every prerequisite has
 landed: placement-write contract + alignof (28), allocator type params

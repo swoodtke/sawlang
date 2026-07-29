@@ -1928,6 +1928,21 @@ capacity, `buf[self.length] = value` places the incoming element into the fresh,
 never-written tail slot and then bumps `length`. The loop invariant — only ever
 writing the slot at the current `length` — is what keeps every placement write
 landing on uninitialized memory, so no live element is ever silently leaked.
+`Box.make` is the single-slot user: `ptr[0] = move value` into the freshly
+allocated chunk.
+
+### Address casts (`&T` → pointer, pointer ↔ `Int`)
+
+**Status: implemented (design 42, stdlib-internal).** Two explicit unsafe casts
+bridge references, raw pointers, and integer addresses — the plumbing a slab
+allocator needs over a `static` region:
+
+- `(&expr) as UnsafePointer<T>` reinterprets a reference (notably `&STATIC_ARRAY`)
+  as a raw pointer to the referent's storage. Both are addresses; the cast is the
+  visible unsafe bridge that lets a static region back an allocator.
+- `ptr as Int` / `addr as UnsafePointer<T>` round-trip a pointer through its
+  integer address (`ptrtoint` / `inttoptr`) — how a slab threads freed-chunk
+  addresses through an `Atomic<Int>` free-list.
 
 ### Allocators (`Allocator` trait, `Global`, public `A` parameter)
 
@@ -1966,9 +1981,74 @@ own `A`, so allocations never cross heaps. A fallible factory such as
 allocation failure to the caller (tier 2 of the three-tier failure model) with
 `size`/`align` context, instead of the default infallible APIs' panic.
 
-Still future work: per-type **slab allocators** and module-level **`static`**
-declarations (the storage a slab's methods reference). See
-`designs/19-freestanding-profile.md` §4 and `designs/37-allocator-stage4.md`.
+Paper 19 §4's allocator model is now landed end to end: module-level `static`
+declarations (design 41) and **per-type slab allocators** (design 42) both ship.
+The only piece still deferred is the optional `AllocatedBy<Slab>` sugar (per-type
+default allocator), which paper 19 keeps for when kernel code justifies it.
+
+### `Box<T, A>` — a single owned heap allocation
+
+**Status: implemented (design 42).** `Box<T, A: Allocator = Global>` owns one
+`T` allocated through allocator `A`. Hosted code writes `Box<T>` (the default
+fills `A = Global`); a kernel writes `Box<Job, JobSlab>` to place the value in a
+per-type slab (the design-19 §4 "kernel idiom"). `Box` is **NoCopy** — it is
+`move`d, never silently duplicated — and its single heap `T` is released exactly
+once on deinit.
+
+The two constructors are **static factory methods** (allocation is fallible, so
+it is not hidden behind `init`):
+
+```saw
+let a = Box<Int>.make(42)          // MakeBox — infallible; PANICS on OOM
+                                   //   (three-tier model, infallible tier)
+match Box<Int>.make_or(42) {       // MakeBoxOr — fallible tier
+    case Ok(b)  -> print(b.value())
+    case Err(e) -> print(e.size)   // AllocError with size/align context
+}
+```
+
+On the `make_or` failure path the value is cleanly `deinit`'d at scope exit
+(never leaked). `make` places the value with the placement-move primitive
+(`ptr[0] = move value`) and, on allocator failure, panics. Payload access:
+
+- `value()` returns a copy of the payload (bounded `T: Copy`).
+- **Method forwarding** (like `Arc`): an immutable `&self` method on the payload
+  struct is callable through the Box — `b.peek()` forwards to the payload's
+  `peek`. A `&var self` payload method is rejected (aliased mutation of
+  owned-through-a-handle state is what a `Mutex` payload exists to make safe).
+
+### Slab allocators (the kernel idiom)
+
+**Status: implemented (design 42).** A slab is a per-type fixed-chunk allocator
+over a caller-owned `static` region — freestanding-compatible (no libc, just
+`Atomic<Int>` CAS). `std/slab.saw` provides `SlabHead` (a slab's mutable
+bookkeeping: a bump counter + a LIFO free-list head, both `Atomic<Int>`) and the
+`slab_alloc` / `slab_dealloc` free functions. A user allocator is a zero-field
+unit struct wiring its own statics in ~10 lines:
+
+```saw
+static JOB_REGION: [Int8; 64]                                  // 4 chunks × 16B, .bss
+static JOB_HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
+
+struct JobSlab {}
+extension JobSlab: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+        slab_alloc((&JOB_REGION) as UnsafePointer<Int8>, 4, 16, &JOB_HEAD)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+        slab_dealloc(ptr, &JOB_HEAD)
+    }
+}
+type JobBox = Box<Job, JobSlab>          // the kernel idiom
+```
+
+The region reaches the slab as `(&STATIC) as UnsafePointer<Int8>` — a reference,
+cast to a raw pointer, over a bare-declared (writable `.bss`) static. `alloc`
+returns `None` on exhaustion (feeding the three-tier model: `make` panics on it,
+`make_or` returns `Err`); `dealloc` pushes the chunk back onto the free-list.
+The chunk size must be ≥ 8 bytes (a freed chunk stores the free-list link in its
+own first word) and ≥ the payload. The CAS loops are lock-free; classic ABA is
+possible and accepted at this stage (documented in `std/slab.saw`).
 
 ---
 

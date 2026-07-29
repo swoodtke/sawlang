@@ -29,8 +29,12 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
   `Map<K, V, A = Global>` (landed in `designs/37`). Hosted code writes
   `Vector<T>` (fills `A = Global`, one identity with `Vector<T, Global>`); a
   custom zero-sized allocator gives a *distinct* type that routes
-  alloc/grow/deinit through its own `A` as a direct call. Per-type slab
-  allocators and `static` declarations are still future work.
+  alloc/grow/deinit through its own `A` as a direct call. Module-level
+  `static` declarations (`designs/41`) and **per-type slab allocators**
+  (`designs/42`) have landed: `Box<T, A: Allocator = Global>` (NoCopy owned
+  heap allocation; `Box<T>.make`/`.make_or` factories) plus `std/slab.saw`'s
+  fixed-chunk slab over a `static` region make the `type JobBox = Box<Job,
+  JobSlab>` kernel idiom work end to end (`designs/19` §4).
 
 ### Mutability
 - Immutable by default (`let`)
@@ -287,7 +291,15 @@ The compiler currently supports:
   `NoCopy`, `T: Copy` bound, memberwise `.copy()` derivation, containment checks
 - Value-transfer checkpoint enforces `move`/`.copy()` at every transfer site
 - Law of Exclusivity: static "many readers XOR one writer" check on `&var` paths
-- `Deinit` with automatic LIFO cleanup (manual `deinit()` calls are rejected)
+- `Deinit` with automatic LIFO cleanup (manual `deinit()` calls are rejected).
+  A binding `move`d on only some paths carries a runtime **drop flag** so it is
+  dropped exactly where it was not moved (conditional-move correctness)
+- `Box<T, A: Allocator = Global>`: NoCopy owned heap allocation; static factories
+  `Box<T>.make` (infallible, panics on OOM) and `.make_or` (fallible, value
+  cleanly deinit'd on failure); payload method forwarding (like Arc) + `value()`
+- Slabs (`std/slab.saw`): fixed-chunk allocator over a `static` region via
+  `Atomic<Int>` CAS; a user unit-struct allocator + `Box<T, Slab>` is the kernel
+  idiom (`designs/42`). Address casts `(&STATIC) as UnsafePointer<T>` / `ptr as Int`
 - Reference parameters `&T` / `&var T` (mutate via compound assignment; no escape)
 - String: immutable, reference-counted (atomic refcount), O(1) `len()`
 - Module-level `static NAME: T = init` (+ `public`): const-initialized,

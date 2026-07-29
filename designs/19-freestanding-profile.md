@@ -140,8 +140,17 @@ runtime.
    before mangling (one identity, one monomorphization), `A().alloc(...)`
    monomorphizes to a direct seam call, and a custom allocator
    (`Vector<Int, LoudAlloc>`) is a distinct type that routes alloc/grow/deinit
-   through its own `A`. Still open here: per-type **slab allocators** (F3) and
-   module-level **`static`** declarations (F4) — a later brief.
+   through its own `A`.
+   **LANDED FULLY (briefs 41 + 42):** module-level **`static`** declarations (F4,
+   brief 41) and per-type **slab allocators** (F3, brief 42) both ship. `Box<T, A:
+   Allocator = Global>` (`std/box.saw`, NoCopy, `make`/`make_or` factories,
+   placement-move construction, payload forwarding) plus `std/slab.saw`'s
+   fixed-chunk slab over a `static` region make the `type TaskBox = Box<Task,
+   TaskSlab>` kernel idiom (§4 option C) work end to end — allocate to exhaustion
+   → `Err`, scope-death reclaim, re-allocate; verified `--freestanding` with the
+   region in `.bss` and no libc added. The ONLY deferred piece is the optional
+   per-type `AllocatedBy<Slab>` sugar (§4 option C "later, optional"), kept for
+   when kernel code justifies it.
 
 ## Open questions (flagged, not decided)
 - ~~`static` mutable data semantics~~ **DECIDED (Jul 28, user — Rust's
