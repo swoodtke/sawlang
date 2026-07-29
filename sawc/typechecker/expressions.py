@@ -1132,7 +1132,9 @@ class ExpressionsMixin:
                 arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
             else:
                 arg_type = self._check_expression(arg.value)
-            if arg_type and not self._types_compatible(arg_type, expected_type):
+            if self._try_existential_arg_coercion(arg, arg_type, expected_type):
+                pass  # `&concrete -> &any Trait` erasure (or its error) handled
+            elif arg_type and not self._types_compatible(arg_type, expected_type):
                 param_name = func_info.param_names[i]
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -2529,8 +2531,177 @@ class ExpressionsMixin:
         self._check_call_exclusivity([a.value for a in expr.arguments], param_types)
         return return_type
 
+    # ---- design 51: `any Trait` existential dispatch, construction, coercion ----
+
+    def _existential_receiver_trait(self, obj_type):
+        """If `obj_type` names an erased receiver, return its trait name, else
+        None. Accepts `any T`, `&any T`, and `Box<any T, A>`."""
+        if obj_type is None:
+            return None
+        if obj_type.kind == TypeKind.EXISTENTIAL:
+            return obj_type.existential_trait
+        if (obj_type.kind == TypeKind.REFERENCE and obj_type.inner_type is not None
+                and obj_type.inner_type.kind == TypeKind.EXISTENTIAL):
+            return obj_type.inner_type.existential_trait
+        if (obj_type.kind == TypeKind.STRUCT and obj_type.struct_name == "Box"
+                and obj_type.type_args
+                and obj_type.type_args[0].kind == TypeKind.EXISTENTIAL):
+            return obj_type.type_args[0].existential_trait
+        return None
+
+    def _check_existential_method_call(self, expr, obj_type, trait_name):
+        """Type-check dynamic dispatch through an erased receiver: resolve the
+        method against the trait signature, check arguments, and propagate the
+        trait method's declared effect (a non-`sync` method suspends, like an
+        indirect call; a `sync` method stays sync-callable through `any`)."""
+        trait = self.get_trait_info(trait_name)
+        if trait is None:
+            self._error(ErrorKind.UNKNOWN_TYPE,
+                        f"unknown trait `{trait_name}`", expr.line, expr.column)
+            return None
+        tmethod = trait.methods.get(expr.method_name)
+        if tmethod is None:
+            self._error(
+                ErrorKind.UNDEFINED_FUNCTION,
+                f"trait `{trait_name}` has no method `{expr.method_name}` to "
+                f"dispatch through `any {trait_name}`",
+                expr.line, expr.column)
+            return None
+        # Arg count (param_types[0] is the VOID self placeholder).
+        expected = (tmethod.param_types or [])[1:]
+        if len(expr.arguments) != len(expected):
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"`{trait_name}.{expr.method_name}` takes {len(expected)} "
+                f"argument(s), but {len(expr.arguments)} were given",
+                expr.line, expr.column)
+            return tmethod.return_type
+        for i, arg in enumerate(expr.arguments):
+            arg_type = self._check_expression(arg.value)
+            if (arg_type is not None and expected[i] is not None
+                    and not self._types_compatible(arg_type, expected[i])):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"argument {i + 1} expects `{expected[i]}` but got `{arg_type}`",
+                    arg.value.line, arg.value.column)
+            self._check_value_transfer(arg.value, expected[i], "call argument",
+                                       arg.value.line, arg.value.column)
+        # Effect propagation: the call carries the TRAIT signature's effect.
+        if not getattr(tmethod, 'is_sync', False):
+            self._effect_direct_source(
+                f"a call through `any {trait_name}` dispatch", expr.line)
+        expr.existential_dispatch = trait_name
+        return tmethod.return_type
+
+    def _check_erased_box_make(self, expr, existential_type):
+        """`Box<any Trait>.make(v)` built erased-directly (design 51): the concrete
+        `v` must conform to the trait; the result is `Box<any Trait, A>`."""
+        trait_name = existential_type.existential_trait
+        # Object safety of the erased trait (this construction site is not a
+        # declared signature, so it was not covered by the signature-level pass).
+        self._check_object_safety(trait_name, expr.line, expr.column)
+
+        if expr.method_name == "make_or":
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "`Box<any Trait>.make_or(...)` is not yet supported — use "
+                "`Box<any Trait>.make(...)` (the fallible erased factory is deferred)",
+                expr.line, expr.column)
+            return None
+
+        # Allocator: the second type arg, or Global by default.
+        type_args = [self._resolve_type(t) for t in (expr.object.type_args or [])]
+        type_args = self._append_default_type_args("Box", type_args)
+        allocator = type_args[1] if len(type_args) > 1 else SawType(
+            TypeKind.STRUCT, struct_name="Global")
+
+        if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                "`Box<any Trait>.make(...)` takes exactly one positional value",
+                expr.line, expr.column)
+            return None
+
+        concrete = self._check_expression(expr.arguments[0].value)
+        box_result = SawType(TypeKind.STRUCT, struct_name="Box",
+                             type_args=[existential_type, allocator])
+        if concrete is None:
+            return box_result
+        conc_name = None
+        if concrete.kind == TypeKind.STRUCT:
+            conc_name = concrete.struct_name
+        elif concrete.kind == TypeKind.STRING:
+            conc_name = "String"
+        if conc_name is None or not self.namespace.type_conforms_to(conc_name, trait_name):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{concrete}` does not conform to `{trait_name}`, so it cannot be "
+                f"erased into `Box<any {trait_name}>`",
+                expr.arguments[0].value.line, expr.arguments[0].value.column)
+            return box_result
+        # The value is MOVED into the box (consumed).
+        self._check_value_transfer(expr.arguments[0].value, concrete,
+                                   "call argument",
+                                   expr.arguments[0].value.line,
+                                   expr.arguments[0].value.column)
+        expr.erased_box_make = {
+            'trait': trait_name,
+            'concrete': concrete,
+            'allocator': allocator,
+            'make_or': False,
+        }
+        return box_result
+
+    def _try_existential_arg_coercion(self, arg, arg_type, expected_type):
+        """Coerce `&concrete -> &any Trait` at a call boundary (design 51). Returns
+        True if this argument slot is an existential-reference target (whether the
+        coercion succeeded or a conformance error was reported), so the caller
+        skips the generic type-mismatch path."""
+        if (expected_type is None or expected_type.kind != TypeKind.REFERENCE
+                or expected_type.inner_type is None
+                or expected_type.inner_type.kind != TypeKind.EXISTENTIAL):
+            return False
+        trait_name = expected_type.inner_type.existential_trait
+        if arg_type is None:
+            return True
+        if arg_type.kind != TypeKind.REFERENCE or arg_type.inner_type is None:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"expected `&any {trait_name}`; pass a reference to a conforming "
+                f"value (e.g. `&value`)",
+                arg.value.line, arg.value.column)
+            return True
+        # `&var any` needs a `&var` borrow; `&any` accepts either.
+        if expected_type.reference_mutable and not arg_type.reference_mutable:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`&var any {trait_name}` requires a mutable borrow (`&var value`)",
+                arg.value.line, arg.value.column)
+            return True
+        conc = arg_type.inner_type
+        conc_name = conc.struct_name if conc.kind == TypeKind.STRUCT else (
+            "String" if conc.kind == TypeKind.STRING else None)
+        if conc_name is None or not self.namespace.type_conforms_to(conc_name, trait_name):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{conc}` does not conform to `{trait_name}`, so `&{conc}` cannot "
+                f"be erased to `&any {trait_name}`",
+                arg.value.line, arg.value.column)
+            return True
+        arg.value.erase_to_trait = trait_name
+        arg.value.erase_concrete = conc
+        return True
+
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
         """Check a method call, static method call, enum initialization, or module function call."""
+        # design 51: erased-direct `Box<any Trait>.make(v)` — intercept before the
+        # normal generic Box static-factory path (which would substitute the
+        # unsized `any Trait` for `T` and reject the concrete argument).
+        if (isinstance(expr.object, Identifier) and expr.object.name == "Box"
+                and getattr(expr.object, 'type_args', None)
+                and expr.object.type_args[0].kind == TypeKind.EXISTENTIAL
+                and expr.method_name in ("make", "make_or")):
+            return self._check_erased_box_make(expr, expr.object.type_args[0])
         if isinstance(expr.object, MemberAccess):
             obj_type = self._check_member_access(expr.object)
             # Handle static method calls on module-qualified structs: module.Struct.method()
@@ -2661,6 +2832,12 @@ class ExpressionsMixin:
         obj_type = self._check_expression(expr.object)
         if obj_type is None:
             return None
+
+        # design 51: dynamic dispatch through an erased receiver (`any T`,
+        # `&any T`, or `Box<any T>`) — resolve against the trait signature.
+        recv_trait = self._existential_receiver_trait(obj_type)
+        if recv_trait is not None:
+            return self._check_existential_method_call(expr, obj_type, recv_trait)
 
         # design 46: accessors on `UnsafeMemory<T, Use>` — `read()`/`write(v)`
         # (Device: volatile, scalar-only, RO/WO gated) and the Normal region

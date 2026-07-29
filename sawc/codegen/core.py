@@ -39,6 +39,7 @@ from .collections import CollectionsMixin
 from .structs import StructsMixin
 from .match import MatchMixin
 from .results import ResultsMixin
+from .existentials import ExistentialsMixin
 import copy
 
 
@@ -82,7 +83,7 @@ def _install_volatile_ir_support():
 _install_volatile_ir_support()
 
 
-class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, TypesMixin, ResourcesMixin):
+class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, ExistentialsMixin, TypesMixin, ResourcesMixin):
     def __init__(self, namespace: Namespace, target_triple: Optional[str] = None,
                  freestanding: bool = False):
         # Unified namespace from type checker (Phase 0 of module system)
@@ -218,6 +219,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Resource management: variable lifetime tracking
         # Stack of scopes, each scope is a list of (var_name, saw_type) for variables needing cleanup
         self.cleanup_stack: List[List[tuple[str, SawType]]] = []
+        # design 51: `any Trait` existential state (vtables, thunks, destructors).
+        self._existential_init()
         # Cache: type_name -> cleanup behavior ('none', 'deinit', 'implicit_copy', 'no_copy')
         self.type_cleanup_behavior: dict[str, str] = {}
         # Cache: canonical type symbol -> whether the aggregate has any field/
@@ -1148,6 +1151,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # These were queued during monomorphization to ensure all signatures exist first
         self._generate_pending_method_bodies()
 
+        # design 51: fill any `any Trait` vtables requested during body codegen
+        # (destructor + method thunks) now that every impl function is declared.
+        self._emit_pending_vtables()
+
         return str(self.module)
 
     # _resolve_type_alias is now in codegen_types.py (TypesMixin)
@@ -1352,7 +1359,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         for i, st in enumerate(saw_types):
             if (st is not None
                     and st.kind == TypeKind.REFERENCE
-                    and st.reference_mutable):
+                    and st.reference_mutable
+                    # `&var any Trait` (design 51) is a fat STRUCT, not a pointer;
+                    # `noalias` is a pointer-only attribute, so skip it there.
+                    and not (st.inner_type is not None
+                             and st.inner_type.kind == TypeKind.EXISTENTIAL)):
                 llvm_func.args[arg_offset + i].add_attribute('noalias')
 
     def _declare_function(self, func: Function, name_override: str = None):
@@ -1670,6 +1681,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Check if this is a reference type - if so, auto-dereference
         var_type = self.variable_types.get(expr.name)
         if var_type and var_type.kind == TypeKind.REFERENCE:
+            # `&any Trait` (design 51) is a FAT POINTER, not a thin pointer: the
+            # alloca holds the two-word value directly, so a single load yields it
+            # (no second deref — the fat struct is not a pointer to load through).
+            if (var_type.inner_type is not None
+                    and var_type.inner_type.kind == TypeKind.EXISTENTIAL):
+                return self.builder.load(self.variables[expr.name], name=expr.name)
             # For references, the alloca holds a pointer to the actual data
             # Load the pointer, then load the value through it
             ref_ptr = self.builder.load(self.variables[expr.name], name=f"{expr.name}_ref")

@@ -264,6 +264,15 @@ class DeclarationsMixin:
         parameters, self_mutable, self_is_reference = self.parse_parameters()
         self.expect(TokenType.RPAREN)
 
+        # Post-parameter effect slot (designs 22/16/51): `func m(...) sync -> T`.
+        # A `sync` trait method is a checked suspension-free context — and, once
+        # erased, stays sync-callable through `any` (the effect follows the trait
+        # signature). Contextual, same as on free functions / extension methods.
+        is_sync = False
+        if self.match_ident('sync'):
+            is_sync = True
+            self.advance()
+
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)
         if self.match(TokenType.ARROW):
@@ -276,6 +285,7 @@ class DeclarationsMixin:
             return_type=return_type,
             self_mutable=self_mutable,
             self_is_reference=self_is_reference,
+            is_sync=is_sync,
             line=start.line,
             column=start.column
         )

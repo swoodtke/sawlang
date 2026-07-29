@@ -67,10 +67,17 @@ class TypesMixin:
                 raise ValueError("Pointer type missing inner type")
             pointee_type = self._get_llvm_type(saw_type.inner_type)
             return ir.PointerType(pointee_type)
+        elif saw_type.kind == TypeKind.EXISTENTIAL:
+            # `any Trait` (design 51): a fat pointer { data ptr, vtable ptr }.
+            return self._existential_llvm_type()
         elif saw_type.kind == TypeKind.REFERENCE:
             # Reference type: &T or &var T - compiled as pointer
             if saw_type.inner_type is None:
                 raise ValueError("Reference type missing inner type")
+            # `&any Trait` (design 51): the reference IS the fat pointer (data,
+            # vtable) — a two-word value, not a thin pointer-to-fat-pointer.
+            if saw_type.inner_type.kind == TypeKind.EXISTENTIAL:
+                return self._existential_llvm_type()
             pointee_type = self._get_llvm_type(saw_type.inner_type)
             return ir.PointerType(pointee_type)
         elif saw_type.kind == TypeKind.VOID:
@@ -85,6 +92,13 @@ class TypesMixin:
             # Look up the struct type (might actually be an enum, type param, or type alias)
             if saw_type.struct_name is None:
                 raise ValueError("Struct type missing name")
+            # `Box<any Trait, A>` (design 51): an OWNED erased value is itself a fat
+            # pointer { heap data ptr, vtable ptr }. It never monomorphizes through
+            # box.saw (its payload is unsized) — construction/dispatch/teardown are
+            # all special-cased — so intercept the type before that path.
+            if (saw_type.struct_name == "Box" and saw_type.type_args
+                    and saw_type.type_args[0].kind == TypeKind.EXISTENTIAL):
+                return self._existential_llvm_type()
             # design 46: UnsafeMemory<T, Use> is ONE WORD — the raw address.
             # Its `T`/`Use` are phantom (the declared `{ addr: Int }` body is
             # never materialized); every access is intercepted, so the value that

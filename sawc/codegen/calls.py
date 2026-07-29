@@ -351,6 +351,14 @@ class CallsMixin:
         - EnumType.Variant(args) - enum variant initialization
         - ModuleName.function(args) - module function call (Phase 2)
         """
+        # design 51: erased-direct `Box<any Trait>.make(v)` construction, and
+        # dynamic dispatch through a `&any Trait` / `Box<any Trait>` receiver. Both
+        # are tagged by the typechecker.
+        if getattr(expr, 'erased_box_make', None) is not None:
+            return self._generate_erased_box_make(expr)
+        if getattr(expr, 'existential_dispatch', None) is not None:
+            return self._generate_existential_method_call(expr, expr.existential_dispatch)
+
         # Arc payload-method forwarding (design 21b E2): the typechecker resolved
         # this as an immutable `&self` method on Arc's payload; forward through a
         # borrow of the control block's payload slot.

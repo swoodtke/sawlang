@@ -123,6 +123,10 @@ class ResourcesMixin:
           Deinit payload get its active variant released at scope exit;
         - an `Optional<T>` whose inner `T` needs cleanup (brief 23 item 1 probe).
         """
+        # `Box<any Trait, A>` (design 51) always owns a heap payload: its erased
+        # teardown (vtable destructor + dealloc) must run at scope death.
+        if self._is_erased_box(saw_type):
+            return True
         if self._get_cleanup_behavior(saw_type) != "none":
             return True
         if saw_type.kind == TypeKind.ENUM:
@@ -266,6 +270,12 @@ class ResourcesMixin:
            cleanup-needing fields), release those fields directly, in reverse
            declaration order.
         """
+        # `Box<any Trait, A>` (design 51): teardown is driven by the vtable
+        # (destructor + size + align), not a monomorphized `Box_deinit` — the
+        # payload is erased, so there is no static `sizeof<T>`.
+        if self._is_erased_box(saw_type):
+            self._emit_erased_box_drop(ptr, saw_type)
+            return
         method_base = self._type_method_base(saw_type)
         if method_base is not None:
             deinit_name = self._mangle_method_name(method_base, "deinit")
@@ -528,6 +538,16 @@ class ResourcesMixin:
         already-checkpointed sites and closes these two gaps. It never
         double-copies: `_generate_copy` is invoked at most once per transfer.
         """
+        # design 51: erase `&concrete` to `&any Trait` at the call boundary. The
+        # typechecker tagged this argument; the underlying expression lowers to a
+        # pointer to the concrete value, which we wrap into a fat pointer with the
+        # (concrete, trait) vtable attached. A borrow — no move/copy.
+        erase_trait = getattr(value_expr, 'erase_to_trait', None)
+        if erase_trait is not None:
+            data_ptr = self._generate_expression(value_expr)
+            return self._erase_pointer_to_any(
+                data_ptr, value_expr.erase_concrete, erase_trait)
+
         value = self._generate_expression(value_expr)
         if self._transfer_needs_copy(value_expr):
             value = self._generate_copy(value, self._expr_type(value_expr))

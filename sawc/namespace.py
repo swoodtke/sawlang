@@ -96,6 +96,8 @@ class TraitMethodSymbol:
     return_type: Optional[SawType] = None
     self_mutable: bool = False
     self_is_reference: bool = True
+    # `sync` trait method (design 22/51): calls through `any` stay sync-callable.
+    is_sync: bool = False
 
 
 @dataclass

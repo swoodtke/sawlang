@@ -93,16 +93,40 @@ A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
 - **N7. Built-in type extensions where still missing (extension Int
   etc.)** — small; String already has them. [App-1]
 
-### NICE TO HAVE (real weight, not blocking)
-Default parameter values; `..=` + enumerate(); Int.max/min constants +
-fixed-width literal suffixes (the design-47 literal note); Set<T>
-(HashMap-backed) + Map/Set literals; unsafe blocks (formalize the
-naming convention into scoping); slices (needs its own design —
-interacts with no-escape refs); where clauses; static_assert;
-\x/\u{} escapes (string model reserved room); import aliasing `as`;
-submodule directories; Vector literals; std.io Read/Write traits (on
-N1+51); `loop` keyword; computed properties; conditional extensions;
-method overloading beyond init; use-before-init detection.
+### NICE TO HAVE — TRIAGED Jul 29 (user, one-by-one)
+**ADD before apps** (→ briefs 53/54):
+- Brief 53 "ergonomics family": default parameter values; `..=` +
+  enumerate(); Int.max/min constants + fixed-width literal suffixes
+  (closes design 47's riscv32 literal gap); `\u{}` escapes (UTF-8-safe;
+  `\x` stays deferred pending a byte-string design); import aliasing
+  `as`; static_assert (kernel register-block size checks);
+  use-before-init (probe first — bindings may make it structurally
+  impossible; implement or document per verdict).
+- Brief 54 "collections family" (after 48): Set<T> (HashMap-backed);
+  collection literals for Map/Set/Vector (mini-design inside the
+  brief: `{ }` ambiguity vs closures/blocks, empty forms `{:}`/`{}`,
+  the spec's sketched syntax).
+
+**DEFERRED** (user, Jul 29): slices (needs own design vs no-escape
+refs); `\x` byte escapes; where clauses; extension sugar (computed
+properties, conditional extensions); submodule directories; std.io
+traits (post-N1, Blade-driven).
+
+**PROMOTED/DROPPED (second pass, Jul 29):**
+- **Overloading beyond init — ADDED, decided: design 55** (exact-match
+  model; slots BEFORE the N-family so stdlib APIs use it; absorbs the
+  append_int wart).
+- **`loop` and `ref` keywords — DROPPED entirely** (loop: redundant
+  with `while {}`; ref: no design ever existed, the plausible future
+  use — by-ref match bindings — would use the `&` sigil vocabulary per
+  house precedent, and `ref` is a valuable identifier). **`do` and
+  `defer` KEPT reserved** (user, Jul 29 — cheap insurance, plausible
+  futures, worthless as identifiers; re-reserving later would break
+  code). Removals via design 55's doc item.
+- **Unsafe blocks — DROPPED by principle:** "unsafety is type-carried,
+  not region-carried" (the Unsafe-prefix convention IS the model;
+  region blocks would be wrapper noise in driver code; `unsafe`
+  keyword stays reserved costlessly). Spec principle doc in 55.
 
 ### MAYBE LATER (research-tier or post-both-apps)
 Const generics; const fn; macros (declarative/derive beyond N6's

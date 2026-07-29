@@ -992,6 +992,7 @@ class TraitMethod(ASTNode):
     return_type: SawType
     self_mutable: bool = False  # True for '&var self'
     self_is_reference: bool = False  # True for '&self' or '&var self'
+    is_sync: bool = False  # `func m(...) sync` — a checked suspension-free method
     line: int = 0
     column: int = 0
 

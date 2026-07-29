@@ -340,7 +340,8 @@ class RegistrationMixin:
                 return_type=method.return_type,
                 param_names=param_names,
                 self_mutable=method.self_mutable,
-                self_is_reference=method.self_is_reference
+                self_is_reference=method.self_is_reference,
+                is_sync=getattr(method, 'is_sync', False)
             )
 
         # Collect associated type names (own + inherited)
