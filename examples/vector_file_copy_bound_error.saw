@@ -1,0 +1,13 @@
+// Design 40 item 2 (L4, verify-first): `Vector<File>.copy()` once produced a
+// raw Python traceback (brief 09). The bound-gated extension (brief 14) plus the
+// ICE wrapper (brief 26) turned it into a clean, user-facing diagnostic: `copy`
+// lives in `extension Vector<T: Copy>`, and `File` is a NoCopy resource, so the
+// method simply does not exist for `Vector<File>`. Locking test for that verdict.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no method `copy`: requires `T: Copy`, and `File` does not conform
+
+func main() {
+    var v = Vector<File>()
+    let w = v.copy()
+    print(1)
+}
