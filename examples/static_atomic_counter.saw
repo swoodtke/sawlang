@@ -10,10 +10,15 @@
 // true
 // 7
 // 3
+// 13
 
 static COUNTER: Atomic<Int> = Atomic(0)
 
 struct Stats { hits: Atomic<Int> }
+
+// A static struct with an interior-mutable Atomic field: mutating the field
+// through the immutable static must hit the global, not a copy.
+static GLOBAL_STATS: Stats = Stats(hits: Atomic(10))
 
 func main() {
     let old = COUNTER.fetch_add(5)   // returns previous value 0
@@ -29,4 +34,8 @@ func main() {
     let s = Stats(hits: Atomic(1))
     s.hits.fetch_add(2)
     print(s.hits.load())             // 3
+
+    // Interior-mutable field of a static struct: writes hit the global.
+    GLOBAL_STATS.hits.fetch_add(3)
+    print(GLOBAL_STATS.hits.load())  // 13
 }

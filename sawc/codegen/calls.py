@@ -876,6 +876,12 @@ class CallsMixin:
             if var_type is not None and var_type.kind == TypeKind.REFERENCE:
                 base_ptr = self.builder.load(base_ptr, name=f"{expr.name}_ref")
             return base_ptr
+        # Module-level static (design 41): its global IS the storage, so a field
+        # or element reached through it (`S.field`, `S[i]`) addresses the real
+        # static — needed so an interior-mutable field (`S.hits.fetch_add(..)`)
+        # hits the global, not a copy.
+        if isinstance(expr, Identifier) and expr.name in self.static_globals:
+            return self.static_globals[expr.name]
         if isinstance(expr, SelfExpr) and "self" in self.variables:
             return self.variables["self"]
         if isinstance(expr, MemberAccess):
