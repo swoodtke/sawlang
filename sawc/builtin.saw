@@ -144,6 +144,36 @@ struct WriteOnly<T> {
 }
 
 // =============================================================================
+// Cooperative-task protocol (designs 44/45/52b)
+// =============================================================================
+
+// __Poll — the resume signal. A coroutine frame's `resume` returns Pending (it
+// suspended and must be resumed again) or Done (it completed; its result, if
+// any, is frame-resident in `__result`). Compiler-synthesized frames return
+// this; the executor drives on it. Declared here (rather than synthesized per
+// program) so it is a stable named type the builtin `Resumable` trait can name.
+enum __Poll {
+    case Pending,
+    case Done
+}
+
+// Resumable — the erased driver protocol every coroutine frame conforms to (the
+// conformance is compiler-synthesized by the coro transform, design 52b item 1).
+// A frame boxed as `Box<any Resumable>` lets a heterogeneous run queue
+// (`Vector<Box<any Resumable>>`) drive distinct frame types uniformly.
+//   * `resume(&var self) -> __Poll` — advance the state machine one step;
+//     mutation flows through the fat pointer's data word into the heap frame.
+//   * `__wake_reason(&self) -> Int` — after a Pending, the wake reason the frame
+//     communicated: 0 = ready (yield / channel-wait retry — requeue at once),
+//     >0 = sleep that many milliseconds. Read by the executor to schedule.
+// Object-safe by construction: no Self-by-value, no generics, no associated
+// types; `&var self` receivers are any-able (design 51).
+trait Resumable {
+    func resume(&var self) -> __Poll
+    func __wake_reason(&self) -> Int
+}
+
+// =============================================================================
 // Iterator Support
 // =============================================================================
 

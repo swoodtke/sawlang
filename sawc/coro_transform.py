@@ -598,7 +598,26 @@ class _FrameBuilder:
             self_mutable=True, self_is_reference=True,
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
-        resume_ext = Extension(struct_name=self.frame_name, methods=[resume],
+        # The `__wake read surface` of the Resumable protocol (design 52b item 1):
+        # a `&self` accessor returning the frame's wake word, so the executor can
+        # schedule an erased task without reaching into a concrete field.
+        wake_reason = Method(
+            name="__wake_reason",
+            parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
+                                  is_reference=True, reference_mutable=False)],
+            return_type=SawType(TypeKind.INT),
+            body=Block(statements=[], final_expr=_self_field("__wake")),
+            self_mutable=False, self_is_reference=True,
+            line=func.line, column=func.column,
+            source_file=getattr(func, 'source_file', ""))
+        # Every frame conforms to the builtin `Resumable` trait (design 52b item
+        # 1): the conformance is what lets a frame be erased into
+        # `Box<any Resumable>` for the heterogeneous run queue. Concrete drives
+        # (nested sub-frames, the entry executor, `__drive_*`) still bind `resume`
+        # statically — conformance only synthesizes a vtable at an erasure site.
+        resume_ext = Extension(struct_name=self.frame_name,
+                               methods=[resume, wake_reason],
+                               conformances=["Resumable"],
                                line=func.line, column=func.column,
                                source_file=getattr(func, 'source_file', ""))
         return self.frame_struct, resume_ext
@@ -1313,13 +1332,9 @@ def transform_program(program, typechecker):
     new_functions = []
     removed = set()
 
-    # The Poll signal enum (once).
-    poll_enum = Enum(name="__Poll", variants=[
-        EnumVariant(name="Pending", associated_types=[]),
-        EnumVariant(name="Done", associated_types=[]),
-    ])
-    new_enums.append(poll_enum)
-
+    # The `__Poll` signal enum and the `Resumable` trait are declared in
+    # builtin.saw (always in scope) — not synthesized here — so `Resumable` can
+    # name `__Poll` and frames can conform to it for the erased run queue.
     nodes = getattr(typechecker, "_suspend_nodes", {})
 
     # The driven closure: every suspending entry-module free function reachable
