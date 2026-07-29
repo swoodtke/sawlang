@@ -80,13 +80,20 @@ class StructsMixin:
         for i, field_name in enumerate(field_order):
             if field_name in field_values:
                 val = field_values[field_name]
-                # Check if we need to wrap in optional (non-optional value for optional field)
+                # Wrap a bare `T` into `T?` when the field is optional. An optional
+                # is laid out `{ i1 is_some, T }`; wrap exactly when the field has
+                # that shape AND the value is the inner `T` (not already an
+                # optional). The old heuristic ("value is not a struct") misfired
+                # for struct/enum payloads — an enum value is itself a
+                # LiteralStructType, so it was wrongly treated as already-optional
+                # and stored unwrapped (design 52: enum params of a coroutine
+                # frame hit this).
                 expected_field_type = llvm_struct_type.elements[i]
-                if isinstance(expected_field_type, ir.LiteralStructType) and len(expected_field_type.elements) == 2:
-                    # Expected is optional {i1, T}, check if value needs wrapping
-                    if not isinstance(val.type, ir.LiteralStructType):
-                        # Value is not optional, wrap it
-                        val = self._wrap_in_optional(val)
+                if (isinstance(expected_field_type, ir.LiteralStructType)
+                        and len(expected_field_type.elements) == 2
+                        and expected_field_type.elements[0] == ir.IntType(1)
+                        and val.type == expected_field_type.elements[1]):
+                    val = self._wrap_in_optional(val)
                 struct_val = self.builder.insert_value(struct_val, val, i)
 
         return struct_val
