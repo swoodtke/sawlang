@@ -1,5 +1,28 @@
 # Design 51 — `any Trait` existentials (D16, DECIDED Jul 29)
 
+**Status: LANDED.** All seven items ship. `any` is a contextual keyword in type
+position parsing to `TypeKind.EXISTENTIAL`; object safety + the unsized
+discipline are enforced on every declared type; per-(concrete, trait) vtables
+`[dtor, size, align, method thunks…]` are emitted lazily (pending-queue) as
+const rodata, symbols riding the canonical mangler (`__vtable$…`, `__vtthunk$…`,
+`__vtdtor$…`). An erased value is a fat pointer `{ i8* data, i8* vtable }` shared
+by `&any T` and `Box<any T, A>`. Erasure is boundary-only: `&concrete → &any T`
+at call sites, and erased-direct `Box<any T>.make(v)` (factory surface: the
+static method `Box<any T>.make(...)`, matching brief-42). Dispatch is a
+fat-pointer vtable-slot call; effects follow the trait signature (`sync` methods
+stay sync-callable). Box teardown pulls dtor/size/align from the vtable and
+routes dealloc to `A` — verified exactly-once with a Deinit payload at -O1/-O0,
+including a slab-backed `Box<any T, SlabA>`. Flagship `Vector<Box<any Shape>>`
+render loop works. `&var self` methods are any-able (verified — mutating dispatch
+through `&var any T`). Full suite green, zero xfails.
+
+**DEFERRED (as decided):** `Arc<any Trait>` (any generic slot other than `Box`'s
+payload is a clean unsized error today); associated-type pinning
+`any Iterator<Item = Int>`; the fallible erased factory `Box<any T>.make_or`
+(a clean "not yet supported" diagnostic — `make` panics on OOM). The brief-45
+executor consumer (A1b) lands separately.
+
+
 **Ruling (user):** ship user-facing dynamic dispatch NOW as `any Trait`
 — not an internal-only vtable. Keyword `any` (Swift's modern spelling;
 names the intent, full-word style; leaves the opaque-type counterpart

@@ -175,9 +175,10 @@ func process(input: String?) {
 `match`, tuples, fixed arrays, optionals, `Result`, distinct `type` aliases,
 traits, and generic types/functions with monomorphization are all built (see
 the subsection notes). Planned pieces called out below: slices (`&a[1..4]`),
-`Set`/dictionary literals, `dyn` trait objects, trait default methods,
-supertrait *enforcement*, and some primitive widths. Stdlib methods used only
-to illustrate (e.g. `.sqrt()`) are marked *(illustrative)*.
+`Set`/dictionary literals, trait default methods, supertrait *enforcement*, and
+some primitive widths. `any Trait` existentials (type-erased dynamic dispatch)
+are **implemented** (see Traits). Stdlib methods used only to illustrate (e.g.
+`.sqrt()`) are marked *(illustrative)*.
 
 ### Primitive Types
 
@@ -413,9 +414,10 @@ guard let value = maybe else {
 
 Trait definitions, conformance via `extension Type: Trait`, conformance
 checking, single and multiple conformance, associated types (with resolution),
-and `T: Trait` generic bounds are **implemented**. Trait *default method
-bodies*, `dyn Trait` dynamic-dispatch objects, and multi-bound `+` syntax
-(`T: A + B`) are *planned* — the examples below that use them are illustrative.
+`T: Trait` generic bounds, and `any Trait` existentials (type-erased dynamic
+dispatch, below) are **implemented**. Trait *default method bodies* and
+multi-bound `+` syntax (`T: A + B`) are *planned* — the examples below that use
+them are illustrative.
 
 ```saw
 trait Display {
@@ -457,14 +459,80 @@ trait ImplicitCopy: Deinit {
     func copy(&self) -> Self
     // Implementing ImplicitCopy requires also implementing Deinit
 }
+```
 
-// Interface objects (dynamic dispatch)  (illustrative — `dyn` objects planned)
-func render(shapes: [dyn Shape]) {
-    for shape in shapes {
-        shape.draw()
+#### `any Trait` existentials (dynamic dispatch)
+
+**Status: implemented.** `any Trait` is a *type-erased* value: it forgets its
+concrete type and dispatches through a vtable at runtime. It is the keyword
+`any` (Swift's modern spelling — it names the intent), a **contextual** keyword
+in type position, so `any` stays a valid identifier everywhere else. The
+opaque/static-dispatch counterpart (a later addition) will use the keyword
+`generic`.
+
+Erased values live only behind **explicit ownership** — there is no hidden
+existential container (a divergence from Swift, where `any P` silently boxes).
+Costs are visible in the type:
+
+- `&any Trait` — a borrowed erased value (a non-escaping reference).
+- `Box<any Trait, A = Global>` — an owned erased value (NoCopy; the payload is
+  heap-allocated through `A`).
+
+Anywhere else — a by-value binding, field, parameter, or return, or any other
+generic slot such as `Vector<any Trait>` or `Arc<any Trait>` — is a compile
+error naming the rule. `Vector<Box<any Trait>>` is the idiom for a heterogeneous
+collection.
+
+```saw
+trait Shape { func area(&self) -> Int }
+
+struct Circle { r: Int }
+extension Circle: Shape { func area(&self) -> Int { self.r * self.r * 3 } }
+struct Square { s: Int }
+extension Square: Shape { func area(&self) -> Int { self.s * self.s } }
+
+// Borrowed dispatch: `&circle` is erased to `&any Shape` at the call boundary
+// (the vtable is attached there — no retroactive coercion elsewhere).
+func describe(shape: &any Shape) -> Int {
+    shape.area()            // vtable dispatch through the fat pointer
+}
+
+// Owned, heterogeneous collection. Each box is built erased-directly and torn
+// down (payload deinit + dealloc, driven by the vtable) exactly once.
+func total_area() -> Int {
+    var shapes = Vector<Box<any Shape>>()
+    shapes.push(Box<any Shape>.make(Circle(r: 2)))
+    shapes.push(Box<any Shape>.make(Square(s: 3)))
+    var total = 0
+    var n = shapes.len()
+    while n > 0 {
+        if let b = shapes.pop() { total = total + b.area() }
+        n = n - 1
     }
+    total                   // 12 + 9 = 21
 }
 ```
+
+**Representation.** An erased value is a two-word *fat pointer* `(data, vtable)`.
+The vtable is a per-`(concrete type, trait)` constant (rodata; freestanding-fine)
+laid out `[destructor, size, align, methods…]` with the methods in trait
+declaration order. `Box<any Trait, A>` teardown takes the destructor, size, and
+align from the vtable (never a static `sizeof<T>`, since the payload is erased)
+and routes the dealloc to `A`.
+
+**Effects** follow the *trait* signature: a `sync` trait method stays
+sync-callable through `any`; an unmarked one conservatively suspends, like any
+call through a function value.
+
+**Object safety (v1).** A trait is erasable only if every method is
+dispatchable. These are rejected with a diagnostic naming the reason:
+- a method that takes or returns `Self` **by value** (the whole Copy family) —
+  the `&self` / `&var self` *receiver* is fine, so a mutating method IS erasable;
+- a method with its own generic type parameters;
+- a trait with associated types (pinning `any Iterator<Item = Int>` is a later
+  addition);
+- a marker trait (`Send`/`Sync`/`NoCopy`, or any trait with no methods) — there
+  is nothing to dispatch.
 
 ### Type Definitions
 
@@ -2286,16 +2354,25 @@ Reserved words. Some name planned features (marked); logical negation is the
 word `not` (there is no `and`/`or` — use `&&`/`||`), and the empty optional is
 `None`. `case` introduces enum variants and match arms.
 
+The `dyn` reservation is RETIRED — type-erased dynamic dispatch is spelled
+`any Trait` (a contextual keyword in type position, so `any` is still a valid
+identifier). The opaque/static-dispatch counterpart, when it lands, will use the
+provisional keyword `generic`. `sync`, `escaping`, and `any` are all contextual
+(recognized only in specific positions), so they are not reserved words.
+
 ```
 Implemented:
-as       break    case     catch    continue deinit   dyn      else
-enum     extension extern  false    for      func     guard    if
-import   in       init     let      match    module   move     None
-not      package  parent   public   return   self     Self     static
-struct   trait    true     try      type     var      while
+as       break    case     catch    continue deinit   else     enum
+extension extern  false    for      func     guard    if       import
+in       init     let      match    module   move     None     not
+package  parent   public   return   self     Self     static   struct
+trait    true     try      type     var      while
+
+Contextual (recognized only in type/effect positions; still valid identifiers):
+any      escaping sync
 
 Planned / reserved:
-and  async  await  const  defer  do  loop  macro  none  or  ref
+and  async  await  const  defer  do  generic  loop  macro  none  or  ref
 some  unsafe  where
 ```
 

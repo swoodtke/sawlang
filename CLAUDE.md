@@ -315,6 +315,18 @@ The compiler currently supports:
   method introduces type params beyond the extension's; explicit call-site args
   (`v.map<Int>(...)`), inference not yet implemented. `Vector.map`/`fold` use them.
 - Associated types with resolution: `type Item` → `type Item = Int`
+- `any Trait` existentials (design 51): type-erased dynamic dispatch via a fat
+  pointer `(data, vtable)`. `any` is a contextual keyword in type position.
+  Legal only behind explicit ownership — `&any Trait` (borrowed) and
+  `Box<any Trait, A>` (owned, NoCopy); anything else is a clean unsized error.
+  Erasure happens at construction/call boundaries: `&concrete` → `&any Trait`
+  (vtable attached), and erased-direct `Box<any Trait>.make(v)`. Dispatch loads
+  a method thunk from the vtable slot; effects follow the trait signature (a
+  `sync` trait method stays sync-callable through `any`). Box teardown pulls
+  destructor/size/align from the vtable and routes dealloc to `A` (exactly-once).
+  Object safety (v1) rejects Self-by-value methods (the Copy family), generic
+  methods, associated types, and marker traits (`&var self` receivers ARE
+  any-able). `make_or` on an erased Box and `Arc<any Trait>` are deferred.
 - `Equatable` trait gates `==`/`!=` (design 32): trivial (POD) structs and
   payload-free enums auto-conform (the auto-Copy set); primitives + `String`
   builtin. Others opt in via `extension T: Equatable {}` — an empty body
