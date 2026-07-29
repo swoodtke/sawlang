@@ -115,20 +115,32 @@ properties, conditional extensions); submodule directories; std.io
 traits (post-N1, Blade-driven).
 
 **PROMOTED/DROPPED (second pass, Jul 29):**
-- **Overloading beyond init — ADDED, decided: design 55** (exact-match
-  model; slots BEFORE the N-family so stdlib APIs use it; absorbs the
-  append_int wart).
-- **`loop` and `ref` keywords — DROPPED entirely** (loop: redundant
-  with `while {}`; ref: no design ever existed, the plausible future
-  use — by-ref match bindings — would use the `&` sigil vocabulary per
-  house precedent, and `ref` is a valuable identifier). **`do` and
-  `defer` KEPT reserved** (user, Jul 29 — cheap insurance, plausible
-  futures, worthless as identifiers; re-reserving later would break
-  code). Removals via design 55's doc item.
-- **Unsafe blocks — DROPPED by principle:** "unsafety is type-carried,
-  not region-carried" (the Unsafe-prefix convention IS the model;
-  region blocks would be wrapper noise in driver code; `unsafe`
-  keyword stays reserved costlessly). Spec principle doc in 55.
+- **Overloading beyond init — LANDED (design 55, exact-match model).**
+  Namespace overload sets (functions + methods), `_resolve_overload` with
+  the pinned tie-breaks (exact>optional-wrap; before Result/optional
+  auto-wrap; concrete>generic — generic competes only with explicit
+  call-site type args, no inference), decl-site distinctness check
+  (post-alias, bare type params folded), `$OL$` type-signature mangling
+  stamped on symbol + AST node, single-chokepoint (value-transfer / effects
+  / exclusivity all key on the resolved callee; per-overload effect nodes).
+  All four call forms (free/method/static/module). 12 example tests. Choices
+  made: `append_int` REMOVED (absorbed into `append(Int)` overload, one
+  example migrated); init keeps its existing name-based mangling (untouched —
+  it did not fall out to unify cleanly, and init resolution is param-name
+  based, orthogonal to the type-signature scheme). DEFERRED (noted in code):
+  overloaded GENERIC methods (method-level type-arg folding), overloading
+  across SPECIALIZED extensions, and nested-generic decl-site keys
+  (top-level type-param folding only). `append_char` left separate on
+  purpose (unifying Int8 into `append` would make `append(<int literal>)`
+  ambiguous with `append(Int)`).
+- **`loop` and `ref` keywords — DROPPED (design 55 doc item, LANDED).** Neither
+  was ever a compiler keyword, so the removal was spec-only: dropped from
+  Appendix A's reserved list + all `loop { }` spec mentions (`while {}` is the
+  idiom). **`do` and `defer` KEPT reserved.**
+- **Unsafe blocks — DROPPED by principle (design 55 doc item, LANDED):**
+  spec Unsafe Code section rewritten around "unsafety is type-carried, not
+  region-carried" (the Unsafe type prefix IS the model; no unsafe
+  blocks/func/trait; `unsafe` keyword stays reserved costlessly).
 
 ### MAYBE LATER (research-tier or post-both-apps)
 Const generics; const fn; macros (declarative/derive beyond N6's

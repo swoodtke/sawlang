@@ -116,6 +116,45 @@ var b = 1
 f(b, &var b)          // snapshot copies b (== 1) at call setup; then b becomes 101
 ```
 
+**Overloading (exact-match model).**
+**Status: implemented (design 55).** A name may carry several
+functions/methods (beyond `init`, which was always overloadable). This is
+viable precisely because Saw has **no implicit numeric conversions** — an
+argument matches a parameter only if it is *exactly* type-compatible (aliases
+flow to their underlying type, defaults are filled; nothing else). Resolution
+runs at every call form (free, method, static, module-qualified).
+
+```saw
+func describe(x: Int) -> Int { x + 1 }
+func describe(x: String) -> Int { x.len() }     // same arity, different type — OK
+func describe(x: Int, y: Int) -> Int { x + y }  // different arity — OK
+
+describe(10)        // -> Int overload
+describe("hello")   // -> String overload
+describe(3, 4)      // -> 2-arg overload
+```
+
+Tie-breaks apply in order, then the result must be unique:
+1. **Exact beats optional-wrap** — an `Int` argument prefers `f(Int)` over
+   `f(Int?)`; both may coexist.
+2. **Resolution precedes `Result`/optional auto-wrap** — the callee is chosen
+   from the raw argument types, before any return-position wrap machinery.
+3. **Concrete beats generic** — `f(Int)` beats `f<T>(T)`; a generic overload
+   competes only when the call supplies explicit type arguments (Saw has no
+   generic-argument inference). Two matching generics are a call-site
+   ambiguity.
+
+After the rules there must be exactly one survivor, else a call-site ambiguity
+error listing the candidates; a no-match lists them too. **Closure arguments**
+are resolved using the *non-closure* arguments first; if candidates still tie
+and differ only in closure-parameter types, the call is ambiguous (this keeps
+a closure's expected-type inference single-target).
+
+Two declarations that no rule could separate — an identical normalized
+signature (post-alias, with bare type parameters folded to one placeholder, so
+`f<T>(T)`/`f<U>(U)` collide) — are a **declaration-site** error. Same-arity
+different-types and different-arity are always legal.
+
 ### Built-in Functions
 
 A handful of functions are compiler-known (no import needed):
@@ -601,8 +640,9 @@ type Handler<T> = (T) -> Result<(), Error>
 
 ### Type Extensions
 
-**Status: implemented** for user-defined structs (methods, overloaded custom
-`init`, and — see Traits — conformance via `extension Type: Trait`).
+**Status: implemented** for user-defined structs (methods — including
+overloaded methods and static methods, see [Functions](#functions) — overloaded
+custom `init`, and — see Traits — conformance via `extension Type: Trait`).
 Extending built-in types (`extension Int`), computed properties, and generic
 specialized extensions beyond what monomorphization already supports remain
 *planned*. Some method bodies below use stdlib methods (`.sqrt()`, `.cos()`)

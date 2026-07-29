@@ -318,6 +318,16 @@ The compiler currently supports:
 - Custom `init` methods with overloading
 - Method calls: `obj.method(args)`
 - `self` keyword in method bodies
+- Function/method/static overloading (design 55, exact-match model): a name
+  carries an overload set; a candidate matches iff every argument is exactly
+  type-compatible (no implicit conversions). Pinned tie-breaks: exact beats
+  optional-wrap; resolution precedes Result/optional auto-wrap; concrete beats
+  generic (a generic overload competes only with explicit call-site type args).
+  Closures resolve on the non-closure args (closure-only tie = ambiguity).
+  Declaration-site rejection of indistinguishable signatures (post-alias, bare
+  type params folded). Resolution is one chokepoint feeding the value-transfer
+  checkpoint, per-overload effect edges, and exclusivity. `StringBuilder.append`
+  absorbs the old `append_int` as an `append(Int)` overload.
 
 ### Type System
 - Type aliases: `type MyInt = Int` (creates distinct type)
