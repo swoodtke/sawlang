@@ -1,0 +1,28 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+
+// An empty `extension E: Comparable {}` on an enum synthesizes an order by
+// variant declaration order, then lexicographically over the active variant's
+// payload (design 48). Priority orders Low < Medium < High < Custom(level).
+enum Priority {
+    case Low,
+    case Medium,
+    case High,
+    case Custom(level: Int)
+}
+
+extension Priority: Equatable {}
+extension Priority: Comparable {}
+
+func main() {
+    if Priority.Low < Priority.Medium { print(1) }       // tag 0 < 1
+    if Priority.High > Priority.Medium { print(2) }      // tag 2 > 1
+    if Priority.High < Priority.Custom(level: 0) { print(3) }  // tag 2 < 3
+    let a = Priority.Custom(level: 5)
+    let b = Priority.Custom(level: 9)
+    if a < b { print(4) }                                 // same tag, 5 < 9
+}

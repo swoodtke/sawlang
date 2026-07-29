@@ -745,7 +745,23 @@ class Namespace:
                 self.type_conforms_to(name, "ExplicitCopy") or
                 self.type_conforms_to(name, "Copy"))
 
+    def _normalize_struct_enum(self, saw_type: SawType) -> SawType:
+        """A type annotation like `-> Ordering` can reach the trait predicates as
+        a STRUCT-kinded SawType (the parser defaults an unknown capitalized name
+        to STRUCT, and not every path runs it through `_resolve_type`). If the
+        name is actually a registered enum (and neither a struct nor an alias),
+        rewrite it to an ENUM SawType so the enum branches fire."""
+        if (saw_type is not None and saw_type.kind == TypeKind.STRUCT
+                and saw_type.struct_name is not None
+                and self._lookup_struct_deep(saw_type.struct_name) is None
+                and self._lookup_type_alias_deep(saw_type.struct_name) is None
+                and self._lookup_enum_deep(saw_type.struct_name) is not None):
+            return SawType(TypeKind.ENUM, enum_name=saw_type.struct_name,
+                           type_args=saw_type.type_args)
+        return saw_type
+
     def is_equatable(self, saw_type: SawType) -> bool:
+        saw_type = self._normalize_struct_enum(saw_type)
         """Whether values of `saw_type` may be compared with `==`/`!=` (design 32).
 
         Mirrors the Copy family's house rule:
@@ -806,6 +822,87 @@ class Namespace:
             return all(len(fields) == 0 for fields in enum_sym.variants.values())
         return False
 
+    _ORDERED_PRIMITIVE_KINDS = frozenset({
+        TypeKind.INT, TypeKind.UINT,
+        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+        TypeKind.FLOAT,
+    })
+
+    def is_comparable(self, saw_type: SawType) -> bool:
+        """Whether values of `saw_type` may be ordered with `< <= > >=` (design 48).
+
+        Integer types, Float, and String conform builtin. There is NO auto-
+        conformance for user types (field order is a semantic choice), so a
+        struct/enum is Comparable only when it declares `extension T: Comparable`
+        (empty-body synthesis or a hand-written `compare`). A type alias flows to
+        its underlying type. Bool and other kinds are not ordered.
+        """
+        saw_type = self._normalize_struct_enum(saw_type)
+        if saw_type is None:
+            return False
+        kind = saw_type.kind
+        if kind in self._ORDERED_PRIMITIVE_KINDS:
+            return True
+        if kind == TypeKind.STRING:
+            return True
+        if kind == TypeKind.STRUCT:
+            name = saw_type.struct_name
+            alias_sym = self._lookup_type_alias_deep(name)
+            if alias_sym and alias_sym.aliased_type:
+                return self.is_comparable(alias_sym.aliased_type)
+            return self.type_conforms_to(name, "Comparable")
+        if kind == TypeKind.ENUM:
+            return self.type_conforms_to(saw_type.enum_name, "Comparable")
+        return False
+
+    def is_hashable(self, saw_type: SawType) -> bool:
+        """Whether values of `saw_type` may be used as a hash-map key (design 48).
+
+        Mirrors `is_equatable`'s gating exactly (the hash/== contract rides on
+        Equatable): primitives and String conform builtin; trivial (POD) structs
+        and payload-free enums auto-conform; anything else opts in with
+        `extension T: Hashable {}`; optionals/arrays/tuples are Hashable iff their
+        elements are.
+        """
+        saw_type = self._normalize_struct_enum(saw_type)
+        if saw_type is None:
+            return False
+        kind = saw_type.kind
+        if kind in self._TRIVIAL_PRIMITIVE_KINDS:
+            return True
+        if kind == TypeKind.STRING:
+            return True
+        if kind == TypeKind.TUPLE:
+            return all(self.is_hashable(e) for e in (saw_type.element_types or []))
+        if kind == TypeKind.OPTIONAL:
+            return saw_type.inner_type is not None and self.is_hashable(saw_type.inner_type)
+        if kind == TypeKind.ARRAY:
+            return (saw_type.array_element_type is not None
+                    and self.is_hashable(saw_type.array_element_type))
+        if kind == TypeKind.STRUCT:
+            name = saw_type.struct_name
+            alias_sym = self._lookup_type_alias_deep(name)
+            if alias_sym and alias_sym.aliased_type:
+                return self.is_hashable(alias_sym.aliased_type)
+            if self.type_conforms_to(name, "Hashable"):
+                return True
+            if not self.is_trivially_copyable(saw_type):
+                return False
+            struct_sym = self._lookup_struct_deep(name)
+            if struct_sym is None:
+                return False
+            return all(self.is_hashable(ft) for ft in struct_sym.fields.values())
+        if kind == TypeKind.ENUM:
+            name = saw_type.enum_name
+            if self.type_conforms_to(name, "Hashable"):
+                return True
+            enum_sym = self._lookup_enum_deep(name)
+            if enum_sym is None:
+                return False
+            return all(len(fields) == 0 for fields in enum_sym.variants.values())
+        return False
+
     def type_satisfies_bound(self, saw_type: SawType, bound: str) -> bool:
         """Whether a concrete type satisfies a single type-parameter bound.
 
@@ -818,6 +915,10 @@ class Namespace:
             return self.type_satisfies_copy_bound(saw_type)
         if bound == "Equatable":
             return self.is_equatable(saw_type)
+        if bound == "Comparable":
+            return self.is_comparable(saw_type)
+        if bound == "Hashable":
+            return self.is_hashable(saw_type)
         if bound == "Send":
             return self.is_send(saw_type)
         if bound == "Sync":

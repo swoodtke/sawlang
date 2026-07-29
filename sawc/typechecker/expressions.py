@@ -490,14 +490,6 @@ class ExpressionsMixin:
                 )
                 return None
         elif expr.op in ['==', '!=', '<', '>', '<=', '>=']:
-            if left_type.kind == TypeKind.ENUM or right_type.kind == TypeKind.ENUM:
-                if expr.op in ['<', '>', '<=', '>=']:
-                    self._error(
-                        ErrorKind.TYPE_MISMATCH,
-                        f"enum types do not support ordering operators (`{expr.op}`), only `==` and `!=`",
-                        expr.line, expr.column
-                    )
-                    return None
             if not self._types_compatible(left_type, right_type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -527,6 +519,34 @@ class ExpressionsMixin:
                     expr.line, expr.column,
                     hint=hint
                 )
+            # Comparable gating (design 48): `< <= > >=` desugar to `compare()`.
+            # Integer types and Float are ordered directly (Float keeps IEEE/NaN
+            # semantics); raw pointers keep their historical address ordering;
+            # String and user types require Comparable (builtin for String, opt-in
+            # `extension T: Comparable {}` for structs/enums). A `T: Comparable`
+            # bound satisfies this inside a generic body.
+            if expr.op in ['<', '>', '<=', '>=']:
+                lu = self._get_underlying_type(left_type)
+                numeric = int_kinds | {TypeKind.FLOAT}
+                if lu.kind not in numeric and lu.kind != TypeKind.POINTER:
+                    if not self._bound_satisfied(left_type, "Comparable"):
+                        type_params = getattr(self, 'current_type_params', {})
+                        if left_type.kind == TypeKind.STRUCT and left_type.struct_name in type_params:
+                            hint = f"add a `Comparable` bound: `<{left_type.struct_name}: Comparable>`"
+                        elif left_type.kind == TypeKind.STRUCT:
+                            hint = f"add `extension {left_type.struct_name}: Comparable {{}}`"
+                        elif left_type.kind == TypeKind.ENUM:
+                            hint = f"add `extension {left_type.enum_name}: Comparable {{}}`"
+                        else:
+                            hint = None
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"cannot order values of type `{left_type}` with "
+                            f"`{expr.op}`: `{left_type}` does not conform to "
+                            f"`Comparable`",
+                            expr.line, expr.column,
+                            hint=hint
+                        )
             return SawType(TypeKind.BOOL)
         return None
 
@@ -702,6 +722,59 @@ class ExpressionsMixin:
                         "Float formatting requires the hosted profile; "
                         "freestanding `print` supports integers, Bool, and String only",
                         arg.value.line, arg.value.column
+                    )
+            return SawType(TypeKind.VOID)
+        if expr.name == "panic":
+            # design 49 item 1: panic(message: String) -> Never. Emits `message`
+            # (plus a newline) through the saw_panic seam and does not return.
+            # Its type is NEVER (the bottom type): control never continues past
+            # it, so a function body ending in `panic(...)` needs no return value
+            # and the value is assignable to any expected type.
+            if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    "`panic` takes exactly one positional String argument",
+                    expr.line, expr.column
+                )
+            else:
+                msg_type = self._check_expression(expr.arguments[0].value)
+                if (msg_type is not None
+                        and self._get_underlying_type(msg_type).kind != TypeKind.STRING):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`panic` expects a String message, got `{msg_type}`",
+                        expr.arguments[0].value.line, expr.arguments[0].value.column
+                    )
+            return SawType(TypeKind.NEVER)
+        if expr.name == "assert":
+            # design 49 item 2: assert(cond: Bool, message: String). A no-op when
+            # `cond` is true; on false it panics with
+            # "assertion failed: {message} (line N)" through the same seam (the
+            # call-site line N is available on the AST node, so it is included).
+            # `debug_assert` is deferred — there is no build-profile split yet.
+            if len(expr.arguments) != 2 or any(a.name is not None for a in expr.arguments):
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    "`assert` takes exactly two positional arguments "
+                    "(a Bool condition and a String message)",
+                    expr.line, expr.column
+                )
+            else:
+                cond_type = self._check_expression(expr.arguments[0].value)
+                if (cond_type is not None
+                        and self._get_underlying_type(cond_type).kind != TypeKind.BOOL):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`assert` expects a Bool condition, got `{cond_type}`",
+                        expr.arguments[0].value.line, expr.arguments[0].value.column
+                    )
+                msg_type = self._check_expression(expr.arguments[1].value)
+                if (msg_type is not None
+                        and self._get_underlying_type(msg_type).kind != TypeKind.STRING):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`assert` expects a String message, got `{msg_type}`",
+                        expr.arguments[1].value.line, expr.arguments[1].value.column
                     )
             return SawType(TypeKind.VOID)
         if expr.name in ("__test_suspend", "__suspend"):
@@ -1207,6 +1280,12 @@ class ExpressionsMixin:
             [(then_state, then_diverges), (else_state, else_diverges)])
 
         if expr.else_branch:
+            # design 49: a diverging branch (`panic(...)`, type NEVER) contributes
+            # no value to the merge — the `if` takes the other branch's type.
+            if then_type is not None and then_type.kind == TypeKind.NEVER:
+                return else_type
+            if else_type is not None and else_type.kind == TypeKind.NEVER:
+                return then_type
             if then_type and else_type and not self._types_compatible(then_type, else_type):
                 # Check if branches could be Result auto-wrapped
                 expected_return = None
@@ -1365,6 +1444,12 @@ class ExpressionsMixin:
             entry_moves,
             [(then_state, then_diverges), (else_state, else_diverges)])
         if expr.else_branch:
+            # design 49: a diverging branch (`panic(...)`, type NEVER) takes the
+            # other branch's type.
+            if then_type is not None and then_type.kind == TypeKind.NEVER:
+                return else_type
+            if else_type is not None and else_type.kind == TypeKind.NEVER:
+                return then_type
             if then_type and else_type and not self._types_compatible(then_type, else_type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -2135,8 +2220,17 @@ class ExpressionsMixin:
                 self._propagate_optional_type(expr.else_branch.final_expr, expected_type)
         elif isinstance(expr, MatchExpr):
             for arm in expr.arms:
-                if arm.body and arm.body.final_expr:
-                    self._propagate_optional_type(arm.body.final_expr, expected_type)
+                body = arm.body
+                if body is None:
+                    continue
+                # A match arm body is either a Block (propagate into its tail) or
+                # a bare expression (propagate directly) — e.g. `case Occupied(k,v)
+                # -> v` in an optional-returning function (design 48).
+                if isinstance(body, Block):
+                    if body.final_expr:
+                        self._propagate_optional_type(body.final_expr, expected_type)
+                else:
+                    self._propagate_optional_type(body, expected_type)
         elif isinstance(expr, Block):
             if expr.final_expr:
                 self._propagate_optional_type(expr.final_expr, expected_type)
@@ -2446,6 +2540,50 @@ class ExpressionsMixin:
             for tp, ta in zip(p_info.type_params, payload_type.type_args):
                 subst[tp.name] = ta
         return (m, subst)
+
+    def _check_hash_call(self, expr: MethodCall, obj_type: SawType):
+        """Handle a `.hash(&h)` receiver (design 48). Returns (handled, result).
+
+        handled=False means the receiver has a real `hash` method (String, or a
+        struct with a synthesized/custom hash) and normal dispatch should
+        proceed. handled=True means this call was resolved here: a Hashable
+        primitive or auto-conforming (POD struct / payload-free enum) receiver,
+        whose `hash` is emitted inline by codegen. A generic type parameter is
+        left to the bound-aware resolver.
+        """
+        type_params = getattr(self, 'current_type_params', {})
+        # Opaque generic `T`: leave to the bound-aware resolver (it finds `hash`
+        # on a `Hashable` bound).
+        if obj_type.kind == TypeKind.STRUCT and obj_type.struct_name in type_params:
+            return False, None
+        # Concrete type carrying a real `hash` method: normal dispatch.
+        if obj_type.kind == TypeKind.STRUCT:
+            struct_info = self.get_struct_info(obj_type.struct_name, from_type=obj_type)
+            if struct_info and self._lookup_method(struct_info, "hash", obj_type.type_args) is not None:
+                return False, None
+        elif obj_type.kind == TypeKind.STRING:
+            struct_info = self.get_struct_info("String")
+            if struct_info and self._lookup_method(struct_info, "hash") is not None:
+                return False, None
+        # No real method: the receiver must be Hashable (primitive / POD struct /
+        # payload-free enum). Otherwise fall through to the normal (error) path.
+        if not self._bound_satisfied(obj_type, "Hashable"):
+            return False, None
+        # Validate the `&var Hasher` argument.
+        arg_type = self._check_expression(expr.arguments[0].value)
+        ok = (arg_type is not None and arg_type.kind == TypeKind.REFERENCE
+              and arg_type.inner_type is not None
+              and arg_type.inner_type.kind == TypeKind.STRUCT
+              and arg_type.inner_type.struct_name == "Hasher")
+        if not ok:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`hash` expects a `&var Hasher` argument, got `{arg_type}`",
+                expr.line, expr.column,
+                hint="pass a mutable reference to a Hasher: `x.hash(&h)`"
+            )
+        expr.resolved_type = SawType(TypeKind.VOID)
+        return True, SawType(TypeKind.VOID)
 
     def _check_type_param_method_call(self, expr: MethodCall, obj_type: SawType,
                                       bounds) -> Optional[SawType]:
@@ -2929,6 +3067,15 @@ class ExpressionsMixin:
         # method dispatch.
         if expr.method_name == "copy" and len(expr.arguments) == 0:
             handled, result = self._check_copy_call(expr, obj_type)
+            if handled:
+                return result
+
+        # `.hash(&h)` — the Hashable streaming operation (design 48). A receiver
+        # with a real `hash` method (String, or a struct with a synthesized /
+        # custom hash) dispatches normally; a primitive or an auto-conforming
+        # (POD struct / payload-free enum) receiver is resolved here.
+        if expr.method_name == "hash" and len(expr.arguments) == 1:
+            handled, result = self._check_hash_call(expr, obj_type)
             if handled:
                 return result
 
@@ -3563,8 +3710,20 @@ class ExpressionsMixin:
                 )
         if not arm_types:
             return None
-        result_type = arm_types[0]
-        for arm_type in arm_types[1:]:
+        # design 49: a NEVER arm (a diverging `panic(...)`) contributes no value
+        # to the match's type — skip such arms when computing the common arm
+        # type. If every arm diverges, the whole match is NEVER.
+        result_type = None
+        for at in arm_types:
+            if at is not None and at.kind == TypeKind.NEVER:
+                continue
+            result_type = at
+            break
+        if result_type is None:
+            return SawType(TypeKind.NEVER)
+        for arm_type in arm_types:
+            if arm_type is not None and arm_type.kind == TypeKind.NEVER:
+                continue
             if not self._types_compatible(result_type, arm_type):
                 # Check if arms could be Result auto-wrapped
                 # If we're in a function returning Result<T, E> and arms return T and E,
@@ -3587,6 +3746,10 @@ class ExpressionsMixin:
                     if types_for_result:
                         # Wrap arm bodies in ResultOkWrap/ResultErrWrap
                         for i, (arm, arm_type) in enumerate(zip(expr.arms, arm_types)):
+                            # A NEVER arm (`panic(...)`) produces no value — leave
+                            # it unwrapped (design 49).
+                            if arm_type is not None and arm_type.kind == TypeKind.NEVER:
+                                continue
                             if ok_type and self._types_compatible(arm_type, ok_type):
                                 # Wrap the arm body in ResultOkWrap
                                 if isinstance(arm.body, Block) and arm.body.final_expr:

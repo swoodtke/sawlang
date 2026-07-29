@@ -1,0 +1,30 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 1
+// 1
+
+// A `T: Comparable` bound grants `< <= > >=` in a generic body (design 48),
+// resolved via the operator desugar at monomorphization. Satisfied by Int,
+// String, and a `: Comparable`-declaring struct alike.
+struct Version {
+    major: Int
+    minor: Int
+}
+
+extension Version: Comparable {}
+
+func maxOf<T: Comparable>(a: T, b: T) -> T {
+    if a < b { b } else { a }
+}
+
+func main() {
+    print(maxOf<Int>(3, 7))                          // 7
+
+    if maxOf<String>("a", "b") == "b" { print(1) }   // "a" < "b"
+
+    let lo = Version(major: 1, minor: 0)
+    let hi = Version(major: 1, minor: 9)
+    let m = maxOf<Version>(lo, hi)
+    if m == hi { print(1) }                          // lexicographic: hi is larger
+}

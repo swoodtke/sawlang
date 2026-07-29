@@ -69,6 +69,14 @@ class CallsMixin:
         if expr.name == "print":
             return self._generate_print(expr.arguments)
 
+        # design 49: panic(message) / assert(cond, message) — route through the
+        # saw_panic seam. Both terminate their block (panic unconditionally;
+        # assert on the false branch) with `unreachable`.
+        if expr.name == "panic":
+            return self._generate_panic(expr.arguments)
+        if expr.name == "assert":
+            return self._generate_assert(expr)
+
         # Handle the spawn intrinsic: spawn { ... } -> Task<T>
         if expr.name == "spawn":
             return self._generate_spawn(expr)
@@ -327,6 +335,74 @@ class CallsMixin:
 
         return dummy
 
+    def _emit_runtime_panic(self, segments):
+        """Assemble `segments` into one contiguous buffer and abort via saw_panic.
+
+        `segments` is a list of `(i8* ptr, word len)` byte ranges. They are
+        concatenated into a freshly allocated buffer (through __saw_string_alloc,
+        which routes to saw_alloc — freestanding-safe) and handed to the
+        `saw_panic(msg, len)` seam in a single call, so a freestanding handler
+        receives the whole message. `unreachable` terminates the block. Nothing
+        is freed: control never returns.
+        """
+        word = self.int_type
+        i8ptr = ir.IntType(8).as_pointer()
+        memcpy_fn = self._libc_func("memcpy", i8ptr, [i8ptr, i8ptr, word])
+
+        total = ir.Constant(word, 0)
+        for _, seg_len in segments:
+            total = self.builder.add(total, seg_len, name="panic_len")
+        buf = self.builder.call(self.functions["__saw_string_alloc"],
+                                [total], name="panic_buf")
+        offset = ir.Constant(word, 0)
+        for seg_ptr, seg_len in segments:
+            dst = self.builder.gep(buf, [offset], name="panic_seg")
+            self.builder.call(memcpy_fn, [dst, seg_ptr, seg_len])
+            offset = self.builder.add(offset, seg_len, name="panic_off")
+        self.builder.call(self.functions["saw_panic"], [buf, total])
+        self.builder.unreachable()
+
+    def _generate_panic(self, arguments: List[Argument]):
+        """panic(message: String) -> Never (design 49 item 1).
+
+        Emits the runtime String message followed by a newline through the
+        saw_panic seam, then terminates the block. Returns None (the value is
+        NEVER; nothing consumes it).
+        """
+        msg_val = self._generate_expression(arguments[0].value)
+        msg_len = self.builder.call(self.functions["__saw_string_len"], [msg_val],
+                                    name="panic_msg_len")
+        nl_ptr, nl_len = self._raw_bytes_ptr("\n")
+        self._emit_runtime_panic([(msg_val, msg_len), (nl_ptr, nl_len)])
+        return None
+
+    def _generate_assert(self, expr: FunctionCall):
+        """assert(cond: Bool, message: String) (design 49 item 2).
+
+        A no-op when `cond` is true. On false it panics with
+        "assertion failed: {message} (line N)\\n" — the call-site line N is a
+        compile-time constant, baked into the suffix. The message is evaluated
+        only on the failing branch.
+        """
+        cond = self._generate_expression(expr.arguments[0].value)
+        func = self.builder.function
+        fail_bb = func.append_basic_block("assert_fail")
+        cont_bb = func.append_basic_block("assert_cont")
+        self.builder.cbranch(cond, cont_bb, fail_bb)
+
+        self.builder.position_at_end(fail_bb)
+        msg_val = self._generate_expression(expr.arguments[1].value)
+        msg_len = self.builder.call(self.functions["__saw_string_len"], [msg_val],
+                                    name="assert_msg_len")
+        prefix_ptr, prefix_len = self._raw_bytes_ptr("assertion failed: ")
+        suffix_ptr, suffix_len = self._raw_bytes_ptr(f" (line {expr.line})\n")
+        self._emit_runtime_panic([(prefix_ptr, prefix_len),
+                                  (msg_val, msg_len),
+                                  (suffix_ptr, suffix_len)])
+
+        self.builder.position_at_end(cont_bb)
+        return None
+
     def _generate_sizeof(self, expr: FunctionCall):
         """Generate code for sizeof<T>() - returns the size in bytes of type T."""
         # Get the type argument
@@ -530,6 +606,32 @@ class CallsMixin:
                         )
                 return obj_val
 
+        # Hashable `.hash(&h)` (design 48): the single lowering point for the
+        # streaming hash. A receiver with a real `hash` method (String, or a
+        # struct with a synthesized/custom hash) calls it; a primitive, a
+        # payload-free enum, or a trivially-copyable auto-conforming struct is
+        # emitted inline via `_emit_hash`. Either way the receiver value is first
+        # derefed to its value LLVM type, so a `&K`/`&String` reference receiver
+        # (e.g. HashMap's `key: &K`) is handled uniformly.
+        if expr.method_name == "hash" and len(expr.arguments) == 1:
+            recv_type = getattr(expr.object, 'resolved_type', None)
+            if recv_type is not None and self.type_param_context:
+                recv_type = recv_type.substitute(self.type_param_context)
+            hash_val = obj_val
+            if recv_type is not None:
+                expected = self._get_llvm_type(recv_type)
+                while (hash_val.type != expected
+                       and isinstance(hash_val.type, ir.PointerType)):
+                    hash_val = self.builder.load(hash_val, name="hash_recv_deref")
+            hasher_ptr = self._generate_expression(expr.arguments[0].value)
+            base = self._type_method_base(recv_type) if recv_type is not None else None
+            mangled = self._mangle_method_name(base, "hash") if base else None
+            if mangled is not None and mangled in self.functions:
+                self.builder.call(self.functions[mangled], [hash_val, hasher_ptr])
+            else:
+                self._emit_hash(hash_val, recv_type, hasher_ptr)
+            return ir.Constant(ir.IntType(32), 0)
+
         if struct_name is None:
             raise ValueError(f"Cannot determine struct type for method call to {expr.method_name}")
 
@@ -595,6 +697,14 @@ class CallsMixin:
             # If object is a variable, pass its alloca directly
             if isinstance(expr.object, Identifier) and expr.object.name in self.variables:
                 self_arg = self.variables[expr.object.name]
+                # If the receiver binding is itself a `&`/`&var` reference (e.g. a
+                # reference parameter like `h: &var Hasher`), its alloca holds a
+                # pointer TO the referent; load once so a `&var self` method gets
+                # the referent's pointer, not a pointer-to-pointer (design 48:
+                # `h.write_int(...)` inside `String.hash`).
+                vtype = self.variable_types.get(expr.object.name)
+                if vtype is not None and vtype.kind == TypeKind.REFERENCE:
+                    self_arg = self.builder.load(self_arg, name="ref_self_deref")
             elif isinstance(expr.object, SelfExpr) and "self" in self.variables:
                 # For 'self.method()' in a var self method, pass self's pointer directly
                 self_ptr = self.variables["self"]

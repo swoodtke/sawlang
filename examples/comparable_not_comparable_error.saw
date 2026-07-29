@@ -1,0 +1,17 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not conform to `Comparable`
+
+// A struct that does not opt into Comparable cannot be ordered with `<`
+// (design 48): there is NO auto-conformance. Equatable auto-conforms (trivial),
+// so `==` would work, but `<` needs an explicit `extension P: Comparable {}`.
+struct P {
+    x: Int
+}
+
+func main() {
+    let a = P(x: 1)
+    let b = P(x: 2)
+    if a < b {
+        print(1)
+    }
+}

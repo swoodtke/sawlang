@@ -1,0 +1,296 @@
+// HashMap<K, V, A> — an open-addressing hash table (design 48)
+//
+// Collision resolution: OPEN ADDRESSING with linear probing and tombstone
+// deletion. Capacity is always a power of two, so the bucket index is a cheap
+// `hash & (cap - 1)` mask (well-mixed because `Hasher.finish` folds the high
+// half of the FNV state into the low bits). The table grows (doubling, rehash
+// all live entries) once the live-load factor would exceed 3/4.
+//
+// SLOT REPRESENTATION: each slot is a `HashSlot<K, V>` enum. Empty and
+// Tombstone carry NO payload, so a freshly-filled table is deinit-safe even for
+// owning key/value types — there is never a garbage K/V to drop. An occupied
+// slot carries the key and value; when a HashMap is destroyed the backing
+// `Vector<HashSlot>`'s own deinit drops each occupied slot's key and value.
+// Slot updates/removals move the old slot out with `Vector.swap_out` (a
+// refcount-neutral move, never a copy), so an owning key/value is returned to
+// the caller or dropped exactly once — no leak, no double free.
+//
+// The existing Vector-backed `Map` (std/map.saw) STAYS as-is; migrating or
+// deprecating it is a later decision (tracker note).
+
+// Slot state for open addressing. `Occupied` binds the key and value.
+enum HashSlot<K, V> {
+    case Empty,
+    case Tombstone,
+    case Occupied(key: K, value: V)
+}
+
+// HashMap threads the allocator `A` (design 37) into its backing vector, so a
+// `HashMap<K, V, A>` allocates through the SAME allocator. `cap` is the number
+// of slots (a power of two, 0 before the first insert); `count` is the number
+// of live (Occupied) entries.
+struct HashMap<K, V, A: Allocator = Global> {
+    slots: Vector<HashSlot<K, V>, A>
+    count: Int
+    cap: Int
+}
+
+// Lookup / insert / remove require hashing and comparing keys, so the whole
+// operations extension is bounded `K: Hashable + Equatable` (design 48). Every
+// key type used with these methods (Int, String, a `: Hashable`-declaring
+// struct, ...) satisfies both.
+extension HashMap<K: Hashable + Equatable, V, A: Allocator = Global> {
+    // Create an empty map (no allocation until the first insert).
+    init() -> HashMap<K, V, A> {
+        HashMap<K, V, A>(slots: Vector<HashSlot<K, V>, A>(), count: 0, cap: 0)
+    }
+
+    // Number of live entries.
+    func len(&self) -> Int {
+        self.count
+    }
+
+    func is_empty(&self) -> Bool {
+        self.count == 0
+    }
+
+    // ---- internal helpers -------------------------------------------------
+
+    // The 64-bit hash digest of `key` (streamed through a fresh Hasher). Takes
+    // the key by value (a cheap retain for String, bitwise for Int — the same
+    // by-value key convention the existing Map uses); the copy is dropped here.
+    func _hash_code(&self, key: K) -> Int {
+        var h = Hasher()
+        key.hash(&var h)
+        h.finish()
+    }
+
+    // Slot state at `idx`: 0 = empty, 1 = occupied, 2 = tombstone. Reads a
+    // (retained) copy of the slot and drops it — never consumes the table slot.
+    func _slot_state(&self, idx: Int) -> Int {
+        if let s = self.slots.get(idx) {
+            match s {
+                case Empty -> 0,
+                case Occupied(k, v) -> 1,
+                case Tombstone -> 2
+            }
+        } else {
+            0
+        }
+    }
+
+    // Does the occupied slot at `idx` hold a key equal to `key`? (Key by value,
+    // like `_hash_code`.)
+    func _key_eq(&self, idx: Int, key: K) -> Bool {
+        if let s = self.slots.get(idx) {
+            match s {
+                case Occupied(k, v) -> k == key,
+                case Empty -> false,
+                case Tombstone -> false
+            }
+        } else {
+            false
+        }
+    }
+
+    // The value in the occupied slot at `idx`, as a copy (Some), else None.
+    // (`return v` in a V?-returning function auto-wraps to Some(v).)
+    func _get_value(&self, idx: Int) -> V? {
+        if let s = self.slots.get(idx) {
+            match s {
+                case Occupied(k, v) -> { return v },
+                case Empty -> { return None },
+                case Tombstone -> { return None }
+            }
+        }
+        None
+    }
+
+    // Extract the value out of a moved-in slot (Some for Occupied; the key is
+    // dropped), else None.
+    func _take_value(&self, slot: HashSlot<K, V>) -> V? {
+        match slot {
+            case Occupied(k, v) -> { return v },
+            case Empty -> { return None },
+            case Tombstone -> { return None }
+        }
+    }
+
+    // Grow to a fresh power-of-two table (8, then doubling) and rehash all live
+    // entries. Tombstones are dropped in the process. A field cannot be moved
+    // out (partial moves are forbidden, design 35), so the new table is built in
+    // a local, each live entry is moved out of the old table with `swap_out`
+    // (leaving an Empty behind) and probed into the local, and finally the local
+    // is moved into `self.slots` — whose old (now all-Empty) buffer the field
+    // assignment releases.
+    func _grow(&var self) {
+        let new_cap = if self.cap == 0 { 8 } else { self.cap * 2 }
+        let mask = new_cap - 1
+        var new_slots = Vector<HashSlot<K, V>, A>(capacity: new_cap)
+        var f = 0
+        while f < new_cap {
+            new_slots.push(HashSlot<K, V>.Empty)
+            f = f + 1
+        }
+
+        let old_cap = self.cap
+        var j = 0
+        while j < old_cap {
+            let slot = self.slots.swap_out(j, HashSlot<K, V>.Empty)
+            match slot {
+                case Occupied(k, v) -> {
+                    // Probe the new table for the first empty slot (rehash keys
+                    // are unique and the table has no tombstones), then place.
+                    var b = self._hash_code(k) & mask
+                    var found = false
+                    while not found {
+                        var is_empty = false
+                        if let s = new_slots.get(b) {
+                            is_empty = match s {
+                                case Empty -> true,
+                                case Occupied(kk, vv) -> false,
+                                case Tombstone -> false
+                            }
+                        }
+                        if is_empty {
+                            found = true
+                        } else {
+                            b = (b + 1) & mask
+                        }
+                    }
+                    new_slots.set(b, HashSlot<K, V>.Occupied(key: move k, value: move v))
+                },
+                case Empty -> { let _e = 0 },
+                case Tombstone -> { let _t = 0 }
+            }
+            j = j + 1
+        }
+        self.slots = move new_slots
+        self.cap = new_cap
+    }
+
+    // ---- public API -------------------------------------------------------
+
+    // Insert or update. Returns the previous value if the key existed, else None.
+    func insert(&var self, key: K, value: V) -> V? {
+        // Grow before inserting if empty or the load factor would exceed 3/4.
+        if self.cap == 0 || (self.count + 1) * 4 > self.cap * 3 {
+            self._grow()
+        }
+        let mask = self.cap - 1
+        var b = self._hash_code(key) & mask
+        var first_tomb = 0 - 1
+        var probes = 0
+        while probes < self.cap {
+            let st = self._slot_state(b)
+            if st == 0 {
+                // Empty: key absent. Reuse the first tombstone if we passed one.
+                let target = if first_tomb >= 0 { first_tomb } else { b }
+                self.slots.set(target, HashSlot<K, V>.Occupied(key: move key, value: move value))
+                self.count = self.count + 1
+                return None
+            } else if st == 2 {
+                if first_tomb < 0 {
+                    first_tomb = b
+                }
+            } else {
+                if self._key_eq(b, key) {
+                    // Update in place: swap the new entry in, return the old value.
+                    let old = self.slots.swap_out(b, HashSlot<K, V>.Occupied(key: move key, value: move value))
+                    return self._take_value(move old)
+                }
+            }
+            b = (b + 1) & mask
+            probes = probes + 1
+        }
+        // Defensive: the load factor keeps at least one empty slot, so this is
+        // unreachable in practice; grow and retry to stay total.
+        self._grow()
+        return self.insert(move key, move value)
+    }
+
+    // Look up a key. Returns the value (a copy) if present, else None.
+    func get(&self, key: K) -> V? {
+        if self.cap == 0 {
+            return None
+        }
+        let mask = self.cap - 1
+        var b = self._hash_code(key) & mask
+        var probes = 0
+        while probes < self.cap {
+            let st = self._slot_state(b)
+            if st == 0 {
+                return None
+            }
+            if st == 1 && self._key_eq(b, key) {
+                return self._get_value(b)
+            }
+            b = (b + 1) & mask
+            probes = probes + 1
+        }
+        None
+    }
+
+    // Whether the map contains `key`.
+    func contains_key(&self, key: K) -> Bool {
+        if self.cap == 0 {
+            return false
+        }
+        let mask = self.cap - 1
+        var b = self._hash_code(key) & mask
+        var probes = 0
+        while probes < self.cap {
+            let st = self._slot_state(b)
+            if st == 0 {
+                return false
+            }
+            if st == 1 && self._key_eq(b, key) {
+                return true
+            }
+            b = (b + 1) & mask
+            probes = probes + 1
+        }
+        false
+    }
+
+    // Remove a key, returning its value if it was present. The slot becomes a
+    // tombstone so probing past it still reaches later entries.
+    func remove(&var self, key: K) -> V? {
+        if self.cap == 0 {
+            return None
+        }
+        let mask = self.cap - 1
+        var b = self._hash_code(key) & mask
+        var probes = 0
+        while probes < self.cap {
+            let st = self._slot_state(b)
+            if st == 0 {
+                return None
+            }
+            if st == 1 && self._key_eq(b, key) {
+                let old = self.slots.swap_out(b, HashSlot<K, V>.Tombstone)
+                self.count = self.count - 1
+                return self._take_value(move old)
+            }
+            b = (b + 1) & mask
+            probes = probes + 1
+        }
+        None
+    }
+}
+
+// HashMap owns a Vector (Deinit), so it must declare a copy policy. It is
+// NoCopy (move-only): a hash table is not implicitly duplicated, and there is
+// no `.copy()` — transfer it with `move`. (The existing Vector-backed `Map` is
+// ExplicitCopy; HashMap keeps things simple as move-only for now.) Deinit is
+// registered first so the `NoCopy: Deinit` supertrait is satisfied; the empty
+// deinit body suffices because the compiler appends the field cleanup — the
+// slots Vector's own deinit drops every occupied slot's key/value and frees the
+// buffer.
+extension HashMap<K, V, A: Allocator = Global>: Deinit {
+    func deinit(&var self) {
+    }
+}
+
+extension HashMap<K, V, A: Allocator = Global>: NoCopy {
+}

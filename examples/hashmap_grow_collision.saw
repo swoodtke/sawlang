@@ -1,0 +1,34 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 50
+// 0
+// 2500
+// 4900
+// -1
+// 0
+// 2400
+// 2600
+// 49
+
+// HashMap growth and collision handling (design 48): inserting 50 keys forces
+// several doublings and rehashes (linear probing resolves the many bucket
+// collisions). After a removal (a tombstone), probing still reaches neighbours.
+func main() {
+    var m = HashMap<Int, Int>()
+    var i = 0
+    while i < 50 {
+        m.insert(i, i * 100)
+        i = i + 1
+    }
+    print(m.len())                                   // 50
+    if let v = m.get(0) { print(v) }                 // 0
+    if let v = m.get(25) { print(v) }                // 2500
+    if let v = m.get(49) { print(v) }                // 4900
+    if let v = m.get(50) { print(v) } else { print(-1) }  // -1
+
+    m.remove(25)
+    if m.contains_key(25) { print(1) } else { print(0) }  // 0
+    if let v = m.get(24) { print(v) }                // 2400 (past tombstone)
+    if let v = m.get(26) { print(v) }                // 2600
+    print(m.len())                                   // 49
+}

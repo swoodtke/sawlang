@@ -1,0 +1,32 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 9
+// 5
+// 4
+// 3
+// 1
+
+// Vector.sort_by (design 48) takes a comparator closure returning an Ordering.
+// The closure is a NON-escaping parameter. Here it orders DESCENDING.
+func main() {
+    var d = Vector<Int>()
+    d.push(3)
+    d.push(1)
+    d.push(4)
+    d.push(9)
+    d.push(5)
+    d.sort_by { a, b in
+        if a > b {
+            Ordering.Less
+        } else if a < b {
+            Ordering.Greater
+        } else {
+            Ordering.Equal
+        }
+    }
+    var i = 0
+    while i < d.len() {
+        if let x = d.get(i) { print(x) }
+        i = i + 1
+    }
+}

@@ -611,6 +611,11 @@ class TypeUtilsMixin:
         if a is None or b is None:
             return True  # Assume compatible if we couldn't determine types
 
+        # A diverging expression has the bottom type NEVER (design 49): it never
+        # produces a value, so it is assignable into any expected home.
+        if a.kind == TypeKind.NEVER:
+            return True
+
         # None literal is compatible with any optional
         if a.is_none_literal() and b.is_optional():
             return True
@@ -1527,6 +1532,125 @@ class TypeUtilsMixin:
                             break
                     if done:
                         break
+
+    def _check_derivable_compare(self):
+        """A struct/enum with a compiler-derived `compare` (design 48) requires
+        every field / payload to be Comparable, so the lexicographic comparison
+        is well-defined. Reports the first non-conforming member. Runs after all
+        conformances are registered."""
+        for type_name in self._derived_compare_types:
+            struct_info = self.namespace.structs.get(type_name)
+            if struct_info is not None:
+                for field_name, field_type in struct_info.fields.items():
+                    if not self.namespace.is_comparable(field_type):
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"cannot derive `compare` for `{type_name}`: field "
+                            f"`{field_name}` of type `{field_type}` does not "
+                            f"conform to `Comparable`",
+                            struct_info.line, struct_info.column,
+                            hint="give the field a Comparable type, or write "
+                                 "`compare` by hand"
+                        )
+                        break
+                continue
+            enum_info = self.namespace.enums.get(type_name)
+            if enum_info is not None:
+                done = False
+                for variant_name, fields in enum_info.variants.items():
+                    for field_name, field_type in fields:
+                        if not self.namespace.is_comparable(field_type):
+                            self._error(
+                                ErrorKind.TYPE_MISMATCH,
+                                f"cannot derive `compare` for `{type_name}`: "
+                                f"payload `{field_name}` of variant "
+                                f"`{variant_name}` has type `{field_type}` which "
+                                f"does not conform to `Comparable`",
+                                enum_info.ast_node.line if enum_info.ast_node else 0,
+                                enum_info.ast_node.column if enum_info.ast_node else 0,
+                                hint="give the payload a Comparable type"
+                            )
+                            done = True
+                            break
+                    if done:
+                        break
+
+    def _check_derivable_hash(self):
+        """A struct/enum with a compiler-derived `hash` (design 48) requires
+        every field / payload to be Hashable. Reports the first non-conforming
+        member. Runs after all conformances are registered."""
+        for type_name in self._derived_hash_types:
+            struct_info = self.namespace.structs.get(type_name)
+            if struct_info is not None:
+                for field_name, field_type in struct_info.fields.items():
+                    if not self.namespace.is_hashable(field_type):
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"cannot derive `hash` for `{type_name}`: field "
+                            f"`{field_name}` of type `{field_type}` does not "
+                            f"conform to `Hashable`",
+                            struct_info.line, struct_info.column,
+                            hint="give the field a Hashable type, or write "
+                                 "`hash` by hand"
+                        )
+                        break
+                continue
+            enum_info = self.namespace.enums.get(type_name)
+            if enum_info is not None:
+                done = False
+                for variant_name, fields in enum_info.variants.items():
+                    for field_name, field_type in fields:
+                        if not self.namespace.is_hashable(field_type):
+                            self._error(
+                                ErrorKind.TYPE_MISMATCH,
+                                f"cannot derive `hash` for `{type_name}`: payload "
+                                f"`{field_name}` of variant `{variant_name}` has "
+                                f"type `{field_type}` which does not conform to "
+                                f"`Hashable`",
+                                enum_info.ast_node.line if enum_info.ast_node else 0,
+                                enum_info.ast_node.column if enum_info.ast_node else 0,
+                                hint="give the payload a Hashable type"
+                            )
+                            done = True
+                            break
+                    if done:
+                        break
+
+    def _check_ord_hash_require_equatable(self):
+        """Comparable and Hashable both REQUIRE Equatable (design 48): a type
+        that conforms to either must already be Equatable, so `==` and the
+        `compare`/`hash` results agree. Runs after all conformances are
+        registered so auto-Equatable (POD) types satisfy the requirement without
+        a redundant `extension T: Equatable {}`."""
+        from ast_nodes import SawType, TypeKind
+
+        def _type_of(name: str):
+            if name in self.namespace.structs:
+                return SawType(TypeKind.STRUCT, struct_name=name)
+            if name in self.namespace.enums:
+                return SawType(TypeKind.ENUM, enum_name=name)
+            return None
+
+        for type_name, trait in (
+            [(n, "Comparable") for n in self._comparable_types]
+            + [(n, "Hashable") for n in self._hashable_types]
+        ):
+            st = _type_of(type_name)
+            if st is None:
+                continue
+            if not self.namespace.is_equatable(st):
+                loc = self.namespace.structs.get(type_name) or self.namespace.enums.get(type_name)
+                line = getattr(loc, 'line', 0)
+                column = getattr(loc, 'column', 0)
+                if line == 0 and getattr(loc, 'ast_node', None) is not None:
+                    line, column = loc.ast_node.line, loc.ast_node.column
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`{type_name}` conforms to `{trait}` but not to `Equatable`: "
+                    f"`{trait}` requires `Equatable`",
+                    line, column,
+                    hint=f"add `extension {type_name}: Equatable {{}}`"
+                )
 
     def _check_deinit_containment(self):
         """Check that structs containing Deinit fields also implement Deinit."""

@@ -1,0 +1,32 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+
+// A hand-written `compare` overrides synthesis (design 48). Here `Reverse`
+// orders by `value` DESCENDING, so `<` on it is reversed integer order.
+struct Reverse {
+    value: Int
+}
+
+extension Reverse: Equatable {}
+
+extension Reverse: Comparable {
+    func compare(&self, other: Reverse) -> Ordering {
+        // Reversed: larger value compares Less.
+        if self.value > other.value {
+            Ordering.Less
+        } else if self.value < other.value {
+            Ordering.Greater
+        } else {
+            Ordering.Equal
+        }
+    }
+}
+
+func main() {
+    let a = Reverse(value: 10)
+    let b = Reverse(value: 3)
+    if a < b { print(1) }        // 10 "<" 3 under reversed order
+    if b > a { print(2) }
+}

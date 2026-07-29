@@ -1,0 +1,31 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+
+// A trivial (POD) struct auto-conforms to Hashable (design 48), mirroring the
+// auto-Equatable gating. The hash/== contract holds: equal values hash equally
+// (synthesis streams exactly the fields `==` compares).
+struct Point {
+    x: Int
+    y: Int
+}
+
+func main() {
+    let a = Point(x: 1, y: 2)
+    let b = Point(x: 1, y: 2)
+    let c = Point(x: 9, y: 2)
+
+    if a == b { print(1) }
+
+    var h1 = Hasher()
+    a.hash(&var h1)
+    var h2 = Hasher()
+    b.hash(&var h2)
+    if h1.finish() == h2.finish() { print(2) }   // equal values -> equal hash
+
+    var h3 = Hasher()
+    c.hash(&var h3)
+    if h1.finish() != h3.finish() { print(3) }   // distinct values differ here
+}

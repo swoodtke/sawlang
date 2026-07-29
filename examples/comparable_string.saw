@@ -1,0 +1,13 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+
+// String is builtin-Comparable: byte-lexicographic (code-point) order, and a
+// shorter string that is a prefix of a longer one compares Less (design 48).
+func main() {
+    if "apple" < "banana" { print(1) }
+    if "app" < "apple" { print(2) }       // prefix is less
+    if "zebra" > "aardvark" { print(3) }
+}

@@ -1,0 +1,40 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 2
+// 5
+// 8
+// 9
+// apple
+// banana
+// cherry
+
+// Vector.sort() (design 48): in-place, ascending by the element's Comparable
+// order, stable. Works for Int and for String (byte-lexicographic).
+func main() {
+    var v = Vector<Int>()
+    v.push(5)
+    v.push(2)
+    v.push(8)
+    v.push(1)
+    v.push(9)
+    v.push(2)
+    v.sort()
+    var i = 0
+    while i < v.len() {
+        if let x = v.get(i) { print(x) }
+        i = i + 1
+    }
+
+    var s = Vector<String>()
+    s.push("banana")
+    s.push("apple")
+    s.push("cherry")
+    s.sort()
+    var k = 0
+    while k < s.len() {
+        if let x = s.get(k) { print(x) }
+        k = k + 1
+    }
+}

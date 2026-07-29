@@ -15,7 +15,7 @@ from ast_nodes import (
     StaticDecl, SawType, TypeKind, Visibility,
     Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr,
     IntLiteral, FloatLiteral, BoolLiteral, UnaryOp, ArrayLiteral, StructInit,
-    FunctionCall
+    FunctionCall, ExpressionStatement
 )
 from errors import ErrorKind
 from namespace import (
@@ -73,6 +73,12 @@ class RegistrationMixin:
         # hand-written `String.equals` in std/string.saw; `==` on String lowers
         # to a call to it (fixing the old pointer-identity comparison, S4).
         self.namespace.register_conformance("String", "Equatable")
+        # String is Comparable + Hashable builtin (design 48): byte-lexicographic
+        # `compare` and byte-streaming `hash` are hand-written in std/string.saw;
+        # `< <= > >=` on String lower to `String.compare`, and `.hash(&h)` on a
+        # String dispatches to `String.hash`.
+        self.namespace.register_conformance("String", "Comparable")
+        self.namespace.register_conformance("String", "Hashable")
 
         # Register Result<T, E> as a built-in generic enum
         from ast_nodes import TypeParameter
@@ -118,13 +124,27 @@ class RegistrationMixin:
         for stmt in block.statements:
             if isinstance(stmt, (ReturnStatement, BreakStatement, ContinueStatement)):
                 return True
+            # A `panic(...)` call (type NEVER, design 49) diverges just like a
+            # return, so `guard let x = ... else { panic("...") }` is a valid exit.
+            if isinstance(stmt, ExpressionStatement) and self._expr_diverges(stmt.expression):
+                return True
             # Check if-else: both branches must have early exits
             if isinstance(stmt, IfExpr) and stmt.else_branch:
                 then_exits = self._block_has_early_exit(stmt.then_branch)
                 else_exits = self._block_has_early_exit(stmt.else_branch)
                 if then_exits and else_exits:
                     return True
+        # A block whose trailing expression diverges (e.g. `{ panic("...") }`)
+        # also cannot fall through.
+        if block.final_expr is not None and self._expr_diverges(block.final_expr):
+            return True
         return False
+
+    def _expr_diverges(self, expr) -> bool:
+        """True if evaluating `expr` never falls through — i.e. it is a
+        `panic(...)` call (design 49). Used to treat a trailing panic as an
+        early exit for guard/if divergence analysis."""
+        return isinstance(expr, FunctionCall) and expr.name == "panic"
 
     def _check_loop_body(self, body: Block, outer_scope):
         """Check a loop body with may-repeat move semantics (design 15 rule 7).
@@ -603,35 +623,54 @@ class RegistrationMixin:
 
         return tuple(type_args)
 
-    def _register_enum_equatable_extension(self, extension: Extension):
-        """Register an `extension E: Equatable {}` on an enum (design 32).
+    # Traits an enum may opt into with an empty extension body: the compiler
+    # synthesizes the operation inline (payload-deep `==` for Equatable, design
+    # 32; lexicographic `compare`/field-streaming `hash`, design 48). Each maps
+    # to the `_derived_*_types` set codegen consults.
+    _ENUM_DERIVABLE_TRAITS = ("Equatable", "Comparable", "Hashable")
+
+    def _register_enum_derivable_extension(self, extension: Extension):
+        """Register an `extension E: <Equatable|Comparable|Hashable> {}` on an
+        enum (designs 32 / 48).
 
         Enums don't carry methods today, so the only extension supported on one
-        is an empty Equatable opt-in: it registers the conformance and records
-        the enum for payload-deep `==` (synthesized inline by codegen). A custom
-        `equals`, other conformances, or type assignments are rejected here.
+        is an empty opt-in into a derivable trait: it registers the conformance
+        and records the enum for the corresponding synthesized operation
+        (emitted inline by codegen). A custom method, an unsupported conformance,
+        or type assignments are rejected here.
         """
         enum_name = extension.struct_name
-        if (extension.conformances != ["Equatable"] or extension.methods
-                or extension.type_assignments):
+        confs = extension.conformances
+        if (len(confs) != 1 or confs[0] not in self._ENUM_DERIVABLE_TRAITS
+                or extension.methods or extension.type_assignments):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot extend enum `{enum_name}`: only an empty "
-                f"`extension {enum_name}: Equatable {{}}` is supported",
+                f"`extension {enum_name}: Equatable|Comparable|Hashable {{}}` "
+                f"is supported",
                 extension.line, extension.column,
-                hint="enums support Equatable opt-in (payload-deep `==`); other "
-                     "methods and conformances on enums are not available"
+                hint="enums support Equatable/Comparable/Hashable opt-in "
+                     "(synthesized); other methods and conformances on enums are "
+                     "not available"
             )
             return
-        self.namespace.register_conformance(enum_name, "Equatable")
-        self._derived_equals_types.add(enum_name)
+        trait = confs[0]
+        self.namespace.register_conformance(enum_name, trait)
+        if trait == "Equatable":
+            self._derived_equals_types.add(enum_name)
+        elif trait == "Comparable":
+            self._derived_compare_types.add(enum_name)
+            self._comparable_types.add(enum_name)
+        elif trait == "Hashable":
+            self._derived_hash_types.add(enum_name)
+            self._hashable_types.add(enum_name)
 
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
-        # Enum Equatable opt-in (design 32): intercept before the struct lookup
-        # so `extension Color: Equatable {}` doesn't hit "undefined struct".
+        # Enum derivable opt-in (designs 32/48): intercept before the struct
+        # lookup so `extension Color: Equatable {}` doesn't hit "undefined struct".
         if self.get_enum_info(extension.struct_name) is not None:
-            self._register_enum_equatable_extension(extension)
+            self._register_enum_derivable_extension(extension)
             return
 
         # Verify the struct exists (check namespace)
@@ -701,6 +740,73 @@ class RegistrationMixin:
             )
             extension.methods.append(synth_eq)
             self._derived_equals_types.add(extension.struct_name)
+
+        # Lexicographic `compare()` synthesis (design 48): a struct declaring
+        # Comparable without a hand-written `compare` gets a compiler-synthesized
+        # field-order compare. Same shape as the equals synthesis above: register
+        # the signature so conformance passes, skip the empty body in the
+        # typechecker, and emit it lexicographically in codegen. No auto-conform
+        # (field order is a semantic choice) — this fires only on an explicit
+        # `extension T: Comparable`.
+        declares_comparable = "Comparable" in extension.conformances
+        has_compare_method = any(not m.is_init and m.name == "compare"
+                                 for m in extension.methods)
+        if declares_comparable:
+            self._comparable_types.add(extension.struct_name)
+        if declares_comparable and not has_compare_method:
+            synth_cmp = Method(
+                name="compare",
+                parameters=[
+                    Parameter(name="self", type=SawType(TypeKind.VOID),
+                              is_reference=True),
+                    Parameter(name="other", type=SawType(TypeKind.SELF),
+                              is_reference=False),
+                ],
+                return_type=SawType(TypeKind.ENUM, enum_name="Ordering"),
+                body=Block(statements=[], final_expr=None,
+                           line=extension.line, column=extension.column),
+                self_mutable=False,
+                self_is_reference=True,
+                is_derived_compare=True,
+                line=extension.line,
+                column=extension.column,
+            )
+            extension.methods.append(synth_cmp)
+            self._derived_compare_types.add(extension.struct_name)
+
+        # Field-streaming `hash()` synthesis (design 48): a struct declaring
+        # Hashable without a hand-written `hash` gets a compiler-synthesized
+        # hash that streams exactly the fields `==` compares (the hash/==
+        # contract). Trivial (POD) structs auto-conform via is_hashable and need
+        # no extension; this handles the opt-in (e.g. a String-bearing struct).
+        declares_hashable = "Hashable" in extension.conformances
+        has_hash_method = any(not m.is_init and m.name == "hash"
+                              for m in extension.methods)
+        if declares_hashable:
+            self._hashable_types.add(extension.struct_name)
+        if declares_hashable and not has_hash_method:
+            synth_hash = Method(
+                name="hash",
+                parameters=[
+                    Parameter(name="self", type=SawType(TypeKind.VOID),
+                              is_reference=True),
+                    Parameter(name="h", type=SawType(
+                        TypeKind.REFERENCE,
+                        inner_type=SawType(TypeKind.STRUCT, struct_name="Hasher"),
+                        reference_mutable=True),
+                        is_reference=True, reference_mutable=True),
+                ],
+                return_type=SawType(TypeKind.VOID),
+                body=Block(statements=[], final_expr=None,
+                           line=extension.line, column=extension.column),
+                self_mutable=False,
+                self_is_reference=True,
+                is_derived_hash=True,
+                line=extension.line,
+                column=extension.column,
+            )
+            extension.methods.append(synth_hash)
+            self._derived_hash_types.add(extension.struct_name)
 
         # Check if this is a specialized extension (e.g., extension Vector<String>)
         specialization_key = self._get_specialization_key(extension)

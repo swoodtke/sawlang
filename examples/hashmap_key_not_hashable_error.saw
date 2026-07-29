@@ -1,0 +1,15 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Hashable
+
+// HashMap's key type is bounded `K: Hashable + Equatable` (design 48). A struct
+// with a String field that opts into neither is not Hashable, so using it as a
+// key is a compile error at instantiation.
+struct NoHash {
+    label: String
+}
+
+func main() {
+    var m = HashMap<NoHash, Int>()
+    m.insert(NoHash(label: "x"), 1)
+    print(m.len())
+}

@@ -26,6 +26,11 @@ class TypeKind(Enum):
     MODULE = auto()      # For module references during qualified access
     REFERENCE = auto()   # For reference types: &T (immutable), &var T (mutable)
     EXISTENTIAL = auto() # For `any Trait` type-erased existentials (design 51)
+    NEVER = auto()       # Bottom type: the result of a diverging expression
+                         # (`panic(...)`). Assignable to any expected type; a
+                         # function body ending in one needs no return value
+                         # (design 49). NOT a full Never type system — just the
+                         # divergence marker the typechecker/codegen need.
     # Fixed-width integers
     INT8 = auto()
     INT16 = auto()
@@ -1063,6 +1068,8 @@ class Method(ASTNode):
     is_static: bool = False  # True for methods without 'self' parameter
     is_derived_copy: bool = False  # True for a compiler-synthesized memberwise copy()
     is_derived_equals: bool = False  # True for a compiler-synthesized memberwise equals()
+    is_derived_compare: bool = False  # True for a compiler-synthesized lexicographic compare() (design 48)
+    is_derived_hash: bool = False  # True for a compiler-synthesized field-streaming hash() (design 48)
     is_sync: bool = False  # True for a `sync func` method (checked suspension-free)
     # Method-level generic type params (brief 36): the `U` in `func map<U>(...)`,
     # distinct from and in addition to the enclosing extension's own type params.

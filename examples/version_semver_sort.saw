@@ -1,0 +1,46 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 0
+// 5
+// 1
+// 2
+// 0
+// 1
+// 2
+// 3
+// 2
+// 0
+// 0
+
+// The forcing case (design 48): a semver Version struct with an empty
+// `extension Version: Comparable {}` gets a lexicographic major/minor/patch
+// order, and a Vector<Version> sorts correctly. Version is trivial, so it
+// auto-conforms to Equatable (which Comparable requires) and to Copy (which
+// sort requires).
+struct Version {
+    major: Int
+    minor: Int
+    patch: Int
+}
+
+extension Version: Comparable {}
+
+func main() {
+    var vs = Vector<Version>()
+    vs.push(Version(major: 1, minor: 2, patch: 0))
+    vs.push(Version(major: 1, minor: 0, patch: 5))
+    vs.push(Version(major: 2, minor: 0, patch: 0))
+    vs.push(Version(major: 1, minor: 2, patch: 3))
+    vs.sort()
+    // Sorted: 1.0.5, 1.2.0, 1.2.3, 2.0.0
+    var i = 0
+    while i < vs.len() {
+        if let v = vs.get(i) {
+            print(v.major)
+            print(v.minor)
+            print(v.patch)
+        }
+        i = i + 1
+    }
+}

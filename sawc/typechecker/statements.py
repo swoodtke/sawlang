@@ -100,6 +100,12 @@ class StatementsMixin:
         # user body; codegen emits it field-by-field.
         if getattr(method, 'is_derived_equals', False):
             return
+        # Compiler-derived lexicographic compare() / field-streaming hash()
+        # (design 48): no user body; codegen emits them from the field layout.
+        if getattr(method, 'is_derived_compare', False):
+            return
+        if getattr(method, 'is_derived_hash', False):
+            return
 
         self.current_method = method
         self.found_return_with_value = False
@@ -214,7 +220,7 @@ class StatementsMixin:
                         f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
                         method.line, method.column
                     )
-            elif body_type is not None and method.body.final_expr:
+            elif body_type is not None and method.body.final_expr and body_type.kind != TypeKind.NEVER:
                 # Types are compatible - check if we need Optional wrapping
                 if expected_return.is_optional() and not body_type.is_optional() and not body_type.is_none_literal():
                     method.body.final_expr = OptionalWrap(
@@ -302,7 +308,7 @@ class StatementsMixin:
                     f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
                     func.line, func.column
                 )
-        elif body_type is not None and func.body.final_expr:
+        elif body_type is not None and func.body.final_expr and body_type.kind != TypeKind.NEVER:
             # Types are compatible - check if we need Optional wrapping
             if resolved_return_type.is_optional() and not body_type.is_optional() and not body_type.is_none_literal():
                 func.body.final_expr = OptionalWrap(

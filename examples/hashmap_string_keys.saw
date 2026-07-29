@@ -1,0 +1,32 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 4
+// -1
+// 2
+// 22
+// 0
+// 3
+
+// HashMap with String keys (design 48): keys are hashed via String's builtin
+// byte-streaming hash and compared with String content equality, so lookups,
+// updates, and removals all work across owning (refcounted) keys.
+func main() {
+    var m = HashMap<String, Int>()
+    m.insert("one", 1)
+    m.insert("two", 2)
+    m.insert("three", 3)
+    m.insert("four", 4)
+
+    if let v = m.get("two") { print(v) }             // 2
+    if let v = m.get("four") { print(v) }            // 4
+    if let v = m.get("five") { print(v) } else { print(-1) }  // -1
+
+    let old = m.insert("two", 22)
+    if let o = old { print(o) }                      // 2
+    if let v = m.get("two") { print(v) }             // 22
+
+    m.remove("one")
+    if m.contains_key("one") { print(1) } else { print(0) }  // 0
+    print(m.len())                                   // 3
+}

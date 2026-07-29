@@ -1,0 +1,36 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 2
+// 10
+// 20
+// -1
+// 10
+// 99
+// 1
+// 20
+// 0
+// 1
+
+// HashMap<K, V> (design 48) — insert, get, update-returns-old, contains_key,
+// remove. Open addressing with linear probing over a Vector.
+func main() {
+    var m = HashMap<Int, Int>()
+    print(m.len())                                  // 0
+    m.insert(1, 10)
+    m.insert(2, 20)
+    print(m.len())                                  // 2
+    if let v = m.get(1) { print(v) }                // 10
+    if let v = m.get(2) { print(v) }                // 20
+    if let v = m.get(3) { print(v) } else { print(-1) }  // -1
+
+    let old = m.insert(1, 99)                        // update returns old
+    if let o = old { print(o) }                     // 10
+    if let v = m.get(1) { print(v) }                // 99
+
+    if m.contains_key(2) { print(1) } else { print(0) }  // 1
+    let r = m.remove(2)
+    if let rr = r { print(rr) }                     // 20
+    if m.contains_key(2) { print(1) } else { print(0) }  // 0
+    print(m.len())                                  // 1
+}

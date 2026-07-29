@@ -1,0 +1,28 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+
+// An empty `extension T: Comparable {}` synthesizes a LEXICOGRAPHIC compare in
+// field-declaration order (design 48). There is no auto-conformance — field
+// order is a semantic choice — so the opt-in is required. `Point` is a trivial
+// struct, so it auto-conforms to Equatable (which Comparable requires).
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point: Comparable {}
+
+func main() {
+    let a = Point(x: 1, y: 5)
+    let b = Point(x: 1, y: 9)
+    let c = Point(x: 2, y: 0)
+
+    if a < b { print(1) }        // same x, 5 < 9
+    if b < c { print(2) }        // 1 < 2 decides before y
+    if c > a { print(3) }        // 2 > 1
+    if a <= a { print(4) }       // equal -> <= true
+}

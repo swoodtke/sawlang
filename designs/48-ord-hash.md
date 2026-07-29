@@ -43,3 +43,37 @@ Hash/== consistency (synthesis must stream exactly the fields ==
 compares). Sort must not silently copy ExplicitCopy elements (probe
 element handling; bound to T: Copy if extraction demands, per the
 Vector.each precedent — report). Full suite per commit.
+
+## Landed (Jul 29)
+- **Comparable**: `Ordering {Less, Equal, Greater}` + `Comparable` trait in
+  builtin.saw; `< <= > >=` desugar in codegen via `_emit_compare` (an i32
+  Ordering tag) → `_ordering_to_bool`. Builtins: integer/Float direct
+  three-way; String via a hand-written byte-lexicographic `String.compare`.
+  Empty `extension T: Comparable {}` synthesizes lexicographic compare (struct
+  field order; enum variant-tag order then payload), mirroring design-32's
+  synthesis (a `is_derived_compare` Method, emitted memberwise in codegen).
+  NO auto-conformance. "Requires Equatable" is a post-registration check
+  (`_check_ord_hash_require_equatable`), satisfied by auto-Equatable POD types.
+- **Hashable**: streaming `Hasher` (FNV-1a, `write_int`/`finish`) + `Hashable`
+  trait. `x.hash(&var h)` is one codegen lowering point (`_emit_hash`): a real
+  method (String, synthesized/custom struct) is called; a primitive / POD
+  struct / payload-free enum is streamed inline. Auto/synthesis mirror
+  `is_equatable` exactly (`is_hashable`). hash/== contract holds; Float
+  normalizes ±0.0.
+- **sort NEEDED a Copy bound.** `Vector.sort` is `<T: Comparable + Copy>`,
+  `sort_by` is `<T: Copy>` — movement is byte-level `swap` (no copy), but
+  comparison reads elements by value via `get`, exactly the Vector.each
+  precedent. Added `Vector.swap_out` (move-out + placement-in) for HashMap.
+  Insertion sort; stable.
+- **HashMap collision scheme: OPEN ADDRESSING** (linear probing, tombstone
+  deletion), power-of-two capacity, grow (double + rehash) at 3/4 load. Slots
+  are a `HashSlot<K,V> {Empty, Tombstone, Occupied(key,value)}` enum so a fresh
+  table is deinit-safe for owning keys/values; updates/removals `swap_out` the
+  old slot (no leak/double-free). HashMap is NoCopy. Int + String keys tested.
+- **TRACKER NOTE: the Vector-backed `Map` (std/map.saw) STAYS unchanged.**
+  Migrating/deprecating it in favour of HashMap is a later user decision.
+- Enabling fixes (kept): match on a generic enum now substitutes the
+  monomorphization's type params (codegen/match.py); `&var self` method calls
+  through a `&`/`&var` reference param deref once (codegen/calls.py); optional
+  auto-wrap propagation handles expression-bodied match arms
+  (typechecker/expressions.py).

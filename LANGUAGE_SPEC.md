@@ -116,6 +116,36 @@ var b = 1
 f(b, &var b)          // snapshot copies b (== 1) at call setup; then b becomes 101
 ```
 
+### Built-in Functions
+
+A handful of functions are compiler-known (no import needed):
+
+- `print(value?)` — write a value (Int family, `Bool`, `String`, `Float`, or a
+  string interpolation) plus a newline; no argument prints a bare newline.
+- `panic(message: String) -> Never` — abort with `message` (design 49). It
+  routes through the freestanding-safe `saw_panic` runtime seam (message +
+  newline) and **diverges**: its type is `Never`, so a function ending in
+  `panic(...)` needs no return value, and `guard let x = … else { panic(…) }` is
+  a valid diverging exit.
+- `assert(cond: Bool, message: String)` — a no-op when `cond` is true; when
+  false it panics with `assertion failed: {message} (line N)` (the call-site line
+  is included). `debug_assert` is deferred until a build-profile split exists.
+- `sizeof<T>()` / `alignof<T>()` — the size / alignment of `T` in bytes.
+
+```saw
+func checked(x: Int) -> Int {
+    if x < 0 {
+        panic("negative input")   // diverges; no `else`/return needed after
+    }
+    x * 2
+}
+
+func main() {
+    assert(1 + 1 == 2, "arithmetic is broken")   // no-op
+    print(checked(21))                            // 42
+}
+```
+
 ### Control Flow
 
 ```saw
@@ -184,7 +214,12 @@ are **implemented** (see Traits). Stdlib methods used only to illustrate (e.g.
 
 Common types — `Int`, `UInt`, the sized `Int8`…`Int64`/`UInt8`…`UInt64`,
 `Float`/`Float64`, `Bool`, and `String` — are implemented. `Int128`/`UInt128`,
-`Float32`, `Char`, and `Never` are *planned*.
+`Float32`, and `Char` are *planned*. `Never` (the bottom type) exists as the
+type of a diverging `panic(...)` (design 49) — it is not yet spellable in a type
+annotation, but the typechecker uses it: an expression of type `Never` is
+assignable to any expected type, so a function body that ends in `panic(...)`
+needs no return value, and a `panic` arm/branch contributes no type to a
+`match`/`if`.
 
 ```saw
 // Integers
@@ -201,7 +236,7 @@ Float  // Alias for Float64
 Bool        // true, false
 Char        // Unicode scalar value
 String      // Immutable, refcounted byte string (see "String" below)
-Never       // Bottom type (function never returns)
+Never       // Bottom type (a diverging `panic`; not yet nameable in annotations)
 ```
 
 **`Int`/`UInt` are pointer-width** (Swift's model, design 47): 64-bit on
@@ -1426,6 +1461,98 @@ func get_index(arr: [Int], i: Int) -> Int {
 - **Migration note:** payload-carrying enums previously had a tag-only `==`
   (so `Msg.Write("a") == Msg.Write("b")` was wrongly `true`). They now have no
   `==` until they declare `Equatable`, and it is payload-deep.
+
+### Ordering (`Comparable`)
+
+**Status: implemented** (`designs/48-ord-hash.md`). The `Comparable` trait gates
+the ordering operators `< <= > >=`, which **desugar to `compare`**:
+
+```
+enum Ordering { case Less, case Equal, case Greater }
+
+trait Comparable {          // requires Equatable
+    func compare(&self, other: Self) -> Ordering
+}
+```
+
+- **Builtin:** integer types, `Float`, and `String` conform builtin. Integers
+  and `Float` lower directly to `icmp`/`fcmp`; `String` compares
+  **byte-lexicographically** (= code-point order for ASCII / UTF-8; a shorter
+  string that is a prefix of a longer one is `Less`).
+- **No auto-conformance.** Unlike `Equatable`, a struct/enum is *never*
+  automatically `Comparable` — field order is a semantic choice. Opt in with an
+  empty `extension T: Comparable {}`, which **synthesizes** a lexicographic
+  compare (struct: field-declaration order; enum: variant-declaration order,
+  then the active payload). A hand-written `compare` **overrides** the synthesis.
+- **Requires Equatable.** A `Comparable` type must also be `Equatable` (so `==`
+  and `compare(...) == .Equal` agree); a trivial struct satisfies this by
+  auto-`Equatable`, otherwise declare `extension T: Equatable {}` too.
+- `a < b` is `a.compare(b) == .Less`, `a <= b` is `!= .Greater`, etc. A
+  `T: Comparable` generic bound grants the operators in a generic body.
+- **Float NaN:** a `NaN` is unordered, so every ordering operator involving it
+  is `false` (matching the primitive `fcmp`); in a three-way `compare`, an
+  unordered pair yields `Equal` (there is no total order over NaN — documented).
+
+### Hashing (`Hashable`) and `Hasher`
+
+**Status: implemented** (`designs/48-ord-hash.md`). The `Hashable` trait gates
+use as a hash-map key. It streams a value into a **streaming `Hasher`** (FNV-1a):
+
+```
+struct Hasher { /* opaque FNV-1a state */ }
+extension Hasher {
+    init() -> Hasher
+    func write_int(&var self, n: Int)   // FNV-1a step
+    func finish(&self) -> Int           // the digest (with a final avalanche)
+}
+
+trait Hashable {            // requires Equatable
+    func hash(&self, h: &var Hasher)
+}
+```
+
+- Conformance **mirrors `Equatable`'s gating exactly:** trivial (POD) structs
+  and payload-free enums auto-conform; everything else opts in with an empty
+  `extension T: Hashable {}` (which streams each field / active payload);
+  primitives and `String` conform builtin. `Hashable` **requires Equatable**.
+- **hash/== contract:** `a == b` implies `a` and `b` hash identically. Synthesis
+  upholds it by streaming exactly the fields `==` compares; a hand-written
+  `hash` must uphold it. (Unequal values *may* collide — that is a hash map's
+  job to resolve.) `Float` normalizes `-0.0`/`+0.0` so they hash alike; NaN bit
+  patterns are not normalized (`NaN != NaN`, so nothing is required).
+- `x.hash(&var h)` streams `x`; primitives mix directly, `String` streams its
+  bytes, structs/enums stream their fields/payloads.
+
+### `Vector.sort` / `sort_by`
+
+**Status: implemented** (`designs/48-ord-hash.md`). In-place **insertion sort**
+(simple and correct first; **stable** — equal elements keep input order):
+
+- `sort(&var self)` on `Vector<T: Comparable + Copy>` — ascending by `T`'s order.
+- `sort_by(&var self, compare: (T, T) -> Ordering)` on `Vector<T: Copy>` — the
+  comparator is a **non-escaping** closure parameter.
+- Element *movement* uses byte-level `swap` (refcount-neutral, never a copy);
+  *comparison* reads elements by value through `get`, so both are bound to
+  `T: Copy` (the `Vector.each` precedent). No ExplicitCopy element is ever
+  silently duplicated.
+
+### `HashMap<K: Hashable + Equatable, V, A: Allocator = Global>`
+
+**Status: implemented** (`designs/48-ord-hash.md`). An **open-addressing** hash
+table (linear probing, tombstone deletion) over a `Vector` of slot enums:
+
+- Power-of-two capacity (bucket = `hash & (cap-1)`); grows (doubling + rehash)
+  once the live-load factor would exceed 3/4.
+- `init()`, `len`, `is_empty`, `insert(key, value) -> V?` (returns the old value
+  on update), `get(key) -> V?`, `contains_key(key) -> Bool`,
+  `remove(key) -> V?`. Works with `Int` and `String` keys (and any
+  `Hashable + Equatable` key).
+- Slots are an enum `{ Empty, Tombstone, Occupied(key, value) }`, so a fresh
+  table is deinit-safe even for owning key/value types; slot updates/removals
+  move the old slot out (`Vector.swap_out`, a refcount-neutral move), so nothing
+  leaks or double-frees. `HashMap` is **NoCopy** (move-only).
+- The existing Vector-backed **`Map` stays** as-is; migrating/deprecating it is
+  a later decision.
 
 ---
 

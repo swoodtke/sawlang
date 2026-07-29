@@ -331,6 +331,41 @@ extension String {
         }
     }
 
+    // Byte-lexicographic comparison (design 48): String's builtin Comparable
+    // conformance. Bytes are compared as UNSIGNED (0..255), so this is
+    // code-point order for ASCII / UTF-8 — a shorter string that is a prefix of
+    // a longer one is Less. `< <= > >=` on String lower to this.
+    func compare(&self, other: String) -> Ordering {
+        let self_len = self.len()
+        let other_len = other.len()
+        let min_len = if self_len < other_len { self_len } else { other_len }
+        var i = 0
+        while i < min_len {
+            let a = (self.byte_at(i) as Int) & 255
+            let b = (other.byte_at(i) as Int) & 255
+            if a < b { return Ordering.Less }
+            if a > b { return Ordering.Greater }
+            i = i + 1
+        }
+        if self_len < other_len { return Ordering.Less }
+        if self_len > other_len { return Ordering.Greater }
+        Ordering.Equal
+    }
+
+    // Byte-streaming hash (design 48): String's builtin Hashable conformance.
+    // Streams each byte (as an unsigned 0..255 Int) into the Hasher, so equal
+    // string content hashes identically — upholding the hash/== contract with
+    // `equals` (which also compares byte content).
+    func hash(&self, h: &var Hasher) {
+        let n = self.len()
+        var i = 0
+        while i < n {
+            let b = (self.byte_at(i) as Int) & 255
+            h.write_int(b)
+            i = i + 1
+        }
+    }
+
     // Extract a substring from start index to end index (exclusive)
     // Returns empty string if indices are invalid
     func substring(&self, start: Int, end: Int) -> String {

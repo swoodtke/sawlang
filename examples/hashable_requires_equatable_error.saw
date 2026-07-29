@@ -1,0 +1,18 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires `Equatable`
+
+// Hashable REQUIRES Equatable (design 48). `Keyed` has a String field, so it
+// does NOT auto-conform to Equatable; declaring Hashable without also declaring
+// Equatable is an error.
+struct Keyed {
+    label: String
+}
+
+extension Keyed: Hashable {}
+
+func main() {
+    let a = Keyed(label: "x")
+    var h = Hasher()
+    a.hash(&var h)
+    print(h.finish())
+}

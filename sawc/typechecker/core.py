@@ -107,6 +107,18 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # checked for non-Equatable fields/payloads after all conformances are
         # registered.
         self._derived_equals_types: set[str] = set()
+        # Structs/enums whose compare() (< <= > >=) is compiler-derived
+        # (design 48), checked for non-Comparable fields/payloads and the
+        # Equatable requirement after all conformances are registered.
+        self._derived_compare_types: set[str] = set()
+        # Structs/enums whose hash() is compiler-derived (design 48), checked for
+        # non-Hashable fields/payloads after all conformances are registered.
+        self._derived_hash_types: set[str] = set()
+        # Every type declaring `extension T: Comparable` / `Hashable` (derived or
+        # custom): each must also conform to Equatable (the "requires Equatable"
+        # rule), verified after all conformances are registered.
+        self._comparable_types: set[str] = set()
+        self._hashable_types: set[str] = set()
         # Track if we're inside a try-catch block (errors go to catch, not caller)
         self.in_try_catch_block: bool = False
 
@@ -218,6 +230,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_copy_trait_exclusivity()
         self._check_derivable_copy()
         self._check_derivable_equals()
+        self._check_derivable_compare()
+        self._check_derivable_hash()
+        self._check_ord_hash_require_equatable()
         self._check_deinit_containment()
 
         # Register extern functions (FFI)
@@ -481,6 +496,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_copy_trait_exclusivity()
         self._check_derivable_copy()
         self._check_derivable_equals()
+        self._check_derivable_compare()
+        self._check_derivable_hash()
+        self._check_ord_hash_require_equatable()
         self._check_deinit_containment()
 
         # Register extern functions

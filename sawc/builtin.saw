@@ -57,6 +57,81 @@ trait Equatable {
 }
 
 // =============================================================================
+// Ordering + Comparable (design 48)
+// =============================================================================
+
+// Ordering is the three-way result of a comparison. Its variants are declared
+// in the order Less, Equal, Greater so their tags are 0, 1, 2 — the codegen for
+// the `< <= > >=` desugar relies on this ordering (a tag < the Equal tag means
+// "less", a tag > it means "greater").
+enum Ordering {
+    case Less,
+    case Equal,
+    case Greater
+}
+
+// Comparable gates the ordering operators `< <= > >=`, which desugar to a call
+// to `compare` (design 48). Comparable REQUIRES Equatable: a type must already
+// conform to Equatable (auto or opt-in) before it can be Comparable, so
+// `a == b` and `a.compare(b) == .Equal` agree. Integer types, Float (IEEE; NaN
+// is unordered, so every ordering operator involving a NaN is false, exactly
+// like the primitive fcmp), and String (byte-lexicographic = code-point order)
+// conform builtin. There is NO auto-conformance for user types — field order is
+// a semantic choice — so a struct/enum opts in with an empty
+// `extension T: Comparable {}`, which synthesizes a lexicographic
+// field-order / payload-order compare; a hand-written `compare` overrides it.
+trait Comparable {
+    func compare(&self, other: Self) -> Ordering
+}
+
+// =============================================================================
+// Hasher + Hashable (design 48)
+// =============================================================================
+
+// Hasher is the streaming hash accumulator (FNV-1a, 64-bit). A `hash`
+// implementation feeds its fields into a Hasher via `write_int`; the map reads
+// the digest with `finish`. The initial state is the FNV-1a offset basis
+// (14695981039346656037, which as a signed 64-bit Int is the constant below);
+// `write_int` is the FNV-1a step (XOR the input into the state, then multiply
+// by the FNV prime 1099511628211 with wrapping arithmetic). Mixing is done on
+// whole Ints rather than byte-by-byte; `finish` folds the high half into the
+// low bits so a power-of-two bucket mask still sees well-mixed bits.
+struct Hasher {
+    state: Int
+}
+
+extension Hasher {
+    init() -> Hasher {
+        Hasher(state: -3750763034362895579)
+    }
+
+    // FNV-1a step over one Int of input. Uses wrapping multiply (`&*`) because
+    // the FNV prime overflows 64 bits by construction and the wrap is intended.
+    func write_int(&var self, n: Int) {
+        self.state = (self.state ^ n) &* 1099511628211
+    }
+
+    // The finished 64-bit digest, with a final xor-shift avalanche so the low
+    // bits (used by a power-of-two bucket mask) depend on the whole state.
+    func finish(&self) -> Int {
+        let h = self.state
+        h ^ (h >> 32)
+    }
+}
+
+// Hashable gates use as a hash-map key. It REQUIRES Equatable (the hash/==
+// contract: `a == b` implies `a` and `b` hash identically — synthesis streams
+// exactly the fields `==` compares, so it holds for auto and synthesized
+// conformers alike; a hand-written `hash` must uphold it). Conformance mirrors
+// Equatable's gating exactly: trivial (POD) structs and payload-free enums
+// auto-conform; everything else opts in with an empty `extension T: Hashable {}`
+// (which streams each field / active payload); primitives and String conform
+// builtin. `hash` feeds `self` into the streaming `h`.
+trait Hashable {
+    func hash(&self, h: &var Hasher)
+}
+
+// =============================================================================
 // Thread-safety marker traits (design 21 item 1)
 // =============================================================================
 

@@ -248,6 +248,13 @@ make test-filter FILTER=while_expr_conditional_found
 **Test Coverage:** a growing suite of success, error, and panic cases — run
 `make test` to see the current count.
 
+**App-level testing (`blade test`):** `test_runner.py` tests the *compiler*.
+A Saw application tests itself with Blade: `tests/*.saw` files that pass by
+exiting 0 (fail via `assert`/`panic`), discovered/compiled/run by the
+`blade test` subcommand (design 49). Separate machinery from the compiler
+suite — see the "Application-Level Testing" section of TESTING.md. Blade's own
+tests live in `blade/tests/`.
+
 ## Current Features
 
 The compiler currently supports:
@@ -349,6 +356,18 @@ The compiler currently supports:
   synthesizes memberwise `==` (structs) / payload-deep `==` (enums); a
   hand-written `equals` overrides. `!=` is the negation; Float keeps IEEE
   semantics (`NaN != NaN`); `T: Equatable` bound grants `==` in generics.
+- `Comparable` trait gates `< <= > >=` (design 48), which desugar to
+  `compare(&self, other: Self) -> Ordering` (`enum Ordering { Less, Equal,
+  Greater }`). Integer types, `Float` (IEEE; NaN unordered → all ops false),
+  and `String` (byte-lexicographic) are builtin. **No auto-conformance** —
+  opt in via `extension T: Comparable {}` (synthesizes lexicographic
+  field/payload-order compare; hand-written `compare` overrides). Requires
+  `Equatable`. `T: Comparable` bound grants the operators in generics.
+- `Hashable` trait gates hash-map keys (design 48): `hash(&self, h: &var Hasher)`
+  streams into a FNV-1a `Hasher` (`write_int`/`finish`). Conformance mirrors
+  `Equatable`'s gating (auto for trivial structs + payload-free enums; opt-in
+  synthesis otherwise; primitives + `String` builtin). Requires `Equatable`;
+  hash/== contract holds (synthesis streams exactly the fields `==` compares).
 
 ### Memory & Safety
 - Copy trait family: auto-`Copy` trivial types, `ImplicitCopy`, `ExplicitCopy`,
@@ -391,8 +410,22 @@ The compiler currently supports:
   (`Vector<T, A: Allocator = Global>`, `Map<K, V, A = Global>`). `A().alloc(...)`
   is a zero-cost direct call; a custom allocator yields a distinct type and
   deinit frees through the value's own `A`
+- `Vector.sort()` (`T: Comparable + Copy`) / `sort_by(compare)` (`T: Copy`,
+  non-escaping comparator returning `Ordering`) — design 48: in-place, stable
+  insertion sort; byte-level `swap` movement (no element copy), `T: Copy` only
+  for by-value comparison reads. `Vector.swap_out(i, v) -> T` moves a slot out.
+- `HashMap<K: Hashable + Equatable, V, A: Allocator = Global>` (`std/hashmap.saw`,
+  design 48): open addressing (linear probing, tombstones), power-of-two cap,
+  grow at 3/4 load. `insert`/`get`/`remove`/`contains_key`/`len`; Int and String
+  keys. Slots are an enum `{ Empty, Tombstone, Occupied(k, v) }` (owning-key-safe);
+  NoCopy. The Vector-backed `Map` STAYS (deprecation is a later decision).
 
 ### Runtime & Tooling
+- `panic(message: String) -> Never` and `assert(cond: Bool, message: String)`
+  builtins (design 49): both route through the freestanding-safe `saw_panic`
+  seam. `panic` has the bottom type `Never` (diverges — a function ending in it
+  needs no return value; valid in `guard`/`if`/`match` diverging positions);
+  `assert` is a no-op on true, else panics `assertion failed: {msg} (line N)`.
 - Division / modulo by zero panics ("division by zero")
 - Out-of-bounds constant array index is a compile error; tuple index bounds checked
 - Force-unwrap of `None` and `try!` on `Err` panic with a message

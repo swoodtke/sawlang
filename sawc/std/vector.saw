@@ -108,8 +108,7 @@ extension Vector<T, A: Allocator = Global> {
         if let buf = self.buffer {
             (&buf[index]) as UnsafePointer<T>
         } else {
-            let empty: UnsafePointer<T>? = None
-            empty!
+            panic("Vector.ref_at: buffer is empty")
         }
     }
 
@@ -198,6 +197,23 @@ extension Vector<T, A: Allocator = Global> {
                 pj[k] = t
                 k = k + 1
             }
+        }
+    }
+
+    // Replace the element at `index`, returning the previous occupant by MOVE
+    // (design 48, for HashMap slot updates). The old value is bitwise-moved out
+    // and the new one placement-moved in, so it is refcount-neutral: no element
+    // `copy()` and no leak (the placement primitive does not release, but the
+    // prior occupant was moved out first, so nothing is dropped on the floor).
+    // The returned value is owned by the caller. Requires `0 <= index < length`;
+    // an empty/inert buffer panics deterministically.
+    func swap_out(&var self, index: Int, value: T) -> T {
+        if let buf = self.buffer {
+            let old = buf[index]
+            buf[index] = value
+            move old
+        } else {
+            panic("Vector.swap_out: buffer is empty")
         }
     }
 
@@ -355,6 +371,80 @@ extension Vector<T: Copy, A: Allocator = Global> {
             i = i + 1
         }
         move acc
+    }
+}
+
+// =============================================================================
+// Sorting (design 48) — in-place insertion sort.
+// =============================================================================
+//
+// ALGORITHM: straight insertion sort. Chosen for "simple and correct first";
+// it is O(n^2) comparisons but STABLE (equal elements keep their input order,
+// because an element only bubbles past a STRICTLY greater predecessor) and
+// needs no scratch buffer. A merge/quick sort is a future refinement.
+//
+// COPY-FAMILY / BOUND: element MOVEMENT is done with `swap` (byte-level,
+// refcount-neutral — no element `copy()`/`deinit` ever runs), so no owning
+// element is ever duplicated. Element COMPARISON, however, reads two elements
+// by value through `get` (which returns a `T?` copy per T's copy class), so
+// both entry points are bound to `T: Copy` — the same discipline `Vector.each`
+// carries. A `Vector<File>` (NoCopy element) therefore cannot be sorted; a
+// future by-reference comparison overload would lift that. `sort` additionally
+// requires `T: Comparable` for the `<`/`>` ordering.
+extension Vector<T: Comparable + Copy, A: Allocator = Global> {
+    // Sort ascending by the element type's Comparable order. Stable.
+    func sort(&var self) {
+        var i = 1
+        while i < self.length {
+            var j = i
+            // Bubble element j left while its predecessor is strictly greater.
+            // `&&` short-circuits, so `_greater_at` is only read while j > 0.
+            while j > 0 && self._greater_at(j - 1, j) {
+                self.swap(j - 1, j)
+                j = j - 1
+            }
+            i = i + 1
+        }
+    }
+
+    // Internal: is element `i` strictly greater than element `j`? Reads both by
+    // value (the `T: Copy` bound), compares via T's Comparable `>`.
+    func _greater_at(&self, i: Int, j: Int) -> Bool {
+        if let a = self.get(i) {
+            if let b = self.get(j) {
+                return a > b
+            }
+        }
+        false
+    }
+}
+
+// sort_by takes a user comparator returning an Ordering and needs only
+// `T: Copy` (no Comparable — the closure supplies the order). The closure is a
+// NON-escaping parameter (the default), so a comparator passed directly may
+// borrow-capture enclosing locals. Same stability and movement discipline as
+// `sort` (byte-level swap; equal-or-less elements are left in place).
+extension Vector<T: Copy, A: Allocator = Global> {
+    func sort_by(&var self, compare: (T, T) -> Ordering) {
+        var i = 1
+        while i < self.length {
+            var j = i
+            while j > 0 {
+                var should_swap = false
+                if let a = self.get(j - 1) {
+                    if let b = self.get(j) {
+                        should_swap = compare(move a, move b) == Ordering.Greater
+                    }
+                }
+                if should_swap {
+                    self.swap(j - 1, j)
+                    j = j - 1
+                } else {
+                    break
+                }
+            }
+            i = i + 1
+        }
     }
 }
 

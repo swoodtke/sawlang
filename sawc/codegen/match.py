@@ -38,12 +38,21 @@ class MatchMixin:
         # Get enum name from typechecker annotation, or fall back to LLVM type matching
         matched_enum_type = getattr(expr, 'matched_enum_type', None)
         if matched_enum_type is not None:
+            # Substitute the active monomorphization's type params first, so a
+            # match on a generic enum inside a generic body (e.g.
+            # `HashSlot<K, V>` in HashMap's methods, design 48) resolves to the
+            # concrete registered name rather than `HashSlot$2$K$V`.
+            if self.type_param_context:
+                matched_enum_type = matched_enum_type.substitute(self.type_param_context)
             # Canonical mangled name for a (possibly generic) enum, matching the
             # name under which it was registered (see codegen/mangle.py).
             enum_name = mangle_named(matched_enum_type.enum_name, matched_enum_type.type_args)
         else:
             enum_name = None
-            # Fallback: find the enum name by matching LLVM types
+        # Fallback: find the enum name by matching LLVM types (also covers a
+        # substitution that did not land on a registered name).
+        if enum_name is None or enum_name not in self.enum_types:
+            enum_name = None
             for name, (llvm_type, _, _) in self.enum_types.items():
                 if llvm_type == matched_val.type:
                     enum_name = name
@@ -127,8 +136,11 @@ class MatchMixin:
                     arm_result = ir.Constant(ir.IntType(32), 0)  # Placeholder
             else:
                 arm_result = self._generate_expression(arm.body)
-                if isinstance(arm_result.type, ir.VoidType):
-                    # Void expression - use placeholder
+                if arm_result is None or isinstance(arm_result.type, ir.VoidType):
+                    # No value (e.g. a diverging `panic(...)` arm, design 49) or a
+                    # Void expression — use a placeholder. A diverging arm has
+                    # already terminated its block with `unreachable`, so this
+                    # placeholder is never added to the phi below.
                     arm_result = ir.Constant(ir.IntType(32), 0)  # Placeholder
 
             # Only add to arm_results if block is not terminated (has a return)

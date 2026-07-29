@@ -113,6 +113,17 @@ class MethodsMixin:
             self.current_return_type = old_return_type
             return
 
+        # A compiler-derived lexicographic compare() / field-streaming hash()
+        # (design 48) have no user body either; emit them from the field layout.
+        if getattr(method, 'is_derived_compare', False):
+            self._generate_derived_compare_body(struct_name)
+            self.current_return_type = old_return_type
+            return
+        if getattr(method, 'is_derived_hash', False):
+            self._generate_derived_hash_body(struct_name)
+            self.current_return_type = old_return_type
+            return
+
         # Generate method body
         result = self._generate_block(method.body)
 
@@ -209,6 +220,30 @@ class MethodsMixin:
         saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
         result = self._emit_memberwise_equals(self_val, other_val, saw_type)
         self.builder.ret(result)
+
+    def _generate_derived_compare_body(self, struct_name: str):
+        """Emit the body of a compiler-derived lexicographic compare() (design
+        48): load self and other, compare field by field, return the Ordering."""
+        self_ptr = self.variables.get("self")
+        other_ptr = self.variables.get("other")
+        self_val = self.builder.load(self_ptr, name="self_val")
+        other_val = self.builder.load(other_ptr, name="other_val")
+        saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+        result = self._emit_memberwise_compare(self_val, other_val, saw_type)
+        self.builder.ret(result)
+
+    def _generate_derived_hash_body(self, struct_name: str):
+        """Emit the body of a compiler-derived field-streaming hash() (design
+        48): stream each of self's fields into the `&var Hasher` param `h`. `h`
+        is a reference param, so `self.variables['h']` is a Hasher** — load once
+        to get the Hasher*."""
+        self_ptr = self.variables.get("self")
+        self_val = self.builder.load(self_ptr, name="self_val")
+        hasher_slot = self.variables.get("h")
+        hasher_ptr = self.builder.load(hasher_slot, name="hasher_ptr")
+        saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+        self._emit_memberwise_hash(self_val, saw_type, hasher_ptr)
+        self.builder.ret_void()
 
     def _generate_init_method(self, struct_name: str, method: Method):
         """Generate code for a custom init method."""

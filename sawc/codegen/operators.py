@@ -327,25 +327,21 @@ class OperatorsMixin:
             eq = self._emit_equals(left, right, self._equality_operand_type(expr))
             return self.builder.not_(eq, name="netmp")
 
-        elif expr.op == '<':
+        elif expr.op in ('<', '>', '<=', '>='):
+            # Ordering (design 48): Float keeps IEEE fcmp_ordered (every compare
+            # with a NaN is false); integers use icmp. String and user Comparable
+            # types desugar to `compare()` via `_emit_compare`, whose Ordering
+            # result is turned back into the boolean the operator wants.
+            st = self._comparison_operand_type(expr)
             if is_float:
-                return self.builder.fcmp_ordered('<', left, right, name="lttmp")
-            return self.builder.icmp_signed('<', left, right, name="lttmp")
-
-        elif expr.op == '>':
-            if is_float:
-                return self.builder.fcmp_ordered('>', left, right, name="gttmp")
-            return self.builder.icmp_signed('>', left, right, name="gttmp")
-
-        elif expr.op == '<=':
-            if is_float:
-                return self.builder.fcmp_ordered('<=', left, right, name="letmp")
-            return self.builder.icmp_signed('<=', left, right, name="letmp")
-
-        elif expr.op == '>=':
-            if is_float:
-                return self.builder.fcmp_ordered('>=', left, right, name="getmp")
-            return self.builder.icmp_signed('>=', left, right, name="getmp")
+                return self.builder.fcmp_ordered(expr.op, left, right, name="fcmptmp")
+            # String / struct / (payload-free or payload) enum: order via
+            # `compare()`. Everything else (integers, raw pointers) uses icmp.
+            if st is not None and st.kind in (TypeKind.STRING, TypeKind.STRUCT,
+                                              TypeKind.ENUM):
+                return self._ordering_to_bool(expr.op,
+                                              self._emit_compare(left, right, st))
+            return self.builder.icmp_signed(expr.op, left, right, name="icmptmp")
 
         else:
             raise ValueError(f"Unknown binary operator: {expr.op}")
@@ -583,6 +579,385 @@ class OperatorsMixin:
         for val, blk in incoming:
             phi.add_incoming(val, blk)
         return phi
+
+    # =========================================================================
+    # Ordering lowering (design 48)
+    #
+    # `_emit_compare` is the recursive dual of `_emit_equals`: it lowers
+    # `a.compare(b)` for any Comparable type to an i32 that equals the tag of the
+    # resulting `Ordering` value (payload-free enums, incl. Ordering itself, are
+    # a bare i32 tag). Integers/Float compare three-way directly; String calls
+    # its byte-lexicographic `compare`; a struct dispatches to its (synthesized
+    # or custom) compare, or compares fields lexicographically inline; an enum
+    # orders by variant tag then active-payload lexicographic. `< <= > >=` turn
+    # that Ordering back into a boolean via `_ordering_to_bool`.
+    # =========================================================================
+
+    def _comparison_operand_type(self, expr: BinaryOp):
+        """The Saw type a `< <= > >=` operand was checked at (same extraction as
+        the equality path), substituted for the active monomorphization."""
+        return self._equality_operand_type(expr)
+
+    def _ordering_tags(self):
+        """(less, equal, greater) tag ints for the builtin Ordering enum. Falls
+        back to the declared order 0/1/2 if the enum is not registered."""
+        info = self.enum_types.get("Ordering")
+        if info is not None:
+            tags = info[1]
+            return (tags.get("Less", 0), tags.get("Equal", 1), tags.get("Greater", 2))
+        return (0, 1, 2)
+
+    def _ordering_to_bool(self, op, cmp_i32):
+        """Turn an Ordering tag (i32) into the boolean the operator wants:
+        `<` is Less, `>` is Greater, `<=` is not-Greater, `>=` is not-Less."""
+        less, equal, greater = self._ordering_tags()
+        i32 = ir.IntType(32)
+        if op == '<':
+            return self.builder.icmp_signed('==', cmp_i32, ir.Constant(i32, less), name="lt")
+        if op == '>':
+            return self.builder.icmp_signed('==', cmp_i32, ir.Constant(i32, greater), name="gt")
+        if op == '<=':
+            return self.builder.icmp_signed('!=', cmp_i32, ir.Constant(i32, greater), name="le")
+        if op == '>=':
+            return self.builder.icmp_signed('!=', cmp_i32, ir.Constant(i32, less), name="ge")
+        raise ValueError(f"not an ordering operator: {op}")
+
+    def _emit_int_compare(self, left, right):
+        """Three-way integer compare -> Ordering tag (i32). Signed, matching the
+        rest of the comparison codegen."""
+        less, equal, greater = self._ordering_tags()
+        i32 = ir.IntType(32)
+        lt = self.builder.icmp_signed('<', left, right, name="cmp_lt")
+        gt = self.builder.icmp_signed('>', left, right, name="cmp_gt")
+        acc = self.builder.select(gt, ir.Constant(i32, greater),
+                                  ir.Constant(i32, equal), name="cmp_ge")
+        return self.builder.select(lt, ir.Constant(i32, less), acc, name="cmp3")
+
+    def _emit_float_compare(self, left, right):
+        """Three-way Float compare -> Ordering tag (i32), IEEE-ordered. A NaN is
+        unordered, so `<` and `>` are both false and it lands on Equal (there is
+        no total order over NaN; documented). +0.0 and -0.0 compare Equal."""
+        less, equal, greater = self._ordering_tags()
+        i32 = ir.IntType(32)
+        lt = self.builder.fcmp_ordered('<', left, right, name="fcmp_lt")
+        gt = self.builder.fcmp_ordered('>', left, right, name="fcmp_gt")
+        acc = self.builder.select(gt, ir.Constant(i32, greater),
+                                  ir.Constant(i32, equal), name="fcmp_ge")
+        return self.builder.select(lt, ir.Constant(i32, less), acc, name="fcmp3")
+
+    def _emit_compare(self, left, right, saw_type):
+        """Emit an i32 Ordering tag for `left.compare(right)`, recursively."""
+        if isinstance(left.type, ir.DoubleType):
+            return self._emit_float_compare(left, right)
+        st = self._resolve_type_alias(saw_type) if saw_type is not None else None
+        if st is not None:
+            k = st.kind
+            if k == TypeKind.STRING:
+                return self._emit_string_compare(left, right)
+            if k == TypeKind.STRUCT and not isinstance(left.type, ir.IntType):
+                return self._emit_struct_compare(left, right, st)
+            if k == TypeKind.ENUM:
+                return self._emit_enum_compare(left, right, st)
+        # Integers (incl. payload-free enum tags reaching here as a fallback).
+        return self._emit_int_compare(left, right)
+
+    def _emit_string_compare(self, left, right):
+        """String ordering is byte-lexicographic via the stdlib `String.compare`."""
+        fn = self.functions.get(self._mangle_method_name("String", "compare"))
+        if fn is None:
+            # String.compare not linked: fall back to Equal so codegen stays total.
+            _, equal, _ = self._ordering_tags()
+            return ir.Constant(ir.IntType(32), equal)
+        return self.builder.call(fn, [left, right], name="strcmp")
+
+    def _emit_struct_compare(self, left, right, saw_type):
+        """Struct ordering: dispatch to the type's `compare` (synthesized or
+        custom) if one exists, else compare fields lexicographically inline."""
+        base = self._type_method_base(saw_type)
+        mangled = self._mangle_method_name(base, "compare") if base else None
+        if mangled is not None and mangled in self.functions:
+            return self.builder.call(self.functions[mangled], [left, right],
+                                     name="cmp_call")
+        return self._emit_memberwise_compare(left, right, saw_type)
+
+    def _emit_memberwise_compare(self, left, right, saw_type):
+        """Lexicographic field-by-field compare over a struct value -> Ordering
+        tag. The first field whose compare is not Equal decides; if all fields
+        are Equal the struct is Equal. Field compares are pure, so the fold uses
+        selects (no short-circuit needed for correctness)."""
+        key = self._type_method_base(saw_type)
+        llvm_struct_type, field_order = self.struct_types[key]
+        base_fields = self.namespace.get_struct_fields(saw_type.struct_name) or {}
+        subst = {}
+        struct_sym = self.namespace._lookup_struct_deep(saw_type.struct_name)
+        if struct_sym and saw_type.type_args:
+            for tp, arg in zip(struct_sym.type_params, saw_type.type_args):
+                subst[tp.name] = arg
+        fcs = []
+        for i, fname in enumerate(field_order):
+            ftype = base_fields.get(fname)
+            if ftype is not None and subst:
+                ftype = ftype.substitute(subst)
+            lf = self.builder.extract_value(left, i, name=f"l_{fname}")
+            rf = self.builder.extract_value(right, i, name=f"r_{fname}")
+            fcs.append(self._emit_compare(lf, rf, ftype))
+        less, equal, greater = self._ordering_tags()
+        i32 = ir.IntType(32)
+        acc = ir.Constant(i32, equal)
+        for fc in reversed(fcs):
+            is_eq = self.builder.icmp_signed('==', fc, ir.Constant(i32, equal),
+                                             name="fld_eq")
+            acc = self.builder.select(is_eq, acc, fc, name="lex_sel")
+        return acc
+
+    def _emit_enum_compare(self, left, right, saw_type):
+        """Enum ordering (design 48): order by variant tag (declaration order),
+        then, for equal tags, lexicographically over the active variant's payload
+        fields. Payload-free enums are a bare i32 tag, so tag order is the whole
+        answer."""
+        mangled = mangle_named(saw_type.enum_name, saw_type.type_args)
+        info = self.enum_types.get(mangled) or self.enum_types.get(saw_type.enum_name)
+        llvm_enum_type, variant_tags, variant_info = info
+        i32 = ir.IntType(32)
+        less, equal, greater = self._ordering_tags()
+
+        # Payload-free enum: the value IS the tag; compare tags three-way.
+        if not isinstance(llvm_enum_type, ir.LiteralStructType):
+            return self._emit_int_compare(left, right)
+
+        left_tag = self.builder.extract_value(left, 0, name="l_tag")
+        right_tag = self.builder.extract_value(right, 0, name="r_tag")
+        tag_cmp = self._emit_int_compare(left_tag, right_tag)
+        tags_eq = self.builder.icmp_signed('==', left_tag, right_tag, name="tags_eq")
+
+        func = self.builder.function
+        entry_bb = self.builder.block
+        payload_bb = func.append_basic_block("cmp_payload")
+        merge_bb = func.append_basic_block("cmp_merge")
+        # Tags differ -> the tag order is the answer; equal -> compare payloads.
+        self.builder.cbranch(tags_eq, payload_bb, merge_bb)
+
+        self.builder.position_at_end(payload_bb)
+        equal_bb = func.append_basic_block("cmp_payload_free")
+        switch = self.builder.switch(left_tag, equal_bb)
+        payload_array_type = llvm_enum_type.elements[1]
+        incoming = []
+        for variant_name, fields in variant_info.items():
+            if not fields:
+                continue  # payload-free variant -> Equal (default block)
+            arm_bb = func.append_basic_block(f"cmp_{variant_name}")
+            switch.add_case(ir.Constant(i32, variant_tags[variant_name]), arm_bb)
+            self.builder.position_at_end(arm_bb)
+
+            l_payload = self.builder.extract_value(left, 1, name="l_pl")
+            r_payload = self.builder.extract_value(right, 1, name="r_pl")
+            param_struct_type = ir.LiteralStructType(
+                [self._get_llvm_type(t) for _, t in fields])
+            l_alloca = self._entry_alloca(payload_array_type, name="l_pl_slot")
+            self.builder.store(l_payload, l_alloca)
+            r_alloca = self._entry_alloca(payload_array_type, name="r_pl_slot")
+            self.builder.store(r_payload, r_alloca)
+            l_sp = self.builder.bitcast(l_alloca, ir.PointerType(param_struct_type),
+                                        name="l_sp")
+            r_sp = self.builder.bitcast(r_alloca, ir.PointerType(param_struct_type),
+                                        name="r_sp")
+            fcs = []
+            for idx, (fname, ftype) in enumerate(fields):
+                l_fp = self.builder.gep(l_sp, [ir.Constant(i32, 0),
+                                               ir.Constant(i32, idx)], inbounds=True)
+                r_fp = self.builder.gep(r_sp, [ir.Constant(i32, 0),
+                                               ir.Constant(i32, idx)], inbounds=True)
+                lf = self.builder.load(l_fp, name=f"l_{fname}")
+                rf = self.builder.load(r_fp, name=f"r_{fname}")
+                fcs.append(self._emit_compare(lf, rf, ftype))
+            arm_result = ir.Constant(i32, equal)
+            for fc in reversed(fcs):
+                is_eq = self.builder.icmp_signed('==', fc, ir.Constant(i32, equal),
+                                                 name="fld_eq")
+                arm_result = self.builder.select(is_eq, arm_result, fc, name="lex_sel")
+            arm_end = self.builder.block
+            self.builder.branch(merge_bb)
+            incoming.append((arm_result, arm_end))
+
+        self.builder.position_at_end(equal_bb)
+        self.builder.branch(merge_bb)
+
+        self.builder.position_at_end(merge_bb)
+        phi = self.builder.phi(i32, name="enum_cmp")
+        phi.add_incoming(tag_cmp, entry_bb)                 # tags differ
+        phi.add_incoming(ir.Constant(i32, equal), equal_bb)  # payload-free, equal tag
+        for val, blk in incoming:
+            phi.add_incoming(val, blk)
+        return phi
+
+    # =========================================================================
+    # Hash lowering (design 48)
+    #
+    # `_emit_hash` streams a value into a Hasher (a `{ i64 state }` struct at
+    # `hasher_ptr`) with the FNV-1a step, recursing structurally. It streams
+    # exactly the fields `==` compares, so the hash/== contract holds for auto
+    # and synthesized conformers. Primitives mix directly; String dispatches to
+    # its byte-streaming `String.hash`; a struct dispatches to its (synthesized
+    # or custom) hash, or streams fields inline; an enum streams the tag then the
+    # active variant's payload.
+    # =========================================================================
+
+    _FNV_PRIME = 1099511628211
+
+    def _fnv_write_int(self, hasher_ptr, x_i64):
+        """One FNV-1a step: state = (state ^ x) * prime, in place at hasher_ptr.
+        LLVM `mul` wraps (no nsw/nuw), which is exactly the FNV wrap."""
+        i32 = ir.IntType(32)
+        i64 = ir.IntType(64)
+        state_ptr = self.builder.gep(hasher_ptr, [ir.Constant(i32, 0),
+                                                  ir.Constant(i32, 0)],
+                                     inbounds=True, name="hstate_ptr")
+        state = self.builder.load(state_ptr, name="hstate")
+        xored = self.builder.xor(state, x_i64, name="hxor")
+        mixed = self.builder.mul(xored, ir.Constant(i64, self._FNV_PRIME), name="hmix")
+        self.builder.store(mixed, state_ptr)
+
+    def _emit_hash(self, value, saw_type, hasher_ptr):
+        """Stream `value` into the Hasher at `hasher_ptr` (design 48)."""
+        lt = value.type
+        i64 = ir.IntType(64)
+        st = self._resolve_type_alias(saw_type) if saw_type is not None else None
+
+        if isinstance(lt, ir.DoubleType):
+            # Normalize -0.0 to +0.0 so equal floats hash identically (they
+            # compare Equal). NaN bit patterns are not normalized (NaN != NaN, so
+            # the contract imposes nothing); documented.
+            zero = ir.Constant(ir.DoubleType(), 0.0)
+            is_zero = self.builder.fcmp_ordered('==', value, zero, name="hf_zero")
+            bits = self.builder.bitcast(value, i64, name="hf_bits")
+            norm = self.builder.select(is_zero, ir.Constant(i64, 0), bits, name="hf_norm")
+            self._fnv_write_int(hasher_ptr, norm)
+            return
+
+        if st is not None:
+            k = st.kind
+            if k == TypeKind.STRING:
+                self._emit_string_hash(value, hasher_ptr)
+                return
+            if k == TypeKind.TUPLE:
+                for i, et in enumerate(st.element_types or []):
+                    ev = self.builder.extract_value(value, i, name=f"h_e{i}")
+                    self._emit_hash(ev, et, hasher_ptr)
+                return
+            if k == TypeKind.OPTIONAL:
+                self._emit_optional_hash(value, st, hasher_ptr)
+                return
+            if k == TypeKind.ARRAY:
+                for i in range(st.array_size or 0):
+                    ev = self.builder.extract_value(value, i, name=f"h_a{i}")
+                    self._emit_hash(ev, st.array_element_type, hasher_ptr)
+                return
+            if k == TypeKind.STRUCT and not isinstance(lt, ir.IntType):
+                self._emit_struct_hash(value, st, hasher_ptr)
+                return
+            if k == TypeKind.ENUM and isinstance(lt, ir.LiteralStructType):
+                self._emit_enum_hash(value, st, hasher_ptr)
+                return
+
+        # Integers, Bool, payload-free enum tags: widen/narrow to i64 and mix.
+        if isinstance(lt, ir.IntType):
+            if lt.width < 64:
+                x = self.builder.zext(value, i64, name="h_zext")
+            elif lt.width > 64:
+                x = self.builder.trunc(value, i64, name="h_trunc")
+            else:
+                x = value
+            self._fnv_write_int(hasher_ptr, x)
+            return
+
+        raise ValueError(f"cannot lower hash for LLVM type {lt}")
+
+    def _emit_string_hash(self, value, hasher_ptr):
+        """String hashing streams the bytes via the stdlib `String.hash`."""
+        fn = self.functions.get(self._mangle_method_name("String", "hash"))
+        if fn is not None:
+            self.builder.call(fn, [value, hasher_ptr])
+
+    def _emit_struct_hash(self, value, saw_type, hasher_ptr):
+        """Struct hashing: dispatch to the type's `hash` (synthesized or custom)
+        if one exists, else stream fields inline (auto-conform POD)."""
+        base = self._type_method_base(saw_type)
+        mangled = self._mangle_method_name(base, "hash") if base else None
+        if mangled is not None and mangled in self.functions:
+            self.builder.call(self.functions[mangled], [value, hasher_ptr])
+            return
+        self._emit_memberwise_hash(value, saw_type, hasher_ptr)
+
+    def _emit_memberwise_hash(self, value, saw_type, hasher_ptr):
+        """Stream each field of a struct value into the Hasher in field order."""
+        key = self._type_method_base(saw_type)
+        llvm_struct_type, field_order = self.struct_types[key]
+        base_fields = self.namespace.get_struct_fields(saw_type.struct_name) or {}
+        subst = {}
+        struct_sym = self.namespace._lookup_struct_deep(saw_type.struct_name)
+        if struct_sym and saw_type.type_args:
+            for tp, arg in zip(struct_sym.type_params, saw_type.type_args):
+                subst[tp.name] = arg
+        for i, fname in enumerate(field_order):
+            ftype = base_fields.get(fname)
+            if ftype is not None and subst:
+                ftype = ftype.substitute(subst)
+            fv = self.builder.extract_value(value, i, name=f"h_{fname}")
+            self._emit_hash(fv, ftype, hasher_ptr)
+
+    def _emit_optional_hash(self, value, saw_type, hasher_ptr):
+        """Optional hashing: stream the is-some flag, then the payload only when
+        Some (a None slot's payload is undefined, so it is never read)."""
+        i64 = ir.IntType(64)
+        is_some = self.builder.extract_value(value, 0, name="h_some")
+        self._fnv_write_int(hasher_ptr, self.builder.zext(is_some, i64, name="h_some64"))
+        func = self.builder.function
+        some_bb = func.append_basic_block("h_opt_some")
+        merge_bb = func.append_basic_block("h_opt_merge")
+        self.builder.cbranch(is_some, some_bb, merge_bb)
+        self.builder.position_at_end(some_bb)
+        payload = self.builder.extract_value(value, 1, name="h_opt_val")
+        self._emit_hash(payload, saw_type.inner_type, hasher_ptr)
+        self.builder.branch(merge_bb)
+        self.builder.position_at_end(merge_bb)
+
+    def _emit_enum_hash(self, value, saw_type, hasher_ptr):
+        """Payload-carrying enum hashing: stream the tag, then the active
+        variant's payload fields. (Payload-free enums are a bare i32 and hash via
+        the integer path in `_emit_hash`.)"""
+        mangled = mangle_named(saw_type.enum_name, saw_type.type_args)
+        info = self.enum_types.get(mangled) or self.enum_types.get(saw_type.enum_name)
+        llvm_enum_type, variant_tags, variant_info = info
+        i32 = ir.IntType(32)
+        i64 = ir.IntType(64)
+
+        tag = self.builder.extract_value(value, 0, name="h_tag")
+        self._fnv_write_int(hasher_ptr, self.builder.zext(tag, i64, name="h_tag64"))
+
+        func = self.builder.function
+        merge_bb = func.append_basic_block("h_enum_merge")
+        switch = self.builder.switch(tag, merge_bb)
+        payload_array_type = llvm_enum_type.elements[1]
+        for variant_name, fields in variant_info.items():
+            if not fields:
+                continue  # payload-free variant -> nothing beyond the tag
+            arm_bb = func.append_basic_block(f"h_{variant_name}")
+            switch.add_case(ir.Constant(i32, variant_tags[variant_name]), arm_bb)
+            self.builder.position_at_end(arm_bb)
+            payload = self.builder.extract_value(value, 1, name="h_pl")
+            param_struct_type = ir.LiteralStructType(
+                [self._get_llvm_type(t) for _, t in fields])
+            alloca = self._entry_alloca(payload_array_type, name="h_pl_slot")
+            self.builder.store(payload, alloca)
+            sp = self.builder.bitcast(alloca, ir.PointerType(param_struct_type),
+                                      name="h_sp")
+            for idx, (fname, ftype) in enumerate(fields):
+                fp = self.builder.gep(sp, [ir.Constant(i32, 0),
+                                           ir.Constant(i32, idx)], inbounds=True)
+                fv = self.builder.load(fp, name=f"h_{fname}")
+                self._emit_hash(fv, ftype, hasher_ptr)
+            self.builder.branch(merge_bb)
+        self.builder.position_at_end(merge_bb)
 
     def _generate_logical_and(self, expr: BinaryOp):
         """Generate short-circuit && evaluation.

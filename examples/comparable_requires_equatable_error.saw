@@ -1,0 +1,20 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires `Equatable`
+
+// Comparable REQUIRES Equatable (design 48). `Tagged` has a String field, so it
+// does NOT auto-conform to Equatable; declaring Comparable without also
+// declaring Equatable is an error.
+struct Tagged {
+    name: String
+    rank: Int
+}
+
+extension Tagged: Comparable {}
+
+func main() {
+    let a = Tagged(name: "a", rank: 1)
+    let b = Tagged(name: "b", rank: 2)
+    if a < b {
+        print(1)
+    }
+}

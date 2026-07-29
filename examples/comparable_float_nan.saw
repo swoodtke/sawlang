@@ -1,0 +1,17 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+
+// Float is builtin-Comparable with IEEE semantics: a NaN is UNORDERED, so every
+// ordering operator involving it is false (design 48), exactly like the
+// primitive fcmp. Ordinary float ordering still works.
+func main() {
+    let nan = 0.0 / 0.0
+    if not (nan < 1.0) { print(1) }      // NaN unordered -> false
+    if not (nan > 1.0) { print(2) }      // NaN unordered -> false
+    if not (nan >= nan) { print(3) }     // NaN != NaN, unordered
+    if 1.5 < 2.5 { print(4) }            // ordinary float ordering
+}

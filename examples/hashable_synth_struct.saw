@@ -1,0 +1,30 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+
+// A struct with a String field is not trivially copyable, so it does not
+// auto-conform; an empty `extension: Hashable {}` synthesizes a field-streaming
+// hash (design 48). Hashable requires Equatable, declared alongside. The
+// hash/== contract holds across the String field (same byte content -> same
+// hash).
+struct Named {
+    id: Int
+    name: String
+}
+
+extension Named: Equatable {}
+extension Named: Hashable {}
+
+func main() {
+    let a = Named(id: 1, name: "hello")
+    let b = Named(id: 1, name: "hello")
+
+    if a == b { print(1) }
+
+    var h1 = Hasher()
+    a.hash(&var h1)
+    var h2 = Hasher()
+    b.hash(&var h2)
+    if h1.finish() == h2.finish() { print(2) }
+}
