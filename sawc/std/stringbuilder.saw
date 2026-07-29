@@ -82,9 +82,11 @@ extension StringBuilder {
         }
     }
 
-    // Append the decimal rendering of an Int. Reuses the interpolation -> String
-    // path (which formats the integer) rather than re-implementing itoa here.
-    func append_int(&var self, value: Int) {
+    // Append the decimal rendering of an Int. Overload of `append` (design 55):
+    // `sb.append(42)` and `sb.append("s")` share one name, resolved by argument
+    // type. Reuses the interpolation -> String path (which formats the integer)
+    // rather than re-implementing itoa here. (Replaces the old `append_int`.)
+    func append(&var self, value: Int) {
         self.append("{value}")
     }
 
