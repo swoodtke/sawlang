@@ -19,6 +19,18 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Language & semantics
 
+- **BRIEF 40 SWEEP (Jul 29) — L3, L4, L6, L9, L10, L11, M1, M3, C6 all
+  CLOSED** (fixed or verified-fine with locking tests; see
+  designs/40-cleanup-family.md + its report in the commit trail).
+  Notable: `&var self`-on-`let` was also unenforced (fixed);
+  `withCString<R>` is now value-returning (C6 fixed).
+- **L13.** UInt division/modulo emit `sdiv`/`srem` (wrong for high-bit
+  values) — XFAIL-ledgered `uint_division_signedness.saw` (brief 40
+  item-3 sidecar discovery). Fix: pick udiv/urem by signedness like the
+  overflow intrinsics already do. [40 report]
+- **L12.** Fixed arrays cannot take extension methods (parse error) —
+  blocked M1's fixed-array swap variant. [40 report]
+
 - **L1.** Partial moves — DECIDED forbidden + LANDED (design 35,
   `2829364`): field/nested/index forms all get naming diagnostics; the
   audit found `move arr[i]` had been silently moving the whole array
