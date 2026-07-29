@@ -1,0 +1,44 @@
+// Regression: try!/try? must select a Result instantiation by its concrete TYPE,
+// not by LLVM layout. Result<Int, Int> and Result<String, E> share the identical
+// { i32, [8 x i8] } layout (both payloads are 8 bytes), so resolving the
+// instantiation by layout picked whichever was registered first — extracting the
+// Int Ok payload as a String pointer and crashing in print. The typechecker now
+// annotates the try expression with its concrete Result type, and codegen keys
+// off that name. `makeStr` need not even be called — merely EXISTING forces the
+// Result<String, E> instantiation that used to shadow Result<Int, Int>.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 99
+// hi
+
+struct E { code: Int }
+
+func wrapOk<T, U>(x: T) -> Result<T, U> {
+    return x
+}
+
+// Forces Result<String, E> to be registered alongside Result<Int, Int>.
+func makeStr(ok: Bool) -> Result<String, E> {
+    if ok {
+        return "hi"
+    }
+    return E(code: 1)
+}
+
+func main() {
+    // Direct match on a generic-instantiated Result<Int, Int>.
+    match wrapOk<Int, Int>(7) {
+        case Ok(n) -> print(n),      // 7
+        case Err(e) -> print(e)
+    }
+
+    // try! on the SAME Result<Int, Int>: must unwrap an Int, print via the int
+    // path (not read 99 as a String pointer).
+    let v = try! wrapOk<Int, Int>(99)
+    print(v)                          // 99
+
+    // The String-payload Result still works correctly too.
+    let s = try! makeStr(true)
+    print(s)                          // hi
+}

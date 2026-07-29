@@ -34,14 +34,27 @@ class ResultsMixin:
         """Generate code for try/try?/try! expressions."""
         result_val = self._generate_expression(expr.expr)
 
-        # Get the Result type info - it's stored under its canonical mangled
-        # name (see codegen/mangle.py) in enum_types, e.g. "Result$2$Int$MyErr".
-        # We need to find it by matching the LLVM type.
+        # Resolve the concrete Result instantiation. Prefer the typechecker
+        # annotation (the concrete `Result<T, E>` SawType): matching by LLVM type
+        # alone is AMBIGUOUS because distinct instantiations share a layout —
+        # `Result<Int, Int>` and `Result<String, E>` are both `{ i32, [8 x i8] }`,
+        # so LLVM-type matching would pick whichever was registered first and
+        # extract the Ok/Err payload as the wrong type (e.g. an Int read as a
+        # String pointer -> crash). The name-based path keys off the actual type.
         result_enum_name = None
-        for name, (llvm_type, _, _) in self.enum_types.items():
-            if name.startswith("Result$") and llvm_type == result_val.type:
-                result_enum_name = name
-                break
+        annotated = getattr(expr, 'result_enum_type', None)
+        if annotated is not None and annotated.is_result():
+            candidate = self._get_result_enum_name(annotated)
+            if candidate in self.enum_types:
+                result_enum_name = candidate
+
+        if result_enum_name is None:
+            # Fallback: match by LLVM type (ambiguous across same-layout
+            # instantiations, but the only option when the annotation is absent).
+            for name, (llvm_type, _, _) in self.enum_types.items():
+                if name.startswith("Result$") and llvm_type == result_val.type:
+                    result_enum_name = name
+                    break
 
         if result_enum_name is None:
             # Try to find from type context

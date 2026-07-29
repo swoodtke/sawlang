@@ -3249,6 +3249,17 @@ class ExpressionsMixin:
             )
             return None
 
+        # Record the CONCRETE Result type for codegen. A generic call's declared
+        # return type (e.g. `Result<T, E>`) arrives as a STRUCT-kind
+        # `Result<Int, Int>`; resolve it to its ENUM form so codegen can select
+        # the right monomorphized instantiation by NAME. Without this, the try
+        # codegen falls back to matching by LLVM layout, which is ambiguous:
+        # `Result<Int, Int>` and `Result<String, E>` share the identical
+        # `{ i32, [8 x i8] }` layout, so the wrong Ok/Err payload type would be
+        # used (extracting an Int as a String pointer -> crash). Mirrors the
+        # `match` path's `matched_enum_type` annotation (brief 36, L7).
+        expr.result_enum_type = self._resolve_type(inner_type)
+
         ok_type = inner_type.unwrap_result_ok()
         err_type = inner_type.unwrap_result_err()
 
