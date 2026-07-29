@@ -1,0 +1,27 @@
+// design 51: an owned `Box<any Shape>` built erased-directly via the factory
+// `Box<any Shape>.make(v)` — the concrete value is placement-moved into a chunk
+// sized to it, and the fat pointer carries the (concrete, trait) vtable. The
+// payload's `deinit` runs EXACTLY once, driven by the vtable destructor when the
+// box dies (deinit-through-erasure oracle: one "gone 5").
+// EXPECT: success
+// EXPECT-OUTPUT:
+// made
+// 50
+// gone 5
+
+trait Shape { func area(&self) -> Int }
+
+struct Res { id: Int }
+extension Res: Shape {
+    func area(&self) -> Int { self.id * 10 }
+}
+extension Res: Deinit {
+    func deinit(&var self) { print("gone {self.id}") }
+}
+
+func main() {
+    let b = Box<any Shape>.make(Res(id: 5))
+    print("made")
+    print(b.area())   // 50 — dynamic dispatch through the owned fat pointer
+    // b dies here -> vtable destructor runs Res.deinit exactly once, then dealloc
+}

@@ -1,0 +1,32 @@
+// design 51: deinit-through-erasure at the CONTAINER level. One box is popped
+// and torn down at the end of the if-let scope; the two boxes still in the vector
+// are torn down when the vector dies. Each erased payload's `deinit` fires
+// exactly once (the double-free-class oracle).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// gone 3
+// loop done
+// gone 1
+// gone 2
+
+trait Shape { func area(&self) -> Int }
+
+struct Res { id: Int }
+extension Res: Shape { func area(&self) -> Int { self.id } }
+extension Res: Deinit {
+    func deinit(&var self) { print("gone {self.id}") }
+}
+
+func main() {
+    var shapes = Vector<Box<any Shape>>()
+    shapes.push(Box<any Shape>.make(Res(id: 1)))
+    shapes.push(Box<any Shape>.make(Res(id: 2)))
+    shapes.push(Box<any Shape>.make(Res(id: 3)))
+
+    if let b = shapes.pop() {
+        print(b.area())   // 3
+    }                     // b dies -> "gone 3"
+    print("loop done")
+    // shapes dies -> remaining elements torn down: "gone 1", "gone 2"
+}

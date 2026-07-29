@@ -1,0 +1,32 @@
+// design 51 flagship: a heterogeneous `Vector<Box<any Shape>>` render loop. Two
+// unrelated concrete shapes live erased behind owned boxes in one collection;
+// the loop pops each, dispatches `area()` through its vtable, and the box is torn
+// down (vtable destructor + dealloc) at the end of the iteration. 12 + 9 + 3 = 24.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 24
+
+trait Shape { func area(&self) -> Int }
+
+struct Circle { r: Int }
+extension Circle: Shape { func area(&self) -> Int { self.r * self.r * 3 } }
+
+struct Square { s: Int }
+extension Square: Shape { func area(&self) -> Int { self.s * self.s } }
+
+func main() {
+    var shapes = Vector<Box<any Shape>>()
+    shapes.push(Box<any Shape>.make(Circle(r: 2)))
+    shapes.push(Box<any Shape>.make(Square(s: 3)))
+    shapes.push(Box<any Shape>.make(Circle(r: 1)))
+
+    var total = 0
+    var n = shapes.len()
+    while n > 0 {
+        if let b = shapes.pop() {
+            total = total + b.area()
+        }
+        n = n - 1
+    }
+    print(total)   // 24
+}

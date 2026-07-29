@@ -1,0 +1,28 @@
+// design 51: a `&var self` trait method IS object-safe and any-able (only
+// Self-BY-VALUE is excluded). Dispatch through `&var any Counter` mutates the
+// referent in place — the shape the future Resumable executor relies on.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12
+
+trait Counter {
+    func bump(&var self)
+    func value(&self) -> Int
+}
+
+struct C { n: Int }
+extension C: Counter {
+    func bump(&var self) { self.n = self.n + 1 }
+    func value(&self) -> Int { self.n }
+}
+
+func pump(c: &var any Counter) {
+    c.bump()
+    c.bump()
+}
+
+func main() {
+    var c = C(n: 10)
+    pump(&var c)
+    print(c.value())   // 12
+}

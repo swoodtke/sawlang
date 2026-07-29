@@ -1,0 +1,24 @@
+// design 51: effects follow the TRAIT signature. `area` is a `sync` trait
+// method, so dispatching it through `&any Shape` stays sync-callable — the call
+// is accepted inside the `sync` function `compute` (a suspension-free context).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 16
+
+trait Shape {
+    func area(&self) sync -> Int
+}
+
+struct Circle { r: Int }
+extension Circle: Shape {
+    func area(&self) sync -> Int { self.r * self.r }
+}
+
+func compute(s: &any Shape) sync -> Int {
+    s.area()   // sync trait method dispatched through `any` — no suspension
+}
+
+func main() {
+    let c = Circle(r: 4)
+    print(compute(&c))   // 16
+}

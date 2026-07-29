@@ -1,0 +1,22 @@
+// design 51: dispatching a method the trait does not declare is rejected — an
+// `any Trait` can only call the trait's own methods.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no method `perimeter`
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Circle { r: Int }
+extension Circle: Shape {
+    func area(&self) -> Int { self.r * self.r }
+}
+
+func describe(s: &any Shape) -> Int {
+    s.perimeter()
+}
+
+func main() {
+    let c = Circle(r: 2)
+    print(describe(&c))
+}

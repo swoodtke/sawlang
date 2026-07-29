@@ -1,0 +1,48 @@
+// design 51: an erased `Box<any Shape, SlabA>` over a custom allocator. Erased
+// teardown pulls the destructor + size + align from the vtable AND routes the
+// dealloc through the box's own allocator `A` (here a slab), not Global — the
+// chunk returns to the slab's free-list. The Deinit payload's "gone 7" proves
+// exactly-once teardown through the erased, slab-backed box.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 700
+// gone 7
+// 800
+// gone 8
+
+trait Shape { func area(&self) -> Int }
+
+struct Res { id: Int }
+extension Res: Shape { func area(&self) -> Int { self.id * 100 } }
+extension Res: Deinit {
+    func deinit(&var self) { print("gone {self.id}") }
+}
+
+// ---- ShapeSlab wiring (a per-type slab; brief 42 idiom) ----------------------
+static SHAPE_REGION: [Int8; 64]                                  // 4 chunks * 16B
+static SHAPE_HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
+struct ShapeSlab {}
+extension ShapeSlab: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+        slab_alloc((&SHAPE_REGION) as UnsafePointer<Int8>, 4, 16, &SHAPE_HEAD)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+        slab_dealloc(ptr, &SHAPE_HEAD)
+    }
+}
+// -------------------------------------------------------------------------------
+
+func use_one() {
+    let b = Box<any Shape, ShapeSlab>.make(Res(id: 7))
+    print(b.area())   // 700 — dispatch through the erased, slab-backed box
+    // b dies here -> vtable dtor runs Res.deinit ("gone 7"), then the chunk is
+    // returned to ShapeSlab's free-list (dealloc routed to A, not Global).
+}
+
+func main() {
+    use_one()
+    // The chunk was reclaimed, so a fresh erased allocation over ShapeSlab
+    // succeeds — proving teardown really returned it to this allocator.
+    let again = Box<any Shape, ShapeSlab>.make(Res(id: 8))
+    print(again.area())   // 800
+}
