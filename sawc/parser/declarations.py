@@ -470,6 +470,7 @@ class DeclarationsMixin:
 
         # Check if it's an init method
         is_init = False
+        type_params = []
         if self.match(TokenType.INIT):
             is_init = True
             name = "init"
@@ -478,6 +479,12 @@ class DeclarationsMixin:
             self.advance()
             name_token = self.expect(TokenType.IDENT, "Expected method name")
             name = name_token.value
+            # Method-level generic type parameters (brief 36): `func map<U>(...)`.
+            # These are IN ADDITION to the extension's own type params (the `T` in
+            # `extension Vector<T>`); a call supplies them explicitly
+            # (`v.map<Int>(...)`), inference is future work. `init` methods do not
+            # take their own type params (they construct the extension's type).
+            type_params = self.parse_type_params()
         else:
             self.error("Expected 'func' or 'init' in extension")
 
@@ -515,6 +522,7 @@ class DeclarationsMixin:
             self_is_reference=self_is_reference,
             is_static=is_static,
             is_sync=is_sync,
+            type_params=type_params,
             line=start.line,
             column=start.column,
             source_file=self.source_file

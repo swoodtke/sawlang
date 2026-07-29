@@ -1,0 +1,45 @@
+// Method-level generic type parameters (brief 36, C5): a method may introduce
+// its own type params (`func map<U>`) beyond the extension's `T`. Explicit
+// call-site type args select the instantiation (`b.map<String>`); inference is
+// future work. The mangled symbol composes (struct args) x (method args), and
+// each (struct, method) pair monomorphizes independently.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// true
+// 10
+// v=5
+
+struct Box<T> { value: T }
+
+extension Box<T> {
+    func get(&self) -> T { self.value }
+
+    // A method type param unrelated to the closure/container — just passed back.
+    func stashed<U>(&self, other: U) -> U {
+        other
+    }
+}
+
+extension Box<T: Copy> {
+    // Method type param `U` in BOTH a closure parameter type and the return
+    // container type — the shape Vector.map has.
+    func map<U>(&self, f: (T) -> U) -> Box<U> {
+        Box<U>(value: f(self.get()))
+    }
+}
+
+func main() {
+    let b = Box<Int>(value: 5)
+
+    // Two instantiations of the same generic method, crossing type families.
+    print(b.stashed<Int>(42))     // 42
+    print(b.stashed<Bool>(true))  // true
+
+    // map Int -> Int and Int -> String.
+    let doubled = b.map<Int> { $0 * 2 }
+    print(doubled.get())          // 10
+
+    let labeled = b.map<String> { "v={$0}" }
+    print(labeled.get())          // v=5
+}

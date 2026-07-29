@@ -285,6 +285,26 @@ class ExpressionsMixin:
                     member_name = member_token.value
                     self.advance()
 
+                    # Explicit method-level type arguments (brief 36):
+                    # `v.map<Int>(...)` or the trailing-closure form
+                    # `v.map<Int> { ... }`. Same backtracking ambiguity as a free
+                    # generic call — keep the `<...>` only if it is genuinely
+                    # followed by `(` (a paren call) or `{` (a trailing-closure
+                    # call); otherwise `a.b < c` is a comparison and we restore.
+                    method_type_args = None
+                    if self.match(TokenType.LT):
+                        saved_pos = self.pos
+                        try:
+                            method_type_args = self._parse_type_args()
+                            followed_by_call = self.match(TokenType.LPAREN) or (
+                                self.allow_trailing_closure and self.match(TokenType.LBRACE))
+                            if not followed_by_call:
+                                self.pos = saved_pos
+                                method_type_args = None
+                        except SyntaxError:
+                            self.pos = saved_pos
+                            method_type_args = None
+
                     # Check if followed by '(' - if so, it's a call (method or enum)
                     if self.match(TokenType.LPAREN):
                         # Parse as MethodCall - type checker will determine if it's
@@ -301,17 +321,20 @@ class ExpressionsMixin:
                             object=expr,
                             method_name=member_name,
                             arguments=arguments,
+                            type_args=method_type_args,
                             line=dot_token.line,
                             column=dot_token.column
                         )
                     elif self.allow_trailing_closure and self.match(TokenType.LBRACE):
                         # Method call with only trailing closure: obj.method { ... }
+                        # (possibly with explicit type args: obj.method<U> { ... })
                         trailing_closure = self._parse_closure_expression()
                         arguments = [Argument(value=trailing_closure, name=None)]
                         expr = MethodCall(
                             object=expr,
                             method_name=member_name,
                             arguments=arguments,
+                            type_args=method_type_args,
                             line=dot_token.line,
                             column=dot_token.column
                         )
@@ -1251,6 +1274,12 @@ class ExpressionsMixin:
                 visit_expr(expr.index)
             elif isinstance(expr, MemberAccess):
                 visit_expr(expr.object)
+            elif isinstance(expr, StringInterpolation):
+                # `$N` inside an interpolation (`{ "v={$0}" }`) counts toward the
+                # closure's arity — a natural spelling for a `(T) -> String`
+                # shorthand closure (brief 36's map Int->String test).
+                for sub in expr.expressions:
+                    visit_expr(sub)
             elif isinstance(expr, ForceUnwrap):
                 visit_expr(expr.expr)
             elif isinstance(expr, NilCoalesce):

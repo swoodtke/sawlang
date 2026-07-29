@@ -1,0 +1,15 @@
+// The inverse guard (brief 36): supplying method type arguments to a method
+// that declares none is an error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not generic but was called with type arguments
+
+struct Box<T> { value: T }
+
+extension Box<T> {
+    func get(&self) -> T { self.value }
+}
+
+func main() {
+    let b = Box<Int>(value: 5)
+    print(b.get<Int>())  // get takes no method type params
+}

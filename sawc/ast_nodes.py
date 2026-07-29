@@ -691,6 +691,10 @@ class MethodCall(Expression):
     object: Expression
     method_name: str
     arguments: List[Argument]
+    # Explicit method-level type arguments (brief 36): `v.map<Int>(...)`. None
+    # when the call supplies none. Inference is future work, so a generic method
+    # requires these to be written explicitly.
+    type_args: Optional[List['SawType']] = None
     line: int = 0
     column: int = 0
 
@@ -1042,6 +1046,9 @@ class Method(ASTNode):
     is_derived_copy: bool = False  # True for a compiler-synthesized memberwise copy()
     is_derived_equals: bool = False  # True for a compiler-synthesized memberwise equals()
     is_sync: bool = False  # True for a `sync func` method (checked suspension-free)
+    # Method-level generic type params (brief 36): the `U` in `func map<U>(...)`,
+    # distinct from and in addition to the enclosing extension's own type params.
+    type_params: List['TypeParameter'] = field(default_factory=list)
     line: int = 0
     column: int = 0
     source_file: str = ""

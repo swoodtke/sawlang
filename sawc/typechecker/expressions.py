@@ -2222,6 +2222,40 @@ class ExpressionsMixin:
                 hint="use a nested scope or `move` to transfer ownership if you need early cleanup"
             )
             return None
+        # Method-level generic type parameters (brief 36): fold the explicit
+        # call-site type arguments (`v.map<Int>(...)`) into the substitution map
+        # alongside the struct's own args, so param/return types mentioning the
+        # method's own params (`(T) -> U`, `-> Vector<U>`) resolve concretely.
+        # Inference is out of scope: a generic method REQUIRES explicit type
+        # args, and a non-generic method REJECTS them.
+        method_type_params = method_info.type_params or []
+        provided_type_args = expr.type_args or []
+        if method_type_params:
+            if not provided_type_args:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"generic method `{expr.method_name}` requires explicit type "
+                    f"argument(s) (e.g. `{expr.method_name}<...>`); type inference "
+                    f"is not yet supported",
+                    expr.line, expr.column
+                )
+            elif len(provided_type_args) != len(method_type_params):
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"method `{expr.method_name}` expects {len(method_type_params)} "
+                    f"type argument(s), got {len(provided_type_args)}",
+                    expr.line, expr.column
+                )
+            else:
+                for tp, ta in zip(method_type_params, provided_type_args):
+                    type_subst[tp.name] = self._resolve_type(ta)
+        elif provided_type_args:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"method `{expr.method_name}` is not generic but was called with "
+                f"type arguments",
+                expr.line, expr.column
+            )
         # design 22: record the call edge to the resolved method's suspend node.
         self._effect_call_method(
             method_info, f"`{struct_name}.{expr.method_name}`", expr.line)

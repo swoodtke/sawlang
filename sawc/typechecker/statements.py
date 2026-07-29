@@ -105,6 +105,15 @@ class StatementsMixin:
         self.found_return_with_value = False
         self.current_type_subst = type_subst or {}
 
+        # Method-level generic type params (brief 36) join the type-param scope
+        # for this body, so `U` in `func map<U>(...)` is a known abstract type
+        # param inside the body (brief-24 abstract body checking then covers it
+        # exactly like a struct/extension type param). Restored below.
+        prev_method_type_params = getattr(self, 'current_type_params', {})
+        self.current_type_params = dict(prev_method_type_params)
+        for tp in (method.type_params or []):
+            self.current_type_params[tp.name] = tp.bounds
+
         # design 22: analyze this method body as a suspend-graph node (a `deinit`
         # body and a `sync func` method are sync contexts).
         self._effect_enter_method(struct_name, method)
@@ -226,6 +235,7 @@ class StatementsMixin:
         self._effect_exit()
         self.current_method = None
         self.moved_bindings = saved_moves
+        self.current_type_params = prev_method_type_params
 
     def _reconcile_return_type(self, func, resolved_return_type, body_type):
         """Reconcile a function body's type against its declared return type.

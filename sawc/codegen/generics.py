@@ -113,12 +113,16 @@ class GenericsMixin:
 
         return mangled_name
 
-    def _mangle_method_name(self, struct_name: str, method_name: str, param_names: Optional[List[str]] = None) -> str:
+    def _mangle_method_name(self, struct_name: str, method_name: str,
+                            param_names: Optional[List[str]] = None,
+                            method_type_args: Optional[List[SawType]] = None) -> str:
         """Generate mangled name for a method or init.
 
-        Delegates to the canonical mangler (see codegen/mangle.py).
+        Delegates to the canonical mangler (see codegen/mangle.py). For a
+        generic method (`func map<U>(...)`), `method_type_args` composes the
+        method's own type arguments into the symbol (brief 36).
         """
-        return mangle_method(struct_name, method_name, param_names)
+        return mangle_method(struct_name, method_name, param_names, method_type_args)
 
     def _mangle_generic_struct_name(self, base_name: str, type_args: List[SawType]) -> str:
         """Generate mangled name for a generic struct/enum monomorphization.
@@ -372,14 +376,51 @@ class GenericsMixin:
             # Skip methods that have specialized overrides
             if method.name in skip_methods:
                 continue
-            # Create mangled name using the monomorphized struct name
-            if method.is_init:
-                param_names = [p.name for p in method.parameters]
-                mangled_name = self._mangle_method_name(mangled_struct_name, method.name, param_names)
-            else:
-                mangled_name = self._mangle_method_name(mangled_struct_name, method.name)
+            # Method-level GENERIC methods (`func map<U>(...)`, brief 36) are NOT
+            # monomorphized at struct-instantiation time: their own type params
+            # (U) are only known at the call site, so they are specialized
+            # per (struct args, method args) pair on demand via
+            # _ensure_monomorphized_generic_method. Skip them here.
+            if getattr(method, 'type_params', None):
+                continue
+            self._declare_monomorphized_method(mangled_struct_name, method, type_mapping)
+            methods_to_generate.append(method)
 
-            # Build parameter types with substitution
+        # Second pass: queue method bodies for later generation
+        # This ensures all method signatures are declared before any bodies are generated
+        for method in methods_to_generate:
+            self.pending_method_bodies.append((mangled_struct_name, method, type_mapping.copy(), method.is_init))
+
+        # Restore type param context (other state will be set up when generating bodies)
+        self.type_param_context = old_context
+
+    def _declare_monomorphized_method(self, mangled_struct_name: str, method: Method,
+                                      type_mapping: dict[str, SawType]) -> str:
+        """Declare the LLVM signature for one monomorphized method; return its
+        mangled symbol.
+
+        Shared by struct-time extension monomorphization and the per-call-site
+        generic-method path (brief 36). `type_mapping` carries the FULL binding:
+        the struct's type params plus, for a generic method, its own type params.
+        Idempotent — a signature already declared is returned as-is.
+        """
+        # Method-level type args (brief 36): reconstruct from the mapping so the
+        # symbol composes struct specialization x method type args. Empty for an
+        # ordinary (non-generic) method, giving the unchanged `Struct_method`.
+        method_type_args = ([type_mapping[tp.name] for tp in method.type_params]
+                            if getattr(method, 'type_params', None) else None)
+        if method.is_init:
+            param_names = [p.name for p in method.parameters]
+            mangled_name = self._mangle_method_name(mangled_struct_name, method.name, param_names)
+        else:
+            mangled_name = self._mangle_method_name(mangled_struct_name, method.name,
+                                                    method_type_args=method_type_args)
+        if mangled_name in self.functions:
+            return mangled_name
+
+        old_context = self.type_param_context
+        self.type_param_context = type_mapping
+        try:
             if method.is_init:
                 param_types = []
                 for p in method.parameters:
@@ -402,7 +443,6 @@ class GenericsMixin:
                 substituted_return = self._substitute_saw_type(method.return_type, type_mapping)
                 return_type = self._get_llvm_type(substituted_return)
 
-            # Create function type and register
             func_type = ir.FunctionType(return_type, param_types)
             llvm_func = ir.Function(self.module, func_type, name=mangled_name)
             self.functions[mangled_name] = llvm_func
@@ -412,15 +452,58 @@ class GenericsMixin:
             if (not method.is_init and not method.is_static
                     and getattr(method, 'self_mutable', False)):
                 llvm_func.args[0].add_attribute('noalias')
-            methods_to_generate.append(method)
+        finally:
+            self.type_param_context = old_context
+        return mangled_name
 
-        # Second pass: queue method bodies for later generation
-        # This ensures all method signatures are declared before any bodies are generated
-        for method in methods_to_generate:
-            self.pending_method_bodies.append((mangled_struct_name, method, type_mapping.copy(), method.is_init))
+    def _ensure_monomorphized_generic_method(self, mangled_struct_name: str,
+                                             recv_type: SawType, method_name: str,
+                                             method_type_args: List[SawType]) -> str:
+        """Ensure a generic method (`func map<U>(...)`) is specialized for this
+        (struct args, method args) pair, and return its mangled symbol (brief 36).
 
-        # Restore type param context (other state will be set up when generating bodies)
-        self.type_param_context = old_context
+        Called at the call site, where the method's own type args are finally
+        known. Declares the signature synchronously (so the call can look it up)
+        and queues the body on the existing pending-body queue, which is drained
+        after all signatures exist — the same two-phase discipline the struct-time
+        path uses, so a generic method may call other (generic or not) methods.
+        """
+        base_name = recv_type.struct_name
+        struct_type_args = recv_type.type_args or []
+
+        mangled_name = self._mangle_method_name(mangled_struct_name, method_name,
+                                                method_type_args=method_type_args)
+        if mangled_name in self.functions:
+            return mangled_name
+
+        # Locate the generic method AST across the struct's generic extensions.
+        method = None
+        for generic_ext in self.generic_extensions.get(base_name, []):
+            for m in generic_ext.methods:
+                if m.name == method_name and getattr(m, 'type_params', None):
+                    method = m
+                    break
+            if method is not None:
+                break
+        if method is None:
+            raise ValueError(
+                f"Unknown generic method {base_name}.{method_name}"
+            )
+
+        # Build the FULL binding: struct type params, then the method's own.
+        type_mapping: dict[str, SawType] = {}
+        generic_struct = self.generic_structs.get(base_name)
+        if generic_struct is not None:
+            for i, tp in enumerate(generic_struct.type_params):
+                if i < len(struct_type_args):
+                    type_mapping[tp.name] = struct_type_args[i]
+        for tp, ta in zip(method.type_params, method_type_args):
+            type_mapping[tp.name] = ta
+
+        self._declare_monomorphized_method(mangled_struct_name, method, type_mapping)
+        self.pending_method_bodies.append(
+            (mangled_struct_name, method, type_mapping.copy(), method.is_init))
+        return mangled_name
 
     def _generate_pending_method_bodies(self):
         """Generate all pending monomorphized method bodies.
@@ -444,7 +527,13 @@ class GenericsMixin:
 
     def _generate_method_generic(self, struct_name: str, method: Method, type_mapping: dict[str, SawType]):
         """Generate code for a method with type substitution."""
-        mangled_name = self._mangle_method_name(struct_name, method.name)
+        # Recompose the method's own type args from the binding so a generic
+        # method's body is looked up under the same composed symbol its signature
+        # was declared with (brief 36); empty for an ordinary method.
+        method_type_args = ([type_mapping[tp.name] for tp in method.type_params]
+                            if getattr(method, 'type_params', None) else None)
+        mangled_name = self._mangle_method_name(struct_name, method.name,
+                                                method_type_args=method_type_args)
         llvm_func = self.functions[mangled_name]
 
         # Create entry block

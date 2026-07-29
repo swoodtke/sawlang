@@ -145,15 +145,30 @@ def mangle_function(name: str, type_args) -> str:
     return mangle_named(name, type_args)
 
 
-def mangle_method(struct_name: str, method_name: str, param_names=None) -> str:
+def mangle_method(struct_name: str, method_name: str, param_names=None,
+                  method_type_args=None) -> str:
     """Canonical symbol for a method or init.
+
+    `struct_name` is the already-mangled receiver type (e.g. `Vector$1$Int`), so
+    a method symbol composes the struct's specialization with the method name.
 
     For init methods, the parameter-name signature is appended to allow
     overloading. Init resolution in the typechecker matches on the *set* of
     parameter names and rejects two inits with the same names as ambiguous, so a
     name-based key uniquely identifies the selected init; a same-names/
     different-types collision is unreachable in the current language.
+
+    For a method-level GENERIC method (`func map<U>(...)`, brief 36), the
+    explicit method type arguments are appended with the same length-prefixed
+    scheme `mangle_named` uses, so the symbol composes (struct args) x (method
+    args): `Vector$1$Int.map<String>` -> `Vector$1$Int_map$1$String`. The `_`
+    separates the struct-mangle from the method, and the trailing `$n$...` is the
+    canonical type-arg encoding — jointly injective.
     """
     if param_names is not None:
-        return f"{struct_name}_{method_name}_{'_'.join(param_names)}"
-    return f"{struct_name}_{method_name}"
+        base = f"{struct_name}_{method_name}_{'_'.join(param_names)}"
+    else:
+        base = f"{struct_name}_{method_name}"
+    if method_type_args:
+        return mangle_named(base, method_type_args)
+    return base

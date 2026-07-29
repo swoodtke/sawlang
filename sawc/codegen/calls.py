@@ -410,8 +410,24 @@ class CallsMixin:
         if struct_name is None:
             raise ValueError(f"Cannot determine struct type for method call to {expr.method_name}")
 
+        # Method-level generic type parameters (brief 36): a call `v.map<U>(...)`
+        # carries explicit method type args. They are only known here, at the
+        # call site, so the method is specialized on demand per (struct args,
+        # method args) pair. Substitute the args against the active
+        # monomorphization context first (the call may itself be inside another
+        # generic body), then ensure the specialization exists and compose the
+        # symbol so it matches the declared/queued signature.
+        method_type_args = None
+        if expr.type_args:
+            method_type_args = [self._substitute_saw_type(a, self.type_param_context)
+                                for a in expr.type_args]
+            recv_type = self._expr_type(expr.object)
+            self._ensure_monomorphized_generic_method(
+                struct_name, recv_type, expr.method_name, method_type_args)
+
         # Get mangled method name
-        mangled_name = self._mangle_method_name(struct_name, expr.method_name)
+        mangled_name = self._mangle_method_name(struct_name, expr.method_name,
+                                                method_type_args=method_type_args)
 
         # Look up the method function
         if mangled_name not in self.functions:

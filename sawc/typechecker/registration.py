@@ -693,6 +693,9 @@ class RegistrationMixin:
                 param_types=param_types,
                 param_names=param_names,
                 return_type=return_type,
+                # Method-level generic type params (brief 36): the `U` in
+                # `func map<U>(...)`, distinct from the extension's own params.
+                type_params=method.type_params,
                 default_values=default_values,
                 is_static=method.is_static,
                 is_init=method.is_init,
