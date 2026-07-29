@@ -181,13 +181,15 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   blocked on A5. Bonus fix en route: empty module datalayout made O1
   and object emission disagree on struct offsets (pre-existing
   miscompile class, now pinned everywhere). [44, 45]
-- **D16 (NEW, needs user).** Type-erasure mechanism for the async run
-  queue (and eventually dyn trait objects, which the spec already
-  sketches as `[dyn Shape]`): options range from a compiler-internal
-  task vtable (minimal, executor-only, no user-facing feature) to
-  real `dyn Trait` objects (bigger, user-facing, also unlocks
-  heterogeneous collections + the planned Error-trait story). [45
-  report, 18]
+- **D16 — DECIDED Jul 29 (user): user-facing `any Trait` NOW**
+  (design 51): contextual `any` keyword, erased values behind &/Box
+  only (no hidden existential container), construct-erased-directly
+  (no unsizing coercion), v1 object-safety exclusions (Copy family /
+  generic methods / associated types), vtable teardown through Box.
+  Opaque/static counterpart PUNTED — provisional future keyword
+  **`generic`** (user preference; return-position reverse-generics
+  nuance recorded in design 51). A1b (executor consumer) follows
+  design 51. `dyn` keyword reservation retired. [45 report, 18, 51]
 - **A2.** Stage 3: multi-threaded work-stealing executor +
   Send-on-coroutine-frames check. [18]
 - **A3.** Explicit-only cancellation (`Task.cancelled()`, select points).
