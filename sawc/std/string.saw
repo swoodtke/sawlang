@@ -589,12 +589,13 @@ extension String {
     // bytes pointer is passed directly — no copy. `body` is a NON-ESCAPING
     // closure parameter (brief 29 default): the compiler forbids it from being
     // stored or otherwise outliving the call, which is the entire safety story —
-    // the pointer cannot leak past the borrow. `body` returns Void; produce a
-    // result by borrow-capturing an enclosing variable
-    // (`s.withCString { [&var out] ptr in out = strlen(ptr) }`), the same idiom
-    // `Vector.each` uses. (A value-returning `withCString<R>` awaits
-    // method-level generics on non-generic-type extensions — tracker L-note.)
-    func withCString(&self, body: (UnsafePointer<Int8>) -> Void) {
+    // the pointer cannot leak past the borrow.
+    //
+    // `R` is a METHOD-level generic type parameter (brief 40 item 9 / C6): the
+    // borrow's result type, chosen at the call site (`s.withCString<Int> { ... }`).
+    // The value flows straight out — `s.withCString<Int> { ptr in strlen(ptr) }`
+    // — so a scoped C-borrow no longer needs the capture-and-write workaround.
+    func withCString<R>(&self, body: (UnsafePointer<Int8>) -> R) -> R {
         body(self as UnsafePointer<Int8>)
     }
 }

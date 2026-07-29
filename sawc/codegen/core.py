@@ -128,6 +128,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Stores specialized extensions keyed by (struct_name, type_args_tuple)
         # e.g., ("Vector", ("String",)) -> [Extension for Vector<String>]
         self.specialized_extensions: dict[tuple, List[Extension]] = {}
+        # Design 40 item 9 (C6): generic METHODS declared on a NON-generic-type
+        # extension (e.g. `extension String { func withCString<R>(...) }`).
+        # Their type params are unbound until the call site supplies method type
+        # args, so they are indexed here (struct_name -> method_name -> Method)
+        # and monomorphized on demand rather than declared/generated eagerly.
+        self.plain_generic_methods: dict[str, dict[str, Method]] = {}
         # Tracks which monomorphized functions have been generated
         self.generated_instantiations: set[str] = set()
         # Queue for pending method body generation: (mangled_struct_name, method, type_mapping, is_init)
@@ -833,6 +839,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     if extension.struct_name not in self.generic_extensions:
                         self.generic_extensions[extension.struct_name] = []
                     self.generic_extensions[extension.struct_name].append(extension)
+            else:
+                # Non-generic-type extension. Design 40 item 9 (C6): any generic
+                # METHOD it declares still needs per-method-arg monomorphization
+                # (its type params are unbound), so index it for the call-site
+                # specializer; the eager declare/generate passes skip it.
+                for m in extension.methods:
+                    if getattr(m, 'type_params', None) and not m.is_init:
+                        self.plain_generic_methods.setdefault(
+                            extension.struct_name, {})[m.name] = m
 
         # Register types in dependency order (structs and enums can reference each other)
         self._register_types_in_order(program.structs, program.enums)
@@ -1136,6 +1151,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.self_type_context = extension.struct_name
 
         for method in extension.methods:
+            # Design 40 item 9 (C6): a generic method's signature can't be
+            # declared until its type params are bound at the call site; skip it
+            # here (it is indexed in plain_generic_methods and specialized then).
+            if getattr(method, 'type_params', None) and not method.is_init:
+                continue
             # Create mangled name
             if method.is_init:
                 # Include parameter names for init methods to allow overloading

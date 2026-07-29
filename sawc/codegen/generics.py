@@ -428,6 +428,16 @@ class GenericsMixin:
         # Restore type param context (other state will be set up when generating bodies)
         self.type_param_context = old_context
 
+    def _mono_self_llvm_type(self, struct_name: str):
+        """The LLVM type of a `self` receiver for a monomorphized method.
+
+        A plain/generic struct's self is its (possibly monomorphized) struct
+        type; `String`'s self is `i8*` (design 40 item 9 — String has no entry
+        in struct_types, matching the eager `_generate_method` path)."""
+        if struct_name == "String":
+            return ir.IntType(8).as_pointer()
+        return self.struct_types[struct_name][0]
+
     def _declare_monomorphized_method(self, mangled_struct_name: str, method: Method,
                                       type_mapping: dict[str, SawType]) -> str:
         """Declare the LLVM signature for one monomorphized method; return its
@@ -466,8 +476,9 @@ class GenericsMixin:
                 param_types = []
                 for i, p in enumerate(method.parameters):
                     if i == 0 and p.name == "self":
-                        # Self type is the monomorphized struct
-                        llvm_type = self.struct_types[mangled_struct_name][0]
+                        # Self type is the monomorphized struct — or i8* for a
+                        # generic method on `extension String` (C6).
+                        llvm_type = self._mono_self_llvm_type(mangled_struct_name)
                     else:
                         substituted = self._substitute_saw_type(p.type, type_mapping)
                         llvm_type = self._get_llvm_type(substituted)
@@ -502,7 +513,10 @@ class GenericsMixin:
         after all signatures exist — the same two-phase discipline the struct-time
         path uses, so a generic method may call other (generic or not) methods.
         """
-        base_name = recv_type.struct_name
+        # For a non-generic receiver type (a plain struct or String) the SawType
+        # carries no struct_name (STRING) or has no type args; fall back to the
+        # mangled name as the lookup key (design 40 item 9).
+        base_name = recv_type.struct_name or mangled_struct_name
         struct_type_args = recv_type.type_args or []
 
         mangled_name = self._mangle_method_name(mangled_struct_name, method_name,
@@ -519,6 +533,11 @@ class GenericsMixin:
                     break
             if method is not None:
                 break
+        # Design 40 item 9 (C6): a generic method on a NON-generic-type extension
+        # lives in plain_generic_methods, keyed by the receiver's name.
+        if method is None:
+            method = (self.plain_generic_methods.get(base_name, {}).get(method_name)
+                      or self.plain_generic_methods.get(mangled_struct_name, {}).get(method_name))
         if method is None:
             raise ValueError(
                 f"Unknown generic method {base_name}.{method_name}"
@@ -598,7 +617,7 @@ class GenericsMixin:
                 self.variables[param.name] = llvm_func.args[i]
             else:
                 if i == 0 and param.name == "self":
-                    param_type = self.struct_types[struct_name][0]
+                    param_type = self._mono_self_llvm_type(struct_name)
                 else:
                     substituted = self._substitute_saw_type(param.type, type_mapping)
                     param_type = self._get_llvm_type(substituted)

@@ -1,0 +1,35 @@
+// Design 40 item 9 (C6): a generic METHOD may be declared on a NON-generic-type
+// extension — both a plain struct and a builtin like String. brief-36 only
+// monomorphized method type params on generic-TYPED extensions (Box<T>); this
+// extends it to plain ones (mangling composes an empty struct-arg part with the
+// method args). Explicit call-site type args select the instantiation;
+// inference is still out of scope.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// true
+// 7
+struct Plain {
+    x: Int
+}
+
+extension Plain {
+    func stashed<U>(&self, other: U) -> U {
+        other
+    }
+}
+
+extension String {
+    func stashed<R>(&self, other: R) -> R {
+        other
+    }
+}
+
+func main() {
+    let p = Plain(x: 1)
+    print(p.stashed<Int>(42))       // 42 — Int instantiation
+    print(p.stashed<Bool>(true))    // true — Bool instantiation, distinct mangling
+
+    let s = "hi"
+    print(s.stashed<Int>(7))        // 7 — generic method on a builtin (String)
+}

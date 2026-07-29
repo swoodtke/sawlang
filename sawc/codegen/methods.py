@@ -39,6 +39,10 @@ class MethodsMixin:
         self.self_type_context = extension.struct_name
 
         for method in extension.methods:
+            # Design 40 item 9 (C6): generic methods are monomorphized on demand
+            # per call-site method type args, not generated eagerly.
+            if getattr(method, 'type_params', None) and not method.is_init:
+                continue
             if method.is_init:
                 self._generate_init_method(extension.struct_name, method)
             elif method.is_static:
