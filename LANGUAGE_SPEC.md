@@ -44,9 +44,9 @@ implementation wins and this document is the bug.
 ## 2. Basic Syntax
 
 **Status: implemented**, except where a construct is marked *(illustrative)*
-below (default parameter values, the array-literal `.map` shorthand shown below,
-and the `loop { }` keyword are planned; use `while { }` for infinite loops
-today). Note the stdlib `Vector` does provide real `map<U>`/`fold<A>` methods
+below (default parameter values and the array-literal `.map` shorthand shown
+below are planned). Infinite loops are written `while { }` — there is no `loop`
+keyword (it was dropped as redundant). Note the stdlib `Vector` does provide real `map<U>`/`fold<A>` methods
 (see [Generics](#generics)); the illustrative example below is about method
 chaining directly on array literals, which is separate and still planned.
 
@@ -180,8 +180,8 @@ while condition {
     // ...
 }
 
-// Infinite loop as an expression with a break value.
-// (The `loop { }` keyword is planned; use `while { }` today.)
+// Infinite loop as an expression with a break value (`while { }` is the idiom;
+// there is no `loop` keyword).
 let result = while {
     if found {
         break value
@@ -2275,8 +2275,9 @@ pointer types `UnsafePointer<T>` / `UnsafeConstPointer<T>` (plus `sizeof<T>()`
 and `alignof<T>()` builtins, which fold to the target's ABI size and alignment
 of `T` in bytes at monomorphization time) are used by the stdlib today. The
 `#[repr(C)]` / `#[no_mangle]`
-attributes, C-varargs, `extern "C"` *exports*, and `unsafe` blocks/functions/
-traits are *planned* — the examples below using them are illustrative. (The
+attributes, C-varargs, and `extern "C"` *exports* are *planned* — the examples
+below using them are illustrative. There are **no** `unsafe` blocks/functions/
+traits — unsafety is type-carried (see [Unsafe Code](#unsafe-code) below). (The
 spec's `*Char`/`*var Void` shorthand is illustrative; the implemented spelling is
 `UnsafePointer<T>` / `UnsafeConstPointer<T>`.)
 
@@ -2304,27 +2305,32 @@ struct CStruct {
 }
 ```
 
-### Unsafe Code
+### Unsafe Code — unsafety is type-carried, not region-carried
+
+**Principle (design 55): unsafety is type-carried, not region-carried.** Saw has
+**no** `unsafe { }` blocks, `unsafe func`, or `unsafe trait`. Where a construct
+carries a proof obligation the compiler cannot discharge, the *type* names it —
+the `Unsafe` prefix is the marker. `UnsafePointer<T>` / `UnsafeConstPointer<T>`
+(raw pointers), `UnsafeMemory<T, Use>` (typed memory at a fixed address), and the
+explicit `as`-casts that mint them are the entire surface: touching one of these
+types *is* the opt-out, so the obligation travels with the value that carries it
+rather than being fenced off in a lexical region.
+
+This is deliberate. In the driver and allocator code that motivates raw memory
+access, nearly every line touches a device register or a raw pointer, so a
+region block would wrap the whole body in `unsafe { }` and communicate nothing;
+a type that says "this is a raw device view" at the declaration is where the
+audit actually wants to look. The `unsafe` keyword stays reserved (costlessly)
+in case a future design revisits this, but no region form is planned.
 
 ```saw
-// Opt-out of safety guarantees
-unsafe {
-    let ptr = malloc(100)
-    *ptr = 42
-    free(ptr)
-}
+// The obligation rides the type. Constructing a raw view IS the opt-out —
+// no block, no `unsafe func`.
+static UART0: UnsafeMemory<UartRegs, Device> = UnsafeMemory(0x1800_0000)
 
-// Unsafe functions must be called in unsafe blocks
-unsafe func dangerous() {
-    // Raw pointer operations
-    // Calling external functions
-    // Accessing mutable statics
-}
-
-// Unsafe traits
-unsafe trait GlobalAlloc {
-    unsafe func alloc(layout: Layout) -> *var Void
-    unsafe func dealloc(ptr: *var Void, layout: Layout)
+func poke(addr: Int) {
+    let p = addr as UnsafePointer<Int32>   // the cast is the visible marker
+    p[0] = 42                              // placement-move through a raw pointer
 }
 ```
 
@@ -2593,6 +2599,12 @@ identifier). The opaque/static-dispatch counterpart, when it lands, will use the
 provisional keyword `generic`. `sync`, `escaping`, and `any` are all contextual
 (recognized only in specific positions), so they are not reserved words.
 
+The `loop` and `ref` reservations are RETIRED (design 55): `loop` was redundant
+with `while { }` (the infinite-loop idiom), and `ref` never had a design — a
+future by-reference match binding would reuse the `&` sigil vocabulary — so both
+are freed as ordinary identifiers. `do` and `defer` stay reserved (cheap
+insurance for plausible futures).
+
 ```
 Implemented:
 as       break    case     catch    continue deinit   else     enum
@@ -2605,7 +2617,7 @@ Contextual (recognized only in type/effect positions; still valid identifiers):
 any      escaping sync
 
 Planned / reserved:
-and  async  await  const  defer  do  generic  loop  macro  none  or  ref
+and  async  await  const  defer  do  generic  macro  none  or
 some  unsafe  where
 ```
 
