@@ -304,9 +304,15 @@ class MethodsMixin:
         self.variable_types = {}
         self.cleanup_stack = []
 
-        # Set current return type for None literal generation
+        # Set current return type for None-literal generation and return-position
+        # wrapping. Substitute against the active monomorphization context so that
+        # a generic function returning `Result<T, E>` / `T?` builds and mangles
+        # its Ok/Err/Some against the CONCRETE payload (e.g. Result<Int, Int>) —
+        # otherwise Result auto-wrap looks up the unsubstituted `Result$2$T$E`
+        # enum, which was never registered (brief 36, L7). Empty context (a
+        # non-generic function) makes this a no-op.
         old_return_type = self.current_return_type
-        self.current_return_type = func.return_type
+        self.current_return_type = self._substitute_saw_type(func.return_type, self.type_param_context)
 
         # Create allocas for parameters and track for cleanup
         # Push a scope for function parameters (cleaned up when function returns)

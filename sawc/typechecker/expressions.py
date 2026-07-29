@@ -2572,6 +2572,13 @@ class ExpressionsMixin:
         matched_type = self._check_expression(expr.matched_expr)
         if matched_type is None:
             return None
+        # Normalize a STRUCT-kind user enum (or Result) to its ENUM form. A
+        # generic function's declared return type (e.g. `Result<T, E>`) is stored
+        # unresolved, so a call like `wrapOk<Int, Int>(7)` yields a STRUCT-kind
+        # `Result<Int, Int>`; the concrete-consumer path resolves it at binding
+        # time, but a direct `match` at the call site must resolve it here too
+        # (brief 36, L7).
+        matched_type = self._resolve_type(matched_type)
         if matched_type.kind != TypeKind.ENUM or matched_type.enum_name is None:
             self._error(
                 ErrorKind.TYPE_MISMATCH,

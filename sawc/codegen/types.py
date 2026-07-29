@@ -97,11 +97,23 @@ class TypesMixin:
                 return self.enum_types[saw_type.struct_name][0]  # Return LLVM type
             # Handle generic struct with type arguments (e.g., VectorIterator<Int>)
             if saw_type.type_args:
+                # Substitute any type parameters in the args against the current
+                # monomorphization context BEFORE monomorphizing the nested
+                # generic. Inside `unbox<Int>`, a parameter typed `Box<T>` must
+                # monomorphize `Box<Int>` (context T->Int), NOT re-enter `Box<T>`
+                # abstractly: with raw `[T]` args, `_ensure_monomorphized_struct`
+                # zips Box's formal `T` against the arg `T`, self-maps `T->T`, and
+                # generating field type `T` loops forever between the type-param
+                # lookup here and the field-type walk. Substituting first is the
+                # single shared fix for every nested-generic param/return/field
+                # type (brief 36, L8).
+                concrete_args = [self._substitute_saw_type(a, self.type_param_context)
+                                 for a in saw_type.type_args]
                 # Check if this is actually a generic enum (like Result<T, E>)
                 if saw_type.struct_name in self.generic_enums:
-                    mangled_name = self._ensure_monomorphized_enum(saw_type.struct_name, saw_type.type_args)
+                    mangled_name = self._ensure_monomorphized_enum(saw_type.struct_name, concrete_args)
                     return self.enum_types[mangled_name][0]
-                mangled_name = self._ensure_monomorphized_struct(saw_type.struct_name, saw_type.type_args)
+                mangled_name = self._ensure_monomorphized_struct(saw_type.struct_name, concrete_args)
                 return self.struct_types[mangled_name][0]
             if saw_type.struct_name not in self.struct_types:
                 raise ValueError(f"Undefined struct: {saw_type.struct_name}")
@@ -120,7 +132,13 @@ class TypesMixin:
                 raise ValueError("Enum type missing name")
             # Handle generic enum with type_args
             if saw_type.type_args:
-                mangled_name = self._ensure_monomorphized_enum(saw_type.enum_name, saw_type.type_args)
+                # Substitute type params against the current context first — same
+                # nested-generic monomorphization fix as the STRUCT branch above
+                # (brief 36, L8), so `Maybe<T>`/`Result<T, E>` in a param/return
+                # position specialize with concrete args rather than recursing.
+                concrete_args = [self._substitute_saw_type(a, self.type_param_context)
+                                 for a in saw_type.type_args]
+                mangled_name = self._ensure_monomorphized_enum(saw_type.enum_name, concrete_args)
                 return self.enum_types[mangled_name][0]
             if saw_type.enum_name not in self.enum_types:
                 raise ValueError(f"Undefined enum: {saw_type.enum_name}")

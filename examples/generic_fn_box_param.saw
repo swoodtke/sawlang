@@ -1,0 +1,30 @@
+// L8 (brief 32/36): a generic function taking a generic CONTAINER by parameter.
+// Instantiating `unbox<Int>` must monomorphize its `Box<T>` parameter type with
+// the SUBSTITUTED arg (Box<Int>), not re-enter the generic abstractly (which
+// recurses forever) or leave T unsubstituted.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 7
+
+struct Box<T> {
+    value: T
+}
+
+extension Box<T> {
+    func get(&self) -> T {
+        self.value
+    }
+}
+
+func unbox<T>(b: Box<T>) -> T {
+    b.get()
+}
+
+func main() {
+    let bi = Box<Int>(value: 42)
+    print(unbox<Int>(bi))
+
+    let bj = Box<Int>(value: 7)
+    print(unbox<Int>(bj))
+}

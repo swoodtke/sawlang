@@ -1,0 +1,19 @@
+// L8 (brief 29/36): a generic function taking a `&Vector<T>` parameter — the
+// exact shape the brief-29 free-function fold fallback needed. Instantiating
+// `sumLen<Int>` must monomorphize the `&Vector<T>` parameter with the
+// SUBSTITUTED arg (&Vector<Int>) rather than recursing in monomorphization.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+
+func vlen<T: Copy>(v: &Vector<T>) -> Int {
+    v.len()
+}
+
+func main() {
+    var v = Vector<Int>()
+    v.push(10)
+    v.push(20)
+    v.push(30)
+    print(vlen<Int>(&v))
+}
