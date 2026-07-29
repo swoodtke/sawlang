@@ -68,11 +68,33 @@ def _poll(variant):
     return EnumInit(enum_name="__Poll", variant_name=variant, arguments=[])
 
 
-def _is_suspend_stmt(stmt):
-    """True for a bare `__suspend()` statement — a state boundary."""
-    return (isinstance(stmt, ExpressionStatement)
+# The suspension-boundary intrinsics: `__suspend` (test-only synthetic), and the
+# real primitives `yield_now()` (immediately re-ready) and `sleep(ms)` (timed).
+_SUSPEND_CALLS = ("__suspend", "yield_now", "sleep")
+
+
+def _suspend_call_name(stmt):
+    if (isinstance(stmt, ExpressionStatement)
             and isinstance(stmt.expression, FunctionCall)
-            and stmt.expression.name == "__suspend")
+            and stmt.expression.name in _SUSPEND_CALLS):
+        return stmt.expression.name
+    return None
+
+
+def _is_suspend_stmt(stmt):
+    """True for a bare suspension-point statement — a state boundary. Covers the
+    synthetic `__suspend()` and the real `yield_now()`/`sleep(ms)` primitives."""
+    return _suspend_call_name(stmt) is not None
+
+
+def _wake_expr(stmt):
+    """The wake reason a suspension carries, stored in the frame's `__wake` field
+    and read by the executor after a Pending: milliseconds for `sleep(ms)`, else
+    0 (`__suspend`/`yield_now` — immediately re-ready)."""
+    fc = stmt.expression
+    if fc.name == "sleep":
+        return fc.arguments[0].value
+    return _int(0)
 
 
 def _is_pod(saw_type):
@@ -301,6 +323,9 @@ class _FrameBuilder:
                 name=c['sub'],
                 type=SawType(TypeKind.STRUCT, struct_name=f"__Frame_{c['callee']}")))
         fields.append(StructField(name="__state", type=SawType(TypeKind.INT)))
+        # The wake reason the frame communicates to the executor on a Pending
+        # (design 45 item 4): 0 = ready (yield), >0 = sleep that many ms.
+        fields.append(StructField(name="__wake", type=SawType(TypeKind.INT)))
         if not self.is_void:
             rt = self.ret if self.result_enc == "plain" else _opt(self.ret)
             fields.append(StructField(name="__result", type=rt))
@@ -378,11 +403,11 @@ class _FrameBuilder:
     def build_resume(self, fbs):
         func = self.func
         segments = [[]]
-        transitions = []  # ('suspend', None) | ('call', info) between segments
+        transitions = []  # ('suspend', wake_expr) | ('call', info) between segments
         call_idx = 0
         for stmt in func.body.statements:
             if _is_suspend_stmt(stmt):
-                transitions.append(('suspend', None))
+                transitions.append(('suspend', _wake_expr(stmt)))
                 segments.append([])
                 continue
             if self._classify_call(stmt) is not None:
@@ -408,7 +433,7 @@ class _FrameBuilder:
             seg_stmts = self._lower_stmt_list(seg)
             if k == len(segments) - 1:
                 # Completion: run the tail, store the result, mark done.
-                if not self.is_void and final_expr is not None:
+                if final_expr is not None:
                     tail_forgets = []
                     tail_val = self._rewrite_expr(final_expr, tail_forgets)
                     if tail_forgets:
@@ -417,8 +442,13 @@ class _FrameBuilder:
                             f"local of `{self.name}` in tail-expression position "
                             f"is not supported; move it in a `return` statement",
                             func.line, func.column)
-                    seg_stmts.append(AssignStatement(
-                        target=_self_field("__result"), value=tail_val))
+                    if self.is_void:
+                        # A void tail expression (e.g. `print(...)`) still runs for
+                        # its side effects; there is no result slot to store into.
+                        seg_stmts.append(ExpressionStatement(expression=tail_val))
+                    else:
+                        seg_stmts.append(AssignStatement(
+                            target=_self_field("__result"), value=tail_val))
                 seg_stmts.append(AssignStatement(
                     target=_self_field("__state"), value=_int(self._done_state)))
                 seg_stmts.append(ReturnStatement(value=_poll("Done")))
@@ -427,6 +457,11 @@ class _FrameBuilder:
 
             kind, info = transitions[k]
             if kind == 'suspend':
+                wforgets = []
+                wake = self._rewrite_expr(info, wforgets)
+                seg_stmts.extend(self._forgets(wforgets))
+                seg_stmts.append(AssignStatement(
+                    target=_self_field("__wake"), value=wake))
                 seg_stmts.append(AssignStatement(
                     target=_self_field("__state"), value=_int(state + 1)))
                 seg_stmts.append(ReturnStatement(value=_poll("Pending")))
@@ -501,11 +536,19 @@ class _FrameBuilder:
             target=_self_field("__state"), value=_int(next_state)))
         done_body.append(ReturnStatement(value=_poll("Pending")))
 
+        # On the callee's Pending, propagate its wake reason up so the executor
+        # sees the innermost sleep/yield, then stay in this drive state.
+        pending_body = [
+            AssignStatement(target=_self_field("__wake"),
+                            value=MemberAccess(object=_self_field(sub),
+                                               member="__wake")),
+            ReturnStatement(value=_poll("Pending")),
+        ]
         resume_call = MethodCall(object=_self_field(sub), method_name="resume",
                                  arguments=[])
         match = MatchExpr(matched_expr=resume_call, arms=[
             MatchArm(variant_name="Pending", bindings=[], body=Block(
-                statements=[ReturnStatement(value=_poll("Pending"))], final_expr=None)),
+                statements=pending_body, final_expr=None)),
             MatchArm(variant_name="Done", bindings=[], body=Block(
                 statements=done_body, final_expr=None)),
         ])
@@ -717,9 +760,50 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):
         zvals = [_zeroed_value(sub_fb.encmap[p.name], p.type) for p in sub_fb.params]
         field_inits.append((c['sub'], _build_frame_init(sub_fb, zvals, fbs)))
     field_inits.append(("__state", _int(0)))
+    field_inits.append(("__wake", _int(0)))
     if not fb.is_void:
         field_inits.append(("__result", _zeroed_value(fb.result_enc, fb.ret)))
     return StructInit(struct_name=fb.frame_name, field_inits=field_inits)
+
+
+def _make_entry_executor(fb: _FrameBuilder, fbs):
+    """Synthesize the entry executor that replaces a suspending `main` (design 45
+    item 1). It builds main's frame and drives it to completion on a single
+    cooperative run: each Pending consults the frame's `__wake` reason and, for a
+    `sleep(ms)`, parks the thread that long (`__exec_sleep`) before resuming; a
+    `yield_now` (wake 0) resumes at once. `main` may thus suspend with no
+    user-visible executor.
+    """
+    frame_init = _build_frame_init(fb, [], fbs)
+    stmts = [
+        LetStatement(name="__f", type_annotation=None, value=frame_init, mutable=True),
+        LetStatement(name="__done", type_annotation=None,
+                     value=BoolLiteral(value=False), mutable=True),
+    ]
+    resume_call = MethodCall(object=Identifier(name="__f"), method_name="resume",
+                             arguments=[])
+    wake = MemberAccess(object=Identifier(name="__f"), member="__wake")
+    pending_body = Block(statements=[ExpressionStatement(expression=IfExpr(
+        condition=BinaryOp(op=">", left=wake, right=_int(0)),
+        then_branch=Block(statements=[ExpressionStatement(expression=FunctionCall(
+            name="__exec_sleep",
+            arguments=[Argument(name=None, value=MemberAccess(
+                object=Identifier(name="__f"), member="__wake"))]))],
+            final_expr=None)))], final_expr=None)
+    done_body = Block(statements=[AssignStatement(
+        target=Identifier(name="__done"), value=BoolLiteral(value=True))],
+        final_expr=None)
+    loop = WhileExpr(
+        condition=UnaryOp(op="not", operand=Identifier(name="__done")),
+        body=Block(statements=[ExpressionStatement(expression=MatchExpr(
+            matched_expr=resume_call, arms=[
+                MatchArm(variant_name="Pending", bindings=[], body=pending_body),
+                MatchArm(variant_name="Done", bindings=[], body=done_body),
+            ]))], final_expr=None))
+    stmts.append(ExpressionStatement(expression=loop))
+    return Function(name="main", parameters=[], return_type=SawType(TypeKind.VOID),
+                    body=Block(statements=stmts, final_expr=None),
+                    source_file=getattr(fb.func, 'source_file', ""))
 
 
 def _make_driver(fb: _FrameBuilder, mode, fbs):
@@ -854,10 +938,12 @@ def _find_method(program, struct_name, method_name):
 def transform_program(program, typechecker):
     roots = dict(getattr(typechecker, "_driven_roots", {}) or {})
     method_roots = dict(getattr(typechecker, "_driven_method_roots", {}) or {})
-    if not roots and not method_roots:
-        return False
-
     funcs_by_name = {f.name: f for f in program.functions}
+    # design 45 item 1: a suspending `main` is auto-wrapped in an entry executor.
+    main_suspends = (getattr(typechecker, "_main_suspends", False)
+                     and "main" in funcs_by_name)
+    if not roots and not method_roots and not main_suspends:
+        return False
 
     new_structs = []
     new_enums = []
@@ -882,6 +968,8 @@ def transform_program(program, typechecker):
     closure = []
     seen = set()
     work = list(roots.keys())
+    if main_suspends:
+        work.append("main")
     while work:
         n = work.pop()
         if n in seen:
@@ -924,6 +1012,11 @@ def transform_program(program, typechecker):
             new_functions.append(_make_driver(fbs[root_name], mode, fbs))
         removed.add(root_name)
     removed.update(closure)
+    if main_suspends:
+        # `main` keeps its name but becomes the entry executor driving its own
+        # frame (not a __drive_* driver). It is in `removed` (the original body is
+        # now __Frame_main.resume), so the executor is re-added under `main`.
+        new_functions.append(_make_entry_executor(fbs["main"], fbs))
 
     # Part 0c: driven suspending methods. Each becomes a frame that holds a
     # `__recv` pointer into the receiver's storage; the method body's `self` is

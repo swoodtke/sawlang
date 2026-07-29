@@ -249,6 +249,29 @@ class EffectsMixin:
                     node.suspends = True
                     changed = True
 
+        # design 45 item 1: record whether `main` REALLY suspends -- reaches a
+        # real cooperative primitive (`yield_now`/`sleep`) -- so the pipeline wraps
+        # it in the entry executor. Gated to the real primitives, NOT the broader
+        # `suspends` bit: the conservative "call through a non-`sync` function
+        # value" source (any closure call) and the test-only `__suspend` (used
+        # only with explicit `__drive`) must NOT auto-wrap main.
+        real_labels = ("yield_now", "sleep")
+        really = {}
+        for key, node in nodes.items():
+            really[key] = any(s.label in real_labels for s in node.direct)
+        changed = True
+        while changed:
+            changed = False
+            for key, node in nodes.items():
+                if really.get(key):
+                    continue
+                for e in node.edges:
+                    if really.get(e.target):
+                        really[key] = True
+                        changed = True
+                        break
+        self._main_suspends = bool(really.get(("fn", "main")))
+
         for node in nodes.values():
             if node.sync_reason and node.suspends:
                 self._report_sync_violation(node)

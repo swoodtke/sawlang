@@ -1,0 +1,35 @@
+// design 45 items 1-4: a suspending `main` calling a suspending helper whose
+// `sleep`/`yield_now` wake reasons propagate up through the embedded sub-frames
+// (Part 0b) to the entry executor. The executor honours each propagated wake
+// reason (a real timed park for each `sleep`). Output is deterministic and the
+// program exits cleanly.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 97
+// 1
+// 2
+// 98
+// 99
+// 3
+
+func step(label: Int) -> Int {
+    print(label)
+    sleep(3)         // wake reason propagates step -> run -> main -> executor
+    label + 1
+}
+
+func run() -> Int {
+    let x = step(1)  // nested suspending call (embedded step frame)
+    yield_now()
+    let y = step(x)  // second nested suspending call
+    y                // 3
+}
+
+func main() {
+    print(97)
+    let r = run()    // nested suspending call driven via the entry executor
+    print(98)
+    yield_now()
+    print(99)
+    print(r)         // 3
+}

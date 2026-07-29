@@ -657,6 +657,45 @@ class ExpressionsMixin:
                 )
             self._effect_direct_source(expr.name, expr.line)
             return SawType(TypeKind.VOID)
+        if expr.name == "yield_now":
+            # design 45 item 4: cooperative yield — a real suspension point that
+            # hands control back to the executor and is immediately re-ready. Like
+            # `__suspend`, it is an effect source and a transform state boundary,
+            # but it carries a "ready" wake reason (the executor reschedules it at
+            # once). Takes no arguments; returns Void.
+            if len(expr.arguments) != 0:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`yield_now` takes no arguments, but {len(expr.arguments)} "
+                    f"were given", expr.line, expr.column)
+            self._effect_direct_source("yield_now", expr.line)
+            return SawType(TypeKind.VOID)
+        if expr.name == "sleep":
+            # design 45 item 4: cooperative timed wait — a suspension point that
+            # carries a "sleep for N ms" wake reason. The executor sleeps that long
+            # (the simplest correct hosted timer) before resuming. Takes one Int
+            # (milliseconds); returns Void.
+            if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`sleep` takes exactly one positional Int argument "
+                    f"(milliseconds)", expr.line, expr.column)
+            else:
+                ms_type = self._check_expression(expr.arguments[0].value)
+                if ms_type is not None and self._get_underlying_type(ms_type).kind != TypeKind.INT:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`sleep` expects an Int (milliseconds), got `{ms_type}`",
+                        expr.line, expr.column)
+            self._effect_direct_source("sleep", expr.line)
+            return SawType(TypeKind.VOID)
+        if expr.name == "__exec_sleep":
+            # design 45: the entry executor's own timer call — parks the thread
+            # for the task's requested milliseconds. NOT an effect source (the
+            # executor itself never suspends). Compiler-generated only.
+            if len(expr.arguments) == 1:
+                self._check_expression(expr.arguments[0].value)
+            return SawType(TypeKind.VOID)
         if expr.name in ("__drive", "__drive_steps"):
             # design 44: the test-only executor entry. `__drive(f(args))` creates
             # a frame for the suspending call `f(args)`, drives it to completion,

@@ -390,22 +390,29 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         saw_panic = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64]),
                                 name="saw_panic")
         saw_panic.attributes.add("noreturn")
+        # design 45: the cooperative executor's timer seam. `saw_sleep_ms(ms)`
+        # parks the current OS thread for `ms` milliseconds (the simplest correct
+        # hosted timer). Behind `sleep(ms)` and the entry executor's timed waits;
+        # freestanding supplies its own (a WFI/hardware-timer wait).
+        saw_sleep_ms = ir.Function(self.module, ir.FunctionType(void, [i64]),
+                                   name="saw_sleep_ms")
 
         self.functions["saw_alloc"] = saw_alloc
         self.functions["saw_dealloc"] = saw_dealloc
         self.functions["saw_write"] = saw_write
         self.functions["saw_panic"] = saw_panic
+        self.functions["saw_sleep_ms"] = saw_sleep_ms
         self.saw_write = saw_write
         self.saw_panic = saw_panic
 
         if self.freestanding:
             # Declarations only; the environment supplies the definitions.
-            for fn in (saw_alloc, saw_dealloc, saw_write, saw_panic):
+            for fn in (saw_alloc, saw_dealloc, saw_write, saw_panic, saw_sleep_ms):
                 fn.linkage = "external"
             return
 
         # ---- hosted weak definitions ----------------------------------------
-        for fn in (saw_alloc, saw_dealloc, saw_write, saw_panic):
+        for fn in (saw_alloc, saw_dealloc, saw_write, saw_panic, saw_sleep_ms):
             fn.linkage = "weak"
 
         malloc_fn = self._libc_func("malloc", i8ptr, [i64])
@@ -442,6 +449,23 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.call(saw_write, [saw_panic.args[0], saw_panic.args[1]])
         b.call(abort_fn, [])
         b.unreachable()
+
+        # saw_sleep_ms: usleep(ms * 1000). `usleep` takes microseconds as a 32-bit
+        # unsigned; a non-positive request returns at once (no wait).
+        i32 = ir.IntType(32)
+        usleep_fn = self._libc_func("usleep", i32, [i32])
+        b = ir.IRBuilder(saw_sleep_ms.append_basic_block("entry"))
+        ms = saw_sleep_ms.args[0]
+        pos = b.icmp_signed(">", ms, ir.Constant(i64, 0))
+        do_bb = saw_sleep_ms.append_basic_block("do")
+        ret_bb = saw_sleep_ms.append_basic_block("ret")
+        b.cbranch(pos, do_bb, ret_bb)
+        b = ir.IRBuilder(do_bb)
+        us = b.mul(ms, ir.Constant(i64, 1000))
+        b.call(usleep_fn, [b.trunc(us, i32)])
+        b.branch(ret_bb)
+        b = ir.IRBuilder(ret_bb)
+        b.ret_void()
 
     def _is_apple_triple(self) -> bool:
         t = (self.triple or "").lower()

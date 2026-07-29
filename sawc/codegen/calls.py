@@ -98,6 +98,21 @@ class CallsMixin:
         # field only when Some) skips the moved-out value: exactly-once cleanup on
         # every path. `Optional<T>` is laid out `{ i1 is_some, T }`; store 0 into
         # field 0. Reuses the same lvalue-pointer path as assignment.
+        # design 45 item 4: the cooperative suspension primitives, when reached as
+        # a plain call (a suspending function running straight through, i.e. NOT
+        # under the executor transform — the transform removes them as state
+        # boundaries). `yield_now()` is then a no-op; `sleep(ms)` still parks the
+        # thread for real via the timer seam, so a hosted script's `sleep` is
+        # honoured even without an executor.
+        if expr.name == "yield_now":
+            return None
+        # `__exec_sleep(ms)` is the executor's OWN (non-suspending) timer call,
+        # generated into the entry executor to honour a task's sleep wake reason.
+        if expr.name in ("sleep", "__exec_sleep"):
+            ms = self._generate_expression(expr.arguments[0].value)
+            self.builder.call(self.functions["saw_sleep_ms"], [ms])
+            return None
+
         if expr.name == "__forget":
             place = expr.arguments[0].value
             opt_ptr = self._get_lvalue_pointer(place)
