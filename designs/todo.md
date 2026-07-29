@@ -114,8 +114,11 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   (zero-cost verified in IR), placement-write contract documented,
   try_with_capacity fallible factory + AllocError. Stage 4 (F2) next
   when scheduled. [19, 28]
-- **F2.** Default type parameters (`A = Global`) — generics feature; stage
-  4, after brief 28. [19]
+- **F2.** ~~Default type parameters~~ — LANDED (brief 37): `= Default`
+  in type-param lists, defaults filled before mangling (one identity:
+  `Vector<Int>` ≡ `Vector<Int, Global>`), `A` public on Vector AND Map,
+  LoudAlloc dispatch proof, cross-allocator type distinctness tested.
+  Remaining stage-4 tail: slabs (F3) + statics (F4). [19, 37]
 - **F3.** Slab allocators + `AllocatedBy` sugar. [19]
 - **F4.** Module-level `static` declarations (needed for slab regions and
   const-init `Mutex`-in-static). [19]
