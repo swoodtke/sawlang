@@ -91,6 +91,24 @@ class CallsMixin:
                 self._emit_drop_at(ptr_val, elem_type)
             return None
 
+        # design 45 (Part 0a): __forget(optional_place) — clear an optional
+        # lvalue's `is_some` discriminant to None WITHOUT dropping its inner
+        # value. The coroutine transform emits this after a conditional `move` of
+        # a cleanup-needing frame local so the frame's own Deinit (which drops the
+        # field only when Some) skips the moved-out value: exactly-once cleanup on
+        # every path. `Optional<T>` is laid out `{ i1 is_some, T }`; store 0 into
+        # field 0. Reuses the same lvalue-pointer path as assignment.
+        if expr.name == "__forget":
+            place = expr.arguments[0].value
+            opt_ptr = self._get_lvalue_pointer(place)
+            if opt_ptr is not None:
+                i32 = ir.IntType(32)
+                flag_ptr = self.builder.gep(
+                    opt_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 0)],
+                    name="forget_flag_ptr")
+                self.builder.store(ir.Constant(ir.IntType(1), 0), flag_ptr)
+            return None
+
         # Check if the name refers to a closure variable
         if expr.name in self.variables:
             closure_ptr = self.variables[expr.name]

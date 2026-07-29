@@ -284,7 +284,6 @@ class _FrameBuilder:
                               source_file=getattr(func, 'source_file', ""))
         self.encmap = encmap
         frame_field_names = encmap
-        self._reject_frame_moves(func.body, encmap)
 
         # ---- state split -------------------------------------------------- #
         # Segments of top-level statements split at each `__suspend()`.
@@ -301,11 +300,12 @@ class _FrameBuilder:
         n_states = len(segments)  # states 0 .. n_states-1; last is completion
         self._done_state = n_states
         for k, seg in enumerate(segments):
-            seg_stmts = [self._lower_stmt(s, frame_field_names) for s in seg]
-            # An explicit `return X` anywhere in a segment ends the coroutine:
-            # store the result, mark done, signal Done (the live frame fields are
-            # dropped at frame death — normal-control-flow cleanup only).
-            seg_stmts = self._remap_returns(seg_stmts)
+            # Lower the segment: `let`s of frame locals become field assignments,
+            # identifiers become field reads, `return X` becomes the
+            # end-of-coroutine sequence, and a conditional `move` of a frame-
+            # resident local is rewritten to a field read plus a following
+            # `__forget` (Part 0a: the frame drop-flag clear-without-drop).
+            seg_stmts = self._lower_stmt_list(seg)
             if k < n_states - 1:
                 # A suspending state: run the segment, advance, yield Pending.
                 seg_stmts.append(AssignStatement(
@@ -320,9 +320,16 @@ class _FrameBuilder:
                 # The completion state: run the tail, store the result, mark done.
                 resume_stmts.extend(seg_stmts)
                 if not self.is_void and final_expr is not None:
+                    tail_forgets = []
+                    tail_val = self._rewrite_expr(final_expr, tail_forgets)
+                    if tail_forgets:
+                        raise CoroTransformError(
+                            f"coroutine transform: `move` of a frame-resident "
+                            f"local of driven `{self.name}` in tail-expression "
+                            f"position is not supported; move it in a `return` "
+                            f"statement instead", func.line, func.column)
                     resume_stmts.append(AssignStatement(
-                        target=_self_field("__result"),
-                        value=_rewrite_node(final_expr, frame_field_names)))
+                        target=_self_field("__result"), value=tail_val))
                 resume_stmts.append(AssignStatement(
                     target=_self_field("__state"), value=_int(n_states)))
                 resume_stmts.append(ReturnStatement(value=_poll("Done")))
@@ -344,83 +351,161 @@ class _FrameBuilder:
 
         return frame_struct, resume_ext, params, frame_locals
 
-    def _reject_frame_moves(self, node, encmap):
-        """A `move` of a frame-resident local (a conditional move across a
-        suspension) needs a frame-resident Bool DROP FLAG that is cleared without
-        dropping — the optional-encoding used for cleanup fields cannot express
-        clear-without-drop (assignment always drops the old value). Reject it with
-        a precise boundary message rather than a confusing downstream error."""
-        from ast_nodes import MoveExpr
-        stack = [node]
-        while stack:
-            n = stack.pop()
-            if isinstance(n, MoveExpr) and n.variable in encmap:
-                raise CoroTransformError(
-                    f"coroutine transform (v1): `move {n.variable}` transfers a "
-                    f"frame-resident local of driven `{self.name}` across a "
-                    f"suspension; conditional move across a suspend needs a "
-                    f"frame drop flag (design 44's Bool flags), which is "
-                    f"remaining work. Avoid moving frame locals for now.",
-                    getattr(n, 'line', self.func.line),
-                    getattr(n, 'column', self.func.column))
-            if isinstance(n, ASTNode):
-                for f in dataclasses.fields(n):
-                    v = getattr(n, f.name)
-                    if isinstance(v, list):
-                        stack.extend(x for x in v if isinstance(x, (ASTNode,)))
-                        stack.extend(x.value for x in v
-                                     if isinstance(x, Argument))
-                    elif isinstance(v, Argument):
-                        stack.append(v.value)
-                    elif isinstance(v, ASTNode):
-                        stack.append(v)
+    # -------------------------------------------------- frame-aware lowering
+    #
+    # `_lower_stmt_list` walks a statement list of the driven body and rewrites
+    # it for the resume method. Per statement it:
+    #   * turns a `let`/`var` of a frame-resident local into an assignment to the
+    #     pre-declared `self.<name>` field;
+    #   * rewrites identifier reads to `self.<field>` and a `move <frame local>`
+    #     to the field read, recording opt-encoded moves so a `__forget(self.f)`
+    #     is emitted right after the statement (Part 0a: the frame drop-flag
+    #     clear-without-drop — the frame's own Deinit then skips the moved field);
+    #   * turns `return X` into the end-of-coroutine sequence (store result, mark
+    #     done, signal Done — normal-control-flow cleanup only, no forced destroy);
+    #   * recurses into if/while/match blocks so a move (and its `__forget`) or a
+    #     `return` lands on exactly the branch that executes it.
 
-    def _done_seq(self, value):
-        """Statements that end the coroutine at an explicit `return value`
-        (value already rewritten to frame-field reads by _lower_stmt)."""
+    def _forget_stmt(self, name):
+        return ExpressionStatement(expression=FunctionCall(
+            name="__forget", arguments=[Argument(name=None, value=_self_field(name))]))
+
+    def _forgets(self, names):
+        return [self._forget_stmt(n) for n in names]
+
+    def _rewrite_expr(self, node, forgets):
+        """Frame-aware expression rewrite: `Identifier(frame local)` ->
+        `self.<field>` read; `move <frame local>` -> field read (+ record an
+        opt-encoded move in `forgets`). Does NOT descend into control-flow blocks
+        differently — callers process nested statement lists via
+        `_lower_stmt_list` so forgets are scoped to the executing branch."""
+        from ast_nodes import MoveExpr
+        if isinstance(node, MoveExpr) and node.path is None and node.variable in self.encmap:
+            name = node.variable
+            enc = self.encmap[name]
+            if enc == "opt":
+                forgets.append(name)
+            return _read_field(name, enc, getattr(node, 'line', 0),
+                               getattr(node, 'column', 0))
+        if isinstance(node, Identifier) and node.name in self.encmap:
+            return _read_field(node.name, self.encmap[node.name], node.line, node.column)
+        if isinstance(node, ASTNode):
+            for f in dataclasses.fields(node):
+                setattr(node, f.name,
+                        self._rewrite_expr_val(getattr(node, f.name), forgets))
+        return node
+
+    def _rewrite_expr_val(self, val, forgets):
+        if isinstance(val, list):
+            return [self._rewrite_expr_val(v, forgets) for v in val]
+        if isinstance(val, tuple):
+            return tuple(self._rewrite_expr_val(v, forgets) for v in val)
+        if isinstance(val, Argument):
+            val.value = self._rewrite_expr(val.value, forgets)
+            return val
+        if isinstance(val, ASTNode):
+            return self._rewrite_expr(val, forgets)
+        return val
+
+    def _lower_stmt_list(self, stmts):
+        out = []
+        for s in stmts:
+            out.extend(self._lower_one(s))
+        return out
+
+    def _lower_one(self, s):
+        if isinstance(s, ReturnStatement):
+            forgets = []
+            value = (self._rewrite_expr(s.value, forgets)
+                     if s.value is not None else None)
+            return self._done_seq(value, forgets)
+
+        if isinstance(s, LetStatement):
+            forgets = []
+            value = self._rewrite_expr(s.value, forgets)
+            if s.name in self.encmap:
+                new = AssignStatement(
+                    target=_self_field(s.name, s.line, s.column),
+                    value=value, line=s.line, column=s.column)
+            else:
+                s.value = value
+                new = s
+            return [new] + self._forgets(forgets)
+
+        if isinstance(s, AssignStatement):
+            forgets = []
+            s.target = self._rewrite_expr(s.target, forgets)
+            s.value = self._rewrite_expr(s.value, forgets)
+            return [s] + self._forgets(forgets)
+
+        if isinstance(s, ExpressionStatement):
+            e = s.expression
+            if isinstance(e, IfExpr):
+                forgets = []
+                e.condition = self._rewrite_expr(e.condition, forgets)
+                self._lower_block_in_place(e.then_branch)
+                if e.else_branch is not None:
+                    self._lower_block_in_place(e.else_branch)
+                return [s] + self._forgets(forgets)
+            if isinstance(e, WhileExpr):
+                forgets = []
+                if e.condition is not None:
+                    e.condition = self._rewrite_expr(e.condition, forgets)
+                self._lower_block_in_place(e.body)
+                return [s] + self._forgets(forgets)
+            if isinstance(e, MatchExpr):
+                forgets = []
+                e.matched_expr = self._rewrite_expr(e.matched_expr, forgets)
+                for arm in e.arms:
+                    if isinstance(arm.body, Block):
+                        self._lower_block_in_place(arm.body)
+                    else:
+                        aforgets = []
+                        arm.body = self._rewrite_expr(arm.body, aforgets)
+                        # A bare-expression arm cannot host trailing forgets;
+                        # moves there are unsupported (falls out only in tests
+                        # that use block arms).
+                        if aforgets:
+                            raise CoroTransformError(
+                                f"coroutine transform: `move` of a frame local in "
+                                f"a bare match-arm expression of driven "
+                                f"`{self.name}` is not supported; use a block arm",
+                                self.func.line, self.func.column)
+                return [s] + self._forgets(forgets)
+            forgets = []
+            s.expression = self._rewrite_expr(e, forgets)
+            return [s] + self._forgets(forgets)
+
+        # Fallback: generic rewrite (break/continue values, etc.).
+        forgets = []
+        ns = self._rewrite_expr(s, forgets)
+        return [ns] + self._forgets(forgets)
+
+    def _lower_block_in_place(self, block):
+        block.statements = self._lower_stmt_list(block.statements)
+        if block.final_expr is not None:
+            fforgets = []
+            block.final_expr = self._rewrite_expr(block.final_expr, fforgets)
+            if fforgets:
+                raise CoroTransformError(
+                    f"coroutine transform: `move` of a frame local in a nested "
+                    f"tail-expression of driven `{self.name}` is not supported; "
+                    f"move it in a `return` statement instead",
+                    self.func.line, self.func.column)
+
+    def _done_seq(self, value, forgets):
+        """End the coroutine at an explicit `return value`: store the result, run
+        any drop-flag clears for locals moved into the result, mark done, signal
+        Done. The result store loads the value first, so the following `__forget`
+        clears the source flag without disturbing the moved value."""
         seq = []
         if value is not None and not self.is_void:
             seq.append(AssignStatement(target=_self_field("__result"), value=value))
+        seq.extend(self._forgets(forgets))
         seq.append(AssignStatement(target=_self_field("__state"),
                                    value=_int(self._done_state)))
         seq.append(ReturnStatement(value=_poll("Done")))
         return seq
-
-    def _remap_returns(self, stmts):
-        """Replace every `return X` in a (lowered) statement list with the
-        end-of-coroutine sequence, recursing into if/while/match blocks. v1 covers
-        top-level and nested-block returns; a return inside a loop that spans a
-        suspension is later control-flow work."""
-        out = []
-        for s in stmts:
-            if isinstance(s, ReturnStatement):
-                out.extend(self._done_seq(s.value))
-                continue
-            if isinstance(s, ExpressionStatement):
-                e = s.expression
-                if isinstance(e, IfExpr):
-                    e.then_branch.statements = self._remap_returns(e.then_branch.statements)
-                    if e.else_branch is not None:
-                        e.else_branch.statements = self._remap_returns(e.else_branch.statements)
-                elif isinstance(e, WhileExpr):
-                    e.body.statements = self._remap_returns(e.body.statements)
-                elif isinstance(e, MatchExpr):
-                    for arm in e.arms:
-                        if isinstance(arm.body, Block):
-                            arm.body.statements = self._remap_returns(arm.body.statements)
-            out.append(s)
-        return out
-
-    def _lower_stmt(self, stmt, frame_field_names):
-        """Rewrite a body statement for the resume method: a top-level `let`/`var`
-        of a frame-resident local becomes an assignment to `self.<name>` (the
-        field is pre-declared and initialised at frame construction); every other
-        statement just has its identifier references rewritten to `self.<field>`."""
-        if isinstance(stmt, LetStatement) and stmt.name in frame_field_names:
-            value = _rewrite_node(stmt.value, frame_field_names)
-            return AssignStatement(target=_self_field(stmt.name, stmt.line, stmt.column),
-                                   value=value, line=stmt.line, column=stmt.column)
-        return _rewrite_node(stmt, frame_field_names)
 
 
 def _make_driver(fb: _FrameBuilder, mode, params, frame_locals):

@@ -771,6 +771,25 @@ class ExpressionsMixin:
                         expr.line, expr.column
                     )
             return SawType(TypeKind.VOID)
+        if expr.name == "__forget":
+            # design 45 (Part 0a): compiler-internal clear-without-drop for an
+            # optional lvalue. Overwrites the optional's `is_some` discriminant to
+            # None WITHOUT running the inner value's drop glue — the frame-resident
+            # drop-flag clear that a conditional `move` of a cleanup-needing frame
+            # local needs (assignment can't express it, since assigning None drops
+            # the old inner). Generated only by the coroutine transform; never
+            # user-facing (no diagnostic surface required beyond arity). No effect
+            # source: clearing a flag never suspends.
+            if len(expr.arguments) != 1:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`__forget` takes exactly one argument, but "
+                    f"{len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+                return SawType(TypeKind.VOID)
+            self._check_expression(expr.arguments[0].value)
+            return SawType(TypeKind.VOID)
         var_info = self.current_scope.lookup(expr.name)
         if var_info and var_info.type.kind == TypeKind.FUNCTION:
             func_type = var_info.type
