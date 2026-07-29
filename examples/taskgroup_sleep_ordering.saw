@@ -1,0 +1,24 @@
+// design 52b item 6: sleep ordering across tasks. Two tasks sleep for different
+// durations; the executor advances to the nearest deadline (earliest-deadline
+// over relative sleeps), so the SHORTER sleeper wakes and prints first, whatever
+// the spawn order.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 1
+// 3
+
+func sleeper(id: Int, ms: Int) -> Int {
+    sleep(ms)
+    print(id)
+    return id
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(sleeper(1, 30))   // sleeps 30ms
+    let b = group.spawn(sleeper(2, 10))   // sleeps 10ms -> wakes first
+    let x = a.join()
+    let y = b.join()
+    print(x + y)   // 1 + 2 = 3
+}

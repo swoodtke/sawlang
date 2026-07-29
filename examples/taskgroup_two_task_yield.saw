@@ -1,0 +1,31 @@
+// design 52b item 6: two tasks interleave deterministically via yield. The
+// group executor is round-robin, so each sweep resumes task 0 then task 1 up to
+// their next yield — a fixed, reproducible interleaving. join() returns each
+// task's typed result.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 20
+// 11
+// 21
+// 12
+// 22
+// 30
+
+func counter(base: Int) -> Int {
+    print(base)
+    yield_now()
+    print(base + 1)
+    yield_now()
+    print(base + 2)
+    return base
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(counter(10))
+    let b = group.spawn(counter(20))
+    let ra = a.join()
+    let rb = b.join()
+    print(ra + rb)   // 10 + 20 = 30
+}

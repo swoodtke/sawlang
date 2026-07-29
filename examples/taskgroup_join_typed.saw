@@ -1,0 +1,18 @@
+// design 52b item 6: handle.join() delivers the task's typed result. The task
+// computes a value across a suspension; join drives the group and hands back the
+// exact typed result.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 49
+
+func compute(x: Int) -> Int {
+    let base = x
+    yield_now()
+    return base * base
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(compute(7))
+    print(h.join())   // 7 * 7 = 49
+}

@@ -711,8 +711,13 @@ class _FrameBuilder:
     def _lower_stmt(self, s, loop_ctx):
         # A suspension primitive: terminate this block, resume at a fresh one.
         if _is_suspend_stmt(s):
-            wake = _wake_expr(s)
+            # The wake expression (e.g. `sleep(ms)`'s `ms`) is ordinary body code:
+            # rewrite its identifiers to frame fields, so a NON-literal argument
+            # (`sleep(delay)` where `delay` is a param/local) reads `self.delay`.
+            forgets = []
+            wake = self._rewrite_expr(_wake_expr(s), forgets)
             nxt = self._new_block()
+            self._emit(self._forgets(forgets))
             self._suspend_to(wake, nxt)
             self.cur = nxt
             return
@@ -1372,10 +1377,14 @@ def _rewrite_spawn_sites(node):
                          inner_type=SawType(TypeKind.STRUCT, struct_name="TaskGroup"))
         group_ptr = CastExpr(
             expr=ReferenceExpr(expr=group, mutable=False), target_type=tg_ptr)
-        return FunctionCall(
+        call = FunctionCall(
             name=f"__spawn_{root}",
             arguments=[Argument(name=None, value=group_ptr)] + list(inner.arguments),
             line=node.line, column=node.column)
+        # Carry the handle type so a suspending spawner can type the frame-resident
+        # `let h = ...` binding (conservative-by-scope liveness reads it).
+        call.resolved_type = getattr(node, 'resolved_type', None)
+        return call
     if isinstance(node, ASTNode):
         for f in dataclasses.fields(node):
             setattr(node, f.name, _rewrite_spawn_val(getattr(node, f.name)))
@@ -1468,6 +1477,18 @@ def transform_program(program, typechecker):
                      and "main" in funcs_by_name)
     if not roots and not method_roots and not spawn_roots and not main_suspends:
         return False
+
+    # design 52b item 2: rewrite `group.spawn(f(args))` -> `__spawn_<f>(&group,
+    # args)` FIRST, before any frame is built, so a spawner that is ITSELF
+    # transformed (a suspending `main` holding the group in its own frame) has its
+    # spawn sites lowered to plain calls before its body becomes a resume method.
+    # `__spawn_<f>` is non-suspending, so it never triggers a suspension split.
+    if spawn_roots:
+        for f in program.functions:
+            f.body = _rewrite_spawn_sites(f.body)
+        for ext in program.extensions:
+            for m in ext.methods:
+                m.body = _rewrite_spawn_sites(m.body)
 
     new_structs = []
     new_enums = []
@@ -1577,15 +1598,6 @@ def transform_program(program, typechecker):
         for m in ext.methods:
             _rewrite_drive_sites(m.body, roots)
 
-    # design 52b item 2: rewrite `group.spawn(f(args))` sites to the synthesized
-    # `__spawn_<f>` helper. Done after driver rewriting so a `__drive`-inside-spawn
-    # (there is none) would already be resolved; the two site kinds are disjoint.
-    if spawn_roots:
-        for f in program.functions:
-            f.body = _rewrite_spawn_sites(f.body)
-        for ext in program.extensions:
-            for m in ext.methods:
-                m.body = _rewrite_spawn_sites(m.body)
 
     # Strip driven methods from their extensions (replaced by frame + resume).
     for ext, method_ast in removed_methods:

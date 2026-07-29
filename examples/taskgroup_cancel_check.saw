@@ -1,0 +1,35 @@
+// design 52b item 6: cooperative cancellation observed at an explicit check, with
+// deinit-oracle cleanup (NO forced destroy). The handle cancels the task before
+// it is driven; the task sees `cancelled()` on its first check and returns
+// through normal control flow. Its Deinit local drops exactly once at teardown.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -1
+// 9
+// 77
+
+struct Res { id: Int }
+extension Res: Deinit { func deinit(&var self) { print(self.id) } }
+extension Res: NoCopy {}
+
+func worker() -> Int {
+    let held = Res(id: 77)      // deinit oracle
+    var i = 0
+    while i < 1000000 {
+        if cancelled() {
+            return 0 - 1        // cooperative early return
+        }
+        yield_now()
+        i = i + 1
+    }
+    return 100
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker())
+    h.cancel()          // request cancellation
+    print(h.join())     // worker observes it on the first check -> -1
+    print(9)
+    // scope exit: group teardown drops the frame -> held 77 (exactly once)
+}

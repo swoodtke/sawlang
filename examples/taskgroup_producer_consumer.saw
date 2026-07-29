@@ -1,0 +1,44 @@
+// design 52b item 6: producer/consumer over the suspending channel (Part 0 loop
+// suspension). The producer sends 1,2,3 (yielding between), the consumer drains
+// via the cooperative suspending-receive idiom: `try_receive` non-blocking, and
+// `yield_now` when the channel is empty so the TASK suspends and retries.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 6
+
+func producer(ch: Channel<Int>) -> Int {
+    var i = 0
+    while i < 3 {
+        ch.send(i + 1)   // 1, 2, 3
+        yield_now()
+        i = i + 1
+    }
+    return i             // 3
+}
+
+func consumer(ch: Channel<Int>) -> Int {
+    var sum = 0
+    var got = 0
+    while got < 3 {
+        var empty = true
+        if let v = ch.try_receive() {
+            sum = sum + v
+            got = got + 1
+            empty = false
+        }
+        if empty {
+            yield_now()   // channel empty: suspend the task, retry when rescheduled
+        }
+    }
+    return sum            // 1 + 2 + 3 = 6
+}
+
+func main() {
+    var group = TaskGroup()
+    let ch = Channel<Int>()
+    let hp = group.spawn(producer(ch.copy()))
+    let hc = group.spawn(consumer(ch.copy()))
+    print(hp.join())   // 3
+    print(hc.join())   // 6
+}

@@ -1,0 +1,23 @@
+// design 52b item 6: structured join at scope exit. Two tasks are spawned and
+// NEVER joined; the group's Deinit drains them to completion (structured join =
+// LIFO destruction) as `group` dies. Their side effects therefore run at scope
+// exit, after main's own `print(0)`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 2
+
+func w(id: Int) -> Int {
+    yield_now()
+    print(id)
+    return id
+}
+
+func main() {
+    var group = TaskGroup()
+    let h1 = group.spawn(w(1))
+    let h2 = group.spawn(w(2))
+    print(0)
+    // scope exit (LIFO): h2, h1 drop (no-op), then group.deinit drains -> 1, 2
+}

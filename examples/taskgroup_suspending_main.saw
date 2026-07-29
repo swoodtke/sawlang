@@ -1,0 +1,28 @@
+// design 52b item 6: a suspending `main` composes with a group. main itself
+// suspends (sleep, yield_now), so the compiler wraps it in the entry executor;
+// the group work runs in a (non-suspending) helper the executor calls
+// synchronously, whose own executor drives the spawned task.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 42
+// 2
+
+func w(id: Int) -> Int {
+    yield_now()
+    return id
+}
+
+func run_tasks() -> Int {
+    var group = TaskGroup()
+    let h = group.spawn(w(42))
+    return h.join()
+}
+
+func main() {
+    print(1)
+    sleep(3)                // main suspends -> entry executor
+    print(run_tasks())      // 42
+    yield_now()
+    print(2)
+}

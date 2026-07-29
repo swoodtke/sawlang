@@ -2712,8 +2712,13 @@ class ExpressionsMixin:
         result_type = inner_type if inner_type is not None else SawType(TypeKind.VOID)
         self._effect_record_spawn(inner.name, result_type)
         expr.spawn_root = inner.name
-        return SawType(TypeKind.STRUCT, struct_name="TaskHandle",
-                       type_args=[result_type])
+        handle_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle",
+                              type_args=[result_type])
+        # Stamp the handle type so the transform's `__spawn_<f>` rewrite can carry
+        # it onto the replacement call (needed when a suspending spawner makes the
+        # `let h = group.spawn(...)` binding frame-resident and must type it).
+        expr.resolved_type = handle_type
+        return handle_type
 
     def _try_existential_arg_coercion(self, arg, arg_type, expected_type):
         """Coerce `&concrete -> &any Trait` at a call boundary (design 51). Returns

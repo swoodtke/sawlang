@@ -1,0 +1,25 @@
+// design 52b item 6: an unjoined handle's result is dropped EXACTLY ONCE at group
+// teardown. The task returns a NoCopy Deinit value; the handle is never joined,
+// so the result stays in the frame and the group's Deinit (erased Box teardown)
+// drops it once — the double-free-class oracle.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 200
+
+struct Res { id: Int }
+extension Res: Deinit { func deinit(&var self) { print(self.id) } }
+extension Res: NoCopy {}
+
+func makes(id: Int) -> Res {
+    yield_now()
+    return Res(id: id)
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(makes(200))   // never joined
+    print(0)
+    // scope exit: group.deinit drains, then tears down the frame ->
+    // the unconsumed Res(200) is dropped exactly once
+}
