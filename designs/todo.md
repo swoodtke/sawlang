@@ -146,7 +146,16 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   `Vector<Int>` ≡ `Vector<Int, Global>`), `A` public on Vector AND Map,
   LoudAlloc dispatch proof, cross-allocator type distinctness tested.
   Remaining stage-4 tail: slabs (F3) + statics (F4). [19, 37]
-- **F3.** Slab allocators + `AllocatedBy` sugar. [19]
+- **F3.** ~~Slab allocators~~ — LANDED (brief 42): `std/slab.saw` CAS
+  bump + LIFO free-list over caller statics; `Box<T, A = Global>` with
+  placement-move factories (`Box<T>.make`/`make_or`); kernel idiom
+  proven to exhaustion and reclaim; freestanding-verified. Enabling:
+  conditional-move DROP FLAGS (fixed a pre-existing branch-move leak),
+  `&T`→pointer / pointer↔Int casts. `AllocatedBy` sugar stays deferred
+  per paper 19. [19, 42]
+- **M4.** No user-facing `panic(message)` builtin — MakeBox's OOM panic
+  reuses the force-unwrap message; old TODO.md wanted panic/assert too.
+  Small, worth shipping with proper message plumbing. [42 report]
 - **F4.** ~~Module-level statics~~ — LANDED (brief 41): decided
   semantics enforced (Sync-only, const-init, immortal, no static mut,
   interior mutability via methods), zero-init BSS arrays, minimal
