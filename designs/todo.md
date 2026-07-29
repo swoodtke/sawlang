@@ -147,8 +147,11 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   LoudAlloc dispatch proof, cross-allocator type distinctness tested.
   Remaining stage-4 tail: slabs (F3) + statics (F4). [19, 37]
 - **F3.** Slab allocators + `AllocatedBy` sugar. [19]
-- **F4.** Module-level `static` declarations (needed for slab regions and
-  const-init `Mutex`-in-static). [19]
+- **F4.** ~~Module-level statics~~ — LANDED (brief 41): decided
+  semantics enforced (Sync-only, const-init, immortal, no static mut,
+  interior mutability via methods), zero-init BSS arrays, minimal
+  `Atomic<Int>` (seq_cst load/store/fetch_add/CAS), freestanding
+  .rodata/.bss verified. Also fixed L13 (UInt udiv/urem). [19, 41]
 - **F5.** `Once`/`Lazy<T>`, `PerCpu<T>`, `UnsafeCell`-equivalent + the
   unsafe story for user lock-free structures. [19]
 - **F6.** dtoa / Float printing under `--freestanding` (currently a
