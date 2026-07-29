@@ -120,7 +120,11 @@ class EffectsMixin:
 
     # ------------------------------------------------------- node entry / exit
     def _effect_enter_function(self, func):
-        key = ("fn", func.name)
+        # Overloading (design 55): a member of a 2+ overload set carries a
+        # distinct stamped codegen symbol; key its suspend node on that so each
+        # overload has its OWN effect node (a sync and a non-sync overload of the
+        # same name must not merge into one node).
+        key = ("fn", getattr(func, 'mangled_symbol', None) or func.name)
         node = self._suspend_nodes.get(key)
         if node is None:
             is_sync = getattr(func, "is_sync", False)
@@ -212,7 +216,10 @@ class EffectsMixin:
             # Free functions are keyed by name. A non-blocking extern (or any
             # name with no analyzed body) has no node and is a non-suspending
             # leaf, which is exactly the "extern promises promptness" rule.
-            self._effect_add_edge(("fn", name), f"`{name}`", line)
+            # Overloading (design 55): edge to the RESOLVED overload's node,
+            # which is keyed by its stamped symbol (matches _effect_enter_function).
+            key_name = getattr(func_info, "mangled_name", "") or name
+            self._effect_add_edge(("fn", key_name), f"`{name}`", line)
 
     def _effect_call_method(self, method_info, short: str, line: int):
         ast = getattr(method_info, "ast_node", None)

@@ -1154,10 +1154,12 @@ class CallsMixin:
 
         Since all modules are merged, we can call the function directly.
         """
-        func_name = expr.method_name
+        # Overloading (design 55): the typechecker resolved the module overload
+        # and stamped its exact (merged-module) codegen symbol.
+        func_name = getattr(expr, 'resolved_symbol', None) or expr.method_name
 
         if func_name not in self.functions:
-            raise ValueError(f"Undefined function in module: {expr.object.name}.{func_name}")
+            raise ValueError(f"Undefined function in module: {expr.object.name}.{expr.method_name}")
 
         func = self.functions[func_name]
 

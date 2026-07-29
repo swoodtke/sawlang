@@ -3196,6 +3196,12 @@ class ExpressionsMixin:
                         )
                         return None
                     if symbol.kind == SymbolKind.FUNCTION:
+                        # Overloading (design 55): resolve against the module's
+                        # overload set when it has 2+ members.
+                        mo = inner_module_sym.namespace.lookup_function_overloads(
+                            expr.method_name)
+                        if len(mo) > 1:
+                            return self._check_overloaded_module_function_call(expr, mo)
                         # Use the symbol directly - it's already a FunctionSymbol
                         return self._check_module_function_call(expr, symbol)
                     elif symbol.kind == SymbolKind.STRUCT:
@@ -3225,6 +3231,12 @@ class ExpressionsMixin:
                     )
                     return None
                 if symbol.kind == SymbolKind.FUNCTION:
+                    # Overloading (design 55): resolve against the module's
+                    # overload set when it has 2+ members.
+                    mo = module_sym.namespace.lookup_function_overloads(
+                        expr.method_name)
+                    if len(mo) > 1:
+                        return self._check_overloaded_module_function_call(expr, mo)
                     # Use the symbol directly - it's already a FunctionSymbol
                     return self._check_module_function_call(expr, symbol)
                 elif symbol.kind == SymbolKind.STRUCT:
@@ -3514,6 +3526,26 @@ class ExpressionsMixin:
         if type_subst:
             return_type = return_type.substitute(type_subst)
         return return_type
+
+    def _check_overloaded_module_function_call(self, expr, candidates):
+        """Resolve and check a module-qualified call to an overloaded function
+        (design 55). Modules are merged at codegen, so the resolved overload's
+        stamped symbol is a plain global — routed via expr.resolved_symbol."""
+        arg_types = self._overload_arg_types(expr)
+        func_info = self._resolve_overload(
+            expr.method_name, candidates, arg_types,
+            bool(getattr(expr, 'type_args', None)),
+            is_method=False, line=expr.line, column=expr.column)
+        if func_info is None:
+            return None
+        if func_info.mangled_name:
+            expr.resolved_symbol = func_info.mangled_name
+        self._effect_call_function(func_info, expr.method_name, expr.line)
+        param_types = func_info.param_types
+        self._finish_overloaded_args(expr, param_types, arg_types)
+        self._check_call_exclusivity([a.value for a in expr.arguments], param_types,
+                                     param_names=func_info.param_names)
+        return func_info.return_type
 
     def _check_module_function_call(self, expr: MethodCall, func_info) -> Optional[SawType]:
         """Check a module function call: ModuleName.function(args)"""
