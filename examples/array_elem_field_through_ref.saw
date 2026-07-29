@@ -1,0 +1,16 @@
+// Test: field assignment through an array element reached via a &var array
+// reference parameter mutates the caller's array
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+
+struct Cell { v: Int }
+
+func bump(a: &var [Cell; 2]) {
+    a[0].v = 42
+}
+
+func main() {
+    var arr = [Cell(v: 1), Cell(v: 2)]
+    bump(&var arr)
+    print(arr[0].v)
+}

@@ -1,0 +1,12 @@
+// Error: field assignment through an element of a `let` array is rejected,
+// exactly like a bare `a[0] = x` element write
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to element of immutable array
+
+struct Cell { v: Int }
+
+func main() {
+    let a = [Cell(v: 1), Cell(v: 2)]
+    a[0].v = 99
+    print(a[0].v)
+}

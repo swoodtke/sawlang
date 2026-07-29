@@ -690,6 +690,31 @@ class StatementsMixin:
         info = VariableInfo(inner_type, stmt.mutable, stmt.line, stmt.column)
         self.current_scope.define(stmt.name, info)
 
+    def _assign_target_immutable_array(self, target):
+        """If an lvalue chain indexes into an immutable fixed array, return that
+        array's name; else None.
+
+        Walks down through MemberAccess/ArrayIndex nodes. The first index into a
+        `let`-bound fixed array (identifier container) is the offending write —
+        mirrors the bare `a[0] = x` element-mutability rule so a field reached
+        through such an element (`a[0].v = x`) is rejected the same way.
+        """
+        expr = target
+        while True:
+            if isinstance(expr, MemberAccess):
+                expr = expr.object
+            elif isinstance(expr, ArrayIndex):
+                container = expr.array_expr
+                if isinstance(container, Identifier):
+                    info = self.current_scope.lookup(container.name)
+                    if (info is not None and not info.mutable
+                            and info.type is not None
+                            and info.type.kind == TypeKind.ARRAY):
+                        return container.name
+                expr = container
+            else:
+                return None
+
     def _check_assign_statement(self, stmt: AssignStatement):
         """Check an assignment statement."""
         # Handle both simple variable assignment and field assignment
@@ -746,6 +771,18 @@ class StatementsMixin:
 
         elif isinstance(stmt.target, MemberAccess):
             # Field assignment: obj.field = value
+            # Mutability: assigning through a `let` array element
+            # (`a[0].v = x`, `a[i].inner.v = x`) is rejected exactly like a bare
+            # `a[0] = x` element write (design 39 item 1).
+            imm_array = self._assign_target_immutable_array(stmt.target)
+            if imm_array is not None:
+                self._error(
+                    ErrorKind.IMMUTABLE_ASSIGNMENT,
+                    f"cannot assign to element of immutable array `{imm_array}`",
+                    stmt.line, stmt.column,
+                    hint="consider using `var` instead of `let` to make it mutable"
+                )
+
             obj_type = self._check_expression(stmt.target.object)
             if not obj_type:
                 return

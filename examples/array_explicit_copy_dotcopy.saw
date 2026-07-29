@@ -2,8 +2,12 @@
 // yielding an INDEPENDENT array: mutating one leaves the other untouched, and
 // each array's elements deinit exactly once (double-free-free). Deinit prints
 // the element value so the exact release sequence is the oracle.
+//
+// Overwriting a[0] releases the old element first (design 39 item 2): `d-1`
+// fires at the `a[0] = ...` write, before either print.
 // EXPECT: success
 // EXPECT-OUTPUT:
+// d-1
 // 99
 // 1
 // d-2

@@ -14,7 +14,7 @@ from typing import List
 from llvmlite import ir
 from ast_nodes import (
     FunctionCall, StructInit, Argument, SawType, TypeKind,
-    MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit
+    MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit, ArrayIndex
 )
 
 
@@ -782,33 +782,64 @@ class CallsMixin:
 
         return self._generate_struct_init(struct_init)
 
+    def _get_lvalue_pointer(self, expr):
+        """Return a pointer to the storage backing an assignable lvalue.
+
+        Resolves variables (loading once through a `&`/`&var` reference so the
+        pointer lands on the caller's value), `self`, struct fields, and
+        array/pointer elements, recursing so nested forms like `a[i].inner`
+        reach real storage instead of a throwaway copy. Non-lvalue expressions
+        fall back to a materialized temporary (no write-back), matching the
+        historical member-access fallback.
+        """
+        if isinstance(expr, Identifier) and expr.name in self.variables:
+            base_ptr = self.variables[expr.name]
+            var_type = self.variable_types.get(expr.name)
+            if var_type is not None and var_type.kind == TypeKind.REFERENCE:
+                base_ptr = self.builder.load(base_ptr, name=f"{expr.name}_ref")
+            return base_ptr
+        if isinstance(expr, SelfExpr) and "self" in self.variables:
+            return self.variables["self"]
+        if isinstance(expr, MemberAccess):
+            return self._get_member_pointer(expr)
+        if isinstance(expr, ArrayIndex):
+            return self._get_element_pointer(expr)
+        # Fallback: materialize a temporary (won't propagate changes back).
+        base_val = self._generate_expression(expr)
+        base_ptr = self._entry_alloca(base_val.type, name="lvalue_temp")
+        self.builder.store(base_val, base_ptr)
+        return base_ptr
+
+    def _get_element_pointer(self, expr: ArrayIndex):
+        """Return a pointer to the `arr[i]` element slot as an lvalue.
+
+        Composes with `_get_lvalue_pointer` so the container is addressed in
+        place: a fixed array `[N x T]` is a two-index GEP into its storage; a
+        raw pointer slot (`UnsafePointer` buffer) is loaded then single-index
+        GEP'd. This is what lets `a[i].field = x` (and nested chains) mutate the
+        real array rather than a temporary copy.
+        """
+        container_ptr = self._get_lvalue_pointer(expr.array_expr)
+        index_val = self._generate_expression(expr.index)
+        pointee = container_ptr.type.pointee
+        if isinstance(pointee, ir.ArrayType):
+            zero = ir.Constant(ir.IntType(64), 0)
+            return self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
+        if isinstance(pointee, ir.PointerType):
+            base = self.builder.load(container_ptr, name="ptr_base")
+            return self.builder.gep(base, [index_val], name="ptr_elem")
+        raise ValueError(f"Cannot index into type for element pointer: {pointee}")
+
     def _get_member_pointer(self, expr: MemberAccess):
         """Get a pointer to a struct field for mutable access.
 
         For expressions like self.keys where we need to mutate keys in place,
         this returns a GEP pointer to the field rather than extracting a copy.
+        The base object is resolved through `_get_lvalue_pointer`, so a field
+        reached through an array element (`a[i].field`) GEPs into real storage.
         """
-        # Get pointer to the base object
-        if isinstance(expr.object, Identifier) and expr.object.name in self.variables:
-            base_ptr = self.variables[expr.object.name]
-            # A &/&var reference parameter's slot holds a POINTER to the struct
-            # (e.g. Box**); load once to get the actual struct pointer (Box*) so
-            # the field GEP lands on the caller's value rather than treating a
-            # pointer as the struct.
-            var_type = self.variable_types.get(expr.object.name)
-            if var_type is not None and var_type.kind == TypeKind.REFERENCE:
-                base_ptr = self.builder.load(
-                    base_ptr, name=f"{expr.object.name}_ref")
-        elif isinstance(expr.object, SelfExpr) and "self" in self.variables:
-            base_ptr = self.variables["self"]
-        elif isinstance(expr.object, MemberAccess):
-            # Recursive case: nested member access like a.b.c
-            base_ptr = self._get_member_pointer(expr.object)
-        else:
-            # Fallback: create temporary (won't propagate changes back)
-            base_val = self._generate_expression(expr.object)
-            base_ptr = self._entry_alloca(base_val.type, name="member_temp")
-            self.builder.store(base_val, base_ptr)
+        # Get pointer to the base object (variable/self/field/element/fallback).
+        base_ptr = self._get_lvalue_pointer(expr.object)
 
         # Determine the struct type
         ptr_type = base_ptr.type

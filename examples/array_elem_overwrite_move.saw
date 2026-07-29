@@ -1,0 +1,23 @@
+// Test: overwriting an array element with a moved NoCopy value releases the
+// old element first, moves the new one in, and the moved-from source is not
+// double-dropped at scope exit
+// EXPECT: success
+// EXPECT-OUTPUT:
+// deinit 1
+// deinit 2
+// deinit 3
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("deinit {self.id}")
+    }
+}
+
+func main() {
+    var a = [Res(id: 1), Res(id: 2)]
+    var b = Res(id: 3)
+    a[0] = move b        // "deinit 1" (old element), b moved into a[0]
+    // scope exit: a[1] (id 2) then a[0] (id 3); b was moved, not dropped.
+}

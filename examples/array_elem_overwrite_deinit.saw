@@ -4,7 +4,6 @@
 // deinit 1
 // deinit 2
 // deinit 3
-// XFAIL: whole-element array assignment (a[0] = ...) never deinits the overwritten element (brief 33 observation)
 
 struct Res {
     id: Int

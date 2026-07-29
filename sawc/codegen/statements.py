@@ -222,51 +222,13 @@ class StatementsMixin:
 
         elif isinstance(stmt.target, MemberAccess):
             # Field assignment: obj.field = value
-            # We need to get a pointer to the object first
+            # Resolve a pointer to the object's REAL storage (variable, self,
+            # nested field, or array/pointer element). _get_lvalue_pointer
+            # recurses and unwraps references, so an array-element base
+            # (`a[i].field = x`) GEPs into the live array rather than a
+            # throwaway copy (design 39 item 1).
             obj_expr = stmt.target.object
-
-            # Get pointer to the struct
-            if isinstance(obj_expr, Identifier):
-                # Direct variable reference: p.x = value
-                if obj_expr.name not in self.variables:
-                    raise ValueError(f"Undefined variable: {obj_expr.name}")
-                struct_ptr = self.variables[obj_expr.name]
-                # A &/&var reference parameter's slot holds a POINTER to the
-                # struct (e.g. Box**), not the struct itself. Load once to get
-                # the actual struct pointer (Box*) so field GEP lands on the
-                # caller's value. Without this the pointee is a pointer type and
-                # the struct-type lookup below fails.
-                var_type = self.variable_types.get(obj_expr.name)
-                if var_type is not None and var_type.kind == TypeKind.REFERENCE:
-                    struct_ptr = self.builder.load(
-                        struct_ptr, name=f"{obj_expr.name}_ref")
-            elif isinstance(obj_expr, SelfExpr):
-                # self.field = value
-                struct_ptr = self.variables["self"]
-            elif isinstance(obj_expr, MemberAccess):
-                # Nested field target: r.inner.field = value. Resolve a pointer
-                # to the intermediate field (which may itself be reached through
-                # a reference); _get_member_pointer handles the recursion and
-                # reference unwrapping.
-                struct_ptr = self._get_member_pointer(obj_expr)
-            elif isinstance(obj_expr, ArrayIndex):
-                # Array/pointer indexing: arr[i].field = value or ptr[i].field = value
-                container_val = self._generate_expression(obj_expr.array_expr)
-                index_val = self._generate_expression(obj_expr.index)
-
-                if isinstance(container_val.type, ir.PointerType):
-                    # Pointer indexing: ptr[i].field = value
-                    struct_ptr = self.builder.gep(container_val, [index_val], name="ptr_idx")
-                elif isinstance(container_val.type, ir.ArrayType):
-                    # Array indexing - need to allocate, store, and use GEP
-                    array_ptr = self._entry_alloca(container_val.type, name="arr_tmp")
-                    self.builder.store(container_val, array_ptr)
-                    zero = ir.Constant(ir.IntType(64), 0)
-                    struct_ptr = self.builder.gep(array_ptr, [zero, index_val], name="elem_ptr")
-                else:
-                    raise ValueError(f"Cannot index into type for field assignment: {container_val.type}")
-            else:
-                raise ValueError(f"Unsupported object expression in field assignment: {type(obj_expr)}")
+            struct_ptr = self._get_lvalue_pointer(obj_expr)
 
             # Determine struct type and field index
             # Get the actual struct type (dereference if it's a pointer)
@@ -328,6 +290,23 @@ class StatementsMixin:
                     # Array: GEP with two indices [0, index]
                     zero = ir.Constant(ir.IntType(64), 0)
                     elem_ptr = self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
+                    # LIVE-SLOT RELEASE (design 39 item 2): a fixed-array element
+                    # slot always holds a live value, so overwriting it must run
+                    # the old value's drop glue BEFORE the store — exactly as the
+                    # Identifier-target path releases its prior value. (The
+                    # PointerType branch below is the placement primitive and
+                    # deliberately does NOT release: it fills uninitialized slots.)
+                    container_saw = self._expr_type(container_expr)
+                    elem_saw = (container_saw.array_element_type
+                                if container_saw is not None else None)
+                    if elem_saw is not None and self._needs_cleanup(elem_saw):
+                        self._emit_drop_at(elem_ptr, elem_saw)
+                    # The incoming element is a transfer site: retain an
+                    # ImplicitCopy value copied from an existing binding (mirrors
+                    # the Identifier-target path). NoCopy/ExplicitCopy already
+                    # moved at the value-transfer checkpoint.
+                    if elem_saw is not None and isinstance(stmt.value, Identifier):
+                        value = self._generate_copy(value, elem_saw)
                 elif isinstance(container_val.type, ir.PointerType):
                     # Pointer: GEP with single index.
                     #
