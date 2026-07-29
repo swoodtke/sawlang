@@ -252,27 +252,46 @@ extension Vector<T: Copy> {
         }
     }
 
-}
+    // Transform each element through `transform`, collecting the results into a
+    // fresh `Vector<U>` (brief 36 item 3). `U` is a METHOD-level generic type
+    // parameter — the output element type, independent of `T` — supplied
+    // explicitly at the call site (`v.map<String>(...)`). The output element
+    // type carries no `Copy` bound: each transformed value is `move`d straight
+    // into the result (exactly one placement per element, never a silent copy),
+    // and the result is `move`d out. The `T: Copy` bound is inherited from the
+    // extension for the same reason `each` needs it: an element is handed to the
+    // closure BY VALUE, which is a copy at the source (see the COPY-FAMILY note
+    // above).
+    func map<U>(&self, transform: (T) -> U) -> Vector<U> {
+        var result = Vector<U>()
+        var i = 0
+        while i < self.length {
+            if let elem = self.get(i) {
+                result.push(transform(move elem))
+            }
+            i = i + 1
+        }
+        move result
+    }
 
-// `map`/`fold` (brief 29 item 6) — DEFERRED as dedicated methods, subsumed by
-// `each` today. A `map<U>`/`fold<A>` method needs a SECOND, method-level generic
-// type parameter (the output element / the accumulator) independent of the
-// element type `T`. The compiler has no generic METHODS yet (only free
-// functions and whole generic types carry `<...>`), and the free-function
-// alternative — `fold<T: Copy, A>(v: &Vector<T>, ...)` — currently trips a
-// monomorphization recursion when a generic function takes `&Vector<T>`. Both
-// are generic-infrastructure gaps outside brief 29's non-escaping-closure scope;
-// shipping a version fixed to a concrete accumulator type would silently weaken
-// the API, so it is not done.
-//
-// Crucially, non-escaping closures make `each` SUBSUME fold and map through
-// borrow-captured accumulators — which is exactly the payoff this brief exists
-// to deliver:
-//     let mut sum = 0;  v.each { [&var sum] in sum += $0 }        // fold
-//     var out = Vector<Int>()
-//     v.each { [&var out] in out.push($0 * 2) }                   // map
-// So `map`/`fold` add NO new brief-29 semantics over `each`; they are pure
-// ergonomics awaiting the generic-methods feature.
+    // Left fold: thread an accumulator of METHOD-level generic type `A` through
+    // the elements, combining each with `combine` (brief 36 item 3). `A` is
+    // supplied explicitly (`v.fold<Int>(0, ...)`). The accumulator is `move`d in
+    // and out of `combine` on each step, so an `ExplicitCopy` accumulator is
+    // threaded without a silent duplicate; a trivial accumulator (e.g. `Int`)
+    // moves bitwise. `T: Copy` is again inherited for by-value element access.
+    func fold<A>(&self, initial: A, combine: (A, T) -> A) -> A {
+        var acc = move initial
+        var i = 0
+        while i < self.length {
+            if let elem = self.get(i) {
+                acc = combine(move acc, move elem)
+            }
+            i = i + 1
+        }
+        move acc
+    }
+}
 
 // =============================================================================
 // VectorIterator<T> - Iterator over vector elements

@@ -1,0 +1,48 @@
+// Vector.map<U> / Vector.fold<A> (brief 36 item 3): the forcing consumers of
+// method-level generic type parameters. `map<U>` transforms into a fresh
+// Vector<U> (crossing type families Int->Int and Int->String); `fold<A>`
+// threads an accumulator of the method-level type `A` (to an Int, and to a
+// struct accumulator). Non-escaping closure params, `T: Copy` element discipline
+// inherited from `each` — no silent ExplicitCopy duplication.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 120
+// n=10
+// n=30
+// 60
+// 60
+// 3
+
+struct Stats {
+    total: Int
+    count: Int
+}
+
+func main() {
+    var v = Vector<Int>()
+    v.push(10)
+    v.push(20)
+    v.push(30)
+
+    // map Int -> Int, then sum via each
+    let doubled = v.map<Int> { $0 * 2 }
+    var s1 = 0
+    doubled.each { [&var s1] in s1 += $0 }
+    print(s1)   // 20+40+60 = 120
+
+    // map Int -> String (crossing type families)
+    let labels = v.map<String> { "n={$0}" }
+    print(labels.get(0)!)   // n=10
+    print(labels.get(2)!)   // n=30
+
+    // fold to Int
+    let sum = v.fold<Int>(0) { $0 + $1 }
+    print(sum)  // 60
+
+    // fold to a struct accumulator
+    let stats = v.fold<Stats>(Stats(total: 0, count: 0)) { acc, x in
+        Stats(total: acc.total + x, count: acc.count + 1)
+    }
+    print(stats.total)  // 60
+    print(stats.count)  // 3
+}
