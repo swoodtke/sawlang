@@ -1,0 +1,26 @@
+// design 51 soundness: moving an erased `Box<any T>` OUT of an `if let/var`
+// optional binding must transfer ownership cleanly — the binding's scope-exit
+// teardown must not also run (that second vtable-driven dealloc is a double free
+// that aborts). A runtime drop flag on the if-let binding, cleared by the move,
+// makes the drop fire only on paths that keep the value. Here the popped box is
+// pushed back, so the queue owns it to the end and nothing double-frees.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 7
+// 1
+
+trait Shape { func area(&self) -> Int }
+struct Circle { r: Int }
+extension Circle: Shape { func area(&self) -> Int { self.r } }
+
+func main() {
+    var q = Vector<Box<any Shape>>()
+    q.push(Box<any Shape>.make(Circle(r: 7)))
+    print(q.len())              // 1
+    if var b = q.pop() {
+        print(b.area())         // 7
+        q.push(move b)          // move the erased box back out of the binding
+    }
+    print(q.len())              // 1 (round-tripped, no double free)
+}

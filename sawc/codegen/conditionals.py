@@ -169,25 +169,47 @@ class ConditionalsMixin:
         if opt_type and opt_type.kind == TypeKind.OPTIONAL and opt_type.inner_type:
             self.variable_types[expr.name] = opt_type.inner_type
 
+        # The if-let binding is released at the end of the then-branch scope (brief
+        # 23 item 2), but ONLY when the optional source is a fresh owned temporary:
+        # then the unwrapped value is solely owned by this binding. A named/field
+        # optional is owned elsewhere (its own cleanup runs), so releasing here
+        # would double-free it. When the binding IS owned here, register a runtime
+        # drop flag (design 42) BEFORE the branch body so a `move` of the binding
+        # inside the branch clears it — otherwise the scope-exit drop would
+        # double-free a moved-out value (notably an erased `Box<any T>`, whose
+        # second teardown aborts). The flag mirrors regular-local cleanup.
+        inner_type = self.variable_types.get(expr.name)
+        owns_binding = (inner_type is not None
+                        and self._is_owned_temporary(expr.optional_expr)
+                        and self._needs_cleanup(inner_type))
+        drop_flag = None
+        if owns_binding:
+            drop_flag = self._entry_alloca(ir.IntType(1), name=f"{expr.name}.dropflag")
+            self.builder.store(ir.Constant(ir.IntType(1), 1), drop_flag)
+            self.drop_flags[expr.name] = drop_flag
+
         then_val = self._generate_block(expr.then_branch)
 
-        # Release the if-let binding at the end of the then-branch scope (brief 23
-        # item 2). Only when the optional source is a fresh owned temporary: then
-        # the unwrapped value is solely owned by this binding, so it must deinit
-        # here. A named/field optional source is owned elsewhere (and its own
-        # cleanup runs), so releasing here would double-free it. Skip if the
-        # branch already terminated (return/break cleaned all scopes).
-        inner_type = self.variable_types.get(expr.name)
-        if (inner_type is not None
-                and self._is_owned_temporary(expr.optional_expr)
-                and self._needs_cleanup(inner_type)
-                and not self.builder.block.is_terminated):
+        # Skip if the branch already terminated (return/break cleaned all scopes).
+        if owns_binding and not self.builder.block.is_terminated:
+            needs = self.builder.load(drop_flag, name=f"{expr.name}.needsdrop")
+            drop_bb = self.builder.function.append_basic_block(
+                name=f"iflet.drop.{expr.name}")
+            cont_bb = self.builder.function.append_basic_block(
+                name=f"iflet.drop.{expr.name}.cont")
+            self.builder.cbranch(needs, drop_bb, cont_bb)
+            self.builder.position_at_start(drop_bb)
             self._emit_drop_at(alloca, inner_type)
+            if not self.builder.block.is_terminated:
+                self.builder.branch(cont_bb)
+            self.builder.position_at_start(cont_bb)
 
         # Remove the bound variable from scope after the block
         del self.variables[expr.name]
         if expr.name in self.variable_types:
             del self.variable_types[expr.name]
+        if drop_flag is not None:
+            self.drop_flags.pop(expr.name, None)
 
         # Capture state before adding terminator
         then_terminated = self.builder.block.is_terminated
