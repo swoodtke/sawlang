@@ -168,9 +168,13 @@ enum __Poll {
 //     >0 = sleep that many milliseconds. Read by the executor to schedule.
 // Object-safe by construction: no Self-by-value, no generics, no associated
 // types; `&var self` receivers are any-able (design 51).
+// Both methods are `sync` (suspension-free): `resume` is the anti-suspension
+// boundary — it runs one state and RETURNS `Pending`, it never itself suspends —
+// so it is prompt by construction. Marking them `sync` is what lets the executor
+// (and thus `TaskGroup`'s Deinit, a sync context) drive erased tasks.
 trait Resumable {
-    func resume(&var self) -> __Poll
-    func __wake_reason(&self) -> Int
+    func resume(&var self) sync -> __Poll
+    func __wake_reason(&self) sync -> Int
 }
 
 // =============================================================================

@@ -83,9 +83,18 @@ class EffectsMixin:
         # (struct_name, method_name) -> set of driver modes. The receiver lives in
         # the frame as a pointer into the task root (D6 task confinement).
         self._driven_method_roots: Dict[tuple, set] = {}
+        # design 52b item 2: free functions SPAWNED into a TaskGroup
+        # (`group.spawn(f(args))`), name -> f's return SawType. A spawn root gets a
+        # frame + `Resumable` conformance like a driven root, plus a synthesized
+        # `__spawn_<f>` helper (boxes the frame, enqueues it, returns
+        # `TaskHandle<T>`) — but no `__drive_*` driver.
+        self._spawn_roots: Dict[str, Any] = {}
 
     def _effect_record_driven(self, name: str, mode: str):
         self._driven_roots.setdefault(name, set()).add(mode)
+
+    def _effect_record_spawn(self, name: str, return_type):
+        self._spawn_roots[name] = return_type
 
     def _effect_record_driven_method(self, struct_name: str, method: str, mode: str):
         self._driven_method_roots.setdefault((struct_name, method), set()).add(mode)

@@ -761,6 +761,28 @@ class ExpressionsMixin:
             if len(expr.arguments) == 1:
                 self._check_expression(expr.arguments[0].value)
             return SawType(TypeKind.VOID)
+        if expr.name == "__box_data":
+            # design 52b item 2: extract the data word (i8*) of a `Box<any T>` fat
+            # pointer — the address of the erased heap payload. The synthesized
+            # `__spawn_<f>` uses it to point a `TaskHandle` at the boxed frame's
+            # `__result` / `__cancel` slots. Compiler-generated only; the argument
+            # is a reference to the box. NOT a suspension source.
+            if len(expr.arguments) == 1:
+                self._check_expression(expr.arguments[0].value)
+            return SawType(TypeKind.POINTER,
+                           inner_type=SawType(TypeKind.INT8))
+        if expr.name == "cancelled":
+            # design 52b item 3: read the CURRENT task's cooperative cancel flag.
+            # Inside a driven/spawned body the coro transform rewrites this to the
+            # frame's `__cancel` word; outside any frame it lowers to `false` (no
+            # task to cancel). Takes no arguments; returns Bool; NOT a suspension
+            # source (a cancel check must be callable in any context).
+            if len(expr.arguments) != 0:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`cancelled` takes no arguments, but {len(expr.arguments)} "
+                    f"were given", expr.line, expr.column)
+            return SawType(TypeKind.BOOL)
         if expr.name in ("__drive", "__drive_steps"):
             # design 44: the test-only executor entry. `__drive(f(args))` creates
             # a frame for the suspending call `f(args)`, drives it to completion,
@@ -2652,6 +2674,47 @@ class ExpressionsMixin:
         }
         return box_result
 
+    def _check_taskgroup_spawn(self, expr, group_type):
+        """`group.spawn(f(args))` (design 52b item 2). Validate the argument is a
+        direct call to a free function, record `f` a spawn root (so the coro
+        transform builds its frame + `Resumable` conformance + a `__spawn_<f>`
+        helper), and yield `TaskHandle<T>` with `T` = f's return type. Absorbs the
+        callee's suspension — spawning enqueues; it does not itself suspend — so
+        the enclosing function does not become suspending merely by spawning."""
+        if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                "`group.spawn(...)` takes exactly one positional argument: a call "
+                "to the function to run as a task, e.g. `group.spawn(worker(n))`",
+                expr.line, expr.column)
+            return None
+        inner = expr.arguments[0].value
+        if not isinstance(inner, FunctionCall):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "`group.spawn(...)` expects a direct call to a free function, "
+                "e.g. `group.spawn(worker(n))`",
+                expr.line, expr.column)
+            return None
+        if getattr(inner, 'type_args', None):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`group.spawn(...)` of a generic function `{inner.name}` is not "
+                f"supported (effect-polymorphism, design 18 A5)",
+                expr.line, expr.column)
+            return None
+        # Check the inner call inside an absorbing scope so its suspension does not
+        # taint the spawning function; this also validates the argument types and
+        # stamps `inner.resolved_type`.
+        sentinel = self._effect_absorb_scope()
+        inner_type = self._check_expression(inner)
+        self._effect_unabsorb(sentinel)
+        result_type = inner_type if inner_type is not None else SawType(TypeKind.VOID)
+        self._effect_record_spawn(inner.name, result_type)
+        expr.spawn_root = inner.name
+        return SawType(TypeKind.STRUCT, struct_name="TaskHandle",
+                       type_args=[result_type])
+
     def _try_existential_arg_coercion(self, arg, arg_type, expected_type):
         """Coerce `&concrete -> &any Trait` at a call boundary (design 51). Returns
         True if this argument slot is an existential-reference target (whether the
@@ -2702,6 +2765,16 @@ class ExpressionsMixin:
                 and expr.object.type_args[0].kind == TypeKind.EXISTENTIAL
                 and expr.method_name in ("make", "make_or")):
             return self._check_erased_box_make(expr, expr.object.type_args[0])
+        # design 52b item 2: `group.spawn(f(args))` on a TaskGroup receiver. Peek
+        # the receiver type (a bare identifier / member — the group local) and
+        # route to the spawn handler, which records the spawn root and yields
+        # `TaskHandle<T>`. Distinct from the 21b `spawn { closure }` FunctionCall.
+        if expr.method_name == "spawn" and isinstance(
+                expr.object, (Identifier, MemberAccess)):
+            recv_t = self._check_expression(expr.object)
+            if (recv_t is not None and recv_t.kind == TypeKind.STRUCT
+                    and recv_t.struct_name == "TaskGroup"):
+                return self._check_taskgroup_spawn(expr, recv_t)
         if isinstance(expr.object, MemberAccess):
             obj_type = self._check_member_access(expr.object)
             # Handle static method calls on module-qualified structs: module.Struct.method()

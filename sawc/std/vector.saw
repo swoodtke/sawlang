@@ -98,6 +98,21 @@ extension Vector<T, A: Allocator = Global> {
         }
     }
 
+    // Raw pointer to element `index` — the in-place, no-copy access the erased
+    // task executor needs (design 52b): a `Vector<Box<any Resumable>>` element is
+    // NoCopy, so `get` (which returns a copy) cannot reach it; `ref_at(i)[0]` is
+    // a mutable place through which `resume(&var self)` dispatches. Unchecked: the
+    // caller guarantees `0 <= index < len` (an inert/None buffer force-unwrap
+    // panics deterministically, matching the other OOM-inert paths).
+    func ref_at(&self, index: Int) -> UnsafePointer<T> {
+        if let buf = self.buffer {
+            (&buf[index]) as UnsafePointer<T>
+        } else {
+            let empty: UnsafePointer<T>? = None
+            empty!
+        }
+    }
+
     // Set element at index (no-op if out of bounds)
     func set(&var self, index: Int, value: T) {
         if index >= 0 && index < self.length {

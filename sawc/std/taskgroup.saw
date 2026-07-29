@@ -1,0 +1,189 @@
+// TaskGroup — the structured-concurrency nursery (design 18 C1, design 52b).
+//
+// A `TaskGroup` is a local. `group.spawn(f(args))` is compiler-lowered (like
+// `__drive`): the coro transform turns `f` into a frame + `Resumable`
+// conformance, and the synthesized `__spawn_f` helper builds the frame, boxes it
+// erased (`Box<any Resumable>`, design 51), enqueues it here, and hands back a
+// typed `TaskHandle<T>`. The group's `Deinit` DRAINS every child to completion
+// (structured join = LIFO destruction): no global queue, no static, no forced
+// destroy — the only frame drop is a Box teardown after the child is Done.
+//
+// The three parallel vectors are the run queue and the scheduler bookkeeping:
+//   * `tasks`     — the erased frames (`resume`/`__wake_reason` dispatch here).
+//   * `done`      — per-task completion; a Done frame is never resumed again (its
+//                   dispatch loop is guarded but re-resuming would busy-spin).
+//   * `remaining` — ms until this task should next resume: 0 = ready now (yield /
+//                   channel-retry), >0 = sleeping. Earliest-deadline scheduling
+//                   over relative sleeps (no wall clock needed).
+//
+// COEXISTENCE (design 21b): this is the COOPERATIVE single-threaded engine —
+// tasks are stackless coroutine frames driven on the current thread. The 21b
+// `spawn { ... } -> Task<T>` engine (one OS thread per task) is untouched and
+// orthogonal; the two do not share a scheduler. Cross-task sharing in both is
+// `Arc`/`Mutex`/`Channel` only (references never cross a spawn — paper 18).
+
+struct TaskGroup {
+    tasks: Vector<Box<any Resumable>>
+    done: Vector<Bool>
+    remaining: Vector<Int>
+}
+
+extension TaskGroup {
+    init() -> TaskGroup {
+        let t = Vector<Box<any Resumable>>()
+        let d = Vector<Bool>()
+        let r = Vector<Int>()
+        TaskGroup(tasks: move t, done: move d, remaining: move r)
+    }
+
+    // The number of children spawned into this group (design 52b).
+    func count(&self) -> Int {
+        self.tasks.len()
+    }
+
+    // Enqueue an erased frame (compiler-generated `__spawn_*` calls this). The
+    // box is MOVED in — the group owns the frame for its whole life.
+    func __enqueue(&var self, task: Box<any Resumable>) {
+        self.tasks.push(move task)
+        self.done.push(false)
+        self.remaining.push(0)
+    }
+
+    // The executor: round-robin drive to completion of ALL children, honoring
+    // wake reasons. `sync` by construction (`resume` is the anti-suspension
+    // boundary), so the group's Deinit — a sync context — may call it. Idempotent:
+    // a fully-drained group is a no-op, so join() and Deinit can both call it.
+    func __run_all(&var self) {
+        // Count only not-yet-done tasks: a re-entrant call on an already-drained
+        // group (join after Deinit, or two joins) must be a clean no-op, never
+        // count a Done task as live (which would spin the outer loop forever).
+        var live = 0
+        var c = 0
+        while c < self.tasks.len() {
+            if not self.done.get(c)! {
+                live = live + 1
+            }
+            c = c + 1
+        }
+        while live > 0 {
+            // Phase 1: resume every ready (remaining == 0), not-done task; repeat
+            // while any task is still ready (a `yield_now` re-reports wake 0).
+            var progressed = true
+            while progressed {
+                progressed = false
+                var i = 0
+                while i < self.tasks.len() {
+                    if (not self.done.get(i)!) && self.remaining.get(i)! == 0 {
+                        match self.tasks.ref_at(i)[0].resume() {
+                            case Pending -> {
+                                let w = self.tasks.ref_at(i)[0].__wake_reason()
+                                self.remaining.set(i, w)
+                                if w == 0 {
+                                    progressed = true
+                                }
+                            },
+                            case Done -> {
+                                self.done.set(i, true)
+                                live = live - 1
+                            }
+                        }
+                    }
+                    i = i + 1
+                }
+            }
+            // Phase 2: every live task is sleeping (remaining > 0). Advance to the
+            // nearest deadline — park the minimum remaining, subtract it from all
+            // sleepers — so the shortest sleeper wakes first (time-ordered).
+            if live > 0 {
+                var m = 0 - 1
+                var j = 0
+                while j < self.tasks.len() {
+                    if not self.done.get(j)! {
+                        let r = self.remaining.get(j)!
+                        if m < 0 || r < m {
+                            m = r
+                        }
+                    }
+                    j = j + 1
+                }
+                if m > 0 {
+                    __exec_sleep(m)
+                }
+                var k = 0
+                while k < self.tasks.len() {
+                    if not self.done.get(k)! {
+                        self.remaining.set(k, self.remaining.get(k)! - m)
+                    }
+                    k = k + 1
+                }
+            }
+        }
+    }
+}
+
+// Deinit runs the executor to completion of every child (structured join at
+// scope exit), THEN the three vectors are memberwise-dropped: each `tasks` box
+// tears down its frame, dropping any UNCONSUMED `__result` exactly once (a joined
+// task's result was already taken and `__forget`-cleared). Declared before
+// NoCopy so the `NoCopy: Deinit` supertrait is satisfied.
+extension TaskGroup: Deinit {
+    func deinit(&var self) {
+        self.__run_all()
+        // Tear each child frame down explicitly: pop the box and let it drop, so
+        // its erased teardown (design 51 vtable dtor -> the frame's memberwise
+        // cleanup) drops any UNCONSUMED `__result` EXACTLY ONCE. A joined task's
+        // result was already taken and `__forget`-cleared, so its frame drops
+        // nothing. The now-empty `tasks` (buffer), `done`, and `remaining` are
+        // freed by the memberwise field cleanup appended after this body.
+        while self.tasks.len() > 0 {
+            if let b = self.tasks.pop() {
+            }
+        }
+    }
+}
+
+extension TaskGroup: NoCopy {
+}
+
+// TaskHandle<T> — the typed result access for one spawned child (design 52b
+// item 2). It owns NOTHING: three raw pointers into the group and into the
+// group-owned heap frame. `result_ptr` addresses the frame's opt-encoded
+// `__result` slot (`T?`); the frame is a stable heap allocation inside the box in
+// the group's queue, so the pointer stays valid for the frame's whole life.
+// Dropping an unjoined handle is fine (no-op Deinit): the result stays in the
+// frame and is dropped once at group teardown — exactly-once either way.
+struct TaskHandle<T> {
+    result_ptr: UnsafePointer<T?>
+    cancel_ptr: UnsafePointer<Bool>
+    group_ptr: UnsafePointer<TaskGroup>
+}
+
+extension TaskHandle<T> {
+    // Drive the group until this task is Done, then TAKE its result. The take is
+    // exactly-once: force-unwrap reads the payload out of the frame slot and
+    // `__forget` clears the slot's `is_some` flag, so the frame's later teardown
+    // drops nothing.
+    func join(&self) -> T {
+        self.group_ptr[0].__run_all()
+        let r = self.result_ptr[0]!
+        __forget(self.result_ptr[0])
+        move r
+    }
+
+    // Cooperative cancellation (design 18 C1, NO forced destroy): set the frame's
+    // `__cancel` word. The task observes it where IT checks (`cancelled()`) or at
+    // a cancellation-aware wait, and returns through normal control flow.
+    func cancel(&self) {
+        self.cancel_ptr[0] = true
+    }
+}
+
+// Owns nothing (the frame + result live in the group); dropping an unjoined
+// handle must not touch the group-owned result. Declared before NoCopy.
+extension TaskHandle<T>: Deinit {
+    func deinit(&var self) {
+    }
+}
+
+extension TaskHandle<T>: NoCopy {
+}

@@ -328,7 +328,16 @@ class StatementsMixin:
                 else:
                     raise ValueError(f"Cannot index into type: {container_val.type}")
             else:
-                raise ValueError(f"Unsupported container expression in assignment: {type(container_expr)}")
+                # A non-identifier container (e.g. `self.field_ptr[i] = v`, design
+                # 52b): evaluate it as a value; a pointer-typed one GEPs like the
+                # Identifier pointer branch (placement-move primitive, no release —
+                # the slot is caller-managed raw memory).
+                container_val = self._generate_expression(container_expr)
+                if isinstance(container_val.type, ir.PointerType):
+                    elem_ptr = self.builder.gep(
+                        container_val, [index_val], name="ptr_elem")
+                else:
+                    raise ValueError(f"Unsupported container expression in assignment: {type(container_expr)}")
 
             # Coerce value type if needed (e.g., Int -> Int8)
             elem_type = elem_ptr.type.pointee

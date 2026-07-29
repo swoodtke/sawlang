@@ -34,7 +34,7 @@ from ast_nodes import (
     Identifier, MemberAccess, SelfExpr, IntLiteral, BoolLiteral, NoneLiteral,
     FunctionCall, MethodCall, BinaryOp, UnaryOp, EnumInit, ForceUnwrap,
     IfExpr, MatchExpr, MatchArm, WhileExpr, ReturnStatement, ArrayIndex,
-    CastExpr, ReferenceExpr, RangeExpr, ForLoop,
+    CastExpr, ReferenceExpr, RangeExpr, ForLoop, MoveExpr,
     BreakStatement, ContinueStatement,
     ExpressionStatement, LetStatement, AssignStatement, WhileExpr,
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
@@ -235,7 +235,12 @@ def _analyze_nesting(root_name, root_func, nodes):
 # --------------------------------------------------------------------------- #
 
 class _FrameBuilder:
-    def __init__(self, func, struct_name=None, tc=None):
+    def __init__(self, func, struct_name=None, tc=None, force_opt_result=False):
+        # design 52b item 2: a spawn-root frame forces its `__result` opt-encoded
+        # even for a POD return, so `TaskHandle<T>` uniformly holds a
+        # `UnsafePointer<T?>` and `join` takes the value with the same
+        # force-unwrap + `__forget` handoff regardless of T.
+        self.force_opt_result = force_opt_result
         # `func` is a Function (free-function root) or a Method (driven method,
         # Part 0c). For a method, `struct_name` is the receiver struct: the frame
         # holds a `__recv: UnsafePointer<Struct>` pointer into the task root's
@@ -443,7 +448,12 @@ class _FrameBuilder:
             encmap[p.name] = "plain" if _is_pod(p.type) else "opt"
         for lname, lt in self.frame_locals:
             encmap[lname] = "plain" if _is_pod(lt) else "opt"
-        self.result_enc = "plain" if (self.is_void or _is_pod(self.ret)) else "opt"
+        if self.is_void:
+            self.result_enc = "plain"
+        elif self.force_opt_result or not _is_pod(self.ret):
+            self.result_enc = "opt"
+        else:
+            self.result_enc = "plain"
         self.encmap = encmap
 
         fields = []
@@ -463,6 +473,11 @@ class _FrameBuilder:
         # The wake reason the frame communicates to the executor on a Pending
         # (design 45 item 4): 0 = ready (yield), >0 = sleep that many ms.
         fields.append(StructField(name="__wake", type=SawType(TypeKind.INT)))
+        # design 52b item 3: the cooperative cancel word. `handle.cancel()` sets it
+        # (through a `TaskHandle`'s raw pointer into this frame); task code reads it
+        # via `cancelled()`, which the transform rewrites to `self.__cancel`. NO
+        # forced destroy — the frame exits only through its own control flow.
+        fields.append(StructField(name="__cancel", type=SawType(TypeKind.BOOL)))
         if not self.is_void:
             rt = self.ret if self.result_enc == "plain" else _opt(self.ret)
             fields.append(StructField(name="__result", type=rt))
@@ -595,7 +610,7 @@ class _FrameBuilder:
                                   is_reference=True, reference_mutable=True)],
             return_type=SawType(TypeKind.ENUM, enum_name="__Poll"),
             body=Block(statements=[loop], final_expr=None),
-            self_mutable=True, self_is_reference=True,
+            self_mutable=True, self_is_reference=True, is_sync=True,
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
         # The `__wake read surface` of the Resumable protocol (design 52b item 1):
@@ -607,7 +622,7 @@ class _FrameBuilder:
                                   is_reference=True, reference_mutable=False)],
             return_type=SawType(TypeKind.INT),
             body=Block(statements=[], final_expr=_self_field("__wake")),
-            self_mutable=False, self_is_reference=True,
+            self_mutable=False, self_is_reference=True, is_sync=True,
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
         # Every frame conforms to the builtin `Resumable` trait (design 52b item
@@ -963,6 +978,13 @@ class _FrameBuilder:
         differently — callers process nested statement lists via
         `_lower_stmt_list` so forgets are scoped to the executing branch."""
         from ast_nodes import MoveExpr
+        # design 52b item 3: `cancelled()` inside task code reads THIS frame's
+        # cancel word. `self` in the resume method is the frame, so it lowers to
+        # `self.__cancel` (observed cooperatively; NO forced destroy).
+        if (isinstance(node, FunctionCall) and node.name == "cancelled"
+                and not node.arguments):
+            return _self_field("__cancel", getattr(node, 'line', 0),
+                               getattr(node, 'column', 0))
         if self.is_method and isinstance(node, SelfExpr):
             # The method's `self` -> the receiver through the frame pointer:
             # `self.__recv[0]` (here `self` is the frame — resume's receiver).
@@ -1142,6 +1164,7 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):
         field_inits.append((c['sub'], _build_frame_init(sub_fb, zvals, fbs)))
     field_inits.append(("__state", _int(0)))
     field_inits.append(("__wake", _int(0)))
+    field_inits.append(("__cancel", BoolLiteral(value=False)))
     if not fb.is_void:
         field_inits.append(("__result", _zeroed_value(fb.result_enc, fb.ret)))
     return StructInit(struct_name=fb.frame_name, field_inits=field_inits)
@@ -1254,6 +1277,125 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
 
 
 # --------------------------------------------------------------------------- #
+# spawn lowering (design 52b item 2)
+# --------------------------------------------------------------------------- #
+
+def _make_spawn_helper(fb: _FrameBuilder, fbs):
+    """Synthesize `__spawn_<f>(__group, <params>) -> TaskHandle<T>`.
+
+    Build f's frame from the params, erase it into a `Box<any Resumable>`, capture
+    raw pointers to the boxed frame's `__result` / `__cancel` slots (stable while
+    the box lives in the group's queue — the fat pointer's data word never moves),
+    enqueue the box, and return the typed handle:
+
+        func __spawn_f(__group: UnsafePointer<TaskGroup>, <params>) -> TaskHandle<T> {
+            var __box = Box<any Resumable>.make(__Frame_f(<params>...))
+            let __data = __box_data(&__box)
+            let __fp   = __data as UnsafePointer<__Frame_f>
+            let __rp   = (&__fp[0].__result) as UnsafePointer<T?>
+            let __cp   = (&__fp[0].__cancel) as UnsafePointer<Bool>
+            __group[0].__enqueue(move __box)
+            TaskHandle<T>(result_ptr: __rp, cancel_ptr: __cp, group_ptr: __group)
+        }
+
+    The frame is a spawn root, so its `__result` is opt-encoded — `result_ptr` is
+    `UnsafePointer<T?>` uniformly, and `join` takes with force-unwrap + `__forget`.
+    """
+    from ast_nodes import StructInit
+    T = fb.ret
+    params = fb.params
+    frame_init = _build_frame_init(fb, [Identifier(name=p.name) for p in params], fbs)
+
+    box_ty = SawType(TypeKind.EXISTENTIAL, existential_trait="Resumable")
+    box_make = MethodCall(
+        object=Identifier(name="Box", type_args=[box_ty]),
+        method_name="make",
+        arguments=[Argument(name=None, value=frame_init)])
+
+    tg_ptr = SawType(TypeKind.POINTER,
+                     inner_type=SawType(TypeKind.STRUCT, struct_name="TaskGroup"))
+    frame_ptr = SawType(TypeKind.POINTER,
+                        inner_type=SawType(TypeKind.STRUCT, struct_name=fb.frame_name))
+
+    def _fp_field(name):
+        return MemberAccess(
+            object=ArrayIndex(array_expr=Identifier(name="__fp"), index=_int(0)),
+            member=name)
+
+    stmts = [
+        LetStatement(name="__box", type_annotation=None, value=box_make, mutable=True),
+        LetStatement(name="__data", type_annotation=None, mutable=False,
+                     value=FunctionCall(name="__box_data", arguments=[Argument(
+                         name=None, value=ReferenceExpr(
+                             expr=Identifier(name="__box"), mutable=False))])),
+        LetStatement(name="__fp", type_annotation=None, mutable=False,
+                     value=CastExpr(expr=Identifier(name="__data"),
+                                    target_type=frame_ptr)),
+        LetStatement(name="__rp", type_annotation=None, mutable=False,
+                     value=CastExpr(
+                         expr=ReferenceExpr(expr=_fp_field("__result"), mutable=False),
+                         target_type=SawType(TypeKind.POINTER, inner_type=_opt(T)))),
+        LetStatement(name="__cp", type_annotation=None, mutable=False,
+                     value=CastExpr(
+                         expr=ReferenceExpr(expr=_fp_field("__cancel"), mutable=False),
+                         target_type=SawType(TypeKind.POINTER,
+                                             inner_type=SawType(TypeKind.BOOL)))),
+        ExpressionStatement(expression=MethodCall(
+            object=ArrayIndex(array_expr=Identifier(name="__group"), index=_int(0)),
+            method_name="__enqueue",
+            arguments=[Argument(name=None, value=MoveExpr(variable="__box", path=None))])),
+    ]
+    handle = StructInit(
+        struct_name="TaskHandle", type_args=[T],
+        field_inits=[("result_ptr", Identifier(name="__rp")),
+                     ("cancel_ptr", Identifier(name="__cp")),
+                     ("group_ptr", Identifier(name="__group"))])
+    ret_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle", type_args=[T])
+    helper_params = [Parameter(name="__group", type=tg_ptr)] + \
+                    [Parameter(name=p.name, type=p.type) for p in params]
+    return Function(name=f"__spawn_{fb.name}", parameters=helper_params,
+                    return_type=ret_type,
+                    body=Block(statements=stmts, final_expr=handle),
+                    source_file=getattr(fb.func, 'source_file', ""))
+
+
+def _rewrite_spawn_sites(node):
+    """Rewrite `group.spawn(f(args))` -> `__spawn_f((&group) as
+    UnsafePointer<TaskGroup>, args...)` in place, everywhere. The site was stamped
+    with `spawn_root` by the typechecker."""
+    if (isinstance(node, MethodCall) and node.method_name == "spawn"
+            and getattr(node, 'spawn_root', None)):
+        root = node.spawn_root
+        group = node.object
+        inner = node.arguments[0].value  # the f(args) call
+        tg_ptr = SawType(TypeKind.POINTER,
+                         inner_type=SawType(TypeKind.STRUCT, struct_name="TaskGroup"))
+        group_ptr = CastExpr(
+            expr=ReferenceExpr(expr=group, mutable=False), target_type=tg_ptr)
+        return FunctionCall(
+            name=f"__spawn_{root}",
+            arguments=[Argument(name=None, value=group_ptr)] + list(inner.arguments),
+            line=node.line, column=node.column)
+    if isinstance(node, ASTNode):
+        for f in dataclasses.fields(node):
+            setattr(node, f.name, _rewrite_spawn_val(getattr(node, f.name)))
+    return node
+
+
+def _rewrite_spawn_val(val):
+    if isinstance(val, list):
+        return [_rewrite_spawn_val(v) for v in val]
+    if isinstance(val, tuple):
+        return tuple(_rewrite_spawn_val(v) for v in val)
+    if isinstance(val, Argument):
+        val.value = _rewrite_spawn_sites(val.value)
+        return val
+    if isinstance(val, ASTNode):
+        return _rewrite_spawn_sites(val)
+    return val
+
+
+# --------------------------------------------------------------------------- #
 # drive-site rewriting
 # --------------------------------------------------------------------------- #
 
@@ -1319,11 +1461,12 @@ def _find_method(program, struct_name, method_name):
 def transform_program(program, typechecker):
     roots = dict(getattr(typechecker, "_driven_roots", {}) or {})
     method_roots = dict(getattr(typechecker, "_driven_method_roots", {}) or {})
+    spawn_roots = dict(getattr(typechecker, "_spawn_roots", {}) or {})
     funcs_by_name = {f.name: f for f in program.functions}
     # design 45 item 1: a suspending `main` is auto-wrapped in an entry executor.
     main_suspends = (getattr(typechecker, "_main_suspends", False)
                      and "main" in funcs_by_name)
-    if not roots and not method_roots and not main_suspends:
+    if not roots and not method_roots and not spawn_roots and not main_suspends:
         return False
 
     new_structs = []
@@ -1344,7 +1487,7 @@ def transform_program(program, typechecker):
     # drivers.
     closure = []
     seen = set()
-    work = list(roots.keys())
+    work = list(roots.keys()) + list(spawn_roots.keys())
     if main_suspends:
         work.append("main")
     while work:
@@ -1378,7 +1521,9 @@ def transform_program(program, typechecker):
     # Phase 1: build every frame's layout (so a caller can embed a callee frame
     # by value). Phase 2: generate every resume state machine.
     suspends_set = set(closure)
-    fbs = {n: _FrameBuilder(funcs_by_name[n], tc=typechecker) for n in closure}
+    fbs = {n: _FrameBuilder(funcs_by_name[n], tc=typechecker,
+                            force_opt_result=(n in spawn_roots))
+           for n in closure}
     for n in closure:
         new_structs.append(fbs[n].prepare(suspends_set))
     for n in closure:
@@ -1387,6 +1532,11 @@ def transform_program(program, typechecker):
     for root_name, modes in roots.items():
         for mode in modes:
             new_functions.append(_make_driver(fbs[root_name], mode, fbs))
+        removed.add(root_name)
+    # design 52b item 2: each spawn root gets a `__spawn_<f>` helper that boxes
+    # its frame, enqueues it on the group, and returns the typed handle.
+    for root_name in spawn_roots:
+        new_functions.append(_make_spawn_helper(fbs[root_name], fbs))
         removed.add(root_name)
     removed.update(closure)
     if main_suspends:
@@ -1426,6 +1576,16 @@ def transform_program(program, typechecker):
     for ext in program.extensions:
         for m in ext.methods:
             _rewrite_drive_sites(m.body, roots)
+
+    # design 52b item 2: rewrite `group.spawn(f(args))` sites to the synthesized
+    # `__spawn_<f>` helper. Done after driver rewriting so a `__drive`-inside-spawn
+    # (there is none) would already be resolved; the two site kinds are disjoint.
+    if spawn_roots:
+        for f in program.functions:
+            f.body = _rewrite_spawn_sites(f.body)
+        for ext in program.extensions:
+            for m in ext.methods:
+                m.body = _rewrite_spawn_sites(m.body)
 
     # Strip driven methods from their extensions (replaced by frame + resume).
     for ext, method_ast in removed_methods:

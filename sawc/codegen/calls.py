@@ -128,6 +128,24 @@ class CallsMixin:
                 self.builder.store(ir.Constant(ir.IntType(1), 0), flag_ptr)
             return None
 
+        # design 52b item 2: `__box_data(&box)` — the data word (i8*) of a
+        # `Box<any T>` fat pointer, i.e. the address of the erased heap payload.
+        # `_generate_expression(&box)` is a pointer to the `{ i8* data, i8* vt }`
+        # value; GEP field 0 and load it.
+        if expr.name == "__box_data":
+            i32 = ir.IntType(32)
+            box_ptr = self._generate_expression(expr.arguments[0].value)
+            data_slot = self.builder.gep(
+                box_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 0)],
+                name="box_data_slot")
+            return self.builder.load(data_slot, name="box_data")
+
+        # design 52b item 3: `cancelled()` reached OUTSIDE a coroutine frame (the
+        # transform rewrites it to the frame's `__cancel` word inside a driven /
+        # spawned body). With no task to cancel, it is constant `false`.
+        if expr.name == "cancelled":
+            return ir.Constant(ir.IntType(1), 0)
+
         # Check if the name refers to a closure variable
         if expr.name in self.variables:
             closure_ptr = self.variables[expr.name]
@@ -589,6 +607,11 @@ class CallsMixin:
                 # Handle nested mutable access like self.keys.push(...)
                 # We need a pointer to the field, not a copy
                 self_arg = self._get_member_pointer(expr.object)
+            elif isinstance(expr.object, ArrayIndex):
+                # A pointer/array-element receiver — `ptr[i].mutating()` (design
+                # 52b: `__group[0].__enqueue(...)`). Address the real element slot
+                # so the mutation lands on the pointee, not a materialized copy.
+                self_arg = self._get_element_pointer(expr.object)
             elif receiver_temp_slot is not None:
                 # An owned-temporary receiver already spilled to a slot for
                 # statement-scoped cleanup: mutate through that same slot so the
