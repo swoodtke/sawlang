@@ -50,6 +50,16 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 - **L9.** `==` over Optional- or array-bearing members not yet
   lowerable (auto-conform deliberately excludes them; clean error at
   comparison site). Extend the equals derivation when needed. [32]
+- **L10.** Implicit tail-return of an owned ImplicitCopy value
+  auto-wrapped into `Ok(...)` releases the owned buffer at scope exit
+  while the payload still points at it (premature free) — found in
+  brief 38's fromBytes; worked around with explicit `return move`.
+  Needs the auto-wrap path to treat the wrapped value as transferred.
+  [38 report]
+- **C6.** Method-level generic type params don't monomorphize on
+  NON-generic-type extensions (`extension String { func f<R>(...) }` →
+  "Undefined struct: R") — blocks value-returning `withCString<R>`.
+  Sibling of C5, surfaced in brief 38. [38 report]
 - **L4. VERIFY:** `Vector<File>.copy()`-style diagnostic — was a raw
   Python traceback (brief 09 report); brief 26's ICE wrapper now catches
   it, but it should be a proper user-facing typechecker error, not an ICE.
@@ -57,12 +67,17 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## String stack
 
-- **S1.** API expansion: `fromBytes` (Result-returning), `bytes()` /
-  `chars()` views, `withCString` scoped borrow. [07, 11]
-- **S2.** UTF-8 validation (compile-time for literals; `fromBytes` at
-  runtime). [07, 11, 13]
-- **S3.** Mutable `StringBuilder` on the new refcounted representation.
-  [07]
+- **S1.** ~~API expansion~~ — LANDED (brief 38): `fromBytes` +
+  `Utf8Error`, `bytes()`/`chars()` iterators (retain-safe), `withCString`
+  over the NUL-terminated payload (non-escaping closure; returns Void —
+  generic `<R>` form blocked on C6). [07, 11, 38]
+- **S2.** ~~UTF-8 validation~~ — LANDED/RESOLVED (brief 38): runtime
+  validation in fromBytes (shared `_decode_at`); literal-side proven
+  structurally unreachable (UTF-8 source decode + no byte escapes) —
+  documented guarantee, TODO if byte escapes ever land. [07, 11, 13, 38]
+- **S3.** ~~StringBuilder~~ — LANDED (brief 38): O(1) length appends,
+  `append_int`, canonical refcount-correct `build()`, independence +
+  1M-iteration flat-memory verification. [07, 38]
 - **S4.** String equality/comparison — `==` resolved by design 32
   (builtin Equatable conformance over existing `equals`); ordering
   comparisons (`<` etc. / a Comparable trait) still open. [11, 32]
