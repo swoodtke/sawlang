@@ -11,7 +11,7 @@ Usage:
 
 from typing import Optional, Tuple
 from ast_nodes import (
-    SawType, TypeKind,
+    SawType, TypeKind, Visibility,
     Expression, Identifier, MoveExpr, ReferenceExpr, IntLiteral, Block,
     MemberAccess, ArrayIndex, TupleIndex, SelfExpr, ClosureExpr
 )
@@ -72,13 +72,13 @@ class TypeUtilsMixin:
         result = self.namespace.lookup_struct(name)
         if result:
             return result
-        # Search imported modules (for types that lost symbol during substitution)
-        for module_sym in self.namespace.modules.values():
-            if module_sym.namespace:
-                struct_sym = module_sym.namespace.lookup_struct(name)
-                if struct_sym:
-                    return struct_sym
-        return None
+        # Search imported modules (for types that lost symbol during
+        # substitution). Design 40 item 1 (L3): honor visibility — a private
+        # struct of another module is not a candidate — and flag a name
+        # exported by two different modules as an ambiguity instead of
+        # resolving it silently by dict order.
+        return self._cross_module_lookup('struct', name,
+                                         lambda ns: ns.lookup_struct(name))
 
     def get_enum_info(self, name: str, qualified_path: str = None, from_type: 'SawType' = None) -> Optional[EnumSymbol]:
         """Lookup enum info via namespace, supporting qualified names.
@@ -104,13 +104,55 @@ class TypeUtilsMixin:
         result = self.namespace.lookup_enum(name)
         if result:
             return result
-        # Search imported modules (for types that lost symbol during substitution)
-        for module_sym in self.namespace.modules.values():
-            if module_sym.namespace:
-                enum_sym = module_sym.namespace.lookup_enum(name)
-                if enum_sym:
-                    return enum_sym
-        return None
+        # Search imported modules (for types that lost symbol during
+        # substitution). Design 40 item 1 (L3): visibility-honoring,
+        # ambiguity-detecting fallback — see get_struct_info.
+        return self._cross_module_lookup('enum', name,
+                                         lambda ns: ns.lookup_enum(name))
+
+    def _cross_module_lookup(self, category, name, lookup):
+        """Visibility-honoring cross-module fallback for a bare type name.
+
+        Scans imported module namespaces for `name`, keeping only symbols
+        that are not PRIVATE (a private symbol of another module is invisible
+        to the importer). Distinct definitions in two different modules are an
+        unresolvable ambiguity — the bare use cannot pick one — so we report
+        it (mirroring the merge-time collision diagnostic of design 26)
+        instead of resolving by dict order. Builtins, which every module
+        namespace shares by reference, dedup by object identity so re-seeing
+        the same symbol object across modules is not a collision.
+        """
+        matches = []  # list of (module_name, symbol)
+        for module_name, module_sym in self.namespace.modules.items():
+            if not module_sym.namespace:
+                continue
+            sym = lookup(module_sym.namespace)
+            if sym is None or getattr(sym, 'visibility', None) == Visibility.PRIVATE:
+                continue
+            # Dedup shared objects (builtins) by identity.
+            if any(sym is existing for _, existing in matches):
+                continue
+            matches.append((module_name, sym))
+        if not matches:
+            return None
+        if len(matches) >= 2:
+            reported = getattr(self, '_reported_xmod_ambiguities', None)
+            if reported is None:
+                reported = set()
+                self._reported_xmod_ambiguities = reported
+            key = (category, name)
+            if key not in reported:
+                reported.add(key)
+                src1, src2 = matches[0][0], matches[1][0]
+                self.reporter.error(
+                    ErrorKind.UNKNOWN_TYPE,
+                    f"ambiguous {category} `{name}`: defined in both "
+                    f"`{src1}` and `{src2}`",
+                    1, 1,
+                    hint=f"qualify the use (e.g. `{src1}.{name}`), or import "
+                         f"`{name}` from a single module",
+                )
+        return matches[0][1]
 
     def get_function_info(self, name: str, qualified_path: str = None) -> Optional[FunctionSymbol]:
         """Lookup function info via namespace, supporting qualified names.
