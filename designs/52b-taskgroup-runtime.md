@@ -1,5 +1,39 @@
 # Design Brief 52b — The multi-task runtime on TaskGroup (A1b remainder)
 
+**Status (Jul 29): LANDED.** All seven items ship. `Resumable`/`__Poll` are
+builtin; every frame gets synthesized `Resumable` conformance (`resume` +
+`__wake_reason`, both `sync`). `group.spawn(f(args))` lowers via a synthesized
+`__spawn_<f>` that erases the frame into `Box<any Resumable>`, enqueues it, and
+returns `TaskHandle<T>`; `join()` takes the frame's `__result` exactly-once
+(force-unwrap + `__forget`), unjoined results drop once at group teardown. The
+executor lives in the group (round-robin; yield / earliest-deadline sleep /
+channel-yield) and is `sync`, so the group's `Deinit` drives every child to
+completion — structured join out of LIFO destruction. Cancellation is a frame
+`__cancel` word (`handle.cancel()` / `cancelled()`), observed cooperatively, NO
+forced destroy. Suspending channel receive = `Channel.try_receive()` + the Part-0
+`yield_now`-on-empty loop. Nine tests, deinit-oracle + -O0 verified; full suite
+green, zero xfails. The 21b thread engine is untouched.
+
+**Verdict on the group-Deinit/LIFO hazard (item 4):** SOUND. The group is
+declared before its handles and before shared resources, so LIFO destroys it
+FIRST — it drains children while those resources are still alive; handles die
+before the frames they point into; and task frames are self-contained (spawn
+strips references, paper 18), so a task never touches an outer-scope local. No
+scope-ordering bite.
+
+**Deviations (v1, clean diagnostics / documented, not miscompiled):** a spawned
+function must be non-`Void`; a `TaskGroup` as a direct frame-resident local of a
+suspending function is unsupported (opt-encoded-local-address gap — do group work
+in a non-suspending helper); a suspension inside `if let` is not split (Part 0
+gap — hoist the yield into a plain `if`); the suspending channel receive is the
+loop idiom rather than a first-class `ch.receive()` method (nested suspending
+method-call embedding is future work). `TaskGroup.Deinit` pops+drops each frame
+explicitly (the auto field-cleanup of a `Vector<Box<any Resumable>>` FIELD did
+not tear its erased boxes down — worked around, exactly-once preserved).
+
+---
+
+
 **Source:** brief 52's Part 1, stopped honestly at budget with the
 foundation VALIDATED (erased `Vector<Box<any Resumable>>` with a
 `&var self -> __Poll` trait method: boxing, dispatch, and the full

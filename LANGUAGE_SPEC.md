@@ -1509,7 +1509,9 @@ error. Task bodies may suspend under that engine, so a `spawn` closure is not a
 `sync` context.
 
 **Status: tasks, channels, Mutex, Send/Sync — implemented (stage 1,
-thread-per-task engine). Suspension/cooperative engine — planned.**
+thread-per-task engine). Cooperative engine — implemented: the coroutine
+transform, suspending `main`, and multi-task `TaskGroup` (spawn / join / cancel /
+suspending channel) all ship (designs 44/45/52/52b).**
 There is NO `async`/`await` keyword and there never will be: Saw is
 COLORLESS (designs/18 Axis B′). Any call may suspend (once the
 cooperative engine lands); the marked side is the rare one — `sync`
@@ -1586,11 +1588,57 @@ suspension points. When `main` transitively reaches one, the compiler infers
 `main` suspending and auto-wraps it in an **entry executor** with no user-visible
 plumbing: `main` becomes a frame + `resume`, and the generated entry drives it to
 completion on a single cooperative run, parking the thread for each `sleep` wake
-and resuming at once for each `yield_now`. A single task interleaves nothing, so
-this is the single-task slice of the executor; multi-task `spawn` with a
-heterogeneous run queue, structured join, cancellation, and a suspending
-`Channel.receive` are a later stage (they need type-erased task handles, which
-the language does not yet provide).
+and resuming at once for each `yield_now`.
+
+**Multi-task cooperative concurrency — `TaskGroup` (design 52b).** The
+heterogeneous run queue is now built on `any Trait` erasure (design 51): every
+coroutine frame is compiler-synthesized to conform to a builtin `Resumable`
+trait — `resume(&var self) sync -> __Poll` (advance one step; `resume` is the
+anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> Int`
+(the wake surface: `0` = ready/yield, `>0` = sleep that many ms). A frame boxed as
+`Box<any Resumable>` lets distinct frame types share one queue,
+`Vector<Box<any Resumable>>`.
+
+- **`TaskGroup`** is a local nursery. `group.spawn(f(args)) -> TaskHandle<T>`
+  lowers like `__drive`: `f` becomes a spawnable root (frame + `Resumable`
+  conformance), and a synthesized `__spawn_f` helper builds the frame, erases it
+  into a `Box<any Resumable>`, enqueues it, and returns a typed handle. `T` must
+  be non-`Void` (the handle needs a result slot; return a value such as a count).
+- **The executor** lives in the group: round-robin drive to completion of all
+  children, honoring wake reasons — `yield_now` requeues immediately, `sleep(ms)`
+  is scheduled earliest-deadline over relative sleeps, and a channel wait is a
+  yield-requeue retry (wake-on-send folded into yield). It is `sync` (built from
+  `resume`), which is what lets the group's `Deinit` run it.
+- **`TaskHandle<T>`** owns nothing — raw pointers into the group-owned heap frame.
+  `join()` drives the group then TAKES the frame's `__result` exactly once
+  (force-unwrap read + a slot clear, so teardown drops nothing). Dropping an
+  unjoined handle is fine: the result stays in the frame and is dropped once at
+  group teardown — exactly-once either way.
+- **Structured join = LIFO destruction (design 18 C1).** The group's `Deinit`
+  runs the executor to completion of every child, then tears each frame down.
+  Because the group is declared before the resources its tasks use and before its
+  own handles, LIFO destroys it *first* — draining children while those resources
+  are still alive — and handles die before the frames they point into. Task
+  frames are self-contained (spawn strips references, paper 18), so no scope
+  ordering hazard arises. NO forced destroy anywhere.
+- **Cancellation** is cooperative (design 18 C1). `handle.cancel()` sets a
+  frame-resident `__cancel` word through the handle's raw pointer; task code reads
+  it with `cancelled()` (rewritten to the frame's word) and returns through normal
+  control flow — frame locals drop exactly once. There is no forced destroy and no
+  implicit cancellation at suspension points.
+- **Suspending channel receive.** `Channel.try_receive() -> T?` is a non-blocking
+  dequeue; the cooperative suspending receive is the Part-0 loop idiom
+  (`try_receive` + `yield_now` on empty), which suspends the *task* (not the
+  thread). The cancellation-aware form adds `if cancelled() { ... }`. The 21b
+  thread engine's blocking `recv` is untouched and coexists (shared queue block,
+  separate schedulers).
+
+Known limits (rejected cleanly / documented, not miscompiled): a spawned
+function must be non-`Void`; a suspending call as a nested *method* is not yet
+embeddable (use the loop idiom or a free function); a `TaskGroup` as a *direct
+frame-resident local of a suspending function* is not supported (do the group work
+in a non-suspending helper the suspending function calls); and a suspension
+inside an `if let` is not split (hoist the `yield` into a plain `if`).
 
 The transform is also still exercisable through a test-only entry: `__suspend()`
 marks a synthetic suspension point and `__drive(f(args))` / `__drive_steps(f(args))`
@@ -1614,9 +1662,58 @@ let producer = spawn {
     true
 }
 let got = ch.recv()              // blocks the calling thread (thread-per-task
-                                 // engine); a cooperative suspending receive
-                                 // is a later stage
+                                 // engine); the cooperative engine uses the
+                                 // suspending try_receive idiom (below)
 producer.join()
+```
+
+### Cooperative tasks: TaskGroup
+
+```saw
+// The cooperative multi-task engine (design 52b). Tasks are stackless coroutine
+// frames driven on the current thread — no OS threads, no thread identity.
+
+func worker(base: Int) -> Int {
+    print(base)
+    yield_now()                  // cooperatively hand control back to the group
+    return base + 1
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(worker(10))   // -> TaskHandle<Int>; T must be non-Void
+    let b = group.spawn(worker(20))
+    print(a.join())                   // drive the group; take a's result: 11
+    print(b.join())                   // 21
+}                                     // group Deinit drains any unjoined child
+
+// Cooperative suspending receive over a Channel:
+func consumer(ch: Channel<Int>) -> Int {
+    var sum = 0
+    var got = 0
+    while got < 3 {
+        var empty = true
+        if let v = ch.try_receive() {     // non-blocking dequeue
+            sum = sum + v
+            got = got + 1
+            empty = false
+        }
+        if empty { yield_now() }          // channel empty: suspend the task, retry
+    }
+    return sum
+}
+
+// Cooperative cancellation (NO forced destroy):
+func job() -> Int {
+    var i = 0
+    while i < 1000000 {
+        if cancelled() { return i }       // observed where the task checks
+        yield_now()
+        i = i + 1
+    }
+    return i
+}
+// let h = group.spawn(job());  h.cancel();  print(h.join())
 ```
 
 **Two engines coexist today, deliberately not unified.** `spawn`/`Task`/`Channel`

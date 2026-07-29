@@ -86,7 +86,8 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 - `package` and `parent` for relative imports (not `crate`, `super`)
 
 ### Concurrency
-- Async/await
+- Colorless cooperative tasks (NO `async`/`await` keyword; suspendability is
+  effect-inferred, `sync` is the checked negative effect) — see `TaskGroup` below
 - Channels for message passing
 - `Send`/`Sync` traits for thread safety
 - Coroutine transform (design 44 + design 45 Part 0): a suspending function or
@@ -105,9 +106,24 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
   `sleep(ms)` are the real cooperative suspension primitives (`__suspend()` stays
   test-only). A suspending `main` (one that reaches `yield_now`/`sleep`) is
   auto-wrapped in a single-threaded entry executor that drives its frame,
-  parking the thread per `sleep` wake (via the `saw_sleep_ms` seam). Multi-task
-  `spawn`/join/cancellation and a suspending `Channel.receive` are a later stage
-  (they need type-erased task handles). The design-21b `spawn`/`Task`/`Channel`
+  parking the thread per `sleep` wake (via the `saw_sleep_ms` seam).
+- Multi-task `TaskGroup` (design 52b): the C1 nursery on the erased run queue.
+  Every frame gets compiler-synthesized conformance to a builtin `Resumable`
+  trait (`resume(&var self) sync -> __Poll` + `__wake_reason(&self) sync -> Int`);
+  frames are boxed as `Box<any Resumable>` (design 51) into a
+  `Vector<Box<any Resumable>>`. `group.spawn(f(args)) -> TaskHandle<T>` lowers
+  like `__drive` (a synthesized `__spawn_f` boxes/enqueues the frame; T non-Void).
+  The executor (round-robin, honoring yield/sleep-earliest-deadline/channel-yield)
+  lives in the group and is `sync`, so the group's `Deinit` runs it to completion
+  of every child — structured join falls out of LIFO destruction (the group,
+  declared before its handles/resources, is torn down first; frames are
+  self-contained since spawn strips references). `TaskHandle.join()` drives then
+  takes the frame's `__result` exactly-once (force-unwrap + `__forget`); an
+  unjoined result drops once at teardown. Cancellation is cooperative: a
+  frame-resident `__cancel` word set by `handle.cancel()`, read by `cancelled()`
+  (rewritten to the frame word), observed through normal control flow — NO forced
+  destroy. Suspending channel receive = `Channel.try_receive() -> T?` + the Part-0
+  `yield_now`-on-empty loop idiom. The design-21b `spawn`/`Task`/`Channel`
   thread-per-task engine is separate and untouched — the two engines coexist,
   not unified.
 
