@@ -1,0 +1,23 @@
+// design 44 item 4: a String (ImplicitCopy, atomic-refcounted) held across a
+// suspension and returned as the result stays refcount-balanced. Driving the
+// frame 50000 times with stable completion is the balance oracle (a leak or a
+// double-release would crash or diverge). The String flows: created in state 0,
+// survives the suspend, moved into the result slot, consumed by the driver.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// done
+
+func greet() -> String {
+    let g = "hello"
+    __suspend()
+    g
+}
+
+func main() {
+    var i = 0
+    while i < 50000 {
+        let r = __drive(greet())
+        i = i + 1
+    }
+    print("done")
+}

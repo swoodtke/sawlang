@@ -1,0 +1,26 @@
+// design 44 item 4: a Deinit local held across a suspension point is
+// frame-resident and dropped EXACTLY ONCE when the frame dies. The deinit
+// oracle (a struct printing its id) proves it. Cleanup-needing frame fields are
+// optional-encoded (the None/Some tag is the drop flag); the frame's own
+// optional cleanup drops the live value once at frame death — inside the driver
+// (before `print` sees the result), so `42` precedes `43`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 43
+
+struct Tracker { id: Int }
+extension Tracker: Deinit {
+    func deinit(&var self) { print(self.id) }
+}
+
+func work() -> Int {
+    let t = Tracker(id: 42)     // Deinit local, lives across the suspend
+    __suspend()
+    let n = t.id + 1            // t survived; read it
+    n
+}
+
+func main() {
+    print(__drive(work()))      // frame dies -> 42 (once), then result 43
+}

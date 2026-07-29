@@ -1,0 +1,25 @@
+// design 44 item 4 / the no-forced-destroy ruling: when a completed frame's
+// result is NEVER consumed (here the frame is driven only for its suspension
+// count via `__drive_steps`), the result value sits in the frame's result slot
+// and is dropped EXACTLY ONCE at frame death — the single final-state cleanup
+// the frame's own Deinit is responsible for.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 1
+
+struct Tracker { id: Int }
+extension Tracker: Deinit {
+    func deinit(&var self) { print(self.id) }
+}
+
+func makeTracker() -> Tracker {
+    __suspend()
+    Tracker(id: 7)
+}
+
+func main() {
+    // result built, stored, never read -> dropped once at frame death (7),
+    // then the step count (1) is printed.
+    print(__drive_steps(makeTracker()))
+}

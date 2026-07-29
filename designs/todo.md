@@ -1,5 +1,49 @@
 # Saw — Open Work Tracker
 
+## PATH TO APPLICATIONS (goal set Jul 29, user)
+
+Two application testbeds, in order:
+
+**App-1: Blade** (the package manager, blade/ — already 615 lines of
+real Saw; milestone 5 done: CLI, TOML, builder, scaffolding). Finish it
+for real: dependency resolver (semver — the forcing consumer for
+ordering/comparison), Saw.lock (deterministic sorted output), git
+integration, incremental builds. Blade's pain points are the Tier-1
+punch list's ground truth.
+
+**App-2: minimal kernel on ESP32-P4** (RISC-V RV32IMAFC dual-core).
+Consequences to plan for: a **riscv32 target** (32-bit! — see D13:
+codegen currently assumes 64-bit Int/pointers), volatile/MMIO access
+(D12 — undesigned, kernel-blocking), ISR conventions, custom entry +
+linker scripts (F7/F8), and a QEMU riscv32 stage before hardware (F9).
+Milestone: UART "blink" from a Saw kernel on the P4.
+
+**Tier-1 briefs (any-real-app blockers), post-async:**
+- T1a. Bitwise operators (`& | ^ ~ << >>`) + hex/binary literals.
+- T1b. Runtime bounds checks on dynamic array indexing (closes a real
+  safety hole; panic machinery exists).
+- T1c. Ordering + hashing: Comparable/Ord + sort, Hash + real HashMap
+  (Map is Vector-backed linear scan) — needs D13/D14 shapes decided.
+- T1d. Pattern-matching completion: literal/range patterns, guards,
+  tuple destructuring.
+- T1e. `panic(msg)`/`assert` (M4) + in-language test support (shape:
+  D15).
+- T1f. Debug info (line tables minimum → backtraces); multiplies
+  productivity of everything after it.
+
+**New decisions queued (needed for the path):**
+- **D12.** Volatile/MMIO surface for kernels — `Volatile<T>` wrapper
+  type vs compiler intrinsics vs pointer-method forms. Kernel-blocking.
+- **D13.** 32-bit targets: `Int`/`UInt` sizing on riscv32 — spec says
+  platform-native; codegen hardcodes i64. Platform-width Int (spec) vs
+  always-64 (simpler, heavier on RV32)?
+- **D14.** Comparable/Ord + Hash trait shapes (the D2-style question:
+  mirror-the-Copy-family auto-derivation vs opt-in synthesis; one
+  decision can cover both).
+- **D15.** Test-framework shape for Saw programs (attribute-style
+  `#[test]` vs stdlib harness vs runner convention).
+
+
 Living document. Consolidates every unresolved item from the design briefs
 (`designs/01`–`27`) and the outstanding issues from the original critique
 (`todo_jul26.md`, now historical). Sourced from a full sweep of all design

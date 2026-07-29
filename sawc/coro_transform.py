@@ -31,8 +31,8 @@ True iff it changed anything (i.e. there were driven roots).
 import dataclasses
 from ast_nodes import (
     ASTNode, Expression, Statement, Block, Argument,
-    Identifier, MemberAccess, SelfExpr, IntLiteral, BoolLiteral,
-    FunctionCall, MethodCall, BinaryOp, UnaryOp, EnumInit,
+    Identifier, MemberAccess, SelfExpr, IntLiteral, BoolLiteral, NoneLiteral,
+    FunctionCall, MethodCall, BinaryOp, UnaryOp, EnumInit, ForceUnwrap,
     IfExpr, MatchExpr, MatchArm, WhileExpr, ReturnStatement,
     ExpressionStatement, LetStatement, AssignStatement, WhileExpr,
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
@@ -93,33 +93,53 @@ def _zero_of(saw_type):
     return _int(0)
 
 
-# --------------------------------------------------------------------------- #
-# identifier -> self.field rewriting
-# --------------------------------------------------------------------------- #
+def _opt(saw_type):
+    """The optional type `T?` used to encode a cleanup-needing frame field."""
+    return SawType(TypeKind.OPTIONAL, inner_type=saw_type)
 
-def _rewrite_val(val, names):
+
+# --------------------------------------------------------------------------- #
+# identifier -> frame-field rewriting
+# --------------------------------------------------------------------------- #
+#
+# `encmap` maps a frame-resident local/param name to its encoding:
+#   "plain" — a POD field, read as `self.name`.
+#   "opt"   — a cleanup-needing field encoded as `name: T?` (design 44: the
+#             optional's None/Some tag IS the drop flag — None means dropped /
+#             not-yet-live, Some means live; the frame's own optional cleanup
+#             (brief 23) drops the inner value exactly once at frame death, and
+#             nothing at all in the None state). Read as `self.name!`.
+
+def _read_field(name, encoding, line=0, column=0):
+    acc = _self_field(name, line, column)
+    if encoding == "opt":
+        return ForceUnwrap(expr=acc, line=line, column=column)
+    return acc
+
+
+def _rewrite_val(val, encmap):
     if isinstance(val, list):
-        return [_rewrite_val(v, names) for v in val]
+        return [_rewrite_val(v, encmap) for v in val]
     if isinstance(val, tuple):
-        return tuple(_rewrite_val(v, names) for v in val)
+        return tuple(_rewrite_val(v, encmap) for v in val)
     if isinstance(val, Argument):
-        val.value = _rewrite_node(val.value, names)
+        val.value = _rewrite_node(val.value, encmap)
         return val
     if isinstance(val, ASTNode):
-        return _rewrite_node(val, names)
+        return _rewrite_node(val, encmap)
     return val
 
 
-def _rewrite_node(node, names):
-    """Replace every `Identifier(name)` with `self.name` for name in `names`,
-    recursively over the AST. Function/struct/enum names live in plain string
-    fields (FunctionCall.name, StructInit.struct_name, MemberAccess.member) and
-    are untouched; only bare Identifier EXPRESSIONS are rewritten."""
-    if isinstance(node, Identifier) and node.name in names:
-        return _self_field(node.name, node.line, node.column)
+def _rewrite_node(node, encmap):
+    """Replace every `Identifier(name)` with its frame-field read for name in
+    `encmap`, recursively over the AST. Function/struct/enum names live in plain
+    string fields (FunctionCall.name, StructInit.struct_name, MemberAccess.member)
+    and are untouched; only bare Identifier EXPRESSIONS are rewritten."""
+    if isinstance(node, Identifier) and node.name in encmap:
+        return _read_field(node.name, encmap[node.name], node.line, node.column)
     if isinstance(node, ASTNode):
         for f in dataclasses.fields(node):
-            setattr(node, f.name, _rewrite_val(getattr(node, f.name), names))
+            setattr(node, f.name, _rewrite_val(getattr(node, f.name), encmap))
     return node
 
 
@@ -155,40 +175,38 @@ class _FrameBuilder:
                     locals_.append((stmt.name, t))
         return locals_
 
-    def _check_pod(self, kind, name, t, line, column):
-        if not _is_pod(t):
-            raise CoroTransformError(
-                f"coroutine transform (v1): {kind} `{name}` of driven "
-                f"`{self.name}` has non-POD type `{t}`; cleanup-needing frame "
-                f"fields are a later item of design 44", line, column)
-
     def build(self):
         func = self.func
         params = func.parameters
         frame_locals = self._collect_frame_locals()
 
-        # v1 restriction: POD only (no frame drop flags yet).
+        # Encoding per frame-resident name: POD -> "plain", cleanup-needing ->
+        # "opt" (optional-encoded; the None/Some tag is the drop flag). The result
+        # slot is encoded the same way and recorded on self.result_enc.
+        encmap = {}
         for p in params:
-            self._check_pod("parameter", p.name, p.type, func.line, func.column)
+            encmap[p.name] = "plain" if _is_pod(p.type) else "opt"
         for lname, lt in frame_locals:
-            self._check_pod("local", lname, lt, func.line, func.column)
-        if not self.is_void:
-            self._check_pod("result", self.name, self.ret, func.line, func.column)
-
-        frame_field_names = {p.name for p in params} | {n for n, _ in frame_locals}
+            encmap[lname] = "plain" if _is_pod(lt) else "opt"
+        self.result_enc = "plain" if (self.is_void or _is_pod(self.ret)) else "opt"
 
         # ---- frame struct ------------------------------------------------- #
         fields = []
         for p in params:
-            fields.append(StructField(name=p.name, type=p.type))
+            ft = p.type if encmap[p.name] == "plain" else _opt(p.type)
+            fields.append(StructField(name=p.name, type=ft))
         for lname, lt in frame_locals:
-            fields.append(StructField(name=lname, type=lt))
+            ft = lt if encmap[lname] == "plain" else _opt(lt)
+            fields.append(StructField(name=lname, type=ft))
         fields.append(StructField(name="__state", type=SawType(TypeKind.INT)))
         if not self.is_void:
-            fields.append(StructField(name="__result", type=self.ret))
+            rt = self.ret if self.result_enc == "plain" else _opt(self.ret)
+            fields.append(StructField(name="__result", type=rt))
         frame_struct = Struct(name=self.frame_name, fields=fields,
                               line=func.line, column=func.column,
                               source_file=getattr(func, 'source_file', ""))
+        self.encmap = encmap
+        frame_field_names = encmap
 
         # ---- state split -------------------------------------------------- #
         # Segments of top-level statements split at each `__suspend()`.
@@ -261,17 +279,21 @@ def _make_driver(fb: _FrameBuilder, mode, params, frame_locals):
     value: `func __drive_<f>(<params>) -> R { var __f = <frame>; loop resume; __f.__result }`
     steps: `func __drive_steps_<f>(<params>) -> Int { ...; count Pendings; __n }`
     """
-    # Frame construction: params from the driver's own args, everything else
-    # zero-initialised (locals are (re)assigned in resume before use; POD, so a
-    # zero placeholder needs no cleanup).
+    # Frame construction: params from the driver's own args (an opt-encoded param
+    # auto-wraps T -> T? = Some, since it is live from the start); every other
+    # field starts empty — POD locals/result zero-initialised (POD needs no
+    # cleanup), cleanup-needing (opt) fields `None` (the drop flag: not-yet-live,
+    # so the frame never drops a placeholder).
     field_inits = []
     for p in params:
         field_inits.append((p.name, Identifier(name=p.name)))
     for lname, lt in frame_locals:
-        field_inits.append((lname, _zero_of(lt)))
+        init = NoneLiteral() if fb.encmap[lname] == "opt" else _zero_of(lt)
+        field_inits.append((lname, init))
     field_inits.append(("__state", _int(0)))
     if not fb.is_void:
-        field_inits.append(("__result", _zero_of(fb.ret)))
+        rinit = NoneLiteral() if fb.result_enc == "opt" else _zero_of(fb.ret)
+        field_inits.append(("__result", rinit))
 
     from ast_nodes import StructInit
     frame_init = StructInit(struct_name=fb.frame_name, field_inits=field_inits)
@@ -315,8 +337,11 @@ def _make_driver(fb: _FrameBuilder, mode, params, frame_locals):
     else:
         driver_name = f"__drive_{fb.name}"
         ret = fb.ret
-        final = _self_field("__result") if False else MemberAccess(
-            object=Identifier(name="__f"), member="__result")
+        result_acc = MemberAccess(object=Identifier(name="__f"), member="__result")
+        # Reading the result CONSUMES the slot (opt-encoded: force-unwrap the
+        # Some); an unconsumed result (e.g. driven only for its step count) stays
+        # in the frame and is dropped once at frame death.
+        final = ForceUnwrap(expr=result_acc) if fb.result_enc == "opt" else result_acc
 
     driver_params = [Parameter(name=p.name, type=p.type) for p in params]
     return Function(name=driver_name, parameters=driver_params, return_type=ret,
