@@ -1,0 +1,27 @@
+// Design 40 item 7 (M1): Vector.swap over an OWNING element type (String) is
+// refcount-neutral — the byte-level exchange neither retains nor releases, so
+// the two live strings just change slots. No premature free (the filler
+// allocation would reuse a wrongly-freed buffer), no leak, no double-free (a
+// clean exit as the Vector's deinit drops each element exactly once).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// gamma padding cccccccccccccccccccccccc
+// beta padding bbbbbbbbbbbbbbbbbbbbbbbbbb
+// alpha padding aaaaaaaaaaaaaaaaaaaaaaaa
+// DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD
+// gamma padding cccccccccccccccccccccccc
+func main() {
+    var v = Vector<String>()
+    v.push("alpha padding aaaaaaaaaaaaaaaaaaaaaaaa")
+    v.push("beta padding bbbbbbbbbbbbbbbbbbbbbbbbbb")
+    v.push("gamma padding cccccccccccccccccccccccc")
+
+    v.swap(0, 2)
+    if let a = v.get(0) { print(a) }   // gamma
+    if let b = v.get(1) { print(b) }   // beta
+    if let c = v.get(2) { print(c) }   // alpha
+
+    let filler = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+    print(filler)
+    if let a2 = v.get(0) { print(a2) } // gamma still intact
+}

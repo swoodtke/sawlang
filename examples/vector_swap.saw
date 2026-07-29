@@ -1,0 +1,27 @@
+// Design 40 item 7 (M1): Vector.swap(i, j) is the stdlib escape hatch for the
+// dynamic-index exclusivity shape (`swap(&a[i], &a[j])`) the static Law of
+// Exclusivity must reject. Bounds-checked, no-op on i==j and on out-of-bounds.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 30
+// 20
+// 10
+// 20
+// 30
+func main() {
+    var v = Vector<Int>()
+    v.push(10)
+    v.push(20)
+    v.push(30)
+
+    v.swap(0, 2)
+    if let a = v.get(0) { print(a) }   // 30
+    if let b = v.get(1) { print(b) }   // 20
+    if let c = v.get(2) { print(c) }   // 10
+
+    v.swap(1, 1)                        // no-op (identical indices)
+    if let d = v.get(1) { print(d) }   // 20
+
+    v.swap(0, 99)                       // no-op (out of bounds)
+    if let e = v.get(0) { print(e) }   // 30
+}
