@@ -154,6 +154,16 @@ class CallsMixin:
         if expr.name == "cancelled":
             return ir.Constant(ir.IntType(1), 0)
 
+        # Overloading (design 55): the typechecker resolved a concrete overload
+        # and stamped its exact codegen symbol. Call that definition directly,
+        # ahead of the struct-init / generic-instantiation routing (which keys on
+        # the plain name and would otherwise mis-route an overloaded name).
+        resolved_symbol = getattr(expr, 'resolved_symbol', None)
+        if resolved_symbol is not None and resolved_symbol in self.functions:
+            func = self.functions[resolved_symbol]
+            args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
+            return self.builder.call(func, args, name="calltmp")
+
         # Check if the name refers to a closure variable
         if expr.name in self.variables:
             closure_ptr = self.variables[expr.name]
@@ -650,9 +660,14 @@ class CallsMixin:
             self._ensure_monomorphized_generic_method(
                 struct_name, recv_type, expr.method_name, method_type_args)
 
-        # Get mangled method name
-        mangled_name = self._mangle_method_name(struct_name, expr.method_name,
-                                                method_type_args=method_type_args)
+        # Get mangled method name. Overloading (design 55): the typechecker
+        # resolved the overload and stamped the exact codegen symbol; use it.
+        resolved_symbol = getattr(expr, 'resolved_symbol', None)
+        if resolved_symbol is not None:
+            mangled_name = resolved_symbol
+        else:
+            mangled_name = self._mangle_method_name(struct_name, expr.method_name,
+                                                    method_type_args=method_type_args)
 
         # Look up the method function
         if mangled_name not in self.functions:

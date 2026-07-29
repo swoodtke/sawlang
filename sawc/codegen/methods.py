@@ -55,7 +55,9 @@ class MethodsMixin:
 
     def _generate_method(self, struct_name: str, method: Method):
         """Generate code for a single instance method."""
-        mangled_name = self._mangle_method_name(struct_name, method.name)
+        # Overloading (design 55): use the AST-stamped overload symbol if present.
+        mangled_name = (getattr(method, 'mangled_symbol', None)
+                        or self._mangle_method_name(struct_name, method.name))
         llvm_func = self.functions[mangled_name]
 
         # Create entry block
@@ -292,7 +294,9 @@ class MethodsMixin:
 
     def _generate_static_method(self, struct_name: str, method: Method):
         """Generate code for a static method (no self parameter)."""
-        mangled_name = self._mangle_method_name(struct_name, method.name)
+        # Overloading (design 55): use the AST-stamped overload symbol if present.
+        mangled_name = (getattr(method, 'mangled_symbol', None)
+                        or self._mangle_method_name(struct_name, method.name))
         llvm_func = self.functions[mangled_name]
 
         # Create entry block

@@ -1125,7 +1125,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 # Store generic function for later instantiation
                 self.generic_functions[func.name] = func
             else:
-                self._declare_function(func)
+                # Overloading (design 55): a member of a 2+ overload set is
+                # emitted under its type-signature-suffixed symbol (stamped on
+                # the AST node by the typechecker); others keep the plain name.
+                self._declare_function(func, name_override=getattr(func, 'mangled_symbol', None))
 
         # Declare non-generic extension methods
         for extension in program.extensions:
@@ -1141,7 +1144,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Fifth pass: generate function bodies (skip generic functions)
         for func in program.functions:
             if not func.type_params:
-                self._generate_function(func)
+                self._generate_function(func, name_override=getattr(func, 'mangled_symbol', None))
 
         # Generate extension method bodies
         for extension in program.extensions:
@@ -1430,8 +1433,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # here (it is indexed in plain_generic_methods and specialized then).
             if getattr(method, 'type_params', None) and not method.is_init:
                 continue
-            # Create mangled name
-            if method.is_init:
+            # Create mangled name. Overloading (design 55): a member of a 2+
+            # method overload set carries a type-signature symbol stamped on the
+            # AST node; use it so the definition matches the resolved call site.
+            overload_symbol = getattr(method, 'mangled_symbol', None)
+            if overload_symbol is not None:
+                mangled_name = overload_symbol
+            elif method.is_init:
                 # Include parameter names for init methods to allow overloading
                 param_names = [p.name for p in method.parameters]
                 mangled_name = self._mangle_method_name(extension.struct_name, method.name, param_names)

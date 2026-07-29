@@ -379,15 +379,13 @@ class RegistrationMixin:
         ))
 
     def _register_function(self, func: Function):
-        """Register a function signature."""
-        if self.namespace.has_function(func.name):
-            self._error(
-                ErrorKind.DUPLICATE_FUNCTION,
-                f"function `{func.name}` is defined multiple times",
-                func.line, func.column
-            )
-            return
+        """Register a function signature.
 
+        Overloading (design 55): a name may carry several declarations as long
+        as no two share an indistinguishable normalized signature. The old
+        "defined multiple times" error now fires only at the declaration-site
+        collision below (identical post-alias / bare-type-param signatures).
+        """
         # For generic functions, don't resolve types yet (they may contain type params)
         if func.type_params:
             param_types = [p.type for p in func.parameters]
@@ -408,6 +406,25 @@ class RegistrationMixin:
             # Update AST with resolved type for codegen
             func.return_type = return_type
 
+        # Declaration-site overload check (design 55): reject a new declaration
+        # that no tie-break rule could separate from an existing one — i.e. an
+        # identical normalized signature (post-alias, bare type params folded to
+        # a single placeholder). Same-arity/different-types and different-arity
+        # are both legal and register as additional overloads.
+        new_key = self._overload_sig_key(param_types, func.type_params)
+        for other in self.namespace.lookup_function_overloads(func.name):
+            if self._overload_sig_key(other.param_types, other.type_params) == new_key:
+                self._error(
+                    ErrorKind.DUPLICATE_FUNCTION,
+                    f"function `{func.name}` is already defined with an "
+                    f"indistinguishable signature",
+                    func.line, func.column,
+                    hint="overloads must differ in arity or parameter types "
+                         "(distinct types, not just type aliases of the same "
+                         "underlying type)"
+                )
+                return
+
         self.namespace.register_function(func.name, FunctionSymbol(
             param_types=param_types,
             param_names=param_names,
@@ -415,8 +432,71 @@ class RegistrationMixin:
             type_params=func.type_params,
             visibility=getattr(func, 'visibility', Visibility.PRIVATE),
             is_sync=getattr(func, 'is_sync', False),
-            ast_node=func if func.type_params else None
+            ast_node=func if func.type_params else None,
+            decl_node=func
         ))
+
+    def _overload_sig_key(self, param_types, type_params) -> tuple:
+        """Normalized signature key for declaration-site overload distinctness
+        (design 55).
+
+        Each parameter is mangled after (a) folding any bare type parameter of
+        this declaration to a single canonical placeholder — so `f<T>(T)` and
+        `f<U>(U)` collide — and (b) resolving distinct-type aliases to their
+        underlying type — so `type A = Int; f(A)` and `f(Int)` collide. Two
+        declarations with equal keys are indistinguishable and rejected.
+        """
+        from codegen.mangle import mangle_type
+        tp_names = {tp.name for tp in (type_params or [])}
+        parts = []
+        for t in (param_types or []):
+            if t is None:
+                parts.append("Void")
+                continue
+            if t.kind == TypeKind.TYPE_PARAM:
+                parts.append("$P")
+                continue
+            if t.kind == TypeKind.STRUCT and t.struct_name in tp_names:
+                parts.append("$P")
+                continue
+            norm = t
+            if t.kind == TypeKind.STRUCT and self.get_type_alias_info(t.struct_name):
+                norm = self._resolve_type_alias(t)
+            parts.append(mangle_type(norm))
+        return tuple(parts)
+
+    def _stamp_overload_symbols(self):
+        """Assign each member of a 2+ overload set a type-signature-suffixed
+        codegen symbol (design 55), stamping both the FunctionSymbol and its
+        declaring AST node so the typechecker (call resolution) and codegen
+        (definition emission) agree. Single-declaration names are untouched and
+        keep their plain symbol. Generic overloads keep their type-argument
+        instantiation naming and are left plain here.
+        """
+        from codegen.mangle import mangle_overload, mangle_method
+        for name, overloads in self.namespace.function_overloads.items():
+            if len(overloads) < 2:
+                continue
+            for sym in overloads:
+                if sym.type_params:
+                    continue
+                mangled = mangle_overload(name, sym.param_types)
+                sym.mangled_name = mangled
+                if sym.decl_node is not None:
+                    sym.decl_node.mangled_symbol = mangled
+        for struct_name, struct_sym in self.namespace.structs.items():
+            for mname, overloads in struct_sym.method_overloads.items():
+                if len(overloads) < 2:
+                    continue
+                base = mangle_method(struct_name, mname)
+                for sym in overloads:
+                    if sym.type_params:
+                        continue
+                    offset = 0 if sym.is_init else 1
+                    mangled = mangle_overload(base, sym.param_types[offset:])
+                    sym.mangled_name = mangled
+                    if sym.decl_node is not None:
+                        sym.decl_node.mangled_symbol = mangled
 
     def _register_extern_function(self, extern_func):
         """Register an external (FFI) function signature."""
@@ -834,8 +914,16 @@ class RegistrationMixin:
             else:
                 method_key = method.name
 
-            # Check for duplicate methods in target dict
-            if method_key in target_methods:
+            # Check for duplicate methods in target dict.
+            #
+            # Overloading (design 55): a non-init method on the ordinary (non-
+            # specialized) method table may repeat a name as long as the
+            # signatures are distinguishable; that check is deferred to the
+            # declaration-site collision test below, once parameter types are
+            # resolved. init overloading (name-based) and specialized-extension
+            # method tables keep the strict "already defined" rule.
+            allow_overload = (not method.is_init) and (not is_specialized)
+            if method_key in target_methods and not allow_overload:
                 if method.is_init:
                     self._error(
                         ErrorKind.DUPLICATE_FUNCTION,
@@ -937,6 +1025,31 @@ class RegistrationMixin:
             # Collect default values for parameters
             default_values = [p.default_value for p in method.parameters]
 
+            # Declaration-site overload check (design 55) for ordinary (non-init,
+            # non-specialized) methods: reject a repeat that no tie-break rule
+            # could separate — an identical normalized signature (self excluded).
+            if not method.is_init and not is_specialized:
+                new_offset = 1  # exclude self
+                new_key = self._overload_sig_key(
+                    param_types[new_offset:], method.type_params)
+                collides = False
+                for other in struct_info.method_overloads.get(method.name, []):
+                    o_off = 0 if other.is_init else 1
+                    if self._overload_sig_key(
+                            other.param_types[o_off:], other.type_params) == new_key:
+                        collides = True
+                        break
+                if collides:
+                    self._error(
+                        ErrorKind.DUPLICATE_FUNCTION,
+                        f"method `{method.name}` is already defined for struct "
+                        f"`{extension.struct_name}` with an indistinguishable "
+                        f"signature",
+                        method.line, method.column,
+                        hint="overloads must differ in arity or parameter types"
+                    )
+                    continue
+
             # Register in namespace
             method_symbol = FunctionSymbol(
                 kind=SymbolKind.METHOD,
@@ -952,7 +1065,8 @@ class RegistrationMixin:
                 self_mutable=self_mutable,
                 self_is_reference=method.self_is_reference,
                 extension_bounds=extension_bounds,
-                ast_node=method
+                ast_node=method,
+                decl_node=method
             )
             if method.is_init:
                 self.namespace.register_init_method(extension.struct_name, method_symbol)

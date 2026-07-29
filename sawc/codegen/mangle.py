@@ -151,6 +151,23 @@ def mangle_function(name: str, type_args) -> str:
     return mangle_named(name, type_args)
 
 
+def mangle_overload(base: str, param_types) -> str:
+    """Canonical codegen symbol for one overload of a name (design 55).
+
+    `base` is the plain symbol a single-declaration name would use (a free
+    function's source name, or `mangle_method(struct, method)` for a method).
+    The parameter-type signature is appended with the `$OL$` tag so distinct
+    overloads of the same name get distinct, collision-free LLVM symbols while
+    non-overloaded names keep their plain symbol untouched. `$` cannot appear in
+    a source identifier, so `base` never collides with the tag; `mangle_type`
+    makes the per-parameter encoding injective. A zero-parameter overload maps
+    to `base$OL$` (two zero-arg overloads are a declaration-site error, so the
+    empty body is never ambiguous).
+    """
+    body = "$".join(mangle_type(p) for p in param_types) if param_types else ""
+    return f"{base}$OL${body}"
+
+
 def mangle_method(struct_name: str, method_name: str, param_names=None,
                   method_type_args=None) -> str:
     """Canonical symbol for a method or init.

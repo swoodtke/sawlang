@@ -647,6 +647,216 @@ class ExpressionsMixin:
         expr.spawn_result_type = result_type
         return SawType(TypeKind.STRUCT, struct_name="Task", type_args=[result_type])
 
+    # ======================================================================
+    # Overload resolution (design 55)
+    # ======================================================================
+
+    def _overload_cand_offset(self, cand, is_method: bool) -> int:
+        """Parameter offset for a candidate: methods skip the `self` slot unless
+        the candidate is static/init; free functions never skip."""
+        if is_method and not (cand.is_static or cand.is_init):
+            return 1
+        return 0
+
+    def _format_arg_types(self, arg_types) -> str:
+        return ", ".join("<closure>" if at is None else str(at) for at in arg_types)
+
+    def _format_overload_candidate(self, name: str, cand, is_method: bool) -> str:
+        offset = self._overload_cand_offset(cand, is_method)
+        ps = cand.param_types[offset:]
+        prefix = "<T> " if cand.type_params else ""
+        return f"{prefix}{name}(" + ", ".join(str(p) for p in ps) + ")"
+
+    def _resolve_overload(self, display_name, candidates, arg_types,
+                          has_type_args, is_method, line, column):
+        """Select the unique matching overload for a call (design 55).
+
+        `arg_types[i] is None` marks a closure argument, which is neutral for
+        matching (the closure-arg rule: resolve on the non-closure arguments;
+        if candidates still tie and differ only in closure-param types they stay
+        tied and yield the ambiguity error below). Tie-breaks, in order:
+          1. exact beats optional-wrap (fewest implicit `T -> T?` wraps wins);
+          2. resolution precedes Result/Optional auto-wrap (this runs on the
+             raw argument types, before any wrap machinery);
+          3. concrete beats generic (a generic overload only competes when the
+             call gives explicit type arguments — Saw has no generic inference —
+             so a bare call always lands on a concrete overload).
+        Returns the chosen FunctionSymbol, or None after reporting a no-match or
+        ambiguity diagnostic that lists the candidates with their types.
+        """
+        n = len(arg_types)
+        matches = []  # (candidate, wrap_penalty, is_generic)
+        for cand in candidates:
+            is_generic = bool(cand.type_params)
+            # A generic overload competes only with explicit call-site type args
+            # (no inference); a concrete overload rejects type args.
+            if is_generic and not has_type_args:
+                continue
+            if has_type_args and not is_generic:
+                continue
+            offset = self._overload_cand_offset(cand, is_method)
+            cparams = cand.param_types[offset:]
+            defaults = cand.default_values[offset:] if cand.default_values else []
+            if defaults and any(dv is not None for dv in defaults):
+                required = sum(1 for dv in defaults if dv is None)
+                if n < required or n > len(cparams):
+                    continue
+            elif n != len(cparams):
+                continue
+            tp_names = {tp.name for tp in (cand.type_params or [])}
+            ok = True
+            penalty = 0
+            for i in range(n):
+                pt = cparams[i]
+                at = arg_types[i]
+                is_gp = pt is not None and (
+                    pt.kind == TypeKind.TYPE_PARAM
+                    or (pt.kind == TypeKind.STRUCT and pt.struct_name in tp_names))
+                if is_gp or at is None:
+                    continue  # generic slot / closure arg: neutral
+                if not self._types_compatible(at, pt):
+                    ok = False
+                    break
+                if pt.is_optional() and not at.is_optional():
+                    penalty += 1  # exact-vs-optional-wrap discriminator
+            if ok:
+                matches.append((cand, penalty, is_generic))
+        if not matches:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"no overload of `{display_name}` matches the argument types "
+                f"({self._format_arg_types(arg_types)})",
+                line, column,
+                hint="candidates: " + "; ".join(
+                    self._format_overload_candidate(display_name, c, is_method)
+                    for c in candidates)
+            )
+            return None
+        minpen = min(m[1] for m in matches)
+        matches = [m for m in matches if m[1] == minpen]
+        if any(not m[2] for m in matches):
+            matches = [m for m in matches if not m[2]]  # concrete beats generic
+        if len(matches) == 1:
+            return matches[0][0]
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"ambiguous call to `{display_name}`: multiple overloads match the "
+            f"argument types ({self._format_arg_types(arg_types)})",
+            line, column,
+            hint="matching candidates: " + "; ".join(
+                self._format_overload_candidate(display_name, m[0], is_method)
+                for m in matches)
+        )
+        return None
+
+    def _overload_arg_types(self, expr):
+        """Type-check the non-closure arguments once (recording moves/effects a
+        single time) and return the list of argument types, with `None` in each
+        closure slot (deferred until the expected type is known)."""
+        arg_types = []
+        for arg in expr.arguments:
+            if isinstance(arg.value, ClosureExpr):
+                arg_types.append(None)
+            else:
+                arg_types.append(self._check_expression(arg.value))
+        return arg_types
+
+    def _finish_overloaded_args(self, expr, param_types, arg_types):
+        """Shared tail for a resolved overloaded call: check each argument
+        against its resolved parameter type (closures inferred now) and run the
+        value-transfer chokepoint exactly once per argument."""
+        for i, arg in enumerate(expr.arguments):
+            expected = param_types[i] if i < len(param_types) else None
+            if isinstance(arg.value, ClosureExpr):
+                at = self._check_closure(arg.value, expected, as_call_argument=True)
+            else:
+                at = arg_types[i]
+            if (at is not None and expected is not None
+                    and not self._types_compatible(at, expected)):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"argument {i + 1} expects `{expected}` but got `{at}`",
+                    arg.value.line, arg.value.column
+                )
+            self._check_value_transfer(arg.value, expected, "call argument",
+                                       arg.value.line, arg.value.column)
+
+    def _check_overloaded_function_call(self, expr, candidates):
+        """Resolve and check a call to an overloaded free function (design 55)."""
+        arg_types = self._overload_arg_types(expr)
+        func_info = self._resolve_overload(
+            expr.name, candidates, arg_types, bool(expr.type_args),
+            is_method=False, line=expr.line, column=expr.column)
+        if func_info is None:
+            return None
+        # Concrete overload: stamp its codegen symbol so codegen calls the right
+        # definition. A generic overload keeps type-argument instantiation naming
+        # (routed through the normal generic path), so it is left unstamped.
+        if func_info.mangled_name:
+            expr.resolved_symbol = func_info.mangled_name
+        # Single chokepoint: the effect edge is recorded to the RESOLVED callee.
+        self._effect_call_function(func_info, expr.name, expr.line)
+        if func_info.type_params:
+            type_map = {}
+            for tp, ta in zip(func_info.type_params, expr.type_args or []):
+                type_map[tp.name] = self._resolve_type(ta)
+            param_types = [t.substitute(type_map) for t in func_info.param_types]
+            return_type = (func_info.return_type.substitute(type_map)
+                           if func_info.return_type else func_info.return_type)
+        else:
+            param_types = func_info.param_types
+            return_type = func_info.return_type
+        self._finish_overloaded_args(expr, param_types, arg_types)
+        self._check_call_exclusivity([a.value for a in expr.arguments], param_types,
+                                     param_names=func_info.param_names)
+        return return_type
+
+    def _check_overloaded_method_call(self, expr, struct_name, candidates,
+                                      obj_type, type_subst):
+        """Resolve and check a call to an overloaded instance method (design 55).
+
+        Mirrors the singleton method tail but resolves the callee first and
+        checks each argument exactly once (so a `move`/mutating argument is not
+        double-processed)."""
+        arg_types = self._overload_arg_types(expr)
+        method_info = self._resolve_overload(
+            f"{struct_name}.{expr.method_name}", candidates, arg_types,
+            bool(expr.type_args), is_method=True, line=expr.line, column=expr.column)
+        if method_info is None:
+            return None
+        if method_info.mangled_name:
+            expr.resolved_symbol = method_info.mangled_name
+        # Single chokepoint: effect edge to the resolved method.
+        self._effect_call_method(
+            method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
+        offset = self._overload_cand_offset(method_info, is_method=True)
+        param_types = method_info.param_types[offset:]
+        if type_subst:
+            param_types = [t.substitute(type_subst) if t is not None else t
+                           for t in param_types]
+        self._finish_overloaded_args(expr, param_types, arg_types)
+        # `&var self` method may not be called on an immutable binding (L11).
+        if getattr(method_info, "self_mutable", False) and not method_info.is_init:
+            imm_root = self._assign_target_immutable_struct_root(expr.object)
+            if imm_root is not None:
+                self._error(
+                    ErrorKind.IMMUTABLE_ASSIGNMENT,
+                    f"cannot call `&var self` method `{expr.method_name}` on "
+                    f"immutable variable `{imm_root}`",
+                    expr.line, expr.column,
+                    hint="consider using `var` instead of `let` to make it mutable",
+                )
+        self._check_call_exclusivity(
+            [a.value for a in expr.arguments], param_types,
+            receiver=expr.object if not method_info.is_init else None,
+            receiver_mutable=method_info.self_mutable,
+            param_names=method_info.param_names[offset:],
+        )
+        return_type = method_info.return_type
+        if type_subst and return_type is not None:
+            return_type = return_type.substitute(type_subst)
+        return return_type
+
     def _check_function_call(self, expr: FunctionCall) -> Optional[SawType]:
         """Check a function call."""
         # Atomic construction (design 41 item 4): `Atomic(<int>)`. A compiler-
@@ -1035,6 +1245,13 @@ class ExpressionsMixin:
                                            arg.value.line, arg.value.column)
             self._check_call_exclusivity([a.value for a in expr.arguments], param_types)
             return return_type
+        # Overloading (design 55): a name with 2+ visible overloads resolves
+        # through the exact-match resolver, which then feeds the SAME downstream
+        # machinery (value-transfer checkpoint, effect edges, exclusivity) with
+        # the resolved callee.
+        overloads = self.namespace.lookup_function_overloads(expr.name)
+        if len(overloads) > 1 and self.namespace.is_accessible(expr.name):
+            return self._check_overloaded_function_call(expr, overloads)
         func_info = self.get_function_info(expr.name)
         if func_info and not self.namespace.is_accessible(expr.name):
             self._error(
@@ -3113,6 +3330,15 @@ class ExpressionsMixin:
 
         # Look up method - first check specialized extensions, then generic
         method_info = self._lookup_method(struct_info, expr.method_name, obj_type.type_args)
+        # Overloading (design 55): a method name with 2+ overloads on this struct
+        # resolves through the exact-match resolver (before effect edges are
+        # recorded), then feeds the shared downstream machinery.
+        if method_info is not None:
+            method_overloads = self.namespace.lookup_method_overloads(
+                struct_name, expr.method_name)
+            if len(method_overloads) > 1:
+                return self._check_overloaded_method_call(
+                    expr, struct_name, method_overloads, obj_type, type_subst)
         # Arc payload access via method forwarding (design 21b E2). When a method
         # is not found on `Arc<T>` itself but exists on the payload `T` with an
         # immutable `&self` receiver, forward the call to the payload through an

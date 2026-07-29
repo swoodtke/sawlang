@@ -249,6 +249,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for static in getattr(program, 'statics', []):
             self._register_static(static)
 
+        # Overloading (design 55): now that every function/method signature is
+        # registered, assign each member of a 2+ overload set its type-signature
+        # codegen symbol (stamped on both the symbol and its AST node).
+        self._stamp_overload_symbols()
+
         # Check for main function (only required for executables)
         if require_main and not self.namespace.has_function("main"):
             self.reporter.error(
@@ -545,6 +550,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     path=list(inline_path),
                     visibility=mod_visibility
                 )
+
+        # Overloading (design 55): stamp overload-set codegen symbols for this
+        # module now that all its signatures are registered.
+        self._stamp_overload_symbols()
 
         # Check for main function (only for entry module)
         if is_entry and not self.namespace.has_function("main"):

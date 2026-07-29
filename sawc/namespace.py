@@ -55,6 +55,13 @@ class FunctionSymbol:
     # (conditional conformance); the typechecker uses this to diagnose calls.
     extension_bounds: Dict[str, List[str]] = field(default_factory=dict)
     ast_node: Optional[Any] = None  # Function or Method AST node
+    # Overloading (design 55): when a name carries 2+ overloads, the mangler
+    # assigns each a type-signature-suffixed codegen symbol; `mangled_name` holds
+    # it (empty for the common single-declaration case, where the plain name is
+    # used). `decl_node` is the declaring AST Function/Method node, stamped with
+    # the same `mangled_symbol` so codegen emits the definition under it.
+    mangled_name: str = ""
+    decl_node: Optional[Any] = None
 
 
 @dataclass
@@ -65,6 +72,10 @@ class StructSymbol:
     field_order: List[str] = field(default_factory=list)
     type_params: List[TypeParameter] = field(default_factory=list)
     methods: Dict[str, FunctionSymbol] = field(default_factory=dict)
+    # Overloading (design 55): name -> all overloads of that method. `methods`
+    # keeps the first-registered overload as the representative (for the many
+    # single-overload lookups); overloaded call sites resolve against this list.
+    method_overloads: Dict[str, List[FunctionSymbol]] = field(default_factory=dict)
     init_methods: List[FunctionSymbol] = field(default_factory=list)
     conformances: List[str] = field(default_factory=list)
     visibility: Visibility = Visibility.PRIVATE
@@ -168,6 +179,10 @@ class Namespace:
 
         # Core symbol tables
         self.functions: Dict[str, FunctionSymbol] = {}
+        # Overloading (design 55): name -> all free-function overloads. The
+        # `functions` map above keeps the first-registered overload as the
+        # representative; overloaded call sites resolve against this list.
+        self.function_overloads: Dict[str, List[FunctionSymbol]] = {}
         self.structs: Dict[str, StructSymbol] = {}
         self.enums: Dict[str, EnumSymbol] = {}
         self.traits: Dict[str, TraitSymbol] = {}
@@ -350,8 +365,18 @@ class Namespace:
     # =========================================================================
 
     def register_function(self, name: str, symbol: FunctionSymbol):
-        """Register a function symbol."""
-        self.functions[name] = symbol
+        """Register a function symbol (design 55: appends to the overload set).
+
+        The first registration under a name is also the representative in
+        `self.functions`; later overloads only extend `function_overloads`.
+        """
+        self.function_overloads.setdefault(name, []).append(symbol)
+        if name not in self.functions:
+            self.functions[name] = symbol
+
+    def lookup_function_overloads(self, name: str) -> List[FunctionSymbol]:
+        """All free-function overloads registered under `name` (design 55)."""
+        return self.function_overloads.get(name, [])
 
     def register_static(self, name: str, symbol: 'StaticSymbol'):
         """Register a module-level static symbol (design 41)."""
@@ -506,9 +531,23 @@ class Namespace:
         )
 
     def register_method(self, struct_name: str, method_name: str, symbol: FunctionSymbol):
-        """Register a method on a struct."""
+        """Register a method on a struct (design 55: appends to the overload set).
+
+        The first registration under a name is the representative in `methods`;
+        later overloads only extend `method_overloads`.
+        """
         if struct_name in self.structs:
-            self.structs[struct_name].methods[method_name] = symbol
+            s = self.structs[struct_name]
+            s.method_overloads.setdefault(method_name, []).append(symbol)
+            if method_name not in s.methods:
+                s.methods[method_name] = symbol
+
+    def lookup_method_overloads(self, struct_name: str, method_name: str) -> List[FunctionSymbol]:
+        """All overloads of `method_name` on `struct_name` (design 55)."""
+        struct = self.structs.get(struct_name)
+        if struct:
+            return struct.method_overloads.get(method_name, [])
+        return []
 
     def register_init_method(self, struct_name: str, symbol: FunctionSymbol):
         """Register an init method on a struct."""
@@ -1233,6 +1272,11 @@ class Namespace:
         _merge("struct", self.structs, other.structs)
         _merge("enum", self.enums, other.enums)
         _merge("function", self.functions, other.functions)
+        # Overloading (design 55): carry each name's full overload set across the
+        # merge (first-wins per name, matching the representative merge above).
+        for _name, _lst in other.function_overloads.items():
+            if _name not in self.function_overloads:
+                self.function_overloads[_name] = list(_lst)
         _merge("trait", self.traits, other.traits)
         _merge("type alias", self.type_aliases, other.type_aliases)
         # Statics (design 41): same identity/collision rule (design 26) as the
