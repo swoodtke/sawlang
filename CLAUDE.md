@@ -326,6 +326,15 @@ The compiler currently supports:
 - Slabs (`std/slab.saw`): fixed-chunk allocator over a `static` region via
   `Atomic<Int>` CAS; a user unit-struct allocator + `Box<T, Slab>` is the kernel
   idiom (`designs/42`). Address casts `(&STATIC) as UnsafePointer<T>` / `ptr as Int`
+- `UnsafeMemory<T, Use>` (`designs/46`): compiler-known one-word view of memory at
+  a fixed address; const-init from an integer literal, static-able, Sync by fiat.
+  `Use` is an EXPLICIT intent marker (no default): `Device` emits volatile,
+  scalar-only `read()`/`write(v)` with `ReadOnly<T>`/`WriteOnly<T>` field markers
+  gating projection (no whole-struct access; volatile ≠ atomic); `Normal` gets
+  plain whole-struct/element access plus region accessors `ptr()`/`len()`/`end()`.
+  Member/index access PROJECTS to `UnsafeMemory<Field, Use>` at base + compile-time
+  offset (never loads the aggregate); declaration-order natural-ABI layout, `_pad`
+  idiom for holes
 - Reference parameters `&T` / `&var T` (mutate via compound assignment; no escape)
 - String: immutable, reference-counted (atomic refcount), O(1) `len()`
 - Module-level `static NAME: T = init` (+ `public`): const-initialized,

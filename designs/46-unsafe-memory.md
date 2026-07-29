@@ -1,4 +1,15 @@
-# Design 46 — UnsafeMemory<T, Use>: typed memory at fixed addresses (D12, DECIDED Jul 29)
+# Design 46 — UnsafeMemory<T, Use>: typed memory at fixed addresses (D12, DECIDED Jul 29 — LANDED)
+
+**Landed:** items 1-5 implemented. `UnsafeMemory<T, Use>` + `Device`/`Normal`/
+`ReadOnly<T>`/`WriteOnly<T>` are compiler-known (builtin.saw); one-word i64
+representation; const-init statics; Sync by fiat. Shared projection engine
+(inttoptr → inbounds GEP → ptrtoint, never loads the aggregate) for member and
+array-index access; Device volatile `read()`/`write()` (a small llvmlite descr
+patch renders `volatile`, which survives the O1 pipeline — the read-twice IR
+oracle keeps both loads); Normal plain access + `ptr()`/`len()`/`end()`;
+RO-write / WO-read / Device-whole-struct / missing-or-bad `Use` diagnostics.
+Tests in `examples/unsafe_mem_*` (incl. hosted MMIO simulation over a static byte
+array) and `examples/errors/unsafe_mem_*`. Docs: LANGUAGE_SPEC §10, CLAUDE.md.
 
 **Ruling (user, refined through discussion):** one family type,
 `UnsafeMemory<T, Use>`, for typed access to memory at a fixed address —

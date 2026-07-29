@@ -2051,6 +2051,70 @@ allocator needs over a `static` region:
   integer address (`ptrtoint` / `inttoptr`) — how a slab threads freed-chunk
   addresses through an `Atomic<Int>` free-list.
 
+### `UnsafeMemory<T, Use>` — typed memory at a fixed address
+
+**Status: implemented (design 46).** `UnsafeMemory<T, Use>` is a compiler-known
+one-word wrapper over a fixed machine address: a typed view onto memory the
+program does not own, for register blocks and board bootstrap regions. It is
+const-initialized from an integer literal, `static`-able, and `Sync` by fiat
+(the `Atomic` precedent — sharing across tasks is sound; synchronizing the
+memory it names is the programmer's responsibility). The `Unsafe` prefix is the
+house rule for any type whose ordinary use can violate memory safety.
+
+The second parameter, `Use`, is an **intent marker** and is **explicit always —
+there is no default**. The compiler derives the access discipline from it; the
+platform derives its configuration obligations from it (cache attributes,
+PMP/page tables — the declaration is the coordination point, not a type-level
+promise). Two markers exist today:
+
+- **`Device`** — a memory-mapped register block. Accesses lower to **volatile**
+  loads/stores, so they are never reordered, merged, or elided. Only scalar
+  views may be accessed, through **`read()`** / **`write(v)`**; there is **no
+  whole-struct access** (multi-register access is never atomic, and reads can
+  have side effects). Within the viewed struct, the layout-transparent field
+  markers **`ReadOnly<T>`** and **`WriteOnly<T>`** gate the accessor projection
+  exposes — a `ReadOnly` field offers only `read()`, a `WriteOnly` field only
+  `write()`, a plain field both. **Volatile is not atomic** — it constrains the
+  compiler, not the memory system; ordering across accesses still needs fences.
+- **`Normal`** — bootstrap or DMA-visible RAM (the initial stack, an early
+  heap). Plain (non-volatile) loads/stores; whole-struct and element access are
+  allowed; and it carries the region accessors **`ptr() -> UnsafePointer<Int8>`**,
+  **`len() -> Int`** (region byte length), and **`end() -> UnsafePointer<Int8>`**
+  (one-past-the-end — a stack top or slab handoff).
+
+**Projection (both intents, one engine).** Member access on
+`UnsafeMemory<Struct, Use>` yields `UnsafeMemory<Field, Use>` at *base +
+compile-time offset*; it chains through nested structs and indexes through
+fixed-array fields. No memory is ever loaded to project — it is pure address
+arithmetic (an inbounds GEP through the natural-ABI layout, folded to a constant
+offset).
+
+**Layout guarantee.** The viewed struct uses **declaration-order, natural-ABI
+layout**. Reserved `_pad` fields are the interim idiom for holes; explicit
+`repr`/offset attributes are deferred until a device demands them.
+
+```saw
+struct UartRegs {
+    data:   UInt32,
+    status: ReadOnly<UInt32>,
+    ctrl:   UInt32,
+    intclr: WriteOnly<UInt32>,
+}
+
+static UART1:      UnsafeMemory<UartRegs, Device>       = UnsafeMemory(0x18003000)
+static BOOT_STACK: UnsafeMemory<[UInt8; 16384], Normal> = UnsafeMemory(0x3FC7C000)
+static EARLY_HEAP: UnsafeMemory<[UInt8; 65536], Normal> = UnsafeMemory(0x3FC80000)
+
+let tx_full: UInt32 = 32
+while (UART1.status.read() & tx_full) != 0 { }  // volatile poll of a RO register
+UART1.data.write(byte)                          // volatile write to a RW register
+let sp = BOOT_STACK.end()                        // stack top for early boot
+slab_init(EARLY_HEAP.ptr(), EARLY_HEAP.len())    // hand the region to a slab
+```
+
+Fabricating an address is in the same trust bucket as the `UnsafePointer` family
+(unsafe blocks remain deferred; the naming convention is the marker).
+
 ### Allocators (`Allocator` trait, `Global`, public `A` parameter)
 
 **Status: implemented — public type parameter, `Global` default.** Alloc-layer
