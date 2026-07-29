@@ -580,6 +580,18 @@ class _FrameBuilder:
         return out
 
     def _lower_one(self, s):
+        # A `__suspend()` reached HERE is nested inside control flow (an if/while/
+        # match body) rather than at the function's top level. The state split is
+        # over top-level statements only, so a nested suspension would silently
+        # become a no-op (it would not actually suspend). Reject it honestly
+        # rather than miscompile -- a suspension spanning a loop/branch needs a
+        # CFG-based split (a later item; not built here).
+        if _is_suspend_stmt(s):
+            raise CoroTransformError(
+                f"coroutine transform: a suspension inside nested control flow "
+                f"(loop/if/match) in `{self.name}` is not supported; the state "
+                f"split is over top-level statements only",
+                getattr(s, 'line', self.func.line), getattr(s, 'column', 0))
         if isinstance(s, ReturnStatement):
             forgets = []
             value = (self._rewrite_expr(s.value, forgets)
@@ -604,8 +616,13 @@ class _FrameBuilder:
             s.value = self._rewrite_expr(s.value, forgets)
             return [s] + self._forgets(forgets)
 
-        if isinstance(s, ExpressionStatement):
-            e = s.expression
+        # A control-flow expression may appear as a bare statement (a user
+        # `while`/`if`/`match`) or wrapped in an ExpressionStatement (driver-
+        # generated). Handle both; lower nested blocks so a nested `return`,
+        # `move`+`__forget`, or nested-suspension diagnostic reaches them.
+        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        if isinstance(ctrl, (IfExpr, WhileExpr, MatchExpr)):
+            e = ctrl
             if isinstance(e, IfExpr):
                 forgets = []
                 e.condition = self._rewrite_expr(e.condition, forgets)
@@ -638,11 +655,9 @@ class _FrameBuilder:
                                 f"`{self.name}` is not supported; use a block arm",
                                 self.func.line, self.func.column)
                 return [s] + self._forgets(forgets)
-            forgets = []
-            s.expression = self._rewrite_expr(e, forgets)
-            return [s] + self._forgets(forgets)
 
-        # Fallback: generic rewrite (break/continue values, etc.).
+        # Fallback: a plain expression statement (`foo()`), a break/continue with
+        # a value, etc. — rewrite in place, hosting any drop-flag clears after.
         forgets = []
         ns = self._rewrite_expr(s, forgets)
         return [ns] + self._forgets(forgets)
