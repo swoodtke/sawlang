@@ -1,0 +1,18 @@
+// Design 40 item 5 (L10): the Optional Some auto-wrap path has the same hole.
+// An owned ImplicitCopy String returned where `String?` is expected must be
+// retained into the Some payload.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// optional payload 4 with padding wwwwwwwwwwwwwwww
+// GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+func makeOpt(n: Int) -> String? {
+    let s = "optional payload {n} with padding wwwwwwwwwwwwwwww"
+    s
+}
+
+func main() {
+    let r = makeOpt(4)!
+    let filler = "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"
+    print(r)
+    print(filler)
+}

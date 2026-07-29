@@ -464,8 +464,16 @@ class ResultsMixin:
 
         This is inserted by the typechecker when a value of type T
         is returned from a function with return type Result<T, E>.
+
+        Design 40 item 5 (L10): the inner value escapes into the Ok payload —
+        this is a transfer site. Generate it through _gen_transfer_value so an
+        owned ImplicitCopy value (`return s` where `s: String`) is retained
+        exactly as a direct return would retain it. Without the retain, scope
+        cleanup releases the local and frees the buffer the payload still points
+        at (premature free). `return move s` still works: the MoveExpr inside is
+        not retained and the local is marked moved so cleanup skips it.
         """
-        value = self._generate_expression(expr.value)
+        value = self._gen_transfer_value(expr.value)
         return self._create_result_ok_for_return(value)
 
     def visit_ResultErrWrap(self, expr: ResultErrWrap):
@@ -473,8 +481,11 @@ class ResultsMixin:
 
         This is inserted by the typechecker when a value of type E
         is returned from a function with return type Result<T, E>.
+
+        The Err payload is a transfer site too (design 40 item 5): retain an
+        owned ImplicitCopy error value so scope cleanup does not free it early.
         """
-        value = self._generate_expression(expr.value)
+        value = self._gen_transfer_value(expr.value)
         return self._create_result_err_for_return(value)
 
     def _get_result_enum_name(self, result_type: SawType) -> str:

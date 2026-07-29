@@ -50,8 +50,13 @@ class OptionalsMixin:
 
         This is inserted by the typechecker when a value of type T
         is used where T? is expected.
+
+        Design 40 item 5 (L10): the value escapes into the Some payload — a
+        transfer site. Generate it through _gen_transfer_value so an owned
+        ImplicitCopy value auto-wrapped into `Some(...)` is retained, closing
+        the same premature-free hole the Result Ok/Err auto-wrap had.
         """
-        value = self._generate_expression(expr.value)
+        value = self._gen_transfer_value(expr.value)
         return self._wrap_in_optional(value)
 
     def _is_optional_type(self, llvm_type) -> bool:

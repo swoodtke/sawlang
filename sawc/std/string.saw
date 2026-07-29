@@ -547,10 +547,11 @@ extension String {
                 // released at scope exit.
                 return Utf8Error(offset: off)
             }
-            // `move` is REQUIRED, not decorative: an implicit ImplicitCopy return
-            // that auto-wraps into `Ok(...)` currently frees the owned buffer at
-            // scope exit while the Ok payload still points at it (use-after-free).
-            // The explicit move consumes `candidate`, suppressing that release.
+            // `move` transfers ownership of the owned String into the Ok
+            // payload. As of design 40 item 5 the plain `return candidate` also
+            // works (auto-wrap retains the ImplicitCopy value at the wrap site);
+            // the explicit move is kept as the clearest intent — it consumes
+            // `candidate` outright rather than retain-then-release.
             return move candidate           // valid: move the owned String out
         }
         // Allocation failed. The alloc-layer convention (Vector.init(capacity:),

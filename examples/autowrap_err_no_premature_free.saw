@@ -1,0 +1,25 @@
+// Design 40 item 5 (L10): the Err auto-wrap path has the same premature-free
+// hole. An owned ImplicitCopy String returned as the error must be retained
+// into the Err payload. The filler strings would reuse a prematurely-freed
+// buffer, corrupting `e`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// negative input -3 not allowed here padding zzzzzz
+func makeErr(n: Int) -> Result<Int, String> {
+    if n < 0 {
+        let msg = "negative input {n} not allowed here padding zzzzzz"
+        return msg
+    }
+    return n
+}
+
+func main() {
+    match makeErr(-3) {
+        case Ok(v) -> print(v),
+        case Err(e) -> {
+            let filler1 = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+            let filler2 = "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+            print(e)
+        }
+    }
+}

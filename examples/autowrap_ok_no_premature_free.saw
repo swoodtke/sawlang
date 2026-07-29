@@ -1,0 +1,25 @@
+// Design 40 item 5 (L10): a function whose implicit tail expression is an owned
+// ImplicitCopy value (a heap String) auto-wrapped into Ok. The value escapes
+// into the Ok payload, so the wrap is a transfer site and must retain it.
+// Before the fix, scope cleanup released the local and freed the buffer while
+// the payload still pointed at it (premature free): `r` printed as garbage once
+// the filler strings reused the freed slot. Now it retains, so `r` is intact.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// payload number 7 with padding aaaaaaaaaaaaaaaaaaaa
+// BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+struct MyErr {
+    code: Int
+}
+
+func makeWrapped(n: Int) -> Result<String, MyErr> {
+    let s = "payload number {n} with padding aaaaaaaaaaaaaaaaaaaa"
+    s
+}
+
+func main() {
+    let r = try! makeWrapped(7)
+    let filler = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    print(r)
+    print(filler)
+}
