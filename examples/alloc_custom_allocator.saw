@@ -1,0 +1,41 @@
+// Custom allocator through the public type parameter (design 37 item 4).
+// `LoudAlloc` is a zero-field unit struct conforming to the stdlib `Allocator`
+// trait; it forwards to `Global` but PRINTS on each alloc/dealloc, so dispatch
+// is observable without any mutable state. A `Vector<Int, LoudAlloc>` routes
+// its grow (alloc) and deinit (dealloc) through LoudAlloc, while a plain
+// `Vector<Int>` (= `Vector<Int, Global>`) allocates through the silent Global —
+// proving deinit routes to the ELEMENT's own allocator, not a fixed one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// alloc 32
+// 1
+// dealloc 32
+
+struct LoudAlloc {}
+extension LoudAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+        print("alloc {size}")
+        Global().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+        print("dealloc {size}")
+        Global().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    // Global-backed vector: alloc/dealloc are silent.
+    var g = Vector<Int>()
+    g.push(1)          // grow through Global — no print
+    g.push(2)
+    print(g.len())     // 2
+
+    // LoudAlloc-backed vector: grow prints, deinit prints.
+    var v = Vector<Int, LoudAlloc>()
+    v.push(10)         // grow (cap 0 -> 4): "alloc 32"
+    print(v.len())     // 1
+
+    // Scope end (LIFO): v deinits first -> "dealloc 32" (LoudAlloc); then g
+    // deinits silently through Global. Deinit routed to each vector's own A.
+}
