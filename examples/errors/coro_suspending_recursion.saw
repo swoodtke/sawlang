@@ -1,0 +1,15 @@
+// design 44 item 3: suspending recursion is a compile error. The flat-frame
+// model embeds callee frames BY VALUE, so a cycle in the suspending-call graph
+// has no compile-time frame size. The diagnostic names the cycle.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: suspending recursion is not allowed
+// EXPECT-ERROR-CONTAINS: loop -> loop
+
+func loop(n: Int) -> Int {
+    __suspend()
+    loop(n + 1)
+}
+
+func main() {
+    print(__drive(loop(0)))
+}

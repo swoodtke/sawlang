@@ -144,6 +144,83 @@ def _rewrite_node(node, encmap):
 
 
 # --------------------------------------------------------------------------- #
+# nesting / recursion analysis over the design-22 suspend graph
+# --------------------------------------------------------------------------- #
+
+def _node_display(key, nodes):
+    n = nodes.get(key)
+    if n is not None:
+        return n.short.strip("`")
+    if isinstance(key, tuple) and len(key) == 2:
+        return key[1]
+    return str(key)
+
+
+def _find_suspending_cycle(start_key, nodes):
+    """DFS the suspending-call graph from `start_key`; return the first cycle as a
+    list of node keys (the repeated key closing it), or None. Only edges to
+    nodes that themselves suspend are followed — a cycle here is *suspending*
+    recursion, which the flat-frame (embed-by-value) model cannot size."""
+    on_path = []
+    on_set = set()
+    visited = set()
+
+    def dfs(key):
+        if key in on_set:
+            return on_path[on_path.index(key):] + [key]
+        if key in visited:
+            return None
+        visited.add(key)
+        node = nodes.get(key)
+        if node is None:
+            return None
+        on_path.append(key)
+        on_set.add(key)
+        for e in node.edges:
+            t = nodes.get(e.target)
+            if t is None or not t.suspends:
+                continue
+            cyc = dfs(e.target)
+            if cyc is not None:
+                return cyc
+        on_path.pop()
+        on_set.discard(key)
+        return None
+
+    return dfs(start_key)
+
+
+def _analyze_nesting(root_name, root_func, nodes):
+    """Guard the two nesting cases the v1 transform must not miscompile:
+      * suspending RECURSION -> a compile error naming the cycle (the flat-frame
+        model embeds callee frames by value, so a cycle has no finite size);
+      * any other nested SUSPENDING call -> rejected as not-yet-implemented,
+        rather than silently running the callee eagerly (its __suspend would
+        no-op). Non-suspending callees are fine and left untouched."""
+    start = ("fn", root_name)
+    cyc = _find_suspending_cycle(start, nodes)
+    if cyc is not None:
+        chain = " -> ".join(_node_display(k, nodes) for k in cyc)
+        raise CoroTransformError(
+            f"suspending recursion is not allowed: the suspending-call cycle "
+            f"`{chain}` has no compile-time frame size (design 44 embeds callee "
+            f"frames by value). Break the cycle or drive the inner call "
+            f"separately.", root_func.line, root_func.column)
+    node = nodes.get(start)
+    if node is not None:
+        for e in node.edges:
+            t = nodes.get(e.target)
+            if t is not None and t.suspends:
+                callee = _node_display(e.target, nodes)
+                raise CoroTransformError(
+                    f"coroutine transform (v1): driven `{root_name}` makes a "
+                    f"nested suspending call to `{callee}` (line {e.line}); "
+                    f"embedding callee frames by value is a later item of "
+                    f"design 44. Drive the inner call separately for now.",
+                    root_func.line, root_func.column)
+
+
+# --------------------------------------------------------------------------- #
 # per-function transform
 # --------------------------------------------------------------------------- #
 
@@ -420,6 +497,7 @@ def transform_program(program, typechecker):
             raise CoroTransformError(
                 f"coroutine transform (v1): driving generic function "
                 f"`{root_name}` is not supported yet", func.line, func.column)
+        _analyze_nesting(root_name, func, getattr(typechecker, "_suspend_nodes", {}))
         fb = _FrameBuilder(func)
         frame_struct, resume_ext, params, frame_locals = fb.build()
         new_structs.append(frame_struct)
