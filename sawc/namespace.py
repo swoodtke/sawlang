@@ -730,6 +730,15 @@ class Namespace:
             return True
         if kind == TypeKind.TUPLE:
             return all(self.is_equatable(e) for e in (saw_type.element_types or []))
+        if kind == TypeKind.OPTIONAL:
+            # Design 40 item 4 (L9): `T?` is Equatable iff `T` is — None==None
+            # true, None vs Some false, payload-deep otherwise.
+            return saw_type.inner_type is not None and self.is_equatable(saw_type.inner_type)
+        if kind == TypeKind.ARRAY:
+            # Design 40 item 4 (L9): `[T; N]` is Equatable iff its element type
+            # is — compared element by element.
+            return (saw_type.array_element_type is not None
+                    and self.is_equatable(saw_type.array_element_type))
         if kind == TypeKind.STRUCT:
             name = saw_type.struct_name
             alias_sym = self._lookup_type_alias_deep(name)

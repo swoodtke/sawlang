@@ -1,0 +1,30 @@
+// Design 40 item 4 (L9): a struct with a `String?` field (String is not POD, so
+// it opts in with `extension T: Equatable {}`). Synthesized memberwise `==`
+// routes the field through Optional equality, whose payload-deep compare must
+// dereference the String contents ONLY when both sides are Some — a None slot's
+// payload is never touched.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+struct Named {
+    id: Int
+    tag: String?
+}
+
+extension Named: Equatable {}
+
+func main() {
+    let a = Named(id: 1, tag: "hi")
+    let b = Named(id: 1, tag: "hi")
+    let c = Named(id: 1, tag: "bye")
+    let n1 = Named(id: 1, tag: None)
+    let n2 = Named(id: 1, tag: None)
+
+    if a == b { print(1) }     // Some("hi") == Some("hi"), content-deep
+    if a != c { print(2) }     // Some("hi") != Some("bye")
+    if n1 == n2 { print(3) }   // None == None, no deref
+    if a != n1 { print(4) }    // Some vs None, no deref
+}

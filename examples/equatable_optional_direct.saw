@@ -1,0 +1,17 @@
+// Design 40 item 4 (L9): `==` directly over two Optional values (not through a
+// struct field) is now allowed and lowers None/Some-aware.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+func main() {
+    let a: Int? = 5
+    let b: Int? = 5
+    let c: Int? = None
+    let d: Int? = None
+
+    if a == b { print(1) }     // Some(5) == Some(5)
+    if a != c { print(2) }     // Some vs None
+    if c == d { print(3) }     // None == None
+}

@@ -315,6 +315,10 @@ class OperatorsMixin:
                 return self._emit_string_equals(left, right)
             if k == TypeKind.TUPLE:
                 return self._emit_tuple_equals(left, right, st)
+            if k == TypeKind.OPTIONAL:
+                return self._emit_optional_equals(left, right, st)
+            if k == TypeKind.ARRAY:
+                return self._emit_array_equals(left, right, st)
             if k == TypeKind.STRUCT and not isinstance(lt, ir.IntType):
                 return self._emit_struct_equals(left, right, st)
             if k == TypeKind.ENUM and isinstance(lt, ir.LiteralStructType):
@@ -388,6 +392,53 @@ class OperatorsMixin:
             rf = self.builder.extract_value(right, i, name=f"r_{fname}")
             cmp = self._emit_equals(lf, rf, ftype)
             result = self.builder.and_(result, cmp, name="mem_and")
+        return result
+
+    def _emit_optional_equals(self, left, right, saw_type):
+        """Optional `==` (design 40 item 4): None==None true, None vs Some
+        false, payload-deep otherwise. Represented as `{ i1 is_some, T }`. The
+        payload is compared only when both sides are Some, so a None slot's
+        undefined payload is never touched (matters for String/struct inners
+        whose comparison dereferences)."""
+        i1 = ir.IntType(1)
+        l_some = self.builder.extract_value(left, 0, name="l_some")
+        r_some = self.builder.extract_value(right, 0, name="r_some")
+        flags_eq = self.builder.icmp_unsigned('==', l_some, r_some, name="opt_flags_eq")
+        both_some = self.builder.and_(l_some, r_some, name="opt_both_some")
+
+        func = self.builder.function
+        entry_bb = self.builder.block
+        payload_bb = func.append_basic_block("opt_eq_payload")
+        merge_bb = func.append_basic_block("opt_eq_merge")
+        # Both Some -> compare payloads; else the flag equality is the answer
+        # (both None -> true, one None -> false).
+        self.builder.cbranch(both_some, payload_bb, merge_bb)
+
+        self.builder.position_at_end(payload_bb)
+        l_val = self.builder.extract_value(left, 1, name="l_val")
+        r_val = self.builder.extract_value(right, 1, name="r_val")
+        payload_eq = self._emit_equals(l_val, r_val, saw_type.inner_type)
+        # _emit_equals may have appended blocks; branch from wherever it landed.
+        payload_end_bb = self.builder.block
+        self.builder.branch(merge_bb)
+
+        self.builder.position_at_end(merge_bb)
+        phi = self.builder.phi(i1, name="opt_eq")
+        phi.add_incoming(flags_eq, entry_bb)
+        phi.add_incoming(payload_eq, payload_end_bb)
+        return phi
+
+    def _emit_array_equals(self, left, right, saw_type):
+        """Fixed-array `==` (design 40 item 4): the conjunction of element-wise
+        `==` over all `N` slots (`[T; N]`, fully initialized)."""
+        elem_type = saw_type.array_element_type
+        n = saw_type.array_size or 0
+        result = ir.Constant(ir.IntType(1), 1)
+        for i in range(n):
+            le = self.builder.extract_value(left, i, name=f"l_a{i}")
+            re = self.builder.extract_value(right, i, name=f"r_a{i}")
+            cmp = self._emit_equals(le, re, elem_type)
+            result = self.builder.and_(result, cmp, name="arr_and")
         return result
 
     def _emit_enum_deep_equals(self, left, right, saw_type):
