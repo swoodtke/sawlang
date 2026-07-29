@@ -72,6 +72,7 @@ class GenericsMixin:
         saved_variables = self.variables.copy()
         saved_variable_types = self.variable_types.copy()
         saved_cleanup_stack = self.cleanup_stack[:]
+        saved_drop_flags = self.drop_flags
         old_context = self.type_param_context.copy()
 
         # Build type parameter mapping
@@ -110,6 +111,7 @@ class GenericsMixin:
             self.variables = saved_variables
             self.variable_types = saved_variable_types
             self.cleanup_stack = saved_cleanup_stack
+            self.drop_flags = saved_drop_flags
 
         return mangled_name
 
@@ -593,8 +595,14 @@ class GenericsMixin:
         block = llvm_func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
 
-        # Clear variables for this method
+        # Clear variables for this method. Isolate the cleanup state too:
+        # drop-flag allocas (design 42) belong to THIS llvm function and must not
+        # leak into another; save/restore so the caller's scopes are untouched.
         self.variables = {}
+        saved_cleanup_stack = self.cleanup_stack
+        saved_drop_flags = self.drop_flags
+        self.cleanup_stack = []
+        self.drop_flags = {}
 
         # Set type param context for method body
         old_context = self.type_param_context
@@ -610,39 +618,58 @@ class GenericsMixin:
         old_return_type = self.current_return_type
         self.current_return_type = substituted_return
 
+        # Param cleanup scope — STATIC factories only (design 42). A static
+        # factory like `Box<T, A>.make_or` owns its value params and, on a path
+        # that does NOT move one out, must drop it rather than leak it (the
+        # failure path). Instance methods are deliberately EXCLUDED: they transfer
+        # owned params via placement-store / construction that is not an explicit
+        # `move` (e.g. `Vector.push`'s `buf[i] = value`), which a drop flag cannot
+        # observe — cleaning those params here would double-free. Instance-method
+        # param ownership stays the caller's concern (its original path, unchanged).
+        register_params = method.is_static
+        if register_params:
+            self.cleanup_stack.append([])
+
         # Create allocas for parameters (including self)
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
-            if i == 0 and param.name == "self" and method.self_mutable:
+            is_self = (i == 0 and param.name == "self")
+            if is_self and method.self_mutable:
                 self.variables[param.name] = llvm_func.args[i]
+                continue
+            if is_self:
+                param_type = self._mono_self_llvm_type(struct_name)
+                substituted = None
             else:
-                if i == 0 and param.name == "self":
-                    param_type = self._mono_self_llvm_type(struct_name)
-                else:
-                    substituted = self._substitute_saw_type(param.type, type_mapping)
-                    param_type = self._get_llvm_type(substituted)
-                alloca = self._entry_alloca(param_type, name=param.name)
-                self.builder.store(llvm_func.args[i], alloca)
-                self.variables[param.name] = alloca
+                substituted = self._substitute_saw_type(param.type, type_mapping)
+                param_type = self._get_llvm_type(substituted)
+            alloca = self._entry_alloca(param_type, name=param.name)
+            self.builder.store(llvm_func.args[i], alloca)
+            self.variables[param.name] = alloca
+            if register_params and substituted is not None and self._needs_cleanup(substituted):
+                self._register_cleanup(param.name, substituted)
 
         # Generate method body
         result = self._generate_block(method.body)
 
-        # Handle return
-        if substituted_return.kind == TypeKind.VOID:
-            if not self.builder.block.is_terminated:
+        # Handle return — for a static factory, clean the param scope on the
+        # fall-through path (explicit `return`s inside already ran cleanup).
+        if not self.builder.block.is_terminated:
+            if register_params:
+                self._cleanup_all_scopes()
+            if substituted_return.kind == TypeKind.VOID:
                 self.builder.ret_void()
-        else:
-            if not self.builder.block.is_terminated:
-                if result is not None:
-                    self.builder.ret(result)
-                else:
-                    return_type = self._get_llvm_type(substituted_return)
-                    self.builder.ret(ir.Constant(return_type, ir.Undefined))
+            elif result is not None:
+                self.builder.ret(result)
+            else:
+                return_type = self._get_llvm_type(substituted_return)
+                self.builder.ret(ir.Constant(return_type, ir.Undefined))
 
         # Restore context
         self.current_return_type = old_return_type
         self.type_param_context = old_context
+        self.cleanup_stack = saved_cleanup_stack
+        self.drop_flags = saved_drop_flags
 
     def _generate_init_method_generic(self, struct_name: str, method: Method, type_mapping: dict[str, SawType]):
         """Generate code for an init method with type substitution."""

@@ -164,6 +164,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.type_field_cleanup: dict[str, bool] = {}
         # Track moved variables - these should not be cleaned up or accessed
         self.moved_variables: set[str] = set()
+        # Runtime drop flags (design 42): name -> i1 alloca (1 = still needs drop).
+        # A binding that MIGHT be `move`d on some control-flow paths but not others
+        # (a conditional move) cannot have its cleanup decided statically — the
+        # flat `moved_variables` set would suppress the drop on the not-moved path
+        # too, leaking. So a cleanup-registered binding gets a flag, set to 0 at
+        # each `move`, and its scope-exit deinit is guarded by the flag: dropped
+        # exactly on the paths where it was not moved. Function-local — the alloca
+        # belongs to the current llvm function, so this is reset per function and
+        # saved/restored around nested (closure/generic) codegen, like `variables`.
+        self.drop_flags: dict[str, ir.Value] = {}
 
         # Statement-scoped temporaries (item 4): owned Deinit-needing values
         # produced mid-statement that are neither bound, returned, nor
@@ -754,9 +764,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         else:
             gv.initializer = self._const_from_expr(static.initializer, static.type)
 
-        # Interior-mutable statics (Atomic) must stay writable; pure POD statics
-        # are constant and rodata-eligible.
-        gv.global_constant = not self._type_has_interior_mutability(static.type)
+        # Constant (rodata-eligible) ONLY when the storage is genuinely never
+        # written: an interior-mutable static (Atomic cell) is written in place;
+        # and a BARE-DECLARED zero-init static is scratch storage a slab (or other
+        # raw-pointer-mediated region — design 42) writes through `&STATIC as
+        # UnsafePointer<...>`, so it must be a writable `.bss` global, not rodata.
+        # Source-level immutability still holds either way — the typechecker
+        # rejects `STATIC = ...` / `&var STATIC` regardless of this flag. An
+        # INITIALIZED POD static is a true immutable constant (rodata).
+        gv.global_constant = (
+            static.initializer is not None
+            and not self._type_has_interior_mutability(static.type))
 
         self.static_globals[static.name] = gv
 

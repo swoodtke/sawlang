@@ -531,6 +531,20 @@ class ResourcesMixin:
         value = self._generate_expression(value_expr)
         if self._transfer_needs_copy(value_expr):
             value = self._generate_copy(value, self._expr_type(value_expr))
+        elif isinstance(value_expr, Identifier):
+            # No copy/retain was needed, yet the value is being transferred into a
+            # NEW home — for a named owned (ExplicitCopy/NoCopy) binding that means
+            # its ownership is MOVING out (e.g. a tail-return `result` or
+            # `return v` written without an explicit `move`, which the language
+            # permits). The source must therefore NOT be dropped at scope exit:
+            # clear its drop flag (design 42) and mark it moved for the unflagged
+            # fallback path. An ImplicitCopy source took the `needs_copy` branch
+            # above (retain — the source stays live), so it never reaches here.
+            name = value_expr.name
+            flag = self.drop_flags.get(name)
+            if flag is not None:
+                self.builder.store(ir.Constant(ir.IntType(1), 0), flag)
+            self.moved_variables.add(name)
         return value
 
     def _transfer_needs_copy(self, value_expr) -> bool:
@@ -580,19 +594,55 @@ class ResourcesMixin:
         # Fresh construction (struct init, enum init, literals) doesn't need copy
         return False
 
+    def _register_cleanup(self, var_name: str, saw_type: SawType):
+        """Register a MOVABLE binding (let, param, if-let/guard binding) for
+        scope-exit cleanup, with a runtime drop flag (design 42).
+
+        The flag (i1, initialized 1 = needs-drop) is set to 0 by `move` so that a
+        binding moved on only some paths is dropped exactly on the paths where it
+        was not — the conditional-move correctness the flat `moved_variables` set
+        cannot express. The flag is initialized at the CURRENT (declaration) point
+        so a binding re-declared each loop iteration resets to needs-drop.
+        """
+        if not self.cleanup_stack:
+            return
+        self.cleanup_stack[-1].append((var_name, saw_type))
+        flag = self._entry_alloca(ir.IntType(1), name=f"{var_name}.dropflag")
+        self.builder.store(ir.Constant(ir.IntType(1), 1), flag)
+        self.drop_flags[var_name] = flag
+
     def _cleanup_scope(self, scope_vars: List[tuple[str, SawType]]):
         """Generate cleanup code for all variables in a scope.
 
         Variables are cleaned up in reverse declaration order to ensure
-        proper destruction semantics (LIFO). Moved variables are skipped
-        since their ownership has been transferred.
+        proper destruction semantics (LIFO). A binding with a runtime drop flag
+        (registered via `_register_cleanup`) is dropped only if its flag is still
+        set — correct under conditional moves. A binding without a flag (e.g. a
+        statement-scoped temporary, never a `move` target) uses the static
+        `moved_variables` skip.
         """
         for var_name, saw_type in reversed(scope_vars):
-            # Skip moved variables - ownership has been transferred
+            if var_name not in self.variables:
+                continue
+            flag = self.drop_flags.get(var_name)
+            if flag is not None:
+                # Guard the drop on the runtime flag: `if flag { deinit }`.
+                needs = self.builder.load(flag, name=f"{var_name}.needsdrop")
+                drop_bb = self.builder.function.append_basic_block(
+                    name=f"drop.{var_name}")
+                cont_bb = self.builder.function.append_basic_block(
+                    name=f"drop.{var_name}.cont")
+                self.builder.cbranch(needs, drop_bb, cont_bb)
+                self.builder.position_at_start(drop_bb)
+                self._generate_deinit_call(var_name, saw_type)
+                if not self.builder.block.is_terminated:
+                    self.builder.branch(cont_bb)
+                self.builder.position_at_start(cont_bb)
+                continue
+            # No drop flag: fall back to the static moved-variable skip.
             if var_name in self.moved_variables:
                 continue
-            if var_name in self.variables:
-                self._generate_deinit_call(var_name, saw_type)
+            self._generate_deinit_call(var_name, saw_type)
 
     def _cleanup_all_scopes(self):
         """Generate cleanup code for all scopes (for early return).

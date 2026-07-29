@@ -375,6 +375,20 @@ class ExpressionsMixin:
             return to_type
         if from_type.kind == TypeKind.POINTER and to_type.kind == TypeKind.POINTER:
             return to_type
+        # Reference -> raw pointer (design 42, slab regions): a `&T` immutable lend
+        # (notably `&STATIC_ARRAY`) reinterpreted as an `UnsafePointer<...>` to the
+        # referent's storage. Both are addresses at the LLVM level; the cast is the
+        # explicit, unsafe bridge that lets a static region feed a slab allocator.
+        if from_type.kind == TypeKind.REFERENCE and to_type.kind == TypeKind.POINTER:
+            return to_type
+        # Pointer <-> Int address round-trip (design 42, slab free-list): a slab
+        # threads freed-chunk ADDRESSES through an `Atomic<Int>`, so it must turn a
+        # raw pointer into its integer address (`ptr as Int`) and back
+        # (`addr as UnsafePointer<Int8>`). Standard unsafe ptrtoint/inttoptr.
+        if from_type.kind == TypeKind.POINTER and to_type.kind in int_kinds:
+            return to_type
+        if from_type.kind in int_kinds and to_type.kind == TypeKind.POINTER:
+            return to_type
         if from_type.kind == TypeKind.STRING and to_type.kind == TypeKind.POINTER:
             if to_type.inner_type and to_type.inner_type.kind == TypeKind.INT8:
                 return to_type
@@ -1960,14 +1974,16 @@ class ExpressionsMixin:
         )
         return True, None
 
-    def _resolve_arc_forward(self, expr: MethodCall, payload_type: Optional[SawType]):
-        """Resolve an `Arc<T>` payload-method forward (design 21b E2).
+    def _resolve_arc_forward(self, expr: MethodCall, payload_type: Optional[SawType],
+                             through: str = "Arc"):
+        """Resolve a wrapper payload-method forward (design 21b E2 for Arc,
+        design 42 item 1 for Box — `through` names the wrapper for diagnostics).
 
         Returns `(payload_method_info, payload_type_subst)` if `expr.method_name`
         is an immutable `&self` method on the payload struct `T`; the string
         `"rejected"` if it is a `&var self` method (reported here as an error);
         or `None` if there is no such method (the caller then falls through to
-        the ordinary "no method on Arc" diagnostic).
+        the ordinary "no method on the wrapper" diagnostic).
         """
         if payload_type is None or payload_type.kind != TypeKind.STRUCT:
             return None
@@ -1980,7 +1996,7 @@ class ExpressionsMixin:
         if getattr(m, "self_mutable", False):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
-                f"cannot call `&var self` method `{expr.method_name}` through `Arc` "
+                f"cannot call `&var self` method `{expr.method_name}` through `{through}` "
                 f"— aliased mutation of a shared value is not allowed",
                 expr.line, expr.column,
                 hint="wrap the payload in a `Mutex` and mutate it inside `lock`"
@@ -2288,6 +2304,17 @@ class ExpressionsMixin:
             if fwd is not None:
                 method_info, type_subst = fwd
                 expr.arc_forward_payload_type = obj_type.type_args[0]
+        # Box payload forwarding (design 42 item 1): same mechanism as Arc — an
+        # immutable `&self` payload method is callable through the Box, borrowing
+        # the heap `T` at `ptr[0]`; a `&var self` payload method is REJECTED. The
+        # payload is the FIRST type arg (`Box<T, A>`); `A` is the allocator.
+        if method_info is None and struct_name == "Box" and obj_type.type_args:
+            fwd = self._resolve_arc_forward(expr, obj_type.type_args[0], through="Box")
+            if fwd == "rejected":
+                return None
+            if fwd is not None:
+                method_info, type_subst = fwd
+                expr.box_forward_payload_type = obj_type.type_args[0]
         if method_info is None:
             # A call through a function-typed struct field: `obj.field(args)`
             # where `field: (…) -> …` (design 24 item 3). Treated as an indirect
@@ -2591,9 +2618,24 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return method_info.return_type
+        # Build the struct type-param -> concrete-arg map from the receiver's
+        # explicit type args (default-filled, design 37), so a static factory
+        # whose PARAMETERS mention the struct's type params — `Box<Int>.make(v: T)`
+        # — checks `v` against the concrete `Int`, not the abstract `T`. Vector's
+        # `try_with_capacity(n: Int)` has no such param and is unaffected.
+        obj_type_args = getattr(expr.object, 'type_args', None)
+        struct_type_params = getattr(struct_info, 'type_params', None)
+        type_map = {}
+        if obj_type_args and struct_type_params:
+            resolved_args = [self._resolve_type(ta) for ta in obj_type_args]
+            resolved_args = self._append_default_type_args(struct_name, resolved_args)
+            for tp, ta in zip(struct_type_params, resolved_args):
+                type_map[tp.name] = ta
         for i, arg in enumerate(expr.arguments):
             arg_type = self._check_expression(arg.value)
             expected_type = method_info.param_types[i]
+            if expected_type is not None and type_map:
+                expected_type = expected_type.substitute(type_map)
             if arg_type and not self._types_compatible(arg_type, expected_type):
                 param_name = method_info.param_names[i]
                 self._error(
@@ -2613,22 +2655,14 @@ class ExpressionsMixin:
         # return type keeps the generic `T`, and a `match` on the result can't
         # resolve its monomorphized enum. Positional map: the struct's type
         # params line up with the type args on the call's object.
+        # Substitute the same map into the return type so the caller sees the
+        # concrete instantiation (`Result<Vector<Int, Global>, AllocError>`,
+        # `Box<Int, Global>`) rather than the abstract `T`/`A` — needed so a
+        # `match` resolves its monomorphized enum and the extracted value finds
+        # its methods (design 37 default-fill already applied when building the map).
         ret = method_info.return_type
-        obj_type_args = getattr(expr.object, 'type_args', None)
-        struct_type_params = getattr(struct_info, 'type_params', None)
-        if ret is not None and obj_type_args and struct_type_params:
-            # Default-fill the receiver's type args first (design 37), so
-            # `Vector<Int>.try_with_capacity(...)` binds A=Global and the return
-            # type resolves to `Result<Vector<Int, Global>, AllocError>` rather
-            # than leaving the allocator parameter abstract (which would leave
-            # the extracted vector unable to find `push`).
-            resolved_args = [self._resolve_type(ta) for ta in obj_type_args]
-            resolved_args = self._append_default_type_args(struct_name, resolved_args)
-            type_map = {}
-            for tp, ta in zip(struct_type_params, resolved_args):
-                type_map[tp.name] = ta
-            if type_map:
-                ret = ret.substitute(type_map)
+        if ret is not None and type_map:
+            ret = ret.substitute(type_map)
         return ret
 
     def _check_self_expr(self, expr: SelfExpr) -> Optional[SawType]:

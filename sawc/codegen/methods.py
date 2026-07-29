@@ -66,6 +66,7 @@ class MethodsMixin:
         self.variables = {}
         self.variable_types = {}
         self.cleanup_stack = []
+        self.drop_flags = {}
 
         # Determine the Self type for this extension
         if struct_name == "String":
@@ -223,6 +224,7 @@ class MethodsMixin:
         self.variables = {}
         self.variable_types = {}
         self.cleanup_stack = []
+        self.drop_flags = {}
 
         # Set current return type for None literal generation
         old_return_type = self.current_return_type
@@ -266,10 +268,17 @@ class MethodsMixin:
         self.variables = {}
         self.variable_types = {}
         self.cleanup_stack = []
+        self.drop_flags = {}
 
         # Set current return type for None literal generation
         old_return_type = self.current_return_type
         self.current_return_type = method.return_type
+
+        # Push a param cleanup scope (mirrors `_generate_function`): an owned
+        # param a static factory does NOT move out on some path must be dropped
+        # there, not leaked — this is what makes `Box.make_or`'s failure path
+        # deinit the un-moved `value` cleanly (design 42).
+        self.cleanup_stack.append([])
 
         # Create allocas for parameters (no self for static methods)
         for i, param in enumerate(method.parameters):
@@ -278,12 +287,16 @@ class MethodsMixin:
             self.builder.store(llvm_func.args[i], alloca)
             self.variables[param.name] = alloca
             self.variable_types[param.name] = param.type
+            if self._needs_cleanup(param.type):
+                self._register_cleanup(param.name, param.type)
 
         # Generate method body
         result = self._generate_block(method.body)
 
-        # Handle return
+        # Handle return — clean the param scope on the fall-through path (explicit
+        # `return`s inside the body already ran `_cleanup_all_scopes`).
         if not self.builder.block.is_terminated:
+            self._cleanup_all_scopes()
             if method.return_type.kind == TypeKind.VOID:
                 self.builder.ret_void()
             elif result is not None:
@@ -307,6 +320,7 @@ class MethodsMixin:
         self.variables = {}
         self.variable_types = {}
         self.cleanup_stack = []
+        self.drop_flags = {}
 
         # Set current return type for None-literal generation and return-position
         # wrapping. Substitute against the active monomorphization context so that
@@ -327,9 +341,12 @@ class MethodsMixin:
             self.builder.store(llvm_func.args[i], alloca)
             self.variables[param.name] = alloca
             self.variable_types[param.name] = param.type
-            # Track parameter for cleanup if it needs it
+            # Track parameter for cleanup if it needs it. An owned param can be
+            # `move`d out on some paths but not others, so register it with a drop
+            # flag (design 42) — this is what makes MakeBoxOr's failure path drop
+            # the un-moved `value` cleanly instead of leaking it.
             if self._needs_cleanup(param.type):
-                self.cleanup_stack[-1].append((param.name, param.type))
+                self._register_cleanup(param.name, param.type)
 
         # Generate function body (block manages its own cleanup scope)
         result = self._generate_block(func.body)

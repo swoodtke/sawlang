@@ -617,8 +617,15 @@ class OperatorsMixin:
         # Load the value
         value = self.builder.load(self.variables[var_name], name=f"{var_name}_moved")
 
-        # Mark as moved - skip deinit and prevent further use
+        # Mark as moved - skip deinit and prevent further use.
         self.moved_variables.add(var_name)
+        # Clear the runtime drop flag (design 42): on a path that reaches this
+        # `move`, the binding's ownership has left, so its scope-exit deinit must
+        # NOT fire. A binding moved only here (a conditional move) still drops on
+        # the paths that skip this store, because the flag stays 1 there.
+        flag = self.drop_flags.get(var_name)
+        if flag is not None:
+            self.builder.store(ir.Constant(ir.IntType(1), 0), flag)
 
         return value
 
@@ -726,8 +733,15 @@ class OperatorsMixin:
                 # Same size - no conversion needed
                 return value
 
-        # Pointer to pointer conversion
+        # Pointer to pointer conversion (also covers reference -> pointer, since a
+        # `&T` reference lowers to an LLVM pointer value — design 42 slab regions).
         if isinstance(value.type, ir.PointerType) and isinstance(to_llvm, ir.PointerType):
             return self.builder.bitcast(value, to_llvm, name="ptrcast")
+
+        # Pointer <-> integer address round-trip (design 42 slab free-list).
+        if isinstance(value.type, ir.PointerType) and isinstance(to_llvm, ir.IntType):
+            return self.builder.ptrtoint(value, to_llvm, name="ptrtoint")
+        if isinstance(value.type, ir.IntType) and isinstance(to_llvm, ir.PointerType):
+            return self.builder.inttoptr(value, to_llvm, name="inttoptr")
 
         raise ValueError(f"Cannot cast from {value.type} to {to_llvm}")

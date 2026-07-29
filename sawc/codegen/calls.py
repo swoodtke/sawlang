@@ -311,6 +311,12 @@ class CallsMixin:
         if getattr(expr, 'arc_forward_payload_type', None) is not None:
             return self._generate_arc_forward_call(expr)
 
+        # Box payload-method forwarding (design 42 item 1): the typechecker
+        # resolved this as an immutable `&self` method on Box's payload; forward
+        # through a borrow of the heap payload at `ptr[0]`.
+        if getattr(expr, 'box_forward_payload_type', None) is not None:
+            return self._generate_box_forward_call(expr)
+
         # A call through a function-typed struct field (design 24 item 3): the
         # typechecker resolved `obj.field(args)` as an indirect closure call.
         if getattr(expr, 'is_field_call', False):
@@ -734,6 +740,32 @@ class CallsMixin:
         for arg in expr.arguments:
             args.append(self._gen_transfer_value(arg.value))
         return self.builder.call(method_func, args, name="arc_forward_call")
+
+    def _generate_box_forward_call(self, expr: MethodCall):
+        """Forward an immutable `&self` method call from a `Box<T, A>` to its
+        payload (design 42 item 1).
+
+        Box is `{ T* ptr }` — the field points straight at the heap `T` (no
+        control-block header, unlike Arc). Extract the pointer, load the payload
+        by value (an immutable borrow — the live Box owns and pins it), and call
+        the payload's monomorphized `&self` method.
+        """
+        payload_type = expr.box_forward_payload_type
+        box_val = self._generate_expression(expr.object)
+        # Box's single field is `ptr: UnsafePointer<T>` -> the payload pointer.
+        payload_ptr = self.builder.extract_value(box_val, 0, name="box_ptr")
+        # Make sure the payload type's methods are monomorphized and present.
+        if payload_type.kind == TypeKind.STRUCT and payload_type.type_args:
+            self._ensure_monomorphized_struct(payload_type.struct_name, payload_type.type_args)
+        self_val = self.builder.load(payload_ptr, name="box_payload")
+
+        mangled = self._mangle_method_name(
+            self._type_method_base(payload_type), expr.method_name)
+        method_func = self.functions[mangled]
+        args = [self_val]
+        for arg in expr.arguments:
+            args.append(self._gen_transfer_value(arg.value))
+        return self.builder.call(method_func, args, name="box_forward_call")
 
     def _generate_field_call(self, expr: MethodCall):
         """Lower a call through a function-typed struct field: `obj.field(args)`

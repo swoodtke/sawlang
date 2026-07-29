@@ -131,6 +131,7 @@ class ClosuresMixin:
         saved_variables = self.variables.copy()
         saved_variable_types = self.variable_types.copy()
         saved_cleanup_stack = self.cleanup_stack[:]
+        saved_drop_flags = self.drop_flags
 
         # Generate closure body
         entry = closure_fn.append_basic_block(name="entry")
@@ -138,6 +139,7 @@ class ClosuresMixin:
         self.variables = {}
         self.variable_types = {}
         self.cleanup_stack = []
+        self.drop_flags = {}
 
         # Set up environment access if there are captures
         if captures and env_struct_type:
@@ -209,6 +211,7 @@ class ClosuresMixin:
         self.variables = saved_variables
         self.variable_types = saved_variable_types
         self.cleanup_stack = saved_cleanup_stack
+        self.drop_flags = saved_drop_flags
 
         # Build the environment and copy captured values in. A NON-escaping
         # closure (a direct call argument, e.g. Mutex.lock's body) keeps its env

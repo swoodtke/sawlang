@@ -156,9 +156,11 @@ class StatementsMixin:
         # Track variable type for resource management
         if var_type:
             self.variable_types[stmt.name] = var_type
-            # Track for cleanup if type implements Deinit/ImplicitCopy/NoCopy
+            # Track for cleanup if type implements Deinit/ImplicitCopy/NoCopy.
+            # A `let`/`var` binding can be `move`d, so register it with a drop flag
+            # (design 42) for conditional-move correctness.
             if self.cleanup_stack and self._needs_cleanup(var_type):
-                self.cleanup_stack[-1].append((stmt.name, var_type))
+                self._register_cleanup(stmt.name, var_type)
 
     def _expr_type(self, expr) -> SawType:
         """Return the SawType of an expression from its typechecker annotation.
