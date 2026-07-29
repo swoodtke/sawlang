@@ -89,13 +89,27 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 - Async/await
 - Channels for message passing
 - `Send`/`Sync` traits for thread safety
-- Coroutine transform (design 44, in progress): a suspending function driven
-  by `__drive(f())`/`__drive_steps(f())` (test-only executor entry) is
-  rewritten source-level into a frame struct (params + across-suspend locals +
-  state + result slot) plus a `resume(&var self) -> __Poll` method, compiled by
-  the existing codegen/deinit machinery. Cleanup is normal-control-flow only
-  (no forced destroy); suspending recursion is a compile error. OFF by
-  construction for code that drives nothing. `__suspend()` marks a boundary.
+- Coroutine transform (design 44 + design 45 Part 0): a suspending function or
+  method driven by `__drive(f())`/`__drive_steps(f())`/`__drive(recv.m())`
+  (test-only entry) is rewritten source-level into a frame struct (params +
+  across-suspend locals + embedded callee sub-frames + `__state`/`__wake` +
+  result slot) plus a `resume(&var self) -> __Poll` method, compiled by the
+  existing codegen/deinit machinery. Cleanup is normal-control-flow only (no
+  forced destroy). Landed: conditional move across a suspend (frame drop flag +
+  `__forget` clear-without-drop, 0a); nested suspending calls embedded by value
+  and driven (0b); driving a suspending method with `&var self` across a suspend
+  (receiver held as a frame pointer, 0c). Suspending recursion, a suspension in
+  nested control flow (loop/if/match), and generic driven functions/methods are
+  compile errors. OFF by construction for code that drives nothing.
+- Cooperative executor (design 45, single-task slice): `yield_now()` and
+  `sleep(ms)` are the real cooperative suspension primitives (`__suspend()` stays
+  test-only). A suspending `main` (one that reaches `yield_now`/`sleep`) is
+  auto-wrapped in a single-threaded entry executor that drives its frame,
+  parking the thread per `sleep` wake (via the `saw_sleep_ms` seam). Multi-task
+  `spawn`/join/cancellation and a suspending `Channel.receive` are a later stage
+  (they need type-erased task handles). The design-21b `spawn`/`Task`/`Channel`
+  thread-per-task engine is separate and untouched — the two engines coexist,
+  not unified.
 
 ## Open Questions
 

@@ -1,5 +1,36 @@
 # Design Brief 45 — Async stage 2b: cooperative executor, suspending primitives, cancellation
 
+**Status (Jul 29): Part 0 LANDED in full; runtime PARTIAL.**
+- Part 0a (conditional move of a frame local across a suspend), 0b (nested
+  suspending calls, callee frame embedded by value + driven), and 0c (driving a
+  suspending method, `&var self` across a suspend) all landed with matrix tests;
+  all three of design 44's clean boundaries are lifted. Suspension in nested
+  control flow (loop/if/match) and generic driven functions/methods are rejected
+  as honest compile errors (a CFG-based split and A5 effect-polymorphism are
+  separate later items, per the brief's "report if not").
+- A pre-existing codegen bug surfaced by the frame shape was fixed in its own
+  commit: the host path left the module data layout empty, so the O1 pipeline and
+  object emission disagreed on struct field offsets (the coroutine state word
+  never advanced → the driver spun forever). Now pinned on every path.
+- Runtime item 1 (executor core) + item 4 (primitives) landed as the
+  **single-task slice**: `yield_now()` and `sleep(ms)` are real suspension
+  sources; a suspending `main` is auto-wrapped in a single-threaded entry
+  executor that honours each wake reason (protocol extended with a frame-resident
+  `__wake` word — the hazard-flagged protocol adjustment). Tests: suspending-main
+  entry path, sleep/yield, nested-helper wake propagation.
+- Items 2 (cooperative `spawn` + structured join), 3 (cancellation surface), and
+  the item-4 suspending `Channel.receive` are **NOT landed**: they require a
+  heterogeneous run queue (type-erased task handles), and Saw's function-typed
+  values are closures (fn+env) with no bare-function-pointer / trait-object story
+  to erase distinct frame types into one queue. That is a language/codegen
+  prerequisite, not buildable inside this brief. The 21b thread-per-task
+  `spawn`/`Task`/`Channel` engine stays untouched and coexists (documented).
+
+Original brief text follows.
+
+---
+
+
 **Source:** paper 18 (core executor design, never-block invariant,
 structured concurrency C1, explicit-only cancellation + the
 no-forced-destroy ruling) on top of brief 44's transform. QUEUED —

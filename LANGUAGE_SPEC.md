@@ -1430,24 +1430,51 @@ Observable rules:
   exit are destroyed in LIFO order through ordinary control flow; the one
   special case is a completed frame whose result was never consumed — that
   result is dropped exactly once when the frame dies.
-- **Suspending recursion is a compile error.** Nested suspending calls embed
-  the callee's frame *by value* in the caller's frame (flat frames → whole-task
-  size is a compile-time constant). A cycle in the suspending-call graph would
-  therefore have no finite size, so it is rejected with a diagnostic that names
-  the cycle (e.g. `ping -> pong -> ping`). Ordinary non-suspending recursion is
-  unaffected.
+- **Conditional move across a suspension** (design 45 Part 0a). A cleanup-needing
+  local moved on some paths but not others is dropped exactly once: its frame
+  field carries a drop flag (the optional's `is_some` discriminant) that the move
+  clears *without* dropping, so the frame's own `Deinit` skips the moved-out value
+  on exactly the paths that moved it.
+- **Nested suspending calls embed the callee's frame *by value*** (design 45 Part
+  0b): `let x = g(args)` where `g` suspends places `g`'s frame as a field of the
+  caller's frame; the caller's state machine drives that sub-frame to `Done`
+  across its own suspensions, then captures `g`'s result. Flat frames → whole-task
+  size is a compile-time constant.
+- **Suspending recursion is a compile error.** A cycle in the suspending-call
+  graph would have no finite frame size (frames embed by value), so it is rejected
+  with a diagnostic that names the cycle (e.g. `ping -> pong -> ping`). Ordinary
+  non-suspending recursion is unaffected.
 - **References may span suspensions** (design 18 D6, task confinement): a
   `&`/`&var` parameter — including `&var self` — remains valid and exclusive
   across a suspension, because the whole task suspends and resumes as a unit and
-  references cannot escape it.
+  references cannot escape it. A driven suspending method (design 45 Part 0c)
+  holds its receiver as a pointer into the caller's storage and mutates it across
+  suspensions; the caller observes the mutation.
 - **`deinit` may not suspend** — a destructor is always a `sync` context, so a
   suspension inside one is a compile error (deterministic destruction).
+- **Not yet supported** (rejected with a diagnostic, not miscompiled): a
+  suspension inside a loop/`if`/`match` body that spans the suspension (needs a
+  CFG-based split), and transforming a *generic* suspending function/method
+  (blocked on effect-polymorphism re-inference, design 18 A5).
 
-Today the transform is exercised through a test-only executor entry rather than
-the real scheduler: `__suspend()` marks a suspension point and `__drive(f(args))`
-/ `__drive_steps(f(args))` create a frame for the call and step it to completion
-(the real executor arrives in a later stage). A function is transformed only when
-it is driven; code that drives nothing is compiled exactly as before.
+**Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
+real cooperative primitives are `yield_now()` (suspend and become immediately
+re-ready) and `sleep(ms)` (suspend with a timed wake). Both are inferred
+suspension points. When `main` transitively reaches one, the compiler infers
+`main` suspending and auto-wraps it in an **entry executor** with no user-visible
+plumbing: `main` becomes a frame + `resume`, and the generated entry drives it to
+completion on a single cooperative run, parking the thread for each `sleep` wake
+and resuming at once for each `yield_now`. A single task interleaves nothing, so
+this is the single-task slice of the executor; multi-task `spawn` with a
+heterogeneous run queue, structured join, cancellation, and a suspending
+`Channel.receive` are a later stage (they need type-erased task handles, which
+the language does not yet provide).
+
+The transform is also still exercisable through a test-only entry: `__suspend()`
+marks a synthetic suspension point and `__drive(f(args))` / `__drive_steps(f(args))`
+/ `__drive(recv.m(args))` create a frame and step it to completion. A function or
+method is transformed only when it is driven (or is a suspending `main`); code
+that drives nothing is compiled exactly as before.
 
 ### Tasks and Channels
 
@@ -1464,10 +1491,21 @@ let producer = spawn {
     ch.send(move 42)
     true
 }
-let got = ch.recv()              // blocks this task (a suspension point
-                                 // under the future cooperative engine)
+let got = ch.recv()              // blocks the calling thread (thread-per-task
+                                 // engine); a cooperative suspending receive
+                                 // is a later stage
 producer.join()
 ```
+
+**Two engines coexist today, deliberately not unified.** `spawn`/`Task`/`Channel`
+(design 21b) run on a **thread-per-task** engine: `spawn` starts an OS thread,
+`Task.join()`/`Channel.recv()` block that thread, and `Deinit` joins an unjoined
+task at scope exit (structured concurrency). Separately, a suspending `main`
+runs on the **single-threaded cooperative executor** (above) with `yield_now`/
+`sleep`. These are distinct runtimes for now — a cooperative task cannot yet be
+`spawn`ed onto the executor (that needs type-erased task handles), and the two do
+not share a scheduler. Unifying them (cooperative `spawn`, structured join, and
+cancellation on the executor) is a later stage.
 
 ### Shared State
 
