@@ -13,7 +13,34 @@ executor core must not assume an allocator beyond task spawn itself),
 effect-polymorphism re-inference (A5 — only if 44/45 hit a concrete
 need, else next stage).
 
-## Items (sketch — refine against 44's landed shape)
+## REFINED (Jul 29, post-44): 44's landed protocol is the interface —
+frame struct + `resume(&var self) -> __Poll {Pending, Done}` with the
+result frame-resident in `__result` (read after Done; never returned by
+move). The transform triggers on driven roots. 44 left three CLEAN
+COMPILE-ERROR BOUNDARIES that are prerequisites for real async
+programs — they are now Part 0 of this brief:
+
+### 0a. Conditional move of a frame local across a suspend
+The stated Bool-drop-flag design: frame-resident `Bool` flags cleared
+WITHOUT dropping (the optional-encoding can't express clear-without-
+drop). Extends brief 42's drop-flag codegen to frame fields. Flip 44's
+boundary rejection into working code + the deferred matrix test.
+
+### 0b. Nested suspending calls (by-value frame embedding)
+Callee frame embedded in caller frame; caller state machine drives the
+callee sub-frame to Done across its own suspensions. Two-deep test
+from 44's matrix.
+
+### 0c. Driving methods (`&var self` across suspension — the D6 case)
+Receiver reference held in the frame (a pointer into the task root's
+storage — sound per D6 task confinement). The 44 matrix's D6 test.
+
+Also lift, if they fall out of 0a–0c naturally (report if not):
+suspends inside loops/matches spanning a suspension; generic driven
+functions (note: the effect-polymorphism item A5 may be the real
+blocker there — do not build A5 here, just report).
+
+## Items (original sketch, now on the landed protocol)
 1. **Executor core:** single-threaded run queue draining resumable
    frames (paper 18: "a few hundred lines"); park/wake via the
    simplest hosted mechanism; entry point runs a root task to
