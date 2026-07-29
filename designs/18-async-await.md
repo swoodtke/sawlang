@@ -214,6 +214,23 @@ or at explicit select-style points — NEVER implicitly at suspension
 points, so there are no invisible non-local exits. Cancellation is a
 Result-style signal, not preemption.
 
+**STRENGTHENED (Jul 29, user — the no-forced-destroy ruling):** there
+is NO forced task destruction at all — no `Task.kill`, no dropping a
+suspended frame from outside. A frame dies only by its own code
+running to an exit (normal completion, or cooperative early return
+after observing cancellation). Consequences: per-suspension-point
+destroy paths DO NOT EXIST (the highest-risk piece of the coroutine
+transform's deinit story is deleted — cancellation cleanup is ordinary
+early-return cleanup through generated normal control flow); the only
+frame-drop special case is a COMPLETED task's unconsumed result (one
+final-state field drop); join on a task that never observes
+cancellation blocks — a liveness bug in the same class as an infinite
+loop, placed on the programmer per the cooperative-discipline stance.
+Stdlib obligation: every unbounded wait primitive ships in a
+cancellation-aware form returning through normal control flow, so
+well-behaved tasks cannot be accidentally uncancellable. Program exit
+never resumes suspended frames (abort-only philosophy; OS reclaims).
+
 ## Mutex under the never-block invariant (decided-leaning, Jul 28)
 
 `Mutex.lock { &var data in ... }` STAYS SYNC, soundly: `lock`'s closure

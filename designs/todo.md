@@ -16,17 +16,6 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 - **D10. Cortex-M0-class atomics** — lowering strategy for ARMv6-M (no
   CAS); decide with the first such port. [19, 20]
-- **D11. Async stage-2 lowering path** (NEW, from the coro probe,
-  `designs/43-coro-probe-findings.md`): LLVM coro intrinsics work end
-  to end through llvmlite (proven native suspend/resume; ~10-line
-  shims), BUT the frame size is only known to LLVM post-CoroSplit —
-  invisible to the front-end where `.bss` static task frames (the
-  Embassy model, kernels/embedded as initial targets) need it. Question
-  for the user: **how soon must static task frames work?** Embedded-
-  soon → source-level state-machine transform first (the sync-effect
-  graph already knows every suspension point); hosted-first → LLVM path
-  as the faster proven start, architected as a swappable backend.
-  [18, 43]
 
 ## Language & semantics
 
@@ -128,9 +117,9 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 
 ## Concurrency & async
 
-- **A1.** Stage 2 async: stackless coroutine / state-machine transform —
-  PROBED (designs/43): both paths viable, stage-2 brief skeleton
-  written; blocked only on D11 (lowering-path choice). [18, 43]
+- **A1.** Stage 2 async — UNBLOCKED, briefed: transform core =
+  `designs/44-coro-transform.md` (in flight), runtime =
+  `designs/45-async-runtime.md` (queued). [18, 43, 44, 45]
 - **A2.** Stage 3: multi-threaded work-stealing executor +
   Send-on-coroutine-frames check. [18]
 - **A3.** Explicit-only cancellation (`Task.cancelled()`, select points).
@@ -233,6 +222,15 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
   always, every profile — overflow panics (incl. INT_MIN/-1 and signed
   negation of min); intentional wrap via Swift-style `&+ &- &*`
   operators. Decision + implementation → design 31. [05, 13, 31]
+- **D11 (async lowering path) — DECIDED Jul 29 (user): SOURCE-LEVEL
+  transform (path B)**, AST-level formulation (frame = ordinary Saw
+  struct compiled by the proven deinit/containment/drop-flag
+  machinery); driven by .bss static task frames (kernels/embedded
+  first) + self-hosting portability (no LLVM-middle-end semantics
+  coupling). LLVM probe scripts retained as reference. PLUS the
+  **no-forced-destroy ruling** (recorded in paper 18): no Task.kill;
+  frames die only via their own control flow — deletes
+  per-suspension-point destroy paths from the transform. [18, 43]
 - **D3 (Result auto-wrap + error union) — DECIDED Jul 28 (user):**
   concrete `T == E` bare returns are a compile error (explicit variant
   required); generic bodies keep abstract per-parameter wrapping; the
