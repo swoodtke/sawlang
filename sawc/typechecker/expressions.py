@@ -673,22 +673,38 @@ class ExpressionsMixin:
                 )
                 return None
             inner = expr.arguments[0].value
-            from ast_nodes import FunctionCall as _FC
-            if not isinstance(inner, _FC):
+            from ast_nodes import FunctionCall as _FC, MethodCall as _MC
+            if not isinstance(inner, (_FC, _MC)):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"`{expr.name}(...)` expects a direct call to a suspending "
-                    f"function, e.g. `{expr.name}(work())`",
+                    f"function or method, e.g. `{expr.name}(work())` or "
+                    f"`{expr.name}(obj.step())`",
                     expr.line, expr.column
                 )
                 return None
+            mode = "value" if expr.name == "__drive" else "steps"
             # Type-check the inner call inside an absorbing scope so its suspend
             # edge does not taint the caller. This also stamps inner.resolved_type
             # and validates the argument types.
             sentinel = self._effect_absorb_scope()
             inner_type = self._check_expression(inner)
             self._effect_unabsorb(sentinel)
-            self._effect_record_driven(inner.name, "value" if expr.name == "__drive" else "steps")
+            if isinstance(inner, _MC):
+                # design 45 Part 0c: driving a suspending method. The receiver's
+                # struct type names the driven-method root; the transform builds a
+                # frame holding a `__recv` pointer into the receiver's storage.
+                recv_type = getattr(inner.object, 'resolved_type', None)
+                struct_name = getattr(recv_type, 'struct_name', None) if recv_type else None
+                if struct_name is None:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`{expr.name}(...)` on a method requires a concrete struct "
+                        f"receiver", expr.line, expr.column)
+                    return inner_type if inner_type is not None else SawType(TypeKind.VOID)
+                self._effect_record_driven_method(struct_name, inner.method_name, mode)
+            else:
+                self._effect_record_driven(inner.name, mode)
             if expr.name == "__drive_steps":
                 return SawType(TypeKind.INT)
             return inner_type if inner_type is not None else SawType(TypeKind.VOID)

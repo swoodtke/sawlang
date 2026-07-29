@@ -1,0 +1,27 @@
+// design 45 Part 0c / design 44 D6: a suspending METHOD mutating `&var self`
+// across a suspension. The receiver lives in the frame as a pointer into the
+// caller's storage (task confinement makes `&var self` across a suspend sound),
+// so mutations through `self` reach the caller's value. The driver drives the
+// method to completion; the caller observes the mutation.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12
+// 12
+
+struct Counter { value: Int }
+
+extension Counter {
+    func climb(&var self) -> Int {
+        self.value = self.value + 1   // state 0: 10 -> 11
+        __suspend()
+        self.value = self.value + 1   // state 1: 11 -> 12 (self survived)
+        self.value                    // result 12
+    }
+}
+
+func main() {
+    var c = Counter(value: 10)
+    let r = __drive(c.climb())        // drives the method; mutates c through &var self
+    print(r)                          // 12
+    print(c.value)                    // 12 — the caller's value was mutated
+}

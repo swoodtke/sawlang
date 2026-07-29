@@ -79,9 +79,16 @@ class EffectsMixin:
         # ({"value", "steps"}). A driven root and its suspending callees are the
         # closure the coroutine transform rewrites into frames + resume methods.
         self._driven_roots: Dict[str, set] = {}
+        # design 45 Part 0c: driven suspending METHODS, keyed by
+        # (struct_name, method_name) -> set of driver modes. The receiver lives in
+        # the frame as a pointer into the task root (D6 task confinement).
+        self._driven_method_roots: Dict[tuple, set] = {}
 
     def _effect_record_driven(self, name: str, mode: str):
         self._driven_roots.setdefault(name, set()).add(mode)
+
+    def _effect_record_driven_method(self, struct_name: str, method: str, mode: str):
+        self._driven_method_roots.setdefault((struct_name, method), set()).add(mode)
 
     def _effect_absorb_scope(self):
         """A context manager-ish pair: push a throwaway suspend node so effect

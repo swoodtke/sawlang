@@ -598,7 +598,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # sites, so the recursive pass finds NO driven roots and proceeds straight to
     # codegen — a natural base case. Non-driven programs never enter this branch,
     # so the transform is OFF by construction and their path is unchanged.
-    driven = getattr(typechecker, "_driven_roots", None)
+    driven = (getattr(typechecker, "_driven_roots", None)
+              or getattr(typechecker, "_driven_method_roots", None))
     if driven:
         from coro_transform import transform_program, CoroTransformError
         try:

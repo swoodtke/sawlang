@@ -33,7 +33,8 @@ from ast_nodes import (
     ASTNode, Expression, Statement, Block, Argument,
     Identifier, MemberAccess, SelfExpr, IntLiteral, BoolLiteral, NoneLiteral,
     FunctionCall, MethodCall, BinaryOp, UnaryOp, EnumInit, ForceUnwrap,
-    IfExpr, MatchExpr, MatchArm, WhileExpr, ReturnStatement,
+    IfExpr, MatchExpr, MatchArm, WhileExpr, ReturnStatement, ArrayIndex,
+    CastExpr, ReferenceExpr,
     ExpressionStatement, LetStatement, AssignStatement, WhileExpr,
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
     Parameter, SawType, TypeKind, Visibility,
@@ -211,10 +212,23 @@ def _analyze_nesting(root_name, root_func, nodes):
 # --------------------------------------------------------------------------- #
 
 class _FrameBuilder:
-    def __init__(self, func: Function):
+    def __init__(self, func, struct_name=None):
+        # `func` is a Function (free-function root) or a Method (driven method,
+        # Part 0c). For a method, `struct_name` is the receiver struct: the frame
+        # holds a `__recv: UnsafePointer<Struct>` pointer into the task root's
+        # storage (D6: `&var self` may span suspensions under task confinement),
+        # and the method body's `self` is rewritten to `self.__recv[0]`.
         self.func = func
-        self.name = func.name
-        self.frame_name = f"__Frame_{func.name}"
+        self.is_method = struct_name is not None
+        self.struct_name = struct_name
+        if self.is_method:
+            self.name = f"{struct_name}_{func.name}"
+            self.recv_type = SawType(TypeKind.POINTER,
+                                     inner_type=SawType(TypeKind.STRUCT,
+                                                        struct_name=struct_name))
+        else:
+            self.name = func.name
+        self.frame_name = f"__Frame_{self.name}"
         self.ret = func.return_type or SawType(TypeKind.VOID)
         self.is_void = (self.ret.kind == TypeKind.VOID)
 
@@ -248,7 +262,10 @@ class _FrameBuilder:
     def prepare(self, suspends):
         self._suspends = suspends
         func = self.func
-        self.params = func.parameters
+        # A method's `self` receiver is held as the `__recv` pointer, not a normal
+        # param — drop it if the parser placed it in `parameters`.
+        self.params = [p for p in func.parameters
+                       if not (self.is_method and p.name == "self")]
         self.frame_locals = self._collect_frame_locals()
 
         # Nested suspending call sites (top-level statements only). Each embeds a
@@ -271,6 +288,8 @@ class _FrameBuilder:
         self.encmap = encmap
 
         fields = []
+        if self.is_method:
+            fields.append(StructField(name="__recv", type=self.recv_type))
         for p in self.params:
             ft = p.type if encmap[p.name] == "plain" else _opt(p.type)
             fields.append(StructField(name=p.name, type=ft))
@@ -521,6 +540,12 @@ class _FrameBuilder:
         differently — callers process nested statement lists via
         `_lower_stmt_list` so forgets are scoped to the executing branch."""
         from ast_nodes import MoveExpr
+        if self.is_method and isinstance(node, SelfExpr):
+            # The method's `self` -> the receiver through the frame pointer:
+            # `self.__recv[0]` (here `self` is the frame — resume's receiver).
+            return ArrayIndex(
+                array_expr=_self_field("__recv", node.line, node.column),
+                index=_int(0), line=node.line, column=node.column)
         if isinstance(node, MoveExpr) and node.path is None and node.variable in self.encmap:
             name = node.variable
             enc = self.encmap[name]
@@ -657,14 +682,17 @@ def _zeroed_value(enc, saw_type):
     return NoneLiteral() if enc == "opt" else _zero_of(saw_type)
 
 
-def _build_frame_init(fb: _FrameBuilder, param_values, fbs):
+def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):
     """A `StructInit` for `fb`'s frame: param fields from `param_values` (an
     opt-encoded param auto-wraps T -> Some), every local empty, every embedded
     callee sub-frame zero-initialised (a dead frame, rebuilt with real args when
     its call site is reached — the dead frame holds no live cleanup fields, so
-    the rebuild's assignment drops nothing), state 0, result empty."""
+    the rebuild's assignment drops nothing), state 0, result empty. For a method
+    frame the receiver pointer `__recv` leads (Part 0c)."""
     from ast_nodes import StructInit
     field_inits = []
+    if fb.is_method:
+        field_inits.append(("__recv", recv_value))
     for i, p in enumerate(fb.params):
         field_inits.append((p.name, param_values[i]))
     for lname, lt in fb.frame_locals:
@@ -686,8 +714,11 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
     steps: `func __drive_steps_<f>(<params>) -> Int { ...; count Pendings; __n }`
     """
     params = fb.params
+    # A method driver takes the receiver first, as an `UnsafePointer<Struct>`
+    # (design 42's `&T`->pointer bridge is what the drive site supplies).
+    recv_value = Identifier(name="__recv") if fb.is_method else None
     frame_init = _build_frame_init(
-        fb, [Identifier(name=p.name) for p in params], fbs)
+        fb, [Identifier(name=p.name) for p in params], fbs, recv_value=recv_value)
 
     stmts = [LetStatement(name="__f", type_annotation=None, value=frame_init,
                           mutable=True)]
@@ -735,6 +766,8 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
         final = ForceUnwrap(expr=result_acc) if fb.result_enc == "opt" else result_acc
 
     driver_params = [Parameter(name=p.name, type=p.type) for p in params]
+    if fb.is_method:
+        driver_params = [Parameter(name="__recv", type=fb.recv_type)] + driver_params
     return Function(name=driver_name, parameters=driver_params, return_type=ret,
                     body=Block(statements=stmts, final_expr=final),
                     source_file=getattr(fb.func, 'source_file', ""))
@@ -749,11 +782,23 @@ def _rewrite_drive_sites(node, roots):
     `__drive_steps(f(args))` -> `__drive_steps_f(args)` in place, everywhere."""
     if isinstance(node, FunctionCall) and node.name in ("__drive", "__drive_steps"):
         inner = node.arguments[0].value  # validated in the typechecker
-        # Recurse into the inner arguments first (they may themselves contain
-        # drive sites, though v1 tests do not nest drivers).
-        for a in inner.arguments:
-            _rewrite_val(a, set())  # no-op ident rewrite; keeps structure
         prefix = "__drive_steps_" if node.name == "__drive_steps" else "__drive_"
+        if isinstance(inner, MethodCall):
+            # Part 0c: `__drive(recv.m(args))` -> `__drive_Struct_m((&var recv) as
+            # UnsafePointer<Struct>, args)`. The receiver is passed as a raw
+            # pointer into its own storage (design 42's &T->pointer bridge); the
+            # frame mutates the caller's value through it (D6).
+            recv_type = getattr(inner.object, 'resolved_type', None)
+            struct_name = getattr(recv_type, 'struct_name', None)
+            ptr_type = SawType(TypeKind.POINTER,
+                               inner_type=SawType(TypeKind.STRUCT,
+                                                  struct_name=struct_name))
+            recv_ptr = CastExpr(
+                expr=ReferenceExpr(expr=inner.object, mutable=False),
+                target_type=ptr_type)
+            node.name = f"{prefix}{struct_name}_{inner.method_name}"
+            node.arguments = [Argument(name=None, value=recv_ptr)] + list(inner.arguments)
+            return node
         node.name = prefix + inner.name
         node.arguments = inner.arguments
         return node
@@ -780,9 +825,21 @@ def _rewrite_drive_fields(val, roots):
 # entry point
 # --------------------------------------------------------------------------- #
 
+def _find_method(program, struct_name, method_name):
+    """Locate a driven method's AST and the extension that owns it."""
+    for ext in program.extensions:
+        if getattr(ext, 'struct_name', None) != struct_name:
+            continue
+        for m in ext.methods:
+            if m.name == method_name:
+                return m, ext
+    return None, None
+
+
 def transform_program(program, typechecker):
     roots = dict(getattr(typechecker, "_driven_roots", {}) or {})
-    if not roots:
+    method_roots = dict(getattr(typechecker, "_driven_method_roots", {}) or {})
+    if not roots and not method_roots:
         return False
 
     funcs_by_name = {f.name: f for f in program.functions}
@@ -853,6 +910,30 @@ def transform_program(program, typechecker):
         removed.add(root_name)
     removed.update(closure)
 
+    # Part 0c: driven suspending methods. Each becomes a frame that holds a
+    # `__recv` pointer into the receiver's storage; the method body's `self` is
+    # rewritten to `self.__recv[0]`. Driven directly (no method embedding yet).
+    removed_methods = []  # (extension, method) to strip after generation
+    for (struct_name, method_name), modes in method_roots.items():
+        method_ast, ext = _find_method(program, struct_name, method_name)
+        if method_ast is None:
+            raise CoroTransformError(
+                f"coroutine transform: driven method `{struct_name}.{method_name}` "
+                f"not found in the entry module")
+        if method_ast.type_params or getattr(ext, 'type_params', None):
+            raise CoroTransformError(
+                f"coroutine transform: driving generic method "
+                f"`{struct_name}.{method_name}` is not supported "
+                f"(effect-polymorphism, design 18 A5)",
+                method_ast.line, method_ast.column)
+        mfb = _FrameBuilder(method_ast, struct_name=struct_name)
+        new_structs.append(mfb.prepare(suspends_set))
+        _, resume_ext = mfb.build_resume(fbs)
+        new_extensions.append(resume_ext)
+        for mode in modes:
+            new_functions.append(_make_driver(mfb, mode, fbs))
+        removed_methods.append((ext, method_ast))
+
     # Rewrite all `__drive(...)` sites across the entry module's function and
     # method bodies to call the synthesized drivers.
     for f in program.functions:
@@ -860,6 +941,10 @@ def transform_program(program, typechecker):
     for ext in program.extensions:
         for m in ext.methods:
             _rewrite_drive_sites(m.body, roots)
+
+    # Strip driven methods from their extensions (replaced by frame + resume).
+    for ext, method_ast in removed_methods:
+        ext.methods = [m for m in ext.methods if m is not method_ast]
 
     # Splice: remove driven roots, add synthesized declarations.
     program.functions = [f for f in program.functions if f.name not in removed]
