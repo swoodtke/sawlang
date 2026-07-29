@@ -1,0 +1,93 @@
+// String.fromBytes UTF-8 rejection classes (brief 38 items 1/2). Each crafted
+// byte sequence exercises one class of malformed UTF-8; fromBytes returns
+// Err(Utf8Error) whose `offset` is the byte index where the bad sequence begins
+// (Rust valid_up_to() semantics: bytes before it decoded cleanly).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 0
+// 0
+// 0
+// 0
+// 0
+// 0
+// 0
+// 2
+// 0
+
+// Build Data from a Vector<Int> of byte values and return the error offset
+// (or -1 if fromBytes unexpectedly succeeds).
+func offsetOf(bytes: Vector<Int>) -> Int {
+    var d = Data()
+    var i = 0
+    while i < bytes.len() {
+        if let b = bytes.get(i) {
+            d.push(b as UInt8)
+        }
+        i = i + 1
+    }
+    match String.fromBytes(&d) {
+        case Ok(s) -> -1,
+        case Err(e) -> e.offset
+    }
+}
+
+func bytes2(a: Int, b: Int) -> Vector<Int> {
+    var x = Vector<Int>()
+    x.push(a)
+    x.push(b)
+    move x
+}
+
+func bytes3(a: Int, b: Int, c: Int) -> Vector<Int> {
+    var x = Vector<Int>()
+    x.push(a)
+    x.push(b)
+    x.push(c)
+    move x
+}
+
+func bytes4(a: Int, b: Int, c: Int, d: Int) -> Vector<Int> {
+    var x = Vector<Int>()
+    x.push(a)
+    x.push(b)
+    x.push(c)
+    x.push(d)
+    move x
+}
+
+func main() {
+    // Invalid lead: valid 'A' then a lone continuation byte 0x80 at offset 1.
+    print(offsetOf(bytes2(65, 128)))            // 1
+
+    // Invalid lead byte 0xFF (no valid encoding).
+    var ff = Vector<Int>()
+    ff.push(255)
+    print(offsetOf(move ff))                    // 0
+
+    // Invalid continuation: 0xC3 followed by '(' (0x28), not a continuation.
+    print(offsetOf(bytes2(195, 40)))            // 0
+
+    // Overlong 2-byte: 0xC0 0x80 (would encode NUL overlong).
+    print(offsetOf(bytes2(192, 128)))           // 0
+
+    // Overlong 3-byte: 0xE0 0x80 0x80 (b1 below 0xA0).
+    print(offsetOf(bytes3(224, 128, 128)))      // 0
+
+    // Surrogate: 0xED 0xA0 0x80 encodes U+D800.
+    print(offsetOf(bytes3(237, 160, 128)))      // 0
+
+    // Beyond U+10FFFF: 0xF4 0x90 0x80 0x80.
+    print(offsetOf(bytes4(244, 144, 128, 128))) // 0
+
+    // Overlong 4-byte: 0xF0 0x80 0x80 0x80 (b1 below 0x90).
+    print(offsetOf(bytes4(240, 128, 128, 128))) // 0
+
+    // Truncated 3-byte after valid 'AB': 0xE2 0x82 with no third byte.
+    print(offsetOf(bytes4(65, 66, 226, 130)))   // 2
+
+    // Truncated 2-byte at end of buffer: lone 0xC3.
+    var trunc = Vector<Int>()
+    trunc.push(195)
+    print(offsetOf(move trunc))                 // 0
+}

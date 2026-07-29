@@ -1,0 +1,20 @@
+// withCString safety (brief 38 item 3): the scoped-borrow closure is a
+// NON-ESCAPING parameter (brief 29 default) — that is the entire guarantee that
+// the borrowed pointer cannot outlive the call. This test mirrors withCString's
+// closure shape and tries to STORE the closure in a struct field (an escaping
+// slot); the compiler rejects it, exactly as it would for withCString's own
+// parameter.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: non-escaping closure into an escaping
+
+struct PtrKeeper {
+    f: (UnsafePointer<Int8>) -> Void
+}
+
+func stash(body: (UnsafePointer<Int8>) -> Void) -> PtrKeeper {
+    PtrKeeper(f: body)          // escape: storing a non-escaping closure
+}
+
+func main() {
+    let k = stash({ ptr in })
+}

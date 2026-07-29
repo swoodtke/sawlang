@@ -10,7 +10,6 @@
 // libc directly. memcpy is a compiler builtin, not a seam.
 extern "C" {
     func memcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, n: Int) -> UnsafePointer<Int8>
-    func strlen(s: UnsafePointer<Int8>) -> Int
 
     // Refcounted String runtime (defined by the compiler).
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
@@ -55,10 +54,10 @@ extension StringBuilder {
         self.length == 0
     }
 
-    // Append a string
+    // Append a string. Length comes from the O(1) header (`s.len()`), not a
+    // strlen scan, so interior NUL bytes are preserved and no libc call is made.
     func append(&var self, s: String) {
-        let s_ptr = s as UnsafePointer<Int8>
-        let s_len = strlen(s_ptr)
+        let s_len = s.len()
 
         if s_len == 0 {
             return
@@ -74,13 +73,19 @@ extension StringBuilder {
         if let buf = self.buffer {
             var i = 0
             while i < s_len {
-                buf[self.length + i] = s_ptr[i]
+                buf[self.length + i] = s.byte_at(i)
                 i = i + 1
             }
             self.length = self.length + s_len
             // Add null terminator
             buf[self.length] = 0
         }
+    }
+
+    // Append the decimal rendering of an Int. Reuses the interpolation -> String
+    // path (which formats the integer) rather than re-implementing itoa here.
+    func append_int(&var self, value: Int) {
+        self.append("{value}")
     }
 
     // Append a single character (as Int8)
@@ -105,15 +110,23 @@ extension StringBuilder {
         }
     }
 
-    // Convert to an owned String (copies the buffer). String is refcounted, so
-    // it cannot alias the builder's internal buffer -- returning `buf as String`
-    // would hand back a header-less pointer that corrupts on len()/release.
-    func as_str(&self) -> String {
+    // Produce an owned, independently refcounted String from the bytes built so
+    // far. `__saw_string_from_bytes` COPIES into a fresh refcount=1 block, so the
+    // result never aliases the builder's buffer: the builder keeps its buffer
+    // (and may keep appending), and the returned String is freed on its own
+    // schedule (no leak, no double-free). Returning `buf as String` would instead
+    // hand back a header-less pointer that corrupts on len()/release.
+    func build(&self) -> String {
         if let buf = self.buffer {
             __saw_string_from_bytes(buf, self.length)
         } else {
             ""
         }
+    }
+
+    // Backwards-compatible alias for `build()`.
+    func as_str(&self) -> String {
+        self.build()
     }
 
     // Internal: grow buffer to at least min_capacity

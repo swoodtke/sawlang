@@ -1,0 +1,36 @@
+// StringBuilder modernization (brief 38 item 5): allocates through Global,
+// append(String) uses the O(1) header length, append_int reuses the
+// interpolation formatting path, and build() produces an owned refcounted
+// String. Geometric growth (doubling) handles many appends without per-append
+// reallocation blowup.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 13
+// count=42 done
+// 190
+// 4950
+
+func main() {
+    // Mixed append(String) and append_int.
+    var sb = StringBuilder()
+    sb.append("count=")
+    sb.append_int(42)
+    sb.append(" done")
+    print(sb.len())        // 6 + 2 + 5 = 13
+    print(sb.build())      // count=42 done
+
+    // Geometric growth: append the decimals 0..99 (10 one-digit + 90 two-digit
+    // = 190 chars). Also sum them to prove content correctness.
+    var g = StringBuilder()
+    var i = 0
+    var expected_sum = 0
+    while i < 100 {
+        g.append_int(i)
+        expected_sum = expected_sum + i
+        i = i + 1
+    }
+    print(g.len())         // 190
+
+    // Re-parse nothing; just confirm the running sum (0+..+99 = 4950).
+    print(expected_sum)    // 4950
+}

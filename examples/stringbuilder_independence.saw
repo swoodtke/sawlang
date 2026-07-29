@@ -1,0 +1,39 @@
+// StringBuilder build() independence (brief 38 item 5): build() COPIES into a
+// fresh refcount=1 String rather than aliasing the builder's buffer. So a String
+// captured from build() is unaffected by subsequent appends, and there is no
+// double-free when both the snapshot String and the builder are destroyed (the
+// deinit family is the oracle: this runs a hot loop to prove balanced lifetimes).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// abc
+// abcdef
+// abc
+// 1000000
+// done
+
+func main() {
+    var sb = StringBuilder()
+    sb.append("abc")
+    let snapshot = sb.build()     // independent owned String "abc"
+
+    print(snapshot)               // abc
+
+    sb.append("def")              // mutate the builder AFTER snapshotting
+    print(sb.build())             // abcdef
+    print(snapshot)               // abc — snapshot is unchanged
+
+    // Hot loop: build a snapshot and keep appending each turn; snapshot and
+    // builder both get destroyed. Flat memory => no leak, no double-free.
+    var count = 0
+    for i in 0..1000000 {
+        var b = StringBuilder()
+        b.append("x")
+        let s = b.build()         // owned String, freed at end of turn
+        b.append("y")             // independent: does not touch s
+        if s.len() == 1 {
+            count = count + 1
+        }
+    }
+    print(count)                  // 1000000
+    print("done")
+}

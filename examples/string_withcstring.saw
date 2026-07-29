@@ -1,0 +1,39 @@
+// String.withCString (brief 38 item 3): a scoped, non-escaping borrow of the
+// String's NUL-terminated bytes as an UnsafePointer<Int8>. The refcounted String
+// payload is already NUL-terminated, so the pointer is passed directly (no copy).
+// The closure is non-escaping (brief 29 default) — it cannot outlive the call —
+// which is the safety story. Results come back through a borrow-captured
+// variable, the same idiom Vector.each uses. Here we hand the pointer to libc
+// strlen across the FFI boundary.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 13
+// 0
+
+extern "C" {
+    func strlen(s: UnsafePointer<Int8>) -> Int
+}
+
+func main() {
+    var n = 0
+    "hello".withCString { [&var n] ptr in
+        n = strlen(ptr)
+    }
+    print(n)                    // 5
+
+    // Works on an interpolated (owned, heap) String too.
+    let greeting = "Hello, World!"
+    var m = 0
+    greeting.withCString { [&var m] ptr in
+        m = strlen(ptr)
+    }
+    print(m)                    // 13
+
+    // Empty string: NUL-terminated, strlen sees length 0.
+    var z = 1
+    "".withCString { [&var z] ptr in
+        z = strlen(ptr)
+    }
+    print(z)                    // 0
+}

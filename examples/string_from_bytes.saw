@@ -1,0 +1,43 @@
+// String.fromBytes (brief 38 item 1): copy raw bytes into a validated,
+// refcounted String. Valid ASCII and valid multibyte both succeed; the result
+// is an owned String with an O(1) byte length and correctly decoded scalars.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// Hi
+// 5
+// 99
+// 97
+// 102
+// 233
+
+func main() {
+    // Valid ASCII "Hi"
+    var ascii = Data()
+    ascii.push(72 as UInt8)   // H
+    ascii.push(105 as UInt8)  // i
+    match String.fromBytes(&ascii) {
+        case Ok(s) -> {
+            print(s.len())    // 2 bytes
+            print(s)          // Hi
+        },
+        case Err(e) -> print(-1)
+    }
+
+    // Valid multibyte "café": c a f é(0xC3 0xA9) -> 5 bytes, 4 scalars
+    var cafe = Data()
+    cafe.push(99 as UInt8)    // c
+    cafe.push(97 as UInt8)    // a
+    cafe.push(102 as UInt8)   // f
+    cafe.push(195 as UInt8)   // é lead
+    cafe.push(169 as UInt8)   // é continuation
+    match String.fromBytes(&cafe) {
+        case Ok(s) -> {
+            print(s.len())            // 5 bytes
+            for c in s.chars() {
+                print(c)              // 99, 97, 102, 233
+            }
+        },
+        case Err(e) -> print(-1)
+    }
+}

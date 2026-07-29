@@ -1,0 +1,28 @@
+// String.bytes() iterator (brief 38 item 2): yields the raw bytes as Int8,
+// matching byte_at's element type, usable directly in a `for` loop. Multibyte
+// content yields every underlying byte (not scalars).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 65
+// 66
+// 67
+// 5
+// 169
+
+func main() {
+    // ASCII "ABC" -> 65, 66, 67
+    for b in "ABC".bytes() {
+        print(b as Int)
+    }
+
+    // "café" is 5 bytes (é = 0xC3 0xA9): bytes() visits all 5.
+    var count = 0
+    var last = 0
+    for b in "café".bytes() {
+        count = count + 1
+        last = b as Int
+        if last < 0 { last = last + 256 }   // fold to unsigned
+    }
+    print(count)   // 5 bytes
+    print(last)    // last byte of é = 0xA9 = 169
+}

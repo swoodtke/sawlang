@@ -217,11 +217,34 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   interior NUL bytes are representable). The buffer is immutable after
   construction: concatenation and interpolation build fresh buffers (an
   `s + t` loop is O(n²); a mutable `StringBuilder` is future stdlib work).
-- **Byte string today.** As of this milestone `String` guarantees only that it
-  holds bytes. UTF-8 validity is *not* yet enforced; the UTF-8 guarantee
-  arrives with literal-time validation and a checked `String.fromBytes` (which
-  will return `Result`). There is deliberately no `s[i]` integer indexing —
-  byte and scalar views (`bytes()` / `chars()`) are the future access path.
+- **UTF-8 guarantee.** A `String` always holds valid UTF-8. Two doors admit
+  bytes and both enforce it: **string literals** are validated for free — source
+  files are decoded as UTF-8 before lexing and there are no byte/`\x`/`\u`
+  escape sequences, so an invalid-UTF-8 literal cannot be written (should byte
+  escapes ever be added, they must validate at lex time — TODO); and
+  **`String.fromBytes(data: &Data) -> Result<String, Utf8Error>`** copies raw
+  bytes into a fresh string after a full runtime UTF-8 scan (rejecting invalid
+  lead/continuation bytes, overlong encodings, UTF-16 surrogates, scalars beyond
+  U+10FFFF, and truncated sequences). `Utf8Error.offset` is the byte index where
+  the first malformed sequence begins (bytes before it decode cleanly —
+  `valid_up_to()` semantics). Validation is written in Saw, not the compiler.
+- **Access views, never `s[i]`.** There is deliberately no integer indexing (it
+  conflates bytes with scalars). Two iterator views are provided instead:
+  `bytes()` yields the raw bytes (`Int8`, matching `byte_at`) and `chars()`
+  yields Unicode scalar values decoded from UTF-8. Scalars are yielded as `Int` —
+  there is no `Char` primitive type yet, and ordering comparisons / a
+  `Comparable` trait are a separate future decision (not built). Each iterator
+  holds its OWN retain on the source string, so iterating a temporary
+  (`for c in makeString().chars()`) is safe.
+- **FFI: `withCString`.** `s.withCString { ptr in ... }` hands a closure an
+  `UnsafePointer<Int8>` to the string's NUL-terminated bytes, valid for the
+  duration of the call. The payload is already NUL-terminated, so the pointer is
+  passed directly with no copy. The closure is a **non-escaping** parameter (the
+  default, per the closures design): the compiler forbids it from being stored or
+  outliving the call, which is the whole safety story — the borrowed pointer
+  cannot leak. The closure returns `Void`; a result is produced by
+  borrow-capturing an enclosing variable
+  (`s.withCString { [&var n] ptr in n = strlen(ptr) }`).
 - **The refcount is atomic** (`i64`), from day one. This is a deliberate cost
   paid up front so `String` is `Send`-ready before multithreading lands, so the
   concurrency milestone does not have to relitigate the memory model. The

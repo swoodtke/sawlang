@@ -1,0 +1,44 @@
+// Iterator lifetime (brief 38 item 2): the chars()/bytes() iterators hold their
+// OWN retain on the source String (an ImplicitCopy capture in the iterator
+// struct). So iterating over a TEMPORARY receiver is safe — the temporary is
+// released as soon as chars() returns, but the iterator's reference keeps the
+// bytes alive for the whole loop. The hot loop also proves the retain is
+// balanced by the iterator's release: memory stays flat, no leak per iteration.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 531
+// 500000
+// done
+
+func makeString() -> String {
+    "café"
+}
+
+func makeInterp(n: Int) -> String {
+    "item {n}"                  // interpolated owned (heap) String, refcount 1
+}
+
+func main() {
+    // Temporary receiver: makeString() returns a temp consumed by chars().
+    // "café" scalars: c=99, a=97, f=102, é=233.
+    var total = 0
+    for c in makeString().chars() {
+        total = total + c
+    }
+    print(total)                // 99+97+102+233 = 531
+
+    // Hot loop over temporaries: fresh interpolated String each turn, iterated
+    // via a temporary-receiver chars(); iterator retains then releases it.
+    var count = 0
+    for i in 0..500000 {
+        var acc = 0
+        for c in makeInterp(i).chars() {
+            acc = acc + c
+        }
+        if acc > 0 {
+            count = count + 1
+        }
+    }
+    print(count)                // 500000
+    print("done")
+}

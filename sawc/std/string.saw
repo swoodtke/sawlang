@@ -428,6 +428,174 @@ extension String {
         }
         move data
     }
+
+    // =========================================================================
+    // UTF-8 decoding / validation (brief 38 items 1 & 2)
+    // =========================================================================
+    //
+    // `byte_at` returns an Int8 (signed); a byte >= 0x80 sign-extends to a
+    // negative Int. This helper folds that back into the unsigned 0..255 range
+    // so the decoder can compare against UTF-8 byte-class boundaries. (Saw has
+    // no bitwise operators, so the unsigned fold is arithmetic, not a mask.)
+    func _ubyte_at(&self, i: Int) -> Int {
+        let raw = self.byte_at(i) as Int
+        if raw < 0 { raw + 256 } else { raw }
+    }
+
+    // Decode ONE UTF-8 scalar starting at byte offset `i` (with `len` the total
+    // byte length). Returns `(scalar, nbytes)`:
+    //   - nbytes in 1..4 and `scalar` the Unicode scalar value on success;
+    //   - nbytes == 0 signals a malformed sequence STARTING at `i` (invalid
+    //     lead, bad/short continuation, overlong, surrogate, or > U+10FFFF).
+    // This is the single source of UTF-8 truth: `_utf8_error_offset` (feeding
+    // `fromBytes`) and `StringChars` (feeding `chars()`) both decode through it.
+    // Scalar assembly uses multiplication rather than bit-shifts (no bitwise
+    // operators in Saw): the code-unit shifts are *64 (6 bits), *4096 (12),
+    // *262144 (18).
+    func _decode_at(&self, i: Int, len: Int) -> (Int, Int) {
+        let b0 = self._ubyte_at(i)
+        if b0 < 128 {
+            // 0x00..0x7F: ASCII.
+            return (b0, 1)
+        }
+        if b0 < 194 {
+            // 0x80..0xBF: a continuation byte cannot lead. 0xC0/0xC1 (192/193)
+            // could only ever encode an overlong ASCII byte -> reject.
+            return (0, 0)
+        }
+        if b0 < 224 {
+            // 0xC2..0xDF: two-byte sequence.
+            if i + 1 >= len { return (0, 0) }               // truncated
+            let b1 = self._ubyte_at(i + 1)
+            if b1 < 128 || b1 > 191 { return (0, 0) }       // bad continuation
+            return ((b0 - 192) * 64 + (b1 - 128), 2)
+        }
+        if b0 < 240 {
+            // 0xE0..0xEF: three-byte sequence.
+            if i + 2 >= len { return (0, 0) }               // truncated
+            let b1 = self._ubyte_at(i + 1)
+            // First-continuation bounds tighten to forbid overlong (0xE0) and
+            // UTF-16 surrogates D800..DFFF (0xED).
+            var lo = 128
+            var hi = 191
+            if b0 == 224 { lo = 160 }                       // reject overlong
+            if b0 == 237 { hi = 159 }                       // reject surrogate
+            if b1 < lo || b1 > hi { return (0, 0) }
+            let b2 = self._ubyte_at(i + 2)
+            if b2 < 128 || b2 > 191 { return (0, 0) }
+            return ((b0 - 224) * 4096 + (b1 - 128) * 64 + (b2 - 128), 3)
+        }
+        if b0 < 245 {
+            // 0xF0..0xF4: four-byte sequence.
+            if i + 3 >= len { return (0, 0) }               // truncated
+            let b1 = self._ubyte_at(i + 1)
+            // Tighten to forbid overlong (0xF0) and > U+10FFFF (0xF4).
+            var lo = 128
+            var hi = 191
+            if b0 == 240 { lo = 144 }                       // reject overlong
+            if b0 == 244 { hi = 143 }                       // reject > U+10FFFF
+            if b1 < lo || b1 > hi { return (0, 0) }
+            let b2 = self._ubyte_at(i + 2)
+            if b2 < 128 || b2 > 191 { return (0, 0) }
+            let b3 = self._ubyte_at(i + 3)
+            if b3 < 128 || b3 > 191 { return (0, 0) }
+            return ((b0 - 240) * 262144 + (b1 - 128) * 4096 + (b2 - 128) * 64 + (b3 - 128), 4)
+        }
+        // 0xF5..0xFF: no valid lead byte encodes a scalar <= U+10FFFF.
+        return (0, 0)
+    }
+
+    // Scan the whole buffer; return the byte offset at which the FIRST malformed
+    // UTF-8 sequence begins, or None if the entire buffer is valid UTF-8. The
+    // offset is the start of the bad sequence (Rust's `valid_up_to()` semantics),
+    // which is what `Utf8Error.offset` carries.
+    func _utf8_error_offset(&self) -> Int? {
+        let len = self.len()
+        var i = 0
+        while i < len {
+            let d = self._decode_at(i, len)
+            if d.1 == 0 {
+                return i
+            }
+            i = i + d.1
+        }
+        None
+    }
+
+    // Build a validated String from raw bytes (brief 38 item 1). Copies the
+    // bytes into a fresh refcount=1 String, then validates UTF-8; on the first
+    // malformed sequence it returns `Err(Utf8Error)` carrying that byte offset
+    // and the candidate is released (no leak). Static: call as
+    // `String.fromBytes(&data)`.
+    func fromBytes(data: &Data) -> Result<String, Utf8Error> {
+        let n = data.len()
+        if n == 0 {
+            return ""                       // trivially-valid empty string (Ok)
+        }
+        if let ptr = __saw_string_alloc(n) {
+            var i = 0
+            while i < n {
+                if let b = data.get(i) {
+                    ptr[i] = b as Int8
+                }
+                i = i + 1
+            }
+            ptr[n] = 0 as Int8
+            let candidate = ptr as String
+            if let off = candidate._utf8_error_offset() {
+                // Malformed: hand back the offset; `candidate` (rc=1) is
+                // released at scope exit.
+                return Utf8Error(offset: off)
+            }
+            // `move` is REQUIRED, not decorative: an implicit ImplicitCopy return
+            // that auto-wraps into `Ok(...)` currently frees the owned buffer at
+            // scope exit while the Ok payload still points at it (use-after-free).
+            // The explicit move consumes `candidate`, suppressing that release.
+            return move candidate           // valid: move the owned String out
+        }
+        // Allocation failed. The alloc-layer convention (Vector.init(capacity:),
+        // StringBuilder) is to degrade rather than trap; an empty String is the
+        // only value we can hand back here.
+        return ""
+    }
+
+    // =========================================================================
+    // Iterators (brief 38 item 2)
+    // =========================================================================
+
+    // Iterate the raw bytes. Element type is Int8, matching `byte_at`. The
+    // iterator holds its OWN retain on the String (the `s` field is an
+    // ImplicitCopy capture), so `for b in makeString().bytes()` keeps the bytes
+    // alive for the whole loop even though the temporary receiver is gone.
+    func bytes(&self) -> StringBytes {
+        StringBytes(s: self, index: 0, length: self.len())
+    }
+
+    // Iterate Unicode scalar values, decoded from UTF-8, yielded as Int. There
+    // is no Char type yet (brief 38 scope note), so scalars are plain Int. Like
+    // `bytes()`, the iterator retains the String. String contents are always
+    // valid UTF-8 (literals are source-encoded; `fromBytes` validates), so a
+    // decode error is unreachable; should unsafe code ever corrupt a buffer, the
+    // iterator stops (defined behavior — see `StringChars.next`).
+    func chars(&self) -> StringChars {
+        StringChars(s: self, index: 0, length: self.len())
+    }
+
+    // Scoped C-string borrow (brief 38 item 3). Hands `body` an
+    // `UnsafePointer<Int8>` to the String's NUL-terminated bytes, valid for the
+    // duration of the call. The refcounted String payload is ALREADY
+    // NUL-terminated (see codegen/core.py `_declare_string_runtime`), so the
+    // bytes pointer is passed directly — no copy. `body` is a NON-ESCAPING
+    // closure parameter (brief 29 default): the compiler forbids it from being
+    // stored or otherwise outliving the call, which is the entire safety story —
+    // the pointer cannot leak past the borrow. `body` returns Void; produce a
+    // result by borrow-capturing an enclosing variable
+    // (`s.withCString { [&var out] ptr in out = strlen(ptr) }`), the same idiom
+    // `Vector.each` uses. (A value-returning `withCString<R>` awaits
+    // method-level generics on non-generic-type extensions — tracker L-note.)
+    func withCString(&self, body: (UnsafePointer<Int8>) -> Void) {
+        body(self as UnsafePointer<Int8>)
+    }
 }
 
 // =============================================================================
@@ -495,5 +663,72 @@ extension Vector<String> {
                 ""
             }
         }
+    }
+}
+
+// =============================================================================
+// UTF-8 validation error (brief 38 item 1)
+// =============================================================================
+
+// Returned by `String.fromBytes` when the input is not valid UTF-8. `offset` is
+// the byte index at which the first malformed sequence begins (the bytes before
+// it decode cleanly — Rust's `Utf8Error::valid_up_to()` semantics).
+struct Utf8Error {
+    offset: Int
+}
+
+// =============================================================================
+// String iterators (brief 38 item 2)
+// =============================================================================
+//
+// Both iterators store the source String by value. String is ImplicitCopy, so
+// the field initialization RETAINS it (refcount bump) and the struct's
+// synthesized deinit RELEASES it when the iterator dies. That independent retain
+// is what makes a temporary receiver safe: in `for c in makeString().chars()`
+// the temporary String is released right after `chars()` returns, but the
+// iterator's own reference keeps the bytes alive across every `next()`.
+
+struct StringBytes {
+    s: String
+    index: Int
+    length: Int
+}
+
+extension StringBytes: Iterator {
+    type Item = Int8
+
+    func next(&var self) -> Int8? {
+        if self.index < self.length {
+            let b = self.s.byte_at(self.index)
+            self.index = self.index + 1
+            b
+        } else {
+            None
+        }
+    }
+}
+
+struct StringChars {
+    s: String
+    index: Int
+    length: Int
+}
+
+extension StringChars: Iterator {
+    type Item = Int
+
+    func next(&var self) -> Int? {
+        if self.index >= self.length {
+            return None
+        }
+        let d = self.s._decode_at(self.index, self.length)
+        if d.1 == 0 {
+            // Malformed sequence. Unreachable for a validated String; if unsafe
+            // code corrupted the buffer we stop cleanly rather than loop or trap.
+            self.index = self.length
+            return None
+        }
+        self.index = self.index + d.1
+        d.0
     }
 }

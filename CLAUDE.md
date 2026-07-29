@@ -289,7 +289,12 @@ The compiler currently supports:
 - Law of Exclusivity: static "many readers XOR one writer" check on `&var` paths
 - `Deinit` with automatic LIFO cleanup (manual `deinit()` calls are rejected)
 - Reference parameters `&T` / `&var T` (mutate via compound assignment; no escape)
-- String: immutable, reference-counted (atomic refcount), O(1) `len()`
+- String: immutable, reference-counted (atomic refcount), O(1) `len()`, always
+  valid UTF-8 (literals validated at lex time; `String.fromBytes(&Data) ->
+  Result<String, Utf8Error>` validates at runtime). `bytes()`/`chars()` iterator
+  views (chars yields Int scalars — no `Char` type yet); `withCString { ptr in
+  ... }` non-escaping C-string borrow. `StringBuilder`: Global-backed, geometric
+  growth, `append`/`append_int`, refcount-correct `build()`
 - Pluggable allocation: `Allocator` trait + `Global`; alloc-layer containers
   carry the allocator as a public default type parameter
   (`Vector<T, A: Allocator = Global>`, `Map<K, V, A = Global>`). `A().alloc(...)`

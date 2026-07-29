@@ -1,0 +1,31 @@
+// String.chars() iterator (brief 38 item 2): decodes UTF-8 and yields Unicode
+// scalar values as Int (no Char type yet — brief 38 scope note). Covers 1-, 2-,
+// 3- and 4-byte sequences.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 104
+// 105
+// 97
+// 233
+// 8364
+// 128512
+// 4
+
+func main() {
+    // ASCII "hi" -> 104, 105
+    for c in "hi".chars() {
+        print(c)
+    }
+
+    // "a€é😀": a(1) é(2) €(3) 😀(4) — mixed sequence lengths.
+    //   a  = U+0061 = 97
+    //   é  = U+00E9 = 233
+    //   €  = U+20AC = 8364
+    //   😀 = U+1F600 = 128512
+    var scalars = 0
+    for c in "aé€😀".chars() {
+        print(c)          // 97, 233, 8364, 128512
+        scalars = scalars + 1
+    }
+    print(scalars)        // 4 scalars (even though the string is 10 bytes)
+}
