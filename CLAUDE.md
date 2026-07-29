@@ -89,6 +89,13 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 - Async/await
 - Channels for message passing
 - `Send`/`Sync` traits for thread safety
+- Coroutine transform (design 44, in progress): a suspending function driven
+  by `__drive(f())`/`__drive_steps(f())` (test-only executor entry) is
+  rewritten source-level into a frame struct (params + across-suspend locals +
+  state + result slot) plus a `resume(&var self) -> __Poll` method, compiled by
+  the existing codegen/deinit machinery. Cleanup is normal-control-flow only
+  (no forced destroy); suspending recursion is a compile error. OFF by
+  construction for code that drives nothing. `__suspend()` marks a boundary.
 
 ## Open Questions
 

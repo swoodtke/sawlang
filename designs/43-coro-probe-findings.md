@@ -1,5 +1,17 @@
 # Design 43 — LLVM coroutine viability probe: findings
 
+> **Outcome (brief 44): the source-level transform — path B in the Q4 table —
+> was adopted, not the LLVM coro-intrinsic path.** The deciding factor is the one
+> this probe flagged as the LLVM path's fatal liability for Saw's initial targets:
+> frame size is invisible to the front-end until after CoroSplit (Q5), which
+> breaks the freestanding `.bss` static-task-frame requirement, while the
+> source-level transform computes the frame as an ordinary Saw struct whose size
+> is a compile-time constant in the compiler. Brief 44 builds that transform
+> directly on the design-22 effect graph (the "split points already known"
+> advantage from Q4), and gets `-O0` support for free (Q2's LLVM-path `-O0`
+> impossibility does not apply to a front-end lowering). See
+> `designs/44-coro-transform.md` and `sawc/coro_transform.py`.
+
 Investigation-only. Feeds the async **stage-2** scheduling decision (paper
 `designs/18-async-await.md`, Axis A1: stackless coroutines / state-machine
 transform). Paper 18 flags: *"Probe required before the brief: whether llvmlite

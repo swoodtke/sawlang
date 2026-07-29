@@ -1405,6 +1405,50 @@ primitive: no user-facing threads, no thread identity, ever. The stage-1
 engine happens to run one OS thread per task; that is invisible and will
 change.
 
+### Suspension and the coroutine transform
+
+**Status: in progress (design 44).** How a suspending function is turned
+into a resumable state machine is decided and partly built. The mechanism
+is a **source-level transform**: a suspending function becomes an ordinary
+synthesized struct — its *frame* — plus a `resume` method that dispatches on
+a state field. The frame holds the function's parameters, every local whose
+scope spans a suspension point, the state index, and a result slot; its size
+is an ordinary compile-time struct size (the enabler for statically-allocated
+`.bss` task frames on freestanding targets — the Embassy model). Because the
+frame is a normal Saw struct, it is compiled by the same code generator and
+the same deterministic-destruction (`Deinit`) machinery as everything else.
+
+Observable rules:
+
+- **What suspends is inferred, not annotated.** A function suspends iff it
+  transitively reaches a suspension point; the `sync` effect check
+  (design 22) already identifies every such point. No keyword marks it.
+- **Frame lifetime / no forced destroy.** A frame dies only by its own code
+  reaching an exit — normal completion or a cooperative early `return`. There
+  are NO per-suspension-point destroy paths and no way to drop a suspended
+  frame from outside (design 18's no-forced-destroy ruling). Locals live at an
+  exit are destroyed in LIFO order through ordinary control flow; the one
+  special case is a completed frame whose result was never consumed — that
+  result is dropped exactly once when the frame dies.
+- **Suspending recursion is a compile error.** Nested suspending calls embed
+  the callee's frame *by value* in the caller's frame (flat frames → whole-task
+  size is a compile-time constant). A cycle in the suspending-call graph would
+  therefore have no finite size, so it is rejected with a diagnostic that names
+  the cycle (e.g. `ping -> pong -> ping`). Ordinary non-suspending recursion is
+  unaffected.
+- **References may span suspensions** (design 18 D6, task confinement): a
+  `&`/`&var` parameter — including `&var self` — remains valid and exclusive
+  across a suspension, because the whole task suspends and resumes as a unit and
+  references cannot escape it.
+- **`deinit` may not suspend** — a destructor is always a `sync` context, so a
+  suspension inside one is a compile error (deterministic destruction).
+
+Today the transform is exercised through a test-only executor entry rather than
+the real scheduler: `__suspend()` marks a suspension point and `__drive(f(args))`
+/ `__drive_steps(f(args))` create a frame for the call and step it to completion
+(the real executor arrives in a later stage). A function is transformed only when
+it is driven; code that drives nothing is compiled exactly as before.
+
 ### Tasks and Channels
 
 ```saw
