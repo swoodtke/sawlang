@@ -1,0 +1,32 @@
+// design 45 Part 0b: nested suspending calls, callee frame embedded BY VALUE in
+// the caller frame. `outer` calls `mid`, which calls `inner`; each suspends. The
+// driver drives only `outer`; `outer`'s state machine drives its embedded `mid`
+// sub-frame across `outer`'s own suspensions, and `mid` drives its embedded
+// `inner` sub-frame — two deep. Values flow up through each `__result` slot.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 13
+
+func inner(a: Int) -> Int {
+    let x = a + 1        // set in state 0
+    __suspend()
+    x + 1                // a survived; result a + 2
+}
+
+func mid(b: Int) -> Int {
+    let y = inner(b)     // nested suspending call (embedded inner frame)
+    __suspend()
+    y + 1                // result inner(b) + 1 = (b + 2) + 1 = b + 3
+}
+
+func outer() -> Int {
+    let z = mid(3)       // nested suspending call (embedded mid frame)
+    __suspend()
+    z                    // mid(3) = 3 + 3 = 6
+}
+
+func main() {
+    print(__drive(outer()))   // 6  (outer -> mid -> inner, two deep)
+    print(__drive(mid(10)))   // 13 (mid drives its embedded inner: 10 + 3)
+}

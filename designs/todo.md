@@ -31,17 +31,24 @@ Milestone: UART "blink" from a Saw kernel on the P4.
 - T1f. Debug info (line tables minimum → backtraces); multiplies
   productivity of everything after it.
 
-**New decisions queued (needed for the path):**
-- **D12.** Volatile/MMIO surface for kernels — `Volatile<T>` wrapper
-  type vs compiler intrinsics vs pointer-method forms. Kernel-blocking.
-- **D13.** 32-bit targets: `Int`/`UInt` sizing on riscv32 — spec says
-  platform-native; codegen hardcodes i64. Platform-width Int (spec) vs
-  always-64 (simpler, heavier on RV32)?
-- **D14.** Comparable/Ord + Hash trait shapes (the D2-style question:
-  mirror-the-Copy-family auto-derivation vs opt-in synthesis; one
-  decision can cover both).
-- **D15.** Test-framework shape for Saw programs (attribute-style
-  `#[test]` vs stdlib harness vs runner convention).
+**Path decisions — ALL DECIDED Jul 29 (user), briefed:**
+- **D12 → design 46**: `UnsafeMemory<T, Use>` — intent markers
+  (Device/Normal), explicit always; compiler derives access discipline
+  (Device=volatile, scalar-only, RO/WO markers; Normal=plain +
+  whole-struct + ptr/len/end region accessors); platform setup derives
+  its obligations (cache attrs are PMA/boot-code territory; the
+  declaration is the coordination point; future reflection hook).
+  Unsafe-prefix HOUSE RULE ratified. NEW tracker item: fence/barrier
+  primitives for DMA ordering (F10).
+- **D13 → design 47**: platform-width Int/UInt (i32 on riscv32).
+- **D14 → design 48**: Hashable mirrors Equatable (auto trivial +
+  synthesis, streaming FNV-1a Hasher); Comparable opt-in only
+  (Ordering enum, synthesized lexicographic); Vector.sort/sort_by;
+  HashMap<K,V,A>; Map stays (deprecation = later decision).
+- **D15 → design 49**: panic(msg)/assert builtins (closes M4) +
+  `blade test` convention (tests/ = ordinary programs, exit 0 = pass).
+- **F10.** Fence/barrier primitives (fence rw,io etc.) for DMA
+  ordering — surfaced by the D12 discussion; needed by App-2. [46]
 
 
 Living document. Consolidates every unresolved item from the design briefs

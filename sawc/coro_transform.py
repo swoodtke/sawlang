@@ -191,12 +191,10 @@ def _find_suspending_cycle(start_key, nodes):
 
 
 def _analyze_nesting(root_name, root_func, nodes):
-    """Guard the two nesting cases the v1 transform must not miscompile:
-      * suspending RECURSION -> a compile error naming the cycle (the flat-frame
-        model embeds callee frames by value, so a cycle has no finite size);
-      * any other nested SUSPENDING call -> rejected as not-yet-implemented,
-        rather than silently running the callee eagerly (its __suspend would
-        no-op). Non-suspending callees are fine and left untouched."""
+    """Suspending RECURSION is a compile error naming the cycle: the flat-frame
+    model embeds callee frames by value (Part 0b), so a suspending-call cycle has
+    no compile-time frame size. Non-recursive nested suspending calls are now
+    supported (embedded + driven); only a cycle is rejected."""
     start = ("fn", root_name)
     cyc = _find_suspending_cycle(start, nodes)
     if cyc is not None:
@@ -206,18 +204,6 @@ def _analyze_nesting(root_name, root_func, nodes):
             f"`{chain}` has no compile-time frame size (design 44 embeds callee "
             f"frames by value). Break the cycle or drive the inner call "
             f"separately.", root_func.line, root_func.column)
-    node = nodes.get(start)
-    if node is not None:
-        for e in node.edges:
-            t = nodes.get(e.target)
-            if t is not None and t.suspends:
-                callee = _node_display(e.target, nodes)
-                raise CoroTransformError(
-                    f"coroutine transform (v1): driven `{root_name}` makes a "
-                    f"nested suspending call to `{callee}` (line {e.line}); "
-                    f"embedding callee frames by value is a later item of "
-                    f"design 44. Drive the inner call separately for now.",
-                    root_func.line, root_func.column)
 
 
 # --------------------------------------------------------------------------- #
@@ -252,92 +238,195 @@ class _FrameBuilder:
                     locals_.append((stmt.name, t))
         return locals_
 
-    def build(self):
+    # ------------------------------------------------------------------ #
+    # Phase 1: layout. Compute the frame's fields (params + across-suspension
+    # locals + embedded callee sub-frames for nested suspending calls + state
+    # [+ result]) and build the frame struct. Runs for EVERY function in the
+    # driven closure before any resume body is generated, so a caller can embed
+    # a callee's fully-known frame by value (design 44's flat-frame model).
+    # ------------------------------------------------------------------ #
+    def prepare(self, suspends):
+        self._suspends = suspends
         func = self.func
-        params = func.parameters
-        frame_locals = self._collect_frame_locals()
+        self.params = func.parameters
+        self.frame_locals = self._collect_frame_locals()
 
-        # Encoding per frame-resident name: POD -> "plain", cleanup-needing ->
-        # "opt" (optional-encoded; the None/Some tag is the drop flag). The result
-        # slot is encoded the same way and recorded on self.result_enc.
+        # Nested suspending call sites (top-level statements only). Each embeds a
+        # callee frame by value; `sub` names its field.
+        self.calls = []
+        for stmt in func.body.statements:
+            info = self._classify_call(stmt)
+            if info is not None:
+                info['sub'] = f"__sub{len(self.calls)}"
+                self.calls.append(info)
+            else:
+                self._reject_buried_suspend_call(stmt)
+
         encmap = {}
-        for p in params:
+        for p in self.params:
             encmap[p.name] = "plain" if _is_pod(p.type) else "opt"
-        for lname, lt in frame_locals:
+        for lname, lt in self.frame_locals:
             encmap[lname] = "plain" if _is_pod(lt) else "opt"
         self.result_enc = "plain" if (self.is_void or _is_pod(self.ret)) else "opt"
+        self.encmap = encmap
 
-        # ---- frame struct ------------------------------------------------- #
         fields = []
-        for p in params:
+        for p in self.params:
             ft = p.type if encmap[p.name] == "plain" else _opt(p.type)
             fields.append(StructField(name=p.name, type=ft))
-        for lname, lt in frame_locals:
+        for lname, lt in self.frame_locals:
             ft = lt if encmap[lname] == "plain" else _opt(lt)
             fields.append(StructField(name=lname, type=ft))
+        for c in self.calls:
+            fields.append(StructField(
+                name=c['sub'],
+                type=SawType(TypeKind.STRUCT, struct_name=f"__Frame_{c['callee']}")))
         fields.append(StructField(name="__state", type=SawType(TypeKind.INT)))
         if not self.is_void:
             rt = self.ret if self.result_enc == "plain" else _opt(self.ret)
             fields.append(StructField(name="__result", type=rt))
-        frame_struct = Struct(name=self.frame_name, fields=fields,
-                              line=func.line, column=func.column,
-                              source_file=getattr(func, 'source_file', ""))
-        self.encmap = encmap
-        frame_field_names = encmap
+        self.frame_struct = Struct(name=self.frame_name, fields=fields,
+                                   line=func.line, column=func.column,
+                                   source_file=getattr(func, 'source_file', ""))
+        return self.frame_struct
 
-        # ---- state split -------------------------------------------------- #
-        # Segments of top-level statements split at each `__suspend()`.
+    def _classify_call(self, stmt):
+        """If `stmt` is a top-level nested SUSPENDING call boundary, return
+        {callee, args, target}; else None. Supported forms: `let x = g(args)` and
+        a bare `g(args)` where `g` is a suspending free function in the driven
+        closure."""
+        if _is_suspend_stmt(stmt):
+            return None
+        fc = None
+        target = None
+        if isinstance(stmt, LetStatement) and isinstance(stmt.value, FunctionCall):
+            fc, target = stmt.value, stmt.name
+        elif (isinstance(stmt, ExpressionStatement)
+              and isinstance(stmt.expression, FunctionCall)):
+            fc = stmt.expression
+        if fc is None or fc.name not in self._suspends:
+            return None
+        if getattr(fc, 'type_args', None):
+            raise CoroTransformError(
+                f"coroutine transform: nested suspending call to generic "
+                f"`{fc.name}` from `{self.name}` is not supported "
+                f"(effect-polymorphism, design 18 A5)", fc.line, fc.column)
+        return {'callee': fc.name, 'args': list(fc.arguments), 'target': target}
+
+    def _reject_buried_suspend_call(self, stmt):
+        """A suspending call in a non-top-level position (inside a larger
+        expression, an `if`/`while`/`match` branch, or a method-call receiver) is
+        not expressible by the flat state split. Reject with a clear message
+        rather than miscompile (the callee's __suspend would silently no-op)."""
+        found = []
+
+        def scan(n):
+            if isinstance(n, FunctionCall) and n.name in self._suspends:
+                found.append(n)
+            if isinstance(n, MethodCall):
+                mname = getattr(n, 'method_name', None)
+                # Suspending method receiver handled by Part 0c on driving
+                # methods, not here; leave method calls to that path.
+            if isinstance(n, ASTNode):
+                for f in dataclasses.fields(n):
+                    v = getattr(n, f.name)
+                    if isinstance(v, list):
+                        for x in v:
+                            if isinstance(x, Argument):
+                                scan(x.value)
+                            elif isinstance(x, ASTNode):
+                                scan(x)
+                    elif isinstance(v, Argument):
+                        scan(v.value)
+                    elif isinstance(v, ASTNode):
+                        scan(v)
+
+        scan(stmt)
+        if found:
+            g = found[0]
+            raise CoroTransformError(
+                f"coroutine transform: suspending call to `{g.name}` in `{self.name}` "
+                f"appears in a nested/expression position; only a top-level "
+                f"`let x = {g.name}(...)` or `{g.name}(...)` statement is supported",
+                g.line, g.column)
+
+    # ------------------------------------------------------------------ #
+    # Phase 2: the resume state machine. Split the body at `__suspend()` and at
+    # each nested suspending call; a plain suspend advances one state, a nested
+    # call builds+drives its embedded sub-frame across the caller's own
+    # suspensions before capturing the callee's result and advancing.
+    # ------------------------------------------------------------------ #
+    def build_resume(self, fbs):
+        func = self.func
         segments = [[]]
+        transitions = []  # ('suspend', None) | ('call', info) between segments
+        call_idx = 0
         for stmt in func.body.statements:
             if _is_suspend_stmt(stmt):
+                transitions.append(('suspend', None))
                 segments.append([])
-            else:
-                segments[-1].append(stmt)
+                continue
+            if self._classify_call(stmt) is not None:
+                # Reuse the prepared call record (it carries the sub-frame field
+                # name `sub`), matched by body order.
+                transitions.append(('call', self.calls[call_idx]))
+                call_idx += 1
+                segments.append([])
+                continue
+            segments[-1].append(stmt)
         final_expr = func.body.final_expr
 
-        # ---- resume method body ------------------------------------------- #
+        # The final completion segment sits at `final_state`; `done_state` is one
+        # past it (the terminal marker written when the frame reports Done). A
+        # `return` in any earlier segment jumps straight to done_state, so it must
+        # be known before lowering any segment.
+        final_state = sum(2 if kind == 'call' else 1 for kind, _ in transitions)
+        self._done_state = final_state + 1
+
         resume_stmts = []
-        n_states = len(segments)  # states 0 .. n_states-1; last is completion
-        self._done_state = n_states
+        state = 0
         for k, seg in enumerate(segments):
-            # Lower the segment: `let`s of frame locals become field assignments,
-            # identifiers become field reads, `return X` becomes the
-            # end-of-coroutine sequence, and a conditional `move` of a frame-
-            # resident local is rewritten to a field read plus a following
-            # `__forget` (Part 0a: the frame drop-flag clear-without-drop).
             seg_stmts = self._lower_stmt_list(seg)
-            if k < n_states - 1:
-                # A suspending state: run the segment, advance, yield Pending.
-                seg_stmts.append(AssignStatement(
-                    target=_self_field("__state"), value=_int(k + 1)))
-                seg_stmts.append(ReturnStatement(value=_poll("Pending")))
-                resume_stmts.append(ExpressionStatement(
-                    expression=IfExpr(
-                        condition=BinaryOp(op="==", left=_self_field("__state"),
-                                           right=_int(k)),
-                        then_branch=Block(statements=seg_stmts, final_expr=None))))
-            else:
-                # The completion state: run the tail, store the result, mark done.
-                resume_stmts.extend(seg_stmts)
+            if k == len(segments) - 1:
+                # Completion: run the tail, store the result, mark done.
                 if not self.is_void and final_expr is not None:
                     tail_forgets = []
                     tail_val = self._rewrite_expr(final_expr, tail_forgets)
                     if tail_forgets:
                         raise CoroTransformError(
                             f"coroutine transform: `move` of a frame-resident "
-                            f"local of driven `{self.name}` in tail-expression "
-                            f"position is not supported; move it in a `return` "
-                            f"statement instead", func.line, func.column)
-                    resume_stmts.append(AssignStatement(
+                            f"local of `{self.name}` in tail-expression position "
+                            f"is not supported; move it in a `return` statement",
+                            func.line, func.column)
+                    seg_stmts.append(AssignStatement(
                         target=_self_field("__result"), value=tail_val))
-                resume_stmts.append(AssignStatement(
-                    target=_self_field("__state"), value=_int(n_states)))
-                resume_stmts.append(ReturnStatement(value=_poll("Done")))
+                seg_stmts.append(AssignStatement(
+                    target=_self_field("__state"), value=_int(self._done_state)))
+                seg_stmts.append(ReturnStatement(value=_poll("Done")))
+                resume_stmts.append(self._state_if(state, seg_stmts))
+                break
+
+            kind, info = transitions[k]
+            if kind == 'suspend':
+                seg_stmts.append(AssignStatement(
+                    target=_self_field("__state"), value=_int(state + 1)))
+                seg_stmts.append(ReturnStatement(value=_poll("Pending")))
+                resume_stmts.append(self._state_if(state, seg_stmts))
+                state += 1
+            else:  # nested suspending call
+                drive_state = state + 1
+                next_state = state + 2
+                seg_stmts.extend(self._build_sub_frame(info, fbs))
+                seg_stmts.append(AssignStatement(
+                    target=_self_field("__state"), value=_int(drive_state)))
+                seg_stmts.append(ReturnStatement(value=_poll("Pending")))
+                resume_stmts.append(self._state_if(state, seg_stmts))
+                resume_stmts.append(self._state_if(
+                    drive_state, self._drive_sub(info, fbs, next_state)))
+                state = next_state
 
         resume = Method(
             name="resume",
-            # Self type is the parser's VOID placeholder; registration fills it in
-            # with the extension's struct type (`__Frame_<f>`).
             parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True, reference_mutable=True)],
             return_type=SawType(TypeKind.ENUM, enum_name="__Poll"),
@@ -346,10 +435,62 @@ class _FrameBuilder:
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
         resume_ext = Extension(struct_name=self.frame_name, methods=[resume],
-                              line=func.line, column=func.column,
-                              source_file=getattr(func, 'source_file', ""))
+                               line=func.line, column=func.column,
+                               source_file=getattr(func, 'source_file', ""))
+        return self.frame_struct, resume_ext
 
-        return frame_struct, resume_ext, params, frame_locals
+    def _state_if(self, state, stmts):
+        return ExpressionStatement(expression=IfExpr(
+            condition=BinaryOp(op="==", left=_self_field("__state"),
+                               right=_int(state)),
+            then_branch=Block(statements=stmts, final_expr=None)))
+
+    def _build_sub_frame(self, info, fbs):
+        """Construct the embedded callee frame from the call's arguments (the
+        arrival state). Returns statements: `self.__subN = __Frame_g(args...)`
+        plus any drop-flag clears for args moved out of the caller frame."""
+        callee_fb = fbs[info['callee']]
+        forgets = []
+        arg_vals = []
+        for i, a in enumerate(info['args']):
+            arg_vals.append(self._rewrite_expr(a.value, forgets))
+        init = _build_frame_init(callee_fb, arg_vals, fbs)
+        out = [AssignStatement(target=_self_field(info['sub']), value=init)]
+        out.extend(self._forgets(forgets))
+        return out
+
+    def _drive_sub(self, info, fbs, next_state):
+        """The drive state for a nested call: resume the sub-frame; on Pending
+        stay (return Pending); on Done capture the callee's result into the target
+        local (moving it out of the sub-frame with a `__forget`) and advance."""
+        callee_fb = fbs[info['callee']]
+        sub = info['sub']
+        done_body = []
+        target = info['target']
+        if target is not None and not callee_fb.is_void:
+            res = MemberAccess(object=_self_field(sub), member="__result")
+            if callee_fb.result_enc == "opt":
+                res = ForceUnwrap(expr=res)
+            done_body.append(AssignStatement(
+                target=_self_field(target), value=res))
+            if callee_fb.result_enc == "opt":
+                done_body.append(ExpressionStatement(expression=FunctionCall(
+                    name="__forget", arguments=[Argument(name=None,
+                        value=MemberAccess(object=_self_field(sub),
+                                           member="__result"))])))
+        done_body.append(AssignStatement(
+            target=_self_field("__state"), value=_int(next_state)))
+        done_body.append(ReturnStatement(value=_poll("Pending")))
+
+        resume_call = MethodCall(object=_self_field(sub), method_name="resume",
+                                 arguments=[])
+        match = MatchExpr(matched_expr=resume_call, arms=[
+            MatchArm(variant_name="Pending", bindings=[], body=Block(
+                statements=[ReturnStatement(value=_poll("Pending"))], final_expr=None)),
+            MatchArm(variant_name="Done", bindings=[], body=Block(
+                statements=done_body, final_expr=None)),
+        ])
+        return [ExpressionStatement(expression=match)]
 
     # -------------------------------------------------- frame-aware lowering
     #
@@ -508,30 +649,45 @@ class _FrameBuilder:
         return seq
 
 
-def _make_driver(fb: _FrameBuilder, mode, params, frame_locals):
+def _zeroed_value(enc, saw_type):
+    """The empty initial value for a not-yet-live frame field: `None` for a
+    cleanup-needing (opt-encoded) field — the drop flag reads not-live, so the
+    frame never drops a placeholder — and a zero for a POD field (needs no
+    cleanup)."""
+    return NoneLiteral() if enc == "opt" else _zero_of(saw_type)
+
+
+def _build_frame_init(fb: _FrameBuilder, param_values, fbs):
+    """A `StructInit` for `fb`'s frame: param fields from `param_values` (an
+    opt-encoded param auto-wraps T -> Some), every local empty, every embedded
+    callee sub-frame zero-initialised (a dead frame, rebuilt with real args when
+    its call site is reached — the dead frame holds no live cleanup fields, so
+    the rebuild's assignment drops nothing), state 0, result empty."""
+    from ast_nodes import StructInit
+    field_inits = []
+    for i, p in enumerate(fb.params):
+        field_inits.append((p.name, param_values[i]))
+    for lname, lt in fb.frame_locals:
+        field_inits.append((lname, _zeroed_value(fb.encmap[lname], lt)))
+    for c in fb.calls:
+        sub_fb = fbs[c['callee']]
+        zvals = [_zeroed_value(sub_fb.encmap[p.name], p.type) for p in sub_fb.params]
+        field_inits.append((c['sub'], _build_frame_init(sub_fb, zvals, fbs)))
+    field_inits.append(("__state", _int(0)))
+    if not fb.is_void:
+        field_inits.append(("__result", _zeroed_value(fb.result_enc, fb.ret)))
+    return StructInit(struct_name=fb.frame_name, field_inits=field_inits)
+
+
+def _make_driver(fb: _FrameBuilder, mode, fbs):
     """Synthesize the driver function that steps a frame to completion.
 
     value: `func __drive_<f>(<params>) -> R { var __f = <frame>; loop resume; __f.__result }`
     steps: `func __drive_steps_<f>(<params>) -> Int { ...; count Pendings; __n }`
     """
-    # Frame construction: params from the driver's own args (an opt-encoded param
-    # auto-wraps T -> T? = Some, since it is live from the start); every other
-    # field starts empty — POD locals/result zero-initialised (POD needs no
-    # cleanup), cleanup-needing (opt) fields `None` (the drop flag: not-yet-live,
-    # so the frame never drops a placeholder).
-    field_inits = []
-    for p in params:
-        field_inits.append((p.name, Identifier(name=p.name)))
-    for lname, lt in frame_locals:
-        init = NoneLiteral() if fb.encmap[lname] == "opt" else _zero_of(lt)
-        field_inits.append((lname, init))
-    field_inits.append(("__state", _int(0)))
-    if not fb.is_void:
-        rinit = NoneLiteral() if fb.result_enc == "opt" else _zero_of(fb.ret)
-        field_inits.append(("__result", rinit))
-
-    from ast_nodes import StructInit
-    frame_init = StructInit(struct_name=fb.frame_name, field_inits=field_inits)
+    params = fb.params
+    frame_init = _build_frame_init(
+        fb, [Identifier(name=p.name) for p in params], fbs)
 
     stmts = [LetStatement(name="__f", type_annotation=None, value=frame_init,
                           mutable=True)]
@@ -644,25 +800,58 @@ def transform_program(program, typechecker):
     ])
     new_enums.append(poll_enum)
 
-    for root_name, modes in roots.items():
-        func = funcs_by_name.get(root_name)
+    nodes = getattr(typechecker, "_suspend_nodes", {})
+
+    # The driven closure: every suspending entry-module free function reachable
+    # from a driven root through suspending-call edges. Each becomes a frame +
+    # resume method; a nested suspending call embeds the callee's frame by value
+    # and drives it (Part 0b). Only the roots themselves also get __drive_*
+    # drivers.
+    closure = []
+    seen = set()
+    work = list(roots.keys())
+    while work:
+        n = work.pop()
+        if n in seen:
+            continue
+        seen.add(n)
+        func = funcs_by_name.get(n)
         if func is None:
             raise CoroTransformError(
-                f"coroutine transform: driven function `{root_name}` not found "
-                f"in the entry module (v1 supports driving entry-module free "
-                f"functions only)")
+                f"coroutine transform: suspending function `{n}` not found in the "
+                f"entry module (driving supports entry-module free functions only)")
         if func.type_params:
             raise CoroTransformError(
-                f"coroutine transform (v1): driving generic function "
-                f"`{root_name}` is not supported yet", func.line, func.column)
-        _analyze_nesting(root_name, func, getattr(typechecker, "_suspend_nodes", {}))
-        fb = _FrameBuilder(func)
-        frame_struct, resume_ext, params, frame_locals = fb.build()
-        new_structs.append(frame_struct)
+                f"coroutine transform: transforming generic suspending function "
+                f"`{n}` is not supported (effect-polymorphism, design 18 A5)",
+                func.line, func.column)
+        closure.append(n)
+        node = nodes.get(("fn", n))
+        if node is not None:
+            for e in node.edges:
+                t = nodes.get(e.target)
+                if (t is not None and t.suspends
+                        and isinstance(e.target, tuple) and e.target[0] == "fn"
+                        and e.target[1] in funcs_by_name):
+                    work.append(e.target[1])
+
+    for root_name in roots:
+        _analyze_nesting(root_name, funcs_by_name[root_name], nodes)
+
+    # Phase 1: build every frame's layout (so a caller can embed a callee frame
+    # by value). Phase 2: generate every resume state machine.
+    suspends_set = set(closure)
+    fbs = {n: _FrameBuilder(funcs_by_name[n]) for n in closure}
+    for n in closure:
+        new_structs.append(fbs[n].prepare(suspends_set))
+    for n in closure:
+        _, resume_ext = fbs[n].build_resume(fbs)
         new_extensions.append(resume_ext)
+    for root_name, modes in roots.items():
         for mode in modes:
-            new_functions.append(_make_driver(fb, mode, params, frame_locals))
+            new_functions.append(_make_driver(fbs[root_name], mode, fbs))
         removed.add(root_name)
+    removed.update(closure)
 
     # Rewrite all `__drive(...)` sites across the entry module's function and
     # method bodies to call the synthesized drivers.
