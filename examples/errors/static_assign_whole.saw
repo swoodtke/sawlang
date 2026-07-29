@@ -1,0 +1,8 @@
+// Statics are immutable (design 41): a whole-value assignment is rejected. There
+// is no `static mut`; mutation flows only through interior-synchronized types.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to static `X`: statics are immutable
+
+static X: Int = 1
+
+func main() { X = 2 }

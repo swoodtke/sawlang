@@ -99,6 +99,20 @@ class ASTDumper:
             self._dedent()
             self._emit("]")
 
+        # Statics (design 41)
+        statics = getattr(prog, 'statics', None)
+        if statics:
+            self._emit("statics: [")
+            self._indent()
+            for st in statics:
+                vis = "public " if getattr(st, 'visibility', None) and \
+                    st.visibility.name == "PUBLIC" else ""
+                init = f" = {self._expr_summary(st.initializer)}" \
+                    if st.initializer is not None else " (zero-init)"
+                self._emit(f"{vis}static {st.name}: {self._type_str(st.type)}{init}")
+            self._dedent()
+            self._emit("]")
+
         # Extern blocks
         if prog.extern_blocks:
             self._emit("extern_blocks: [")

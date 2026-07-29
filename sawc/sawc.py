@@ -94,6 +94,7 @@ def load_builtins(verbose: bool = False, freestanding: bool = False):
                     traits=combined_ast.traits + file_ast.traits,
                     type_definitions=combined_ast.type_definitions + file_ast.type_definitions,
                     extern_blocks=combined_ast.extern_blocks + file_ast.extern_blocks,
+                    statics=getattr(combined_ast, 'statics', []) + getattr(file_ast, 'statics', []),
                     line=combined_ast.line,
                     column=combined_ast.column
                 )
@@ -116,6 +117,7 @@ def merge_programs(builtin_ast, user_ast):
         traits=builtin_ast.traits + user_ast.traits,
         type_definitions=builtin_ast.type_definitions + user_ast.type_definitions,
         extern_blocks=builtin_ast.extern_blocks + user_ast.extern_blocks,
+        statics=getattr(builtin_ast, 'statics', []) + getattr(user_ast, 'statics', []),
         # Preserve user imports, module declarations, and exports (builtins don't have these)
         imports=getattr(user_ast, 'imports', []),
         module_decls=getattr(user_ast, 'module_decls', []),

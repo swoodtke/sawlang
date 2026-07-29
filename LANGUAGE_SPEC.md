@@ -1440,6 +1440,65 @@ conformance is rejected. `spawn` audits every capture for Send;
 atomic refcount); `UnsafePointer` is neither and poisons containing
 types.
 
+### Module-level statics
+
+**Status: implemented (design 41).** A `static` is a module-level
+constant-initialized global:
+
+```saw
+static MAX_TASKS: Int = 256           // POD scalar → rodata
+static PRIMES: [Int; 3] = [2, 3, 5]   // constant fixed-array literal
+static ORIGIN: Point = Point(x: 0, y: 0)  // POD struct literal
+static SLAB: [Int8; 4096]             // bare declaration → zero-init (BSS)
+public static VERSION: Int = 7        // exported; read as `mod.VERSION`
+```
+
+Statics obey four rules, ratified in design 19 (Rust's model):
+
+- **Const-initialized only.** The initializer must be a compile-time
+  constant: literals, a negated numeric literal, POD struct literals with
+  constant fields, constant fixed-array literals, or `Atomic(<int>)`.
+  Function calls, `String`, and heap types are rejected. A POD or
+  fixed-array static may be declared with NO initializer — it is
+  zero-initialized (there is no `[0; N]` repeat literal; bare declaration
+  is the mechanism for large zero regions such as slab buffers).
+- **Sync-only.** The static's type must be `Sync` (a static is reachable
+  from every task). A non-Sync type is a compile error naming the type.
+- **Immutable — there is NO `static mut`, ever.** Assigning to a static
+  (whole, field, or element) or taking `&var STATIC` is a compile error;
+  an `&STATIC` immutable lend is fine. Mutation of global state flows ONLY
+  through interior-synchronized types. This makes "all shared mutable
+  state is mediated" a language-level theorem.
+- **Immortal.** Statics never run `deinit` (const-init keeps `Deinit`
+  types out in practice); the OS / reset reclaims them.
+
+Reads elsewhere in the module (or `mod.NAME` from an importer of a
+`public` static) behave like an immutable binding.
+
+### `Atomic<Int>`
+
+**Status: implemented (design 41).** `Atomic<Int>` is the minimal
+interior-synchronized primitive — the sanctioned way to mutate global
+state. It is const-initializable (`Atomic(0)`), usable as a `static` and
+as a struct field, and `Sync` by the ordinary structural derivation (a
+struct of a `Sync` field). Its methods take an immutable `&self` — the
+mutation is interior, which is exactly what lets an immutable static be
+updated; the no-`static mut` rule keys on assignment, not on these
+method calls.
+
+```saw
+static COUNTER: Atomic<Int> = Atomic(0)
+
+func main() {
+    let old = COUNTER.fetch_add(1)   // seq_cst RMW; returns the PREVIOUS value
+    let now = COUNTER.load()         // seq_cst load
+    COUNTER.store(0)                 // seq_cst store
+    let swapped = COUNTER.compare_exchange(0, 42)  // -> Bool (success)
+}
+```
+
+All four operations lower to sequentially-consistent LLVM atomics.
+
 ---
 
 ## 7. Metaprogramming
@@ -1961,12 +2020,12 @@ Implemented:
 as       break    case     catch    continue deinit   dyn      else
 enum     extension extern  false    for      func     guard    if
 import   in       init     let      match    module   move     None
-not      package  parent   public   return   self     Self     struct
-trait    true     try      type     var      while
+not      package  parent   public   return   self     Self     static
+struct   trait    true     try      type     var      while
 
 Planned / reserved:
 and  async  await  const  defer  do  loop  macro  none  or  ref
-some  static  unsafe  where
+some  unsafe  where
 ```
 
 ## Appendix B: Operators

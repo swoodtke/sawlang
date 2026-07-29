@@ -17,6 +17,7 @@ class SymbolKind(Enum):
     TRAIT = auto()
     TYPE_ALIAS = auto()
     MODULE = auto()
+    STATIC = auto()
 
 
 # Symbol objects hold ONLY immutable declaration data. Builtin symbols (String,
@@ -117,6 +118,23 @@ class TypeAliasSymbol:
 
 
 @dataclass
+class StaticSymbol:
+    """Symbol for a module-level `static` declaration (design 41).
+
+    Statics are Sync-only, const-initialized, immortal, and immutable (no
+    `static mut`). `mangled_name` is the codegen identity — the LLVM global's
+    name, prefixed so it never clashes with a function of the same name in the
+    (shared) LLVM value symbol table.
+    """
+    kind: SymbolKind = SymbolKind.STATIC
+    type: Optional[SawType] = None
+    mangled_name: str = ""
+    visibility: Visibility = Visibility.PRIVATE
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class ModuleSymbol:
     """Symbol for an imported or declared module."""
     kind: SymbolKind = SymbolKind.MODULE
@@ -129,7 +147,7 @@ class ModuleSymbol:
 
 
 # Union type for any symbol that can be resolved
-Symbol = Union[FunctionSymbol, StructSymbol, EnumSymbol, TraitSymbol, TypeAliasSymbol, ModuleSymbol]
+Symbol = Union[FunctionSymbol, StructSymbol, EnumSymbol, TraitSymbol, TypeAliasSymbol, ModuleSymbol, StaticSymbol]
 
 
 class Namespace:
@@ -153,6 +171,8 @@ class Namespace:
         self.traits: Dict[str, TraitSymbol] = {}
         self.type_aliases: Dict[str, TypeAliasSymbol] = {}
         self.modules: Dict[str, ModuleSymbol] = {}
+        # Module-level `static` declarations (design 41), keyed by simple name.
+        self.statics: Dict[str, StaticSymbol] = {}
 
         # Type conformances: type_name -> {trait_name -> {assoc_type_name -> SawType}}
         self.conformances: Dict[str, Dict[str, Dict[str, SawType]]] = {}
@@ -285,6 +305,9 @@ class Namespace:
         if name in self.functions:
             sym = self.functions[name]
             return sym if is_visible(sym) else None
+        if name in self.statics:
+            sym = self.statics[name]
+            return sym if is_visible(sym) else None
 
         return None
 
@@ -327,6 +350,18 @@ class Namespace:
     def register_function(self, name: str, symbol: FunctionSymbol):
         """Register a function symbol."""
         self.functions[name] = symbol
+
+    def register_static(self, name: str, symbol: 'StaticSymbol'):
+        """Register a module-level static symbol (design 41)."""
+        self.statics[name] = symbol
+
+    def has_static(self, name: str) -> bool:
+        """Check if a static exists."""
+        return name in self.statics
+
+    def get_static(self, name: str) -> Optional['StaticSymbol']:
+        """Look up a static symbol by simple name."""
+        return self.statics.get(name)
 
     def register_struct(self, name: str, symbol: StructSymbol):
         """Register a struct symbol."""
@@ -1085,6 +1120,10 @@ class Namespace:
         _merge("function", self.functions, other.functions)
         _merge("trait", self.traits, other.traits)
         _merge("type alias", self.type_aliases, other.type_aliases)
+        # Statics (design 41): same identity/collision rule (design 26) as the
+        # other value symbols — two modules each defining a distinct static of
+        # the same name is an unresolvable ambiguity, surfaced here.
+        _merge("static", self.statics, other.statics)
         for name, sym in other.modules.items():
             if name not in self.modules:
                 self.modules[name] = sym

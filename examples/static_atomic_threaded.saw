@@ -1,0 +1,25 @@
+// Two-thread race to a shared Atomic<Int> static (design 41 item 4). Each task
+// does M fetch_adds; the final value is exactly 2*M regardless of scheduling
+// (atomic RMW is data-race-free). The static is referenced from the spawned
+// bodies directly — a global is not a capture, and Atomic<Int> is Sync.
+// EXPECT: success
+// EXPECT-OUTPUT: 100000
+
+static COUNTER: Atomic<Int> = Atomic(0)
+
+func bump(times: Int) -> Int {
+    var i = 0
+    while i < times {
+        COUNTER.fetch_add(1)
+        i = i + 1
+    }
+    0
+}
+
+func main() {
+    var t0 = spawn { bump(50000) }
+    var t1 = spawn { bump(50000) }
+    t0.join()
+    t1.join()
+    print(COUNTER.load())   // 100000
+}

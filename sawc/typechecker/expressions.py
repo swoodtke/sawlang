@@ -180,6 +180,11 @@ class ExpressionsMixin:
         """
         var_info = self.current_scope.lookup(expr.name)
         if not var_info:
+            # Module-level static (design 41): read like an immutable binding.
+            static_sym = self.namespace.get_static(expr.name)
+            if static_sym is not None and self.namespace.is_accessible(expr.name):
+                expr.is_static_ref = True
+                return static_sym.type
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined variable `{expr.name}`",
@@ -315,6 +320,19 @@ class ExpressionsMixin:
         if expr.mutable:
             if isinstance(expr.expr, Identifier):
                 var_info = self.current_scope.lookup(expr.expr.name)
+                # A static is immutable (design 41): `&var STATIC` is rejected
+                # (an `&STATIC` immutable lend is fine). Statics are not in scope,
+                # so a None var_info that names a static is the signal.
+                if var_info is None and self.namespace.get_static(expr.expr.name) is not None:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"cannot take mutable reference `&var` to static `{expr.expr.name}`: "
+                        f"statics are immutable",
+                        expr.line, expr.column,
+                        hint="pass `&{0}` for a shared read, or use an interior-"
+                             "synchronized type for mutation".format(expr.expr.name)
+                    )
+                    return None
                 if var_info and not var_info.mutable:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -565,6 +583,28 @@ class ExpressionsMixin:
 
     def _check_function_call(self, expr: FunctionCall) -> Optional[SawType]:
         """Check a function call."""
+        # Atomic construction (design 41 item 4): `Atomic(<int>)`. A compiler-
+        # known positional construction — the general struct-init path requires
+        # named arguments, so intercept it here. v1 supports Atomic<Int> only.
+        if expr.name == "Atomic" and not expr.type_args:
+            if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    "`Atomic(...)` takes exactly one positional Int argument",
+                    expr.line, expr.column
+                )
+                return None
+            arg_type = self._check_expression(expr.arguments[0].value)
+            if arg_type is not None and self._get_underlying_type(arg_type).kind != TypeKind.INT:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`Atomic(...)` expects an Int, got `{arg_type}`",
+                    expr.line, expr.column
+                )
+            expr.is_atomic_construct = True
+            return SawType(TypeKind.STRUCT, struct_name="Atomic",
+                           type_args=[SawType(TypeKind.INT)])
+
         if expr.name == "print":
             if len(expr.arguments) > 1:
                 self._error(
@@ -1343,6 +1383,13 @@ class ExpressionsMixin:
                         expr.line, expr.column
                     )
                     return None
+                if symbol.kind == SymbolKind.STATIC:
+                    # Module-qualified static read (design 41): `mod.NAME`. Codegen
+                    # resolves the same static in the merged namespace by simple
+                    # name, so tag the member for it and read like a binding.
+                    expr.resolved_static_name = expr.member
+                    expr.resolved_module = expr.object.name
+                    return symbol.type
                 if symbol.kind == SymbolKind.STRUCT:
                     expr.resolved_struct_name = expr.member
                     expr.resolved_module = expr.object.name

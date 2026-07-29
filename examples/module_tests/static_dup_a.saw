@@ -1,0 +1,6 @@
+// One of two library modules that each define a public static `SHARED`
+// (design 41 hazard: same-named statics across modules follow design 26's
+// identity/collision rules).
+// EXPECT: skip
+
+public static SHARED: Int = 1

@@ -224,6 +224,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for func in program.functions:
             self._register_function(func)
 
+        # Sixth-b pass: register module-level statics (design 41). After
+        # structs/enums/functions so a const initializer may reference them.
+        for static in getattr(program, 'statics', []):
+            self._register_static(static)
+
         # Check for main function (only required for executables)
         if require_main and not self.namespace.has_function("main"):
             self.reporter.error(
@@ -469,6 +474,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for func in module_ast.functions:
             self._register_function(func)
             ns.make_accessible(func.name)
+
+        # Register module-level statics (design 41). Accessible module-locally;
+        # a `public` static is additionally visible to importers.
+        for static in getattr(module_ast, 'statics', []):
+            self._register_static(static)
+            ns.make_accessible(static.name)
 
         # Handle inline module declarations BEFORE type-checking function bodies
         # This ensures that inline modules are available for use in the current module

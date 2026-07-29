@@ -76,6 +76,35 @@ trait Sync {
 }
 
 // =============================================================================
+// Atomic<Int> — minimal interior-synchronized primitive (design 41 item 4)
+// =============================================================================
+
+// Atomic<T> is a compiler-known interior-mutable primitive (v1: Atomic<Int>).
+// It is the sanctioned way to mutate global state: `static N: Atomic<Int> =
+// Atomic(0)` then `N.fetch_add(1)`. Construction (`Atomic(<int>)`) and the four
+// methods below are lowered directly to seq_cst LLVM atomics by codegen; the
+// bodies here exist only so the methods type-check (they are never called —
+// every call site is intercepted). All methods take `&self` (an immutable
+// borrow): the mutation is interior, which is exactly what lets an immutable
+// static be updated. Being a struct of a Sync field (Int), Atomic<Int> is
+// itself Send+Sync by the ordinary structural derivation.
+struct Atomic<T> {
+    value: T
+}
+
+extension Atomic<T> {
+    // Atomic load (seq_cst). Returns the current value.
+    func load(&self) -> T { self.value }
+    // Atomic store (seq_cst) of `v`.
+    func store(&self, v: T) { }
+    // Atomic read-modify-write add (seq_cst). Returns the PREVIOUS value.
+    func fetch_add(&self, v: T) -> T { self.value }
+    // Atomic compare-and-swap (seq_cst). Sets value to `desired` iff it currently
+    // equals `expected`; returns whether the swap happened.
+    func compare_exchange(&self, expected: T, desired: T) -> Bool { true }
+}
+
+// =============================================================================
 // Iterator Support
 // =============================================================================
 

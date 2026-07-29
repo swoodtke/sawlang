@@ -12,13 +12,15 @@ Usage:
 from typing import Dict
 from ast_nodes import (
     TypeDefinition, Struct, Enum, Trait, Function, Extension, Method, Parameter,
-    SawType, TypeKind, Visibility,
-    Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr
+    StaticDecl, SawType, TypeKind, Visibility,
+    Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr,
+    IntLiteral, FloatLiteral, BoolLiteral, UnaryOp, ArrayLiteral, StructInit,
+    FunctionCall
 )
 from errors import ErrorKind
 from namespace import (
     SymbolKind, FunctionSymbol, StructSymbol, EnumSymbol, TraitSymbol,
-    TypeAliasSymbol, TraitMethodSymbol
+    TypeAliasSymbol, TraitMethodSymbol, StaticSymbol
 )
 
 
@@ -424,6 +426,126 @@ class RegistrationMixin:
             is_variadic=extern_func.is_variadic,
             is_blocking=getattr(extern_func, 'is_blocking', False)
         ))
+
+    def _register_static(self, static: StaticDecl):
+        """Register and validate a module-level `static` declaration (design 41).
+
+        Enforces the ratified statics semantics (design 19 open-questions block):
+        the initializer must be a compile-time constant, the type must be `Sync`,
+        and the type must not be `Deinit` (statics are immortal — never run
+        deinit). There is no `static mut`; the no-mutation rule is enforced at
+        assignment / `&var` lend sites, not here.
+        """
+        if self.namespace.has_static(static.name):
+            self._error(
+                ErrorKind.DUPLICATE_FUNCTION,
+                f"static `{static.name}` is defined multiple times",
+                static.line, static.column, source_file=static.source_file
+            )
+            return
+
+        resolved_type = self._resolve_type(static.type)
+
+        # Const-init only. A bare declaration (no initializer) is a zero-init,
+        # permitted only for POD / fixed-array statics (design 41 item 2: no
+        # repeat-literal exists, so bare zero-init is the chosen mechanism for
+        # large zero regions like slab buffers).
+        if static.initializer is None:
+            if not self._is_zero_initable_type(resolved_type):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"static `{static.name}` needs an initializer: only POD and "
+                    f"fixed-array statics may be declared without one (zero-init)",
+                    static.line, static.column, source_file=static.source_file,
+                    hint="add `= <constant>`, or use a POD / `[T; N]` type for a "
+                         "bare zero-initialized static"
+                )
+        else:
+            # Type-check the initializer in a fresh empty scope (a static's
+            # initializer can reference no locals) so its expressions are
+            # annotated (resolved_type, is_atomic_construct) for codegen, and so
+            # the const-init walk sees checked nodes.
+            saved_scope = self.current_scope
+            self.current_scope = type(saved_scope)()
+            init_type = self._check_expression(static.initializer)
+            self.current_scope = saved_scope
+            if init_type is not None and not self._types_compatible(resolved_type, init_type):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"static `{static.name}` has type `{resolved_type}` but its "
+                    f"initializer has type `{init_type}`",
+                    static.line, static.column, source_file=static.source_file
+                )
+            if not self._is_const_init(static.initializer):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"static `{static.name}` must be initialized by a compile-time "
+                    f"constant",
+                    static.line, static.column, source_file=static.source_file,
+                    hint="statics allow only literals, POD struct literals with "
+                         "constant fields, constant fixed-array literals, and "
+                         "`Atomic(<int>)`; function calls, String, and heap types "
+                         "are not const-initializable"
+                )
+
+        # Sync-only: a static is reachable from every task, so its type must be
+        # Sync (design 21 structural derivation).
+        if not self.namespace.is_sync(resolved_type):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"static `{static.name}` has non-Sync type `{resolved_type}`; "
+                f"statics must be Sync (shared across all tasks)",
+                static.line, static.column, source_file=static.source_file,
+                hint="use a Sync type — mutation of global state flows only "
+                     "through interior-synchronized types like `Atomic<Int>`"
+            )
+
+        # Immortal: statics never run deinit. Const-init already excludes Deinit
+        # types in practice (String/heap types are not const-initializable); this
+        # asserts it rather than building deinit glue for globals.
+        if self._is_deinit_type(resolved_type):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"static `{static.name}` has type `{resolved_type}`, which owns a "
+                f"resource (Deinit); statics are immortal and never run deinit",
+                static.line, static.column, source_file=static.source_file
+            )
+
+        static.type = resolved_type  # record resolved type for codegen
+        self.namespace.register_static(static.name, StaticSymbol(
+            type=resolved_type,
+            mangled_name=f"saw.static.{static.name}",
+            visibility=getattr(static, 'visibility', Visibility.PRIVATE),
+            line=static.line,
+            column=static.column
+        ))
+
+    def _is_zero_initable_type(self, t: SawType) -> bool:
+        """Whether a bare (initializer-less) static of type `t` is allowed —
+        i.e. `t` is POD (trivially copyable) or a fixed array of a POD element."""
+        if t is None:
+            return False
+        if t.kind == TypeKind.ARRAY:
+            return t.array_element_type is not None and \
+                self._is_zero_initable_type(t.array_element_type)
+        return self.namespace.is_trivially_copyable(t)
+
+    def _is_const_init(self, expr) -> bool:
+        """Whether `expr` is a compile-time constant static initializer
+        (design 41 item 2): literals, a negated numeric literal, POD struct
+        literals with constant fields, constant fixed-array literals, and the
+        compiler-known `Atomic(<int>)` construction."""
+        if isinstance(expr, (IntLiteral, FloatLiteral, BoolLiteral)):
+            return True
+        if isinstance(expr, UnaryOp) and expr.op == '-':
+            return isinstance(expr.operand, (IntLiteral, FloatLiteral))
+        if isinstance(expr, ArrayLiteral):
+            return all(self._is_const_init(e) for e in expr.elements)
+        if isinstance(expr, StructInit):
+            return all(self._is_const_init(v) for _n, v in expr.field_inits)
+        if isinstance(expr, FunctionCall) and getattr(expr, 'is_atomic_construct', False):
+            return all(self._is_const_init(a.value) for a in expr.arguments)
+        return False
 
     # Built-in type names that indicate specialization when used in extension type params
     BUILTIN_TYPE_NAMES = {

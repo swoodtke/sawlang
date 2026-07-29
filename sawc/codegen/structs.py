@@ -93,6 +93,14 @@ class StructsMixin:
 
     def _generate_member_access(self, expr: MemberAccess):
         """Generate code for member access on structs or enum variant access."""
+        # Module-qualified static read (design 41): `mod.NAME`. The typechecker
+        # tagged the member; codegen resolves the static by simple name in the
+        # merged module and loads through its global.
+        static_name = getattr(expr, 'resolved_static_name', None)
+        if static_name is not None and static_name in self.static_globals:
+            gv = self.static_globals[static_name]
+            return self.builder.load(gv, name=static_name)
+
         # Special case: EnumName.VariantName (simple variant with no associated values)
         # Check both concrete enums and generic enums
         if isinstance(expr.object, Identifier):

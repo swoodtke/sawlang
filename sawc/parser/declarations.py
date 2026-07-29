@@ -16,7 +16,7 @@ from ast_nodes import (
     Enum, EnumVariant,
     Trait, TraitMethod, AssociatedType,
     Extension, Method, TypeAssignment, TypeDefinition,
-    ExternBlock, ExternFunction,
+    ExternBlock, ExternFunction, StaticDecl,
     SawType, TypeKind, Visibility, TypeParameter
 )
 
@@ -385,6 +385,38 @@ class DeclarationsMixin:
             visibility=visibility,
             line=start.line,
             column=start.column
+        )
+
+    def parse_static(self, visibility: Visibility = Visibility.PRIVATE) -> 'StaticDecl':
+        """Parse a module-level static declaration (design 41):
+
+            static NAME: Type = initializer
+            static NAME: Type            (bare zero-init, POD/array only)
+
+        The initializer is optional to support bare zero-init for POD and
+        fixed-array statics (slab regions need large zero arrays); the
+        typechecker enforces the const-init and Sync-only constraints.
+        """
+        start = self.current()
+        self.expect(TokenType.STATIC)
+
+        name_token = self.expect(TokenType.IDENT, "Expected static name")
+        self.expect(TokenType.COLON, "Expected ':' after static name")
+        static_type = self.parse_type()
+
+        initializer = None
+        if self.match(TokenType.ASSIGN):
+            self.advance()  # consume '='
+            initializer = self.parse_expression()
+
+        return StaticDecl(
+            name=name_token.value,
+            type=static_type,
+            initializer=initializer,
+            visibility=visibility,
+            line=start.line,
+            column=start.column,
+            source_file=self.source_file
         )
 
     def parse_extern_block(self) -> ExternBlock:

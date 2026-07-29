@@ -15,7 +15,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, GuardLetStatement,
     BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, RangeExpr,
-    Identifier, MemberAccess, ArrayIndex, MoveExpr, IntLiteral,
+    Identifier, MemberAccess, ArrayIndex, TupleIndex, MoveExpr, IntLiteral,
     SawType, TypeKind,
     ResultOkWrap, ResultErrWrap, OptionalWrap
 )
@@ -742,8 +742,43 @@ class StatementsMixin:
             return expr.name
         return None
 
+    def _assign_target_static_root(self, target) -> Optional[str]:
+        """If an assignment target's root is a module-level static, return its
+        name; else None. Statics are immutable (design 41): a whole/field/element
+        write to one is rejected."""
+        node = target
+        while True:
+            if isinstance(node, Identifier):
+                if (self.current_scope.lookup(node.name) is None
+                        and self.namespace.get_static(node.name) is not None):
+                    return node.name
+                return None
+            if isinstance(node, MemberAccess):
+                node = node.object
+            elif isinstance(node, ArrayIndex):
+                node = node.array_expr
+            elif isinstance(node, TupleIndex):
+                node = node.tuple_expr
+            else:
+                return None
+
     def _check_assign_statement(self, stmt: AssignStatement):
         """Check an assignment statement."""
+        # Statics are immutable (design 41): reject any write whose root is a
+        # static — whole (`S = x`), field (`S.f = x`), or element (`S[i] = x`).
+        # The rule keys on assignment; interior-mutable METHOD calls
+        # (`S.fetch_add(1)`) are the sanctioned mutation path and are untouched.
+        static_root = self._assign_target_static_root(stmt.target)
+        if static_root is not None:
+            self._error(
+                ErrorKind.IMMUTABLE_ASSIGNMENT,
+                f"cannot assign to static `{static_root}`: statics are immutable",
+                stmt.line, stmt.column,
+                hint="use an interior-synchronized type (e.g. `Atomic<Int>`) and "
+                     "mutate through its methods"
+            )
+            return
+
         # Handle both simple variable assignment and field assignment
         if isinstance(stmt.target, Identifier):
             # Simple variable assignment: x = value
@@ -936,6 +971,19 @@ class StatementsMixin:
         - Mutable struct fields (if the struct binding is mutable)
         - Mutable array elements (if the array binding is mutable)
         """
+        # Statics are immutable (design 41): `S += 1` and friends are rejected
+        # for the same reason as a plain assignment.
+        static_root = self._assign_target_static_root(stmt.target)
+        if static_root is not None:
+            self._error(
+                ErrorKind.IMMUTABLE_ASSIGNMENT,
+                f"cannot assign to static `{static_root}`: statics are immutable",
+                stmt.line, stmt.column,
+                hint="use an interior-synchronized type (e.g. `Atomic<Int>`) and "
+                     "mutate through its methods"
+            )
+            return
+
         # Get target type
         target_type = self._check_expression(stmt.target)
         if target_type is None:

@@ -91,6 +91,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Function table
         self.functions: dict = {}
 
+        # Module-level static globals (design 41): simple name -> LLVM
+        # GlobalVariable. Reads of a static load through the matching global.
+        self.static_globals: dict = {}
+
         # Struct types (name -> (LLVM type, field_order))
         self.struct_types: dict = {}
 
@@ -671,6 +675,91 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.fence(ordering='acquire')
         b.ret_void()
 
+    def _static_mangled_name(self, name: str) -> str:
+        """The LLVM global name for a static (design 41). Prefixed so it never
+        clashes with a like-named function in the shared LLVM value symbol
+        table."""
+        return f"saw.static.{name}"
+
+    def _type_has_interior_mutability(self, saw_type) -> bool:
+        """Whether a static of `saw_type` must be a NON-constant global — i.e. it
+        contains an `Atomic` cell somewhere. Immutable POD statics are emitted as
+        `global_constant` (rodata-eligible); interior-mutable ones are not."""
+        if saw_type is None:
+            return False
+        if saw_type.kind == TypeKind.STRUCT:
+            if saw_type.struct_name == "Atomic":
+                return True
+            base = saw_type.struct_name
+            fields = self.namespace.get_struct_fields(base)
+            if fields:
+                return any(self._type_has_interior_mutability(ft)
+                           for ft in fields.values())
+            return False
+        if saw_type.kind == TypeKind.ARRAY:
+            return self._type_has_interior_mutability(saw_type.array_element_type)
+        return False
+
+    def _const_from_expr(self, expr, saw_type):
+        """Build an LLVM constant for a static initializer (design 41 item 2).
+
+        Handles exactly the const-init forms the typechecker admits: numeric /
+        Bool literals, a negated numeric literal, constant fixed-array literals,
+        POD struct literals with constant fields, and `Atomic(<int>)`. `saw_type`
+        drives the target LLVM type (widths, aggregate layout).
+        """
+        from ast_nodes import (IntLiteral, FloatLiteral, BoolLiteral, UnaryOp,
+                                ArrayLiteral, StructInit, FunctionCall)
+        llvm_type = self._get_llvm_type(saw_type)
+        if isinstance(expr, IntLiteral):
+            return ir.Constant(llvm_type, expr.value)
+        if isinstance(expr, FloatLiteral):
+            return ir.Constant(llvm_type, expr.value)
+        if isinstance(expr, BoolLiteral):
+            return ir.Constant(llvm_type, 1 if expr.value else 0)
+        if isinstance(expr, UnaryOp) and expr.op == '-':
+            return ir.Constant(llvm_type, -expr.operand.value)
+        if isinstance(expr, ArrayLiteral):
+            elem_saw = saw_type.array_element_type
+            elems = [self._const_from_expr(e, elem_saw) for e in expr.elements]
+            return ir.Constant(llvm_type, elems)
+        if isinstance(expr, FunctionCall) and getattr(expr, 'is_atomic_construct', False):
+            # Atomic<Int> is `{ i64 }`; initialize the value slot.
+            val = self._const_from_expr(expr.arguments[0].value, SawType(TypeKind.INT))
+            return ir.Constant(llvm_type, [val])
+        if isinstance(expr, StructInit):
+            base = saw_type.struct_name
+            field_order = self.struct_types[base][1]
+            fields = self.namespace.get_struct_fields(base) or {}
+            by_name = {n: v for n, v in expr.field_inits}
+            elems = [self._const_from_expr(by_name[fn], fields[fn]) for fn in field_order]
+            return ir.Constant(llvm_type, elems)
+        raise ValueError(f"non-constant static initializer: {type(expr).__name__}")
+
+    def _emit_static_global(self, static):
+        """Emit the LLVM global for one module-level static (design 41 item 3).
+
+        Immutable POD statics become `global_constant` globals (rodata); a static
+        whose type carries an `Atomic` cell is a mutable global (its cell is
+        written in place via atomics). A bare declaration (no initializer) is a
+        `zeroinitializer`. Reads resolve through `self.static_globals`.
+        """
+        llvm_type = self._get_llvm_type(static.type)
+        gname = self._static_mangled_name(static.name)
+        gv = ir.GlobalVariable(self.module, llvm_type, name=gname)
+        gv.linkage = 'internal'  # module-local; ABI identity is the mangled name
+
+        if static.initializer is None:
+            gv.initializer = ir.Constant(llvm_type, None)  # zeroinitializer
+        else:
+            gv.initializer = self._const_from_expr(static.initializer, static.type)
+
+        # Interior-mutable statics (Atomic) must stay writable; pure POD statics
+        # are constant and rodata-eligible.
+        gv.global_constant = not self._type_has_interior_mutability(static.type)
+
+        self.static_globals[static.name] = gv
+
     def _declare_pthread_runtime(self):
         """Emit thin pthread wrappers the concurrency stdlib links against
         (design 21 item 4). These exist so the stdlib never has to spell a NULL
@@ -871,6 +960,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         for extension in program.extensions:
             if not extension.type_params:
                 self._declare_extension_methods(extension)
+
+        # Emit module-level static globals (design 41). Done after types/functions
+        # are declared so const initializers can reference them; before function
+        # bodies so reads resolve.
+        for static in getattr(program, 'statics', []):
+            self._emit_static_global(static)
 
         # Fifth pass: generate function bodies (skip generic functions)
         for func in program.functions:
@@ -1383,6 +1478,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def visit_Identifier(self, expr: Identifier):
         if expr.name not in self.variables:
+            # Module-level static (design 41): load through its global.
+            if expr.name in self.static_globals:
+                gv = self.static_globals[expr.name]
+                return self.builder.load(gv, name=expr.name)
             raise ValueError(f"Undefined variable: {expr.name}")
 
         # Check if this is a reference type - if so, auto-dereference

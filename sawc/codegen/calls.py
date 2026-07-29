@@ -47,6 +47,16 @@ class CallsMixin:
         if expr.name == "__test_suspend":
             return None
 
+        # Atomic construction (design 41 item 4): `Atomic(<int>)` builds the
+        # `{ i64 }` cell value. The typechecker tagged this call.
+        if getattr(expr, 'is_atomic_construct', False):
+            atomic_saw = SawType(TypeKind.STRUCT, struct_name="Atomic",
+                                 type_args=[SawType(TypeKind.INT)])
+            atomic_llvm = self._get_llvm_type(atomic_saw)
+            val = self._generate_expression(expr.arguments[0].value)
+            cell = ir.Constant(atomic_llvm, ir.Undefined)
+            return self.builder.insert_value(cell, val, 0, name="atomic_new")
+
         # Handle built-in print function
         if expr.name == "print":
             return self._generate_print(expr.arguments)
@@ -306,6 +316,16 @@ class CallsMixin:
         if getattr(expr, 'is_field_call', False):
             return self._generate_field_call(expr)
 
+        # Atomic<Int> methods (design 41 item 4): lowered directly to seq_cst
+        # LLVM atomics on the cell, bypassing the (dead) stub method bodies.
+        # Interior mutability is the sanctioned mutation path — this fires on a
+        # METHOD call, never touching the item-2 no-assignment rule.
+        recv_saw = getattr(expr.object, 'resolved_type', None)
+        if (recv_saw is not None and recv_saw.kind == TypeKind.STRUCT
+                and recv_saw.struct_name == "Atomic"
+                and expr.method_name in ("load", "store", "fetch_add", "compare_exchange")):
+            return self._generate_atomic_method(expr, recv_saw)
+
         # Check if this is a nested module function call: Parent.Child.symbol(args)
         if isinstance(expr.object, MemberAccess):
             # Check if it's a chain of module accesses
@@ -530,6 +550,64 @@ class CallsMixin:
 
         # Call the method
         return self.builder.call(method_func, args, name="methodcall")
+
+    def _atomic_cell_pointer(self, obj_expr):
+        """Return an `i64*` pointing at an Atomic receiver's cell (its `value`
+        field), for in-place atomic ops. The receiver must be an lvalue — a
+        static, a local/self binding, or a struct field — which is exactly how
+        atomics are used; a temporary receiver is spilled to a slot (its atomicity
+        is then vacuous, but the code stays total)."""
+        if isinstance(obj_expr, Identifier):
+            if obj_expr.name in self.variables:
+                struct_ptr = self.variables[obj_expr.name]
+            elif obj_expr.name in self.static_globals:
+                struct_ptr = self.static_globals[obj_expr.name]
+            else:
+                raise ValueError(f"Undefined Atomic receiver: {obj_expr.name}")
+        elif isinstance(obj_expr, SelfExpr):
+            struct_ptr = self.variables["self"]
+        elif isinstance(obj_expr, MemberAccess):
+            struct_ptr = self._get_member_pointer(obj_expr)
+        else:
+            val = self._generate_expression(obj_expr)
+            struct_ptr = self._entry_alloca(val.type, name="atomic_tmp")
+            self.builder.store(val, struct_ptr)
+        # self.variables may hold a pointer-to-pointer for a `&var self` receiver;
+        # deref one level if the pointee is itself a pointer to the struct.
+        if isinstance(struct_ptr.type.pointee, ir.PointerType):
+            struct_ptr = self.builder.load(struct_ptr, name="atomic_self_deref")
+        zero = ir.Constant(ir.IntType(32), 0)
+        return self.builder.gep(struct_ptr, [zero, zero], inbounds=True, name="atomic_cell")
+
+    def _generate_atomic_method(self, expr: MethodCall, recv_saw):
+        """Lower an Atomic<Int> method to a seq_cst LLVM atomic (design 41 item 4).
+
+        Ordering choice: sequentially-consistent for every operation — the
+        simplest correct default (Rust's `Ordering::SeqCst`), sufficient for the
+        deterministic counter tests; relaxed/acq-rel refinements are future work.
+        `fetch_add` returns the PREVIOUS value; `compare_exchange` returns the
+        success flag.
+        """
+        cell = self._atomic_cell_pointer(expr.object)
+        method = expr.method_name
+        if method == "load":
+            return self.builder.load_atomic(cell, ordering='seq_cst', align=8,
+                                            name="atomic_load")
+        if method == "store":
+            val = self._generate_expression(expr.arguments[0].value)
+            self.builder.store_atomic(val, cell, ordering='seq_cst', align=8)
+            return None
+        if method == "fetch_add":
+            val = self._generate_expression(expr.arguments[0].value)
+            return self.builder.atomic_rmw('add', cell, val, ordering='seq_cst',
+                                           name="atomic_fetch_add")
+        if method == "compare_exchange":
+            expected = self._generate_expression(expr.arguments[0].value)
+            desired = self._generate_expression(expr.arguments[1].value)
+            pair = self.builder.cmpxchg(cell, expected, desired, ordering='seq_cst',
+                                        name="atomic_cmpxchg")
+            return self.builder.extract_value(pair, 1, name="atomic_cmpxchg_ok")
+        raise ValueError(f"unknown Atomic method: {method}")
 
     def _generate_spawn(self, expr: FunctionCall):
         """Lower `spawn { ... }` to a pthread launch (design 21 item 5, 21b).

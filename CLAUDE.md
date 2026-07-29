@@ -289,7 +289,13 @@ The compiler currently supports:
 - Law of Exclusivity: static "many readers XOR one writer" check on `&var` paths
 - `Deinit` with automatic LIFO cleanup (manual `deinit()` calls are rejected)
 - Reference parameters `&T` / `&var T` (mutate via compound assignment; no escape)
-- String: immutable, reference-counted (atomic refcount), O(1) `len()`, always
+- String: immutable, reference-counted (atomic refcount), O(1) `len()`
+- Module-level `static NAME: T = init` (+ `public`): const-initialized,
+  Sync-only, immutable (no `static mut`), immortal (never deinit). POD/array
+  statics may be bare-declared (zero-init). `Atomic<Int>` is the sanctioned
+  interior-mutable primitive (`load`/`store`/`fetch_add`/`compare_exchange`,
+  seq_cst) — usable as a static and a struct field; mutating METHODS through an
+  immutable static are the one allowed mutation path (design 41), always
   valid UTF-8 (literals validated at lex time; `String.fromBytes(&Data) ->
   Result<String, Utf8Error>` validates at runtime). `bytes()`/`chars()` iterator
   views (chars yields Int scalars — no `Char` type yet); `withCString { ptr in

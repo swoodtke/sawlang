@@ -1,0 +1,32 @@
+// Atomic<Int> static counter (design 41 item 4): const-initialized from
+// `Atomic(0)`, mutated through interior-mutable methods from main. The
+// no-mutation rule keys on assignment, so these METHOD calls are the sanctioned
+// mutation path. Also exercises Atomic<Int> as a struct field.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 5
+// 99
+// true
+// 7
+// 3
+
+static COUNTER: Atomic<Int> = Atomic(0)
+
+struct Stats { hits: Atomic<Int> }
+
+func main() {
+    let old = COUNTER.fetch_add(5)   // returns previous value 0
+    print(old)                       // 0
+    print(COUNTER.load())            // 5
+    COUNTER.store(99)
+    print(COUNTER.load())            // 99
+    let ok = COUNTER.compare_exchange(99, 7)
+    print(ok)                        // true
+    print(COUNTER.load())            // 7
+
+    // Atomic<Int> usable as a struct field.
+    let s = Stats(hits: Atomic(1))
+    s.hits.fetch_add(2)
+    print(s.hits.load())             // 3
+}

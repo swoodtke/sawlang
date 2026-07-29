@@ -1087,6 +1087,25 @@ class TypeDefinition(ASTNode):
 
 
 @dataclass
+class StaticDecl(ASTNode):
+    """Module-level static declaration: static NAME: Type = initializer (design 41).
+
+    Statics are Sync-only, const-initialized, immortal (never deinit), and there
+    is NO `static mut` — global mutation flows only through interior-synchronized
+    types (e.g. Atomic<Int>). `initializer` is None for a bare zero-init
+    declaration (`static BUF: [Int8; 4096]`), which is only permitted for POD /
+    fixed-array statics.
+    """
+    name: str
+    type: 'SawType'
+    initializer: Optional['Expression'] = None
+    visibility: 'Visibility' = Visibility.PRIVATE
+    line: int = 0
+    column: int = 0
+    source_file: str = ""
+
+
+@dataclass
 class ExternFunction(ASTNode):
     """External function declaration (no body) for FFI."""
     name: str
@@ -1119,6 +1138,7 @@ class Program(ASTNode):
     traits: List[Trait] = field(default_factory=list)
     type_definitions: List[TypeDefinition] = field(default_factory=list)
     extern_blocks: List[ExternBlock] = field(default_factory=list)
+    statics: List['StaticDecl'] = field(default_factory=list)
     # Module system
     imports: List['ImportDecl'] = field(default_factory=list)
     module_decls: List['ModuleDecl'] = field(default_factory=list)

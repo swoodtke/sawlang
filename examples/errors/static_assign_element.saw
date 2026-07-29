@@ -1,0 +1,8 @@
+// Statics are immutable (design 41): an element write to a static array is
+// rejected too.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to static `TABLE`: statics are immutable
+
+static TABLE: [Int; 3] = [1, 2, 3]
+
+func main() { TABLE[0] = 9 }

@@ -148,7 +148,20 @@ runtime.
   rule): statics must be `Sync`, const-initialized, immortal (never
   deinit), and there is NO `static mut`, ever.** Mutation of global state
   flows only through interior-synchronized types (`Mutex<T>`, `Atomic<T>`,
-  future `Once`/`Lazy<T>`). This satisfies paper 08's recorded global-
+  future `Once`/`Lazy<T>`).
+  **LANDED (brief 41):** `static NAME: T = init` (and `public static`) ship
+  with exactly these semantics — const-init (literals, POD struct literals,
+  constant fixed-array literals, `Atomic(<int>)`; bare POD/array declarations
+  zero-init, since no `[0; N]` repeat literal exists), Sync-only structural
+  check, assignment/`&var`-lend rejection (`&STATIC` immutable lends are fine),
+  and no deinit registration. A minimal `Atomic<Int>` landed alongside as the
+  first interior-synchronized primitive (seq_cst `load`/`store`/`fetch_add`/
+  `compare_exchange`; usable as a static and a struct field), and the UInt
+  division/modulo signedness bug (L13) was fixed. Codegen emits POD statics as
+  `internal constant` globals (rodata) and interior-mutable ones as mutable
+  globals; verified under `--freestanding` cross-triple object emission (statics
+  land in `.rodata`/`.bss`). Same-named statics across two modules follow the
+  design-26 identity/collision rule (reported as an ambiguity at merge). This satisfies paper 08's recorded global-
   reachability constraint and makes "all shared mutable state is mediated"
   a language-level theorem — the enabling condition for paper 18's
   colorless option. Known implications (none unrepresentable, three need

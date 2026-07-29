@@ -633,6 +633,10 @@ class OperatorsMixin:
             # Reference to a variable - return its alloca
             var_name = inner_expr.name
             if var_name not in self.variables:
+                # `&STATIC` (design 41): an immutable lend of a module static
+                # yields a pointer to its global.
+                if var_name in self.static_globals:
+                    return self.static_globals[var_name]
                 raise ValueError(f"Undefined variable: {var_name}")
             return self.variables[var_name]
         elif isinstance(inner_expr, SelfExpr):

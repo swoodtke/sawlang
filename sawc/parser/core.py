@@ -176,7 +176,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         t = self.current()
         if t.type in (TokenType.FUNC, TokenType.STRUCT, TokenType.ENUM,
                       TokenType.EXTENSION, TokenType.TRAIT, TokenType.TYPE,
-                      TokenType.EXTERN, TokenType.PUBLIC):
+                      TokenType.EXTERN, TokenType.STATIC, TokenType.PUBLIC):
             return True
         if t.type == TokenType.IDENT and t.value in ("import", "module", "export"):
             return True
@@ -245,8 +245,10 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                     p.functions.append(self.parse_function(visibility))
                 elif self.match(TokenType.TYPE):
                     p.type_definitions.append(self.parse_type_definition(visibility))
+                elif self.match(TokenType.STATIC):
+                    p.statics.append(self.parse_static(visibility))
                 else:
-                    self.error(f"Expected struct, enum, trait, extension, func, or type after visibility modifier")
+                    self.error(f"Expected struct, enum, trait, extension, func, type, or static after visibility modifier")
         elif self.match_ident("module"):
             p.module_decls.append(self.parse_module_decl())
         elif self.match(TokenType.STRUCT):
@@ -263,6 +265,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             p.type_definitions.append(self.parse_type_definition())
         elif self.match(TokenType.EXTERN):
             p.extern_blocks.append(self.parse_extern_block())
+        elif self.match(TokenType.STATIC):
+            p.statics.append(self.parse_static())
         else:
             self.error(f"Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got {self.current().type.name}")
 

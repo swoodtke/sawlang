@@ -1,0 +1,13 @@
+// Cross-module static collision (design 41 hazard / design 26 identity rules):
+// two imported modules each define a distinct `public static SHARED`, so a bare
+// reference is an unresolvable ambiguity — reported at merge time, exactly like
+// two modules exporting the same function name.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous static `SHARED`
+
+import static_dup_a
+import static_dup_b
+
+func main() {
+    print(static_dup_a.SHARED)
+}

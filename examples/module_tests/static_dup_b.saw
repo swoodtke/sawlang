@@ -1,0 +1,4 @@
+// The other library module defining a public static `SHARED`.
+// EXPECT: skip
+
+public static SHARED: Int = 2

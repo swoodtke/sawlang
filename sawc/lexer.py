@@ -47,6 +47,7 @@ class TokenType(Enum):
     AS = auto()      # 'as' for type casting
     TRY = auto()     # 'try' for error handling
     CATCH = auto()   # 'catch' for error handling
+    STATIC = auto()  # 'static' for module-level static declarations (design 41)
 
     # Module system keywords
     MODULE = auto()   # 'module' for module declarations
@@ -153,6 +154,7 @@ KEYWORDS = {
     'as': TokenType.AS,
     'try': TokenType.TRY,
     'catch': TokenType.CATCH,
+    'static': TokenType.STATIC,
     # Module system
     # Note: 'module', 'import', and 'export' are NOT keywords - they are handled
     # specially by the parser only in specific syntactic positions to avoid
