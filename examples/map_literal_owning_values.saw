@@ -1,0 +1,33 @@
+// Design 61 L15: a map LITERAL with owning values must transfer each element
+// exactly once — no residual temp that drop glue also frees (the double-free
+// L15 describes) and no leak of the live entries. The literal lowers to
+// per-entry `insert` on a temp; the finished map is bound to `m`, and `m`'s
+// deinit (found via the default-filled `Map<Int, Val, Global>` identity) drops
+// each live value exactly once at scope end.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 0
+// 2
+
+static DROPS: Atomic<Int> = Atomic(0)
+
+struct Val { id: Int }
+extension Val: Deinit {
+    func deinit(&var self) { DROPS.fetch_add(1) }
+}
+extension Val: NoCopy {}
+
+func build() {
+    let m: Map<Int, Val> = {
+        1: Val(id: 10),
+        2: Val(id: 20)
+    }
+    print(m.len())          // 2
+    print(DROPS.load())     // 0 — no element dropped during construction
+}
+
+func main() {
+    build()
+    print(DROPS.load())     // 2 — both live values dropped once at scope end
+}

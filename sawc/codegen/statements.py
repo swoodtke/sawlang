@@ -130,8 +130,15 @@ class StatementsMixin:
         # Resolve type alias in annotation
         resolved_annotation = self._resolve_type_alias(stmt.type_annotation) if stmt.type_annotation else None
 
-        # Determine the variable type early for copy behavior
-        var_type = resolved_annotation if resolved_annotation else self._expr_type(stmt.value)
+        # Determine the variable type early for copy behavior. A written
+        # annotation may omit trailing default type args (`Map<Int, R>`) or tag an
+        # enum as STRUCT; canonicalize so the binding's kind/identity match the
+        # monomorphized type — otherwise its deinit/cleanup lookup misses (design
+        # 61): the element/buffer would leak at scope end.
+        if resolved_annotation is not None:
+            var_type = self._canonicalize_type_kind(resolved_annotation)
+        else:
+            var_type = self._expr_type(stmt.value)
 
         # Apply copy behavior for ImplicitCopy types when initializing from an existing value
         # (not for fresh struct/enum construction which doesn't need copying)

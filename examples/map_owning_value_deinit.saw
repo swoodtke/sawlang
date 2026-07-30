@@ -1,0 +1,35 @@
+// Design 61 L14: a `Map<Int, OwningV>` must drop each stored value exactly once
+// when it is destroyed — the backing `Vector<MapSlot>`'s deinit runs each
+// occupied slot's enum drop glue. Insert enough values to force several rehash
+// grows (cap 8 -> 16 -> 32); each grow MOVES slots (no drops during migration),
+// and the final deinit drops every value once. `DROPS` must equal the number of
+// inserted values, with none dropped early (grow is move-only).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// 0
+// 20
+
+static DROPS: Atomic<Int> = Atomic(0)
+
+struct Val { id: Int }
+extension Val: Deinit {
+    func deinit(&var self) { DROPS.fetch_add(1) }
+}
+
+func use_map() {
+    var m = Map<Int, Val>()
+    var i = 0
+    while i < 20 {
+        let v = Val(id: i)
+        m.insert(i, move v)          // grows across cap 8/16/32
+        i = i + 1
+    }
+    print(m.len())                    // 20
+    print(DROPS.load())               // 0 — nothing dropped during grow/insert
+}
+
+func main() {
+    use_map()
+    print(DROPS.load())               // 20 — every value dropped once at deinit
+}

@@ -1,0 +1,33 @@
+// Design 61 L14: a `Vector<enum>` whose enum variant carries an owning (Deinit)
+// payload must run each live element's enum drop glue when the vector dies.
+// Before the fix the substituted element type reached the drop-glue selection
+// tagged STRUCT (a type-arg default), so the enum tag-switch cleanup never ran
+// and every Occupied payload leaked. `Slot.Occupied(R)` here; two occupied
+// slots (7, 9) and one Empty go into a Vector, and both R payloads must drop
+// (after the 100 marker) when `v` is destroyed at end of main.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 100
+// 7
+// 9
+
+struct R { id: Int }
+extension R: Deinit {
+    func deinit(&var self) { print(self.id) }
+}
+
+enum Slot {
+    case Occupied(r: R),
+    case Empty
+}
+
+func main() {
+    var v = Vector<Slot>()
+    let s0 = Slot.Occupied(r: R(id: 7))
+    v.push(move s0)
+    let s1 = Slot.Empty
+    v.push(move s1)
+    let s2 = Slot.Occupied(r: R(id: 9))
+    v.push(move s2)
+    print(100)
+}

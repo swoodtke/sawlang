@@ -1,0 +1,18 @@
+// Design 61 L15: the collection-literal lowering consumes its element
+// expressions like ordinary `insert(move x)` calls, so a binding moved into the
+// literal is genuinely moved — using it afterward is a use-after-move error
+// (the value-transfer checkpoint still fires on the moved element bindings).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: moved
+
+struct Elem { id: Int }
+extension Elem: Deinit {
+    func deinit(&var self) { print(self.id) }
+}
+
+func main() {
+    let a = Elem(id: 1)
+    let b = Elem(id: 2)
+    let v: Vector<Elem> = [move a, move b]
+    print(a.id)   // use-after-move: `a` was moved into the literal
+}

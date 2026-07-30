@@ -1,0 +1,46 @@
+// Design 61 L14: `remove` and overwrite-`insert` on a `Map<Int, OwningV>` must
+// each release the departing value EXACTLY once — no double-free (the slot is
+// moved out with `swap_out`, so the value must not also drop in the map) and no
+// phantom drop during the probe (the inspection helpers read a non-retained
+// slot copy and must not release the live payload).
+//
+// remove(1) moves Val(10) out to `got`, dropped once at `got`'s scope end.
+// insert over key 2 returns the old Val(20), dropped once as the discarded
+// result. The survivors (Val 30, Val 99) drop at the map's own deinit.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 1
+// 2
+// 4
+
+static DROPS: Atomic<Int> = Atomic(0)
+
+struct Val { id: Int }
+extension Val: Deinit {
+    func deinit(&var self) { DROPS.fetch_add(1) }
+}
+
+func exercise() {
+    var m = Map<Int, Val>()
+    let a = Val(id: 10)
+    m.insert(1, move a)
+    let b = Val(id: 20)
+    m.insert(2, move b)
+    let c = Val(id: 30)
+    m.insert(3, move c)
+
+    if let got = m.remove(1) {         // moves Val(10) out of the map
+        print(got.id)                  // 10
+    }                                  // got drops Val(10) -> DROPS = 1
+    print(DROPS.load())                // 1
+
+    let d = Val(id: 99)
+    let _ = m.insert(2, move d)        // overwrite key 2 -> old Val(20) dropped
+    print(DROPS.load())                // 2 — old Val(20) released exactly once
+}
+
+func main() {
+    exercise()                         // map deinit drops Val(30) and Val(99)
+    print(DROPS.load())                // 4 total, each value released once
+}

@@ -72,9 +72,13 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = Global> {
     // (retained) copy of the slot and drops it — never consumes the table slot.
     func _slot_state(&self, idx: Int) -> Int {
         if let s = self.slots.get(idx) {
+            // A pure inspection: `s` is a by-value (non-retained) copy of the
+            // slot, so binding the owning payload here would drop that unowned
+            // copy and either double-free (an occupied slot stays live in the
+            // table) or miscount. Bind nothing — read only the tag.
             match s {
                 case Empty -> 0,
-                case Occupied(k, v) -> 1,
+                case Occupied(_, _) -> 1,
                 case Tombstone -> 2
             }
         } else {
@@ -86,8 +90,10 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = Global> {
     // like `_hash_code`.)
     func _key_eq(&self, idx: Int, key: K) -> Bool {
         if let s = self.slots.get(idx) {
+            // Inspection only (see `_slot_state`): bind the key to compare it,
+            // but never the owning value — `s` is a non-retained slot copy.
             match s {
-                case Occupied(k, v) -> k == key,
+                case Occupied(k, _) -> k == key,
                 case Empty -> false,
                 case Tombstone -> false
             }
@@ -149,9 +155,12 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = Global> {
                     while not found {
                         var is_empty = false
                         if let s = new_slots.get(b) {
+                            // Inspection only: `s` is a non-retained slot copy,
+                            // so never bind (and thus drop) the owning payload of
+                            // an already-placed entry — read the tag alone.
                             is_empty = match s {
                                 case Empty -> true,
-                                case Occupied(kk, vv) -> false,
+                                case Occupied(_, _) -> false,
                                 case Tombstone -> false
                             }
                         }

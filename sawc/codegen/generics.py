@@ -200,6 +200,78 @@ class GenericsMixin:
         else:
             return saw_type
 
+    def _canonicalize_type_kind(self, saw_type: SawType) -> SawType:
+        """Re-tag a type whose *kind* was left STRUCT but whose name actually
+        denotes an ENUM (design 61, L14).
+
+        A named type written in source (`Slot`, `MapSlot<K, V>`) is parsed as a
+        STRUCT-kinded `SawType` because the parser cannot know it is an enum. The
+        typechecker's `_resolve_type` rewrites such annotations to ENUM, but it
+        does NOT recurse through POINTER/ARRAY inner types, so a concrete type
+        argument that reaches codegen as a monomorphization binding (e.g. the `T`
+        of `Vector<Slot>`) can still be STRUCT-kinded. That wrong tag flows into
+        the monomorphization CONTEXT and then, via `_expr_type`, into the
+        drop-glue kind switch (`_emit_drop_at`), which selects struct field
+        cleanup instead of enum tag-switch cleanup — so owning enum payloads
+        (Map/Set slots, any `Vector<enum>`) never run their deinit.
+
+        Fixing the tag HERE — at the point the monomorphized binding is recorded
+        — keeps the enum an enum through every downstream site (container deinit,
+        remove/overwrite/grow) uniformly, rather than point-patching one cleanup
+        path. Mangling is kind-agnostic for named types (`mangle_named` keys on
+        the bare name), so this never splits or renames a monomorphization.
+        """
+        if saw_type is None:
+            return saw_type
+        kind = saw_type.kind
+        # An erased `Box<any Trait>` (design 51) is special: it never monomorphizes
+        # through box.saw and its identity/layout are handled by the existential
+        # path. Leave it byte-for-byte alone — appending its `Global` default here
+        # would change its mangled identity and desync its erased teardown.
+        if self._is_erased_box(saw_type):
+            return saw_type
+        if kind == TypeKind.STRUCT and saw_type.struct_name:
+            name = saw_type.struct_name
+            args = ([self._canonicalize_type_kind(a) for a in saw_type.type_args]
+                    if saw_type.type_args else saw_type.type_args)
+            # Fill omitted trailing defaults (design 37) so the canonical identity
+            # matches the monomorphized one — e.g. an annotation `Map<Int, R>`
+            # becomes `Map<Int, R, Global>`, so its deinit lookup resolves.
+            if args:
+                args = self._fill_default_type_args(name, args)
+            if name in self.generic_enums or name in self.enum_types:
+                return SawType(TypeKind.ENUM, enum_name=name, type_args=args,
+                               symbol=saw_type.symbol)
+            if args is not saw_type.type_args:
+                return SawType(TypeKind.STRUCT, struct_name=name, type_args=args,
+                               symbol=saw_type.symbol)
+            return saw_type
+        if kind == TypeKind.ENUM and saw_type.type_args:
+            args = [self._canonicalize_type_kind(a) for a in saw_type.type_args]
+            args = self._fill_default_type_args(saw_type.enum_name, args)
+            return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name,
+                           type_args=args, symbol=saw_type.symbol)
+        if kind == TypeKind.OPTIONAL and saw_type.inner_type:
+            return SawType(TypeKind.OPTIONAL,
+                           inner_type=self._canonicalize_type_kind(saw_type.inner_type))
+        if kind == TypeKind.POINTER and saw_type.inner_type:
+            return SawType(TypeKind.POINTER,
+                           inner_type=self._canonicalize_type_kind(saw_type.inner_type),
+                           pointer_mutable=saw_type.pointer_mutable)
+        if kind == TypeKind.REFERENCE and saw_type.inner_type:
+            return SawType(TypeKind.REFERENCE,
+                           inner_type=self._canonicalize_type_kind(saw_type.inner_type),
+                           reference_mutable=saw_type.reference_mutable)
+        if kind == TypeKind.TUPLE and saw_type.element_types:
+            return SawType(TypeKind.TUPLE,
+                           element_types=[self._canonicalize_type_kind(e)
+                                          for e in saw_type.element_types])
+        if kind == TypeKind.ARRAY and saw_type.array_element_type:
+            return SawType(TypeKind.ARRAY,
+                           array_element_type=self._canonicalize_type_kind(saw_type.array_element_type),
+                           array_size=saw_type.array_size)
+        return saw_type
+
     def _ensure_monomorphized_struct(self, struct_name: str, type_args: List[SawType]) -> str:
         """Ensure a monomorphized version of a generic struct exists.
         Returns the mangled name of the monomorphized struct."""
@@ -207,6 +279,11 @@ class GenericsMixin:
         # the type mapping, so `Vector<Int>` binds A=Global (not leaving A
         # unbound) and produces the same struct identity as `Vector<Int, Global>`.
         type_args = self._fill_default_type_args(struct_name, type_args)
+        # design 61 (L14): re-tag any STRUCT-kinded arg that is really an enum so
+        # the binding stored in the monomorphization context carries kind ENUM,
+        # and enum drop glue is selected for owning enum-payload elements. Kind is
+        # not part of the mangling, so identity is unchanged.
+        type_args = [self._canonicalize_type_kind(a) for a in type_args]
         mangled_name = self._mangle_generic_struct_name(struct_name, type_args)
 
         # Already generated
@@ -260,6 +337,9 @@ class GenericsMixin:
         Returns the mangled name of the monomorphized enum."""
         # Design 37: fill omitted trailing type args from defaults (identity rule).
         type_args = self._fill_default_type_args(enum_name, type_args)
+        # design 61 (L14): re-tag STRUCT-kinded args that are really enums (e.g.
+        # a `MapSlot<K, V>` payload type) so nested enum drop glue is selected.
+        type_args = [self._canonicalize_type_kind(a) for a in type_args]
         mangled_name = self._mangle_generic_struct_name(enum_name, type_args)
 
         # Already generated

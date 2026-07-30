@@ -10,7 +10,7 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import MatchExpr, Block
+from ast_nodes import MatchExpr, Block, Identifier
 from .mangle import mangle_named
 
 
@@ -58,6 +58,43 @@ class MatchMixin:
                     enum_name = name
                     break
 
+        # Ownership model for an OWNED enum scrutinee (design 61, L14/L15).
+        #
+        # When the matched enum has variants carrying owning (cleanup-needing)
+        # payload, a `match owned_value { case V(a, b) -> ... }` CONSUMES the
+        # scrutinee: the payload's ownership passes to the arm's bindings. Each
+        # owning binding is registered for arm-scope cleanup, so a binding that
+        # is not `move`d out is dropped exactly once when the arm ends, and a
+        # `move`d one clears its drop flag (the normal conditional-move path) so
+        # ownership leaves cleanly. The scrutinee itself is then NOT dropped (its
+        # payload is gone), which is what makes Map/Set remove/overwrite/grow —
+        # all of which move a slot out and destructure it — release each value
+        # exactly once instead of double-freeing (scrutinee drop + moved copy).
+        #
+        # Gated to owning enums so payload-free / trivial enums (Ordering, the
+        # coroutine `__state`, Result<Int,Int>, ...) are completely unaffected.
+        variant_cleanup_info = {}
+        if enum_name and enum_name in self.enum_types:
+            variant_cleanup_info = self.enum_types[enum_name][2]
+        enum_has_owning = any(
+            any(self._needs_cleanup(ft) for _, ft in flds)
+            for flds in variant_cleanup_info.values()
+        )
+        # The scrutinee is consumable only when it is an owned binding in scope
+        # (a `let`/param/if-let local). A field/temporary/borrow is left alone.
+        consume_name = None
+        if (enum_has_owning and isinstance(expr.matched_expr, Identifier)
+                and expr.matched_expr.name in self.variables):
+            consume_name = expr.matched_expr.name
+        if consume_name is not None:
+            # Suppress the scrutinee's own drop on every path: its payload is
+            # handed to the arm bindings. Clear a runtime drop flag if present
+            # (conditional-move machinery) and mark it moved for the flat skip.
+            flag = self.drop_flags.get(consume_name)
+            if flag is not None:
+                self.builder.store(ir.Constant(ir.IntType(1), 0), flag)
+            self.moved_variables.add(consume_name)
+
         # Create basic blocks for each arm + merge block
         arm_blocks = []
         wildcard_block = None
@@ -96,6 +133,13 @@ class MatchMixin:
         for arm, arm_block in arm_blocks:
             self.builder.position_at_end(arm_block)
 
+            # When we take ownership of an owning scrutinee's payload (consume
+            # mode), each owning binding is registered into a per-arm cleanup
+            # scope so an un-`move`d binding drops exactly once at arm end and an
+            # early `return`/`break` cleans it via `_cleanup_all_scopes`.
+            arm_scope_pushed = False
+            owning_bindings = []
+
             # Extract and bind associated values if any (not for wildcard)
             if arm.variant_name != "_" and arm.bindings and not isinstance(matched_val.type, ir.IntType):
                 # Get variant info and enum type
@@ -116,6 +160,10 @@ class MatchMixin:
                                                   ir.PointerType(param_struct_type),
                                                   name="param_struct_ptr")
 
+                if consume_name is not None:
+                    self.cleanup_stack.append([])
+                    arm_scope_pushed = True
+
                 # Create variables for bindings
                 for i, binding_name in enumerate(arm.bindings):
                     # Extract field from struct
@@ -129,6 +177,21 @@ class MatchMixin:
                     var_alloca = self._entry_alloca(field_val.type, name=binding_name)
                     self.builder.store(field_val, var_alloca)
                     self.variables[binding_name] = var_alloca
+
+                    # In consume mode the binding OWNS its payload field: register
+                    # cleanup-needing bindings so they drop once at arm end unless
+                    # `move`d out (which clears the drop flag). The scrutinee's own
+                    # drop was already suppressed above. A `_` discard binding is
+                    # NOT registered: it names no value to own, so an owning field
+                    # matched `_` is simply not dropped here (used by the Map probe
+                    # helpers to inspect a by-value, non-retained slot copy without
+                    # releasing its live payload).
+                    if arm_scope_pushed and binding_name != "_" and i < len(variant_params):
+                        btype = variant_params[i][1]
+                        if self._needs_cleanup(btype):
+                            self.variable_types[binding_name] = btype
+                            self._register_cleanup(binding_name, btype)
+                            owning_bindings.append(binding_name)
 
             # Generate arm body
             if isinstance(arm.body, Block):
@@ -153,6 +216,18 @@ class MatchMixin:
                 else:
                     match_produces_value = True
 
+            # Drop the arm's owning bindings (consume mode): an un-`move`d binding
+            # is released here, exactly once. A terminated arm (return/break)
+            # already ran `_cleanup_all_scopes` over this scope, so just balance
+            # the stack. Done BEFORE reading the arm result into the phi so the
+            # cleanup precedes the branch.
+            if arm_scope_pushed:
+                if not self.builder.block.is_terminated:
+                    scope_vars = self.cleanup_stack.pop()
+                    self._cleanup_scope(scope_vars)
+                else:
+                    self.cleanup_stack.pop()
+
             # Only add to arm_results if block is not terminated (has a return)
             if not self.builder.block.is_terminated:
                 arm_results.append((arm_result, self.builder.block))
@@ -161,6 +236,9 @@ class MatchMixin:
             for binding_name in arm.bindings:
                 if binding_name in self.variables:
                     del self.variables[binding_name]
+            for binding_name in owning_bindings:
+                self.variable_types.pop(binding_name, None)
+                self.drop_flags.pop(binding_name, None)
 
             # Branch to merge block (only if block not already terminated)
             if not self.builder.block.is_terminated:
