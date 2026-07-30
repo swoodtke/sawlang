@@ -197,6 +197,71 @@ public extension Builder {
         }
     }
 
+    // Print the resolved dependency graph (design 64 B7).
+    func tree(&self) {
+        print("{self.manifest.name()} v{self.manifest.version()}")
+        match resolve(self.manifest) {
+            case Ok(res) -> {
+                if res.len() == 0 {
+                    print("  (no dependencies)")
+                }
+                var i = 0
+                while i < res.len() {
+                    print("  {res.name(i)} v{res.version(i)} ({res.kind(i)}: {res.loc(i)})")
+                    i = i + 1
+                }
+            },
+            case Err(e) -> print("error: {e.text()}")
+        }
+    }
+
+    // Append a dependency to Saw.toml and re-resolve/lock (design 64 B7).
+    func add_dep(&self, name: String, kind: String, loc: String, version: String) -> Result<Int, BuildError> {
+        let content = read_file("Saw.toml")
+        if content.is_empty() {
+            return BuildError(msg: "Saw.toml not found")
+        }
+
+        var b = StringBuilder()
+        b.append(content)
+        if not content.contains("[dependencies]") {
+            b.append("\n[dependencies]\n")
+        }
+        if kind.equals("git") {
+            if version.is_empty() {
+                b.append("{name} = \{ git = \"{loc}\" \}\n")
+            } else {
+                b.append("{name} = \{ git = \"{loc}\", version = \"{version}\" \}\n")
+            }
+        } else {
+            b.append("{name} = \{ path = \"{loc}\" \}\n")
+        }
+
+        let text = b.build()
+        guard let f = File.create(Path(s: "Saw.toml")) else {
+            return BuildError(msg: "could not write Saw.toml")
+        }
+        let data = text.to_data()
+        f.write(move data)
+
+        // Re-resolve against the freshly-written manifest and rewrite the lock.
+        match Manifest.load() {
+            case Ok(fresh) -> {
+                match resolve(fresh) {
+                    case Ok(res) -> {
+                        let mhash = manifest_deps_hash(fresh)
+                        let _ = write_lock(&res, mhash, Path(s: "Saw.lock"))
+                    },
+                    case Err(e) -> { return BuildError(msg: "resolve after add failed: {e.text()}") }
+                }
+            },
+            case Err(_) -> {}
+        }
+
+        print("      Added `{name}` to dependencies")
+        0
+    }
+
     // Build (never avoided) then run the resulting binary.
     func run(&self, args: Vector<String>) -> Result<Int, BuildError> {
         match self.build(true) {

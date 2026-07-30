@@ -10,6 +10,8 @@ public enum BladeCommand {
     case Run(args: Vector<String>),
     case Test,
     case New(name: String),
+    case Tree,
+    case Add(name: String, kind: String, loc: String, version: String),
     case Help,
     case Version,
     case Unknown(cmd: String)
@@ -71,6 +73,37 @@ public extension Cli {
             Cli(command: BladeCommand.Run(args: move run_args))
         } else if cmd.equals("test") {
             Cli(command: BladeCommand.Test)
+        } else if cmd.equals("tree") {
+            Cli(command: BladeCommand.Tree)
+        } else if cmd.equals("add") {
+            guard let name = args.get(2) else {
+                return ParseError(msg: "blade add requires a dependency name")
+            }
+            var kind = ""
+            var loc = ""
+            var version = ""
+            var i = 3
+            while i < args.len() {
+                if let a = args.get(i) {
+                    if a.equals("--path") {
+                        kind = "path"
+                        i = i + 1
+                        loc = args.get(i) ?? ""
+                    } else if a.equals("--git") {
+                        kind = "git"
+                        i = i + 1
+                        loc = args.get(i) ?? ""
+                    } else if a.equals("--version") {
+                        i = i + 1
+                        version = args.get(i) ?? ""
+                    }
+                }
+                i = i + 1
+            }
+            if kind.is_empty() {
+                return ParseError(msg: "blade add requires --path <dir> or --git <url>")
+            }
+            Cli(command: BladeCommand.Add(name: name, kind: kind, loc: loc, version: version))
         } else if cmd.equals("new") {
             guard let name = args.get(2) else {
                 return ParseError(msg: "blade new requires a project name")

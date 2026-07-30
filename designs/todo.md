@@ -129,6 +129,12 @@ Progress log (newest last):
   (CLI add/tree/timing) + B8 (self-hosting — but see DF9: importing the external
   semver package is compiler-blocked, so B8's blade-depends-on-semver plan needs
   a compiler fix first).
+- B7 landed: CLI polish — `blade tree` (prints the resolved graph: name version
+  (kind: loc)), `blade add <name> --path <dir> | --git <url> [--version <req>]`
+  (appends to Saw.toml [dependencies], re-resolves + writes lock), and per-test
+  timing in `blade test` output (`... ok (Nms)` via std.time Duration). Verified
+  via .build/scratch/run_tree_add.py. Blade tests 20 (timing added). Suite 765.
+  Next: B8 self-hosting (toml extraction + blade deps + bootstrap) — gated by DF9.
 
 ### Dogfood findings — design 64 (Blade)
 - **DF-GlobConf — FIXED (this brief, `typechecker/core.py`).** A glob import

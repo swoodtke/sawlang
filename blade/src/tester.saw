@@ -127,12 +127,16 @@ public extension Tester {
                         let name = entry.stem() ?? entry.as_str()
                         let bin = out_dir.join(name)
 
-                        if self.run_one(entry, bin, flags) {
+                        // Per-test timing (design 64 B7, std.time Duration).
+                        let t0 = Instant.now()
+                        let ok = self.run_one(entry, bin, flags)
+                        let dur = t0.elapsed()
+                        if ok {
                             passed = passed + 1
-                            print("test {name} ... ok")
+                            print("test {name} ... ok ({dur})")
                         } else {
                             failed_tests.insert(name, true)
-                            print("test {name} ... FAILED")
+                            print("test {name} ... FAILED ({dur})")
                         }
                     }
                 }
