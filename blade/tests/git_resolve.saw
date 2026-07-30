@@ -1,0 +1,56 @@
+// B5: the resolver resolves a GIT dependency end-to-end against a local file://
+// repo — ls-remote for tags, pick the highest satisfying ^1.0.0, clone the tag
+// into .blade/deps/, and record (version, git source, rev). No network.
+import src.resolver.*
+import src.manifest.*
+
+extern "C" {
+    func system(command: UnsafePointer<Int8>) -> Int32
+}
+
+func sh(cmd: String) -> Bool {
+    // Subshell so the quiet-redirect does not hijack a trailing `>>` in `cmd`.
+    let full = "( {cmd} ) > /dev/null 2>&1"
+    system(full as UnsafePointer<Int8>) == (0 as Int32)
+}
+
+func main() {
+    let repo = ".build/scratch/gitdep_repo"
+    let root = ".build/scratch/gitdep_root"
+    let _ = sh("rm -rf {repo} {root} .blade/deps/libdep-1.0.0")
+
+    // A dependency published as a git repo with tag v1.0.0.
+    assert(sh("mkdir -p {repo}"), "mkdir repo")
+    assert(sh("cd {repo} && git init -q && git config user.email t@e.com && git config user.name T && git config commit.gpgsign false"), "git init")
+    assert(sh("cd {repo} && echo '[package]' > Saw.toml && echo 'name = \"libdep\"' >> Saw.toml && echo 'version = \"1.0.0\"' >> Saw.toml"), "dep manifest")
+    assert(sh("cd {repo} && git add -A && git commit -q -m init && git tag v1.0.0"), "commit + tag")
+
+    guard let cwd = Directory.current() else {
+        panic("could not get current directory")
+    }
+    let url = "file://{cwd.as_str()}/{repo}"
+
+    // A root package that depends on it by git.
+    assert(sh("mkdir -p {root}"), "mkdir root")
+    assert(sh("echo '[package]' > {root}/Saw.toml && echo 'name = \"rootpkg\"' >> {root}/Saw.toml && echo 'version = \"0.1.0\"' >> {root}/Saw.toml"), "root package")
+    assert(sh("echo '' >> {root}/Saw.toml && echo '[dependencies]' >> {root}/Saw.toml"), "deps header")
+    assert(sh("echo 'libdep = \{ git = \"{url}\", version = \"^1.0.0\" \}' >> {root}/Saw.toml"), "git dep line")
+
+    match Manifest.load_from(Path(s: root)) {
+        case Ok(m) -> {
+            match resolve(m) {
+                case Ok(res) -> {
+                    let i = res.index_of("libdep")
+                    assert(i >= 0, "libdep resolved")
+                    assert(res.kind(i).equals("git"), "source kind is git")
+                    assert(res.version(i).equals("1.0.0"), "resolved version 1.0.0")
+                    assert(res.loc(i).equals(url), "loc is the git url")
+                    assert(res.rev(i).len() > 0, "records a commit rev")
+                    print("git_resolve: ok")
+                },
+                case Err(e) -> panic("resolve failed: {e.text()}")
+            }
+        },
+        case Err(_) -> panic("could not load root manifest")
+    }
+}

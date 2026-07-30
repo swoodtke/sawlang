@@ -12,6 +12,7 @@
 //     every requirer + its requirement).
 
 import src.manifest.*
+import src.git.*
 
 // NOTE (dogfood DF9): this resolver was written to `import semver` (the
 // libs/semver package, via a --module-path mapping) and use its
@@ -159,6 +160,38 @@ func is_git_source(source: DepSource) -> Bool {
         case PathDep(_) -> false,
         case GitDep(_) -> true
     }
+}
+
+func git_url(source: DepSource) -> String {
+    match source {
+        case PathDep(_) -> "",
+        case GitDep(url) -> url
+    }
+}
+
+// Is `v` strictly greater than (major, minor, patch)? Avoids re-parsing while
+// scanning candidate tags for the highest satisfying one.
+func ver_gt_parts(v: Ver, ma: Int, mi: Int, pa: Int) -> Bool {
+    if v.major != ma {
+        return v.major > ma
+    }
+    if v.minor != mi {
+        return v.minor > mi
+    }
+    v.patch > pa
+}
+
+// Create `.blade/` (self-gitignoring) and `.blade/deps/` for git checkouts.
+func ensure_deps_dir() {
+    let _ = Directory.create(Path(s: ".blade"))
+    let gi = Path(s: ".blade/.gitignore")
+    if not File.exists(gi) {
+        if let f = File.create(gi) {
+            let data = "*\n".to_data()
+            f.write(move data)
+        }
+    }
+    let _ = Directory.create(Path(s: ".blade/deps"))
 }
 
 func stack_contains(stack: &Vector<String>, name: String) -> Bool {
@@ -318,15 +351,15 @@ func visit(dep_name: String, source: DepSource, constraint: String, requirer: St
         return ResolveError(msg: "package `{requirer}` depends on itself")
     }
 
-    // B3 is path-only.
-    if is_git_source(source) {
-        return ResolveError(msg: "git dependencies are not supported yet (B5): `{dep_name}`")
+    // Source identity (the dedup + two-sources key): a normalized directory for
+    // a path dep, or the URL for a git dep.
+    let is_git = is_git_source(source)
+    var dep_loc = ""
+    if is_git {
+        dep_loc = git_url(source)
+    } else {
+        dep_loc = normalize_path(base_dir.join(path_dir(source)).as_str())
     }
-    let rel = path_dir(source)
-    // Normalize so the same package reached via different relative paths is one
-    // source (and one dedup key).
-    let dep_loc = normalize_path(base_dir.join(rel).as_str())
-    let dep_dir = Path(s: dep_loc)
 
     // Cycle FIRST: if the name is on the active resolution stack it is an
     // ancestor, which must be a cycle error rather than a silent dedup (a
@@ -345,15 +378,69 @@ func visit(dep_name: String, source: DepSource, constraint: String, requirer: St
         return true
     }
 
-    // Read the dependency's own manifest for its version and its deps. Manifest
-    // errors are wrapped into a ResolveError (concrete error type — the erased
-    // `try` re-box across the semver module boundary currently ICEs codegen;
-    // recorded as dogfood DF9).
+    // Materialize the dependency's directory. A path dep is read in place; a git
+    // dep is resolved by tag (highest satisfying the requirement) and cloned
+    // into `.blade/deps/<name>-<version>/`.
+    var dep_dir = Path(s: dep_loc)
+    var resolved_kind = "path"
+    var resolved_version = ""
+    var resolved_rev = ""
+
+    if is_git {
+        resolved_kind = "git"
+        guard let cands = ls_remote_tags(dep_loc) else {
+            return ResolveError(msg: "git ls-remote failed for `{dep_loc}` (dependency `{dep_name}`)")
+        }
+        // Pick the highest tag version satisfying the requirement.
+        var best = -1
+        var bma = 0
+        var bmi = 0
+        var bpa = 0
+        var k = 0
+        while k < cands.len() {
+            guard let cv = parse_ver(cands.version(k)) else {
+                k = k + 1
+                continue
+            }
+            let matched = req_matches(constraint, cv) ?? false
+            if matched {
+                if best < 0 || ver_gt_parts(cv, bma, bmi, bpa) {
+                    best = k
+                    bma = cv.major
+                    bmi = cv.minor
+                    bpa = cv.patch
+                }
+            }
+            k = k + 1
+        }
+        if best < 0 {
+            return ResolveError(msg: "no tagged version of `{dep_name}` satisfies `{constraint}` (git {dep_loc})")
+        }
+        resolved_version = cands.version(best)
+        resolved_rev = cands.rev(best)
+        let checkout = ".blade/deps/{dep_name}-{resolved_version}"
+        let checkout_path = Path(s: checkout)
+        if not Directory.exists(checkout_path) {
+            ensure_deps_dir()
+            if not clone_tag(dep_loc, cands.tag(best), checkout) {
+                return ResolveError(msg: "git clone of `{dep_name}` {cands.tag(best)} failed")
+            }
+        }
+        dep_dir = checkout_path
+    }
+
+    // Read the dependency's own manifest for its deps (and, for a path dep, its
+    // version). Manifest errors are wrapped into a ResolveError (concrete error
+    // type — an erased-`try` re-box across a package boundary currently ICEs
+    // codegen; dogfood DF9).
     let m = match Manifest.load_from(dep_dir) {
         case Ok(x) -> x,
-        case Err(_) -> { return ResolveError(msg: "cannot read manifest for `{dep_name}` at {dep_loc}") }
+        case Err(_) -> { return ResolveError(msg: "cannot read manifest for `{dep_name}` at {dep_dir.as_str()}") }
     }
-    resolution.add(dep_name, m.version(), "path", dep_loc, "")
+    if not is_git {
+        resolved_version = m.version()
+    }
+    resolution.add(dep_name, resolved_version, resolved_kind, dep_loc, resolved_rev)
 
     stack.push(dep_name)
     let sub = match m.dependencies() {

@@ -1,0 +1,24 @@
+// B5: parsing `git ls-remote --tags` output into (version, commit-sha)
+// candidates. Pure — no git process is spawned. Covers: leading-`v` stripping,
+// peeled `^{}` commit-sha preference for annotated tags, lightweight tags, and
+// skipping non-tag refs / non-semver tags.
+import src.git.*
+
+func main() {
+    let out = "aaa111\trefs/tags/v1.0.0\nbbb222\trefs/tags/v1.0.0^\{\}\nccc333\trefs/tags/v2.1.3\nddd444\trefs/heads/main\neee555\trefs/tags/release-1\n"
+    let tags = parse_ls_remote(out)
+
+    assert(tags.len() == 2, "two semver tags recognized")
+
+    let i1 = tags.index_of("1.0.0")
+    assert(i1 >= 0, "1.0.0 present")
+    assert(tags.rev(i1).equals("bbb222"), "annotated tag uses the peeled commit sha")
+
+    let i2 = tags.index_of("2.1.3")
+    assert(i2 >= 0, "2.1.3 present (lightweight tag)")
+    assert(tags.rev(i2).equals("ccc333"), "lightweight tag sha")
+
+    assert(tags.index_of("release-1") < 0, "non-semver tag skipped")
+
+    print("git_parse: ok")
+}

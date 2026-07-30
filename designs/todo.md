@@ -102,7 +102,15 @@ Progress log (newest last):
   (String vectors). 5 blade tests + fixtures (simple/chain/conflict/cycle/
   twosrc). IMPORTANT: could NOT `import` the external semver package (DF9);
   resolver uses a self-contained minimal matcher instead. Suite 765 (no compiler
-  edit). Next: B5 git integration (local file:// repos).
+  edit).
+- B5 landed: `blade/src/git.saw` — `git ls-remote --tags` parsing (leading-`v`,
+  peeled `^{}` commit-sha preference, semver-only tags) into (version, tag, rev)
+  candidates; `ls_remote_tags`/`clone_tag`/`checkout_rev` (Command.output/run).
+  Wired into the resolver: a git dep is resolved by highest satisfying tag,
+  cloned into `.blade/deps/<name>-<version>/` (self-gitignoring `.blade/`), and
+  recorded with kind "git" + rev. 3 blade tests: git_parse (pure), git_local_repo
+  and git_resolve (local file:// repos built in .build/scratch via system() — no
+  network). Blade tests 14 -> 17. Suite 765 (no compiler edit). Next: B4 Saw.lock.
 
 ### Dogfood findings — design 64 (Blade)
 - **DF-GlobConf — FIXED (this brief, `typechecker/core.py`).** A glob import

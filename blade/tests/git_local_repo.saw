@@ -1,0 +1,44 @@
+// B5: end-to-end git against a LOCAL file:// repository built in .build/scratch
+// (no network). Exercises `git ls-remote --tags` discovery and a tag clone.
+import src.git.*
+
+extern "C" {
+    func system(command: UnsafePointer<Int8>) -> Int32
+}
+
+// Run a shell command quietly; true iff it exits 0. The subshell keeps the
+// quiet-redirect from hijacking a trailing `>>` inside `cmd`.
+func sh(cmd: String) -> Bool {
+    let full = "( {cmd} ) > /dev/null 2>&1"
+    let ptr = full as UnsafePointer<Int8>
+    system(ptr) == (0 as Int32)
+}
+
+func main() {
+    let repo = ".build/scratch/gitrepo_b5"
+    let dest = ".build/scratch/gitclone_b5"
+    let _ = sh("rm -rf {repo} {dest}")
+    assert(sh("mkdir -p {repo}"), "mkdir repo")
+    assert(sh("cd {repo} && git init -q"), "git init")
+    let _ = sh("cd {repo} && git config user.email t@example.com && git config user.name Tester && git config commit.gpgsign false")
+    assert(sh("cd {repo} && echo '[package]' > Saw.toml && echo 'name = \"pkg\"' >> Saw.toml && echo 'version = \"1.0.0\"' >> Saw.toml"), "write manifest")
+    assert(sh("cd {repo} && git add -A && git commit -q -m init && git tag v1.0.0"), "commit + tag v1.0.0")
+    assert(sh("cd {repo} && echo '# note' >> Saw.toml && git add -A && git commit -q -m more && git tag v1.2.0"), "commit + tag v1.2.0")
+
+    guard let cwd = Directory.current() else {
+        panic("could not get current directory")
+    }
+    let url = "file://{cwd.as_str()}/{repo}"
+
+    guard let tags = ls_remote_tags(url) else {
+        panic("git ls-remote failed for {url}")
+    }
+    assert(tags.len() == 2, "two tags discovered via ls-remote")
+    assert(tags.index_of("1.0.0") >= 0, "v1.0.0 discovered")
+    assert(tags.index_of("1.2.0") >= 0, "v1.2.0 discovered")
+
+    assert(clone_tag(url, "v1.2.0", dest), "clone tag v1.2.0")
+    assert(sh("test -f {dest}/Saw.toml"), "cloned checkout has Saw.toml")
+
+    print("git_local_repo: ok")
+}

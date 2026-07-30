@@ -1,0 +1,188 @@
+// Git integration for Blade (design 64 B5) — shells out to the `git` CLI (no
+// bindings). Tags name versions: `git ls-remote --tags <url>` is parsed into
+// (version, commit-sha) candidates; a chosen tag is checked out into
+// `.blade/deps/<name>-<version>/`. Local `file://` repositories are used by the
+// tests, so no network is ever required.
+
+// =============================================================================
+// Tag candidates (columnar)
+// =============================================================================
+
+public struct GitTags {
+    versions: Vector<String>   // "1.2.0"
+    tags: Vector<String>       // the git ref name, e.g. "v1.2.0" (for cloning)
+    revs: Vector<String>       // commit sha
+}
+
+extension GitTags: NoCopy {
+    func deinit(var self) {}
+}
+
+public extension GitTags {
+    init() -> GitTags {
+        let a = Vector<String>()
+        let b = Vector<String>()
+        let c = Vector<String>()
+        GitTags(versions: move a, tags: move b, revs: move c)
+    }
+
+    func len(&self) -> Int { self.versions.len() }
+    func version(&self, i: Int) -> String { self.versions.get(i) ?? "" }
+    func tag(&self, i: Int) -> String { self.tags.get(i) ?? "" }
+    func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
+
+    func index_of(&self, version: String) -> Int {
+        var i = 0
+        while i < self.versions.len() {
+            if (self.versions.get(i) ?? "").equals(version) {
+                return i
+            }
+            i = i + 1
+        }
+        -1
+    }
+
+    // Record `version -> (tag, rev)`, overwriting an existing rev (so a peeled
+    // `^{}` commit sha replaces the annotated-tag object sha for one version).
+    func record(&var self, version: String, tag: String, rev: String) {
+        let i = self.index_of(version)
+        if i >= 0 {
+            self.revs.set(i, rev)
+        } else {
+            self.versions.push(version)
+            self.tags.push(tag)
+            self.revs.push(rev)
+        }
+    }
+}
+
+// =============================================================================
+// Parsing
+// =============================================================================
+
+// True if `s` is a bare MAJOR.MINOR.PATCH of non-negative integers.
+func looks_like_version(s: String) -> Bool {
+    let parts = s.split(".")
+    if parts.len() != 3 {
+        return false
+    }
+    var i = 0
+    while i < 3 {
+        let p = parts.get(i) ?? ""
+        if p.is_empty() {
+            return false
+        }
+        guard let n = p.to_int() else {
+            return false
+        }
+        if n < 0 {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
+// Strip a trailing `^{}` (peeled ref) from a tag name.
+func strip_peeled(tag_ref: String) -> String {
+    if tag_ref.ends_with("^\{\}") {
+        tag_ref.substring(0, tag_ref.len() - 3)
+    } else {
+        tag_ref
+    }
+}
+
+// The version of a tag name (leading `v` stripped), or "" if it is not a
+// `v?MAJOR.MINOR.PATCH` tag.
+func tag_version(tag: String) -> String {
+    var v = tag
+    if v.starts_with("v") {
+        v = v.substring(1, v.len())
+    }
+    if looks_like_version(v) {
+        v
+    } else {
+        ""
+    }
+}
+
+// Parse the output of `git ls-remote --tags <url>`:
+//   <sha>\trefs/tags/v1.2.0
+//   <sha>\trefs/tags/v1.2.0^{}   (peeled: sha is the commit the tag points at)
+public func parse_ls_remote(output: String) -> GitTags {
+    var tags = GitTags()
+    let lines = output.split("\n")
+    for line in lines.iter() {
+        let trimmed = line.trim()
+        if trimmed.is_empty() {
+            continue
+        }
+        let fields = trimmed.split("\t")
+        if fields.len() < 2 {
+            continue
+        }
+        let sha = (fields.get(0) ?? "").trim()
+        let ref = (fields.get(1) ?? "").trim()
+        if not ref.starts_with("refs/tags/") {
+            continue
+        }
+        let tag_name = strip_peeled(ref.substring(10, ref.len()))  // after "refs/tags/"
+        let version = tag_version(tag_name)
+        if not version.is_empty() {
+            tags.record(version, tag_name, sha)
+        }
+    }
+    move tags
+}
+
+// =============================================================================
+// Commands
+// =============================================================================
+
+// `git ls-remote --tags <url>` -> parsed candidates, or None if git fails.
+public func ls_remote_tags(url: String) -> GitTags? {
+    var cmd = Command(program: "git")
+    cmd.arg("ls-remote")
+    cmd.arg("--tags")
+    cmd.arg(url)
+    guard let out = cmd.output() else {
+        return None
+    }
+    if not out.success() {
+        return None
+    }
+    parse_ls_remote(out.stdout)
+}
+
+// Shallow-clone a specific tag into `dir`. True on success.
+public func clone_tag(url: String, tag: String, dir: String) -> Bool {
+    var cmd = Command(program: "git")
+    cmd.arg("clone")
+    cmd.arg("--depth")
+    cmd.arg("1")
+    cmd.arg("--branch")
+    cmd.arg(tag)
+    cmd.arg(url)
+    cmd.arg(dir)
+    cmd.run() == (0 as Int32)
+}
+
+// Clone a repo then check out an exact commit (for locked builds). True on
+// success. A full clone is used because a depth-1 clone cannot always reach an
+// arbitrary rev; the checkout pins the exact commit the lock recorded.
+public func checkout_rev(url: String, rev: String, dir: String) -> Bool {
+    var clone = Command(program: "git")
+    clone.arg("clone")
+    clone.arg(url)
+    clone.arg(dir)
+    if clone.run() != (0 as Int32) {
+        return false
+    }
+    var co = Command(program: "git")
+    co.arg("-C")
+    co.arg(dir)
+    co.arg("checkout")
+    co.arg("--quiet")
+    co.arg(rev)
+    co.run() == (0 as Int32)
+}
