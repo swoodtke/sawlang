@@ -702,15 +702,18 @@ class GenericsMixin:
         old_return_type = self.current_return_type
         self.current_return_type = substituted_return
 
-        # Param cleanup scope — STATIC factories only (design 42). A static
-        # factory like `Box<T, A>.make_or` owns its value params and, on a path
-        # that does NOT move one out, must drop it rather than leak it (the
-        # failure path). Instance methods are deliberately EXCLUDED: they transfer
-        # owned params via placement-store / construction that is not an explicit
-        # `move` (e.g. `Vector.push`'s `buf[i] = value`), which a drop flag cannot
-        # observe — cleaning those params here would double-free. Instance-method
-        # param ownership stays the caller's concern (its original path, unchanged).
-        register_params = method.is_static
+        # Param cleanup scope (design 42 + design 65). An owned by-value param —
+        # whether of a static factory (`Box<T, A>.make_or`) OR an instance method
+        # (`Map._hash_code`/`_key_eq`'s owning KEY) — that is NOT moved out on some
+        # path must be RELEASED at scope exit rather than leaked. Each owning param
+        # is registered with a drop flag; every recognized move (explicit `move`,
+        # transfer into a construction, and now the placement-store `ptr[i]=value`
+        # primitive — design 65 clears the flag there) clears the flag, so a moved
+        # param is not double-freed. Before design 65 instance-method params were
+        # excluded because the placement-move a `Vector.push` performs could not be
+        # observed by a drop flag; now that it is, instance params are safe to
+        # register — which is what stops the map's owning-key probe copies leaking.
+        register_params = True
         if register_params:
             self.cleanup_stack.append([])
 

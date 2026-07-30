@@ -144,6 +144,19 @@ class ResourcesMixin:
         # teardown (vtable destructor + dealloc) must run at scope death.
         if self._is_erased_box(saw_type):
             return True
+        # A named type that actually denotes an ENUM can reach here still tagged
+        # STRUCT (design 61, L14: the parser can't know; not every path is
+        # canonicalized). Left as-is it would fall to the struct-field path below,
+        # which finds no fields AND poisons the shared cache under the bare name
+        # with `False` — so the enum's own `_enum_needs_variant_cleanup` then reads
+        # that stale `False` and an owning enum payload (e.g. an `Arc` inside a
+        # `Vector<enum>` slot) is treated as non-owning: leaked drop glue, and (for
+        # design 65's copy-with-retain) no retain. Re-tag to ENUM first.
+        if (saw_type.kind == TypeKind.STRUCT and saw_type.struct_name
+                and (saw_type.struct_name in self.enum_types
+                     or saw_type.struct_name in self.generic_enums)):
+            saw_type = SawType(TypeKind.ENUM, enum_name=saw_type.struct_name,
+                               type_args=saw_type.type_args, symbol=saw_type.symbol)
         if self._get_cleanup_behavior(saw_type) != "none":
             return True
         if saw_type.kind == TypeKind.ENUM:
@@ -470,6 +483,293 @@ class ResourcesMixin:
 
         self.builder.position_at_end(cont_bb)
 
+    # ===== Copy-with-retain glue (design 65, L17) =====
+    #
+    # The exact mirror of the drop glue above. `_emit_drop_at` RELEASES an owning
+    # value's refcounts; `_emit_retain_at` BUMPS them, in place, so a bitwise
+    # duplicate of an aggregate becomes a genuinely-owned independent copy whose
+    # eventual drop is balanced. Used to copy-with-retain a struct/enum read out
+    # of a container it stays in (e.g. a `Vector` slot via `.get()`): the whole
+    # value is not a clean ImplicitCopy (it may be a NoCopy enum like `MapSlot`),
+    # but its owning FIELDS (String/Arc/nested owners) must each be retained so
+    # the map still owns its live payload after the peek.
+
+    def _deep_copy_value(self, value, saw_type: SawType):
+        """Return an independent, refcount-retained copy of `value` (design 65).
+
+        Materializes the value in memory, bumps every owning field's refcount in
+        place (mirroring drop glue), and reloads — the reloaded value shares the
+        same buffers but with the refcounts bumped, so dropping it later releases
+        exactly the retains taken here.
+        """
+        tmp = self._entry_alloca(value.type, name="retain_tmp")
+        self.builder.store(value, tmp)
+        self._emit_retain_at(tmp, saw_type)
+        return self.builder.load(tmp, name="retained_copy")
+
+    def _emit_retain_at(self, ptr, saw_type: SawType):
+        """Bump the refcounts of the owning value stored at `ptr` (a pointer to
+        it). The structural mirror of `_emit_drop_at`."""
+        if not self._needs_cleanup(saw_type):
+            return
+        # A leaf with its own copy() (ImplicitCopy String/Arc/user type): retain
+        # in place — copy() bumps the refcount and returns the (same-buffer)
+        # value, which we store back.
+        method_base = self._type_method_base(saw_type)
+        if method_base is not None:
+            copy_name = self._mangle_method_name(method_base, "copy")
+            fn = self.functions.get(copy_name)
+            if fn is not None:
+                v = self.builder.load(ptr, name="retain_leaf")
+                v2 = self.builder.call(fn, [v], name="retain_bump")
+                self.builder.store(v2, ptr)
+                return
+        if saw_type.kind == TypeKind.ENUM:
+            self._emit_enum_retain_at(ptr, saw_type)
+            return
+        if saw_type.kind == TypeKind.OPTIONAL:
+            self._emit_optional_retain_at(ptr, saw_type)
+            return
+        if saw_type.kind == TypeKind.ARRAY:
+            self._emit_array_retain_at(ptr, saw_type)
+            return
+        self._emit_field_retain_at(ptr, saw_type)
+
+    def _emit_array_retain_at(self, array_ptr, saw_type: SawType):
+        elem_type = saw_type.array_element_type
+        size = saw_type.array_size
+        if elem_type is None or size is None or not self._needs_cleanup(elem_type):
+            return
+        i32 = ir.IntType(32)
+        for idx in range(size):
+            elem_ptr = self.builder.gep(
+                array_ptr, [ir.Constant(i32, 0), ir.Constant(i32, idx)],
+                name=f"arr_retain_{idx}")
+            self._emit_retain_at(elem_ptr, elem_type)
+
+    def _emit_field_retain_at(self, struct_ptr, saw_type: SawType):
+        if saw_type.kind != TypeKind.STRUCT:
+            return
+        struct_key = mangle_type(saw_type)
+        info = self.struct_types.get(struct_key)
+        if info is None:
+            return
+        _, field_order = info
+        field_types = self._concrete_field_types(saw_type)
+        if not field_types:
+            return
+        for field_name in field_order:
+            ftype = field_types.get(field_name)
+            if ftype is None or not self._needs_cleanup(ftype):
+                continue
+            idx = field_order.index(field_name)
+            field_ptr = self.builder.gep(struct_ptr, [
+                ir.Constant(ir.IntType(32), 0),
+                ir.Constant(ir.IntType(32), idx)
+            ], name=f"{field_name}_retain_ptr")
+            self._emit_retain_at(field_ptr, ftype)
+
+    def _emit_enum_retain_at(self, enum_ptr, saw_type: SawType):
+        key = self._enum_key(saw_type)
+        if key is None:
+            return
+        llvm_enum_type, variant_tags, variant_info = self.enum_types[key]
+        if isinstance(llvm_enum_type, ir.IntType):
+            return
+        retain_variants = [
+            name for name, fields in variant_info.items()
+            if any(self._needs_cleanup(ftype) for _, ftype in fields)
+        ]
+        if not retain_variants:
+            return
+        i32 = ir.IntType(32)
+        tag_ptr = self.builder.gep(
+            enum_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 0)], name="retain_tag_ptr")
+        tag = self.builder.load(tag_ptr, name="retain_tag")
+        func = self.builder.function
+        cont_bb = func.append_basic_block("enum_retain_cont")
+        switch = self.builder.switch(tag, cont_bb)
+        variant_blocks = []
+        for name in retain_variants:
+            bb = func.append_basic_block(f"enum_retain_{name}")
+            switch.add_case(ir.Constant(i32, variant_tags[name]), bb)
+            variant_blocks.append((name, bb))
+        for name, bb in variant_blocks:
+            self.builder.position_at_end(bb)
+            fields = variant_info[name]
+            param_types = [self._get_llvm_type(ftype) for _, ftype in fields]
+            param_struct_type = ir.LiteralStructType(param_types)
+            payload_ptr = self.builder.gep(
+                enum_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 1)],
+                name="retain_payload_ptr")
+            struct_ptr = self.builder.bitcast(
+                payload_ptr, ir.PointerType(param_struct_type),
+                name="retain_payload_struct")
+            for idx in range(len(fields)):
+                _, ftype = fields[idx]
+                if not self._needs_cleanup(ftype):
+                    continue
+                field_ptr = self.builder.gep(
+                    struct_ptr, [ir.Constant(i32, 0), ir.Constant(i32, idx)],
+                    name="retain_payload_field")
+                self._emit_retain_at(field_ptr, ftype)
+            self.builder.branch(cont_bb)
+        self.builder.position_at_end(cont_bb)
+
+    def _emit_optional_retain_at(self, opt_ptr, saw_type: SawType):
+        inner = saw_type.inner_type
+        if inner is None or not self._needs_cleanup(inner):
+            return
+        i32 = ir.IntType(32)
+        flag_ptr = self.builder.gep(
+            opt_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 0)], name="opt_retain_flag_ptr")
+        is_some = self.builder.load(flag_ptr, name="opt_retain_is_some")
+        func = self.builder.function
+        some_bb = func.append_basic_block("opt_retain_some")
+        cont_bb = func.append_basic_block("opt_retain_cont")
+        self.builder.cbranch(is_some, some_bb, cont_bb)
+        self.builder.position_at_end(some_bb)
+        val_ptr = self.builder.gep(
+            opt_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 1)], name="opt_retain_val_ptr")
+        self._emit_retain_at(val_ptr, inner)
+        self.builder.branch(cont_bb)
+        self.builder.position_at_end(cont_bb)
+
+    # --- Release: the exact inverse of `_emit_retain_at` -----------------------
+    #
+    # Releases the value at `ptr` DOWN TO exactly what `_emit_retain_at` would
+    # have retained — i.e. only refcounted (ImplicitCopy) leaves and the owning
+    # fields reachable through them. Crucially it does NOT run the deinit of a
+    # NoCopy-with-side-effect leaf (a `Deinit` struct that carries no refcount,
+    # e.g. a `Val { id: Int }` counter): retain never bumped it (there is nothing
+    # to bump), so release must not fire it. This is what lets an owning payload
+    # field DISCARDED with `_` in a probe match (`Map._slot_state`,
+    # `Map._key_eq`'s value) release a retained String/Arc without over-counting a
+    # non-refcounted `Deinit` value — the design-61 exactly-once VALUE tests stay
+    # green while owning KEYS/refcounted values are now balanced (design 65).
+
+    def _emit_release_at(self, ptr, saw_type: SawType):
+        if not self._needs_cleanup(saw_type):
+            return
+        # ImplicitCopy leaf (String/Arc/user copy()): retain bumped it, so release
+        # is its ordinary drop (refcount decrement).
+        method_base = self._type_method_base(saw_type)
+        if method_base is not None:
+            copy_name = self._mangle_method_name(method_base, "copy")
+            if self.functions.get(copy_name) is not None:
+                self._emit_drop_at(ptr, saw_type)
+                return
+        if saw_type.kind == TypeKind.ENUM:
+            self._emit_enum_release_at(ptr, saw_type)
+            return
+        if saw_type.kind == TypeKind.OPTIONAL:
+            self._emit_optional_release_at(ptr, saw_type)
+            return
+        if saw_type.kind == TypeKind.ARRAY:
+            self._emit_array_release_at(ptr, saw_type)
+            return
+        self._emit_field_release_at(ptr, saw_type)
+
+    def _emit_array_release_at(self, array_ptr, saw_type: SawType):
+        elem_type = saw_type.array_element_type
+        size = saw_type.array_size
+        if elem_type is None or size is None or not self._needs_cleanup(elem_type):
+            return
+        i32 = ir.IntType(32)
+        for idx in reversed(range(size)):
+            elem_ptr = self.builder.gep(
+                array_ptr, [ir.Constant(i32, 0), ir.Constant(i32, idx)],
+                name=f"arr_release_{idx}")
+            self._emit_release_at(elem_ptr, elem_type)
+
+    def _emit_field_release_at(self, struct_ptr, saw_type: SawType):
+        if saw_type.kind != TypeKind.STRUCT:
+            return
+        struct_key = mangle_type(saw_type)
+        info = self.struct_types.get(struct_key)
+        if info is None:
+            return
+        _, field_order = info
+        field_types = self._concrete_field_types(saw_type)
+        if not field_types:
+            return
+        for field_name in reversed(field_order):
+            ftype = field_types.get(field_name)
+            if ftype is None or not self._needs_cleanup(ftype):
+                continue
+            idx = field_order.index(field_name)
+            field_ptr = self.builder.gep(struct_ptr, [
+                ir.Constant(ir.IntType(32), 0),
+                ir.Constant(ir.IntType(32), idx)
+            ], name=f"{field_name}_release_ptr")
+            self._emit_release_at(field_ptr, ftype)
+
+    def _emit_enum_release_at(self, enum_ptr, saw_type: SawType):
+        key = self._enum_key(saw_type)
+        if key is None:
+            return
+        llvm_enum_type, variant_tags, variant_info = self.enum_types[key]
+        if isinstance(llvm_enum_type, ir.IntType):
+            return
+        release_variants = [
+            name for name, fields in variant_info.items()
+            if any(self._needs_cleanup(ftype) for _, ftype in fields)
+        ]
+        if not release_variants:
+            return
+        i32 = ir.IntType(32)
+        tag_ptr = self.builder.gep(
+            enum_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 0)], name="release_tag_ptr")
+        tag = self.builder.load(tag_ptr, name="release_tag")
+        func = self.builder.function
+        cont_bb = func.append_basic_block("enum_release_cont")
+        switch = self.builder.switch(tag, cont_bb)
+        variant_blocks = []
+        for name in release_variants:
+            bb = func.append_basic_block(f"enum_release_{name}")
+            switch.add_case(ir.Constant(i32, variant_tags[name]), bb)
+            variant_blocks.append((name, bb))
+        for name, bb in variant_blocks:
+            self.builder.position_at_end(bb)
+            fields = variant_info[name]
+            param_types = [self._get_llvm_type(ftype) for _, ftype in fields]
+            param_struct_type = ir.LiteralStructType(param_types)
+            payload_ptr = self.builder.gep(
+                enum_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 1)],
+                name="release_payload_ptr")
+            struct_ptr = self.builder.bitcast(
+                payload_ptr, ir.PointerType(param_struct_type),
+                name="release_payload_struct")
+            for idx in reversed(range(len(fields))):
+                _, ftype = fields[idx]
+                if not self._needs_cleanup(ftype):
+                    continue
+                field_ptr = self.builder.gep(
+                    struct_ptr, [ir.Constant(i32, 0), ir.Constant(i32, idx)],
+                    name="release_payload_field")
+                self._emit_release_at(field_ptr, ftype)
+            self.builder.branch(cont_bb)
+        self.builder.position_at_end(cont_bb)
+
+    def _emit_optional_release_at(self, opt_ptr, saw_type: SawType):
+        inner = saw_type.inner_type
+        if inner is None or not self._needs_cleanup(inner):
+            return
+        i32 = ir.IntType(32)
+        flag_ptr = self.builder.gep(
+            opt_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 0)], name="opt_release_flag_ptr")
+        is_some = self.builder.load(flag_ptr, name="opt_release_is_some")
+        func = self.builder.function
+        some_bb = func.append_basic_block("opt_release_some")
+        cont_bb = func.append_basic_block("opt_release_cont")
+        self.builder.cbranch(is_some, some_bb, cont_bb)
+        self.builder.position_at_end(some_bb)
+        val_ptr = self.builder.gep(
+            opt_ptr, [ir.Constant(i32, 0), ir.Constant(i32, 1)], name="opt_release_val_ptr")
+        self._emit_release_at(val_ptr, inner)
+        self.builder.branch(cont_bb)
+        self.builder.position_at_end(cont_bb)
+
     def _generate_copy(self, value, saw_type: SawType):
         """Generate a copy of a value, calling copy() for ImplicitCopy types.
 
@@ -482,34 +782,39 @@ class ResourcesMixin:
         # A fixed array `[T; N]` copies per element (design 33). Only reached
         # implicitly for ImplicitCopy-element arrays (trivial arrays need no
         # copy; ExplicitCopy/NoCopy arrays are move-gated by the typechecker).
+        # Resolve a generic type to the active monomorphization so the recursive
+        # retain glue below can look up the concrete struct/enum layout.
+        if self.type_param_context:
+            saw_type = saw_type.substitute(self.type_param_context)
+
         if saw_type.kind == TypeKind.ARRAY:
             return self._emit_array_deep_copy(value, saw_type)
 
-        behavior = self._get_cleanup_behavior(saw_type)
-
-        if behavior == "no_copy":
-            # NoCopy types cannot be copied - this should be caught by typechecker
-            raise ValueError(f"Cannot copy NoCopy type: {saw_type}")
-
-        if behavior != "implicit_copy":
-            # Regular types just use the value as-is (bitwise copy)
-            return value
-
-        # ImplicitCopy: call the copy() method
+        # A type with its own copy() method (ImplicitCopy String/Arc/user) — call
+        # it (a cheap refcount bump for String/Arc).
         type_name = self._type_method_base(saw_type)
-        if type_name is None:
-            return value
+        if type_name is not None:
+            copy_method_name = self._mangle_method_name(type_name, "copy")
+            copy_fn = self.functions.get(copy_method_name)
+            if copy_fn is not None:
+                # copy(self) takes self by value (immutable), returns Self.
+                return self.builder.call(copy_fn, [value], name="copy_result")
 
-        copy_method_name = self._mangle_method_name(type_name, "copy")
+        # No whole-type copy() method. If this is an aggregate that OWNS
+        # cleanup-needing fields (a struct/enum/optional whose top-level copy class
+        # is NoCopy only because of its owning payload — e.g. `MapSlot<String, V>`
+        # or an `Arc` inside a struct payload), copy it WITH RETAIN recursively
+        # (design 65, L17): reading such a value out of a container it stays in is
+        # a duplication, so each owning field's refcount must be bumped and the
+        # eventual drop of this copy releases them symmetrically. Trivial
+        # aggregates (no owning fields) and genuine leaves fall through to bitwise.
+        if (self._needs_cleanup(saw_type)
+                and saw_type.kind in (TypeKind.STRUCT, TypeKind.ENUM,
+                                      TypeKind.OPTIONAL)):
+            return self._deep_copy_value(value, saw_type)
 
-        if copy_method_name not in self.functions:
-            # No copy method found - fall back to bitwise copy
-            return value
-
-        copy_fn = self.functions[copy_method_name]
-
-        # copy(self) takes self by value (immutable), returns Self
-        return self.builder.call(copy_fn, [value], name="copy_result")
+        # Regular / trivially-copyable types: bitwise copy (the value as-is).
+        return value
 
     def _emit_copy_value(self, value, saw_type: SawType):
         """Produce an independent copy of a single value of `saw_type`.
@@ -632,7 +937,27 @@ class ResourcesMixin:
                                    TupleIndex, SelfExpr)):
             if getattr(value_expr, 'resolved_type', None) is None:
                 return False
-            return self._get_cleanup_behavior(self._expr_type(value_expr)) == "implicit_copy"
+            t = self._expr_type(value_expr)
+            # Resolve a generic element/field type (e.g. `Vector<T>.get`'s `T`) to
+            # the active monomorphization's concrete type, so the kind/owning-field
+            # checks below see the real `MapSlot<String,V>` / enum, not `T`.
+            if self.type_param_context:
+                t = t.substitute(self.type_param_context)
+            if self._get_cleanup_behavior(t) == "implicit_copy":
+                return True
+            # design 65 (L17): reading an owning aggregate (a struct/enum with
+            # cleanup-needing fields) OUT OF AN INDEXED SLOT duplicates it while
+            # the source container keeps ownership — moving out of an index is
+            # forbidden (L1), so an index read is always a duplication. Its owning
+            # fields must be retained (copy-with-retain in `_generate_copy`) so the
+            # copy's later drop is balanced. This is what makes `Vector.get` of a
+            # `MapSlot<String, V>` / an `Arc`-bearing payload refcount-correct.
+            if (isinstance(value_expr, ArrayIndex)
+                    and self._needs_cleanup(t)
+                    and t.kind in (TypeKind.STRUCT, TypeKind.ENUM,
+                                   TypeKind.OPTIONAL)):
+                return True
+            return False
         return False
 
     def _needs_copy_for_struct_init(self, value_expr, field_type: SawType) -> bool:

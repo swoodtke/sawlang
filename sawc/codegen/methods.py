@@ -378,6 +378,11 @@ class MethodsMixin:
         self.cleanup_stack.append([])
         for i, param in enumerate(func.parameters):
             llvm_func.args[i].name = param.name
+            # Substitute the active monomorphization so a generic function's owning
+            # param (`gtakes<T>(a: T)` with T = an Arc/String) is recognized as
+            # cleanup-needing and released — an unsubstituted generic `T` reads as
+            # non-owning and leaks (design 65).
+            ptype = self._substitute_saw_type(param.type, self.type_param_context)
             alloca = self._entry_alloca(self._get_llvm_type(param.type), name=param.name)
             self.builder.store(llvm_func.args[i], alloca)
             self.variables[param.name] = alloca
@@ -386,8 +391,8 @@ class MethodsMixin:
             # `move`d out on some paths but not others, so register it with a drop
             # flag (design 42) — this is what makes MakeBoxOr's failure path drop
             # the un-moved `value` cleanly instead of leaking it.
-            if self._needs_cleanup(param.type):
-                self._register_cleanup(param.name, param.type)
+            if self._needs_cleanup(ptype):
+                self._register_cleanup(param.name, ptype)
 
         # Generate function body (block manages its own cleanup scope)
         result = self._generate_block(func.body)

@@ -201,6 +201,21 @@ class MatchMixin:
                             self.variable_types[binding_name] = btype
                             self._register_cleanup(binding_name, btype)
                             owning_bindings.append(binding_name)
+                    elif (arm_scope_pushed and binding_name == "_"
+                          and i < len(variant_params)
+                          and self._needs_cleanup(variant_params[i][1])):
+                        # design 65 (L17): an owning payload field discarded with
+                        # `_` under the consume model is UNCLAIMED — the scrutinee's
+                        # own drop is suppressed, so nothing else releases it. RELEASE
+                        # it now (it is never read in the arm), using the inverse of
+                        # the copy-with-retain that `Vector.get` took when this value
+                        # was read out of its slot: refcounted (ImplicitCopy) fields
+                        # are released, a non-refcounted `Deinit` field (which the
+                        # retain never bumped) is left untouched. This balances an
+                        # owning String/Arc key in `Map._slot_state`'s `Occupied(_,_)`
+                        # peek WITHOUT firing the deinit of a NoCopy-Deinit value the
+                        # slot still owns (design-61 exactly-once VALUE tests).
+                        self._emit_release_at(var_alloca, variant_params[i][1])
 
             # Generate arm body
             if isinstance(arm.body, Block):

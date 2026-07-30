@@ -106,8 +106,13 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = Global> {
     // (`return v` in a V?-returning function auto-wraps to Some(v).)
     func _get_value(&self, idx: Int) -> V? {
         if let s = self.slots.get(idx) {
+            // `s` is a copy-with-retain of the slot (design 65): its owning key
+            // and value each carry a bumped refcount. We MOVE the value out (its
+            // retain travels to the caller) and discard the key with `_`, which
+            // releases the key's retain symmetrically — never firing the deinit of
+            // a non-refcounted key the map still owns.
             match s {
-                case Occupied(k, v) -> { return v },
+                case Occupied(_, v) -> { return v },
                 case Empty -> { return None },
                 case Tombstone -> { return None }
             }
@@ -323,8 +328,11 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = Global> {
     // Read a copy of the key in the occupied slot at `idx` (None otherwise).
     func _key_at(&self, idx: Int) -> K? {
         if let s = self.slots.get(idx) {
+            // Symmetric to `_get_value`: MOVE the retained key out to the caller,
+            // discard the value with `_` (releasing its retain without deinit'ing a
+            // non-refcounted value the map still owns).
             match s {
-                case Occupied(k, v) -> { return k },
+                case Occupied(k, _) -> { return k },
                 case Empty -> { return None },
                 case Tombstone -> { return None }
             }

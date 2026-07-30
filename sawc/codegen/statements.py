@@ -457,6 +457,22 @@ class StatementsMixin:
             # Store value to element
             self.builder.store(value, elem_ptr)
 
+            # Placement-MOVE bookkeeping (design 65): a pointer-target store
+            # (`ptr[i] = value`, Vector.push/set's primitive) bitwise-MOVES the
+            # source into the slot. If the source is an owned binding carrying a
+            # drop flag, clear it — the value now lives in the buffer and must NOT
+            # also drop at scope exit. This is the move a drop flag previously
+            # "could not observe"; observing it here is what makes registering
+            # owning by-value params of instance methods safe (they release when
+            # used-and-not-moved, and do not double-free when placement-moved).
+            if (isinstance(stmt.target.array_expr, Identifier)
+                    and isinstance(container_val.type, ir.PointerType)
+                    and isinstance(stmt.value, Identifier)):
+                flag = self.drop_flags.get(stmt.value.name)
+                if flag is not None:
+                    self.builder.store(ir.Constant(ir.IntType(1), 0), flag)
+                self.moved_variables.add(stmt.value.name)
+
         else:
             raise ValueError(f"Invalid assignment target: {type(stmt.target)}")
 
