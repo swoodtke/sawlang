@@ -1,0 +1,33 @@
+// design 62 G1: nested groups. `inner` is a SUSPENDING function owning its own
+// frame-resident group, itself SPAWNED as a task of an OUTER group. Each group's
+// executor drives ONLY its own queue — outer's executor resumes `inner` frames;
+// each `inner` frame's executor drives its own `leaf` tasks. No executor
+// re-entrancy: a child never drives its parent's frame (it falls out of each
+// group owning its queue).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 124
+
+func leaf(n: Int) -> Int {
+    yield_now()
+    return n * 2
+}
+
+func inner(base: Int) -> Int {
+    var g = TaskGroup()
+    let a = g.spawn(leaf(base))
+    let b = g.spawn(leaf(base + 1))
+    sleep(1)
+    return a.join() + b.join()       // 2*base + 2*(base+1)
+}
+
+func outer() -> Int {
+    var group = TaskGroup()
+    let h1 = group.spawn(inner(10))  // 20 + 22 = 42
+    let h2 = group.spawn(inner(20))  // 40 + 42 = 82
+    return h1.join() + h2.join()     // 124
+}
+
+func main() {
+    print(__drive(outer()))          // 124
+}

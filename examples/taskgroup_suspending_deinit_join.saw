@@ -1,0 +1,35 @@
+// design 62 G1: structured join via the frame-resident group's Deinit. A
+// suspending `orchestrate` spawns children with observable side effects and does
+// NOT join — the group's Deinit runs its executor to completion of every child
+// during the frame's normal-control-flow cleanup (LIFO), even though the parent
+// suspended (`sleep`) between spawn and scope exit. The Log oracle prints each
+// child's id as its frame is torn down (Done), proving the drain.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 1
+// 7
+// 99
+
+struct Log { id: Int }
+extension Log: Deinit { func deinit(&var self) { print(self.id) } }
+extension Log: NoCopy {}
+
+func child(n: Int) -> Int {
+    let l = Log(id: n)      // dropped (prints n) when the child frame tears down
+    yield_now()
+    return n
+}
+
+func orchestrate() -> Int {
+    var group = TaskGroup()
+    let h1 = group.spawn(child(1))
+    let h2 = group.spawn(child(2))
+    sleep(2)                // parent suspends; children not yet driven
+    return 7                // no join: group Deinit drains both at scope exit
+}
+
+func main() {
+    print(__drive(orchestrate()))
+    print(99)
+}

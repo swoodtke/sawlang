@@ -140,11 +140,25 @@ def _opt(saw_type):
 #   "self_opt" — a declared type that is ALREADY optional (`T?`); encoded as-is
 #                (NOT `(T?)?` — that double-wrap miscompiles stores/reads). Its own
 #                tag is the drop flag; read `self.name` (no unwrap); init None.
+def _is_taskgroup(saw_type):
+    return (saw_type is not None and saw_type.kind == TypeKind.STRUCT
+            and saw_type.struct_name == "TaskGroup")
+
+
 def _enc_of(saw_type):
     if _is_pod(saw_type):
         return "plain"
     if saw_type is not None and saw_type.kind == TypeKind.OPTIONAL:
         return "self_opt"
+    # design 62 G1: a frame-resident `TaskGroup` is "plain"-encoded so `&group`
+    # (needed by `group.spawn(...)`'s synthesized `&group` receiver, and by
+    # `TaskHandle`'s raw pointer into the group) resolves to an ADDRESSABLE frame
+    # field `self.group` — an opt-encoded `self.group!` is not addressable. Its
+    # placeholder is a real empty `TaskGroup()` (always-valid: its Deinit drains 0
+    # children), so a teardown before the user's `let group = TaskGroup()` runs is
+    # still sound, and the user's assignment drops the empty placeholder cleanly.
+    if _is_taskgroup(saw_type):
+        return "plain"
     return "opt"
 
 
@@ -1390,7 +1404,14 @@ def _zeroed_value(enc, saw_type):
     cleanup-needing (opt-encoded) field — the drop flag reads not-live, so the
     frame never drops a placeholder — and a zero for a POD field (needs no
     cleanup)."""
-    return NoneLiteral() if _enc_cleanup(enc) else _zero_of(saw_type)
+    if _enc_cleanup(enc):
+        return NoneLiteral()
+    # design 62 G1: a plain-encoded frame-resident TaskGroup placeholder is a real
+    # empty group (not a zero word) — always safe to drop, overwritten by the
+    # user's `let group = TaskGroup()`.
+    if _is_taskgroup(saw_type):
+        return FunctionCall(name="TaskGroup", arguments=[])
+    return _zero_of(saw_type)
 
 
 def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):

@@ -1396,6 +1396,12 @@ class TypeUtilsMixin:
     def _check_no_copy_containment(self):
         """Check that structs containing NoCopy fields also implement NoCopy."""
         for struct_name, struct_info in self.namespace.structs.items():
+            # design 62 G1: compiler-synthesized coroutine frames are never copied
+            # (constructed, resumed by `&var`, dropped in place), so a NoCopy field
+            # such as a frame-resident `TaskGroup` is sound without a NoCopy
+            # conformance. (Their owning fields are torn down memberwise.)
+            if struct_name.startswith("__Frame_"):
+                continue
             # Skip if struct already implements NoCopy
             if self.namespace.type_conforms_to(struct_name, "NoCopy"):
                 continue
@@ -1662,6 +1668,13 @@ class TypeUtilsMixin:
     def _check_deinit_containment(self):
         """Check that structs containing Deinit fields also implement Deinit."""
         for struct_name, struct_info in self.namespace.structs.items():
+            # design 44/62: compiler-synthesized coroutine frames (`__Frame_*`) are
+            # exempt — their owning fields (opt-encoded locals, embedded sub-frames,
+            # and a design-62 G1 frame-resident `TaskGroup`) are torn down by the
+            # transform/codegen memberwise drop at the frame's own drop sites, not
+            # via a user Deinit conformance.
+            if struct_name.startswith("__Frame_"):
+                continue
             # Skip if struct already implements Deinit (or NoCopy/ImplicitCopy/ExplicitCopy which imply Deinit)
             if (self.namespace.type_conforms_to(struct_name, "Deinit") or
                 self.namespace.type_conforms_to(struct_name, "NoCopy") or
