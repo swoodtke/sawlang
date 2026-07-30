@@ -106,6 +106,15 @@ In progress (interruption-safe: one DF per commit). Progress log (newest last):
   `manifest_hash = "0"`; now a stable real hash — to be confirmed + lock updated
   at the DF11 step). Suite 765 -> 766; blade tests 16 green; bootstrap green with
   the DF12 retry/redirect workaround REMOVED.
+- **DF10 LANDED** — a `match` whose result type is optional (`T?`) with a bare-`T`
+  value arm and a `None` arm ICE'd codegen (phi mixed a bare `ptr` with the
+  `None` arm's `{i1, ptr}` -> LLVM verifier error). Fix:
+  `_reconcile_optional_arms` in the typechecker detects arms mixing `T?`/`None`
+  with a bare `T`, wraps each bare non-None arm in `OptionalWrap` (value + block
+  tails), and reconciles the match to `T?` — the mirror of the existing Result
+  auto-wrap. Regression: `examples/match_arm_optional_wrap.saw`. Suite 766 -> 767.
+  (Blade's `path_dir`/`is_git_source` split-helper workaround left in place; it's
+  harmless and a single `-> String?` merge isn't required.)
 
 ## Design 64 — Blade for real (deps/semver/lock/git/incremental/self-host)
 

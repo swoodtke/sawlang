@@ -4930,6 +4930,18 @@ class ExpressionsMixin:
             break
         if result_type is None:
             return SawType(TypeKind.NEVER)
+
+        # DF10: arms mixing an optional (`T?` / `None`) with a bare `T` must ALL
+        # become `T?`. Left alone the compatibility loop below either reconciles
+        # to the bare `T` (so codegen mixes a bare `ptr` from the value arm with a
+        # `{i1, ptr}` from the `None` arm in one phi -> LLVM verifier error) or
+        # errors outright. Detect the optional target, then wrap each bare,
+        # non-None arm in `OptionalWrap` so the match yields a homogeneous `T?`
+        # value — the exact mirror of the Result auto-wrap below.
+        opt_reconciled = self._reconcile_optional_arms(expr, arm_types)
+        if opt_reconciled is not None:
+            return opt_reconciled
+
         for arm_type in arm_types:
             if arm_type is not None and arm_type.kind == TypeKind.NEVER:
                 continue
@@ -5000,6 +5012,59 @@ class ExpressionsMixin:
                 )
                 return None
         return result_type
+
+    def _reconcile_optional_arms(self, expr: MatchExpr, arm_types) -> Optional[SawType]:
+        """DF10: reconcile match arms that mix `T?`/`None` with a bare `T` to a
+        single `T?`, wrapping each bare non-None arm in `OptionalWrap`.
+
+        Returns the reconciled `T?` type when the arms are such a mix (and every
+        arm is the optional, a `None` literal, or the inner `T`); otherwise None,
+        leaving the caller's normal reconciliation/Result-wrap path in charge.
+        """
+        # The optional target: an explicit `T?` arm, else `Optional<T>` inferred
+        # from a `None` literal arm plus a concrete bare arm.
+        inner = None
+        for at in arm_types:
+            if at is not None and at.kind != TypeKind.NEVER and at.is_optional():
+                inner = at.inner_type
+                break
+        if inner is None:
+            has_none = any(at is not None and at.kind != TypeKind.NEVER
+                           and at.is_none_literal() for at in arm_types)
+            if not has_none:
+                return None
+            for at in arm_types:
+                if (at is not None and at.kind != TypeKind.NEVER
+                        and not at.is_none_literal() and not at.is_optional()):
+                    inner = at
+                    break
+        if inner is None:
+            return None
+
+        # Only reconcile when EVERY non-never arm is the optional, a None literal,
+        # or the inner `T` — otherwise this isn't a clean optional mix; let the
+        # normal path report the incompatibility.
+        def _fits(at):
+            return (at is None or at.kind == TypeKind.NEVER or at.is_optional()
+                    or at.is_none_literal() or self._types_compatible(at, inner))
+        if not all(_fits(at) for at in arm_types):
+            return None
+
+        opt_target = SawType(TypeKind.OPTIONAL, inner_type=inner)
+        for arm, at in zip(expr.arms, arm_types):
+            if (at is None or at.kind == TypeKind.NEVER
+                    or at.is_optional() or at.is_none_literal()):
+                continue
+            # Wrap the bare-`T` arm body (or its block tail) into `Some(...)`.
+            if isinstance(arm.body, Block) and arm.body.final_expr is not None:
+                arm.body.final_expr = OptionalWrap(
+                    value=arm.body.final_expr, target_type=opt_target,
+                    line=arm.body.final_expr.line, column=arm.body.final_expr.column)
+            else:
+                arm.body = OptionalWrap(
+                    value=arm.body, target_type=opt_target,
+                    line=arm.body.line, column=arm.body.column)
+        return opt_target
 
     # ===== General pattern match (design 63 T1d) =====
 
