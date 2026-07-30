@@ -10,7 +10,7 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import StructInit, MemberAccess, Identifier, EnumInit
+from ast_nodes import StructInit, MemberAccess, Identifier, EnumInit, TypeKind
 
 
 class StructsMixin:
@@ -70,6 +70,17 @@ class StructsMixin:
 
             # Check if this field needs copy() called
             field_type = field_types.get(field_name)
+
+            # Coerce an integer value to the field's EXACT fixed width (design 65
+            # followup). A bare integer literal is materialized at the platform
+            # word (i64 on a hosted build), but a struct field has the field's
+            # concrete layout — an `Int8` field is an i8 slot — so inserting the
+            # i64 literal ICE'd ("Can only insert i8 ... got i64"). Retype the
+            # literal to the field width (an out-of-range literal is the standard
+            # range error, not an ICE); widen/narrow a runtime int to fit.
+            if field_type is not None:
+                value = self._coerce_int_to_field(value, field_type, value_expr)
+
             if field_type and self._needs_copy_for_struct_init(value_expr, field_type):
                 value = self._generate_copy(value, field_type)
 
@@ -97,6 +108,49 @@ class StructsMixin:
                 struct_val = self.builder.insert_value(struct_val, val, i)
 
         return struct_val
+
+    _UNSIGNED_INT_KINDS = {
+        TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+    }
+    _INT_KINDS = _UNSIGNED_INT_KINDS | {
+        TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+    }
+
+    def _coerce_int_to_field(self, value, field_type, value_expr):
+        """Coerce an integer `value` to a fixed-width field's exact LLVM type.
+
+        A bare integer literal (an i64 platform word on a hosted build) assigned
+        to a narrower/wider fixed-width field is retyped to the field's width. A
+        constant that does not fit the field is rejected with the standard range
+        error (never an ICE); a runtime integer is truncated / sign- or
+        zero-extended to fit. Non-integer fields and same-width values pass
+        through unchanged.
+        """
+        resolved = self._resolve_type_alias(field_type) if field_type is not None else field_type
+        if resolved is None or resolved.kind not in self._INT_KINDS:
+            return value
+        field_llvm = self._get_llvm_type(field_type)
+        if not (isinstance(value.type, ir.IntType) and isinstance(field_llvm, ir.IntType)):
+            return value
+        if value.type.width == field_llvm.width:
+            return value
+        signed = resolved.kind not in self._UNSIGNED_INT_KINDS
+        width = field_llvm.width
+        if isinstance(value, ir.Constant):
+            v = value.constant
+            lo = -(1 << (width - 1)) if signed else 0
+            hi = (1 << (width - 1)) - 1 if signed else (1 << width) - 1
+            if not (lo <= v <= hi):
+                line = getattr(value_expr, 'line', '?')
+                raise ValueError(
+                    f"integer literal {v} does not fit in `{field_type}` "
+                    f"(range {lo}..={hi}) (line {line})")
+            return ir.Constant(field_llvm, v)
+        if value.type.width > width:
+            return self.builder.trunc(value, field_llvm, name="field_trunc")
+        if signed:
+            return self.builder.sext(value, field_llvm, name="field_sext")
+        return self.builder.zext(value, field_llvm, name="field_zext")
 
     # Design 53 integer limits: (type name) -> (bit width or None for platform, is_signed).
     _INT_LIMIT_SPECS = {

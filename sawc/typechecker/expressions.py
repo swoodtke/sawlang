@@ -2708,6 +2708,36 @@ class ExpressionsMixin:
         )
         return None
 
+    _FIXED_INT_RANGES = {
+        TypeKind.INT8: (-(1 << 7), (1 << 7) - 1),
+        TypeKind.INT16: (-(1 << 15), (1 << 15) - 1),
+        TypeKind.INT32: (-(1 << 31), (1 << 31) - 1),
+        TypeKind.INT64: (-(1 << 63), (1 << 63) - 1),
+        TypeKind.UINT8: (0, (1 << 8) - 1),
+        TypeKind.UINT16: (0, (1 << 16) - 1),
+        TypeKind.UINT32: (0, (1 << 32) - 1),
+        TypeKind.UINT64: (0, (1 << 64) - 1),
+    }
+
+    def _check_fixed_width_literal(self, value_expr, expected_type, line, column):
+        """Reject a bare integer literal that does not fit a fixed-width integer
+        target (design 65 followup). A literal adopts the field's type exactly, so
+        `Rec(tag: 999)` with `tag: Int8` is a clean range error here rather than a
+        codegen ICE. Suffixed literals are already range-checked at lex time;
+        platform `Int`/`UInt` are checked at the literal in codegen."""
+        if not isinstance(value_expr, IntLiteral) or getattr(value_expr, 'suffix', None):
+            return
+        rt = self._resolve_type(expected_type) if expected_type is not None else None
+        if rt is None or rt.kind not in self._FIXED_INT_RANGES:
+            return
+        lo, hi = self._FIXED_INT_RANGES[rt.kind]
+        if not (lo <= value_expr.value <= hi):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"integer literal {value_expr.value} does not fit in "
+                f"`{expected_type}` (range {lo}..={hi})",
+                line, column)
+
     def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
         """Check struct initialization with parameter-based resolution."""
         struct_info = self.get_struct_info(expr.struct_name)
@@ -2801,6 +2831,8 @@ class ExpressionsMixin:
                 if type_mapping:
                     expected_type = expected_type.substitute(type_mapping)
                 actual_type = self._check_init_field_value(field_value, expected_type)
+                self._check_fixed_width_literal(field_value, expected_type,
+                                                field_value.line, field_value.column)
                 if expected_type.kind == TypeKind.OPTIONAL and isinstance(field_value, NoneLiteral):
                     field_value.resolved_type = expected_type
                 allow_wrap = self._df3_allow_wrap(
@@ -2839,6 +2871,8 @@ class ExpressionsMixin:
                 if type_mapping:
                     expected_type = expected_type.substitute(type_mapping)
                 actual_type = self._check_init_field_value(field_value, expected_type)
+                self._check_fixed_width_literal(field_value, expected_type,
+                                                field_value.line, field_value.column)
                 allow_wrap = self._df3_allow_wrap(
                     declared_type, set(type_mapping.keys()) if type_mapping else None)
                 if actual_type and not self._arg_type_ok(field_value, actual_type, expected_type, allow_wrap):

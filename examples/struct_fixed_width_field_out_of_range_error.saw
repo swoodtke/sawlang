@@ -1,0 +1,12 @@
+// Design 65 followup: a bare integer literal that does not fit a struct's
+// fixed-width field is a clean RANGE error (not a codegen ICE). 999 exceeds the
+// Int8 range -128..=127.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not fit in `Int8`
+
+struct Rec { tag: Int8 }
+
+func main() {
+    let r = Rec(tag: 999)
+    print(r.tag as Int)
+}
