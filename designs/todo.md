@@ -44,8 +44,9 @@ Milestone: UART "blink" from a Saw kernel on the P4.
 - **D14 → design 48 — LANDED** (`ea3021b`): Comparable (opt-in,
   Ordering enum, synthesized lexicographic), Hashable (mirrors
   Equatable, FNV-1a Hasher), Vector.sort/sort_by (both need `T: Copy`),
-  HashMap<K,V,A> (open-addressing/linear-probe/tombstone, NoCopy). Map
-  stays (deprecation later). Note: brief 49's original commit was lost
+  HashMap<K,V,A> (open-addressing/linear-probe/tombstone, NoCopy). [HashMap
+  later RENAMED → Map and the Vector-backed Map RETIRED by design 54.]
+  Note: brief 49's original commit was lost
   and recommitted (`307f9e4`) alongside 48 — see handoff.md.
 - **D15 → design 49**: panic(msg)/assert builtins (closes M4) +
   `blade test` convention (tests/ = ordinary programs, exit 0 = pass).
@@ -192,18 +193,27 @@ A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
   every `let`/`var` requires an initializer (uninitialized decl is a parse
   error), so no definite-init analysis is needed; documented in the spec,
   no code. Compiler suite 640 → docs commit, 0 xfails. [ergonomics]
-- **Design 54 "collections"** (`designs/54-collections.md`, queued
-  LAST): **Map UNIFICATION — the Vector-backed Map is RETIRED, HashMap
-  renamed → Map** (one hash dictionary; closes the Map-deprecation
-  open decision; unspecified order documented, sort keys() for
-  deterministic output; old Map's copy() not carried over). Set<T>
-  (core + algebra: union/intersection/difference/is_subset; wrapper-
-  over-Map preferred, probe first). Collection literals per the
-  closure rule: `{k: v}` map / `{a, b}` set / `{:}` empty map;
-  **`{}` and `{expr}` are ALWAYS closures** — Set<T>()/Set.of(x) for
-  empty/singleton; duplicate keys last-wins. Context-driven Vector
-  literals (`[1,2,3]` builds a Vector when the expected type says so;
-  array default byte-identical).
+- **Design 54 "collections" — LANDED**: **Map UNIFICATION** — the
+  Vector-backed Map RETIRED, HashMap renamed → Map (one hash dictionary;
+  the Map-deprecation open decision is **CLOSED**; the name `HashMap` no
+  longer resolves; unspecified order documented; old Map's copy() not
+  carried over — ExplicitCopy is future work). **Set<T>** (core + algebra:
+  union/intersection/difference/is_subset/is_superset) — implemented as a
+  **wrapper over `Map<T, SetMark>`** (probed: the zero-field unit value
+  works cleanly; chosen over a parallel open-addressing rewrite). Algebra
+  bound is `T: Copy` (even membership-only ops read elements by value — the
+  57-snapshot limit). **Collection literals** per the closure rule:
+  `{k: v}` map / `{a, b}` set / `{:}` empty map; `{}`, `{expr}`,
+  `{ x in ... }` are ALWAYS closures (Set<T>()/Set.of(x) for empty/single);
+  duplicate keys last-wins; bounded parser lookahead, no type feedback.
+  **Context-driven Vector literals** (`[1,2,3]` / `[]` build a Vector when
+  the expected type is `Vector<T,A>`; array default byte-identical).
+  Enablers landed: method calls on a `&T` reference-param receiver (was an
+  ICE); `_generate_enum_init` substitutes type args against the active
+  monomorphization context (a generic-enum sizing bug exposed by Set and
+  Map coexisting). Compiler suite 661, 0 xfails. Known pre-existing (NOT
+  54): `Map`/`Vector` with a *custom* allocator leaks its buffer on deinit
+  (reproduces with explicit construction; design 37/48 territory). [both apps]
 
 **DEFERRED** (user, Jul 29): slices (needs own design vs no-escape
 refs); `\x` byte escapes; where clauses; extension sugar (computed

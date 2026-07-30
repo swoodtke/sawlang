@@ -307,9 +307,10 @@ func process(input: String?) {
 **Status: partially implemented.** Structs, enums (ADTs) with exhaustive
 `match`, tuples, fixed arrays, optionals, `Result`, distinct `type` aliases,
 traits, and generic types/functions with monomorphization are all built (see
-the subsection notes). Planned pieces called out below: slices (`&a[1..4]`),
-`Set`/dictionary literals, trait default methods, supertrait *enforcement*, and
-some primitive widths. `any Trait` existentials (type-erased dynamic dispatch)
+the subsection notes). `Map`/`Set` and their `{ }` literals, context-driven
+Vector literals, and trait default methods are **implemented**. Planned pieces
+called out below: slices (`&a[1..4]`), supertrait *enforcement*, and some
+primitive widths. `any Trait` existentials (type-erased dynamic dispatch)
 are **implemented** (see Traits). Stdlib methods used only to illustrate (e.g.
 `.sqrt()`) are marked *(illustrative)*.
 
@@ -469,14 +470,27 @@ let fixed: [Int; 5] = [1, 2, 3, 4, 5]
 // Slices (view into contiguous memory)  (illustrative — slices are planned)
 let slice: [Int] = &fixed[1..4]
 
-// Vectors (dynamic, heap allocated) — stdlib `Vector<T>`, constructed via its
-// initializers (`Vector<Int>(capacity: n)`) rather than a literal today.
+// Vectors (dynamic, heap allocated) — stdlib `Vector<T>`. A bracket literal
+// builds a Vector when the EXPECTED type is `Vector<T, A>` (design 54); with no
+// expected type it is a fixed-size array (above).
+let squares: Vector<Int> = [1, 4, 9, 16]     // context-driven Vector literal
+let empty_vec: Vector<Int> = []              // empty Vector via context
 
-// Dictionaries / Sets with `{ }` literals are planned:
-//   let ages: Map<String, Int> = {"alice": 30, "bob": 25}   (illustrative)
-//   let uniques: Set<Int> = {1, 2, 3}                        (illustrative)
-//   let empty_map: Map<String, Int> = {:}                    (illustrative)
+// Dictionaries and Sets use `{ }` literals (design 54):
+let ages: Map<String, Int> = {"alice": 30, "bob": 25}
+let uniques: Set<Int> = {1, 2, 3}
+let empty_map: Map<String, Int> = {:}        // empty map (needs an annotation)
+let inferred = {1: 10, 2: 20}                // Map<Int, Int>, K/V inferred
 ```
+
+**The `{ }` closure rule** (design 54): a brace is a **map literal** when its
+first delimiter is `:` (`{k: v, ...}`, and `{:}` is the empty map), a **set
+literal** when it is `,` (`{a, b, ...}`), and a **closure/block** otherwise —
+`{}`, `{expr}`, `{ x in ... }`, and `{ $0 ... }` are ALWAYS closures (spell
+empty/singleton collections `Map<K, V>()`, `Set<T>()`, `Set.of(x)`). The choice
+is made by bounded parser lookahead with no type feedback. Duplicate map keys:
+last wins. Each element is consumed exactly as an `insert`/`push` argument
+(moves for owning types).
 
 ### Structs
 
@@ -1812,10 +1826,13 @@ trait Hashable {            // requires Equatable
   `T: Copy` (the `Vector.each` precedent). No ExplicitCopy element is ever
   silently duplicated.
 
-### `HashMap<K: Hashable + Equatable, V, A: Allocator = Global>`
+### `Map<K: Hashable + Equatable, V, A: Allocator = Global>`
 
-**Status: implemented** (`designs/48-ord-hash.md`). An **open-addressing** hash
-table (linear probing, tombstone deletion) over a `Vector` of slot enums:
+**Status: implemented** (`designs/48-ord-hash.md`, unified by `designs/54`).
+`Map` is **THE dictionary type** — an **open-addressing** hash table (linear
+probing, tombstone deletion) over a `Vector` of slot enums. (The old
+Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
+`Map`, and the name `HashMap` no longer exists.)
 
 - Power-of-two capacity (bucket = `hash & (cap-1)`); grows (doubling + rehash)
   once the live-load factor would exceed 3/4.
@@ -1826,9 +1843,27 @@ table (linear probing, tombstone deletion) over a `Vector` of slot enums:
 - Slots are an enum `{ Empty, Tombstone, Occupied(key, value) }`, so a fresh
   table is deinit-safe even for owning key/value types; slot updates/removals
   move the old slot out (`Vector.swap_out`, a refcount-neutral move), so nothing
-  leaks or double-frees. `HashMap` is **NoCopy** (move-only).
-- The existing Vector-backed **`Map` stays** as-is; migrating/deprecating it is
-  a later decision.
+  leaks or double-frees. `Map` is **NoCopy** (move-only): transfer with `move`;
+  there is no implicit `.copy()` (an `ExplicitCopy` conformance is future work).
+- **Iteration order is UNSPECIFIED** (table/bucket order). For deterministic
+  output, sort a `keys()` snapshot (`String`/`Int` are `Comparable`).
+
+### `Set<T: Hashable + Equatable, A: Allocator = Global>`
+
+**Status: implemented** (`designs/54`). An unordered hash set, implemented as a
+thin wrapper over `Map<T, SetMark>` (a zero-field unit value), so there is one
+hash implementation to trust. `Set` is **NoCopy**; order is **UNSPECIFIED**
+(sort a `to_vector()` snapshot for deterministic output).
+
+- Core: `insert(v) -> Bool` (true iff newly inserted), `remove(v) -> Bool`,
+  `contains(v) -> Bool`, `len()`, `is_empty()`, `each(body: (T) -> Void)`
+  (non-escaping visitor; mutating the set inside its own `each` is a static
+  Law-of-Exclusivity error), `to_vector() -> Vector<T, A>` (`T: Copy`),
+  `Set(from: Vector<T, A>)` (consumes/drains the vector; NoCopy-safe),
+  `Set.of(v)` (single-element factory).
+- Algebra (all borrow `&other`, return a NEW set / `Bool`; bounded
+  `T: Copy` — even membership-only ops read each element by value):
+  `union`, `intersection`, `difference`, `is_subset`, `is_superset`.
 
 **Iteration** (`designs/57`). Saw's no-escape references mean an iterator object
 cannot borrow the map, so iteration is not an Iterator-over-a-borrow. Two forms:
@@ -2500,7 +2535,7 @@ let f = File.open("data.txt")
 // are purely local renames (mangling and the module graph are unchanged). Two
 // entries of one selective import binding the same local name is an error.
 import std.io as fileio                          // module alias
-import std.collections.{HashMap as Map, Set}     // per-symbol alias
+import std.collections.{Map as Dict, Set}        // per-symbol alias
 
 // Import from current package
 import package.parser.Parser

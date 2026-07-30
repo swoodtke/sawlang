@@ -60,7 +60,14 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 - String interpolation: `"Hello, {name}!"`
 - Trailing closure syntax
 - Pattern matching as core feature
-- Dictionaries use `{ }` syntax: `{"key": value}`
+- Collection literals with the `{ }` closure rule (design 54): `{k: v, ...}` is
+  a `Map` literal (colon), `{a, b, ...}` a `Set` literal (comma), `{:}` the empty
+  map (needs an annotation); `{}`, `{expr}`, `{ x in ... }`, `{ $0 ... }` are
+  ALWAYS closures/blocks (spell empty/singleton collections `Map<K,V>()`,
+  `Set<T>()`, `Set.of(x)`). Bounded parser lookahead, no type feedback; duplicate
+  keys last-wins. A bracket literal `[a, b]`/`[]` builds a `Vector` when the
+  expected type is `Vector<T, A>` (annotation/param/return/field), else a
+  fixed-size array.
 - Swift-style `init` for struct initialization: `Point(x, y)`
 - Named parameters in enums: `Move(x: Int, y: Int)`
 
@@ -486,16 +493,25 @@ The compiler currently supports:
   non-escaping comparator returning `Ordering`) — design 48: in-place, stable
   insertion sort; byte-level `swap` movement (no element copy), `T: Copy` only
   for by-value comparison reads. `Vector.swap_out(i, v) -> T` moves a slot out.
-- `HashMap<K: Hashable + Equatable, V, A: Allocator = Global>` (`std/hashmap.saw`,
-  design 48): open addressing (linear probing, tombstones), power-of-two cap,
-  grow at 3/4 load. `insert`/`get`/`remove`/`contains_key`/`len`; Int and String
-  keys. Slots are an enum `{ Empty, Tombstone, Occupied(k, v) }` (owning-key-safe);
-  NoCopy. The Vector-backed `Map` STAYS (deprecation is a later decision).
-  Iteration (design 57): non-escaping closure VISITORS `each(K,V)`/`each_key(K)`/
-  `each_value(V)` (K/V passed by value; skip Empty/Tombstone; order UNSPECIFIED —
-  table order) + SNAPSHOTS `keys() -> Vector<K,A>` (K: Copy) / `values()` (V: Copy),
-  built via the visitors. Mutating the map inside its own visitor is a static
-  exclusivity error. No `entries()` in v1.
+- `Map<K: Hashable + Equatable, V, A: Allocator = Global>` (`std/map.saw`,
+  designs 48 + 54): THE dictionary type — open addressing (linear probing,
+  tombstones), power-of-two cap, grow at 3/4 load. `insert`/`get`/`remove`/
+  `contains_key`/`len`; Int and String keys. Slots are an enum
+  `{ Empty, Tombstone, Occupied(k, v) }` (owning-key-safe); NoCopy (no `.copy()`).
+  The old Vector-backed linear-scan `Map` was RETIRED (design 54) — one `Map`,
+  and the name `HashMap` no longer exists. Iteration (design 57): non-escaping
+  closure VISITORS `each(K,V)`/`each_key(K)`/`each_value(V)` (K/V passed by value;
+  skip Empty/Tombstone; order UNSPECIFIED — table order) + SNAPSHOTS
+  `keys() -> Vector<K,A>` (K: Copy) / `values()` (V: Copy), built via the
+  visitors. Mutating the map inside its own visitor is a static exclusivity
+  error. No `entries()` in v1.
+- `Set<T: Hashable + Equatable, A: Allocator = Global>` (`std/set.saw`, design
+  54): a NoCopy hash set wrapping `Map<T, SetMark>` (zero-field unit value — one
+  hash impl). Core `insert(v)->Bool`/`remove(v)->Bool`/`contains`/`len`/
+  `is_empty`/`each` (non-escaping visitor)/`to_vector()` (T: Copy)/`Set(from:
+  Vector)` (consumes)/`Set.of(v)`. Algebra (borrow `&other`, new set/Bool, bound
+  `T: Copy`): `union`/`intersection`/`difference`/`is_subset`/`is_superset`.
+  Order UNSPECIFIED.
 - Numeric extensions (design 57, `std/numeric.saw`): `extension Int` — `abs()`
   (panics on Int.min per overflow rule), `min`/`max`/`clamp`, `pow` (checked;
   negative exp panics), `is_even`/`is_odd`/`signum`; `extension Float` — `abs`/
