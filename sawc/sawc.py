@@ -46,7 +46,7 @@ def parse_source(source: str, source_path: str, verbose: bool = False):
 # excluded from the freestanding profile. Core + alloc-layer modules (string,
 # vector, map, data, stringbuilder, path) depend only on the runtime seams and
 # remain available freestanding.
-HOSTED_STD_MODULES = {"file", "process", "env", "directory"}
+HOSTED_STD_MODULES = {"file", "process", "env", "directory", "time"}
 
 
 def load_builtins(verbose: bool = False, freestanding: bool = False):

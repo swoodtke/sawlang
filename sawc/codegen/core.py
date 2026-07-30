@@ -491,23 +491,38 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # freestanding supplies its own (a WFI/hardware-timer wait).
         saw_sleep_ms = ir.Function(self.module, ir.FunctionType(void, [i64]),
                                    name="saw_sleep_ms")
+        # design 57 (std.time): the monotonic + wall-clock seams. Both return
+        # i64. `saw_clock_monotonic_nanos` reads a monotonic clock as nanoseconds
+        # since an arbitrary epoch (behind Instant.now()); `saw_unix_timestamp_secs`
+        # reads the wall clock as seconds since the Unix epoch. Keeping the
+        # struct-timespec layout and the macOS/Linux CLOCK_MONOTONIC constant
+        # variance INSIDE the shim (like saw_sleep_ms) is what lets std.time stay
+        # pure Saw. Hosted-only (std.time is never imported freestanding).
+        saw_clock_monotonic_nanos = ir.Function(
+            self.module, ir.FunctionType(i64, []), name="saw_clock_monotonic_nanos")
+        saw_unix_timestamp_secs = ir.Function(
+            self.module, ir.FunctionType(i64, []), name="saw_unix_timestamp_secs")
 
         self.functions["saw_alloc"] = saw_alloc
         self.functions["saw_dealloc"] = saw_dealloc
         self.functions["saw_write"] = saw_write
         self.functions["saw_panic"] = saw_panic
         self.functions["saw_sleep_ms"] = saw_sleep_ms
+        self.functions["saw_clock_monotonic_nanos"] = saw_clock_monotonic_nanos
+        self.functions["saw_unix_timestamp_secs"] = saw_unix_timestamp_secs
         self.saw_write = saw_write
         self.saw_panic = saw_panic
 
+        _seams = (saw_alloc, saw_dealloc, saw_write, saw_panic, saw_sleep_ms,
+                  saw_clock_monotonic_nanos, saw_unix_timestamp_secs)
         if self.freestanding:
             # Declarations only; the environment supplies the definitions.
-            for fn in (saw_alloc, saw_dealloc, saw_write, saw_panic, saw_sleep_ms):
+            for fn in _seams:
                 fn.linkage = "external"
             return
 
         # ---- hosted weak definitions ----------------------------------------
-        for fn in (saw_alloc, saw_dealloc, saw_write, saw_panic, saw_sleep_ms):
+        for fn in _seams:
             fn.linkage = "weak"
 
         malloc_fn = self._libc_func("malloc", i8ptr, [i64])
@@ -561,6 +576,36 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.branch(ret_bb)
         b = ir.IRBuilder(ret_bb)
         b.ret_void()
+
+        # ---- std.time clock seams (design 57) -------------------------------
+        # clock_gettime(clockid_t clk_id, struct timespec *tp): on the 64-bit
+        # hosted targets `struct timespec` is { i64 tv_sec; i64 tv_nsec }. The
+        # CLOCK_MONOTONIC id differs by OS (macOS 6, Linux 1); CLOCK_REALTIME is
+        # 0 on both. Both shims stack-allocate a two-word timespec, call
+        # clock_gettime, and fold the result to a single i64.
+        clock_gettime_fn = self._libc_func("clock_gettime", i32, [i32, i8ptr])
+        ts_ty = ir.ArrayType(i64, 2)
+        monotonic_id = 6 if self._is_apple_triple() else 1
+
+        def _emit_clock_shim(fn, clock_id, to_nanos):
+            bb = ir.IRBuilder(fn.append_basic_block("entry"))
+            ts = bb.alloca(ts_ty, name="ts")
+            ts_i8 = bb.bitcast(ts, i8ptr)
+            bb.call(clock_gettime_fn, [ir.Constant(i32, clock_id), ts_i8])
+            sec_ptr = bb.gep(ts, [ir.Constant(i64, 0), ir.Constant(i64, 0)])
+            sec = bb.load(sec_ptr, name="tv_sec")
+            if not to_nanos:
+                bb.ret(sec)
+                return
+            nsec_ptr = bb.gep(ts, [ir.Constant(i64, 0), ir.Constant(i64, 1)])
+            nsec = bb.load(nsec_ptr, name="tv_nsec")
+            total = bb.add(bb.mul(sec, ir.Constant(i64, 1000000000)), nsec)
+            bb.ret(total)
+
+        _emit_clock_shim(self.functions["saw_clock_monotonic_nanos"],
+                         monotonic_id, to_nanos=True)
+        _emit_clock_shim(self.functions["saw_unix_timestamp_secs"],
+                         0, to_nanos=False)
 
     def _is_apple_triple(self) -> bool:
         t = (self.triple or "").lower()

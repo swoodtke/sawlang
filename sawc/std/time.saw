@@ -1,0 +1,137 @@
+// std.time — monotonic + wall-clock time (design 57 Part 4).
+//
+// HOSTED-ONLY: this module links libc (via the clock seams below) and is never
+// loaded in the freestanding profile (see HOSTED_STD_MODULES in sawc.py) — a
+// kernel supplies its own timer. It allocates nothing.
+//
+// `Duration` and `Instant` carry Int64 nanoseconds so the layout is stable
+// regardless of platform Int width (riscv32-safe were it ever hosted there).
+
+// =============================================================================
+// Clock seams (defined by the compiler — see codegen/core.py)
+// =============================================================================
+//
+// The macOS/Linux CLOCK_MONOTONIC constant difference and the `struct timespec`
+// layout live inside these compiler shims (the saw_sleep_ms precedent), so this
+// module stays pure Saw.
+extern "C" {
+    // Monotonic clock, nanoseconds since an arbitrary epoch (only differences
+    // are meaningful). Backs `Instant.now()`.
+    func saw_clock_monotonic_nanos() -> Int64
+    // Wall clock, seconds since the Unix epoch. Backs `unix_timestamp()`.
+    func saw_unix_timestamp_secs() -> Int64
+}
+
+// =============================================================================
+// Duration — a span of time, Int64 nanoseconds
+// =============================================================================
+
+struct Duration {
+    nanos: Int64
+}
+
+extension Duration {
+    // Construct from whole milliseconds / seconds.
+    func from_millis(ms: Int64) -> Duration {
+        Duration(nanos: ms * (1000000 as Int64))
+    }
+
+    func from_secs(s: Int64) -> Duration {
+        Duration(nanos: s * (1000000000 as Int64))
+    }
+
+    // Whole-unit accessors (truncating toward zero).
+    func secs(&self) -> Int64 {
+        self.nanos / (1000000000 as Int64)
+    }
+
+    func millis(&self) -> Int64 {
+        self.nanos / (1000000 as Int64)
+    }
+
+    func micros(&self) -> Int64 {
+        self.nanos / (1000 as Int64)
+    }
+
+    func nanos(&self) -> Int64 {
+        self.nanos
+    }
+}
+
+// Duration is a trivial (POD) struct, so it auto-conforms to Equatable; opt in
+// to Comparable (synthesized lexicographic compare over the single `nanos`
+// field — i.e. ordinary numeric order).
+extension Duration: Comparable {
+}
+
+// Human-readable rendering (design 56 Printable): pick the largest unit at or
+// below the magnitude. Seconds get two fractional digits ("1.42s"); smaller
+// units render whole ("230ms", "5us", "42ns").
+extension Duration: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let ns = self.nanos
+        let sec = 1000000000 as Int64
+        let milli = 1000000 as Int64
+        let micro = 1000 as Int64
+        if ns >= sec {
+            let whole = ns / sec
+            let frac = (ns % sec) / (10000000 as Int64)   // centiseconds, 0..99
+            into.append(whole as Int)
+            into.append(".")
+            if frac < (10 as Int64) {
+                into.append("0")
+            }
+            into.append(frac as Int)
+            into.append("s")
+            return
+        }
+        if ns >= milli {
+            into.append((ns / milli) as Int)
+            into.append("ms")
+            return
+        }
+        if ns >= micro {
+            into.append((ns / micro) as Int)
+            into.append("us")
+            return
+        }
+        into.append(ns as Int)
+        into.append("ns")
+    }
+}
+
+// =============================================================================
+// Instant — a point on the monotonic clock
+// =============================================================================
+
+// Opaque nanoseconds since an arbitrary epoch. Compare two Instants only via
+// their difference (elapsed / duration_since).
+struct Instant {
+    nanos: Int64
+}
+
+extension Instant {
+    // The current monotonic instant. Static: `Instant.now()`.
+    func now() -> Instant {
+        Instant(nanos: saw_clock_monotonic_nanos())
+    }
+
+    // Time elapsed since this instant (now - self).
+    func elapsed(&self) -> Duration {
+        Duration(nanos: saw_clock_monotonic_nanos() - self.nanos)
+    }
+
+    // Duration from an earlier instant to this one (self - earlier).
+    func duration_since(&self, earlier: Instant) -> Duration {
+        Duration(nanos: self.nanos - earlier.nanos)
+    }
+}
+
+// =============================================================================
+// Wall-clock timestamp
+// =============================================================================
+
+// Seconds since the Unix epoch (1970-01-01T00:00:00Z), from the realtime clock.
+func unix_timestamp() -> Int64 {
+    saw_unix_timestamp_secs()
+}
