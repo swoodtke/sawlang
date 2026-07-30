@@ -56,9 +56,12 @@ public extension ResolveError: Error {
 public struct Resolution {
     names: Vector<String>
     versions: Vector<String>
-    kinds: Vector<String>     // "path" (git in B5)
-    locs: Vector<String>      // resolved directory (path) / url (git)
-    revs: Vector<String>      // "" for path
+    kinds: Vector<String>       // "path" / "git"
+    locs: Vector<String>        // resolved directory (path) / url (git) — used
+                                // internally and for the build module-path
+    declareds: Vector<String>   // source AS DECLARED (relative path / url) — the
+                                // portable value recorded in Saw.lock
+    revs: Vector<String>        // "" for path
 }
 
 extension Resolution: NoCopy {
@@ -71,8 +74,9 @@ public extension Resolution {
         let b = Vector<String>()
         let c = Vector<String>()
         let d = Vector<String>()
+        let f = Vector<String>()
         let e = Vector<String>()
-        Resolution(names: move a, versions: move b, kinds: move c, locs: move d, revs: move e)
+        Resolution(names: move a, versions: move b, kinds: move c, locs: move d, declareds: move f, revs: move e)
     }
 
     func len(&self) -> Int {
@@ -95,13 +99,15 @@ public extension Resolution {
     func version(&self, i: Int) -> String { self.versions.get(i) ?? "" }
     func kind(&self, i: Int) -> String { self.kinds.get(i) ?? "" }
     func loc(&self, i: Int) -> String { self.locs.get(i) ?? "" }
+    func declared(&self, i: Int) -> String { self.declareds.get(i) ?? "" }
     func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
 
-    func add(&var self, name: String, version: String, kind: String, loc: String, rev: String) {
+    func add(&var self, name: String, version: String, kind: String, loc: String, declared: String, rev: String) {
         self.names.push(name)
         self.versions.push(version)
         self.kinds.push(kind)
         self.locs.push(loc)
+        self.declareds.push(declared)
         self.revs.push(rev)
     }
 }
@@ -359,10 +365,15 @@ func visit(dep_name: String, source: DepSource, constraint: String, requirer: St
     // a path dep, or the URL for a git dep.
     let is_git = is_git_source(source)
     var dep_loc = ""
+    var declared = ""
     if is_git {
         dep_loc = git_url(source)
+        declared = dep_loc
     } else {
-        dep_loc = normalize_path(base_dir.join(path_dir(source)).as_str())
+        // Declared: the raw relative path from the manifest (portable, recorded
+        // in the lock). Loc: the normalized directory (identity + module-path).
+        declared = path_dir(source)
+        dep_loc = normalize_path(base_dir.join(declared).as_str())
     }
 
     // Cycle FIRST: if the name is on the active resolution stack it is an
@@ -444,7 +455,7 @@ func visit(dep_name: String, source: DepSource, constraint: String, requirer: St
     if not is_git {
         resolved_version = m.version()
     }
-    resolution.add(dep_name, resolved_version, resolved_kind, dep_loc, resolved_rev)
+    resolution.add(dep_name, resolved_version, resolved_kind, dep_loc, declared, resolved_rev)
 
     stack.push(dep_name)
     let sub = match m.dependencies() {

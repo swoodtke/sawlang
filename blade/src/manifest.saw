@@ -1,7 +1,7 @@
 // Manifest - Saw.toml package manifest handling
 // Part of the Blade package manager
 
-import src.toml
+import toml
 
 // =============================================================================
 // Error Types

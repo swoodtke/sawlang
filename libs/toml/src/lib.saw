@@ -1,9 +1,8 @@
-// TOML - Minimal TOML parser for Saw.toml files
-// Part of the Blade package manager
-//
-// Supports:
+// toml — a minimal TOML reader for Saw.toml / Saw.lock (design 64 B8, extracted
+// from Blade into a real library package). Supports:
 // - [section] headers
 // - key = "value" string assignments
+// - key = { subkey = "v", ... } one-level inline tables
 // - # comments
 
 // =============================================================================

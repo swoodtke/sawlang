@@ -475,21 +475,57 @@ The authoritative, always-current feature list lives in
 ## Blade Package Manager
 
 Saw includes Blade, a package manager written in Saw itself — with a real TOML
-parser, manifest model, builder, and test runner:
+parser, manifest model, dependency resolver, deterministic lockfile, git
+fetching, and incremental builds:
 
 ```bash
-# Build the package manager
-./.venv/bin/python sawc/sawc.py blade/src/main.saw -o .build/blade
+# Build the package manager (it depends on the libs/toml package, so map it)
+./.venv/bin/python sawc/sawc.py blade/src/main.saw -o .build/blade \
+    --module-path toml=libs/toml/src
 
 # Use it
 ./.build/blade new myproject   # scaffold a new project
-./.build/blade build           # compile the current project
+./.build/blade build           # resolve deps + compile (incremental; --force to rebuild)
 ./.build/blade run             # build and run
 ./.build/blade test            # compile and run the project's tests/
+./.build/blade tree            # print the resolved dependency graph
+./.build/blade add foo --path ../foo         # add a path dependency
+./.build/blade add bar --git <url> --version ^1.0.0   # add a git dependency
 ```
 
-`blade test` discovers `tests/*.saw` files, compiles and runs each, and reports
-failures (a test fails via `assert`/`panic`; a nonzero exit fails the build).
+### Dependencies (design 64)
+
+A project declares dependencies in its `Saw.toml`:
+
+```toml
+[dependencies]
+mathx = { path = "../mathx" }
+jsonx = { git = "https://github.com/u/jsonx", version = "^1.2.0" }
+tiny  = "0.3.1"          # bare = EXACT pin (ranges need ^, ~, or >=)
+```
+
+- **Resolver**: max-satisfying, one version per package. A path dep's version
+  comes from its own manifest; a git dep's candidate versions are its `vX.Y.Z`
+  tags (`git ls-remote`). Conflicts name every requirer; two different sources
+  for one name, dependency cycles, and self-deps are errors.
+- **`Saw.lock`**: deterministic (packages sorted, no timestamps), records
+  version + source + git rev, plus a manifest-deps hash for drift detection.
+- **Git**: tagged versions are cloned into `.blade/deps/<name>-<version>/`
+  (`.blade/` is self-gitignoring). No global cache yet.
+- **Incremental**: a content hash of every reachable source (`.blade/build-hash`)
+  skips an up-to-date build; `--force` bypasses it.
+- **Self-hosting**: Blade's own build depends on the `libs/toml` package by
+  path, so every Blade build exercises the resolver / lock / module-path
+  pipeline. `make blade-bootstrap` runs the loop that builds and tests Blade
+  through Blade itself.
+
+`blade test` discovers `tests/*.saw` files, compiles and runs each (with the
+project's dependency module-paths), and reports per-test timing; a test fails
+via `assert`/`panic` or a nonzero exit.
+
+The version-requirement logic also lives as a standalone library package,
+`libs/semver` (a `Comparable`/`Printable` dogfood), with its own `blade test`
+suite.
 
 ## Design Philosophy
 

@@ -1,0 +1,8 @@
+[lock]
+manifest_hash = "0"
+
+[pkg.toml]
+version = "0.1.0"
+source = "path"
+loc = "../libs/toml"
+rev = ""

@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap
 
 # Default target
 all: test
@@ -16,6 +16,11 @@ test-verbose:
 # Run a specific test by name
 test-filter:
 	@python3 test_runner.py -f $(FILTER)
+
+# Blade self-hosting bootstrap (design 64 B8): Blade builds + tests Blade
+# through its own resolve/lock/module-path/incremental pipeline.
+blade-bootstrap:
+	@python3 tools/blade_bootstrap.py
 
 # Clean build artifacts
 clean:

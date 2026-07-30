@@ -134,7 +134,21 @@ Progress log (newest last):
   (appends to Saw.toml [dependencies], re-resolves + writes lock), and per-test
   timing in `blade test` output (`... ok (Nms)` via std.time Duration). Verified
   via .build/scratch/run_tree_add.py. Blade tests 20 (timing added). Suite 765.
-  Next: B8 self-hosting (toml extraction + blade deps + bootstrap) — gated by DF9.
+- B8 LANDED — design 64 COMPLETE. Re-probed DF9: a cross-package erased-`try`
+  re-box + `{e}` interpolation actually WORK in isolation (DF9 was a narrower
+  combination), so the toml extraction is viable. Extracted `libs/toml` (real
+  package + own `blade test` suite: toml_parsing/int_value/missing_section/
+  inline_table); Blade's manifest+lock now `import toml` (external), Blade's
+  Saw.toml depends on it by PATH, blade/src/toml.saw deleted. Added a portable
+  `declared` source column to Resolution so the committed `Saw.lock` records the
+  relative path (`../libs/toml`), not an abs dir. Bootstrap loop
+  (`tools/blade_bootstrap.py` + `make blade-bootstrap`): stage0 (sawc builds
+  blade) -> stage1 (blade builds blade through its own pipeline) -> stage1 test
+  16 green -> second build up-to-date -> --force -> stage2 test 16 green. Blade
+  tests 16 + libs/toml 4 + libs/semver 4. Suite 765. Docs: README Blade section,
+  TESTING.md bootstrap. **App-1 (Blade) milestone: real package manager done.**
+  Deferred: libs/semver is NOT a blade dep (the resolver is self-contained; a
+  full re-attempt to import semver into blade is future work).
 
 ### Dogfood findings — design 64 (Blade)
 - **DF-GlobConf — FIXED (this brief, `typechecker/core.py`).** A glob import
@@ -197,6 +211,30 @@ Progress log (newest last):
   splitting into non-optional helpers (return `""` + a separate bool). Proper
   fix: coerce a non-optional match-arm value to the function's optional result
   type (the DF3 auto-wrap, extended to match-arm-return position).
+- **DF9 UPDATE — largely a FALSE ALARM.** The cross-package erased-`try` re-box
+  and `{e}` interpolation ICEs I attributed to any external-package import were
+  actually a NARROWER combination (semver's generic `Version` + the resolver's
+  multi-error mix). In isolation both work (verified), and the `libs/toml`
+  extraction — an external package whose `TomlError` is erased and `try`-boxed
+  across the boundary by Blade — compiles and runs fine (B8). The resolver still
+  keeps its self-contained matcher; re-importing semver into blade is untried.
+- **DF11 (RECORDED) — `manifest_deps_hash` returns "0" in the build flow.** When
+  `lock.saw`'s `manifest_deps_hash` calls `Manifest.dependencies()` inside the
+  full Blade build (after `resolve` already called it), it takes the `Err`
+  branch, so the committed `Saw.lock` has `manifest_hash = "0"`. Same
+  cross-module class as DF6/DF9(c) (a second cross-module call returning wrong).
+  Non-fatal: the value is self-consistent (stable across machines/runs), so the
+  lock is stable, but drift detection is degraded (always "0"). Needs a compiler
+  fix to the cross-module method-call path.
+- **DF12 (RECORDED, worked around) — Blade's self-build intermittently crashes
+  (SIGBUS/SIGTRAP), and crashes deterministically when its stdout is a PIPE.**
+  `blade build` on the large Blade program hits a nondeterministic memory
+  corruption (observed rc 138/0/133 across identical runs) — a Saw runtime bug
+  in a large program. Separately, driving `blade build` with a pipe as stdout
+  crashes every time (a file or TTY is fine). Both surfaced by the B8 bootstrap;
+  worked around there by redirecting to a file + bounded build retries. `blade
+  test` (also the full binary) is reliable, so the fault is specific to the
+  build/self-compile path. Highest-value compiler bug to chase next.
 
 ## SPEC-GAP PRIORITIES (Jul 29 sweep of LANGUAGE_SPEC planned-not-implemented)
 

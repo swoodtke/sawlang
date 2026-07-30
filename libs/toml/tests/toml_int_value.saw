@@ -1,25 +1,20 @@
-// Blade dogfood (design 57): typed TOML access via String.to_int —
-// TomlSection.get_int / TomlValue.int_value. Passes by exiting 0.
-import src.toml
+// Typed TOML access via String.to_int — TomlSection.get_int / TomlValue.int_value.
+import src.lib.*
 
 func main() {
-    match toml.TomlDoc.parse("[deps]\ncount = \"42\"\nname = \"widget\"\n") {
+    match TomlDoc.parse("[deps]\ncount = \"42\"\nname = \"widget\"\n") {
         case Ok(doc) -> {
             guard let sec = doc.get_section("deps") else {
                 panic("expected a [deps] section")
             }
-            // "42" parses as an integer.
             guard let n = sec.get_int("count") else {
                 panic("count should parse as an int")
             }
             assert(n == 42, "count should be 42")
 
-            // "widget" is not an integer -> None.
             if let bad = sec.get_int("name") {
                 panic("name should not parse as an int")
             }
-
-            // Absent key -> None.
             if let missing = sec.get_int("nope") {
                 panic("absent key should be None")
             }

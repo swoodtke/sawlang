@@ -16,7 +16,7 @@
 //   loc     = "<dir or url>"
 //   rev     = "<sha or empty>"
 
-import src.toml
+import toml
 import src.manifest.*
 import src.resolver.*
 
@@ -150,7 +150,7 @@ public func serialize(res: &Resolution, manifest_hash: String) -> String {
         b.append(res.kind(idx))
         b.append("\"\n")
         b.append("loc = \"")
-        b.append(res.loc(idx))
+        b.append(res.declared(idx))  // portable declared source, not the abs dir
         b.append("\"\n")
         b.append("rev = \"")
         b.append(res.rev(idx))

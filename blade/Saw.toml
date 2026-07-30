@@ -1,3 +1,6 @@
 [package]
 name = "blade"
 version = "0.1.0"
+
+[dependencies]
+toml = { path = "../libs/toml" }

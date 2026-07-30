@@ -357,6 +357,33 @@ point `blade test` at a not-yet-installed compiler (e.g. an in-tree build). This
 is entirely separate from `test_runner.py` — the compiler suite and an app's
 `blade test` suite do not share machinery or semantics.
 
+`blade test` compiles each test with the project's resolved dependency
+module-paths (the same flags `blade build` uses), so a test can `import` a
+dependency. It also reports per-test timing (`test NAME ... ok (Nms)`).
+
+### Library packages and the self-hosting bootstrap (design 64 B8)
+
+The dependency machinery is extracted into real library packages, each with its
+own `Saw.toml` and `blade test` suite:
+
+- `libs/toml` — the TOML reader (Blade depends on it by path).
+- `libs/semver` — semantic versions / requirements (a `Comparable`/`Printable`
+  dogfood).
+
+Run a package's own tests by pointing Blade at its directory
+(`blade test` from inside `libs/toml` or `libs/semver`).
+
+Because Blade's own `Saw.toml` depends on `libs/toml`, **every Blade build runs
+the resolver, writes/uses `Saw.lock`, and passes `--module-path`** — the dep
+features cannot rot without breaking Blade's own build. The bootstrap loop
+(`make blade-bootstrap`, or `python tools/blade_bootstrap.py`) proves it end to
+end: the in-tree `sawc` builds Blade (stage0); that Blade builds Blade through
+its own resolve/lock/module-path/incremental pipeline (stage1); the self-built
+binary runs Blade's full suite; a second build reports "up to date"; `--force`
+rebuilds (stage2); and the stage2 binary re-runs the suite. (The bootstrap
+retries a build a bounded number of times to ride out an intermittent
+self-build runtime crash — dogfood DF12.)
+
 ## Test Runner Implementation
 
 The test runner (`test_runner.py`):
