@@ -127,7 +127,31 @@ extension Channel<T: Send> {
         return None
     }
 
-    // Dequeue a value, blocking while the queue is empty.
+    // COOPERATIVE suspending receive (design 62 G3). The first-class packaging of
+    // the design-52b `try_receive()` + `yield_now()` loop: it dequeues a value if
+    // one is ready, else SUSPENDS THE TASK (not the thread) and is rescheduled by
+    // the executor — wake-on-send folded into yield-requeue (channel-yield wake
+    // reason). Distinct name from the 21b thread-engine `recv()` below (same
+    // signature `(&self) -> T`, so overloading — which can't differ by effect —
+    // cannot tell them apart). The coroutine transform (design 62) LOWERS a
+    // `let v = ch.receive()` / `ch.receive()` call site INLINE into this loop
+    // against the caller's own frame; this body is the reference semantics and the
+    // effect-inference source (it reaches `yield_now`, so it — and any caller —
+    // suspends), and is never itself monomorphized (every call site is rewritten).
+    func receive(&self) -> T {
+        var __got: T? = None
+        var __done = false
+        while not __done {
+            if let v = self.try_receive() {
+                return v
+            }
+            yield_now()      // channel empty: suspend the task, retry when rescheduled
+        }
+        __got!               // unreachable (loop only exits via `return`)
+    }
+
+    // Dequeue a value, blocking the CALLING THREAD while the queue is empty (the
+    // design-21b thread-per-task engine; untouched by the cooperative engine).
     func recv(&self) -> T {
         if let block = self.block {
             pthread_mutex_lock(block)

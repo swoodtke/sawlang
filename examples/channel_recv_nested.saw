@@ -1,0 +1,42 @@
+// design 62 G3: cooperative `receive()` inside nested control flow (an if/else
+// inside a while) — exercises the Part-0 CFG machinery: each receive() lowers to a
+// try_receive+yield_now loop that is itself CFG-split within the enclosing branch.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4
+// 64
+
+func producer(ch: Channel<Int>) -> Int {
+    var i = 0
+    while i < 4 {
+        ch.send(i + 1)
+        yield_now()
+        i = i + 1
+    }
+    return i
+}
+
+func consumer(ch: Channel<Int>) -> Int {
+    var sum = 0
+    var got = 0
+    while got < 4 {
+        if got % 2 == 0 {
+            let v = ch.receive()   // receive in a nested if-branch
+            sum = sum + v
+        } else {
+            let w = ch.receive()   // receive in the else branch
+            sum = sum + w * 10
+        }
+        got = got + 1
+    }
+    return sum   // 1 + 2*10 + 3 + 4*10 = 64
+}
+
+func main() {
+    var group = TaskGroup()
+    let ch = Channel<Int>()
+    let hp = group.spawn(producer(ch.copy()))
+    let hc = group.spawn(consumer(ch.copy()))
+    print(hp.join())   // 4
+    print(hc.join())   // 64
+}

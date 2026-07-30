@@ -1,0 +1,33 @@
+// design 62 G3: cooperative `receive()` composed with cancellation. The worker
+// receives the one buffered value, observes cancellation at a `cancelled()` check,
+// and returns through normal control flow (NO forced destroy) — WITHOUT calling the
+// second `receive()`, which would otherwise suspend forever on the empty channel.
+// The Res deinit oracle proves exactly-once cleanup at frame teardown.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 100
+// 77
+
+struct Res { id: Int }
+extension Res: Deinit { func deinit(&var self) { print(self.id) } }
+extension Res: NoCopy {}
+
+func worker(ch: Channel<Int>) -> Int {
+    let held = Res(id: 77)       // deinit oracle
+    let first = ch.receive()     // gets the buffered 100
+    if cancelled() {
+        return first             // observe cancel; skip the second receive()
+    }
+    let second = ch.receive()    // unreached (channel is empty here)
+    first + second
+}
+
+func main() {
+    var group = TaskGroup()
+    let ch = Channel<Int>()
+    ch.send(100)
+    let h = group.spawn(worker(ch.copy()))
+    h.cancel()          // set before the group is driven
+    print(h.join())     // 100
+    // scope exit: held 77 drops exactly once
+}

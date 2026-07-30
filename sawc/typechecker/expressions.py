@@ -3969,6 +3969,12 @@ class ExpressionsMixin:
         return_type = method_info.return_type
         if type_subst:
             return_type = return_type.substitute(type_subst)
+        # design 62 G3: mark a cooperative `Channel.receive()` call so the coro
+        # transform lowers the call site INLINE into the try_receive+yield_now loop
+        # (the method itself is never monomorphized). Its `receive` body reaches
+        # `yield_now`, so the effect edge recorded above already taints the caller.
+        if struct_name == "Channel" and expr.method_name == "receive":
+            expr.is_chan_recv = True
         return return_type
 
     def _check_overloaded_module_function_call(self, expr, candidates):

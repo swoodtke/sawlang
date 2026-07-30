@@ -32,7 +32,7 @@ import dataclasses
 from ast_nodes import (
     ASTNode, Expression, Statement, Block, Argument,
     Identifier, MemberAccess, SelfExpr, IntLiteral, BoolLiteral, NoneLiteral,
-    FunctionCall, MethodCall, BinaryOp, UnaryOp, EnumInit, ForceUnwrap,
+    FunctionCall, MethodCall, BinaryOp, UnaryOp, EnumInit, ForceUnwrap, IfLetExpr,
     IfExpr, MatchExpr, MatchArm, WhileExpr, ReturnStatement, ArrayIndex,
     CastExpr, ReferenceExpr, RangeExpr, ForLoop, MoveExpr,
     BreakStatement, ContinueStatement,
@@ -55,6 +55,16 @@ class CoroTransformError(Exception):
 # --------------------------------------------------------------------------- #
 # small AST builders
 # --------------------------------------------------------------------------- #
+
+class _FakeCall:
+    """A lightweight stand-in carrying a `.name`/`.line`/`.column` for a rejected
+    suspending call that is not a plain `FunctionCall` (e.g. a buried
+    `ch.receive()`), so the shared diagnostic can name it uniformly."""
+    def __init__(self, name, line, column):
+        self.name = name
+        self.line = line
+        self.column = column
+
 
 def _self_field(name, line=0, column=0):
     return MemberAccess(object=SelfExpr(line=line, column=column),
@@ -337,6 +347,12 @@ class _FrameBuilder:
                     n.name in _SUSPEND_CALLS or n.name in self._suspends):
                 found[0] = True
                 return
+            # design 62 G3: a cooperative `ch.receive()` is a suspension point
+            # (it lowers to a try_receive+yield_now loop), so a control-flow
+            # construct containing one must be CFG-split.
+            if isinstance(n, MethodCall) and getattr(n, 'is_chan_recv', False):
+                found[0] = True
+                return
             if isinstance(n, ASTNode):
                 for f in dataclasses.fields(n):
                     scan_val(getattr(n, f.name))
@@ -390,12 +406,22 @@ class _FrameBuilder:
         (not a bare `let x = g(...)` / `g(...)` statement) is rejected honestly."""
         self.calls = []
         self.call_by_id = {}
+        # design 62 G3: cooperative `ch.receive()` call sites lowered INLINE (no
+        # callee frame — the try_receive+yield_now loop runs against THIS frame).
+        self.recv_calls = []
+        self.recv_by_id = {}
 
         def visit_block(block):
             for s in block.statements:
                 visit_stmt(s)
 
         def visit_stmt(s):
+            rinfo = self._classify_recv(s)
+            if rinfo is not None:
+                rinfo['idx'] = len(self.recv_calls)
+                self.recv_calls.append(rinfo)
+                self.recv_by_id[id(s)] = rinfo
+                return
             info = self._classify_call(s)
             if info is not None:
                 info['sub'] = f"__sub{len(self.calls)}"
@@ -469,6 +495,16 @@ class _FrameBuilder:
             fields.append(StructField(
                 name=c['sub'],
                 type=SawType(TypeKind.STRUCT, struct_name=f"__Frame_{c['callee']}")))
+        # design 62 G3: each inline cooperative `receive()` needs a frame-resident
+        # `__haveN` completion flag (its loop spans a suspension). A bare (discarded)
+        # receive also needs a `__rcvN` holder for the moved-out value (dropped once
+        # at teardown); a `let v = ...` receive writes into the collected local `v`.
+        for rc in self.recv_calls:
+            fields.append(StructField(name=f"__have{rc['idx']}",
+                                      type=SawType(TypeKind.BOOL)))
+            if rc['target'] is None:
+                fields.append(StructField(name=f"__rcv{rc['idx']}",
+                                          type=_opt(rc['elem_type'])))
         fields.append(StructField(name="__state", type=SawType(TypeKind.INT)))
         # The wake reason the frame communicates to the executor on a Pending
         # (design 45 item 4): 0 = ready (yield), >0 = sleep that many ms.
@@ -509,6 +545,27 @@ class _FrameBuilder:
                 f"(effect-polymorphism, design 18 A5)", fc.line, fc.column)
         return {'callee': fc.name, 'args': list(fc.arguments), 'target': target}
 
+    def _classify_recv(self, stmt):
+        """design 62 G3: if `stmt` is a top-level cooperative `ch.receive()`
+        boundary, return {receiver, target, elem_type}; else None. Supported
+        forms: `let v = ch.receive()` and a bare `ch.receive()` statement. The
+        call lowers inline to the try_receive+yield_now loop (no callee frame)."""
+        mc = None
+        target = None
+        if isinstance(stmt, LetStatement) and isinstance(stmt.value, MethodCall):
+            mc, target = stmt.value, stmt.name
+        elif (isinstance(stmt, ExpressionStatement)
+              and isinstance(stmt.expression, MethodCall)):
+            mc = stmt.expression
+        if mc is None or not getattr(mc, 'is_chan_recv', False):
+            return None
+        elem_type = getattr(mc, 'resolved_type', None)
+        if elem_type is None:
+            raise CoroTransformError(
+                f"coroutine transform: `receive()` in `{self.name}` has no "
+                f"resolved element type", mc.line, mc.column)
+        return {'receiver': mc.object, 'target': target, 'elem_type': elem_type}
+
     def _reject_buried_suspend_call(self, stmt):
         """A suspending call in a non-top-level position (inside a larger
         expression, an `if`/`while`/`match` branch, or a method-call receiver) is
@@ -520,6 +577,11 @@ class _FrameBuilder:
             if isinstance(n, FunctionCall) and (
                     n.name in self._suspends or n.name in _SUSPEND_CALLS):
                 found.append(n)
+            # design 62 G3: a cooperative `receive()` buried in an expression /
+            # nested position (only a top-level `let v = ch.receive()` or bare
+            # `ch.receive()` is supported) is rejected rather than miscompiled.
+            if isinstance(n, MethodCall) and getattr(n, 'is_chan_recv', False):
+                found.append(_FakeCall("receive", n.line, n.column))
             if isinstance(n, MethodCall):
                 mname = getattr(n, 'method_name', None)
                 # Suspending method receiver handled by Part 0c on driving
@@ -721,6 +783,12 @@ class _FrameBuilder:
             self._suspend_to(wake, nxt)
             self.cur = nxt
             return
+        # design 62 G3: a cooperative `ch.receive()` — lower inline to the
+        # try_receive+yield_now loop against this frame (no callee frame).
+        rinfo = self.recv_by_id.get(id(s))
+        if rinfo is not None:
+            self._emit_recv_call(rinfo)
+            return
         # A nested suspending call: embed + drive the callee sub-frame.
         info = self.call_by_id.get(id(s))
         if info is not None:
@@ -898,6 +966,52 @@ class _FrameBuilder:
             if self.cur not in self._term:
                 self._goto(merge)
         self.cur = merge
+
+    def _emit_recv_call(self, rc):
+        """design 62 G3: lower a cooperative `ch.receive()` INLINE into the
+        try_receive+yield_now loop, driven across the caller's own resumes. No
+        callee frame — the loop is CFG-split exactly like a user `while` with a
+        `yield_now` inside. On each visit: try a non-blocking `try_receive`; on a
+        value, store it (into the `let v` target or a discard holder) and set the
+        completion flag; on empty, suspend (wake 0 = channel-yield) and retry when
+        the executor reschedules the task."""
+        idx = rc['idx']
+        have = f"__have{idx}"
+        target = rc['target'] if rc['target'] is not None else f"__rcv{idx}"
+        rv = f"__rv{idx}"
+        recv_expr = self._rewrite_expr(rc['receiver'], [])
+        # Reset the completion flag (a frame is one-shot per receive site, but keep
+        # it explicit and re-entry-safe).
+        self._emit([AssignStatement(target=_self_field(have),
+                                    value=BoolLiteral(value=False))])
+        header = self._new_block()
+        body_b = self._new_block()
+        yield_b = self._new_block()
+        after = self._new_block()
+        self._goto(header)
+        # header: loop while not have; exit when a value has been received.
+        self.cur = header
+        self._branch(UnaryOp(op="not", operand=_self_field(have)), body_b, after)
+        # body: non-blocking attempt. `if let __rv = <recv>.try_receive() { ... }`
+        # is non-spanning (try_receive never suspends), lowered in place here.
+        self.cur = body_b
+        try_call = MethodCall(object=recv_expr, method_name="try_receive",
+                              arguments=[])
+        iflet = IfLetExpr(
+            name=rv, optional_expr=try_call, mutable=False,
+            then_branch=Block(statements=[
+                AssignStatement(target=_self_field(target),
+                                value=Identifier(name=rv)),
+                AssignStatement(target=_self_field(have),
+                                value=BoolLiteral(value=True)),
+            ], final_expr=None),
+            else_branch=None)
+        self._emit([ExpressionStatement(expression=iflet)])
+        # Got a value -> back to header (which exits); still empty -> suspend.
+        self._branch(_self_field(have), header, yield_b)
+        self.cur = yield_b
+        self._suspend_to(_int(0), header)
+        self.cur = after
 
     def _emit_nested_call(self, info, loop_ctx):
         """Embed the callee frame (once) and drive it across the caller's own
@@ -1167,6 +1281,10 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):
         sub_fb = fbs[c['callee']]
         zvals = [_zeroed_value(sub_fb.encmap[p.name], p.type) for p in sub_fb.params]
         field_inits.append((c['sub'], _build_frame_init(sub_fb, zvals, fbs)))
+    for rc in getattr(fb, 'recv_calls', []):
+        field_inits.append((f"__have{rc['idx']}", BoolLiteral(value=False)))
+        if rc['target'] is None:
+            field_inits.append((f"__rcv{rc['idx']}", NoneLiteral()))
     field_inits.append(("__state", _int(0)))
     field_inits.append(("__wake", _int(0)))
     field_inits.append(("__cancel", BoolLiteral(value=False)))
