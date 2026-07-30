@@ -21,7 +21,9 @@ from ast_nodes import (
     Block, LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     CompoundAssignStatement, GuardLetStatement, BreakStatement,
     SawType, TypeKind,
-    ResultOkWrap, ResultErrWrap, OptionalWrap
+    ResultOkWrap, ResultErrWrap, OptionalWrap,
+    Pattern, WildcardPattern, BindingPattern, LiteralPattern,
+    RangePattern, TuplePattern, EnumPattern,
 )
 from errors import ErrorKind
 from namespace import Visibility, EnumSymbol
@@ -4402,6 +4404,11 @@ class ExpressionsMixin:
         # time, but a direct `match` at the call site must resolve it here too
         # (brief 36, L7).
         matched_type = self._resolve_type(matched_type)
+        # design 63 T1d: route value/tuple scrutinees, and any match using guards
+        # or literal/range/tuple patterns, through the general pattern checker.
+        # Classic enum-variant/wildcard matches keep the switch path untouched.
+        if self._match_needs_general(expr, matched_type):
+            return self._check_match_general(expr, matched_type)
         if matched_type.kind != TypeKind.ENUM or matched_type.enum_name is None:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -4507,6 +4514,12 @@ class ExpressionsMixin:
                     expr.line, expr.column,
                     hint="add missing cases or use `case _ ->` as a default"
                 )
+        return self._reconcile_match_arm_types(expr, arm_types)
+
+    def _reconcile_match_arm_types(self, expr: MatchExpr, arm_types) -> Optional[SawType]:
+        """Compute a match expression's result type from its arm types, honoring
+        NEVER arms (design 49) and Result auto-wrap. Shared by the enum-switch
+        path and the general pattern path (design 63)."""
         if not arm_types:
             return None
         # design 49: a NEVER arm (a diverging `panic(...)`) contributes no value
@@ -4590,6 +4603,197 @@ class ExpressionsMixin:
                 )
                 return None
         return result_type
+
+    # ===== General pattern match (design 63 T1d) =====
+
+    _INT_PATTERN_KINDS = {
+        TypeKind.INT, TypeKind.UINT,
+        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+    }
+
+    def _match_needs_general(self, expr: MatchExpr, matched_type: SawType) -> bool:
+        """True when a match must use the general pattern checker rather than the
+        classic enum switch: a non-enum scrutinee, or an enum scrutinee whose
+        arms use guards / literal / range / tuple / bare-binding patterns."""
+        underlying = self._get_underlying_type(matched_type)
+        if underlying.kind != TypeKind.ENUM:
+            return True
+        for arm in expr.arms:
+            if arm.guard is not None:
+                return True
+            p = arm.pattern
+            if p is None or isinstance(p, WildcardPattern):
+                continue
+            if isinstance(p, EnumPattern):
+                if all(isinstance(s, (BindingPattern, WildcardPattern))
+                       for s in p.subpatterns):
+                    continue
+                return True
+            return True
+        return False
+
+    def _pattern_enum_variants(self, expected_type: SawType):
+        """Return {variant_name: [(param_name, param_type), ...]} for an enum or
+        Optional scrutinee, or None if the type is not variant-matchable."""
+        et = self._resolve_type(expected_type)
+        if et.kind == TypeKind.OPTIONAL:
+            inner = et.inner_type or SawType(TypeKind.VOID)
+            return {"Some": [("value", inner)], "None": []}
+        if et.kind == TypeKind.ENUM and et.enum_name is not None:
+            enum_info = self.get_enum_info(et.enum_name, from_type=et)
+            if enum_info is None:
+                return None
+            type_mapping = {}
+            if enum_info.type_params and et.type_args:
+                for tp, ta in zip(enum_info.type_params, et.type_args):
+                    type_mapping[tp.name] = ta
+            variants = {}
+            for vname, params in enum_info.variants.items():
+                if type_mapping:
+                    params = [(n, t.substitute(type_mapping)) for n, t in params]
+                variants[vname] = params
+            return variants
+        return None
+
+    def _check_pattern(self, pattern, expected_type: SawType):
+        """Validate a pattern against the scrutinee (sub)type and define its
+        bindings in the current scope."""
+        from .core import VariableInfo
+        underlying = self._get_underlying_type(expected_type)
+        if isinstance(pattern, WildcardPattern):
+            return
+        if isinstance(pattern, BindingPattern):
+            var_info = VariableInfo(type=expected_type, mutable=False,
+                                    line=pattern.line, column=pattern.column)
+            if not self.current_scope.define(pattern.name, var_info):
+                self._error(ErrorKind.DUPLICATE_VARIABLE,
+                            f"binding `{pattern.name}` is already defined in this scope",
+                            pattern.line, pattern.column)
+            return
+        if isinstance(pattern, LiteralPattern):
+            lit_type = self._check_expression(pattern.value)
+            if lit_type is not None:
+                lu = self._get_underlying_type(lit_type)
+                ok = False
+                if lu.kind in self._INT_PATTERN_KINDS and underlying.kind in self._INT_PATTERN_KINDS:
+                    ok = True
+                elif lu.kind == underlying.kind and lu.kind in (TypeKind.STRING, TypeKind.BOOL):
+                    ok = True
+                if not ok:
+                    self._error(ErrorKind.TYPE_MISMATCH,
+                                f"literal pattern of type `{lit_type}` cannot match "
+                                f"scrutinee of type `{expected_type}`",
+                                pattern.line, pattern.column)
+            return
+        if isinstance(pattern, RangePattern):
+            if underlying.kind not in self._INT_PATTERN_KINDS:
+                self._error(ErrorKind.TYPE_MISMATCH,
+                            f"range pattern requires an integer scrutinee, got `{expected_type}`",
+                            pattern.line, pattern.column)
+            self._check_expression(pattern.start)
+            self._check_expression(pattern.end)
+            return
+        if isinstance(pattern, TuplePattern):
+            if underlying.kind != TypeKind.TUPLE or not underlying.element_types:
+                self._error(ErrorKind.TYPE_MISMATCH,
+                            f"tuple pattern requires a tuple scrutinee, got `{expected_type}`",
+                            pattern.line, pattern.column)
+                return
+            if len(pattern.elements) != len(underlying.element_types):
+                self._error(ErrorKind.TYPE_MISMATCH,
+                            f"tuple pattern has {len(pattern.elements)} elements but "
+                            f"scrutinee has {len(underlying.element_types)}",
+                            pattern.line, pattern.column)
+                return
+            for sub, et in zip(pattern.elements, underlying.element_types):
+                self._check_pattern(sub, et)
+            return
+        if isinstance(pattern, EnumPattern):
+            variants = self._pattern_enum_variants(expected_type)
+            if variants is None:
+                self._error(ErrorKind.TYPE_MISMATCH,
+                            f"variant pattern `{pattern.variant_name}` requires an enum "
+                            f"scrutinee, got `{expected_type}`",
+                            pattern.line, pattern.column)
+                return
+            if pattern.variant_name not in variants:
+                self._error(ErrorKind.UNDEFINED_VARIABLE,
+                            f"no variant `{pattern.variant_name}` on `{expected_type}`",
+                            pattern.line, pattern.column)
+                return
+            params = variants[pattern.variant_name]
+            if len(pattern.subpatterns) != len(params):
+                self._error(ErrorKind.TYPE_MISMATCH,
+                            f"variant `{pattern.variant_name}` has {len(params)} "
+                            f"associated values, got {len(pattern.subpatterns)}",
+                            pattern.line, pattern.column)
+                return
+            for sub, (_pn, pt) in zip(pattern.subpatterns, params):
+                self._check_pattern(sub, pt)
+            return
+
+    def _check_match_general(self, expr: MatchExpr, matched_type: SawType) -> Optional[SawType]:
+        """Type check a value/tuple/guarded match (design 63 T1d)."""
+        from .core import VariableInfo, Scope
+        # Flag + scrutinee type for the codegen general path.
+        expr.use_general_match = True
+        expr.matched_scrutinee_type = matched_type
+        underlying = self._get_underlying_type(matched_type)
+        arm_types = []
+        entry_moves = self._snapshot_moves()
+        arm_move_states = []
+        has_catchall = False
+        bool_true = False
+        bool_false = False
+        for arm in expr.arms:
+            p = arm.pattern
+            old_scope = self.current_scope
+            self.current_scope = Scope(parent=old_scope)
+            self.moved_bindings = dict(entry_moves)
+            if p is not None:
+                self._check_pattern(p, matched_type)
+            if arm.guard is not None:
+                gtype = self._check_expression(arm.guard)
+                if gtype is not None and self._get_underlying_type(gtype).kind != TypeKind.BOOL:
+                    self._error(ErrorKind.TYPE_MISMATCH,
+                                f"match guard must be `Bool`, got `{gtype}`",
+                                arm.line, arm.column)
+            # Catch-all / Bool-coverage tracking (unguarded arms only — a guard
+            # can fail, so a guarded arm never proves exhaustiveness).
+            if arm.guard is None:
+                if isinstance(p, (WildcardPattern, BindingPattern)):
+                    has_catchall = True
+                elif isinstance(p, LiteralPattern) and isinstance(p.value, BoolLiteral):
+                    if p.value.value:
+                        bool_true = True
+                    else:
+                        bool_false = True
+            if isinstance(arm.body, Block):
+                arm_type = self._check_block(arm.body)
+            else:
+                arm_type = self._check_expression(arm.body)
+            arm_move_states.append((self._snapshot_moves(), self._arm_diverges(arm.body)))
+            arm_types.append(arm_type)
+            self.current_scope = old_scope
+        if arm_move_states:
+            self.moved_bindings = self._merge_move_branches(entry_moves, arm_move_states)
+        else:
+            self.moved_bindings = dict(entry_moves)
+        # Exhaustiveness (design 63): literal/range/guard arms never prove it on an
+        # open type — a wildcard or bare-binding arm is required. EXCEPTIONS: a
+        # Bool scrutinee covered by both `true` and `false`; a closed integer
+        # range-cover is NOT computed in v1 (always require a fallback).
+        bool_exhausts = (underlying.kind == TypeKind.BOOL and bool_true and bool_false)
+        if not has_catchall and not bool_exhausts:
+            self._error(
+                ErrorKind.NON_EXHAUSTIVE_MATCH,
+                "match is not exhaustive: literal, range, and guarded arms do not "
+                "prove exhaustiveness",
+                expr.line, expr.column,
+                hint="add a `case _ ->` (or a bare-binding) fallback arm",
+            )
+        return self._reconcile_match_arm_types(expr, arm_types)
 
     def _check_closure(self, expr: ClosureExpr, expected_type: Optional[SawType] = None,
                         as_call_argument: bool = False,

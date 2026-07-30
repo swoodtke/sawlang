@@ -10,7 +10,12 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import MatchExpr, Block, Identifier
+from ast_nodes import (
+    MatchExpr, Block, Identifier, TypeKind,
+    IntLiteral, BoolLiteral, StringLiteral, UnaryOp,
+    WildcardPattern, BindingPattern, LiteralPattern,
+    RangePattern, TuplePattern, EnumPattern,
+)
 from .mangle import mangle_named
 
 
@@ -23,6 +28,10 @@ class MatchMixin:
 
     def _generate_match_expr(self, expr: MatchExpr):
         """Generate code for match expression."""
+        # design 63 T1d: value/tuple/guarded matches use the general if-chain
+        # lowering; classic enum matches keep the switch below.
+        if getattr(expr, 'use_general_match', False):
+            return self._generate_match_general(expr)
         # Generate the matched value
         matched_val = self._generate_expression(expr.matched_expr)
 
@@ -259,3 +268,200 @@ class MatchMixin:
         else:
             # Match doesn't produce a value
             return None
+
+    # ===== General pattern match (design 63 T1d) =====
+
+    _SIGNED_INT_KINDS = {
+        TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+    }
+
+    def _generate_match_general(self, expr: MatchExpr):
+        """Lower a value/tuple/guarded match as a sequential if-chain (design 63).
+
+        Each arm is a test block (`does the pattern match?`) that branches to a
+        body block (bind, run the guard, evaluate the body) or to the next arm's
+        test on failure. Pattern tests and binding extractions are pure, so they
+        are emitted in the test block and used in the dominated body block.
+        """
+        scrut = self._generate_expression(expr.matched_expr)
+        scrut_type = getattr(expr, 'matched_scrutinee_type', None)
+        if scrut_type is not None and self.type_param_context:
+            scrut_type = scrut_type.substitute(self.type_param_context)
+
+        func = self.builder.function
+        merge_block = func.append_basic_block("match_merge")
+        arm_results = []
+        match_produces_value = False
+
+        n = len(expr.arms)
+        # Pre-create the test block for each arm; the "no match" target of arm i
+        # is the test block of arm i+1. The final fallthrough goes to a dedicated
+        # `unreachable` default (the typechecker proved exhaustiveness), so the
+        # merge block only ever has body-block predecessors for the phi.
+        test_blocks = [func.append_basic_block(f"match_test_{i}") for i in range(n)]
+        default_block = func.append_basic_block("match_default")
+        self.builder.branch(test_blocks[0])
+
+        for i, arm in enumerate(expr.arms):
+            next_block = test_blocks[i + 1] if i + 1 < n else default_block
+            body_block = func.append_basic_block(f"match_body_{i}")
+
+            # --- test block: evaluate the pattern condition ---
+            self.builder.position_at_end(test_blocks[i])
+            cond, bindings = self._match_pattern(arm.pattern, scrut, scrut_type)
+            self.builder.cbranch(cond, body_block, next_block)
+
+            # --- body block: bind, guard, body ---
+            self.builder.position_at_end(body_block)
+            defined = []
+            for bname, bval, btype in bindings:
+                if bname == "_":
+                    continue
+                alloca = self._entry_alloca(bval.type, name=bname)
+                self.builder.store(bval, alloca)
+                self.variables[bname] = alloca
+                if btype is not None:
+                    self.variable_types[bname] = btype
+                defined.append(bname)
+
+            # Guard: on false, fall through to the next arm's test.
+            if arm.guard is not None:
+                gval = self._generate_expression(arm.guard)
+                guard_ok = func.append_basic_block(f"match_guard_ok_{i}")
+                self.builder.cbranch(gval, guard_ok, next_block)
+                self.builder.position_at_end(guard_ok)
+
+            # Arm body.
+            if isinstance(arm.body, Block):
+                arm_result = self._generate_block(arm.body)
+            else:
+                arm_result = self._generate_expression(arm.body)
+            if arm_result is None or isinstance(arm_result.type, ir.VoidType):
+                arm_result = ir.Constant(ir.IntType(32), 0)  # placeholder
+            else:
+                match_produces_value = True
+
+            if not self.builder.block.is_terminated:
+                arm_results.append((arm_result, self.builder.block))
+                self.builder.branch(merge_block)
+
+            # Unbind arm-local names so they do not leak into later arms.
+            for bname in defined:
+                self.variables.pop(bname, None)
+                self.variable_types.pop(bname, None)
+
+        # The default (no-arm-matched) block is unreachable after an exhaustive
+        # match.
+        self.builder.position_at_end(default_block)
+        self.builder.unreachable()
+
+        self.builder.position_at_end(merge_block)
+        if arm_results and match_produces_value:
+            result_type = arm_results[0][0].type
+            phi = self.builder.phi(result_type, name="match_result")
+            for val, block in arm_results:
+                phi.add_incoming(val, block)
+            return phi
+        return None
+
+    def _match_pattern(self, pattern, value, saw_type):
+        """Return (i1 condition, bindings) for `pattern` against `value`.
+
+        `bindings` is a list of (name, llvm_value, saw_type). Emitted in the
+        current (test) block; extractions are pure and dominate the body block.
+        """
+        true = ir.Constant(ir.IntType(1), 1)
+        rt = self._resolve_type_alias(saw_type) if saw_type is not None else None
+
+        if pattern is None or isinstance(pattern, WildcardPattern):
+            return true, []
+        if isinstance(pattern, BindingPattern):
+            return true, [(pattern.name, value, saw_type)]
+        if isinstance(pattern, LiteralPattern):
+            return self._match_literal(pattern.value, value, saw_type), []
+        if isinstance(pattern, RangePattern):
+            start = self._generate_expression(pattern.start)
+            end = self._generate_expression(pattern.end)
+            if isinstance(value.type, ir.IntType):
+                start = self._reconcile_int_width(self.builder, start, value.type)
+                end = self._reconcile_int_width(self.builder, end, value.type)
+            signed = rt is not None and rt.kind in self._SIGNED_INT_KINDS
+            cmp = self.builder.icmp_signed if signed else self.builder.icmp_unsigned
+            ge = cmp('>=', value, start, name="rng_lo")
+            hi = cmp('<=' if pattern.is_inclusive else '<', value, end, name="rng_hi")
+            return self.builder.and_(ge, hi, name="rng"), []
+        if isinstance(pattern, TuplePattern):
+            elem_types = rt.element_types if (rt is not None and rt.element_types) else [None] * len(pattern.elements)
+            cond = true
+            bindings = []
+            for idx, sub in enumerate(pattern.elements):
+                ev = self.builder.extract_value(value, idx, name=f"tup_e{idx}")
+                c, b = self._match_pattern(sub, ev, elem_types[idx])
+                cond = self.builder.and_(cond, c, name="tup_and")
+                bindings += b
+            return cond, bindings
+        if isinstance(pattern, EnumPattern):
+            return self._match_enum_pattern(pattern, value, rt)
+        # Unknown pattern: never matches.
+        return ir.Constant(ir.IntType(1), 0), []
+
+    def _match_literal(self, lit_expr, value, saw_type):
+        """i1 condition for a literal pattern (int / Bool / String)."""
+        lit_val = self._generate_expression(lit_expr)
+        if isinstance(value.type, ir.IntType) and isinstance(lit_val.type, ir.IntType):
+            lit_val = self._reconcile_int_width(self.builder, lit_val, value.type)
+        return self._emit_equals(value, lit_val, saw_type)
+
+    def _match_enum_pattern(self, pattern, value, rt):
+        """i1 condition + payload bindings for a variant pattern against a user
+        enum or an Optional (`{i1, T}`)."""
+        # Optional scrutinee: `{ i1 is_some, T }`.
+        if rt is not None and rt.kind == TypeKind.OPTIONAL:
+            is_some = self.builder.extract_value(value, 0, name="is_some")
+            if pattern.variant_name == "None":
+                cond = self.builder.not_(is_some, name="is_none")
+                return cond, []
+            # Some(sub)
+            payload = self.builder.extract_value(value, 1, name="opt_payload")
+            inner = rt.inner_type
+            sub = pattern.subpatterns[0] if pattern.subpatterns else None
+            c, b = self._match_pattern(sub, payload, inner)
+            return self.builder.and_(is_some, c, name="some_and"), b
+
+        # User enum: mangle to the registered name, extract tag + payload.
+        enum_name = None
+        if rt is not None and rt.kind == TypeKind.ENUM and rt.enum_name:
+            enum_name = mangle_named(rt.enum_name, rt.type_args)
+        if enum_name is None or enum_name not in self.enum_types:
+            # Fall back by LLVM type shape.
+            for name, (llvm_type, _, _) in self.enum_types.items():
+                if llvm_type == value.type:
+                    enum_name = name
+                    break
+        if enum_name is None or enum_name not in self.enum_types:
+            return ir.Constant(ir.IntType(1), 0), []
+        llvm_enum_type, variant_tags, variant_info = self.enum_types[enum_name]
+        tag = self.builder.extract_value(value, 0, name="match_tag")
+        want = ir.Constant(ir.IntType(32), variant_tags[pattern.variant_name])
+        cond = self.builder.icmp_signed('==', tag, want, name="tageq")
+        bindings = []
+        if pattern.subpatterns:
+            params = variant_info[pattern.variant_name]
+            payload_bytes = self.builder.extract_value(value, 1, name="payload")
+            param_types = [self._get_llvm_type(t) for _, t in params]
+            param_struct_type = ir.LiteralStructType(param_types)
+            payload_alloca = self._entry_alloca(llvm_enum_type.elements[1], name="payload_alloca")
+            self.builder.store(payload_bytes, payload_alloca)
+            struct_ptr = self.builder.bitcast(payload_alloca,
+                                              ir.PointerType(param_struct_type),
+                                              name="param_struct_ptr")
+            for idx, sub in enumerate(pattern.subpatterns):
+                field_ptr = self.builder.gep(struct_ptr,
+                                             [ir.Constant(ir.IntType(32), 0),
+                                              ir.Constant(ir.IntType(32), idx)],
+                                             inbounds=True)
+                field_val = self.builder.load(field_ptr, name=f"field{idx}")
+                c, b = self._match_pattern(sub, field_val, params[idx][1])
+                cond = self.builder.and_(cond, c, name="payload_and")
+                bindings += b
+        return cond, bindings

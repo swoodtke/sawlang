@@ -1,0 +1,18 @@
+// Design 63 T1d: `true` + `false` literal arms exhaust Bool (no fallback
+// needed).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 0
+
+func toInt(b: Bool) -> Int {
+    match b {
+        case true -> 1
+        case false -> 0
+    }
+}
+
+func main() {
+    print(toInt(true))
+    print(toInt(false))
+}

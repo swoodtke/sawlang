@@ -838,14 +838,79 @@ class EnumInit(Expression):
     column: int = 0
 
 
+# ===== Patterns (design 63 T1d) =====
+# A Pattern is the refutable/irrefutable shape tested by a match arm (and the
+# irrefutable subset by `let`/`var`/`if let`/`guard let` destructuring). The
+# classic enum-variant match keeps using MatchArm.variant_name/bindings so its
+# switch lowering (design 61 consume model + the coroutine CFG walk) is
+# untouched; the new pattern forms flow through MatchArm.pattern instead.
+@dataclass
+class Pattern(ASTNode):
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class WildcardPattern(Pattern):
+    """`_` — matches anything, binds nothing."""
+    pass
+
+
+@dataclass
+class BindingPattern(Pattern):
+    """A bare lowercase identifier — matches anything, binds the whole value."""
+    name: str = ""
+
+
+@dataclass
+class LiteralPattern(Pattern):
+    """An integer / Bool / String literal pattern (`case 0`, `case "build"`,
+    `case true`). `value` is the literal expression (IntLiteral / BoolLiteral /
+    StringLiteral, or a UnaryOp('-', IntLiteral) for a negative literal)."""
+    value: Optional['Expression'] = None
+
+
+@dataclass
+class RangePattern(Pattern):
+    """`case 1..9` (exclusive) / `case 1..=9` (inclusive). Endpoints are
+    constant integer expressions; same Int-typing rules as range expressions."""
+    start: Optional['Expression'] = None
+    end: Optional['Expression'] = None
+    is_inclusive: bool = False
+
+
+@dataclass
+class TuplePattern(Pattern):
+    """`case (p0, p1, ...)` — positional tuple destructuring; elements are
+    themselves patterns (nested literals / ranges / bindings / enum patterns)."""
+    elements: List['Pattern'] = field(default_factory=list)
+
+
+@dataclass
+class EnumPattern(Pattern):
+    """`case Variant(sub0, sub1)` used as a nested pattern (e.g. an Optional
+    component inside a tuple pattern). `subpatterns` are patterns, not just
+    binding names, so `case (Some(x), 0)` composes."""
+    variant_name: str = ""
+    subpatterns: List['Pattern'] = field(default_factory=list)
+
+
 @dataclass
 class MatchArm(ASTNode):
-    """Match arm: case VariantName(binding1, binding2) -> expression"""
+    """Match arm: case VariantName(binding1, binding2) -> expression
+
+    Legacy enum-variant / wildcard arms populate `variant_name` + `bindings`
+    (and the switch lowering reads those). New pattern forms (literals, ranges,
+    tuples, guards) populate `pattern` and optionally `guard`; the general
+    if-chain lowering reads those. The parser fills both when an arm is a plain
+    enum-variant/wildcard so either lowering can consume it."""
     variant_name: str
     bindings: List[str]  # Variable names to bind associated values to
     body: Expression  # Can be an expression or a Block
     line: int = 0
     column: int = 0
+    pattern: Optional['Pattern'] = None
+    guard: Optional['Expression'] = None
 
 
 @dataclass

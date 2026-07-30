@@ -1,0 +1,26 @@
+// Design 63 T1d: range patterns, both exclusive `1..9` and inclusive `1..=9`,
+// with boundary hits.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// low
+// mid
+// mid
+// high
+// exact9
+
+func grade(n: Int) -> String {
+    match n {
+        case 0 -> "low"
+        case 1..9 -> "mid"        // 1..8 (exclusive upper)
+        case 9..=9 -> "exact9"    // inclusive boundary
+        case _ -> "high"
+    }
+}
+
+func main() {
+    print(grade(0))    // low
+    print(grade(1))    // mid  (lower boundary in range)
+    print(grade(8))    // mid  (8 < 9)
+    print(grade(20))   // high
+    print(grade(9))    // exact9 (9 excluded from 1..9, caught by 9..=9)
+}

@@ -1,0 +1,20 @@
+// Design 63 T1d: integer literal patterns + a bare-binding catch-all.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 100
+// 200
+// 300
+
+func classify(n: Int) -> Int {
+    match n {
+        case 0 -> 100
+        case 1 -> 200
+        case other -> other + 297
+    }
+}
+
+func main() {
+    print(classify(0))    // 100
+    print(classify(1))    // 200
+    print(classify(3))    // 300
+}

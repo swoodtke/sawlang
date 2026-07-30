@@ -29,7 +29,9 @@ from ast_nodes import (
     RangeExpr, MatchExpr, MatchArm,
     MethodCall, SelfExpr,
     SawType, Argument,
-    ClosureExpr, ClosureParam
+    ClosureExpr, ClosureParam,
+    Pattern, WildcardPattern, BindingPattern, LiteralPattern,
+    RangePattern, TuplePattern, EnumPattern,
 )
 
 
@@ -862,26 +864,23 @@ class ExpressionsMixin:
             arm_start = self.current()
             self.expect(TokenType.CASE, "Expected 'case' keyword in match arm")
 
-            # Parse variant name
-            variant_token = self.expect(TokenType.IDENT, "Expected variant name after 'case'")
-            variant_name = variant_token.value
+            # Parse the arm pattern (design 63 T1d: literals, ranges, tuples,
+            # bindings, and the classic enum-variant form).
+            pattern = self.parse_pattern()
 
-            # Parse optional bindings: case Variant(x, y)
-            bindings = []
-            if self.match(TokenType.LPAREN):
+            # Optional guard: `case <pattern> if <cond> ->`
+            guard = None
+            if self.match(TokenType.IF):
                 self.advance()
-                if not self.match(TokenType.RPAREN):
-                    # Parse first binding
-                    binding_token = self.expect(TokenType.IDENT, "Expected binding name")
-                    bindings.append(binding_token.value)
+                saved_tc = self.allow_trailing_closure
+                self.allow_trailing_closure = False
+                guard = self.parse_expression()
+                self.allow_trailing_closure = saved_tc
 
-                    # Parse additional bindings
-                    while self.match(TokenType.COMMA):
-                        self.advance()
-                        binding_token = self.expect(TokenType.IDENT, "Expected binding name")
-                        bindings.append(binding_token.value)
-
-                self.expect(TokenType.RPAREN)
+            # Derive the legacy variant_name/bindings for the classic enum-switch
+            # lowering when the pattern is a plain enum-variant/wildcard with only
+            # binding/wildcard subpatterns (design 61 path stays byte-identical).
+            variant_name, bindings = self._legacy_arm_shape(pattern)
 
             # Parse arrow
             self.expect(TokenType.ARROW, "Expected '->' after match pattern")
@@ -897,7 +896,9 @@ class ExpressionsMixin:
                 bindings=bindings,
                 body=body,
                 line=arm_start.line,
-                column=arm_start.column
+                column=arm_start.column,
+                pattern=pattern,
+                guard=guard,
             ))
 
             self.skip_newlines()
@@ -914,6 +915,111 @@ class ExpressionsMixin:
             line=start.line,
             column=start.column
         )
+
+    def _legacy_arm_shape(self, pattern: 'Pattern'):
+        """Derive the legacy (variant_name, bindings) from a pattern when it is a
+        plain enum-variant / wildcard so the classic enum-switch lowering keeps
+        working unchanged. Returns ("", []) for pattern forms the general
+        if-chain lowering owns (literals, ranges, tuples, bare bindings, or an
+        enum pattern whose subpatterns are not all plain bindings)."""
+        if isinstance(pattern, WildcardPattern):
+            return "_", []
+        if isinstance(pattern, EnumPattern):
+            names = []
+            for sub in pattern.subpatterns:
+                if isinstance(sub, WildcardPattern):
+                    names.append("_")
+                elif isinstance(sub, BindingPattern):
+                    names.append(sub.name)
+                else:
+                    return "", []  # a nested non-binding subpattern -> general path
+            return pattern.variant_name, names
+        return "", []
+
+    def _parse_int_pattern_literal(self):
+        """Parse an integer literal endpoint in a pattern, allowing a leading
+        `-` for negatives. Returns the literal expression."""
+        if self.match(TokenType.MINUS):
+            self.advance()
+            tok = self.expect(TokenType.INT, "Expected integer after '-' in pattern")
+            lit = self._make_int_literal(tok)
+            return UnaryOp(op='-', operand=lit, line=tok.line, column=tok.column)
+        tok = self.expect(TokenType.INT, "Expected integer literal in pattern")
+        return self._make_int_literal(tok)
+
+    def _make_int_literal(self, tok):
+        """Build an IntLiteral from an INT token (mirrors primary-expr parsing,
+        honoring a fixed-width suffix)."""
+        return IntLiteral(
+            value=self._decode_int_literal(tok.value),
+            suffix=getattr(tok, 'suffix', None),
+            line=tok.line,
+            column=tok.column,
+        )
+
+    def parse_pattern(self) -> 'Pattern':
+        """Parse one match-arm pattern (design 63 T1d)."""
+        tok = self.current()
+
+        # Tuple pattern: `(p0, p1, ...)`
+        if self.match(TokenType.LPAREN):
+            self.advance()
+            elements = []
+            if not self.match(TokenType.RPAREN):
+                elements.append(self.parse_pattern())
+                while self.match(TokenType.COMMA):
+                    self.advance()
+                    elements.append(self.parse_pattern())
+            self.expect(TokenType.RPAREN, "Expected ')' to close tuple pattern")
+            return TuplePattern(elements=elements, line=tok.line, column=tok.column)
+
+        # Integer literal / range: `0`, `-5`, `1..9`, `1..=9`
+        if self.match(TokenType.INT) or self.match(TokenType.MINUS):
+            start_lit = self._parse_int_pattern_literal()
+            if self.match(TokenType.DOTDOT, TokenType.DOTDOT_EQ):
+                inclusive = self.current().type == TokenType.DOTDOT_EQ
+                self.advance()
+                end_lit = self._parse_int_pattern_literal()
+                return RangePattern(start=start_lit, end=end_lit,
+                                    is_inclusive=inclusive,
+                                    line=tok.line, column=tok.column)
+            return LiteralPattern(value=start_lit, line=tok.line, column=tok.column)
+
+        # String literal pattern
+        if self.match(TokenType.STRING):
+            self.advance()
+            return LiteralPattern(value=StringLiteral(value=tok.value, line=tok.line, column=tok.column),
+                                  line=tok.line, column=tok.column)
+
+        # Bool literal pattern
+        if self.match(TokenType.TRUE, TokenType.FALSE):
+            self.advance()
+            return LiteralPattern(value=BoolLiteral(value=(tok.type == TokenType.TRUE),
+                                                    line=tok.line, column=tok.column),
+                                  line=tok.line, column=tok.column)
+
+        # Identifier: wildcard `_`, enum variant, or bare binding.
+        ident = self.expect(TokenType.IDENT, "Expected a pattern after 'case'")
+        name = ident.value
+        if name == "_":
+            return WildcardPattern(line=ident.line, column=ident.column)
+        # An enum-variant pattern is a capitalized identifier, or any identifier
+        # immediately followed by `(` (a payload pattern). A lowercase bare
+        # identifier is a binding.
+        is_variant = (name[:1].isupper()) or self.match(TokenType.LPAREN)
+        if is_variant:
+            subpatterns = []
+            if self.match(TokenType.LPAREN):
+                self.advance()
+                if not self.match(TokenType.RPAREN):
+                    subpatterns.append(self.parse_pattern())
+                    while self.match(TokenType.COMMA):
+                        self.advance()
+                        subpatterns.append(self.parse_pattern())
+                self.expect(TokenType.RPAREN, "Expected ')' to close variant pattern")
+            return EnumPattern(variant_name=name, subpatterns=subpatterns,
+                               line=ident.line, column=ident.column)
+        return BindingPattern(name=name, line=ident.line, column=ident.column)
 
     def parse_try_expression(self) -> Expression:
         """Parse try expression: try expr, try? expr, try! expr, or try { } catch { }

@@ -1,0 +1,18 @@
+// Design 63 T1d: a suffixed integer literal pattern matches a fixed-width
+// scrutinee.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// yes
+// no
+
+func check(b: UInt8) -> String {
+    match b {
+        case 255u8 -> "yes"
+        case _ -> "no"
+    }
+}
+
+func main() {
+    print(check(255u8))
+    print(check(7u8))
+}
