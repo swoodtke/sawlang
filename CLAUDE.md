@@ -4,7 +4,10 @@ A modern systems programming language combining Rust's safety with Swift's elega
 
 ## Project Status
 
-Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
+Active implementation. A working compiler (Python + LLVM via llvmlite) lowers a
+large language subset — see the "Current Features" section below for the landed
+feature list and `LANGUAGE_SPEC.md` for the full specification. Design work
+continues per-brief in `designs/`.
 
 ## Key Design Decisions
 
@@ -12,7 +15,7 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 - The Copy trait family governs transfers (decided in `designs/06`, landed):
   - Trivial types (POD, recursively) auto-conform to `Copy` and copy bitwise
   - `ImplicitCopy` types copy implicitly and cheaply at every transfer
-    (refcount bump) — e.g. `String`, `Rc`/`Arc`
+    (refcount bump) — e.g. `String`, `Arc`
   - `ExplicitCopy` types (e.g. `Vector`, `Map`) never copy implicitly: `move`
     to transfer, or a visible `.copy()` to duplicate
   - `NoCopy` types (e.g. `File`, `Mutex`) are move-only
@@ -22,8 +25,9 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 - No garbage collector; deterministic LIFO destruction via `Deinit`
 - References (`&T`, `&var T`) are parameters only, cannot escape; no lifetimes.
   Mutable aliasing is caught statically by the Law of Exclusivity
-- Shared ownership via `Rc<T>`/`Arc<T>` wrapper types (planned)
-- Synchronized access via `Mutex<T>`/`RwLock<T>` (planned)
+- Shared ownership via `Arc<T>` (atomic refcount — Arc-only, no `Rc`, decided
+  design 16; landed) and owned heap allocation via `Box<T, A>` (landed)
+- Synchronized access via `Mutex<T>` (landed, hosted); `RwLock<T>` planned
 - Pluggable allocation: the allocator is a public **default type parameter**
   on alloc-layer containers — `Vector<T, A: Allocator = Global>`,
   `Map<K, V, A = Global>` (landed in `designs/37`). Hosted code writes
