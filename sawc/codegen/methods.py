@@ -69,6 +69,10 @@ class MethodsMixin:
         self.variable_types = {}
         self.cleanup_stack = []
         self.drop_flags = {}
+        # Per-function reset: `moved_variables` is keyed by bare NAME, so without
+        # this a name moved in one function would suppress the drop of a same-named
+        # (flag-less) binding in the next function generated (design 65 followup).
+        self.moved_variables = set()
 
         # Determine the Self type for this extension
         self_llvm_type = self._primitive_self_llvm_type(struct_name)
@@ -264,6 +268,10 @@ class MethodsMixin:
         self.variable_types = {}
         self.cleanup_stack = []
         self.drop_flags = {}
+        # Per-function reset: `moved_variables` is keyed by bare NAME, so without
+        # this a name moved in one function would suppress the drop of a same-named
+        # (flag-less) binding in the next function generated (design 65 followup).
+        self.moved_variables = set()
 
         # Set current return type for None literal generation
         old_return_type = self.current_return_type
@@ -310,6 +318,10 @@ class MethodsMixin:
         self.variable_types = {}
         self.cleanup_stack = []
         self.drop_flags = {}
+        # Per-function reset: `moved_variables` is keyed by bare NAME, so without
+        # this a name moved in one function would suppress the drop of a same-named
+        # (flag-less) binding in the next function generated (design 65 followup).
+        self.moved_variables = set()
 
         # Set current return type for None literal generation
         old_return_type = self.current_return_type
@@ -362,6 +374,10 @@ class MethodsMixin:
         self.variable_types = {}
         self.cleanup_stack = []
         self.drop_flags = {}
+        # Per-function reset: `moved_variables` is keyed by bare NAME, so without
+        # this a name moved in one function would suppress the drop of a same-named
+        # (flag-less) binding in the next function generated (design 65 followup).
+        self.moved_variables = set()
 
         # Set current return type for None-literal generation and return-position
         # wrapping. Substitute against the active monomorphization context so that

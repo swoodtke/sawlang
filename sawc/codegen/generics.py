@@ -73,6 +73,7 @@ class GenericsMixin:
         saved_variable_types = self.variable_types.copy()
         saved_cleanup_stack = self.cleanup_stack[:]
         saved_drop_flags = self.drop_flags
+        saved_moved_variables = self.moved_variables
         old_context = self.type_param_context.copy()
 
         # Build type parameter mapping
@@ -112,6 +113,7 @@ class GenericsMixin:
             self.variable_types = saved_variable_types
             self.cleanup_stack = saved_cleanup_stack
             self.drop_flags = saved_drop_flags
+            self.moved_variables = saved_moved_variables
 
         return mangled_name
 
@@ -685,8 +687,10 @@ class GenericsMixin:
         self.variables = {}
         saved_cleanup_stack = self.cleanup_stack
         saved_drop_flags = self.drop_flags
+        saved_moved_variables = self.moved_variables
         self.cleanup_stack = []
         self.drop_flags = {}
+        self.moved_variables = set()
 
         # Set type param context for method body
         old_context = self.type_param_context
@@ -776,6 +780,7 @@ class GenericsMixin:
         self.type_param_context = old_context
         self.cleanup_stack = saved_cleanup_stack
         self.drop_flags = saved_drop_flags
+        self.moved_variables = saved_moved_variables
 
     def _generate_init_method_generic(self, struct_name: str, method: Method, type_mapping: dict[str, SawType]):
         """Generate code for an init method with type substitution."""

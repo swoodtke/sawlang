@@ -1,0 +1,32 @@
+// Design 65 followup: `moved_variables` must be reset per function. A `guard let`
+// binding is registered flag-less, so its scope-exit drop consults the static
+// `moved_variables` set. If that set were process-global, a name moved in one
+// function would suppress the drop of a SAME-NAMED guard binding in a later
+// function — a silent leak. `mover` moves its `x`; `dropper` must still drop its
+// own `x`. Observed via Arc strong_count.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 1
+
+func wrap(a: Arc<Int>) -> Arc<Int>? {
+    move a
+}
+
+func mover(p: &Arc<Int>) {
+    guard let x = wrap(p.copy()) else { return }   // strong +1
+    let _ = move x                                  // moved into discard -> dropped; marks `x` moved
+}
+
+func dropper(p: &Arc<Int>) {
+    guard let x = wrap(p.copy()) else { return }   // strong +1
+    // `x` is NOT moved -> it must drop at scope end (strong back down)
+}
+
+func main() {
+    let p = Arc<Int>(value: 0)   // strong 1
+    mover(&p)
+    print(p.strong_count())      // 1
+    dropper(&p)
+    print(p.strong_count())      // 1 if dropper's x dropped; 2 if global-set pollution skipped it
+}
