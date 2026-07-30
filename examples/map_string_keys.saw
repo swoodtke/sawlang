@@ -8,11 +8,11 @@
 // 0
 // 3
 
-// HashMap with String keys (design 48): keys are hashed via String's builtin
+// Map with String keys (design 48): keys are hashed via String's builtin
 // byte-streaming hash and compared with String content equality, so lookups,
 // updates, and removals all work across owning (refcounted) keys.
 func main() {
-    var m = HashMap<String, Int>()
+    var m = Map<String, Int>()
     m.insert("one", 1)
     m.insert("two", 2)
     m.insert("three", 3)

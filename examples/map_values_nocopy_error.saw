@@ -1,4 +1,4 @@
-// HashMap snapshots require a copyable element (design 57): keys() needs
+// Map snapshots require a copyable element (design 57): keys() needs
 // `K: Copy`, values() needs `V: Copy`, because a snapshot duplicates elements
 // that stay live in the map. A NoCopy value type therefore has no `values()`.
 // EXPECT: error
@@ -14,7 +14,7 @@ extension Handle: NoCopy {
 }
 
 func main() {
-    var m = HashMap<Int, Handle>()
+    var m = Map<Int, Handle>()
     m.insert(1, Handle(id: 10))
     let vs = m.values()   // rejected: Handle is NoCopy
     print(vs.len())

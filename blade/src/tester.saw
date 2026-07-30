@@ -79,10 +79,10 @@ public extension Tester {
         print("   Testing {self.manifest.name()} v{self.manifest.version()}")
 
         // design 57 dogfood: time the whole run with the monotonic clock, and
-        // collect failed test names in a HashMap so they can be reported in a
+        // collect failed test names in a Map so they can be reported in a
         // deterministic (sorted) order at the end regardless of directory order.
         let started = Instant.now()
-        var failed_tests = HashMap<String, Bool>()
+        var failed_tests = Map<String, Bool>()
 
         var total = 0
         var passed = 0

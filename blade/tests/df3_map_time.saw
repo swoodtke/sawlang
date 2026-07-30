@@ -1,4 +1,4 @@
-// Blade dogfood (design 57): DF3 call-site optional auto-wrap, HashMap
+// Blade dogfood (design 57): DF3 call-site optional auto-wrap, Map
 // iteration (visitor + snapshot), and std.time. Passes by exiting 0.
 
 func takes_opt(x: Int?) -> Int {
@@ -10,8 +10,8 @@ func main() {
     assert(takes_opt(7) == 7, "df3 wrap should pass 7")
     assert(takes_opt(None) == -1, "None should pass through")
 
-    // HashMap visitor (each_value) + snapshot (keys, sorted).
-    var m = HashMap<String, Int>()
+    // Map visitor (each_value) + snapshot (keys, sorted).
+    var m = Map<String, Int>()
     m.insert("a", 1)
     m.insert("b", 2)
     m.insert("c", 3)

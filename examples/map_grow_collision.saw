@@ -10,11 +10,11 @@
 // 2600
 // 49
 
-// HashMap growth and collision handling (design 48): inserting 50 keys forces
+// Map growth and collision handling (design 48): inserting 50 keys forces
 // several doublings and rehashes (linear probing resolves the many bucket
 // collisions). After a removal (a tombstone), probing still reaches neighbours.
 func main() {
-    var m = HashMap<Int, Int>()
+    var m = Map<Int, Int>()
     var i = 0
     while i < 50 {
         m.insert(i, i * 100)

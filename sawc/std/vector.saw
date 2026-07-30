@@ -201,7 +201,7 @@ extension Vector<T, A: Allocator = Global> {
     }
 
     // Replace the element at `index`, returning the previous occupant by MOVE
-    // (design 48, for HashMap slot updates). The old value is bitwise-moved out
+    // (design 48, for Map slot updates). The old value is bitwise-moved out
     // and the new one placement-moved in, so it is refcount-neutral: no element
     // `copy()` and no leak (the placement primitive does not release, but the
     // prior occupant was moved out first, so nothing is dropped on the floor).

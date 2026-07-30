@@ -12,10 +12,10 @@
 // 0
 // 1
 
-// HashMap<K, V> (design 48) — insert, get, update-returns-old, contains_key,
+// Map<K, V> (design 48) — insert, get, update-returns-old, contains_key,
 // remove. Open addressing with linear probing over a Vector.
 func main() {
-    var m = HashMap<Int, Int>()
+    var m = Map<Int, Int>()
     print(m.len())                                  // 0
     m.insert(1, 10)
     m.insert(2, 20)

@@ -1,4 +1,4 @@
-// HashMap iteration (design 57): the non-escaping closure visitors
+// Map iteration (design 57): the non-escaping closure visitors
 // each / each_key / each_value. Order is unspecified (table order), so the test
 // accumulates order-independent sums.
 // EXPECT: success
@@ -10,7 +10,7 @@
 // 3
 
 func main() {
-    var m = HashMap<Int, Int>()
+    var m = Map<Int, Int>()
     m.insert(1, 10)
     m.insert(2, 20)
     m.insert(3, 30)
