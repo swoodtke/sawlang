@@ -1,0 +1,42 @@
+// Design 65 followup: Set algebra (union / intersection / difference) with
+// OWNING elements must keep exact refcount balance — no leaked snapshot element
+// refs. The element `AK` is ImplicitCopy wrapping an `Arc<Int>`, so the live
+// count is observable through `probe.strong_count()`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 3
+// 1
+// 1
+// 10
+// 1
+
+struct AK { id: Int, rc: Arc<Int> }
+extension AK: Deinit { func deinit(&var self) {} }
+extension AK: ImplicitCopy { func copy(&self) -> AK { AK(id: self.id, rc: self.rc.copy()) } }
+extension AK: Equatable { func equals(&self, other: AK) -> Bool { self.id == other.id } }
+extension AK: Hashable { func hash(&self, h: &var Hasher) { self.id.hash(&var h) } }
+
+func exercise(probe: &Arc<Int>) {
+    var a = Set<AK>()
+    let _ = a.insert(AK(id: 1, rc: probe.copy()))
+    let _ = a.insert(AK(id: 2, rc: probe.copy()))
+    var b = Set<AK>()
+    let _ = b.insert(AK(id: 2, rc: probe.copy()))
+    let _ = b.insert(AK(id: 3, rc: probe.copy()))
+    print(probe.strong_count())          // 5 (probe + 4 stored)
+
+    let u = a.union(&b)                   // {1,2,3}
+    let i = a.intersection(&b)            // {2}
+    let d = a.difference(&b)              // {1}
+    print(u.len())                        // 3
+    print(i.len())                        // 1
+    print(d.len())                        // 1
+    print(probe.strong_count())           // 5 + 3(u) + 1(i) + 1(d) = 10
+}   // u, i, d, a, b all drop here
+
+func main() {
+    let probe = Arc<Int>(value: 0)
+    exercise(&probe)
+    print(probe.strong_count())           // 1 — fully torn down, no leak
+}

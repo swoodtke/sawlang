@@ -103,6 +103,12 @@ extension Set<T: Hashable + Equatable, A: Allocator = Global> {
 // the other set, and the visitor/snapshot read path is by-value — a looser
 // `Hashable + Equatable` bound would need by-reference enum-payload projection,
 // which is not expressible yet, same limit as design 57's snapshots.)
+// The algebra methods walk their snapshot with an INDEXED `while` (`a.get(i)`)
+// rather than `for e in a.iter()`. A `for`-over-custom-iterator inside a GENERIC
+// method currently leaks the iterable's owning elements (design 65 followup,
+// tracked as L18) — the same shape balances in a non-generic method / free
+// function — so the algebra uses the index form, which drops the snapshot
+// correctly. (When L18 is fixed the `for` form can return.)
 extension Set<T: Hashable + Equatable + Copy, A: Allocator = Global> {
     // A fresh Vector of all elements (copies), in unspecified (table) order.
     func to_vector(&self) -> Vector<T, A> {
@@ -113,12 +119,20 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = Global> {
     func union(&self, other: &Set<T, A>) -> Set<T, A> {
         var result = Set<T, A>()
         let a = self.to_vector()
-        for e in a.iter() {
-            let _ = result.insert(e)
+        var i = 0
+        while i < a.len() {
+            if let e = a.get(i) {
+                let _ = result.insert(e)
+            }
+            i = i + 1
         }
         let b = other.to_vector()
-        for e in b.iter() {
-            let _ = result.insert(e)
+        var j = 0
+        while j < b.len() {
+            if let e = b.get(j) {
+                let _ = result.insert(e)
+            }
+            j = j + 1
         }
         move result
     }
@@ -127,10 +141,14 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = Global> {
     func intersection(&self, other: &Set<T, A>) -> Set<T, A> {
         var result = Set<T, A>()
         let a = self.to_vector()
-        for e in a.iter() {
-            if other.contains(e.copy()) {
-                let _ = result.insert(e)
+        var i = 0
+        while i < a.len() {
+            if let e = a.get(i) {
+                if other.contains(e.copy()) {
+                    let _ = result.insert(e)
+                }
             }
+            i = i + 1
         }
         move result
     }
@@ -139,10 +157,14 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = Global> {
     func difference(&self, other: &Set<T, A>) -> Set<T, A> {
         var result = Set<T, A>()
         let a = self.to_vector()
-        for e in a.iter() {
-            if not other.contains(e.copy()) {
-                let _ = result.insert(e)
+        var i = 0
+        while i < a.len() {
+            if let e = a.get(i) {
+                if not other.contains(e.copy()) {
+                    let _ = result.insert(e)
+                }
             }
+            i = i + 1
         }
         move result
     }
@@ -151,10 +173,14 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = Global> {
     func is_subset(&self, other: &Set<T, A>) -> Bool {
         let a = self.to_vector()
         var ok = true
-        for e in a.iter() {
-            if not other.contains(e) {
-                ok = false
+        var i = 0
+        while i < a.len() {
+            if let e = a.get(i) {
+                if not other.contains(e) {
+                    ok = false
+                }
             }
+            i = i + 1
         }
         ok
     }
@@ -163,10 +189,14 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = Global> {
     func is_superset(&self, other: &Set<T, A>) -> Bool {
         let b = other.to_vector()
         var ok = true
-        for e in b.iter() {
-            if not self.contains(e) {
-                ok = false
+        var i = 0
+        while i < b.len() {
+            if let e = b.get(i) {
+                if not self.contains(e) {
+                    ok = false
+                }
             }
+            i = i + 1
         }
         ok
     }

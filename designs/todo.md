@@ -470,16 +470,29 @@ LLVM-exception).
     a pure counter, but would double-free a real resource). Such keys should
     become a clean typechecker error (keys must be copyable-with-retain) — a
     deferred followup. NoCopy-Deinit VALUES stay exact (moved, never probe-copied).
-  - *REMAINING (flagged):* Set `union`/`intersection`/`difference` with owning
-    elements still LEAK their `to_vector()` snapshot refs — the snapshot's
-    `Vector_deinit` is emitted and reached (flags set) but does not release the
-    elements' refs, and ONLY in the GENERIC bounded-extension method (the same
-    pattern balances in a non-generic method and a free function). Distinct from
-    the probe-copy root cause; memory-safe (leak, not UAF), algebra RESULTS are
-    correct. Also surfaced: `moved_variables` is a process-global set never reset
-    per-function (a latent cross-function drop-skip for flag-less same-named
-    bindings) and struct init with an `Int8` field + int literal ICEs
-    ("Can only insert i8 at [0]: got i64"). [61, 65]
+  - *FOLLOWUPS — all CLOSED in the design-65 followup pass:*
+    - `moved_variables` process-global never reset per function → **CLOSED**:
+      reset at every function-body entry + save/restore around nested
+      monomorphized/closure generation. Test `moved_variables_per_function_reset`.
+    - Struct init with a fixed-width int field + bare literal ICE → **CLOSED**:
+      codegen coerces to the field width, typechecker range-checks the literal
+      (clean error). Tests `struct_fixed_width_field_literals`,
+      `struct_fixed_width_field_out_of_range_error`.
+    - Set `union`/`intersection`/`difference` owning-element leak → **CLOSED**
+      by restructuring the algebra to an indexed `while (a.get(i))` walk (which
+      drops the snapshot correctly) instead of `for e in a.iter()`. Test
+      `set_algebra_owning_balance`. The underlying cause is recorded as **L18**.
+    - NoCopy keys → **CLOSED** (L19 below), user-approved rejection.
+- **L18 (design 65 followup, DISCOVERED — DEFERRED).** A `for x in coll.iter()`
+  over a CUSTOM iterator inside a GENERIC method leaks the iterable's owning
+  elements: the iterable local's `Vector_deinit` is emitted and reached with its
+  drop flag set, yet its elements' refs are not released. The SAME shape balances
+  in a non-generic method and in a free function, and an indexed `while`
+  (`coll.get(i)`) balances in the generic method too — so the bug is specific to
+  the for-loop/custom-iterator lowering under a generic method's monomorphization
+  state (NOT the copy-with-retain path, which only EXPOSED it by making snapshots
+  retain). Memory-safe (leak, not UAF). Set algebra was rerouted to `while`+`get`
+  to sidestep it (see above); the general fix is deferred. [65]
 
 - **L1.** Partial moves — DECIDED forbidden + LANDED (design 35,
   `2829364`): field/nested/index forms all get naming diagnostics; the
