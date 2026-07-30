@@ -1,0 +1,21 @@
+// Design 53 Part 1: a NoCopy default construction moves into the parameter
+// cleanly (through the value-transfer checkpoint) and is deinit'd at the end of
+// the callee, exactly like an owned argument.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 42
+
+struct Res { v: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print(self.v) }
+}
+
+func take(r: Res = Res(v: 42)) -> Int {
+    r.v
+}
+
+func main() {
+    let n = take()   // default Res(v: 42) moves in; deinit prints 42 at scope exit
+    print(n)         // 42
+}

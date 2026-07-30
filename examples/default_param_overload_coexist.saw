@@ -1,0 +1,17 @@
+// Design 53 Part 1: a defaulted overload coexists with a distinct-shape
+// overload (no collision). `h(Int, Int=5)` expands to {h(Int,Int), h(Int)};
+// `h(String)` shares no shape, so both register and dispatch by argument type.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 7
+// 5
+
+func h(x: Int, y: Int = 5) -> Int { x + y }
+func h(a: String) -> Int { 10 }
+
+func main() {
+    print(h("hi"))   // String overload
+    print(h(2))      // Int overload, default y = 5
+    print(h(1, 4))   // Int overload, explicit
+}

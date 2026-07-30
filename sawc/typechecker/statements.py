@@ -153,6 +153,13 @@ class StatementsMixin:
             info = VariableInfo(param_type, mutable=False, line=method.line, column=method.column)
             self.current_scope.define(param.name, info)
 
+        # Default parameter values (design 53): checked in isolation (no access
+        # to other params / self), with this method's suspend node active. The
+        # per-parameter concreteness guard skips the type check for any abstract
+        # (`T`-typed) parameter, so a generic extension checked abstractly is safe.
+        self._check_parameter_defaults(
+            method.parameters, bool(method.type_params), self_type)
+
         # Determine expected return type first (needed for None propagation)
         expected_return = method.return_type
         # Resolve Self in return type
@@ -462,6 +469,53 @@ class StatementsMixin:
         # Primitives (INT/FLOAT/BOOL/STRING/VOID) and anything else are concrete.
         return True
 
+    def _check_parameter_defaults(self, parameters, is_generic, self_type=None):
+        """Design 53: type-check each trailing default-parameter expression in
+        ISOLATION. An empty local scope is installed so a default may reference
+        only module-level items (statics, free functions) — a reference to
+        another parameter or to `self` resolves to `undefined variable`/`self
+        outside a method`, which is exactly the "no other-param/self refs" rule.
+
+        The default is checked against its parameter's declared type and run
+        through the value-transfer checkpoint, like an explicit argument, so a
+        NoCopy default construction moves in cleanly. This runs with the
+        enclosing function/method's suspend node active: a suspending default
+        therefore taints the callee, and a `sync` caller that fills it is
+        diagnosed. The type check is skipped for a parameter whose declared type
+        is not yet concrete (a generic body checked abstractly)."""
+        from .core import Scope
+        if not any(p.default_value is not None for p in parameters):
+            return
+        saved_scope = self.current_scope
+        saved_moves = dict(self.moved_bindings)
+        self.current_scope = Scope()
+        try:
+            for p in parameters:
+                if p.name == "self" or p.default_value is None:
+                    continue
+                pt = p.type
+                if pt is not None and pt.kind == TypeKind.SELF and self_type is not None:
+                    pt = self_type
+                expected = self._resolve_type(pt) if pt is not None else None
+                at = self._check_expression(p.default_value)
+                if (at is not None and expected is not None
+                        and not is_generic and self._is_concrete_type(expected)
+                        and not self._arg_type_ok(p.default_value, at, expected)):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"default value for parameter `{p.name}` has type `{at}` "
+                        f"but the parameter is declared `{expected}`",
+                        p.default_value.line, p.default_value.column,
+                        hint="a default value may reference only module-level "
+                             "items, never another parameter or `self`"
+                    )
+                self._check_value_transfer(
+                    p.default_value, expected, "default parameter value",
+                    p.default_value.line, p.default_value.column)
+        finally:
+            self.current_scope = saved_scope
+            self.moved_bindings = saved_moves
+
     def _check_function(self, func: Function):
         """Type check a function body.
 
@@ -499,6 +553,10 @@ class StatementsMixin:
         self.current_type_params = dict(prev_type_params)
         for tp in func.type_params:
             self.current_type_params[tp.name] = tp.bounds
+
+        # Default parameter values (design 53): checked in isolation with this
+        # function's suspend node active (so a suspending default taints callers).
+        self._check_parameter_defaults(func.parameters, is_generic)
 
         # Create new scope for function
         self.current_scope = Scope()

@@ -390,6 +390,11 @@ class RegistrationMixin:
         "defined multiple times" error now fires only at the declaration-site
         collision below (identical post-alias / bare-type-param signatures).
         """
+        # Default parameter values (design 53) must be trailing.
+        self._check_trailing_defaults(func.parameters, func.line, func.column,
+                                      f"function `{func.name}`")
+        default_values = [p.default_value for p in func.parameters]
+
         # For generic functions, don't resolve types yet (they may contain type params)
         if func.type_params:
             param_types = [p.type for p in func.parameters]
@@ -410,22 +415,28 @@ class RegistrationMixin:
             # Update AST with resolved type for codegen
             func.return_type = return_type
 
-        # Declaration-site overload check (design 55): reject a new declaration
-        # that no tie-break rule could separate from an existing one — i.e. an
-        # identical normalized signature (post-alias, bare type params folded to
-        # a single placeholder). Same-arity/different-types and different-arity
-        # are both legal and register as additional overloads.
-        new_key = self._overload_sig_key(param_types, func.type_params)
+        # Declaration-site overload check (design 55 + design 53): reject a new
+        # declaration that no tie-break rule could separate from an existing one.
+        # A defaulted parameter expands a declaration into several reachable call
+        # SHAPES (full arity down to first-defaulted arity); ANY shape collision
+        # with another overload's shape is a declaration-site ambiguity (design
+        # 53). Non-defaulted declarations expand to a single shape, so this
+        # subsumes design 55's identical-signature rejection.
+        new_keys = self._overload_shape_keys(param_types, func.type_params,
+                                              default_values)
         for other in self.namespace.lookup_function_overloads(func.name):
-            if self._overload_sig_key(other.param_types, other.type_params) == new_key:
+            other_keys = self._overload_shape_keys(
+                other.param_types, other.type_params, other.default_values)
+            if new_keys & other_keys:
                 self._error(
                     ErrorKind.DUPLICATE_FUNCTION,
                     f"function `{func.name}` is already defined with an "
-                    f"indistinguishable signature",
+                    f"indistinguishable signature (a default-parameter call "
+                    f"shape collides with another overload)",
                     func.line, func.column,
                     hint="overloads must differ in arity or parameter types "
                          "(distinct types, not just type aliases of the same "
-                         "underlying type)"
+                         "underlying type); expanded default-value shapes count"
                 )
                 return
 
@@ -434,6 +445,7 @@ class RegistrationMixin:
             param_names=param_names,
             return_type=return_type,
             type_params=func.type_params,
+            default_values=default_values,
             visibility=getattr(func, 'visibility', Visibility.PRIVATE),
             is_sync=getattr(func, 'is_sync', False),
             ast_node=func if func.type_params else None,
@@ -468,6 +480,49 @@ class RegistrationMixin:
                 norm = self._resolve_type_alias(t)
             parts.append(mangle_type(norm))
         return tuple(parts)
+
+    def _check_trailing_defaults(self, parameters, line, column, what):
+        """Design 53: a defaulted parameter must be TRAILING — no parameter
+        without a default may follow one that has a default. `self` is not a
+        real value parameter for this rule."""
+        seen_default = False
+        for p in parameters:
+            if p.name == "self":
+                continue
+            if p.default_value is not None:
+                seen_default = True
+            elif seen_default:
+                self._error(
+                    ErrorKind.SYNTAX,
+                    f"{what}: parameter `{p.name}` has no default value but "
+                    f"follows a parameter that does — defaulted parameters must "
+                    f"be trailing",
+                    line, column,
+                    hint="move all defaulted parameters to the end of the "
+                         "parameter list"
+                )
+                return
+
+    def _overload_shape_keys(self, param_types, type_params, default_values):
+        """Design 53: the set of reachable call-SHAPE keys for a declaration.
+
+        A declaration with trailing defaults can be called at several arities —
+        from the count of required (non-defaulted) parameters up to the full
+        arity. Each reachable arity is normalized with `_overload_sig_key` over
+        that many leading parameters. A declaration with no defaults yields a
+        single key (its full signature), so this generalizes design 55's
+        single-key distinctness cleanly.
+        """
+        pts = list(param_types or [])
+        n = len(pts)
+        if default_values and any(dv is not None for dv in default_values):
+            required = sum(1 for dv in default_values if dv is None)
+        else:
+            required = n
+        keys = set()
+        for arity in range(required, n + 1):
+            keys.add(self._overload_sig_key(pts[:arity], type_params))
+        return keys
 
     def _stamp_overload_symbols(self):
         """Assign each member of a 2+ overload set a type-signature-suffixed
@@ -1115,19 +1170,28 @@ class RegistrationMixin:
 
             # Collect default values for parameters
             default_values = [p.default_value for p in method.parameters]
+            # Default parameter values (design 53) must be trailing.
+            self._check_trailing_defaults(
+                method.parameters, method.line, method.column,
+                f"method `{method.name}`")
 
-            # Declaration-site overload check (design 55) for ordinary (non-init,
-            # non-specialized) methods: reject a repeat that no tie-break rule
-            # could separate — an identical normalized signature (self excluded).
+            # Declaration-site overload check (design 55 + design 53) for ordinary
+            # (non-init, non-specialized) methods: reject a repeat that no
+            # tie-break rule could separate, expanding default-value call shapes
+            # (self excluded from the signature).
             if not method.is_init and not is_specialized:
                 new_offset = 1  # exclude self
-                new_key = self._overload_sig_key(
-                    param_types[new_offset:], method.type_params)
+                new_keys = self._overload_shape_keys(
+                    param_types[new_offset:], method.type_params,
+                    default_values[new_offset:])
                 collides = False
                 for other in struct_info.method_overloads.get(method.name, []):
                     o_off = 0 if other.is_init else 1
-                    if self._overload_sig_key(
-                            other.param_types[o_off:], other.type_params) == new_key:
+                    other_keys = self._overload_shape_keys(
+                        other.param_types[o_off:], other.type_params,
+                        (other.default_values[o_off:] if other.default_values
+                         else []))
+                    if new_keys & other_keys:
                         collides = True
                         break
                 if collides:

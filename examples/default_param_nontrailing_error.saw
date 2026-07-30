@@ -1,0 +1,10 @@
+// Design 53 Part 1: defaulted parameters must be trailing — a non-defaulted
+// parameter after a defaulted one is a declaration error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: defaulted parameters must be trailing
+
+func f(x: Int = 5, y: Int) -> Int { x + y }
+
+func main() {
+    print(f(1, 2))
+}

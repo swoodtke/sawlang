@@ -1,0 +1,19 @@
+// Design 53 Part 1: effects flow through a default expression. Filling a
+// suspending default makes the callee suspending, so a `sync` context that
+// calls it is diagnosed (the effect edge runs through the default).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func`
+
+func slow() -> Int {
+    __test_suspend()
+    5
+}
+
+func useDefault(x: Int = slow()) -> Int { x }
+
+func caller() sync {
+    let v = useDefault()
+    print(v)
+}
+
+func main() { caller() }

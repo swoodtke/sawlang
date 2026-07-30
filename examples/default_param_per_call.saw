@@ -1,0 +1,25 @@
+// Design 53 Part 1: a default expression is evaluated PER CALL at the call
+// site — a fresh value each time. Here the default calls a counter, so each
+// omitting call observes a new id.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 50
+// 3
+
+static COUNTER: Atomic<Int> = Atomic(0)
+
+func nextId() -> Int {
+    COUNTER.fetch_add(1)
+    COUNTER.load()
+}
+
+func record(id: Int = nextId()) -> Int { id }
+
+func main() {
+    print(record())    // 1
+    print(record())    // 2
+    print(record(50))  // explicit: does not touch the counter
+    print(record())    // 3
+}

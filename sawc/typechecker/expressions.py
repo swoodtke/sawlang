@@ -1390,6 +1390,10 @@ class ExpressionsMixin:
                 result = self._check_struct_init(struct_init)
                 if hasattr(struct_init, 'resolved_init_params'):
                     expr.resolved_init_params = struct_init.resolved_init_params
+                # Design 53: a matched init may have appended default-valued named
+                # arguments; carry the augmented field-init list to codegen, which
+                # otherwise rebuilds it from the (possibly empty) argument list.
+                expr.resolved_field_inits = struct_init.field_inits
                 return result
             # `A()` — constructing a value of an in-scope type parameter (design
             # 37). The allocator model relies on this: inside `Vector<T, A>`, the
@@ -1513,12 +1517,29 @@ class ExpressionsMixin:
                 )
             param_types = func_info.param_types
             return_type = func_info.return_type
+        # Default parameter values (design 53): an omitted trailing argument is
+        # filled at the call site, so a call may provide between `required` and
+        # `len(param_types)` arguments.
+        dvals = func_info.default_values or []
+        has_defaults = any(dv is not None for dv in dvals)
+        required = (sum(1 for dv in dvals if dv is None) if has_defaults
+                    else len(param_types))
         if func_info.is_variadic:
             if len(expr.arguments) < len(param_types):
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"function `{expr.name}` takes at least {len(param_types)} argument(s), "
                     f"but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+                return return_type
+        elif has_defaults:
+            if len(expr.arguments) < required or len(expr.arguments) > len(param_types):
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"function `{expr.name}` takes between {required} and "
+                    f"{len(param_types)} argument(s), but {len(expr.arguments)} "
+                    f"were given",
                     expr.line, expr.column
                 )
                 return return_type
@@ -2430,17 +2451,25 @@ class ExpressionsMixin:
         field_names = set(struct_info.fields.keys())
         matches_fields = provided_params == field_names
         matching_inits = []
+        # An init matches when the provided named arguments are a subset of its
+        # parameters and every omitted parameter carries a default value
+        # (design 53). With no defaults this reduces to the exact-set match.
+        def _init_matches(method_info):
+            init_names = list(method_info.param_names)
+            if not provided_params.issubset(set(init_names)):
+                return False
+            dv = method_info.default_values or []
+            name_to_default = dict(zip(init_names, dv))
+            return all(name_to_default.get(n) is not None
+                       for n in init_names if n not in provided_params)
         # Check for init methods in both methods dict (legacy) and init_methods list (namespace)
         for method_name, method_info in struct_info.methods.items():
-            if method_info.is_init:
-                init_param_names = set(method_info.param_names)
-                if provided_params == init_param_names:
-                    matching_inits.append(method_info)
+            if method_info.is_init and _init_matches(method_info):
+                matching_inits.append(method_info)
         # Also check init_methods list (for StructSymbol from namespace)
         if hasattr(struct_info, 'init_methods'):
             for method_info in struct_info.init_methods:
-                init_param_names = set(method_info.param_names)
-                if provided_params == init_param_names:
+                if _init_matches(method_info):
                     matching_inits.append(method_info)
         total_matches = (1 if matches_fields else 0) + len(matching_inits)
         if total_matches == 0:
@@ -2486,6 +2515,15 @@ class ExpressionsMixin:
                                            field_value.line, field_value.column)
         else:
             method_info = matching_inits[0]
+            # Design 53: fill omitted init parameters from their defaults by
+            # appending them as named arguments, so the argument loop and codegen
+            # see a complete set (evaluated per call, like an explicit argument).
+            provided_now = {fn for fn, _ in expr.field_inits}
+            _dv = method_info.default_values or []
+            _n2d = dict(zip(method_info.param_names, _dv))
+            for pname in method_info.param_names:
+                if pname not in provided_now and _n2d.get(pname) is not None:
+                    expr.field_inits.append((pname, _n2d[pname]))
             expr.resolved_init_params = method_info.param_names
             # design 24 item 3: a custom `init` runs user code — record the
             # suspend-graph edge to it.

@@ -1,0 +1,24 @@
+// Design 53 Part 1: default parameter values on a free function. A trailing
+// argument may be omitted and is filled from the default expression at the
+// call site. Multiple trailing defaults are supported.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12
+// 7
+// 3
+// 101
+
+func add(x: Int, y: Int = 10) -> Int {
+    x + y
+}
+
+func triple(a: Int = 1, b: Int = 1, c: Int = 1) -> Int {
+    a + b + c
+}
+
+func main() {
+    print(add(2))        // 2 + 10
+    print(add(3, 4))     // explicit
+    print(triple())      // 1 + 1 + 1
+    print(triple(98, 2)) // 98 + 2 + 1
+}

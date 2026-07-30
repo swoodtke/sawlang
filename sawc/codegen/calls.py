@@ -35,6 +35,17 @@ class CallsMixin:
         _generate_enum_init: Generate code for enum variant initialization
     """
 
+    def _fill_func_defaults(self, args, key):
+        """Design 53: append default-value arguments for a free-function call
+        that omitted trailing arguments. The default expressions are evaluated
+        fresh at the call site, per call (like the method/init default path)."""
+        defaults = self.func_defaults.get(key)
+        if not defaults:
+            return
+        for i in range(len(args), len(defaults)):
+            if defaults[i] is not None:
+                args.append(self._gen_transfer_value(defaults[i]))
+
     def _generate_function_call(self, expr: FunctionCall):
         """Generate code for a function call.
 
@@ -162,6 +173,7 @@ class CallsMixin:
         if resolved_symbol is not None and resolved_symbol in self.functions:
             func = self.functions[resolved_symbol]
             args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
+            self._fill_func_defaults(args, resolved_symbol)
             return self.builder.call(func, args, name="calltmp")
 
         # Check if the name refers to a closure variable
@@ -198,8 +210,13 @@ class CallsMixin:
 
         # Check if this is actually a struct init (parser treats empty parens as function call)
         if expr.name in self.generic_structs or expr.name in self.struct_types:
-            # Convert to struct init and generate that instead
-            field_inits = [(arg.name, arg.value) for arg in expr.arguments if arg.name]
+            # Convert to struct init and generate that instead. Prefer the
+            # typechecker's augmented field-init list (design 53: it includes any
+            # init parameters filled from their defaults), falling back to the
+            # raw named arguments.
+            field_inits = getattr(expr, 'resolved_field_inits', None)
+            if field_inits is None:
+                field_inits = [(arg.name, arg.value) for arg in expr.arguments if arg.name]
             struct_init = StructInit(
                 struct_name=expr.name,
                 field_inits=field_inits,
@@ -230,6 +247,8 @@ class CallsMixin:
 
         # Arguments are now Argument objects with .value
         args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
+        # Fill omitted trailing arguments from their default expressions (design 53).
+        self._fill_func_defaults(args, expr.name)
         result = self.builder.call(func, args, name="calltmp")
 
         # Wrap result in optional for extern functions that return nullable pointers

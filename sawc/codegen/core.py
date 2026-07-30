@@ -215,6 +215,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Default parameter values: mangled_name -> list of default Expression (or None)
         self.method_defaults: dict[str, list] = {}
+        # Free-function default parameter values (design 53): the self.functions
+        # lookup key -> list of default Expression (or None), one per parameter.
+        self.func_defaults: dict[str, list] = {}
 
         # Resource management: variable lifetime tracking
         # Stack of scopes, each scope is a list of (var_name, saw_type) for variables needing cleanup
@@ -1515,6 +1518,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.functions[func_name] = llvm_func
         self._mark_noalias_params(llvm_func, [p.type for p in func.parameters])
         # Function return types are now in namespace
+
+        # Track default parameter values (design 53) so an omitted trailing
+        # argument is filled at the call site.
+        defaults = [p.default_value for p in func.parameters]
+        if any(d is not None for d in defaults):
+            self.func_defaults[func_name] = defaults
 
     def _declare_extern_function(self, extern_func: ExternFunction):
         """Declare an external C function (no body, just LLVM declare)."""
