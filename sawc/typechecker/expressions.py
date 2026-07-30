@@ -1836,10 +1836,15 @@ class ExpressionsMixin:
             return None
         old_scope = self.current_scope
         self.current_scope = Scope(parent=old_scope)
-        self.current_scope.define(
-            expr.name,
-            VariableInfo(inner_type, expr.mutable, expr.line, expr.column)
-        )
+        if expr.pattern is not None:
+            # Tuple pattern over an Optional tuple (design 63).
+            self._bind_optional_pattern(expr.pattern, inner_type, expr.mutable,
+                                        expr.line, expr.column)
+        else:
+            self.current_scope.define(
+                expr.name,
+                VariableInfo(inner_type, expr.mutable, expr.line, expr.column)
+            )
         # Move dataflow (design 15 rule 6): branches merge as union of the
         # non-diverging paths, from a shared entry state.
         entry_moves = self._snapshot_moves()
@@ -4633,6 +4638,38 @@ class ExpressionsMixin:
             return True
         return False
 
+    def _pattern_is_irrefutable(self, pattern) -> bool:
+        """True when a pattern always matches (binds only): a wildcard, a bare
+        binding, or a tuple of irrefutable elements. Used for exhaustiveness (an
+        irrefutable arm is a fallback) and for `let`/`var` destructuring (only
+        irrefutable patterns are allowed there)."""
+        if isinstance(pattern, (WildcardPattern, BindingPattern)):
+            return True
+        if isinstance(pattern, TuplePattern):
+            return all(self._pattern_is_irrefutable(e) for e in pattern.elements)
+        return False
+
+    def _bind_optional_pattern(self, pattern, inner_type, mutable, line, column):
+        """Validate + bind an irrefutable tuple pattern against the unwrapped
+        inner type of an `if let`/`guard let` over an Optional tuple (design 63)."""
+        if not self._pattern_is_irrefutable(pattern):
+            self._error(ErrorKind.TYPE_MISMATCH,
+                        "`if let`/`guard let` tuple pattern must be irrefutable "
+                        "(bindings, `_`, nested tuples)", line, column)
+            return
+        it = self._resolve_type_alias(inner_type) if inner_type is not None else None
+        if it is None or it.kind != TypeKind.TUPLE or not it.element_types:
+            self._error(ErrorKind.TYPE_MISMATCH,
+                        f"tuple pattern requires an optional tuple scrutinee, got "
+                        f"`{inner_type}?`", line, column)
+            return
+        if len(pattern.elements) != len(it.element_types):
+            self._error(ErrorKind.TYPE_MISMATCH,
+                        f"tuple pattern has {len(pattern.elements)} elements but the "
+                        f"optional's value has {len(it.element_types)}", line, column)
+            return
+        self._define_irrefutable_bindings(pattern, inner_type, mutable)
+
     def _pattern_enum_variants(self, expected_type: SawType):
         """Return {variant_name: [(param_name, param_type), ...]} for an enum or
         Optional scrutinee, or None if the type is not variant-matchable."""
@@ -4762,7 +4799,7 @@ class ExpressionsMixin:
             # Catch-all / Bool-coverage tracking (unguarded arms only — a guard
             # can fail, so a guarded arm never proves exhaustiveness).
             if arm.guard is None:
-                if isinstance(p, (WildcardPattern, BindingPattern)):
+                if self._pattern_is_irrefutable(p):
                     has_catchall = True
                 elif isinstance(p, LiteralPattern) and isinstance(p.value, BoolLiteral):
                     if p.value.value:

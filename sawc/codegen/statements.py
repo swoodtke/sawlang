@@ -14,7 +14,8 @@ from ast_nodes import (
     Statement, LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement,
     GuardLetStatement, BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, Identifier, MemberAccess, ArrayIndex, SelfExpr,
-    MoveExpr, SawType, TypeKind
+    MoveExpr, SawType, TypeKind,
+    WildcardPattern, BindingPattern, TuplePattern,
 )
 
 
@@ -78,6 +79,59 @@ class StatementsMixin:
             self._generate_discard_let(stmt)
             return
         self._generate_let_statement(stmt)
+
+    def visit_DestructuringLet(self, stmt):
+        """`let (a, b) = pair` / `var (x, y) = point` (design 63 T1d).
+
+        Evaluate the source once and bind each component. When the source is a
+        bare Identifier (copy semantics — ImplicitCopy/POD), each owning
+        component is retained via `_generate_copy` since the source stays live;
+        a `move` source (or a fresh tuple) transfers without a retain."""
+        value = self._generate_expression(stmt.value)
+        is_copy_source = isinstance(stmt.value, Identifier)
+        src_type = self._expr_type(stmt.value)
+        self._destructure_bind(stmt.pattern, value, src_type,
+                               stmt.mutable, is_copy_source)
+
+    def _pattern_binding_names(self, pattern):
+        """All binding names introduced by an irrefutable pattern (skips `_`)."""
+        if isinstance(pattern, BindingPattern):
+            return [pattern.name]
+        if isinstance(pattern, TuplePattern):
+            names = []
+            for e in pattern.elements:
+                names += self._pattern_binding_names(e)
+            return names
+        return []
+
+    def _destructure_bind(self, pattern, value, saw_type, mutable, copy):
+        """Recursively bind an irrefutable tuple pattern's leaves."""
+        if isinstance(pattern, WildcardPattern):
+            # Per-position `_`: drop the component here (owning components are
+            # released so the discard consumes exactly once).
+            if saw_type is not None and self._needs_cleanup(saw_type):
+                slot = self._entry_alloca(value.type, name="discard")
+                self.builder.store(value, slot)
+                self._emit_drop_at(slot, saw_type)
+            return
+        if isinstance(pattern, BindingPattern):
+            comp = value
+            if copy and saw_type is not None:
+                comp = self._generate_copy(comp, saw_type)
+            alloca = self._entry_alloca(comp.type, name=pattern.name)
+            self.builder.store(comp, alloca)
+            self.variables[pattern.name] = alloca
+            if saw_type is not None:
+                self.variable_types[pattern.name] = saw_type
+                if self.cleanup_stack and self._needs_cleanup(saw_type):
+                    self._register_cleanup(pattern.name, saw_type)
+            return
+        if isinstance(pattern, TuplePattern):
+            rt = self._resolve_type_alias(saw_type) if saw_type is not None else None
+            elem_types = rt.element_types if (rt is not None and rt.element_types) else [None] * len(pattern.elements)
+            for idx, sub in enumerate(pattern.elements):
+                comp = self.builder.extract_value(value, idx, name=f"destr_{idx}")
+                self._destructure_bind(sub, comp, elem_types[idx], mutable, copy)
 
     def _generate_discard_let(self, stmt: LetStatement):
         """Design 53 / DF1: `let _ = expr` evaluates the RHS, takes ownership,

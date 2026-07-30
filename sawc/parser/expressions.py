@@ -771,7 +771,14 @@ class ExpressionsMixin:
             mutable = self.current().type == TokenType.VAR
             self.advance()  # consume 'let' or 'var'
 
-            name_token = self.expect(TokenType.IDENT, "Expected variable name after 'if let/var'")
+            # Tuple pattern over an Optional tuple (design 63): `if let (x, y) = ..`
+            iflet_pattern = None
+            iflet_name = ""
+            if self.match(TokenType.LPAREN):
+                iflet_pattern = self.parse_pattern()
+            else:
+                name_token = self.expect(TokenType.IDENT, "Expected variable name after 'if let/var'")
+                iflet_name = name_token.value
             self.expect(TokenType.ASSIGN, "Expected '=' in optional binding")
             # Disable trailing closures - the { is part of the if block
             saved_trailing = self.allow_trailing_closure
@@ -801,13 +808,14 @@ class ExpressionsMixin:
                     else_branch = self.parse_block()
 
             return IfLetExpr(
-                name=name_token.value,
+                name=iflet_name,
                 optional_expr=optional_expr,
                 mutable=mutable,
                 then_branch=then_branch,
                 else_branch=else_branch,
                 line=start.line,
-                column=start.column
+                column=start.column,
+                pattern=iflet_pattern,
             )
 
         # Regular if expression - disable trailing closures

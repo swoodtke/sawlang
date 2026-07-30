@@ -1,0 +1,15 @@
+// Design 63 T1d: destructuring consumes the whole source tuple, so using it
+// afterward is a use-after-move error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: moved
+
+struct Res { v: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print(self.v) }
+}
+
+func main() {
+    let pair = (Res(v: 1), Res(v: 2))
+    let (a, b) = move pair
+    let (c, d) = move pair   // use after move -> error
+}

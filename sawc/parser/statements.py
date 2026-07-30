@@ -14,7 +14,7 @@ from lexer import TokenType
 from ast_nodes import (
     Block, Statement,
     LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
-    GuardLetStatement,
+    GuardLetStatement, DestructuringLet,
     WhileExpr, ForLoop, BreakStatement, ContinueStatement,
     Identifier, MemberAccess, ArrayIndex
 )
@@ -104,7 +104,14 @@ class StatementsMixin:
         mutable = self.current().type == TokenType.VAR
         self.advance()  # consume 'let' or 'var'
 
-        name_token = self.expect(TokenType.IDENT, "Expected variable name after 'guard let/var'")
+        # Tuple pattern over an Optional tuple (design 63): `guard let (x, y) = ..`
+        guard_pattern = None
+        guard_name = ""
+        if self.match(TokenType.LPAREN):
+            guard_pattern = self.parse_pattern()
+        else:
+            name_token = self.expect(TokenType.IDENT, "Expected variable name after 'guard let/var'")
+            guard_name = name_token.value
         self.expect(TokenType.ASSIGN, "Expected '=' in guard binding")
         # Disable trailing closures - guard is followed by else { }
         saved_trailing = self.allow_trailing_closure
@@ -118,16 +125,31 @@ class StatementsMixin:
         else_branch = self.parse_block()
 
         return GuardLetStatement(
-            name=name_token.value,
+            name=guard_name,
             optional_expr=optional_expr,
             mutable=mutable,
             else_branch=else_branch,
             line=start.line,
-            column=start.column
+            column=start.column,
+            pattern=guard_pattern,
         )
 
-    def parse_let_statement(self, mutable: bool) -> LetStatement:
+    def parse_let_statement(self, mutable: bool):
         start = self.advance()  # consume let/var
+
+        # Tuple destructuring: `let (a, b) = ...` / `var (x, y) = ...`
+        if self.match(TokenType.LPAREN):
+            pattern = self.parse_pattern()
+            self.expect(TokenType.ASSIGN, "Expected '=' in destructuring binding")
+            value = self.parse_expression()
+            return DestructuringLet(
+                pattern=pattern,
+                value=value,
+                mutable=mutable,
+                line=start.line,
+                column=start.column,
+            )
+
         name_token = self.expect(TokenType.IDENT, "Expected variable name")
 
         # `_` is a discard, not a binding (design 53 / DF1). `var _` has nothing

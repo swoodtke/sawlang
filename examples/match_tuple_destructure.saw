@@ -1,0 +1,43 @@
+// Design 63 T1d: tuple destructuring in match arms, composed with literal
+// patterns, wildcards, guards, and nested payload-enum patterns.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 15
+// 27
+// 99
+// 7
+// 4
+// 15
+// 300
+
+enum Color { case Red, case Green, case Blue(shade: Int) }
+
+func f(p: (Int, Int)) -> Int {
+    match p {
+        case (0, 0) -> 1
+        case (x, 0) -> x + 10
+        case (0, y) -> y + 20
+        case (x, y) if x == y -> 99
+        case (x, y) -> x + y
+    }
+}
+
+func g(p: (Color, Int)) -> Int {
+    match p {
+        case (Red, n) -> n
+        case (Blue(s), n) -> s + n
+        case (_, n) -> n * 100
+    }
+}
+
+func main() {
+    print(f((0, 0)))
+    print(f((5, 0)))
+    print(f((0, 7)))
+    print(f((3, 3)))
+    print(f((2, 5)))
+    print(g((Color.Red, 4)))
+    print(g((Color.Blue(shade: 10), 5)))
+    print(g((Color.Green, 3)))
+}

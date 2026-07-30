@@ -17,7 +17,8 @@ from ast_nodes import (
     WhileExpr, ForLoop, RangeExpr,
     Identifier, MemberAccess, ArrayIndex, TupleIndex, MoveExpr, IntLiteral,
     SawType, TypeKind,
-    ResultOkWrap, ResultErrWrap, OptionalWrap
+    ResultOkWrap, ResultErrWrap, OptionalWrap,
+    WildcardPattern, BindingPattern, TuplePattern,
 )
 from errors import ErrorKind
 
@@ -680,6 +681,64 @@ class StatementsMixin:
     def visit_LetStatement(self, stmt: LetStatement):
         self._check_let_statement(stmt)
 
+    def visit_DestructuringLet(self, stmt):
+        self._check_destructuring_let(stmt)
+
+    def _check_destructuring_let(self, stmt):
+        """Check `let (a, b) = pair` / `var (x, y) = point` (design 63 T1d).
+
+        The pattern must be irrefutable (a tuple of bindings / wildcards / nested
+        irrefutable tuples); the RHS must be a matching tuple. Destructuring
+        consumes the whole source tuple (design 35 L1) and moves each component
+        out into its binding; a per-position `_` discards that component."""
+        value_type = self._check_expression(stmt.value)
+        if value_type is None:
+            return
+        vt = self._resolve_type_alias(value_type)
+        # Refutable patterns are illegal in an irrefutable binding.
+        if not self._pattern_is_irrefutable(stmt.pattern):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "refutable pattern in `let`/`var`: only bindings, `_`, and nested "
+                "tuples are allowed (literals/ranges/variants require `match`/`if let`)",
+                stmt.line, stmt.column)
+            return
+        if vt.kind != TypeKind.TUPLE or not vt.element_types:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot destructure non-tuple value of type `{value_type}`",
+                stmt.line, stmt.column)
+            return
+        if len(stmt.pattern.elements) != len(vt.element_types):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"tuple pattern has {len(stmt.pattern.elements)} elements but value "
+                f"has {len(vt.element_types)}",
+                stmt.line, stmt.column)
+            return
+        # Value-transfer checkpoint: the whole tuple is consumed here.
+        self._check_value_transfer(stmt.value, value_type,
+                                   "destructuring binding", stmt.line, stmt.column)
+        self._define_irrefutable_bindings(stmt.pattern, value_type, stmt.mutable)
+
+    def _define_irrefutable_bindings(self, pattern, expected_type, mutable):
+        """Define the bindings of an irrefutable pattern in the current scope."""
+        from .core import VariableInfo
+        if isinstance(pattern, WildcardPattern):
+            return
+        if isinstance(pattern, BindingPattern):
+            info = VariableInfo(expected_type, mutable, pattern.line, pattern.column)
+            if not self.current_scope.define(pattern.name, info):
+                self._error(ErrorKind.DUPLICATE_VARIABLE,
+                            f"variable `{pattern.name}` is already defined in this scope",
+                            pattern.line, pattern.column)
+            return
+        if isinstance(pattern, TuplePattern):
+            et = self._resolve_type_alias(expected_type)
+            elems = et.element_types or []
+            for sub, t in zip(pattern.elements, elems):
+                self._define_irrefutable_bindings(sub, t, mutable)
+
     def visit_AssignStatement(self, stmt: AssignStatement):
         self._check_assign_statement(stmt)
 
@@ -807,16 +866,17 @@ class StatementsMixin:
     def _check_guard_let_statement(self, stmt: GuardLetStatement):
         """Check a guard let/var statement for optional binding."""
         from .core import VariableInfo, Scope
-        # Check for duplicate in current scope
-        existing = self.current_scope.lookup_local(stmt.name)
-        if existing:
-            self._error(
-                ErrorKind.DUPLICATE_VARIABLE,
-                f"variable `{stmt.name}` is already defined in this scope",
-                stmt.line, stmt.column,
-                hint=f"previous definition was at line {existing.line}"
-            )
-            return
+        # Check for duplicate in current scope (single-name form only).
+        if stmt.pattern is None:
+            existing = self.current_scope.lookup_local(stmt.name)
+            if existing:
+                self._error(
+                    ErrorKind.DUPLICATE_VARIABLE,
+                    f"variable `{stmt.name}` is already defined in this scope",
+                    stmt.line, stmt.column,
+                    hint=f"previous definition was at line {existing.line}"
+                )
+                return
 
         # Check the optional expression
         optional_type = self._check_expression(stmt.optional_expr)
@@ -867,10 +927,15 @@ class StatementsMixin:
                 hint="add 'return', 'break', or 'continue' to the else block"
             )
 
-        # Add the bound variable to the current (outer) scope
-        # This is the key difference from if-let: the variable is available after the guard
-        info = VariableInfo(inner_type, stmt.mutable, stmt.line, stmt.column)
-        self.current_scope.define(stmt.name, info)
+        # Add the bound variable(s) to the current (outer) scope.
+        # This is the key difference from if-let: the binding is available after
+        # the guard on the fall-through path.
+        if stmt.pattern is not None:
+            self._bind_optional_pattern(stmt.pattern, inner_type, stmt.mutable,
+                                        stmt.line, stmt.column)
+        else:
+            info = VariableInfo(inner_type, stmt.mutable, stmt.line, stmt.column)
+            self.current_scope.define(stmt.name, info)
 
     def _assign_target_immutable_array(self, target):
         """If an lvalue chain indexes into an immutable fixed array, return that

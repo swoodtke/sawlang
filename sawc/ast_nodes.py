@@ -800,7 +800,10 @@ class SelfExpr(Expression):
 
 @dataclass
 class IfLetExpr(Expression):
-    """Optional binding: if let/var x = optional { ... } else { ... }"""
+    """Optional binding: if let/var x = optional { ... } else { ... }
+
+    `pattern` (design 63) is set when the binding is a tuple pattern over an
+    `(T, U)?` scrutinee (`if let (x, y) = maybe_pair`); `name` is unused then."""
     name: str
     optional_expr: Expression
     mutable: bool  # True for 'if var', False for 'if let'
@@ -808,17 +811,22 @@ class IfLetExpr(Expression):
     else_branch: Optional['Block'] = None
     line: int = 0
     column: int = 0
+    pattern: Optional['Pattern'] = None
 
 
 @dataclass
 class GuardLetStatement(ASTNode):
-    """Guard statement: guard let/var x = optional else { return }"""
+    """Guard statement: guard let/var x = optional else { return }
+
+    `pattern` (design 63) is set for a tuple pattern over an `(T, U)?`
+    scrutinee (`guard let (x, y) = maybe_pair else { ... }`)."""
     name: str
     optional_expr: Expression
     mutable: bool  # True for 'guard var', False for 'guard let'
     else_branch: 'Block'  # Must contain early exit (return, break, etc.)
     line: int = 0
     column: int = 0
+    pattern: Optional['Pattern'] = None
 
 
 @dataclass
@@ -1000,6 +1008,20 @@ class Statement(ASTNode):
 class LetStatement(Statement):
     name: str
     type_annotation: Optional[SawType]
+    value: Expression
+    mutable: bool = False
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class DestructuringLet(Statement):
+    """`let (a, b) = pair` / `var (x, y) = point` (design 63 T1d).
+
+    `pattern` must be irrefutable — a TuplePattern of bindings / wildcards /
+    nested irrefutable tuples (per-position `_` is a discard). Destructuring
+    consumes the whole source tuple (design 35 L1); each component moves out."""
+    pattern: 'Pattern'
     value: Expression
     mutable: bool = False
     line: int = 0

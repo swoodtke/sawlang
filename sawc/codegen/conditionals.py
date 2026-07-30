@@ -192,18 +192,28 @@ class ConditionalsMixin:
         # Extract the inner value from the optional
         inner_val = self.builder.extract_value(optional_val, 1, name="unwrapped")
 
-        # For 'if let', create a copy; for 'if var', we store and use reference
-        # Currently, we always create a local variable (copy semantics for if let)
-        # For if var reference semantics, we'd need to track the original optional's alloca
-        alloca = self._entry_alloca(inner_val.type, name=expr.name)
-        self.builder.store(inner_val, alloca)
-        self.variables[expr.name] = alloca
-
-        # Store the type of the bound variable for type inference
-        # Infer the inner type from the optional expression
         opt_type = self._expr_type(expr.optional_expr)
-        if opt_type and opt_type.kind == TypeKind.OPTIONAL and opt_type.inner_type:
-            self.variable_types[expr.name] = opt_type.inner_type
+        inner_saw = (opt_type.inner_type if opt_type and opt_type.kind == TypeKind.OPTIONAL
+                     and opt_type.inner_type else None)
+
+        # Tuple pattern (design 63): destructure the unwrapped tuple into its
+        # bindings. Ownership of the components stays with the source optional, so
+        # the drop-flag machinery below is skipped (bind by value, no release).
+        pattern_names = []
+        if expr.pattern is not None:
+            self._destructure_bind(expr.pattern, inner_val, inner_saw, expr.mutable, False)
+            pattern_names = self._pattern_binding_names(expr.pattern)
+        else:
+            # For 'if let', create a copy; for 'if var', we store and use reference
+            # Currently, we always create a local variable (copy semantics for if let)
+            # For if var reference semantics, we'd need to track the original optional's alloca
+            alloca = self._entry_alloca(inner_val.type, name=expr.name)
+            self.builder.store(inner_val, alloca)
+            self.variables[expr.name] = alloca
+
+            # Store the type of the bound variable for type inference
+            if inner_saw is not None:
+                self.variable_types[expr.name] = inner_saw
 
         # The if-let binding is released at the end of the then-branch scope (brief
         # 23 item 2), but ONLY when the optional source is a fresh owned temporary:
@@ -214,7 +224,7 @@ class ConditionalsMixin:
         # inside the branch clears it — otherwise the scope-exit drop would
         # double-free a moved-out value (notably an erased `Box<any T>`, whose
         # second teardown aborts). The flag mirrors regular-local cleanup.
-        inner_type = self.variable_types.get(expr.name)
+        inner_type = self.variable_types.get(expr.name) if expr.pattern is None else None
         owns_binding = (inner_type is not None
                         and self._is_owned_temporary(expr.optional_expr)
                         and self._needs_cleanup(inner_type))
@@ -240,12 +250,17 @@ class ConditionalsMixin:
                 self.builder.branch(cont_bb)
             self.builder.position_at_start(cont_bb)
 
-        # Remove the bound variable from scope after the block
-        del self.variables[expr.name]
-        if expr.name in self.variable_types:
-            del self.variable_types[expr.name]
-        if drop_flag is not None:
-            self.drop_flags.pop(expr.name, None)
+        # Remove the bound variable(s) from scope after the block
+        if expr.pattern is not None:
+            for nm in pattern_names:
+                self.variables.pop(nm, None)
+                self.variable_types.pop(nm, None)
+        else:
+            del self.variables[expr.name]
+            if expr.name in self.variable_types:
+                del self.variable_types[expr.name]
+            if drop_flag is not None:
+                self.drop_flags.pop(expr.name, None)
 
         # Capture state before adding terminator
         then_terminated = self.builder.block.is_terminated
@@ -439,15 +454,24 @@ class ConditionalsMixin:
         # Extract the inner value from the optional
         inner_val = self.builder.extract_value(optional_val, 1, name="guard_unwrapped")
 
+        opt_type = self._expr_type(stmt.optional_expr)
+        inner_saw = (opt_type.inner_type if opt_type and opt_type.kind == TypeKind.OPTIONAL
+                     and opt_type.inner_type else None)
+
+        # Tuple pattern (design 63): destructure the unwrapped tuple into its
+        # bindings (bind by value; components stay owned by the source optional).
+        if stmt.pattern is not None:
+            self._destructure_bind(stmt.pattern, inner_val, inner_saw, stmt.mutable, False)
+            return
+
         # Store in a local variable
         alloca = self._entry_alloca(inner_val.type, name=stmt.name)
         self.builder.store(inner_val, alloca)
         self.variables[stmt.name] = alloca
 
         # Store the type of the bound variable for type inference
-        opt_type = self._expr_type(stmt.optional_expr)
-        if opt_type and opt_type.kind == TypeKind.OPTIONAL and opt_type.inner_type:
-            self.variable_types[stmt.name] = opt_type.inner_type
+        if inner_saw is not None:
+            self.variable_types[stmt.name] = inner_saw
 
         # Register the guard binding for cleanup in the ENCLOSING scope (brief 23
         # item 2). A guard binding deliberately outlives the guard and lives to
