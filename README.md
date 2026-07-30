@@ -543,4 +543,10 @@ Saw is an experimental language. Contributions, feedback, and ideas are welcome!
 
 ## License
 
-No license has been declared for this project yet.
+Saw is licensed under the [Apache License 2.0 with LLVM
+Exceptions](LICENSE) (SPDX: `Apache-2.0 WITH LLVM-exception`).
+
+In plain terms: use, modify, and redistribute freely — with an explicit
+patent grant from contributors. The LLVM exception means programs you
+compile with `sawc` are entirely yours: the standard-library code
+embedded in your binaries carries no attribution requirements.
