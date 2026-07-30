@@ -222,6 +222,35 @@ class Lexer:
             while self.peek() and self.peek() != '\n':
                 self.advance()
 
+    def _read_unicode_escape(self) -> str:
+        """Read the tail of a `\\u{XXXX}` escape (the `\\u` is already consumed),
+        design 53. 1–6 hex digits naming a valid Unicode scalar; surrogates
+        (D800–DFFF) and code points > 0x10FFFF are rejected at lex time so string
+        literals stay always-valid UTF-8. Returns the scalar's character (encoded
+        to UTF-8 bytes when the literal's value is emitted)."""
+        if self.peek() != '{':
+            self.error("expected `{` after `\\u` in a Unicode escape "
+                       "(write `\\u{1F600}`)")
+        self.advance()  # consume '{'
+        digits = []
+        while self.peek() is not None and self.peek() != '}':
+            digits.append(self.advance())
+        if self.peek() != '}':
+            self.error("unterminated `\\u{...}` escape")
+        self.advance()  # consume '}'
+        hex_str = ''.join(digits)
+        if not (1 <= len(hex_str) <= 6) or any(
+                c not in '0123456789abcdefABCDEF' for c in hex_str):
+            self.error(f"`\\u{{{hex_str}}}` must contain 1–6 hexadecimal digits")
+        cp = int(hex_str, 16)
+        if cp > 0x10FFFF:
+            self.error(f"`\\u{{{hex_str}}}` is greater than the maximum Unicode "
+                       f"scalar 0x10FFFF")
+        if 0xD800 <= cp <= 0xDFFF:
+            self.error(f"`\\u{{{hex_str}}}` is a surrogate code point, which is "
+                       f"not a valid Unicode scalar")
+        return chr(cp)
+
     def read_string(self) -> tuple:
         """Read a string literal, detecting interpolation markers.
 
@@ -249,6 +278,8 @@ class Lexer:
                     result.append('\x01{')  # Escaped brace - use marker to distinguish from interpolation
                 elif ch == '}':
                     result.append('\x01}')  # Escaped brace - use marker to distinguish from interpolation
+                elif ch == 'u':
+                    result.append(self._read_unicode_escape())
                 else:
                     result.append(ch)
             elif self.peek() == '{':

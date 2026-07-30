@@ -1,0 +1,7 @@
+// Design 53 Part 4: a malformed `\u{}` escape (no hex digits) is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: must contain 1–6 hexadecimal digits
+
+func main() {
+    print("\u{}")
+}

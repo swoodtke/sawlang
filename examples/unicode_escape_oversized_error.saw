@@ -1,0 +1,8 @@
+// Design 53 Part 4: a code point above the maximum Unicode scalar (0x10FFFF)
+// is rejected at lex time.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: greater than the maximum Unicode scalar
+
+func main() {
+    print("\u{110000}")
+}

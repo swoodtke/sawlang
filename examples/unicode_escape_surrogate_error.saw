@@ -1,0 +1,8 @@
+// Design 53 Part 4: a surrogate code point (D800-DFFF) is not a valid Unicode
+// scalar and is rejected at lex time so literals stay always-valid UTF-8.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: surrogate code point
+
+func main() {
+    print("\u{D800}")
+}
