@@ -279,6 +279,19 @@ class DeclarationsMixin:
             self.advance()
             return_type = self.parse_type()
 
+        # Optional default body (design 56): `func m(...) -> T { ... }`. A trait
+        # method WITH a body is a default; conformers may omit or override it.
+        # A newline may separate the signature from the `{`, so skip newlines
+        # before peeking — but only commit to a body if a `{` actually follows
+        # (otherwise the next trait member starts on the following line).
+        body = None
+        save_pos = self.pos
+        self.skip_newlines()
+        if self.match(TokenType.LBRACE):
+            body = self.parse_block()
+        else:
+            self.pos = save_pos
+
         return TraitMethod(
             name=name,
             parameters=parameters,
@@ -286,6 +299,7 @@ class DeclarationsMixin:
             self_mutable=self_mutable,
             self_is_reference=self_is_reference,
             is_sync=is_sync,
+            body=body,
             line=start.line,
             column=start.column
         )

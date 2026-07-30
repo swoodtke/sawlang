@@ -109,6 +109,10 @@ class TraitMethodSymbol:
     self_is_reference: bool = True
     # `sync` trait method (design 22/51): calls through `any` stay sync-callable.
     is_sync: bool = False
+    # Default method body (design 56): the parsed `TraitMethod` AST when the
+    # method declares a `{ ... }` default, else None. Carried so a conformer that
+    # omits the method can synthesize a per-conformer Method from this body.
+    ast_node: Optional[Any] = None
 
 
 @dataclass

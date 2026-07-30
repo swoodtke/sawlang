@@ -1,0 +1,33 @@
+// design 56 (N1): trait default method bodies. A default is inherited when the
+// conformer omits it, overridden when the conformer provides its own, and may
+// call other (required) trait methods — dispatching to the conformer's impl.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 105
+// 6
+
+trait Greeter {
+    func name(&self) -> Int
+    func greet(&self) -> Int {
+        self.name() + 100
+    }
+}
+
+struct A { v: Int }
+extension A: Greeter {
+    func name(&self) -> Int { self.v }
+    // greet() inherited from the default
+}
+
+struct B { v: Int }
+extension B: Greeter {
+    func name(&self) -> Int { self.v }
+    func greet(&self) -> Int { self.v + 1 }  // override
+}
+
+func main() {
+    let a = A(v: 5)
+    let b = B(v: 5)
+    print(a.greet())  // 5 + 100 = 105
+    print(b.greet())  // 5 + 1 = 6
+}

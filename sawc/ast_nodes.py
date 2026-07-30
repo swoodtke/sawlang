@@ -991,13 +991,17 @@ class Enum(ASTNode):
 
 @dataclass
 class TraitMethod(ASTNode):
-    """Method signature in a trait (no body)."""
+    """Method signature in a trait, optionally with a default body (design 56)."""
     name: str
     parameters: List[Parameter]  # includes self
     return_type: SawType
     self_mutable: bool = False  # True for '&var self'
     self_is_reference: bool = False  # True for '&self' or '&var self'
     is_sync: bool = False  # `func m(...) sync` — a checked suspension-free method
+    # Default method body (design 56): a trait method declared WITH a `{ ... }`
+    # body is a default. Conformers may omit it (the compiler synthesizes a
+    # per-conformer Method from this body) or override it. None = required method.
+    body: Optional['Block'] = None
     line: int = 0
     column: int = 0
 

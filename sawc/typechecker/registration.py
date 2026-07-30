@@ -9,6 +9,7 @@ Usage:
         pass
 """
 
+import copy
 from typing import Dict
 from ast_nodes import (
     TypeDefinition, Struct, Enum, Trait, Function, Extension, Method, Parameter,
@@ -361,7 +362,11 @@ class RegistrationMixin:
                 param_names=param_names,
                 self_mutable=method.self_mutable,
                 self_is_reference=method.self_is_reference,
-                is_sync=getattr(method, 'is_sync', False)
+                is_sync=getattr(method, 'is_sync', False),
+                # Carry the AST so a conformer can synthesize a Method from the
+                # default body (design 56); inherited symbols keep their own
+                # ast_node, so defaults propagate through trait inheritance.
+                ast_node=method
             )
 
         # Collect associated type names (own + inherited)
@@ -745,6 +750,71 @@ class RegistrationMixin:
             self._derived_hash_types.add(enum_name)
             self._hashable_types.add(enum_name)
 
+    def _trait_and_ancestors(self, trait_name: str):
+        """Yield `trait_name` and all its ancestor traits (transitive parents),
+        de-duplicated, most-derived first. Used to gather inherited default
+        method bodies (design 56)."""
+        seen = []
+        stack = [trait_name]
+        while stack:
+            name = stack.pop(0)
+            if name in seen:
+                continue
+            info = self.get_trait_info(name)
+            if info is None:
+                continue
+            seen.append(name)
+            for parent in getattr(info, 'parent_traits', []) or []:
+                if parent not in seen:
+                    stack.append(parent)
+        return seen
+
+    def _synthesize_trait_defaults(self, extension: Extension, struct_info):
+        """Synthesize per-conformer Methods for trait default bodies (design 56).
+
+        For each conformed trait (and its ancestors), a default-bodied method the
+        conformer neither provides in THIS extension nor already carries (from a
+        sibling extension — e.g. the split `: Printable` + `: Error` spelling) is
+        materialized as a fresh Method whose body is a deep copy of the default.
+        The copy is taken pre-typecheck (the parsed body has no resolved_type /
+        symbol annotations yet), so each conformer typechecks its own copy with
+        Self bound to the concrete type.
+        """
+        provided = {m.name for m in extension.methods if not m.is_init}
+        already = set(getattr(struct_info, 'methods', {}) or {})
+        for trait_name in extension.conformances:
+            # Skip module-qualified names for default synthesis (rare; the
+            # conformance check still applies). Marker traits carry no methods.
+            if '.' in trait_name:
+                continue
+            for tname in self._trait_and_ancestors(trait_name):
+                trait_info = self.get_trait_info(tname)
+                if trait_info is None:
+                    continue
+                for mname, tmsym in trait_info.methods.items():
+                    if mname in provided or mname in already:
+                        continue
+                    tm_ast = getattr(tmsym, 'ast_node', None)
+                    if tm_ast is None or getattr(tm_ast, 'body', None) is None:
+                        continue  # required method (no default) — real conformance check reports it
+                    synth = Method(
+                        name=mname,
+                        parameters=copy.deepcopy(tm_ast.parameters),
+                        return_type=copy.deepcopy(tm_ast.return_type),
+                        body=copy.deepcopy(tm_ast.body),
+                        is_init=False,
+                        self_mutable=tm_ast.self_mutable,
+                        self_is_reference=tm_ast.self_is_reference,
+                        is_static=False,
+                        is_sync=getattr(tm_ast, 'is_sync', False),
+                        type_params=[],
+                        line=extension.line,
+                        column=extension.column,
+                        source_file=getattr(extension, 'source_file', None),
+                    )
+                    extension.methods.append(synth)
+                    provided.add(mname)
+
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
         # Enum derivable opt-in (designs 32/48): intercept before the struct
@@ -887,6 +957,15 @@ class RegistrationMixin:
             )
             extension.methods.append(synth_hash)
             self._derived_hash_types.add(extension.struct_name)
+
+        # Default method bodies (design 56): for every trait this extension
+        # conforms to — and every ancestor trait it thereby inherits — synthesize
+        # a per-conformer Method from any default body the conformer does not
+        # provide. The synthesized methods are ordinary Methods (real bodies,
+        # typechecked + codegen'd per conformer), so `self.<required>()` calls in
+        # a default dispatch to THIS conformer's implementation, and the
+        # any-vtable builder finds them via the shared conformance record.
+        self._synthesize_trait_defaults(extension, struct_info)
 
         # Check if this is a specialized extension (e.g., extension Vector<String>)
         specialization_key = self._get_specialization_key(extension)

@@ -1,0 +1,23 @@
+// design 56 (N1): effects on a default body are inferred per conformer. A
+// `sync` trait method's default is a checked suspension-free context; a
+// suspending call inside it is a sync violation, reported per instantiation.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func`
+
+trait Counter {
+    func base(&self) -> Int
+    func stepped(&self) sync -> Int {
+        __test_suspend()   // suspends inside a sync default -> violation
+        self.base() + 1
+    }
+}
+
+struct C { v: Int }
+extension C: Counter {
+    func base(&self) -> Int { self.v }
+}
+
+func main() {
+    let c = C(v: 41)
+    print(c.stepped())
+}
