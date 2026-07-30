@@ -72,6 +72,16 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 - **D10. Cortex-M0-class atomics** — lowering strategy for ARMv6-M (no
   CAS); decide with the first such port. [19, 20]
 
+## Design 64 — Blade for real (deps/semver/lock/git/incremental/self-host)
+
+In progress. Commit units B0..B8 landed one at a time (interruption-safe).
+Progress log (newest last):
+- B0 landed: sawc `--module-path NAME=DIR` (repeatable; precedence exact
+  std > mapped > file-relative; mapped-shadows-local = error). Threaded
+  through compile/emit-ir paths. Test runner gained a `// COMPILE-FLAGS:`
+  directive (`{TESTDIR}` placeholder). 3 fixtures (lib/submodule/shadow).
+  Suite 761 -> 764. Next: B1 manifest [dependencies] + TOML inline tables.
+
 ## SPEC-GAP PRIORITIES (Jul 29 sweep of LANGUAGE_SPEC planned-not-implemented)
 
 Full extraction lives in the sweep report (agent transcript); this is

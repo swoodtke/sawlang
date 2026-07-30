@@ -62,6 +62,7 @@ class TestCase:
     expected_error_contains: List[str]
     expected_panic_contains: List[str]  # For panic tests
     xfail_reason: Optional[str] = None  # Set by '// XFAIL: reason'
+    compile_flags: List[str] = None  # Extra sawc flags from '// COMPILE-FLAGS:'
 
 
 class Colors:
@@ -93,6 +94,7 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
     expected_error_contains = []
     expected_panic_contains = []
     xfail_reason = None
+    compile_flags = []
 
     with open(file_path, 'r') as f:
         in_output_block = False
@@ -137,6 +139,14 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
                 xfail_reason = line.split('// XFAIL:')[1].strip()
                 in_output_block = False
 
+            elif '// COMPILE-FLAGS:' in line:
+                # Extra flags passed to sawc for this test. `{TESTDIR}` expands
+                # to the directory containing the test file (for --module-path).
+                raw = line.split('// COMPILE-FLAGS:')[1].strip()
+                raw = raw.replace('{TESTDIR}', str(file_path.parent))
+                compile_flags = raw.split()
+                in_output_block = False
+
             elif in_output_block:
                 if line.strip().startswith('//'):
                     # Continuation of output block
@@ -154,21 +164,26 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
         expected_output=expected_output,
         expected_error_contains=expected_error_contains,
         expected_panic_contains=expected_panic_contains,
-        xfail_reason=xfail_reason
+        xfail_reason=xfail_reason,
+        compile_flags=compile_flags
     )
 
 
-def compile_saw_file(file_path: Path, output_path: Path) -> tuple[bool, str, str]:
+def compile_saw_file(file_path: Path, output_path: Path,
+                     compile_flags: Optional[List[str]] = None) -> tuple[bool, str, str]:
     """
     Compile a .saw file using sawc.py
 
     Returns: (success, stdout, stderr)
     """
     sawc_path = Path(__file__).parent / 'sawc' / 'sawc.py'
+    cmd = [sys.executable, str(sawc_path), str(file_path), '-o', str(output_path)]
+    if compile_flags:
+        cmd.extend(compile_flags)
 
     try:
         result = subprocess.run(
-            [sys.executable, str(sawc_path), str(file_path), '-o', str(output_path)],
+            cmd,
             capture_output=True,
             text=True,
             timeout=30
@@ -223,7 +238,7 @@ def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
         exe_path.parent.mkdir(exist_ok=True)
 
         # Compile
-        compile_success, compile_stdout, compile_stderr = compile_saw_file(test.path, exe_path)
+        compile_success, compile_stdout, compile_stderr = compile_saw_file(test.path, exe_path, test.compile_flags)
 
         if test.expect_type == ExpectType.ERROR:
             # Should fail to compile

@@ -1,0 +1,10 @@
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// COMPILE-FLAGS: --module-path mp={TESTDIR}/modules/mp_dep
+//
+// B0: `import mp` resolves to the mapped package's lib.saw via --module-path.
+import mp
+
+func main() {
+    print(mp.mp_answer())
+}

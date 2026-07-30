@@ -1,0 +1,11 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: shadows a local module file
+// COMPILE-FLAGS: --module-path mpshadow={TESTDIR}/modules/mp_dep
+//
+// B0: mapping a package name that ALSO has a local module file (the sibling
+// examples/mpshadow.saw) is a hard error, not a silent pick.
+import mpshadow
+
+func main() {
+    print(mpshadow.mp_answer())
+}

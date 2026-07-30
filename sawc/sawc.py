@@ -20,7 +20,7 @@ from parser import Parser
 from codegen import CodeGenerator
 from errors import ErrorReporter, ErrorKind
 from typechecker import TypeChecker
-from module_resolver import ModuleResolver
+from module_resolver import ModuleResolver, ModulePathError
 
 
 def parse_source(source: str, source_path: str, verbose: bool = False):
@@ -268,7 +268,7 @@ def run_codegen(codegen, ast):
         sys.exit(1)
 
 
-def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False):
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None):
     """Resolve modules, load builtins, and type-check the whole program.
 
     This is the single front half of the compile pipeline: a plain single file
@@ -305,9 +305,9 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     if verbose:
         print("  Resolving module dependencies...")
 
-    # Create resolver with search paths
+    # Create resolver with search paths and explicit package mappings.
     source_dir = os.path.dirname(os.path.abspath(source_path))
-    resolver = ModuleResolver([source_dir])
+    resolver = ModuleResolver([source_dir], module_paths=module_paths)
 
     # Resolve all imports and collect module ASTs
     # module_map: module_path_tuple -> AST (for qualified access)
@@ -329,7 +329,11 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
             continue
 
         # Try to resolve the module
-        mod_info = resolver.resolve_module(list(module_path), source_path)
+        try:
+            mod_info = resolver.resolve_module(list(module_path), source_path)
+        except ModulePathError as e:
+            print(f"\033[1;31merror\033[0m: {e.message}", file=sys.stderr)
+            sys.exit(1)
         if mod_info:
             # Load and parse the module
             resolver.load_module_source(mod_info)
@@ -624,7 +628,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
             if verbose:
                 print("  Applied coroutine transform; re-checking...")
             return _prepare_codegen(source_path, entry_ast, entry_source, verbose,
-                                    object_only, target_triple, freestanding)
+                                    object_only, target_triple, freestanding,
+                                    module_paths)
 
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns
@@ -688,7 +693,7 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
         print(f"Compiled {source_path} -> {output_path}")
 
 
-def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False):
+def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None):
     """Compile a Saw source file to an executable or object file.
 
     A single file is just a module graph of size one, so there is one pipeline:
@@ -728,7 +733,8 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
             print(f"    module {mod.name}")
 
     codegen, merged_ast = _prepare_codegen(
-        source_path, entry_ast, source, verbose, object_only, target_triple, freestanding)
+        source_path, entry_ast, source, verbose, object_only, target_triple,
+        freestanding, module_paths)
 
     if verbose:
         print("  Generating LLVM IR...")
@@ -765,8 +771,29 @@ Examples:
                         help="Freestanding profile: runtime seams as declarations only, "
                              "no hosted std modules (file/process/env/directory), "
                              "no Float printing, unlinked object output")
+    parser.add_argument("--module-path", metavar="NAME=DIR", action="append",
+                        default=[], dest="module_path",
+                        help="Map package NAME to source directory DIR "
+                             "(`import NAME` -> DIR/lib.saw, `import NAME.sub` -> "
+                             "DIR/sub.saw). Repeatable. Used by the package manager.")
 
     args = parser.parse_args()
+
+    # Parse --module-path NAME=DIR pairs into a name->dir dict.
+    module_paths = {}
+    for entry in args.module_path:
+        if '=' not in entry:
+            print(f"\033[1;31merror\033[0m: --module-path expects NAME=DIR, got "
+                  f"`{entry}`", file=sys.stderr)
+            sys.exit(1)
+        name, _, dir_part = entry.partition('=')
+        name = name.strip()
+        dir_part = dir_part.strip()
+        if not name or not dir_part:
+            print(f"\033[1;31merror\033[0m: --module-path expects NAME=DIR, got "
+                  f"`{entry}`", file=sys.stderr)
+            sys.exit(1)
+        module_paths[name] = dir_part
 
     if not os.path.exists(args.input):
         print(f"Error: File not found: {args.input}", file=sys.stderr)
@@ -831,7 +858,7 @@ Examples:
         codegen, merged_ast = _prepare_codegen(
             args.input, entry_ast, source, verbose=args.verbose,
             object_only=args.c, target_triple=args.target,
-            freestanding=args.freestanding)
+            freestanding=args.freestanding, module_paths=module_paths)
         run_codegen(codegen, merged_ast)
         llvm_ir = codegen.emit_ir(optimize=not args.no_optimize)
 
@@ -846,7 +873,8 @@ Examples:
             output_path = output_path + '.o'
         compile_saw(args.input, output_path, verbose=args.verbose,
                     object_only=args.c, optimize=not args.no_optimize,
-                    target_triple=args.target, freestanding=args.freestanding)
+                    target_triple=args.target, freestanding=args.freestanding,
+                    module_paths=module_paths)
 
 
 if __name__ == "__main__":

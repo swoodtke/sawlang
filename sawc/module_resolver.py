@@ -11,6 +11,16 @@ from typing import List, Optional, Dict, Set, Any
 from pathlib import Path
 
 
+class ModulePathError(Exception):
+    """Raised when an explicit `--module-path` mapping conflicts with a local
+    module file (a mapped package name shadowing a sibling/package-root module
+    is an error, not a silent pick)."""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
+
+
 @dataclass
 class PackageManifest:
     """Parsed Saw.toml package manifest."""
@@ -61,15 +71,23 @@ class ModuleResolver:
     - Try `foo/bar/module.saw`
     """
 
-    def __init__(self, search_paths: Optional[List[str]] = None):
+    def __init__(self, search_paths: Optional[List[str]] = None,
+                 module_paths: Optional[Dict[str, str]] = None):
         """
         Initialize the module resolver.
 
         Args:
             search_paths: Additional directories to search for modules.
                          The standard library path is automatically included.
+            module_paths: Explicit package-name -> directory mappings (from the
+                         compiler's `--module-path name=dir` flag). `import name`
+                         resolves to `<dir>/lib.saw`, `import name.sub` to
+                         `<dir>/sub.saw`. Precedence: exact std > mapped > file-
+                         relative; a mapped name that also has a local module
+                         file is an error (ModulePathError).
         """
         self.search_paths: List[str] = []
+        self.module_paths: Dict[str, str] = dict(module_paths) if module_paths else {}
 
         # Add standard library path (sawc/std/)
         sawc_dir = os.path.dirname(os.path.abspath(__file__))
@@ -104,21 +122,30 @@ class ModuleResolver:
         if path_key in self._cache:
             return self._cache[path_key]
 
-        # Build search path list
-        search_dirs = list(self.search_paths)
+        # File-relative search dirs (current file's dir + enclosing package root).
+        rel_dirs = self._file_relative_dirs(from_file)
 
-        # Add current file's directory first
-        if from_file:
-            file_dir = os.path.dirname(os.path.abspath(from_file))
-            search_dirs.insert(0, file_dir)
+        # Precedence: exact std > mapped packages > file-relative.
+        source_path = None
 
-            # Also look for package root (directory with Saw.toml)
-            package_root = self._find_package_root(file_dir)
-            if package_root and package_root not in search_dirs:
-                search_dirs.insert(1, package_root)
+        if path and path[0] == 'std':
+            # 1. Standard library (highest precedence).
+            source_path = self._find_module_file(path, list(self.search_paths))
+        elif path and path[0] in self.module_paths:
+            # 2. Explicitly mapped package. A local module file for the same
+            #    name is a shadowing error, not a silent pick.
+            local = self._find_module_file(path, rel_dirs)
+            mapped = self._mapped_module_file(path)
+            if local is not None and mapped is not None:
+                raise ModulePathError(
+                    f"mapped package `{path[0]}` shadows a local module file "
+                    f"`{local}`; rename the local module or the dependency")
+            source_path = mapped
+        else:
+            # 3. File-relative, then any configured search paths (incl. std).
+            search_dirs = rel_dirs + list(self.search_paths)
+            source_path = self._find_module_file(path, search_dirs)
 
-        # Try to find the module file
-        source_path = self._find_module_file(path, search_dirs)
         if source_path is None:
             return None
 
@@ -130,6 +157,34 @@ class ModuleResolver:
         self._cache[path_key] = info
 
         return info
+
+    def _file_relative_dirs(self, from_file: Optional[str]) -> List[str]:
+        """The file-relative search directories for an import: the importing
+        file's own directory, then its enclosing package root (Saw.toml)."""
+        dirs: List[str] = []
+        if from_file:
+            file_dir = os.path.dirname(os.path.abspath(from_file))
+            dirs.append(file_dir)
+            package_root = self._find_package_root(file_dir)
+            if package_root and package_root not in dirs:
+                dirs.append(package_root)
+        return dirs
+
+    def _mapped_module_file(self, path: List[str]) -> Optional[str]:
+        """Resolve a mapped-package import to its source file.
+
+        `import name`      -> `<dir>/lib.saw`
+        `import name.sub`  -> `<dir>/sub.saw`
+        `import name.a.b`  -> `<dir>/a/b.saw`
+        """
+        mapped_dir = self.module_paths[path[0]]
+        if len(path) == 1:
+            candidate = os.path.join(mapped_dir, "lib.saw")
+        else:
+            candidate = os.path.join(mapped_dir, *path[1:-1], path[-1] + ".saw")
+        if os.path.isfile(candidate):
+            return os.path.abspath(candidate)
+        return None
 
     def _find_module_file(self, path: List[str], search_dirs: List[str]) -> Optional[str]:
         """
