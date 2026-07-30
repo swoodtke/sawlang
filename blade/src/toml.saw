@@ -48,6 +48,14 @@ public struct TomlValue {
     value: String
 }
 
+public extension TomlValue {
+    // Typed access (design 57 dogfood): parse the stored string as an integer.
+    // Returns None when the value is not a whole-string base-10 integer.
+    func int_value(&self) -> Int? {
+        self.value.to_int()
+    }
+}
+
 public struct TomlSection {
     name: String
     values: Vector<TomlValue>
@@ -82,6 +90,15 @@ public extension TomlSection {
     // Add a value to this section
     func add(&var self, key: String, value: String) {
         self.values.push(TomlValue(key: key, value: value))
+    }
+
+    // Typed lookup (design 57 dogfood): a value parsed as an integer, or None if
+    // absent or not an integer. Built on String.to_int.
+    func get_int(&self, key: String) -> Int? {
+        if let s = self.get(key) {
+            return s.to_int()
+        }
+        None
     }
 }
 

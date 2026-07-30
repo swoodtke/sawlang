@@ -1,0 +1,39 @@
+// Blade dogfood (design 57): DF3 call-site optional auto-wrap, HashMap
+// iteration (visitor + snapshot), and std.time. Passes by exiting 0.
+
+func takes_opt(x: Int?) -> Int {
+    if let v = x { v } else { -1 }
+}
+
+func main() {
+    // DF3: a bare Int auto-wraps into the Int? parameter at the call site.
+    assert(takes_opt(7) == 7, "df3 wrap should pass 7")
+    assert(takes_opt(None) == -1, "None should pass through")
+
+    // HashMap visitor (each_value) + snapshot (keys, sorted).
+    var m = HashMap<String, Int>()
+    m.insert("a", 1)
+    m.insert("b", 2)
+    m.insert("c", 3)
+
+    var sum = 0
+    m.each_value { [&var sum] v in sum = sum + v }
+    assert(sum == 6, "each_value should sum to 6")
+
+    var ks = m.keys()
+    ks.sort()
+    assert(ks.len() == 3, "three keys")
+    guard let first = ks.get(0) else { panic("expected a first key") }
+    assert(first.equals("a"), "sorted keys start with a")
+
+    // std.time: monotonic elapsed is non-negative; Duration accessors work.
+    let start = Instant.now()
+    let d = start.elapsed()
+    assert(d.nanos() >= (0 as Int64), "elapsed should be non-negative")
+
+    let dur = Duration.from_millis(1500)
+    assert(dur.secs() == (1 as Int64), "1500ms is 1 whole second")
+    assert(dur > Duration.from_millis(1000), "1.5s > 1s")
+
+    print("df3_map_time: ok")
+}

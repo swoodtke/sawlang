@@ -78,6 +78,12 @@ public extension Tester {
 
         print("   Testing {self.manifest.name()} v{self.manifest.version()}")
 
+        // design 57 dogfood: time the whole run with the monotonic clock, and
+        // collect failed test names in a HashMap so they can be reported in a
+        // deterministic (sorted) order at the end regardless of directory order.
+        let started = Instant.now()
+        var failed_tests = HashMap<String, Bool>()
+
         var total = 0
         var passed = 0
 
@@ -94,6 +100,7 @@ public extension Tester {
                             passed = passed + 1
                             print("test {name} ... ok")
                         } else {
+                            failed_tests.insert(name, true)
                             print("test {name} ... FAILED")
                         }
                     }
@@ -103,12 +110,20 @@ public extension Tester {
         }
 
         let failed = total - passed
+        let elapsed = started.elapsed()
         print("")
         if failed == 0 {
-            print("test result: ok. {passed} passed; 0 failed ({total} total)")
+            print("test result: ok. {passed} passed; 0 failed ({total} total) in {elapsed}")
             0
         } else {
-            print("test result: FAILED. {passed} passed; {failed} failed ({total} total)")
+            // Report the failed names in sorted order (a keys() snapshot sorted
+            // for deterministic output — the map's own order is unspecified).
+            var names = failed_tests.keys()
+            names.sort()
+            for n in names.iter() {
+                print("    failed: {n}")
+            }
+            print("test result: FAILED. {passed} passed; {failed} failed ({total} total) in {elapsed}")
             1
         }
     }
