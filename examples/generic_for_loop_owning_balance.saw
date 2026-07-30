@@ -1,0 +1,39 @@
+// Design 65 L18: a `for e in v.iter()` over OWNING elements inside a GENERIC
+// body must release the loop variable each iteration. The typechecker stamps the
+// loop-variable type as the unsubstituted param `T`; codegen must resolve it to
+// the monomorphization (here `W`) before deciding whether to drop it, else the
+// retained element `next()` returns leaks one ref per iteration. Observed via the
+// Arc that every `W` shares.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 2
+// 3
+// 1
+
+struct W { rc: Arc<Int> }
+extension W: Deinit { func deinit(&var self) {} }
+extension W: ImplicitCopy { func copy(&self) -> W { W(rc: self.rc.copy()) } }
+
+func each_count<T: Copy>(v: &Vector<T>) -> Int {
+    var n = 0
+    for e in v.iter() {          // e is an owning W copy (retained) — must drop
+        n = n + 1
+    }
+    n
+}
+
+func run(probe: &Arc<Int>) {
+    var v = Vector<W>()
+    v.push(W(rc: probe.copy()))
+    v.push(W(rc: probe.copy()))
+    print(probe.strong_count())      // 3 (probe + 2 stored)
+    print(each_count<W>(&v))         // 2
+    print(probe.strong_count())      // 3 — balanced (no per-iteration leak)
+}
+
+func main() {
+    let probe = Arc<Int>(value: 0)
+    run(&probe)
+    print(probe.strong_count())      // 1
+}

@@ -150,6 +150,14 @@ class LoopsMixin:
         # a per-iteration cleanup scope with a fresh drop flag (reset each pass),
         # then drop-if-unmoved before branching back to the condition.
         elem_saw = getattr(stmt, 'element_type', None)
+        # L18 fix (design 65 followup): the typechecker stamps `element_type` with
+        # the loop variable's type as WRITTEN — inside a generic method that is the
+        # unsubstituted param (`Vector<T>.iter()` yields `T`). Left as `T`,
+        # `_needs_cleanup(T)` is False and the owning loop variable is never
+        # released — the leak that forced Set algebra onto indexed `while`. Resolve
+        # it to the active monomorphization first, exactly as params/reads do.
+        if elem_saw is not None and self.type_param_context:
+            elem_saw = elem_saw.substitute(self.type_param_context)
         drop_loop_var = (elem_saw is not None
                          and not isinstance(stmt.iterable, RangeExpr)
                          and self._needs_cleanup(elem_saw))
@@ -307,6 +315,11 @@ class LoopsMixin:
         # Release an owning loop variable per iteration unless moved (design 65),
         # mirroring the statement-context for-loop.
         elem_saw = getattr(expr, 'element_type', None)
+        # L18 fix (design 65 followup): resolve a generic loop-variable type to the
+        # active monomorphization so an owning loop variable is released (see the
+        # statement-context for-loop for the full rationale).
+        if elem_saw is not None and self.type_param_context:
+            elem_saw = elem_saw.substitute(self.type_param_context)
         drop_loop_var = (elem_saw is not None
                          and not isinstance(expr.iterable, RangeExpr)
                          and self._needs_cleanup(elem_saw))

@@ -483,16 +483,21 @@ LLVM-exception).
       drops the snapshot correctly) instead of `for e in a.iter()`. Test
       `set_algebra_owning_balance`. The underlying cause is recorded as **L18**.
     - NoCopy keys → **CLOSED** (L19 below), user-approved rejection.
-- **L18 (design 65 followup, DISCOVERED — DEFERRED).** A `for x in coll.iter()`
-  over a CUSTOM iterator inside a GENERIC method leaks the iterable's owning
-  elements: the iterable local's `Vector_deinit` is emitted and reached with its
-  drop flag set, yet its elements' refs are not released. The SAME shape balances
-  in a non-generic method and in a free function, and an indexed `while`
-  (`coll.get(i)`) balances in the generic method too — so the bug is specific to
-  the for-loop/custom-iterator lowering under a generic method's monomorphization
-  state (NOT the copy-with-retain path, which only EXPOSED it by making snapshots
-  retain). Memory-safe (leak, not UAF). Set algebra was rerouted to `while`+`get`
-  to sidestep it (see above); the general fix is deferred. [65]
+- **L18 — CLOSED (design 65 followup).** A `for x in coll.iter()` over a custom
+  iterator inside a GENERIC method leaked the loop variable's owning elements.
+  Root cause (the coordinator's hypothesis, confirmed): the typechecker stamps
+  the for-loop's `element_type` with the loop variable's type AS WRITTEN — inside
+  a generic body `Vector<T>.iter()` yields the UNSUBSTITUTED param `T`. Codegen's
+  per-iteration loop-variable cleanup gates on `_needs_cleanup(element_type)`;
+  with `element_type = T` (a bare type param) that is False, so the RETAINED
+  element `next()` returns was never released — one leaked ref per iteration.
+  (The copy-with-retain work only EXPOSED it by making `next()` retain.) Same
+  family as the earlier `_needs_cleanup` STRUCT-named-enum poisoning and the
+  generic-param substitution fixes. Fix: substitute `element_type` through the
+  active `type_param_context` before the `_needs_cleanup` gate, in both for-loop
+  lowerings (codegen/loops.py). The natural `for e in a.iter()` shape was RESTORED
+  in the Set algebra methods (union/intersection/difference/is_subset/is_superset)
+  and `set_algebra_owning_balance` stays exact. [65]
 - **L19 — CLOSED (design 65 followup, user-approved).** Map/Set KEYS are now
   restricted to copyable-with-retain types: the container probes keys BY COPY
   (hash/compare/slot inspection), so a NoCopy key, or a `Deinit`-only move-only
