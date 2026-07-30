@@ -82,6 +82,9 @@ class StatementsMixin:
             return self.parse_break_statement()
         elif self.match(TokenType.CONTINUE):
             return self.parse_continue_statement()
+        elif self.match(TokenType.AT):
+            # Attributes (design 58) are only legal on top-level func/static.
+            self.error("attributes are not supported on local declarations")
         else:
             # Try to parse assignment or expression statement
             # We need to parse the target expression first to handle both

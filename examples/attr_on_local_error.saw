@@ -1,0 +1,9 @@
+// design 58 Part 1: attributes are rejected on local declarations.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: attributes are not supported on local declarations
+
+func main() {
+    @export
+    let x = 5
+    print(x)
+}

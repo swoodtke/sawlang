@@ -1,0 +1,9 @@
+// design 58 Part 1: attributes are legal only on top-level func/static.
+// An attribute on a struct is a clean grammar error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: attributes are not supported on struct declarations
+
+@export
+struct Foo { x: Int }
+
+func main() { print(1) }

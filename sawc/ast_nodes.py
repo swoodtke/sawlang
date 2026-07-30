@@ -1108,6 +1108,53 @@ class Method(ASTNode):
 
 
 @dataclass
+class Attribute(ASTNode):
+    """A Swift-style declaration attribute (design 58): `@name` or `@name("arg")`.
+
+    Attached to the declaration immediately following it. In v1 the legal names
+    are `export` and `section`; `export` takes zero args or one string literal,
+    `section` requires exactly one string literal. `arg` is the decoded string
+    literal content (no quotes), or None for the bare `@name` form.
+    """
+    name: str
+    arg: Optional[str] = None
+    line: int = 0
+    column: int = 0
+
+
+# Known attribute names (design 58 v1). Used for the unknown-name diagnostic.
+KNOWN_ATTRIBUTES = ("export", "section")
+
+
+def find_attribute(node: 'ASTNode', name: str) -> Optional['Attribute']:
+    """Return the `Attribute` with the given name on `node`, or None."""
+    for attr in getattr(node, 'attributes', None) or []:
+        if attr.name == name:
+            return attr
+    return None
+
+
+def is_exported(node: 'ASTNode') -> bool:
+    """True if `node` carries an `@export` attribute."""
+    return find_attribute(node, 'export') is not None
+
+
+def export_symbol(node: 'ASTNode') -> Optional[str]:
+    """The C symbol name an `@export` requests: the given `@export("sym")`
+    string, else the declaration's own name. None if not exported."""
+    attr = find_attribute(node, 'export')
+    if attr is None:
+        return None
+    return attr.arg if attr.arg else getattr(node, 'name', None)
+
+
+def section_name(node: 'ASTNode') -> Optional[str]:
+    """The object-file section requested by `@section("name")`, or None."""
+    attr = find_attribute(node, 'section')
+    return attr.arg if attr is not None else None
+
+
+@dataclass
 class Function(ASTNode):
     name: str
     parameters: List[Parameter]
@@ -1118,6 +1165,8 @@ class Function(ASTNode):
     # `sync func` declaration (design 22): body checked transitively
     # suspension-free at definition (ISR/callback style).
     is_sync: bool = False
+    # Declaration attributes (design 58): `@export` / `@section(...)` lines.
+    attributes: List['Attribute'] = field(default_factory=list)
     line: int = 0
     column: int = 0
     source_file: str = ""
@@ -1147,6 +1196,8 @@ class StaticDecl(ASTNode):
     type: 'SawType'
     initializer: Optional['Expression'] = None
     visibility: 'Visibility' = Visibility.PRIVATE
+    # Declaration attributes (design 58): `@export` / `@section(...)` lines.
+    attributes: List['Attribute'] = field(default_factory=list)
     line: int = 0
     column: int = 0
     source_file: str = ""

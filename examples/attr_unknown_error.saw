@@ -1,0 +1,8 @@
+// design 58 Part 1: an unknown attribute name is an error listing the known set.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: unknown attribute `@inline`
+
+@inline
+func f() -> Int { 1 }
+
+func main() { print(f()) }

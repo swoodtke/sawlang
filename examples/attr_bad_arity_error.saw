@@ -1,0 +1,8 @@
+// design 58 Part 1: `@section` requires exactly one string-literal argument.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: attribute `@section` requires exactly one
+
+@section
+func f() -> Int { 1 }
+
+func main() { print(f()) }

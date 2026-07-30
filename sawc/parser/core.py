@@ -176,7 +176,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         t = self.current()
         if t.type in (TokenType.FUNC, TokenType.STRUCT, TokenType.ENUM,
                       TokenType.EXTENSION, TokenType.TRAIT, TokenType.TYPE,
-                      TokenType.EXTERN, TokenType.STATIC, TokenType.PUBLIC):
+                      TokenType.EXTERN, TokenType.STATIC, TokenType.PUBLIC,
+                      TokenType.AT):
             return True
         if t.type == TokenType.IDENT and t.value in ("import", "module", "export"):
             return True
@@ -222,6 +223,15 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         the caller owns loop control, the `EOF`/`RBRACE` terminator, and (in
         `parse()` only) the batched error recovery around each call.
         """
+        # Attributes (design 58): zero or more `@name`/`@name("arg")` lines
+        # immediately preceding a declaration. v1 legal ONLY on top-level
+        # func/static; anything else is a clean "attributes are not supported"
+        # error routed through `_parse_attributed_decl`.
+        if self.match(TokenType.AT):
+            attrs = self.parse_attributes()
+            self.skip_newlines()
+            return self._parse_attributed_decl(p, attrs)
+
         if self.match_ident("import"):
             p.imports.append(self.parse_import())
         elif self.match_ident("export"):
@@ -269,6 +279,49 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             p.statics.append(self.parse_static())
         else:
             self.error(f"Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got {self.current().type.name}")
+
+    def _parse_attributed_decl(self, p: Program, attrs):
+        """Parse the declaration following an attribute block and attach `attrs`.
+
+        design 58 v1: attributes are legal ONLY on top-level `func` and `static`
+        (optionally `public`-prefixed). Everything else gets a clean
+        "attributes are not supported on X" error.
+        """
+        visibility = Visibility.PRIVATE
+        if self.match(TokenType.PUBLIC):
+            # `public module` is not an attributable declaration.
+            if self.peek(1).type == TokenType.IDENT and self.peek(1).value == "module":
+                self.error("attributes are not supported on module declarations")
+            visibility = self._parse_visibility()
+
+        if self.match(TokenType.FUNC):
+            fn = self.parse_function(visibility)
+            fn.attributes = attrs
+            p.functions.append(fn)
+        elif self.match(TokenType.STATIC):
+            st = self.parse_static(visibility)
+            st.attributes = attrs
+            p.statics.append(st)
+        else:
+            self.error(f"attributes are not supported on {self._describe_decl_kind()}")
+
+    def _describe_decl_kind(self) -> str:
+        """Human phrase for the declaration at the current token (used in the
+        'attributes are not supported on X' diagnostic)."""
+        t = self.current()
+        mapping = {
+            TokenType.STRUCT: "struct declarations",
+            TokenType.ENUM: "enum declarations",
+            TokenType.TRAIT: "trait declarations",
+            TokenType.EXTENSION: "extensions",
+            TokenType.TYPE: "type declarations",
+            TokenType.EXTERN: "extern blocks",
+        }
+        if t.type in mapping:
+            return mapping[t.type]
+        if t.type == TokenType.IDENT and t.value in ("import", "module", "export"):
+            return f"{t.value} declarations"
+        return "this declaration"
 
     def parse(self) -> Program:
         program = Program(structs=[], functions=[])

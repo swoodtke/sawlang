@@ -1,0 +1,9 @@
+// design 58 Part 1: a repeated attribute is an error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: duplicate attribute `@export`
+
+@export
+@export
+func f() -> Int { 1 }
+
+func main() { print(f()) }

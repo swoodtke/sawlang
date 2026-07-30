@@ -1,0 +1,12 @@
+// design 58 Part 1: attributes are rejected on methods (v1 = top-level only).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: attributes are not supported on methods
+
+struct Foo { x: Int }
+
+extension Foo {
+    @export
+    func get(&self) -> Int { self.x }
+}
+
+func main() { print(1) }

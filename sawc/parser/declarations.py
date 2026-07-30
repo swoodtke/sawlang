@@ -17,7 +17,8 @@ from ast_nodes import (
     Trait, TraitMethod, AssociatedType,
     Extension, Method, TypeAssignment, TypeDefinition,
     ExternBlock, ExternFunction, StaticDecl,
-    SawType, TypeKind, Visibility, TypeParameter
+    SawType, TypeKind, Visibility, TypeParameter,
+    Attribute, KNOWN_ATTRIBUTES,
 )
 
 
@@ -34,6 +35,50 @@ class DeclarationsMixin:
             next_token = self.expect(TokenType.IDENT, f"Expected identifier after '.' in {name}")
             name = f"{name}.{next_token.value}"
         return name
+
+    def parse_attributes(self) -> List[Attribute]:
+        """Parse zero or more attribute lines (design 58): `@name` or
+        `@name("string")`, each immediately preceding a declaration.
+
+        Grammar-level checks live here (Part 1): the name must be a known
+        attribute, `@export` takes zero args or one string literal, `@section`
+        requires exactly one string literal, and an attribute may not repeat.
+        Position (only on top-level func/static) and semantic rules are enforced
+        by the caller and the typechecker respectively.
+        """
+        attrs: List[Attribute] = []
+        while self.match(TokenType.AT):
+            at_tok = self.current()
+            self.advance()  # consume '@'
+            name_tok = self.expect(TokenType.IDENT, "Expected attribute name after '@'")
+            name = name_tok.value
+            known = ", ".join("@" + a for a in KNOWN_ATTRIBUTES)
+            if name not in KNOWN_ATTRIBUTES:
+                self.error(f"unknown attribute `@{name}` (known attributes: {known})")
+
+            arg: Optional[str] = None
+            if self.match(TokenType.LPAREN):
+                self.advance()  # consume '('
+                str_tok = self.expect(
+                    TokenType.STRING,
+                    f"attribute `@{name}` expects a string-literal argument")
+                arg = str_tok.value
+                self.expect(TokenType.RPAREN, f"Expected ')' to close `@{name}(...)`")
+
+            # Per-attribute arity/type (Part 1).
+            if name == "section" and arg is None:
+                self.error("attribute `@section` requires exactly one "
+                           "string-literal argument, e.g. `@section(\".text.boot\")`")
+
+            # Duplicate attribute is an error.
+            for prev in attrs:
+                if prev.name == name:
+                    self.error(f"duplicate attribute `@{name}`")
+
+            attrs.append(Attribute(name=name, arg=arg,
+                                   line=at_tok.line, column=at_tok.column))
+            self.skip_newlines()
+        return attrs
 
     def parse_function(self, visibility: Visibility = Visibility.PRIVATE) -> Function:
         start = self.current()
@@ -360,6 +405,9 @@ class DeclarationsMixin:
             elif self.match(TokenType.FUNC, TokenType.INIT):
                 method = self.parse_method()
                 methods.append(method)
+            elif self.match(TokenType.AT):
+                # Attributes (design 58) are only legal on top-level func/static.
+                self.error("attributes are not supported on methods")
             else:
                 self.error(f"Expected 'type', 'func', or 'init' in extension, got {self.current().type.name}")
             self.skip_newlines()

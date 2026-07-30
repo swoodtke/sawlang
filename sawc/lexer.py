@@ -115,6 +115,9 @@ class TokenType(Enum):
     ARROW = auto()
     DOT = auto()
 
+    # Attributes (design 58)
+    AT = auto()             # @ for attributes: @export, @section(...)
+
     # Closure parameters
     DOLLAR_PARAM = auto()   # $0, $1, etc. for shorthand closures
 
@@ -560,6 +563,9 @@ class Lexer:
                 else:
                     self.add_token(TokenType.DOT, '.')
                     self.advance()
+            elif ch == '@':
+                self.add_token(TokenType.AT, '@')
+                self.advance()
             elif ch == '$':
                 start_col = self.column
                 self.advance()  # consume '$'
