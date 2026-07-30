@@ -230,7 +230,15 @@ class MatchMixin:
                 else:
                     match_produces_value = True
             else:
-                arm_result = self._generate_expression(arm.body)
+                # Route the arm result through the value-transfer path (not a raw
+                # expression read): a bare owning binding that ESCAPES as the match
+                # value (`case A(s) -> s`, an ImplicitCopy String/Arc payload) must
+                # be RETAINED here, because the consume-mode arm cleanup below
+                # releases that same binding — without the retain the escaped value
+                # is freed out from under the match result (DF12). `move s` clears
+                # the binding's drop flag instead (no retain), and a fresh temporary
+                # (`case B -> ""`) is not aliasing, so neither is over-copied.
+                arm_result = self._gen_transfer_value(arm.body)
                 if arm_result is None or isinstance(arm_result.type, ir.VoidType):
                     # No value (e.g. a diverging `panic(...)` arm, design 49) or a
                     # Void expression — use a placeholder. A diverging arm has

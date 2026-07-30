@@ -808,6 +808,94 @@ class Namespace:
                 self.type_conforms_to(name, "ExplicitCopy") or
                 self.type_conforms_to(name, "Copy"))
 
+    def is_implicit_copy_enum(self, saw_type: SawType, _visiting=None) -> bool:
+        """Structural ImplicitCopy classification for enums (design 06 / DF12).
+
+        Enums cannot DECLARE a Copy-family conformance (only Equatable/Comparable/
+        Hashable opt-in), so their copy tier is derived from their payloads — the
+        same containment precedence a struct's fields impose. This predicate is
+        True iff the enum carries at least one OWNING (ImplicitCopy, e.g. `String`/
+        `Arc`) payload AND every payload is cleanly retainable — trivially copyable
+        (POD, bitwise) or itself ImplicitCopy. Such an enum copies by RETAINING its
+        active payload (a refcount bump), exactly like an ImplicitCopy struct.
+
+        A payload that is ExplicitCopy/NoCopy (e.g. `Vector`/`File`/`Box<any …>`)
+        makes this False: that enum is move-only and is NOT implicitly copied — it
+        keeps the pre-existing fall-through behavior (out of scope here). Without
+        this, a `DepSource { PathDep(String) }`-style enum was silently BITWISE
+        copied at every transfer while still releasing its payload at drop, so the
+        shared `String` was released once per copy -> double free (DF12).
+        """
+        saw_type = self._normalize_struct_enum(saw_type)
+        if saw_type is None or saw_type.kind != TypeKind.ENUM:
+            return False
+        name = saw_type.enum_name
+        if name is None:
+            return False
+        if _visiting is None:
+            _visiting = set()
+        if name in _visiting:
+            # Recursion guard (an enum reaching itself through a payload): treat
+            # the back-edge as retainable-but-non-owning so it neither loops nor
+            # forces the whole enum non-retainable.
+            return False
+        _visiting = _visiting | {name}
+        # A declared move-only conformance (defensive — enums can't declare these)
+        # disqualifies implicit copying.
+        if (self.type_conforms_to(name, "NoCopy")
+                or self.type_conforms_to(name, "ExplicitCopy")):
+            return False
+        sym = self._lookup_enum_deep(name)
+        if sym is None:
+            return False
+        has_owning = False
+        for variant_fields in sym.variants.values():
+            for _fname, ftype in variant_fields:
+                ok, owning = self._payload_retainable(ftype, _visiting)
+                if not ok:
+                    return False
+                has_owning = has_owning or owning
+        return has_owning
+
+    def _payload_retainable(self, t: SawType, _visiting):
+        """Classify an enum-payload field type for structural ImplicitCopy.
+
+        Returns (retainable, owning): `retainable` is True when a copy of the enum
+        can duplicate this field by a bitwise copy (POD) or a refcount retain
+        (ImplicitCopy); `owning` is True only for a refcounted (ImplicitCopy) field
+        — the presence of at least one is what makes the enclosing enum
+        ImplicitCopy rather than trivially copyable.
+        """
+        if t is None:
+            return (False, False)
+        if self.is_trivially_copyable(t):
+            return (True, False)
+        k = t.kind
+        if k == TypeKind.STRING:
+            return (True, True)
+        if k == TypeKind.OPTIONAL:
+            return self._payload_retainable(t.inner_type, _visiting)
+        if k == TypeKind.ARRAY:
+            return self._payload_retainable(t.array_element_type, _visiting)
+        if k == TypeKind.STRUCT:
+            n = t.struct_name
+            if n is not None and self.type_conforms_to(n, "ImplicitCopy"):
+                return (True, True)
+            # ExplicitCopy / NoCopy / Deinit struct: not cleanly retainable.
+            return (False, False)
+        if k == TypeKind.ENUM:
+            if self.is_implicit_copy_enum(t, _visiting):
+                return (True, True)
+            # A payload-free / all-POD nested enum is bitwise-retainable (non-owning);
+            # anything else (owning ExplicitCopy/NoCopy payload) is not.
+            sym = self._lookup_enum_deep(t.enum_name) if t.enum_name else None
+            if sym is not None and all(
+                    self.is_trivially_copyable(ft)
+                    for vf in sym.variants.values() for _n, ft in vf):
+                return (True, False)
+            return (False, False)
+        return (False, False)
+
     def _normalize_struct_enum(self, saw_type: SawType) -> SawType:
         """A type annotation like `-> Ordering` can reach the trait predicates as
         a STRUCT-kinded SawType (the parser defaults an unknown capitalized name

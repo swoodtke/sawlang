@@ -38,32 +38,14 @@ def fail(msg, out=""):
     sys.exit(1)
 
 
-_OUT = os.path.join(REPO, ".build", "bootstrap.out")
-
-
-class _R:
-    def __init__(self, returncode, stdout):
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = ""
-
-
-def run(argv, retries=1, **kw):
-    # Redirect blade's stdout/stderr to a FILE rather than a pipe (driving it
-    # through a pipe trips a Saw runtime crash, dogfood DF12). blade's self-build
-    # ALSO hits an INTERMITTENT memory-corruption crash (SIGBUS/SIGTRAP, DF12);
-    # since a clean build is otherwise correct (it succeeds on most attempts),
-    # retry a signal-killed build a bounded number of times so the loop can close
-    # despite the known flake.
-    last = None
-    for _ in range(retries):
-        with open(_OUT, "w") as f:
-            rc = subprocess.run(argv, stdout=f, stderr=subprocess.STDOUT, **kw).returncode
-        with open(_OUT) as f:
-            last = _R(rc, f.read())
-        if rc >= 0:      # not killed by a signal
-            return last
-    return last
+def run(argv, **kw):
+    # Plain pipe capture. The DF12 workaround (redirect-to-file + bounded retry
+    # on a signal-killed build) is gone: design 67 root-caused and fixed the
+    # memory corruption (an owning-payload enum / a struct-with-String field read
+    # out of a container was bitwise-copied without a retain yet released at drop
+    # -> double free), so blade's self-build is now deterministically clean,
+    # including with a pipe as stdout.
+    return subprocess.run(argv, capture_output=True, text=True, **kw)
 
 
 def main():
@@ -81,7 +63,7 @@ def main():
 
     # stage1: stage0 builds blade through its own pipeline.
     print("== stage1: blade build (own pipeline) ==")
-    r = run([STAGE0, "build"], cwd=BLADE_DIR, env=ENV, retries=10)
+    r = run([STAGE0, "build"], cwd=BLADE_DIR, env=ENV)
     if r.returncode != 0 or "Compiling" not in r.stdout:
         fail("stage1 build", r.stdout + r.stderr)
     print(r.stdout.strip())
@@ -99,14 +81,14 @@ def main():
 
     # incremental: a second build is up-to-date.
     print("== second build (expect up-to-date) ==")
-    r = run([STAGE0, "build"], cwd=BLADE_DIR, env=ENV, retries=10)
+    r = run([STAGE0, "build"], cwd=BLADE_DIR, env=ENV)
     if "up to date" not in r.stdout:
         fail("second build was not up-to-date", r.stdout + r.stderr)
     print(r.stdout.strip())
 
     # --force rebuilds -> stage2.
     print("== blade build --force (expect rebuild) ==")
-    r = run([STAGE0, "build", "--force"], cwd=BLADE_DIR, env=ENV, retries=10)
+    r = run([STAGE0, "build", "--force"], cwd=BLADE_DIR, env=ENV)
     if "Compiling" not in r.stdout:
         fail("--force did not rebuild", r.stdout + r.stderr)
     print(r.stdout.strip())

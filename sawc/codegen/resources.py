@@ -114,6 +114,13 @@ class ResourcesMixin:
             behavior = "no_copy"
         elif "ImplicitCopy" in conformances:
             behavior = "implicit_copy"
+        elif self.namespace.is_implicit_copy_enum(saw_type):
+            # An enum can't declare ImplicitCopy; an owning-payload enum
+            # (e.g. `DepSource { PathDep(String) }`) is structurally ImplicitCopy
+            # and must copy-with-retain (DF12) — mirrors the typechecker. The
+            # helper normalizes a STRUCT-kinded-but-actually-enum SawType and
+            # returns False for genuine structs, so no `kind` guard is needed.
+            behavior = "implicit_copy"
         elif "ExplicitCopy" in conformances:
             # ExplicitCopy has a deinit and is never implicitly copied (the
             # typechecker enforces `move`/`.copy()` at transfer sites), so for
@@ -945,14 +952,19 @@ class ResourcesMixin:
                 t = t.substitute(self.type_param_context)
             if self._get_cleanup_behavior(t) == "implicit_copy":
                 return True
-            # design 65 (L17): reading an owning aggregate (a struct/enum with
-            # cleanup-needing fields) OUT OF AN INDEXED SLOT duplicates it while
-            # the source container keeps ownership — moving out of an index is
-            # forbidden (L1), so an index read is always a duplication. Its owning
-            # fields must be retained (copy-with-retain in `_generate_copy`) so the
-            # copy's later drop is balanced. This is what makes `Vector.get` of a
-            # `MapSlot<String, V>` / an `Arc`-bearing payload refcount-correct.
-            if (isinstance(value_expr, ArrayIndex)
+            # design 65 (L17), extended (DF12): reading an owning aggregate (a
+            # struct/enum/optional with cleanup-needing fields) OUT OF A CONTAINER
+            # SLOT it stays in — an indexed element (`v[i]`), a struct FIELD
+            # (`obj.field`), or a tuple element (`t.0`) — duplicates it while the
+            # source keeps ownership. Moving out of such a projection is forbidden
+            # (L1), so the read is always a duplication: its owning fields must be
+            # retained (copy-with-retain in `_generate_copy`) so the copy's later
+            # drop is balanced. Without this, passing e.g. a `Path`/`DepSource`
+            # FIELD by value bitwise-aliased its `String`, which was then released
+            # by the receiver's drop while the container still owned it -> double
+            # free (DF12). A whole-binding read (a bare `Identifier`) is NOT here:
+            # it may be a move, and an ImplicitCopy one is already caught above.
+            if (isinstance(value_expr, (ArrayIndex, MemberAccess, TupleIndex))
                     and self._needs_cleanup(t)
                     and t.kind in (TypeKind.STRUCT, TypeKind.ENUM,
                                    TypeKind.OPTIONAL)):

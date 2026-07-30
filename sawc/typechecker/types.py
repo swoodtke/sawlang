@@ -1102,6 +1102,17 @@ class TypeUtilsMixin:
         elif self._is_implicit_copy_type(src_type):
             if self._is_aliasing_expr(expr):
                 expr.needs_copy = True
+        elif self.namespace.is_implicit_copy_enum(src_type):
+            # An enum can't DECLARE ImplicitCopy, so its copy tier is structural
+            # (design 06): an enum carrying an owning `String`/`Arc` payload copies
+            # by RETAINING that payload. Marking the transfer `needs_copy` makes
+            # codegen bump the refcount; without it the enum was bitwise-copied yet
+            # still released its payload at every drop -> double free (DF12). Kept
+            # out of `_is_implicit_copy_type` so it does NOT force a containing
+            # struct to opt into ImplicitCopy (an owning-enum field is compiler-
+            # handled, exactly like a `String` field).
+            if self._is_aliasing_expr(expr):
+                expr.needs_copy = True
 
     def _check_no_copy_return(self, return_type: SawType, final_expr: Optional[Expression],
                                context_name: str, line: int, column: int):

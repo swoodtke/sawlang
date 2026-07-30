@@ -72,6 +72,41 @@ When an item becomes harness-expressible, encode it as an XFAIL ledger test
 - **D10. Cortex-M0-class atomics** — lowering strategy for ARMv6-M (no
   CAS); decide with the first such port. [19, 20]
 
+## Design 67 — Blade dogfood bug batch (DF6–DF12)
+
+In progress (interruption-safe: one DF per commit). Progress log (newest last):
+- **DF12 LANDED** — root cause was NOT a bounds/overflow (ASan clean 60+) nor
+  uninitialized memory (calloc-zeroing the heap didn't help): a **String
+  refcount double-release**. An aggregate that OWNS a refcounted (`String`/`Arc`)
+  payload was BITWISE-copied without a retain, yet still RELEASED that payload at
+  every drop — so a shared `String` was freed once per copy, corrupting the
+  allocator free list (intermittent SIGBUS/SIGTRAP; deterministic under
+  `libgmalloc` as `__saw_string_release` reading a freed header; the
+  "deterministic-with-a-pipe" variant was the same corruption under the pipe's
+  allocation pattern). Two shapes:
+  (a) an **enum with an owning payload** (`DepSource { PathDep(String) }`) —
+  enums can't DECLARE ImplicitCopy, so their copy tier is structural, and the
+  value-transfer checkpoint classified them as neither move-gated nor
+  ImplicitCopy → free bitwise copy. Fix: `Namespace.is_implicit_copy_enum`
+  (structural: owning + every payload cleanly retainable), wired into the
+  typechecker checkpoint (marks `needs_copy`) and codegen `_get_cleanup_behavior`
+  (→ `implicit_copy`), kept OUT of `_is_implicit_copy_type` so it doesn't force a
+  containing struct to opt in (an owning-enum field is compiler-handled like a
+  `String` field). Plus: a `match` arm result now routes through
+  `_gen_transfer_value` so an extracted owning payload (`case Path(d) -> d`) is
+  retained (the consume-mode arm cleanup releases the same binding).
+  (b) a **struct-with-String read out of a CONTAINING struct's field**
+  (`root.root_dir`, a `Path`) passed by value — `_transfer_needs_copy` retained
+  an owning aggregate read out of an INDEXED slot (design 65 L17) but not out of
+  a struct FIELD / tuple element; same rationale (the container keeps ownership,
+  the projection is a duplication). Fix: extend that clause to
+  `MemberAccess`/`TupleIndex`. Regression: `examples/owning_aggregate_copy.saw`.
+  DF11 fell out for free (the corruption was what made the cross-module
+  `dependencies()` in `manifest_deps_hash` intermittently take the Err branch →
+  `manifest_hash = "0"`; now a stable real hash — to be confirmed + lock updated
+  at the DF11 step). Suite 765 -> 766; blade tests 16 green; bootstrap green with
+  the DF12 retry/redirect workaround REMOVED.
+
 ## Design 64 — Blade for real (deps/semver/lock/git/incremental/self-host)
 
 In progress. Commit units B0..B8 landed one at a time (interruption-safe).
