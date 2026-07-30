@@ -280,6 +280,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for extension in program.extensions:
             self._check_extension(extension)
 
+        # design 53: type-check top-level static_assert conditions (stamps the
+        # annotations the codegen const evaluator consumes; surfaces type errors).
+        for sa in getattr(program, 'static_asserts', []):
+            self._check_static_assert(sa)
+
         # Ninth pass: whole-program `sync` effect analysis (design 22).
         self.finalize_effects()
 
@@ -775,6 +780,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Type check method bodies
         for extension in module_ast.extensions:
             self._check_extension(extension)
+
+        # design 53: walk top-level static_assert conditions so their annotations
+        # (Int.max limit tag, sizeof type args) are stamped for codegen.
+        for sa in getattr(module_ast, 'static_asserts', []):
+            self._check_static_assert(sa)
 
         # Restore old state
         self.namespace = old_namespace

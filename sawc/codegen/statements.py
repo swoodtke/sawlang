@@ -68,6 +68,11 @@ class StatementsMixin:
 
     # ===== Statement Visitor Methods =====
 
+    def visit_StaticAssert(self, stmt):
+        """Design 53: a statement-position `static_assert` — evaluated at compile
+        time, emits no code (a false result is a clean compile error)."""
+        self._eval_static_assert(stmt)
+
     def visit_LetStatement(self, stmt: LetStatement):
         self._generate_let_statement(stmt)
 

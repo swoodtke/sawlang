@@ -652,6 +652,22 @@ class StatementsMixin:
 
     # ===== Statement Visitor Methods =====
 
+    def visit_StaticAssert(self, stmt):
+        self._check_static_assert(stmt)
+
+    def _check_static_assert(self, stmt):
+        """Design 53: walk the condition so its expression annotations (e.g. the
+        `Int.max` limit tag, `sizeof<T>` type args) are stamped for the codegen
+        const evaluator, and surface any type error in it. The value itself is
+        evaluated at codegen (where target layout is authoritative)."""
+        cond_type = self._check_expression(stmt.condition)
+        if (cond_type is not None and cond_type.kind
+                not in (TypeKind.BOOL, TypeKind.INT)):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`static_assert` condition must be `Bool`, got `{cond_type}`",
+                stmt.line, stmt.column)
+
     def visit_LetStatement(self, stmt: LetStatement):
         self._check_let_statement(stmt)
 

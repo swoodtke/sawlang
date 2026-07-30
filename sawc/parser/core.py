@@ -236,6 +236,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             p.imports.append(self.parse_import())
         elif self.match_ident("export"):
             p.exports.append(self.parse_export())
+        elif self.match_ident("static_assert") and self.peek(1).type == TokenType.LPAREN:
+            p.static_asserts.append(self.parse_static_assert())
         elif self.match(TokenType.PUBLIC):
             # Could be public module or public declaration
             if self.peek(1).type == TokenType.IDENT and self.peek(1).value == "module":
@@ -439,6 +441,26 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             is_glob=False,
             line=start.line,
             column=start.column
+        )
+
+    def parse_static_assert(self):
+        """Parse `static_assert(<const-expr>, "message")` (design 53). Legal at
+        top level and in statement position. The message must be a plain string
+        literal (it is baked into the compile-time diagnostic)."""
+        from ast_nodes import StaticAssert
+        start = self.current()
+        self.advance()  # consume 'static_assert' identifier
+        self.expect(TokenType.LPAREN, "Expected '(' after `static_assert`")
+        condition = self.parse_expression()
+        self.expect(TokenType.COMMA, "Expected ',' after the static_assert condition")
+        msg_tok = self.expect(TokenType.STRING,
+                              "static_assert message must be a plain string literal")
+        self.expect(TokenType.RPAREN, "Expected ')' to close `static_assert`")
+        return StaticAssert(
+            condition=condition,
+            message=msg_tok.value,
+            line=start.line,
+            column=start.column,
         )
 
     def parse_export(self) -> ExportDecl:

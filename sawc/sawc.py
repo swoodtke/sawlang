@@ -95,6 +95,7 @@ def load_builtins(verbose: bool = False, freestanding: bool = False):
                     type_definitions=combined_ast.type_definitions + file_ast.type_definitions,
                     extern_blocks=combined_ast.extern_blocks + file_ast.extern_blocks,
                     statics=getattr(combined_ast, 'statics', []) + getattr(file_ast, 'statics', []),
+                    static_asserts=getattr(combined_ast, 'static_asserts', []) + getattr(file_ast, 'static_asserts', []),
                     line=combined_ast.line,
                     column=combined_ast.column
                 )
@@ -122,6 +123,8 @@ def merge_programs(builtin_ast, user_ast):
         imports=getattr(user_ast, 'imports', []),
         module_decls=getattr(user_ast, 'module_decls', []),
         exports=getattr(user_ast, 'exports', []),
+        static_asserts=(getattr(builtin_ast, 'static_asserts', [])
+                        + getattr(user_ast, 'static_asserts', [])),
         source_path=getattr(user_ast, 'source_path', None),
         module_path=getattr(user_ast, 'module_path', None),
         line=user_ast.line,
@@ -247,8 +250,13 @@ def run_codegen(codegen, ast):
     diagnostic with the standard exit code, mirroring how parse errors are
     reported. Individual raise-site message quality is out of scope.
     """
+    from codegen.core import StaticAssertError
     try:
         return codegen.generate(ast)
+    except StaticAssertError as e:
+        # design 53: a failed/non-constant static_assert is a user compile error.
+        print(f"\033[1;31merror\033[0m: {e.message}", file=sys.stderr)
+        sys.exit(1)
     except SystemExit:
         raise
     except Exception as e:

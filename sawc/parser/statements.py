@@ -85,6 +85,9 @@ class StatementsMixin:
         elif self.match(TokenType.AT):
             # Attributes (design 58) are only legal on top-level func/static.
             self.error("attributes are not supported on local declarations")
+        elif self.match_ident("static_assert") and self.peek(1).type == TokenType.LPAREN:
+            # Compile-time assertion in statement position (design 53).
+            return self.parse_static_assert()
         else:
             # Try to parse assignment or expression statement
             # We need to parse the target expression first to handle both

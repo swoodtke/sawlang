@@ -1,0 +1,9 @@
+// Design 53 Part 6: a false static_assert in statement position is also a
+// compile error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static assertion failed: statement-position check
+
+func main() {
+    static_assert(1 == 2, "statement-position check")
+    print(0)
+}

@@ -353,6 +353,18 @@ class ImportDecl:
 
 
 @dataclass
+class StaticAssert:
+    """Compile-time assertion `static_assert(<const-expr>, "message")` (design
+    53). Legal at top level and in statement position. The condition is
+    evaluated by the const evaluator; a false result is a compile error carrying
+    the message, a true result emits no code."""
+    condition: 'Expression'
+    message: str
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class ModuleDecl:
     """Module declaration: module parser or public module runtime"""
     name: str
@@ -1251,6 +1263,7 @@ class Program(ASTNode):
     imports: List['ImportDecl'] = field(default_factory=list)
     module_decls: List['ModuleDecl'] = field(default_factory=list)
     exports: List['ExportDecl'] = field(default_factory=list)  # For init.saw facades
+    static_asserts: List['StaticAssert'] = field(default_factory=list)  # design 53
     source_path: Optional[str] = None      # Path to source file
     module_path: Optional[List[str]] = None  # Fully qualified module path
     line: int = 0

@@ -24,6 +24,18 @@ from ast_nodes import (
     ClosureExpr
 )
 from namespace import Namespace
+
+
+class StaticAssertError(Exception):
+    """A failed (or non-constant) `static_assert` (design 53). Surfaced as a
+    clean compile error by the codegen driver, not an internal-error trace."""
+    def __init__(self, message: str, line: int, column: int):
+        super().__init__(message)
+        self.message = message
+        self.line = line
+        self.column = column
+
+
 from .types import TypesMixin
 from .resources import ResourcesMixin
 from .generics import GenericsMixin
@@ -1227,6 +1239,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         for static in getattr(program, 'statics', []):
             self._emit_static_global(static)
 
+        # Design 53: evaluate top-level `static_assert`s now that statics/types
+        # exist (so sizeof/alignof and const-static references resolve). A false
+        # assertion is a clean compile error; a true one emits nothing.
+        for sa in getattr(program, 'static_asserts', []):
+            self._eval_static_assert(sa)
+
         # Fifth pass: generate function bodies (skip generic functions)
         for func in program.functions:
             if not func.type_params:
@@ -1248,6 +1266,97 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self._emit_llvm_used()
 
         return str(self.module)
+
+    # ---- design 53: static_assert compile-time evaluation ----
+
+    def _eval_static_assert(self, sa):
+        """Evaluate one `static_assert(cond, "msg")`. A false result raises a
+        clean compile error carrying the message; a true result emits nothing."""
+        value = self._const_eval(sa.condition, sa)
+        if not bool(value):
+            raise StaticAssertError(
+                f"static assertion failed: {sa.message}", sa.line, sa.column)
+
+    def _const_eval(self, expr, sa):
+        """Compile-time-evaluate a constant expression to a Python int/bool for
+        static_assert (design 53). Supports integer/bool literals, unary `-`/
+        `not`, arithmetic/comparison/logical operators, `sizeof<T>()`/
+        `alignof<T>()`, and the `Int.max`/`.min` integer limits. Anything else is
+        rejected as non-constant with a clean error."""
+        if isinstance(expr, BoolLiteral):
+            return bool(expr.value)
+        if isinstance(expr, IntLiteral):
+            return int(expr.value)
+        if isinstance(expr, UnaryOp):
+            if expr.op == '-':
+                return -self._const_eval(expr.operand, sa)
+            if expr.op == 'not':
+                return not self._const_eval(expr.operand, sa)
+            self._reject_const(expr, sa, f"unary operator `{expr.op}`")
+        if isinstance(expr, BinaryOp):
+            left = self._const_eval(expr.left, sa)
+            right = self._const_eval(expr.right, sa)
+            op = expr.op
+            if op == '+': return left + right
+            if op == '-': return left - right
+            if op == '*': return left * right
+            if op == '/':
+                if right == 0:
+                    self._reject_const(expr, sa, "division by zero")
+                q = abs(left) // abs(right)
+                return -q if (left < 0) ^ (right < 0) else q
+            if op == '%':
+                if right == 0:
+                    self._reject_const(expr, sa, "modulo by zero")
+                r = abs(left) % abs(right)
+                return -r if left < 0 else r
+            if op == '==': return left == right
+            if op == '!=': return left != right
+            if op == '<': return left < right
+            if op == '>': return left > right
+            if op == '<=': return left <= right
+            if op == '>=': return left >= right
+            if op == '&&': return bool(left) and bool(right)
+            if op == '||': return bool(left) or bool(right)
+            self._reject_const(expr, sa, f"operator `{op}`")
+        if isinstance(expr, FunctionCall):
+            if expr.name == 'sizeof':
+                return self._const_type_metric(expr, sa, 'size')
+            if expr.name == 'alignof':
+                return self._const_type_metric(expr, sa, 'align')
+            self._reject_const(expr, sa, f"call to `{expr.name}`")
+        if isinstance(expr, MemberAccess):
+            limit = getattr(expr, 'int_limit', None)
+            if limit is not None:
+                return self._const_int_limit(limit)
+            self._reject_const(expr, sa, "this member access")
+        self._reject_const(expr, sa, type(expr).__name__)
+
+    def _const_type_metric(self, expr, sa, which):
+        if not expr.type_args or len(expr.type_args) != 1:
+            self._reject_const(expr, sa, f"`{expr.name}` needs one type argument")
+        saw_type = expr.type_args[0]
+        if (saw_type.kind == TypeKind.STRUCT
+                and saw_type.struct_name in self.type_param_context):
+            saw_type = self.type_param_context[saw_type.struct_name]
+        llvm_type = self._get_llvm_type(saw_type)
+        if which == 'size':
+            return llvm_type.get_abi_size(self.target_data)
+        return llvm_type.get_abi_alignment(self.target_data)
+
+    def _const_int_limit(self, limit):
+        type_name, which = limit
+        width, signed = self._INT_LIMIT_SPECS[type_name]
+        if width is None:
+            width = self.int_width
+        if which == "max":
+            return (1 << (width - 1)) - 1 if signed else (1 << width) - 1
+        return -(1 << (width - 1)) if signed else 0
+
+    def _reject_const(self, expr, sa, what):
+        raise StaticAssertError(
+            f"static_assert condition is not a compile-time constant: "
+            f"{what} is not allowed here", sa.line, sa.column)
 
     # _resolve_type_alias is now in codegen_types.py (TypesMixin)
 
