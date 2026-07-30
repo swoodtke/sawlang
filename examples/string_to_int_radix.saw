@@ -1,0 +1,25 @@
+// String.to_int(radix:) (design 57): the design-55 overload of to_int, base
+// 2..=36. Coexists with the zero-arg to_int() (different arity, both resolve).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 255
+// 10
+// 35
+// -255
+// -999
+// -999
+// 42
+
+func show(o: Int?) {
+    if let v = o { print(v) } else { print(-999) }
+}
+
+func main() {
+    show("ff".to_int(radix: 16))     // 255
+    show("1010".to_int(radix: 2))    // 10
+    show("z".to_int(radix: 36))      // 35
+    show("-ff".to_int(radix: 16))    // -255
+    show("2".to_int(radix: 2))       // None (invalid digit for base 2)
+    show("10".to_int(radix: 1))      // None (radix out of range)
+    show("42".to_int())              // 42 (base-10 overload still resolves)
+}

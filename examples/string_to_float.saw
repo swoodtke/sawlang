@@ -1,0 +1,32 @@
+// String.to_float() (design 57): [+-]?digits[.digits][e[+-]digits], whole-string
+// match, panic-free. Naive accumulation (not correctly-rounded strtod). None on
+// empty/junk/incomplete forms. Print renders Float with 6 fractional digits.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3.140000
+// -2.500000
+// 10.000000
+// 1000.000000
+// 150.000000
+// 0.020000
+// -1.000000
+// -1.000000
+// -1.000000
+// -1.000000
+
+func showf(o: Float?) {
+    if let v = o { print(v) } else { print(0.0 - 1.0) }
+}
+
+func main() {
+    showf("3.14".to_float())     // 3.140000
+    showf("-2.5".to_float())     // -2.500000
+    showf("10".to_float())       // 10.000000
+    showf("1e3".to_float())      // 1000.000000
+    showf("1.5e2".to_float())    // 150.000000
+    showf("2e-2".to_float())     // 0.020000
+    showf("".to_float())         // None
+    showf("abc".to_float())      // None
+    showf("1.2.3".to_float())    // None (trailing junk)
+    showf("1e".to_float())       // None (missing exponent digits)
+}
