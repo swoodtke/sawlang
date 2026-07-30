@@ -1,0 +1,31 @@
+// Design 53 Part 2: `vec.enumerated()` — a concrete iterator yielding
+// `(index, element)` pairs for for-in. Bounds mirror the vector's length; an
+// empty vector yields nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 10
+// 1
+// 20
+// 2
+// 30
+// 999
+
+func main() {
+    var v = Vector<Int>()
+    v.push(10)
+    v.push(20)
+    v.push(30)
+
+    for pair in v.enumerated() {
+        print(pair.0)   // index
+        print(pair.1)   // element
+    }
+
+    // Empty vector: no iterations.
+    var e = Vector<Int>()
+    for p in e.enumerated() {
+        print(p.0)
+    }
+    print(999)
+}

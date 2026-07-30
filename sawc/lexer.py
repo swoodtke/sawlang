@@ -99,7 +99,8 @@ class TokenType(Enum):
     DOUBLE_QUESTION = auto() # ?? for nil coalescing
     EXCLAIM = auto()        # ! for force unwrap
     QUESTION_DOT = auto()   # ?. for optional chaining
-    DOTDOT = auto()         # .. for ranges
+    DOTDOT = auto()         # .. for ranges (exclusive)
+    DOTDOT_EQ = auto()      # ..= for inclusive ranges (design 53)
     ELLIPSIS = auto()       # ... for variadic functions
 
     # Delimiters
@@ -553,6 +554,13 @@ class Lexer:
             elif ch == '.':
                 if self.peek(1) == '.' and self.peek(2) == '.':
                     self.add_token(TokenType.ELLIPSIS, '...')
+                    self.advance()
+                    self.advance()
+                    self.advance()
+                elif self.peek(1) == '.' and self.peek(2) == '=':
+                    # `..=` inclusive range (design 53). Checked before bare `..`
+                    # so `0..=5` is one token, leaving `0..5` unaffected.
+                    self.add_token(TokenType.DOTDOT_EQ, '..=')
                     self.advance()
                     self.advance()
                     self.advance()

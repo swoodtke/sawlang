@@ -157,14 +157,15 @@ class ExpressionsMixin:
         """Parse range expressions: start..end"""
         left = self.parse_shift()
 
-        if self.match(TokenType.DOTDOT):
+        if self.match(TokenType.DOTDOT, TokenType.DOTDOT_EQ):
             op_token = self.advance()
             right = self.parse_shift()
             return RangeExpr(
                 start=left,
                 end=right,
                 line=op_token.line,
-                column=op_token.column
+                column=op_token.column,
+                is_inclusive=(op_token.type == TokenType.DOTDOT_EQ)
             )
 
         return left

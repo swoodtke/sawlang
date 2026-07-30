@@ -813,11 +813,14 @@ class MatchExpr(Expression):
 
 @dataclass
 class RangeExpr(Expression):
-    """Range expression: start..end (exclusive)"""
+    """Range expression: `start..end` (exclusive) or `start..=end` (inclusive,
+    design 53). An inclusive range lowers to the Int.max-safe `RangeInclusive`
+    iterator, never to a `start..(end + 1)` desugar."""
     start: Expression
     end: Expression
     line: int = 0
     column: int = 0
+    is_inclusive: bool = False
 
 
 @dataclass

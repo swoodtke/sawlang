@@ -1,0 +1,26 @@
+// Design 53 Part 2: `vec.each_indexed` — the closure twin of `enumerated()`,
+// passing `(index, element)` with the same non-escaping discipline as `each`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 5
+// 1
+// 6
+// 2
+// 7
+// 18
+
+func main() {
+    var v = Vector<Int>()
+    v.push(5)
+    v.push(6)
+    v.push(7)
+
+    var total = 0
+    v.each_indexed { [&var total] i, x in
+        print(i)
+        print(x)
+        total += x
+    }
+    print(total)   // 5 + 6 + 7
+}

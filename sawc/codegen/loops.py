@@ -89,23 +89,7 @@ class LoopsMixin:
         func = self.builder.function
 
         if isinstance(stmt.iterable, RangeExpr):
-            # Range expression: use builtin Range type
-            range_expr = stmt.iterable
-            start_val = self._generate_expression(range_expr.start)
-            end_val = self._generate_expression(range_expr.end)
-
-            # Create the Range struct: { current, end }
-            range_type, _ = self.struct_types["Range"]
-            iter_alloca = self._entry_alloca(range_type, name="__range")
-
-            # Initialize Range with start and end
-            range_val = ir.Constant(range_type, ir.Undefined)
-            range_val = self.builder.insert_value(range_val, start_val, 0)
-            range_val = self.builder.insert_value(range_val, end_val, 1)
-            self.builder.store(range_val, iter_alloca)
-
-            next_func = self.functions["Range_next"]
-            item_type = self.int_type
+            iter_alloca, next_func, item_type = self._init_range_iterator(stmt.iterable)
         else:
             # Custom iterator: generate the iterator expression and call its next() method
             iter_val = self._generate_expression(stmt.iterable)
@@ -176,6 +160,33 @@ class LoopsMixin:
         # Position at end block for next statements
         self.builder.position_at_end(end_block)
 
+    def _init_range_iterator(self, range_expr: RangeExpr):
+        """Materialize the iterator for a `for ... in start..end` / `..=` loop.
+
+        Returns (iter_alloca, next_func, item_type). An exclusive range uses the
+        builtin `Range` (`{current, end}`); an inclusive `..=` range uses
+        `RangeInclusive` (`{current, last, done}`) whose `next()` latches `done`
+        at `last` so `0..=Int.max` never increments past the end (design 53)."""
+        start_val = self._generate_expression(range_expr.start)
+        end_val = self._generate_expression(range_expr.end)
+        if getattr(range_expr, 'is_inclusive', False):
+            range_type, _ = self.struct_types["RangeInclusive"]
+            iter_alloca = self._entry_alloca(range_type, name="__range_inc")
+            range_val = ir.Constant(range_type, ir.Undefined)
+            range_val = self.builder.insert_value(range_val, start_val, 0)
+            range_val = self.builder.insert_value(range_val, end_val, 1)
+            range_val = self.builder.insert_value(
+                range_val, ir.Constant(ir.IntType(1), 0), 2)  # done = false
+            self.builder.store(range_val, iter_alloca)
+            return iter_alloca, self.functions["RangeInclusive_next"], self.int_type
+        range_type, _ = self.struct_types["Range"]
+        iter_alloca = self._entry_alloca(range_type, name="__range")
+        range_val = ir.Constant(range_type, ir.Undefined)
+        range_val = self.builder.insert_value(range_val, start_val, 0)
+        range_val = self.builder.insert_value(range_val, end_val, 1)
+        self.builder.store(range_val, iter_alloca)
+        return iter_alloca, self.functions["Range_next"], self.int_type
+
     def _find_struct_name_for_value(self, val) -> Optional[str]:
         """Find the struct name for an LLVM value by matching its type."""
         val_type = val.type
@@ -201,23 +212,7 @@ class LoopsMixin:
         func = self.builder.function
 
         if isinstance(expr.iterable, RangeExpr):
-            # Range expression: use builtin Range type
-            range_expr = expr.iterable
-            start_val = self._generate_expression(range_expr.start)
-            end_val = self._generate_expression(range_expr.end)
-
-            # Create the Range struct: { current, end }
-            range_type, _ = self.struct_types["Range"]
-            iter_alloca = self._entry_alloca(range_type, name="__range")
-
-            # Initialize Range with start and end
-            range_val = ir.Constant(range_type, ir.Undefined)
-            range_val = self.builder.insert_value(range_val, start_val, 0)
-            range_val = self.builder.insert_value(range_val, end_val, 1)
-            self.builder.store(range_val, iter_alloca)
-
-            next_func = self.functions["Range_next"]
-            item_type = self.int_type
+            iter_alloca, next_func, item_type = self._init_range_iterator(expr.iterable)
         else:
             # Custom iterator: generate the iterator expression and call its next() method
             iter_val = self._generate_expression(expr.iterable)

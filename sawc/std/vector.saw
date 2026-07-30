@@ -372,6 +372,26 @@ extension Vector<T: Copy, A: Allocator = Global> {
         }
         move acc
     }
+
+    // Visit each element with its index, passing `(index, element)` to `body`
+    // (design 53). The closure twin of `enumerated()`: same non-escaping
+    // discipline and same by-value / `T: Copy` element rule as `each`.
+    func each_indexed(&self, body: (Int, T) -> Void) {
+        var i = 0
+        while i < self.length {
+            if let elem = self.get(i) {
+                body(i, move elem)
+            }
+            i = i + 1
+        }
+    }
+
+    // A concrete iterator yielding `(index, element)` pairs for `for` loops
+    // (design 53). Mirrors `iter()`/VectorIterator's bounds; `T: Copy` because
+    // each element is produced by value.
+    func enumerated(&self) -> EnumeratedIterator<T> {
+        EnumeratedIterator<T>(buffer: self.buffer, length: self.length, index: 0)
+    }
 }
 
 // =============================================================================
@@ -469,6 +489,34 @@ extension VectorIterator<T>: Iterator {
             self.index = self.index + 1
             if let buf = self.buffer {
                 buf[idx]
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+// =============================================================================
+// EnumeratedIterator<T> - yields (index, element) pairs (design 53)
+// =============================================================================
+
+struct EnumeratedIterator<T> {
+    buffer: UnsafePointer<T>?
+    length: Int
+    index: Int
+}
+
+extension EnumeratedIterator<T>: Iterator {
+    type Item = (Int, T)
+
+    func next(&var self) -> (Int, T)? {
+        if self.index < self.length {
+            let idx = self.index
+            self.index = self.index + 1
+            if let buf = self.buffer {
+                (idx, buf[idx])
             } else {
                 None
             }

@@ -328,3 +328,36 @@ extension Range: Iterator {
         }
     }
 }
+
+// RangeInclusive struct for inclusive range expressions (start..=end), design
+// 53. A dedicated iterator with a `done` flag — NOT a `start..(end + 1)`
+// desugar — so `0..=Int.max` yields Int.max and then stops without ever
+// incrementing past it (no phantom overflow panic). Empty when start > end.
+struct RangeInclusive {
+    current: Int
+    last: Int
+    done: Bool
+}
+
+extension RangeInclusive: Iterator {
+    type Item = Int
+
+    func next(&var self) -> Int? {
+        if self.done {
+            None
+        } else if self.current < self.last {
+            let result = self.current
+            self.current = self.current + 1
+            result
+        } else if self.current == self.last {
+            // Final element: yield it and latch `done` so we never increment
+            // past `last` (the Int.max-safe step).
+            self.done = true
+            self.current
+        } else {
+            // start > end: an empty inclusive range.
+            self.done = true
+            None
+        }
+    }
+}
