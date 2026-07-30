@@ -44,9 +44,10 @@ implementation wins and this document is the bug.
 ## 2. Basic Syntax
 
 **Status: implemented**, except where a construct is marked *(illustrative)*
-below (default parameter values and the array-literal `.map` shorthand shown
-below are planned). Infinite loops are written `while { }` — there is no `loop`
-keyword (it was dropped as redundant). Note the stdlib `Vector` does provide real `map<U>`/`fold<A>` methods
+below (the array-literal `.map` shorthand shown below is planned; default
+parameter values ARE implemented, design 53). Infinite loops are written
+`while { }` — there is no `loop` keyword (it was dropped as redundant). Note the
+stdlib `Vector` does provide real `map<U>`/`fold<A>` methods
 (see [Generics](#generics)); the illustrative example below is about method
 chaining directly on array literals, which is separate and still planned.
 
@@ -318,12 +319,12 @@ are **implemented** (see Traits). Stdlib methods used only to illustrate (e.g.
 
 Common types — `Int`, `UInt`, the sized `Int8`…`Int64`/`UInt8`…`UInt64`,
 `Float`/`Float64`, `Bool`, and `String` — are implemented. `Int128`/`UInt128`,
-`Float32`, and `Char` are *planned*. `Never` (the bottom type) exists as the
-type of a diverging `panic(...)` (design 49) — it is not yet spellable in a type
-annotation, but the typechecker uses it: an expression of type `Never` is
-assignable to any expected type, so a function body that ends in `panic(...)`
-needs no return value, and a `panic` arm/branch contributes no type to a
-`match`/`if`.
+`Float32`, and `Char` are *planned*. `Never` (the bottom type) is the type of a
+diverging `panic(...)` (design 49) and is spellable as a return type
+(`func boom() -> Never`; `@export`'s `_start` shape lowers it to `void` +
+noreturn, design 58). An expression of type `Never` is assignable to any
+expected type, so a function body that ends in `panic(...)` needs no return
+value, and a `panic` arm/branch contributes no type to a `match`/`if`.
 
 ```saw
 // Integers
@@ -340,7 +341,7 @@ Float  // Alias for Float64
 Bool        // true, false
 Char        // Unicode scalar value
 String      // Immutable, refcounted byte string (see "String" below)
-Never       // Bottom type (a diverging `panic`; not yet nameable in annotations)
+Never       // Bottom type (a diverging `panic`; usable as a return type)
 ```
 
 **`Int`/`UInt` are pointer-width** (Swift's model, design 47): 64-bit on
@@ -411,8 +412,8 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   conflates bytes with scalars). Two iterator views are provided instead:
   `bytes()` yields the raw bytes (`Int8`, matching `byte_at`) and `chars()`
   yields Unicode scalar values decoded from UTF-8. Scalars are yielded as `Int` —
-  there is no `Char` primitive type yet, and ordering comparisons / a
-  `Comparable` trait are a separate future decision (not built). Each iterator
+  there is no `Char` primitive type yet (a scalar is just an `Int`). `String`
+  itself *is* `Comparable` (byte-lexicographic ordering, design 48). Each iterator
   holds its OWN retain on the source string, so iterating a temporary
   (`for c in makeString().chars()`) is safe.
 - **FFI: `withCString`.** `s.withCString { ptr in ... }` hands a closure an
@@ -899,10 +900,11 @@ type Handler<T> = (T) -> Result<(), Error>
 **Status: implemented** for user-defined structs (methods — including
 overloaded methods and static methods, see [Functions](#functions) — overloaded
 custom `init`, and — see Traits — conformance via `extension Type: Trait`).
-Extending built-in types (`extension Int`), computed properties, and generic
-specialized extensions beyond what monomorphization already supports remain
-*planned*. Some method bodies below use stdlib methods (`.sqrt()`, `.cos()`)
-that are *(illustrative)*.
+Extending built-in primitive types (`extension Int`, `extension Float`) is also
+implemented (design 57 registers them as extendable — the stdlib numeric methods
+are built this way). Computed properties and generic specialized extensions
+beyond what monomorphization already supports remain *planned*. Some method
+bodies below use stdlib methods (`.sqrt()`, `.cos()`) that are *(illustrative)*.
 
 ```saw
 // Add methods to struct types
@@ -940,10 +942,11 @@ let d = p.distance_from_origin()  // Read-only
 let p2 = Point(magnitude: 5.0)    // Custom init
 let p3 = Point(polar: 10.0, angle: 1.57)  // Another custom init
 
-// Future: Built-in type extensions (not yet implemented)
-// extension Int {
-//     func is_even(&self) -> Bool { self % 2 == 0 }
-// }
+// Built-in type extensions (implemented, design 57). The stdlib's own
+// numeric methods (abs, pow, is_even, clamp, ...) are written exactly this way.
+extension Int {
+    func doubled(&self) -> Int { self * 2 }
+}
 
 // Future: Computed properties (not yet implemented)
 // extension String {
