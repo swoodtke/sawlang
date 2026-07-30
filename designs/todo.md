@@ -213,7 +213,26 @@ A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
   monomorphization context (a generic-enum sizing bug exposed by Set and
   Map coexisting). Compiler suite 661, 0 xfails. Known pre-existing (NOT
   54): `Map`/`Vector` with a *custom* allocator leaks its buffer on deinit
-  (reproduces with explicit construction; design 37/48 territory). [both apps]
+  (reproduces with explicit construction; design 37/48 territory) — FIXED in
+  design 59 B. [both apps]
+- **Design 59 "small-fixes batch" — LANDED**: seven parts, one commit each.
+  **A (DF2)** process wait-status decode — one `decode_wait_status` helper;
+  signal deaths report 128+N, not exit 0. **B** custom-allocator deinit leak
+  in Map/Vector — monomorphized deinit now appends field cleanup, and struct
+  field assignment releases the old owning value, both routed through the
+  value's own `A` (Global fast path byte-identical). **C** void-phi ICE — a
+  Void merge (if/else-chain or match in tail of a Void fn/closure) no longer
+  builds a phi. **D** riscv32 Hasher — state typed fixed-width `Int64` (64-bit
+  hash on every target, hosted digest byte-identical; riscv32 --emit-ir
+  verified). **E1** duplicate-key map-literal shadowed-value leak fixed
+  (discarded insert-return dropped); **E2** `{a>0, b>0}` set-literal lookahead
+  fixed (`<`/`>` no longer depth brackets — closure suite green, workaround
+  retired). **F** ledger sweep: L13/L5/L10/L6/L4/L3 all verified-fixed and
+  CLOSED with named proving tests; C4 verified no leak/double-free (no fix).
+  **G** 52/52b v1 gaps scoped only (A1c). Discovered + DEFERRED: L14
+  (enum-payload container element deinit) + L15 (collection-literal owning-
+  element aliasing double-free) — a joint fix, out of this batch's scope.
+  Compiler suite 669, 0 xfails. [both apps]
 
 **DEFERRED** (user, Jul 29): slices (needs own design vs no-escape
 refs); `\x` byte escapes; where clauses; extension sugar (computed
