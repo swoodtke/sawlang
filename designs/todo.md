@@ -278,15 +278,27 @@ dependent/linear/refinement types, first-class modules); REPL/LSP/
 formatter; `defer`/`do`/`ref` keywords (candidates to DROP from the
 reserved list — no designs exist).
 
-### Resolved-by-decision / stale-spec (fix docs, no work)
-Rc (Arc-only, decided design 16); thread API + async/await (colorless
-— never); `=>` arrows (superseded); swapAt (landed as Vector.swap,
-brief 40 — spec stale); StringBuilder "future work" note (landed 38);
-`dyn` reservation (retired by D16). **Verify-then-fix the four
-spec/TODO contradictions:** multiple bounds `A + B`, glob imports,
-scoped visibility (all probably landed — spec markers stale), named
-tuple field access + `.value` on distinct types (probably NOT landed —
-spec examples aspirational).
+### Resolved-by-decision / stale-spec — CLOSED (design 60, Jul 30)
+All named items fixed in LANGUAGE_SPEC.md / README.md / CLAUDE.md by
+design 60 (see designs/60-stale-docs.md; ran concurrently with 59 in a
+worktree, cherry-picked onto main). Rc→Arc-only (design 16), async/await
++ thread-API purge (colorless; 44/45/52/52b), `=>` arrows (superseded
+note only), swapAt→Vector.swap (40), StringBuilder future-work note
+removed (38), `dyn` retired (51). The four VERIFY-then-fix
+contradictions were probed:
+  - multiple bounds `T: A + B` — LANDED (spec de-planned)
+  - glob imports `import mod.*` — LANDED (spec de-planned)
+  - scoped visibility `public(package)` — LANDED (spec de-planned)
+  - named tuple field access + `.value` on distinct types — NOT landed
+    (named-tuple literal = parse error; **`.value` on a distinct `type`
+    ICEs — new ledger item L16**, needs a clean error or the feature);
+    spec examples relabeled illustrative/planned.
+Additional Part-3 corrections: Comparable (48), extension Int/Float
+(57), Never return type (58), `..=` operator (53) all reconciled from
+stale "planned" markers. README fully refreshed (real install/test
+instructions, current std list, headline features, no fictional URLs;
+license status corrected — see LICENSE, added Jul 30: Apache-2.0 WITH
+LLVM-exception).
 
 ## BLADE DOGFOOD FINDINGS (brief 49, Jul 29 — feed N-family / small fixes)
 - **DF1 — LANDED (design 53 Part 8).** `let _` is now a true discard:
