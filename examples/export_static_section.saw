@@ -1,0 +1,25 @@
+// design 58 Part 3: `@export` on a static emits an unmangled (or named)
+// external data symbol; the whitelist relaxes to arrays and structs of
+// whitelisted fields (data has no calling convention). `@section` places it in
+// a named object-file section and composes with `@export`. The exported data is
+// still readable from Saw through its binding.
+//
+// NOTE: section names here use the mach-o `SEG,sect` form so the test compiles
+// and runs on the host. The ELF idiom `@section(".vector_table")` is verified
+// for freestanding targets via `--emit-ir` (design 58 report).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 30
+// 12345
+
+@export("app_vectors")
+@section("__DATA,__vecs")
+static VECTORS: [UInt32; 4] = [10, 20, 30, 40]
+
+@export
+static BUILD_ID: Int64 = 12345
+
+func main() {
+    print(VECTORS[2])
+    print(BUILD_ID)
+}

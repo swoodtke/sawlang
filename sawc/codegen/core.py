@@ -971,10 +971,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         written in place via atomics). A bare declaration (no initializer) is a
         `zeroinitializer`. Reads resolve through `self.static_globals`.
         """
+        from ast_nodes import is_exported, export_symbol, section_name
+        exported = is_exported(static)
+        c_symbol = export_symbol(static) if exported else None
+
         llvm_type = self._get_llvm_type(static.type)
-        gname = self._static_mangled_name(static.name)
+        # An @export static takes the exact C data symbol; otherwise the mangled
+        # module-local name (design 41).
+        gname = c_symbol if c_symbol else self._static_mangled_name(static.name)
         gv = ir.GlobalVariable(self.module, llvm_type, name=gname)
-        gv.linkage = 'internal'  # module-local; ABI identity is the mangled name
+        # Exported statics are externally-visible definitions (default linkage);
+        # everything else stays module-local (`internal`).
+        gv.linkage = '' if exported else 'internal'
 
         if static.initializer is None:
             gv.initializer = ir.Constant(llvm_type, None)  # zeroinitializer
@@ -992,6 +1000,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         gv.global_constant = (
             static.initializer is not None
             and not self._type_has_interior_mutability(static.type))
+
+        # design 58: an @export static gets a named object-file section (if any)
+        # and is anchored against DCE via @llvm.used.
+        sec = section_name(static)
+        if sec:
+            gv.section = sec
+        if exported and gv not in self._exported_llvm_globals:
+            self._exported_llvm_globals.append(gv)
 
         self.static_globals[static.name] = gv
 
