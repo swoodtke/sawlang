@@ -1,0 +1,19 @@
+// B3: `a` is reached via two different path sources (../a1 from app, ../a2 from
+// b). v1 does not unify sources, so this is an error.
+import src.resolver.*
+import src.manifest.*
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/twosrc/app")) {
+        case Ok(m) -> {
+            match resolve(m) {
+                case Ok(_) -> panic("expected a two-sources error"),
+                case Err(e) -> {
+                    assert(e.text().contains("two different sources"), "reports two sources")
+                    print("resolver_two_sources: ok")
+                }
+            }
+        },
+        case Err(_) -> panic("could not load twosrc/app manifest")
+    }
+}

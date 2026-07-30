@@ -1,0 +1,18 @@
+// B3: p -> q -> p is a dependency cycle, reported as an error naming the cycle.
+import src.resolver.*
+import src.manifest.*
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/cycle/p")) {
+        case Ok(m) -> {
+            match resolve(m) {
+                case Ok(_) -> panic("expected a cycle error"),
+                case Err(e) -> {
+                    assert(e.text().contains("cycle"), "reports a cycle")
+                    print("resolver_cycle: ok")
+                }
+            }
+        },
+        case Err(_) -> panic("could not load cycle/p manifest")
+    }
+}

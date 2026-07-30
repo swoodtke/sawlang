@@ -1,0 +1,23 @@
+// B3: a path dependency's version comes from its own manifest, and a requirer's
+// version requirement (^0.3.0) is validated against it (mathx is 0.3.1 -> ok).
+import src.resolver.*
+import src.manifest.*
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/simple/app")) {
+        case Ok(m) -> {
+            match resolve(m) {
+                case Ok(res) -> {
+                    assert(res.len() == 1, "one dependency resolved")
+                    let i = res.index_of("mathx")
+                    assert(i >= 0, "mathx resolved")
+                    assert(res.version(i).equals("0.3.1"), "mathx is 0.3.1")
+                    assert(res.kind(i).equals("path"), "mathx is a path source")
+                    print("resolver_constraint: ok")
+                },
+                case Err(e) -> panic("resolve failed: {e.text()}")
+            }
+        },
+        case Err(_) -> panic("could not load simple/app manifest")
+    }
+}

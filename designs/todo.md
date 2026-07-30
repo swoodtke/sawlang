@@ -94,7 +94,15 @@ Progress log (newest last):
   (Exact/Caret/Tilde/AtLeast) + `parse_req` (bare = exact pin) + `matches` (0.x
   caret rule) + Printable. 4 blade tests in libs/semver/tests
   (parse/compare/match/print) green. Hit + worked around DF8. Suite 765
-  (unchanged; no compiler edit). Next: B3 resolver (path deps first).
+  (unchanged; no compiler edit).
+- B3 landed: `blade/src/resolver.saw` — transitive path-dependency graph,
+  one-version-per-name, source-identity (path normalization) two-sources error,
+  cycle + self-dep errors (cycle-before-dedup), and version-requirement
+  validation naming EVERY requirer on conflict. Columnar `Resolution`/`ReqList`
+  (String vectors). 5 blade tests + fixtures (simple/chain/conflict/cycle/
+  twosrc). IMPORTANT: could NOT `import` the external semver package (DF9);
+  resolver uses a self-contained minimal matcher instead. Suite 765 (no compiler
+  edit). Next: B5 git integration (local file:// repos).
 
 ### Dogfood findings — design 64 (Blade)
 - **DF-GlobConf — FIXED (this brief, `typechecker/core.py`).** A glob import
@@ -135,6 +143,28 @@ Progress log (newest last):
   selecting the operator into a `var` and constructing `VersionReq` exactly
   once at the end. Proper fix: the struct-literal codegen must not fold a
   literal with non-constant (SSA) nested-aggregate fields into an ir.Constant.
+- **DF9 (RECORDED, worked around) — BLADE CANNOT IMPORT THE EXTERNAL semver
+  PACKAGE (blocks B8 as written).** Writing the resolver to `import semver`
+  (libs/semver via `--module-path`) and use its `Version`/`VersionReq` ICE'd the
+  compiler THREE distinct ways: (a) a cross-module erased-`try` re-box inserting
+  a `SemverError` into `Box<any Error>` ("Can only insert {i8*,i8*}..."); (b) an
+  erased-error `{e}` interpolation dispatching an existential method
+  ("Can't index at [1] in SemverError"); (c) receiver-type confusion — a
+  `Manifest` value read back as `semver.Version` ("Undefined method:
+  Version.version"). These are the same cross-module monomorphization/mangling
+  family as DF6, amplified by a second package's type population. NET: a Saw
+  program importing an external, generic/error-heavy package is not yet viable,
+  so **B8's "blade depends on semver + toml by path" plan is compiler-blocked**.
+  Workaround: the resolver uses a self-contained minimal version matcher;
+  libs/semver stays a standalone, tested package. Needs a compiler brief
+  (likely the DF6 recursive-default-type-arg-filling fix) before B8.
+- **DF10 (RECORDED, worked around) — an optional produced in a MATCH ARM that is
+  also the function result is not wrapped.** `func f(...) -> String? { match x {
+  case A(s) -> s, case B(_) -> None } }` emits a phi mixing a bare `ptr` (the
+  unwrapped `s`) and `{i1,ptr}` (None) -> LLVM verifier error. Worked around by
+  splitting into non-optional helpers (return `""` + a separate bool). Proper
+  fix: coerce a non-optional match-arm value to the function's optional result
+  type (the DF3 auto-wrap, extended to match-arm-return position).
 
 ## SPEC-GAP PRIORITIES (Jul 29 sweep of LANGUAGE_SPEC planned-not-implemented)
 

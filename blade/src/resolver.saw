@@ -1,0 +1,457 @@
+// Resolver — build the dependency graph and pick one version per package
+// (design 64 B3). Path dependencies only in this cut; git candidates are wired
+// in by B5.
+//
+// Model (the design-64 ruling): max-satisfying, ONE version per package. A path
+// dependency has exactly one candidate — its own manifest's version. The
+// resolver reads the transitive graph in place, dedups by name, and rejects:
+//   - a name reached via two different sources (two paths) — no source
+//     unification;
+//   - a dependency cycle (names the cycle) and a self-dependency;
+//   - a resolved version that fails a requirer's version requirement (names
+//     every requirer + its requirement).
+
+import src.manifest.*
+
+// NOTE (dogfood DF9): this resolver was written to `import semver` (the
+// libs/semver package, via a --module-path mapping) and use its
+// Version/VersionReq. That combination currently ICEs the compiler in several
+// ways — a cross-module erased-`try` re-box, an erased-error `{e}`
+// interpolation, and receiver-type confusion (a `Manifest` read back as
+// `semver.Version`). Blade importing an external generic/error-heavy package is
+// not yet viable, which BLOCKS the B8 "blade depends on semver by path" plan as
+// written. Until a compiler fix lands, version matching is done by a small
+// SELF-CONTAINED matcher below (same logic as libs/semver, kept minimal); the
+// libs/semver package remains a standalone, tested design-48 dogfood.
+
+// =============================================================================
+// Errors
+// =============================================================================
+
+public struct ResolveError {
+    message: String
+}
+
+public extension ResolveError {
+    init(msg: String) -> ResolveError {
+        ResolveError(message: msg)
+    }
+
+    func text(&self) -> String {
+        self.message
+    }
+}
+
+public extension ResolveError: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append(self.message)
+    }
+}
+
+// =============================================================================
+// Resolution table (columnar — see the DepList note in manifest.saw)
+// =============================================================================
+
+public struct Resolution {
+    names: Vector<String>
+    versions: Vector<String>
+    kinds: Vector<String>     // "path" (git in B5)
+    locs: Vector<String>      // resolved directory (path) / url (git)
+    revs: Vector<String>      // "" for path
+}
+
+extension Resolution: NoCopy {
+    func deinit(var self) {}
+}
+
+public extension Resolution {
+    init() -> Resolution {
+        let a = Vector<String>()
+        let b = Vector<String>()
+        let c = Vector<String>()
+        let d = Vector<String>()
+        let e = Vector<String>()
+        Resolution(names: move a, versions: move b, kinds: move c, locs: move d, revs: move e)
+    }
+
+    func len(&self) -> Int {
+        self.names.len()
+    }
+
+    // Index of `name` in the table, or -1 if absent.
+    func index_of(&self, name: String) -> Int {
+        var i = 0
+        while i < self.names.len() {
+            if (self.names.get(i) ?? "").equals(name) {
+                return i
+            }
+            i = i + 1
+        }
+        -1
+    }
+
+    func name(&self, i: Int) -> String { self.names.get(i) ?? "" }
+    func version(&self, i: Int) -> String { self.versions.get(i) ?? "" }
+    func kind(&self, i: Int) -> String { self.kinds.get(i) ?? "" }
+    func loc(&self, i: Int) -> String { self.locs.get(i) ?? "" }
+    func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
+
+    func add(&var self, name: String, version: String, kind: String, loc: String, rev: String) {
+        self.names.push(name)
+        self.versions.push(version)
+        self.kinds.push(kind)
+        self.locs.push(loc)
+        self.revs.push(rev)
+    }
+}
+
+// =============================================================================
+// Requirement ledger (name, constraint, requirer) for every dependency edge
+// =============================================================================
+
+struct ReqList {
+    names: Vector<String>
+    constraints: Vector<String>
+    requirers: Vector<String>
+}
+
+extension ReqList: NoCopy {
+    func deinit(var self) {}
+}
+
+extension ReqList {
+    init() -> ReqList {
+        let a = Vector<String>()
+        let b = Vector<String>()
+        let c = Vector<String>()
+        ReqList(names: move a, constraints: move b, requirers: move c)
+    }
+
+    func len(&self) -> Int { self.names.len() }
+    func name(&self, i: Int) -> String { self.names.get(i) ?? "" }
+    func constraint(&self, i: Int) -> String { self.constraints.get(i) ?? "" }
+    func requirer(&self, i: Int) -> String { self.requirers.get(i) ?? "" }
+
+    func add(&var self, name: String, constraint: String, requirer: String) {
+        self.names.push(name)
+        self.constraints.push(constraint)
+        self.requirers.push(requirer)
+    }
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// The relative directory of a path source ("" for a git source). Split into two
+// non-optional helpers rather than one `-> String?`: an optional value produced
+// in a match arm that is also the function result is not wrapped correctly by
+// codegen (dogfood DF10).
+func path_dir(source: DepSource) -> String {
+    match source {
+        case PathDep(dir) -> dir,
+        case GitDep(_) -> ""
+    }
+}
+
+func is_git_source(source: DepSource) -> Bool {
+    match source {
+        case PathDep(_) -> false,
+        case GitDep(_) -> true
+    }
+}
+
+func stack_contains(stack: &Vector<String>, name: String) -> Bool {
+    var i = 0
+    while i < stack.len() {
+        if (stack.get(i) ?? "").equals(name) {
+            return true
+        }
+        i = i + 1
+    }
+    false
+}
+
+func stack_to_string(stack: &Vector<String>) -> String {
+    var b = StringBuilder()
+    var i = 0
+    while i < stack.len() {
+        if i > 0 {
+            b.append(" -> ")
+        }
+        b.append(stack.get(i) ?? "")
+        i = i + 1
+    }
+    b.build()
+}
+
+// Resolve `.`/`..` segments in a slash path so the same package reached via
+// different relative paths compares equal (source identity). Leading-`/` is not
+// preserved (fixtures use relative paths).
+func normalize_path(s: String) -> String {
+    let parts = s.split("/")
+    var out = Vector<String>()
+    for p in parts.iter() {
+        if p.is_empty() || p.equals(".") {
+            continue
+        }
+        if p.equals("..") {
+            if out.len() > 0 {
+                let _ = out.pop()
+            }
+        } else {
+            out.push(p)
+        }
+    }
+    var b = StringBuilder()
+    var i = 0
+    while i < out.len() {
+        if i > 0 {
+            b.append("/")
+        }
+        b.append(out.get(i) ?? "")
+        i = i + 1
+    }
+    b.build()
+}
+
+// Minimal self-contained semver (see the DF9 note above). `Ver` is a trivial
+// value type; matching returns None only for a MALFORMED constraint.
+struct Ver {
+    major: Int
+    minor: Int
+    patch: Int
+}
+
+func parse_ver(s: String) -> Ver? {
+    if s.contains("-") || s.contains("+") {
+        return None
+    }
+    let parts = s.split(".")
+    if parts.len() != 3 {
+        return None
+    }
+    guard let a = (parts.get(0) ?? "").to_int() else { return None }
+    guard let b = (parts.get(1) ?? "").to_int() else { return None }
+    guard let c = (parts.get(2) ?? "").to_int() else { return None }
+    if a < 0 || b < 0 || c < 0 {
+        return None
+    }
+    Ver(major: a, minor: b, patch: c)
+}
+
+func ver_ge(a: Ver, b: Ver) -> Bool {
+    if a.major != b.major {
+        return a.major > b.major
+    }
+    if a.minor != b.minor {
+        return a.minor > b.minor
+    }
+    a.patch >= b.patch
+}
+
+func ver_eq(a: Ver, b: Ver) -> Bool {
+    a.major == b.major && a.minor == b.minor && a.patch == b.patch
+}
+
+// Does `v` satisfy `constraint`? None => the constraint string is malformed.
+// Empty constraint => no constraint (matches).
+func req_matches(constraint: String, v: Ver) -> Bool? {
+    let t = constraint.trim()
+    if t.is_empty() {
+        return true
+    }
+
+    var op = "="
+    var rest = t
+    if t.starts_with(">=") {
+        op = ">="
+        rest = t.substring(2, t.len()).trim()
+    } else if t.starts_with("^") {
+        op = "^"
+        rest = t.substring(1, t.len()).trim()
+    } else if t.starts_with("~") {
+        op = "~"
+        rest = t.substring(1, t.len()).trim()
+    }
+
+    guard let r = parse_ver(rest) else {
+        return None
+    }
+
+    if op.equals("=") {
+        return ver_eq(v, r)
+    }
+    if op.equals(">=") {
+        return ver_ge(v, r)
+    }
+    if op.equals("~") {
+        return ver_ge(v, r) && v.major == r.major && v.minor == r.minor
+    }
+    // caret
+    if not ver_ge(v, r) {
+        return false
+    }
+    if r.major > 0 {
+        return v.major == r.major
+    }
+    if r.minor > 0 {
+        return v.major == 0 && v.minor == r.minor
+    }
+    v.major == 0 && v.minor == 0 && v.patch == r.patch
+}
+
+// =============================================================================
+// Resolution
+// =============================================================================
+
+// Visit one dependency edge: record the requirement, and (first time only) read
+// the dependency's manifest, add it to the table, and descend into ITS deps.
+func visit(dep_name: String, source: DepSource, constraint: String, requirer: String, base_dir: Path, resolution: &var Resolution, reqs: &var ReqList, stack: &var Vector<String>) -> Result<Bool, ResolveError> {
+
+    // Every edge is a requirement to validate later (so conflicts name every
+    // requirer, not just the first).
+    reqs.add(dep_name, constraint, requirer)
+
+    // Self-dependency.
+    if dep_name.equals(requirer) {
+        return ResolveError(msg: "package `{requirer}` depends on itself")
+    }
+
+    // B3 is path-only.
+    if is_git_source(source) {
+        return ResolveError(msg: "git dependencies are not supported yet (B5): `{dep_name}`")
+    }
+    let rel = path_dir(source)
+    // Normalize so the same package reached via different relative paths is one
+    // source (and one dedup key).
+    let dep_loc = normalize_path(base_dir.join(rel).as_str())
+    let dep_dir = Path(s: dep_loc)
+
+    // Cycle FIRST: if the name is on the active resolution stack it is an
+    // ancestor, which must be a cycle error rather than a silent dedup (a
+    // resolved-but-not-ancestor node is caught by the dedup check below).
+    if stack_contains(&stack, dep_name) {
+        return ResolveError(msg: "dependency cycle: {stack_to_string(&stack)} -> {dep_name}")
+    }
+
+    // Already resolved (and not an ancestor): enforce single source, then stop.
+    let existing = resolution.index_of(dep_name)
+    if existing >= 0 {
+        let prev = resolution.loc(existing)
+        if not prev.equals(dep_loc) {
+            return ResolveError(msg: "package `{dep_name}` is required from two different sources: `{prev}` and `{dep_loc}`")
+        }
+        return true
+    }
+
+    // Read the dependency's own manifest for its version and its deps. Manifest
+    // errors are wrapped into a ResolveError (concrete error type — the erased
+    // `try` re-box across the semver module boundary currently ICEs codegen;
+    // recorded as dogfood DF9).
+    let m = match Manifest.load_from(dep_dir) {
+        case Ok(x) -> x,
+        case Err(_) -> { return ResolveError(msg: "cannot read manifest for `{dep_name}` at {dep_loc}") }
+    }
+    resolution.add(dep_name, m.version(), "path", dep_loc, "")
+
+    stack.push(dep_name)
+    let sub = match m.dependencies() {
+        case Ok(x) -> move x,
+        case Err(_) -> { return ResolveError(msg: "cannot read dependencies of `{dep_name}`") }
+    }
+    var j = 0
+    while j < sub.len() {
+        guard let sd = sub.get(j) else {
+            break
+        }
+        let _ = try visit(sd.name, sd.source, sd.version, dep_name, dep_dir, &var resolution, &var reqs, &var stack)
+        j = j + 1
+    }
+    let _ = stack.pop()
+
+    true
+}
+
+// After the graph is built, check every resolved version against all the
+// requirements recorded for its name.
+func validate(resolution: &Resolution, reqs: &ReqList) -> Result<Bool, ResolveError> {
+    var i = 0
+    while i < resolution.len() {
+        let name = resolution.name(i)
+        let ver_str = resolution.version(i)
+
+        guard let ver = parse_ver(ver_str) else {
+            return ResolveError(msg: "package `{name}` has an unparseable version `{ver_str}`")
+        }
+
+        // Does the resolved version satisfy every non-empty requirement?
+        var conflict = false
+        var k = 0
+        while k < reqs.len() {
+            if reqs.name(k).equals(name) {
+                let cons = reqs.constraint(k)
+                if not cons.is_empty() {
+                    guard let ok = req_matches(cons, ver) else {
+                        return ResolveError(msg: "invalid version requirement `{cons}` on `{name}`")
+                    }
+                    if not ok {
+                        conflict = true
+                    }
+                }
+            }
+            k = k + 1
+        }
+
+        if conflict {
+            // Build a message naming every requirer + its requirement.
+            var b = StringBuilder()
+            b.append("cannot satisfy version requirements for `")
+            b.append(name)
+            b.append("` (resolved ")
+            b.append(ver_str)
+            b.append("):")
+            var r = 0
+            while r < reqs.len() {
+                if reqs.name(r).equals(name) {
+                    let cons = reqs.constraint(r)
+                    if not cons.is_empty() {
+                        b.append("\n  `")
+                        b.append(reqs.requirer(r))
+                        b.append("` requires ")
+                        b.append(cons)
+                    }
+                }
+                r = r + 1
+            }
+            return ResolveError(msg: b.build())
+        }
+
+        i = i + 1
+    }
+    true
+}
+
+// Resolve the full transitive path-dependency graph of `root`.
+public func resolve(root: Manifest) -> Result<Resolution, ResolveError> {
+    var resolution = Resolution()
+    var reqs = ReqList()
+    var stack = Vector<String>()
+
+    let deps = match root.dependencies() {
+        case Ok(x) -> move x,
+        case Err(_) -> { return ResolveError(msg: "cannot read root dependencies") }
+    }
+    var i = 0
+    while i < deps.len() {
+        guard let d = deps.get(i) else {
+            break
+        }
+        let _ = try visit(d.name, d.source, d.version, root.name(), root.root_dir, &var resolution, &var reqs, &var stack)
+        i = i + 1
+    }
+
+    let _ = try validate(&resolution, &reqs)
+
+    move resolution
+}

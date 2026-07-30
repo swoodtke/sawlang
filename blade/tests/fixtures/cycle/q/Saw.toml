@@ -1,0 +1,6 @@
+[package]
+name = "q"
+version = "0.1.0"
+
+[dependencies]
+p = { path = "../p" }

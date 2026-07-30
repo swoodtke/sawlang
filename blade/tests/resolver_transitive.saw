@@ -1,0 +1,25 @@
+// B3: the resolver builds the full transitive path-dependency graph
+// (app -> a -> b) and records each package's version from its own manifest.
+import src.resolver.*
+import src.manifest.*
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/chain/app")) {
+        case Ok(m) -> {
+            match resolve(m) {
+                case Ok(res) -> {
+                    assert(res.len() == 2, "two transitive packages")
+                    let ai = res.index_of("a")
+                    let bi = res.index_of("b")
+                    assert(ai >= 0, "a resolved")
+                    assert(bi >= 0, "b resolved")
+                    assert(res.version(ai).equals("1.0.0"), "a is 1.0.0")
+                    assert(res.version(bi).equals("2.0.0"), "b is 2.0.0")
+                    print("resolver_transitive: ok")
+                },
+                case Err(e) -> panic("resolve failed: {e.text()}")
+            }
+        },
+        case Err(_) -> panic("could not load chain/app manifest")
+    }
+}

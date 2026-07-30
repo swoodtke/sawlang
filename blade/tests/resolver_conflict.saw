@@ -1,0 +1,24 @@
+// B3: x resolves to 1.5.0 (its manifest). `app` requires ^1.0.0 (ok) but `y`
+// requires ^2.0.0 (fails) -> a version conflict whose message names BOTH
+// requirers.
+import src.resolver.*
+import src.manifest.*
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/conflict/app")) {
+        case Ok(m) -> {
+            match resolve(m) {
+                case Ok(_) -> panic("expected a version conflict"),
+                case Err(e) -> {
+                    let msg = e.text()
+                    assert(msg.contains("cannot satisfy"), "conflict message")
+                    assert(msg.contains("app"), "names requirer app")
+                    assert(msg.contains("y"), "names requirer y")
+                    assert(msg.contains("^2.0.0"), "shows the failing requirement")
+                    print("resolver_conflict: ok")
+                }
+            }
+        },
+        case Err(_) -> panic("could not load conflict/app manifest")
+    }
+}
