@@ -148,8 +148,14 @@ class MethodsMixin:
                 if result is not None:
                     self.builder.ret(self._coerce_ret_value(result))
                 else:
-                    # Return default value
-                    default = ir.Constant(self._get_llvm_type(method.return_type), 0)
+                    # Degenerate fallthrough (every reachable path already
+                    # returned, e.g. an if/else where both arms `return`): emit an
+                    # `undef` of the return type. `ir.Constant(t, 0)` is INVALID for
+                    # an aggregate (struct/enum/optional/array/tuple) — `0` is not
+                    # an iterable field list, so llvmlite's `format_constant` ICE'd
+                    # ("'int' object is not iterable") at `ret` emission (DF8).
+                    default = ir.Constant(self._get_llvm_type(method.return_type),
+                                          ir.Undefined)
                     self.builder.ret(default)
 
         # Restore return type
@@ -430,8 +436,14 @@ class MethodsMixin:
                 if result is not None:
                     self.builder.ret(self._coerce_ret_value(result))
                 else:
-                    # Return default value
-                    default = ir.Constant(self._get_llvm_type(func.return_type), 0)
+                    # Degenerate fallthrough (every reachable path already
+                    # returned — e.g. an if/else where both arms `return`): emit an
+                    # `undef` of the return type. `ir.Constant(t, 0)` is INVALID for
+                    # an aggregate (struct/enum/optional/array/tuple) — `0` is not
+                    # an iterable field list, so llvmlite's `format_constant` ICE'd
+                    # ("'int' object is not iterable") at `ret` emission (DF8).
+                    default = ir.Constant(self._get_llvm_type(func.return_type),
+                                          ir.Undefined)
                     self.builder.ret(default)
 
         # Restore previous return type

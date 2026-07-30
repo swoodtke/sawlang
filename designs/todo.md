@@ -115,6 +115,15 @@ In progress (interruption-safe: one DF per commit). Progress log (newest last):
   auto-wrap. Regression: `examples/match_arm_optional_wrap.saw`. Suite 766 -> 767.
   (Blade's `path_dir`/`is_git_source` split-helper workaround left in place; it's
   harmless and a single `-> String?` merge isn't required.)
+- **DF8 LANDED** — a function/method whose body is an if/else where BOTH arms
+  `return` leaves a degenerate, unreachable fallthrough block; codegen emitted
+  `ret ir.Constant(<returnType>, 0)` there, and `0` is not a valid AGGREGATE
+  constant payload (struct/enum/optional/array/tuple) -> llvmlite `format_constant`
+  ICE ("'int' object is not iterable") at `ret` emission. NOTE: the trigger is the
+  2-branch return of ANY aggregate, not specifically a nested-struct field (the
+  original ledger over-narrowed it). Fix: emit `ir.Undefined` of the return type on
+  that unreachable path (functions, methods, closures — the three parallel sites).
+  Regression: `examples/return_struct_from_branches.saw`. Suite 767 -> 768.
 
 ## Design 64 — Blade for real (deps/semver/lock/git/incremental/self-host)
 

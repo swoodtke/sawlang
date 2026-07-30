@@ -1,0 +1,60 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 4
+// 1
+// 2
+// 7
+// 9
+
+// Regression (design 67 / dogfood DF8): a struct-returning function whose body
+// is an if/else where BOTH arms `return` left a degenerate, unreachable
+// fallthrough block. Codegen emitted `ret ir.Constant(structType, 0)` there, and
+// `0` is not a valid aggregate constant payload -> llvmlite's `format_constant`
+// ICE'd ("'int' object is not iterable") at `ret` emission. The fix emits an
+// `undef` of the return type on that unreachable path instead. Covers a flat
+// struct, a nested-struct field, and a method receiver.
+
+struct Inner { a: Int, b: Int }
+struct Wrap { inner: Inner, tag: Int }
+
+func flat(c: Bool) -> Inner {
+    if c {
+        return Inner(a: 3, b: 4)
+    } else {
+        return Inner(a: 0, b: 0)
+    }
+}
+
+func wrap(c: Bool, v: Inner) -> Wrap {
+    if c {
+        return Wrap(inner: v, tag: 1)
+    } else {
+        return Wrap(inner: v, tag: 2)
+    }
+}
+
+extension Wrap {
+    func pick(&self, c: Bool) -> Inner {
+        if c {
+            return Inner(a: 7, b: 9)
+        } else {
+            return self.inner
+        }
+    }
+}
+
+func main() {
+    let f = flat(true)
+    print(f.a)                 // 3
+    print(f.b)                 // 4
+
+    let w = wrap(true, f)
+    print(w.tag)               // 1
+    let w2 = wrap(false, f)
+    print(w2.tag)              // 2
+
+    let p = w.pick(true)
+    print(p.a)                 // 7
+    print(p.b)                 // 9
+}

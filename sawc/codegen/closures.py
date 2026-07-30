@@ -206,7 +206,11 @@ class ClosuresMixin:
                 if result is not None:
                     self.builder.ret(result)
                 else:
-                    self.builder.ret(ir.Constant(ret_type, 0))
+                    # `undef`, not `0`: a degenerate fallthrough of an
+                    # aggregate-returning closure — `ir.Constant(t, 0)` is invalid
+                    # for a struct/enum/optional/array/tuple (DF8, same as the
+                    # function/method paths).
+                    self.builder.ret(ir.Constant(ret_type, ir.Undefined))
 
         # Restore context
         self.builder = saved_builder
