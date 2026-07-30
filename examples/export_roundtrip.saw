@@ -1,0 +1,20 @@
+// design 58 Part 2: `@export("sym")` gives a function the exact unmangled C
+// symbol, C calling convention, and external linkage. An `extern "C"` block in
+// the same unit declaring that symbol resolves to the definition — an in-binary
+// round trip through the C ABI with no C compiler needed.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+
+extern "C" {
+    func bridge_probe(x: Int) -> Int
+}
+
+@export("bridge_probe")
+func triple(x: Int) -> Int {
+    x * 3
+}
+
+func main() {
+    print(bridge_probe(5))
+}

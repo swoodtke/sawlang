@@ -1,0 +1,22 @@
+// design 58 Part 2 + design 55: an exported function's NAME may be overloaded
+// Saw-side. Only ONE overload carries `@export`, and it uses an explicit symbol
+// so it never collides with the mangled overload symbol. Saw dispatch resolves
+// `combine(5)`; the C symbol `combine2` reaches the two-arg overload.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 7
+
+extern "C" {
+    func combine2(a: Int, b: Int) -> Int
+}
+
+@export("combine2")
+func combine(x: Int, y: Int) -> Int { x + y }
+
+func combine(x: Int) -> Int { x }
+
+func main() {
+    print(combine(5))
+    print(combine2(3, 4))
+}

@@ -1,0 +1,13 @@
+// design 58 Part 2: by-value structs are rejected on export signatures
+// (per-target aggregate ABI classification is out of scope); pass
+// `UnsafePointer<S>` instead — the declaration-order layout guarantee makes
+// that correct.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has type the by-value struct `Point`, which is not C-ABI-safe
+
+struct Point { x: Int, y: Int }
+
+@export
+func consume(p: Point) -> Int { p.x }
+
+func main() { print(1) }

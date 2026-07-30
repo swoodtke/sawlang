@@ -125,6 +125,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # design 22 effect system: whole-program suspend analysis state.
         self._effect_init()
 
+        # design 58: whole-program C-export symbol table for hygiene checks
+        # (duplicate exported symbols across the compilation unit). Accumulated
+        # across every module the shared checker instance visits. Maps the
+        # requested C symbol -> (declaration name, line, column, source_file).
+        self._export_symbol_table: Dict[str, Tuple[str, int, int, Optional[str]]] = {}
+
         # Unified namespace (Phase 0 of module system)
         # Populated in parallel with legacy dicts during migration
         self.namespace = Namespace()
@@ -254,6 +260,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # codegen symbol (stamped on both the symbol and its AST node).
         self._stamp_overload_symbols()
 
+        # design 58: validate @export / @section on functions and statics.
+        self._check_attribute_semantics(program)
+
         # Check for main function (only required for executables)
         if require_main and not self.namespace.has_function("main"):
             self.reporter.error(
@@ -275,6 +284,179 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self.finalize_effects()
 
         return not self.reporter.has_errors()
+
+    # ------------------------------------------------------------------ design 58
+    # C-export signature whitelist. Function parameters accept these scalar
+    # kinds; the return additionally accepts Void and Never (noreturn). Everything
+    # else — Bool, String, Optional, Result/enum, tuple, closure, by-value struct,
+    # array, existential, reference — is rejected (pass UnsafePointer<S> for an
+    # aggregate). Bool is REJECTED in v1: the extern-import path lowers it as a
+    # bare `i1`, which does not match the platform C `_Bool` ABI, and no stdlib
+    # extern actually passes a Bool, so there is no sound precedent to mirror.
+    _EXPORT_FN_SCALAR_KINDS = frozenset({
+        TypeKind.INT, TypeKind.UINT,
+        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+        TypeKind.FLOAT, TypeKind.POINTER,
+    })
+    # Exported STATIC data has no calling convention, so the whitelist relaxes to
+    # scalars (no pointer — a static pointer to nothing is not meaningful data),
+    # plus arrays and structs recursively built from whitelisted fields.
+    _EXPORT_STATIC_SCALAR_KINDS = frozenset({
+        TypeKind.INT, TypeKind.UINT,
+        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+        TypeKind.FLOAT,
+    })
+
+    def _describe_type_for_export(self, t: SawType) -> str:
+        """Short human phrase for a non-whitelisted export type."""
+        resolved = self._resolve_type_alias(t)
+        k = resolved.kind
+        phrases = {
+            TypeKind.BOOL: "`Bool`",
+            TypeKind.STRING: "`String`",
+            TypeKind.OPTIONAL: "an optional (`T?`)",
+            TypeKind.TUPLE: "a tuple",
+            TypeKind.FUNCTION: "a closure",
+            TypeKind.ARRAY: "an array",
+            TypeKind.STRUCT: f"the by-value struct `{resolved.struct_name}`",
+            TypeKind.ENUM: f"the enum `{resolved.enum_name}`",
+            TypeKind.EXISTENTIAL: "an `any` existential",
+            TypeKind.REFERENCE: "a reference",
+        }
+        return phrases.get(k, f"`{k.name}`")
+
+    def _export_fn_type_ok(self, t: SawType, *, is_return: bool) -> bool:
+        resolved = self._resolve_type_alias(t)
+        k = resolved.kind
+        if k in self._EXPORT_FN_SCALAR_KINDS:
+            return True
+        if is_return and k in (TypeKind.VOID, TypeKind.NEVER):
+            return True
+        return False
+
+    def _export_static_type_ok(self, t: SawType, _seen=None) -> bool:
+        resolved = self._resolve_type_alias(t)
+        k = resolved.kind
+        if k in self._EXPORT_STATIC_SCALAR_KINDS:
+            return True
+        if k == TypeKind.ARRAY:
+            return self._export_static_type_ok(resolved.array_element_type)
+        if k == TypeKind.STRUCT:
+            # Recurse into fields; guard against cyclic struct graphs.
+            seen = _seen or set()
+            if resolved.struct_name in seen:
+                return True
+            seen = seen | {resolved.struct_name}
+            info = self.get_struct_info(resolved.struct_name)
+            if info is None or getattr(info, 'type_params', None):
+                return False  # unknown or generic struct: not a fixed C layout
+            for _fname, ftype in info.fields.items():
+                if not self._export_static_type_ok(ftype, seen):
+                    return False
+            return True
+        return False
+
+    def _register_export_symbol(self, sym: str, node) -> None:
+        """Symbol hygiene (design 58): reserved-symbol collision + duplicate
+        exported-symbol detection across the whole compilation unit."""
+        src = getattr(node, 'source_file', None)
+        if sym == "main" or sym.startswith("saw_") or sym.startswith("__saw_"):
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`@export` symbol `{sym}` collides with a reserved runtime "
+                f"symbol (`main`, `saw_*`, `__saw_*`)",
+                node.line, node.column,
+                hint="choose a different exported symbol name via "
+                     "`@export(\"other_name\")`",
+                source_file=src)
+            return
+        prev = self._export_symbol_table.get(sym)
+        if prev is not None:
+            pname, pline, _pcol, _pfile = prev
+            self.reporter.error(
+                ErrorKind.TYPE_MISMATCH,
+                f"duplicate `@export` symbol `{sym}` (already exported by "
+                f"`{pname}` at line {pline})",
+                node.line, node.column,
+                hint="an unmangled C symbol must be unique across the program; "
+                     "give one an explicit `@export(\"other_name\")`",
+                source_file=src)
+            return
+        self._export_symbol_table[sym] = (
+            getattr(node, 'name', sym), node.line, node.column, src)
+
+    def _check_attribute_semantics(self, program: Program) -> None:
+        """design 58 Part 2/3: validate @export and @section semantics on the
+        functions and statics of one module (parser already enforced grammar +
+        position). Suspension-freedom of an exported function is checked by the
+        effect machinery, which treats it as a `sync` root (see effects.py)."""
+        from ast_nodes import is_exported, export_symbol, section_name
+
+        for func in program.functions:
+            sec = section_name(func)
+            if sec is not None and sec.strip() == "":
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "`@section` name must be a non-empty string",
+                    func.line, func.column, source_file=func.source_file)
+            if not is_exported(func):
+                continue
+            sym = export_symbol(func)
+            if func.type_params:
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot `@export` the generic function `{func.name}` — a C "
+                    f"symbol has no type parameters",
+                    func.line, func.column,
+                    hint="export a concrete, non-generic wrapper instead",
+                    source_file=func.source_file)
+            for p in func.parameters:
+                if not self._export_fn_type_ok(p.type, is_return=False):
+                    self.reporter.error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`@export` function `{func.name}`: parameter `{p.name}` "
+                        f"has type {self._describe_type_for_export(p.type)}, "
+                        f"which is not C-ABI-safe",
+                        func.line, func.column,
+                        hint="exported signatures allow fixed-width integers, "
+                             "Int/UInt, Float, and UnsafePointer<T>; pass an "
+                             "aggregate by `UnsafePointer<S>`",
+                        source_file=func.source_file)
+            if not self._export_fn_type_ok(func.return_type, is_return=True):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`@export` function `{func.name}`: return type "
+                    f"{self._describe_type_for_export(func.return_type)} is not "
+                    f"C-ABI-safe",
+                    func.line, func.column,
+                    hint="exported returns allow fixed-width integers, Int/UInt, "
+                         "Float, UnsafePointer<T>, Void, or Never (noreturn)",
+                    source_file=func.source_file)
+            self._register_export_symbol(sym, func)
+
+        for static in getattr(program, 'statics', []):
+            sec = section_name(static)
+            if sec is not None and sec.strip() == "":
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "`@section` name must be a non-empty string",
+                    static.line, static.column, source_file=static.source_file)
+            if not is_exported(static):
+                continue
+            sym = export_symbol(static)
+            if not self._export_static_type_ok(static.type):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`@export` static `{static.name}`: type "
+                    f"{self._describe_type_for_export(static.type)} is not a "
+                    f"C-ABI-safe data layout",
+                    static.line, static.column,
+                    hint="exported statics allow fixed-width integers, Int/UInt, "
+                         "Float, arrays thereof, and structs of such fields",
+                    source_file=static.source_file)
+            self._register_export_symbol(sym, static)
 
     def check_module(
         self,
@@ -554,6 +736,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Overloading (design 55): stamp overload-set codegen symbols for this
         # module now that all its signatures are registered.
         self._stamp_overload_symbols()
+
+        # design 58: validate @export / @section on this module's functions and
+        # statics. The export-symbol table accumulates across every module the
+        # shared checker visits, so a duplicate exported C symbol across modules
+        # in the same compilation unit is caught.
+        self._check_attribute_semantics(module_ast)
 
         # Check for main function (only for entry module)
         if is_entry and not self.namespace.has_function("main"):

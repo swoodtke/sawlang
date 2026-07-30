@@ -251,6 +251,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Maps function name -> inner SawType (unwrapped from optional)
         self.extern_optional_returns: dict[str, SawType] = {}
 
+        # design 58: `@export`ed functions/statics to anchor against DCE via an
+        # `@llvm.used` appending global (emitted once at the end of codegen).
+        self._exported_llvm_globals: list = []
+
         # Current return type (for implicit optional wrapping)
         self.current_return_type: Optional[SawType] = None
 
@@ -941,6 +945,24 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return ir.Constant(llvm_type, elems)
         raise ValueError(f"non-constant static initializer: {type(expr).__name__}")
 
+    def _emit_llvm_used(self):
+        """design 58: emit `@llvm.used` listing every `@export`ed function and
+        static, so they survive DCE/global-DCE at the default -O1 pipeline even
+        when nothing in the compilation unit references them (the `_start` /
+        vector-table shape). `@llvm.used` is the linker-agnostic keep-alive
+        anchor; external visibility (default linkage) makes the symbol callable
+        from C. Emitted once, after all definitions exist."""
+        if not self._exported_llvm_globals:
+            return
+        i8ptr = ir.IntType(8).as_pointer()
+        n = len(self._exported_llvm_globals)
+        arr_ty = ir.ArrayType(i8ptr, n)
+        used = ir.GlobalVariable(self.module, arr_ty, name="llvm.used")
+        used.linkage = "appending"
+        used.section = "llvm.metadata"
+        elems = [g.bitcast(i8ptr) for g in self._exported_llvm_globals]
+        used.initializer = ir.Constant(arr_ty, elems)
+
     def _emit_static_global(self, static):
         """Emit the LLVM global for one module-level static (design 41 item 3).
 
@@ -1203,6 +1225,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # (destructor + method thunks) now that every impl function is declared.
         self._emit_pending_vtables()
 
+        # design 58: anchor `@export`ed symbols against DCE.
+        self._emit_llvm_used()
+
         return str(self.module)
 
     # _resolve_type_alias is now in codegen_types.py (TypesMixin)
@@ -1415,17 +1440,62 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 llvm_func.args[arg_offset + i].add_attribute('noalias')
 
     def _declare_function(self, func: Function, name_override: str = None):
-        """Declare a function. If name_override is provided, use it instead of func.name."""
-        func_name = name_override if name_override else func.name
+        """Declare a function. If name_override is provided, use it instead of func.name.
+
+        design 58: an `@export`ed function keeps `func_name` as the lookup key
+        Saw-side callers use, but its LLVM symbol is the requested C name
+        (`@export` / `@export("sym")`) — unmangled, external linkage, kept alive
+        against DCE. `@section("...")` places it in a named object-file section.
+        """
+        from ast_nodes import is_exported, export_symbol, section_name
+        func_name = name_override if name_override else func.name  # self.functions key
+        exported = is_exported(func)
+        c_symbol = export_symbol(func) if exported else None
+        llvm_name = c_symbol if c_symbol else func_name
+
         param_types = [self._get_llvm_type(p.type) for p in func.parameters]
-        return_type = self._get_llvm_type(func.return_type)
+        is_never = func.return_type.kind == TypeKind.NEVER
+        if is_never:
+            # A `-> Never` function diverges: lower to `void` + `noreturn` (the
+            # `_start`/noreturn C shape). The body terminates with `unreachable`.
+            return_type = ir.VoidType()
+        else:
+            return_type = self._get_llvm_type(func.return_type)
 
         # Main function should return int for proper exit code
         if func_name == "main" and func.return_type.kind == TypeKind.VOID:
             return_type = ir.IntType(32)
 
         func_type = ir.FunctionType(return_type, param_types)
-        llvm_func = ir.Function(self.module, func_type, name=func_name)
+
+        # Unify with a pre-existing bodyless declaration of the same LLVM symbol
+        # (e.g. an `extern "C"` import of an `@export`ed symbol in the same unit)
+        # so the definition and declaration collapse into ONE function instead of
+        # colliding. Only for exports, where symbol sharing is intentional.
+        llvm_func = None
+        if exported:
+            try:
+                existing = self.module.get_global(llvm_name)
+            except KeyError:
+                existing = None
+            if isinstance(existing, ir.Function) and len(existing.blocks) == 0:
+                llvm_func = existing
+        if llvm_func is None:
+            llvm_func = ir.Function(self.module, func_type, name=llvm_name)
+
+        if is_never:
+            llvm_func.attributes.add("noreturn")
+        if exported:
+            # Default function linkage ('') already emits a `define` with external
+            # visibility (the symbol is in the object's symbol table for the C
+            # linker) and the C calling convention. Anchor it against DCE with
+            # `@llvm.used`. Setting linkage="external" on a DEFINITION is invalid.
+            if llvm_func not in self._exported_llvm_globals:
+                self._exported_llvm_globals.append(llvm_func)
+        sec = section_name(func)
+        if sec:
+            llvm_func.section = sec
+
         self.functions[func_name] = llvm_func
         self._mark_noalias_params(llvm_func, [p.type for p in func.parameters])
         # Function return types are now in namespace

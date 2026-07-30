@@ -37,6 +37,7 @@ class TypeParsingMixin:
         'Bool': TypeKind.BOOL,
         'String': TypeKind.STRING,
         'Void': TypeKind.VOID,  # explicit unit type, e.g. a `(T) -> Void` closure
+        'Never': TypeKind.NEVER,  # bottom type; a `-> Never` fn diverges (design 49/58)
         'UInt': TypeKind.UINT,  # System-width unsigned integer
         # Fixed-width signed integers
         'Int8': TypeKind.INT8,

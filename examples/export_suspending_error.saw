@@ -1,0 +1,11 @@
+// design 58 Part 2: an exported function is an effect ROOT (like main) and must
+// be transitively suspension-free — a coroutine frame cannot cross a C boundary.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in an `@export` function
+
+@export
+func worker() {
+    sleep(1)
+}
+
+func main() { print(1) }

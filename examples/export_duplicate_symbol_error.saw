@@ -1,0 +1,12 @@
+// design 58 Part 2: two @exports resolving to the same C symbol is an error —
+// an unmangled symbol must be unique.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: duplicate `@export` symbol `shared`
+
+@export("shared")
+func a() -> Int { 1 }
+
+@export("shared")
+func b() -> Int { 2 }
+
+func main() { print(1) }

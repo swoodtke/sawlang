@@ -127,16 +127,29 @@ class EffectsMixin:
         key = ("fn", getattr(func, 'mangled_symbol', None) or func.name)
         node = self._suspend_nodes.get(key)
         if node is None:
+            from ast_nodes import is_exported
             is_sync = getattr(func, "is_sync", False)
+            # design 58: an `@export`ed function is a C-boundary root that cannot
+            # suspend (there is no Saw caller to drive it, and a coroutine frame
+            # cannot cross a C ABI), so it is a `sync` context just like `main`'s
+            # family — checked transitively suspension-free via the same machinery.
+            exported = is_exported(func)
+            if is_sync:
+                reason = "`sync func` declaration"
+            elif exported:
+                reason = "an `@export` function"
+            else:
+                reason = None
             node = SuspendNode(
                 key=key,
                 short=f"`{func.name}`",
                 desc=(f"`sync func {func.name}`" if is_sync
-                      else f"function `{func.name}`"),
+                      else (f"`@export func {func.name}`" if exported
+                            else f"function `{func.name}`")),
                 line=func.line,
                 column=func.column,
                 source_file=getattr(func, "source_file", None),
-                sync_reason=("`sync func` declaration" if is_sync else None),
+                sync_reason=reason,
             )
             self._suspend_nodes[key] = node
         self._suspend_stack.append(node)
