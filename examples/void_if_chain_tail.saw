@@ -1,0 +1,38 @@
+// A void if/else-chain in TAIL position of a Void-returning method must compile
+// (design 59 C). Previously this emitted an illegal `phi void` at the merge
+// (LLVM: "void type only allowed for function results") — Duration.format and
+// the enum-value test worked around it. The merge now wires the branches and
+// produces no value instead of building a phi.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// small
+// med
+// big
+
+struct Sized { n: Int }
+
+extension Sized {
+    // The if/else-if/else chain is the final (tail) expression; each branch is a
+    // void call, so the whole chain is a void merge.
+    func show(&self, into: &var StringBuilder) {
+        if self.n >= 1000 {
+            into.append("big")
+        } else if self.n >= 100 {
+            into.append("med")
+        } else {
+            into.append("small")
+        }
+    }
+}
+
+func render(n: Int) -> String {
+    var sb = StringBuilder()
+    Sized(n: n).show(&var sb)
+    sb.build()
+}
+
+func main() {
+    print(render(5))      // small
+    print(render(500))    // med
+    print(render(5000))   // big
+}

@@ -71,9 +71,15 @@ class ConditionalsMixin:
             self.builder.position_at_start(merge_bb)
             return None
 
-        # Case A: both branches yield same-typed values -> phi merge.
+        # Case A: both branches yield same-typed values -> phi merge. A Void
+        # type is NEVER phi-able (LLVM: "void type only allowed for function
+        # results"), so a void merge — both branches are void calls, or a void
+        # if/else-chain in tail position of a Void-returning fn/closure — must
+        # skip the phi and just wire the branches (design 59 C). Falls through to
+        # the "Otherwise" wiring below, which yields no consumable value.
         if (then_val is not None and else_val is not None
-                and then_val.type == else_val.type):
+                and then_val.type == else_val.type
+                and not isinstance(then_val.type, ir.VoidType)):
             if not then_terminated:
                 self.builder.position_at_end(then_bb_end)
                 self.builder.branch(merge_bb)
@@ -154,6 +160,11 @@ class ConditionalsMixin:
         # Merge block
         self.builder.position_at_start(merge_bb)
 
+        # A Void merge produces no consumable value (a phi would be illegal), so
+        # report None — the same "no value" contract the match lowering uses.
+        # then_val here is at most a void call instr that must not escape upward.
+        if then_val is not None and isinstance(then_val.type, ir.VoidType):
+            return None
         return then_val
 
     def _generate_if_let_expression(self, expr: IfLetExpr):

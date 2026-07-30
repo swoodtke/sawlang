@@ -1,0 +1,30 @@
+// A `match` in TAIL position of a Void-returning closure must compile and run
+// (design 59 C). The match is the closure's final expression and every arm is a
+// void call, so it is a void merge — the lowering must NOT build a phi over the
+// arms (previously flagged as a known void-phi limitation, sidestepped in the
+// design-57 enum-value test).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// r
+// g
+// b
+
+enum Color { case Red, case Green, case Blue }
+
+// Applies a Void-returning closure to each color; the closure's body is a
+// tail-position match with void arms.
+func for_each(f: (Color) -> Void) {
+    f(Color.Red)
+    f(Color.Green)
+    f(Color.Blue)
+}
+
+func main() {
+    for_each({ c in
+        match c {
+            case Red -> print("r"),
+            case Green -> print("g"),
+            case Blue -> print("b")
+        }
+    })
+}

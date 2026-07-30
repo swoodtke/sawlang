@@ -87,6 +87,12 @@ class MatchMixin:
 
         # Generate code for each arm
         arm_results = []
+        # A Void match (every reaching arm is a void call / void block) must NOT
+        # build a phi (design 59 C). Void arms below are replaced with an i32
+        # placeholder so a value-match phi stays well-formed; this flag records
+        # whether ANY arm actually produced a real (non-void) value, so a purely
+        # void match returns None instead of an i32 phi over placeholders.
+        match_produces_value = False
         for arm, arm_block in arm_blocks:
             self.builder.position_at_end(arm_block)
 
@@ -134,6 +140,8 @@ class MatchMixin:
                 elif isinstance(arm_result.type, ir.VoidType):
                     # Void function call - use placeholder instead
                     arm_result = ir.Constant(ir.IntType(32), 0)  # Placeholder
+                else:
+                    match_produces_value = True
             else:
                 arm_result = self._generate_expression(arm.body)
                 if arm_result is None or isinstance(arm_result.type, ir.VoidType):
@@ -142,6 +150,8 @@ class MatchMixin:
                     # already terminated its block with `unreachable`, so this
                     # placeholder is never added to the phi below.
                     arm_result = ir.Constant(ir.IntType(32), 0)  # Placeholder
+                else:
+                    match_produces_value = True
 
             # Only add to arm_results if block is not terminated (has a return)
             if not self.builder.block.is_terminated:
@@ -159,8 +169,10 @@ class MatchMixin:
         # Position at merge block
         self.builder.position_at_end(merge_block)
 
-        # Create phi node to merge results
-        if arm_results and arm_results[0][0] is not None:
+        # Create phi node to merge results. A purely void match (no arm produced
+        # a real value — the arm_results hold only i32 placeholders) yields no
+        # consumable value and must NOT build a phi (design 59 C).
+        if arm_results and match_produces_value:
             result_type = arm_results[0][0].type
             phi = self.builder.phi(result_type, name="match_result")
             for val, block in arm_results:
