@@ -1,0 +1,12 @@
+// Set(from:) consumes its Vector argument (design 54): the vector is moved in,
+// so touching it afterwards is a use-after-move compile error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable `src`
+
+func main() {
+    var src = Vector<Int>()
+    src.push(1)
+    let s = Set<Int>(from: move src)
+    print(src.len())   // src was moved into the set — rejected
+    print(s.len())
+}

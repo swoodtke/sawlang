@@ -1,0 +1,15 @@
+// Set's element type is bounded `T: Hashable + Equatable` (design 54). A struct
+// that opts into neither is not Hashable, so using it as a Set element is a
+// compile error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Hashable
+
+struct NoHash {
+    label: String
+}
+
+func main() {
+    var s = Set<NoHash>()
+    s.insert(NoHash(label: "x"))
+    print(s.len())
+}

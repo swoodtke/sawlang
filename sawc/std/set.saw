@@ -1,0 +1,118 @@
+// Set<T, A> — an unordered hash set (design 54).
+//
+// IMPLEMENTATION: Set is a thin wrapper over `Map<T, SetMark, A>`, the
+// open-addressing hash table (design 48). The value is a zero-field `SetMark`
+// unit, so an occupied slot carries only the element (the key) plus an
+// empty struct — no per-element value storage of consequence. Every operation
+// delegates to the Map's already-proven probing/growth/tombstone machinery, so
+// there is exactly ONE hash implementation to trust. (Probed against a parallel
+// open-addressing rewrite; the wrapper handles the empty payload cleanly —
+// insert/contains/remove/keys/each_key all work through `Map<T, SetMark>` — so
+// the wrapper is the chosen implementation.)
+//
+// ORDER IS UNSPECIFIED (table order, inherited from Map): sort a `to_vector()`
+// snapshot for deterministic output. Elements require `Hashable + Equatable`
+// (the same bound as a Map key). Set is NoCopy — transfer with `move`, no
+// implicit `.copy()`.
+
+// The Map value type for a Set: a zero-field unit (trivially Copy). Named
+// distinctly so it never collides with a user type.
+struct SetMark {}
+
+struct Set<T, A: Allocator = Global> {
+    map: Map<T, SetMark, A>
+}
+
+extension Set<T: Hashable + Equatable, A: Allocator = Global> {
+    // Create an empty set (no allocation until the first insert).
+    init() -> Set<T, A> {
+        Set<T, A>(map: Map<T, SetMark, A>())
+    }
+
+    // A single-element set. The element is moved in.
+    func of(value: T) -> Set<T, A> {
+        var s = Set<T, A>()
+        s.insert(move value)
+        move s
+    }
+
+    // Build a set from a Vector, CONSUMING it (the vector is moved in and its
+    // elements are drained one by one — works even for NoCopy elements, since
+    // `pop` moves each element out). Duplicate elements collapse (last drained
+    // wins the slot, but they are equal, so the set simply de-duplicates).
+    init(from: Vector<T, A>) -> Set<T, A> {
+        var v = move from
+        var s = Set<T, A>()
+        var draining = true
+        while draining {
+            if let e = v.pop() {
+                s.insert(move e)
+            } else {
+                draining = false
+            }
+        }
+        move s
+    }
+
+    // Number of elements.
+    func len(&self) -> Int {
+        self.map.len()
+    }
+
+    func is_empty(&self) -> Bool {
+        self.map.is_empty()
+    }
+
+    // Whether `value` is a member.
+    func contains(&self, value: T) -> Bool {
+        self.map.contains_key(value)
+    }
+
+    // Insert `value`. Returns true iff it was NEWLY inserted (absent before);
+    // false if it was already present. The element is moved in.
+    func insert(&var self, value: T) -> Bool {
+        // Map.insert returns the previous value (Some) if the key existed.
+        if let prev = self.map.insert(move value, SetMark()) {
+            false
+        } else {
+            true
+        }
+    }
+
+    // Remove `value`. Returns true iff it was present.
+    func remove(&var self, value: T) -> Bool {
+        if let prev = self.map.remove(move value) {
+            true
+        } else {
+            false
+        }
+    }
+
+    // Visit each element (a copy) with `body`. Order is unspecified (table
+    // order). `body` is non-escaping; mutating THIS set inside the visit is a
+    // static Law-of-Exclusivity error (inherited from Map.each_key).
+    func each(&self, body: (T) -> Void) {
+        self.map.each_key(body)
+    }
+}
+
+// A snapshot Vector of the elements requires duplicating each element (they stay
+// live in the set), so `T: Copy` — the same bound `Map.keys()` carries.
+extension Set<T: Hashable + Equatable + Copy, A: Allocator = Global> {
+    // A fresh Vector of all elements (copies), in unspecified (table) order.
+    func to_vector(&self) -> Vector<T, A> {
+        self.map.keys()
+    }
+}
+
+// Set owns a Map (Deinit), so it is NoCopy (move-only). The empty deinit body
+// suffices — the compiler appends the field cleanup, and the Map's own deinit
+// drops every element. Deinit is registered before NoCopy so the
+// `NoCopy: Deinit` supertrait is satisfied.
+extension Set<T, A: Allocator = Global>: Deinit {
+    func deinit(&var self) {
+    }
+}
+
+extension Set<T, A: Allocator = Global>: NoCopy {
+}

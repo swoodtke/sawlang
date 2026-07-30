@@ -1,0 +1,20 @@
+// Set<T> from a Vector (design 54): `Set(from:)` CONSUMES the vector, draining
+// and de-duplicating its elements.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 1
+// 1
+// 0
+
+func main() {
+    var src = Vector<Int>()
+    src.push(5)
+    src.push(5)   // duplicate — collapses
+    src.push(6)
+    let s = Set<Int>(from: move src)
+    print(s.len())                                 // 2
+    if s.contains(5) { print(1) } else { print(0) }  // 1
+    if s.contains(6) { print(1) } else { print(0) }  // 1
+    if s.contains(7) { print(1) } else { print(0) }  // 0
+}
