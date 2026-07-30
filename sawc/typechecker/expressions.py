@@ -4795,6 +4795,7 @@ class ExpressionsMixin:
         has_catchall = False
         bool_true = False
         bool_false = False
+        covered_variants = set()  # unguarded, fully-irrefutable variant arms
         for arm in expr.arms:
             p = arm.pattern
             old_scope = self.current_scope
@@ -4818,6 +4819,13 @@ class ExpressionsMixin:
                         bool_true = True
                     else:
                         bool_false = True
+                elif (isinstance(p, EnumPattern)
+                      and all(self._pattern_is_irrefutable(s) for s in p.subpatterns)):
+                    # A variant arm with only irrefutable payload sub-bindings
+                    # fully covers that variant (enum-variant exhaustiveness on
+                    # the general path — lets a guarded enum match stay exhaustive
+                    # via variant coverage without a redundant `case _`).
+                    covered_variants.add(p.variant_name)
             if isinstance(arm.body, Block):
                 arm_type = self._check_block(arm.body)
             else:
@@ -4834,7 +4842,14 @@ class ExpressionsMixin:
         # Bool scrutinee covered by both `true` and `false`; a closed integer
         # range-cover is NOT computed in v1 (always require a fallback).
         bool_exhausts = (underlying.kind == TypeKind.BOOL and bool_true and bool_false)
-        if not has_catchall and not bool_exhausts:
+        # Enum / Optional exhaustiveness: all variants covered by unguarded,
+        # fully-irrefutable variant arms.
+        enum_exhausts = False
+        if underlying.kind in (TypeKind.ENUM, TypeKind.OPTIONAL):
+            variants = self._pattern_enum_variants(matched_type)
+            if variants is not None and set(variants.keys()) <= covered_variants:
+                enum_exhausts = True
+        if not has_catchall and not bool_exhausts and not enum_exhausts:
             self._error(
                 ErrorKind.NON_EXHAUSTIVE_MATCH,
                 "match is not exhaustive: literal, range, and guarded arms do not "
