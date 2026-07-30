@@ -275,10 +275,17 @@ spec examples aspirational).
   it immediately at statement end, binds nothing; two `let _` never
   collide; `_` unreadable; `var _` is an error. Destructuring/param
   discards deferred (no tuple-destructuring `let` yet).
-- **DF2.** `Command`/`system()`/`.run()`/`.output()` divide wait
-  status by 256, silently discarding signal-death info — a SIGABRT
-  (failed assert/panic) is misreported as success. Real std/process
-  bug (same family as the old process_simple issue). → std fix brief.
+- **DF2 — LANDED (design 59 A).** `Command`/`system()`/`.run()`/
+  `.output()` divided wait status by 256, discarding signal-death info —
+  a SIGABRT (failed assert/panic), when /bin/sh execs the command and is
+  killed, left a raw WIFSIGNALED status with a zero exit byte, so `/256`
+  read exit 0 = success. Fixed with one `decode_wait_status(Int32)` helper
+  (std/process.saw) used by BOTH run() and output()/pclose: normal exit ->
+  0..255 byte; signal death -> 128 + signum (shell convention); stop/other
+  -> nonzero; result is 0 only for a genuine exit-0. `blade test` already
+  compared the raw status to exactly 0 (correct), so it is unaffected.
+  Proving test: examples/process_signal_death.saw (`kill -ABRT $$` reports
+  nonzero, normal exit 3 preserved).
 - **DF3 — LANDED (design 57 Part 3).** Call-site `T -> T?` optional
   auto-wrap. One level only (`Int -> Int?`; `Int -> Int??` is moot —
   `T??` is unspellable in the type grammar; an already-optional argument

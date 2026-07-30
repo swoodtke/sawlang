@@ -32,6 +32,38 @@ extern "C" {
 }
 
 // =============================================================================
+// Wait-status decode (design 59 A, DF2)
+// =============================================================================
+
+// `system()` and `pclose()` return the raw POSIX wait status, NOT an exit code.
+// Dividing it by 256 (`status >> 8`) keeps only the normal-exit byte and DROPS
+// the signal-death information: when the shell child is exec'd into the command
+// and killed (a failed `assert`/`panic` raises SIGABRT, a bad access SIGSEGV),
+// the raw status holds the signal in its low 7 bits and a ZERO exit byte, so the
+// naive decode reads exit 0 = SUCCESS for a crash. `blade test` relies on the
+// exit code, so a killed test binary MUST count as failure.
+//
+// Decode the way a POSIX shell does, in ONE helper used by every wait path:
+//   - exited normally (low 7 bits == 0): report the 0..255 exit byte;
+//   - killed by signal N (low 7 bits in 1..126): report 128 + N (shell
+//     convention — that is how `$?` surfaces a signal death);
+//   - stopped (low byte == 0x7f) or any other state: report nonzero.
+// The result is 0 ONLY for a genuine normal exit with code 0.
+func decode_wait_status(status: Int32) -> Int32 {
+    let low7 = status & (0x7f as Int32)
+    if low7 == (0 as Int32) {
+        // WIFEXITED: the exit code lives in bits 8..15.
+        (status >> (8 as Int32)) & (0xff as Int32)
+    } else if low7 == (0x7f as Int32) {
+        // WIFSTOPPED (low byte == 0x7f): not a normal termination -> nonzero.
+        (128 as Int32) + ((status >> (8 as Int32)) & (0xff as Int32))
+    } else {
+        // WIFSIGNALED: killed by signal `low7` -> 128 + signum.
+        (128 as Int32) + low7
+    }
+}
+
+// =============================================================================
 // CommandOutput - Result of running a command with output capture
 // =============================================================================
 
@@ -157,9 +189,9 @@ extension Command {
         let cmd = self.build_command()
         let cmd_ptr = cmd as UnsafePointer<Int8>
         let result = system(cmd_ptr)
-        // On macOS, system() returns the full wait status
-        // The exit code is in bits 8-15
-        result / (256 as Int32)
+        // system() returns the full wait status; decode it so a signal death
+        // (failed assert/panic) reports failure, not a bogus exit 0 (DF2).
+        decode_wait_status(result)
     }
 
     // Run the command and capture its output
@@ -220,9 +252,11 @@ extension Command {
                 free(read_buf)
             }
 
-            // Get exit status
+            // Get exit status. pclose() returns the raw wait status too, so
+            // decode it the same way run() does (DF2): a signal death is a
+            // nonzero failure, not exit 0.
             let status = pclose(stream)
-            let exit_code = status / (256 as Int32)
+            let exit_code = decode_wait_status(status)
 
             // Convert output to an owned String. The read buffer has no String
             // header (it's a bare realloc buffer), so copy its bytes into a

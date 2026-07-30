@@ -1,0 +1,29 @@
+// A child that dies by a signal (a failed `assert`/`panic` raises SIGABRT) must
+// be reported as a FAILURE by Command.run(), not a bogus exit 0 (design 59 A,
+// DF2). `blade test` judges a test binary by its exit code, so a crashing test
+// MUST count as failed. Before the fix, `system()`'s raw wait status was divided
+// by 256, discarding the signal byte -> a SIGABRT read as exit 0 = success.
+//
+// `kill -ABRT $$` makes the shell child raise SIGABRT on itself; the decode now
+// reports 128 + signum (nonzero). Normal exits still decode to their exit byte.
+// (The child's abort message goes to stderr, which the harness ignores.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// signal death nonzero: true
+// normal exit 3 preserved: true
+// success is zero: true
+
+func main() {
+    var crash = Command(program: "kill -ABRT $$")
+    let crashed = crash.run()
+    let signal_nonzero = crashed != (0 as Int32)
+    print("signal death nonzero: {signal_nonzero}")
+
+    var three = Command(program: "exit 3")
+    let normal_ok = three.run() == (3 as Int32)
+    print("normal exit 3 preserved: {normal_ok}")
+
+    var good = Command(program: "true")
+    let zero_ok = good.run() == (0 as Int32)
+    print("success is zero: {zero_ok}")
+}
