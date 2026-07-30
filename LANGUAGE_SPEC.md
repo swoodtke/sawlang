@@ -2099,19 +2099,41 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   it with `cancelled()` (rewritten to the frame's word) and returns through normal
   control flow — frame locals drop exactly once. There is no forced destroy and no
   implicit cancellation at suspension points.
-- **Suspending channel receive.** `Channel.try_receive() -> T?` is a non-blocking
-  dequeue; the cooperative suspending receive is the Part-0 loop idiom
-  (`try_receive` + `yield_now` on empty), which suspends the *task* (not the
-  thread). The cancellation-aware form adds `if cancelled() { ... }`. The 21b
-  thread engine's blocking `recv` is untouched and coexists (shared queue block,
-  separate schedulers).
+- **Suspending channel receive (design 62 G3).** `Channel.receive() -> T` is the
+  first-class cooperative suspending receive: it dequeues a value if ready, else
+  suspends the *task* (not the thread) and is rescheduled when a value arrives
+  (channel-yield wake). The coro transform lowers each `let v = ch.receive()` /
+  `ch.receive()` call site INLINE into the `try_receive()` + `yield_now()` loop
+  against the caller's own frame (no callee frame — so no generic-method-frame
+  gap); `try_receive() -> T?` remains available for a hand-rolled cancellation-aware
+  loop (`if cancelled() { ... }`). NAMING: the cooperative method is `receive`;
+  the 21b thread engine's blocking `recv` keeps its name and is untouched (same
+  signature `(&self) -> T`, so overloading — which cannot differ by effect —
+  cannot distinguish the two). A `receive()` buried in an expression position (not
+  a top-level `let v = ...` / bare statement) is rejected cleanly.
 
-Known limits (rejected cleanly / documented, not miscompiled): a spawned
-function must be non-`Void`; a suspending call as a nested *method* is not yet
-embeddable (use the loop idiom or a free function); a `TaskGroup` as a *direct
-frame-resident local of a suspending function* is not supported (do the group work
-in a non-suspending helper the suspending function calls); and a suspension
-inside an `if let` is not split (hoist the `yield` into a plain `if`).
+Now-closed gaps (design 62), each landed with tests:
+- **`if let` / `guard let` over a suspending call (G2).** `if let x = f() { ... }`
+  / `guard let x = f() else { ... }` whose condition is a plain suspending call is
+  supported: the transform hoists the condition into a preceding driven temp
+  (`let __t = f()`) and binds over it. The hoisted `T?` temp uses the `self_opt`
+  frame encoding (an already-optional field is stored as-is, not double-wrapped).
+  Only the plain-call form is hoisted — a move-in-condition remains a clean error.
+  `while let` does not exist in the grammar.
+- **`TaskGroup` inside a suspending function (G1).** A `TaskGroup` may be a direct
+  frame-resident local of a suspending function: the group + its erased run queue
+  are frame state, and `group.spawn(...)`'s `&group` resolves to an addressable
+  frame field (plain-encoded, real empty-`TaskGroup()` placeholder). The group's
+  `Deinit` still runs its executor to completion during normal frame cleanup
+  (including across a parent suspension between spawn and drop); each group's
+  executor drives only its own queue (nested groups compose without re-entrancy);
+  cancellation words are frame-resident and reachable.
+
+Remaining limits (rejected cleanly / documented, not miscompiled): a spawned
+function must be non-`Void`; a suspending call as a nested *method* other than the
+`receive()` inline lowering is not embeddable (use a free function or the loop
+idiom); a suspension INSIDE an `if let`/`guard let` BRANCH (as opposed to its
+condition) is not split.
 
 The transform is also still exercisable through a test-only entry: `__suspend()`
 marks a synthetic suspension point and `__drive(f(args))` / `__drive_steps(f(args))`
@@ -2160,20 +2182,38 @@ func main() {
     print(b.join())                   // 21
 }                                     // group Deinit drains any unjoined child
 
-// Cooperative suspending receive over a Channel:
+// Cooperative suspending receive over a Channel (design 62 G3):
 func consumer(ch: Channel<Int>) -> Int {
     var sum = 0
     var got = 0
     while got < 3 {
-        var empty = true
-        if let v = ch.try_receive() {     // non-blocking dequeue
-            sum = sum + v
-            got = got + 1
-            empty = false
-        }
-        if empty { yield_now() }          // channel empty: suspend the task, retry
+        let v = ch.receive()              // first-class cooperative receive:
+        sum = sum + v                     // suspends the task while the channel is
+        got = got + 1                     // empty, resumes when a value arrives
     }
     return sum
+}
+// (`try_receive() -> T?` is still available for a hand-rolled loop, e.g. a
+//  cancellation-aware `if cancelled() { ... }` on the empty branch.)
+
+// A TaskGroup may live in a SUSPENDING function's own frame (design 62 G1):
+func orchestrate(base: Int) -> Int {
+    var group = TaskGroup()
+    let h1 = group.spawn(worker(base))
+    let h2 = group.spawn(worker(base + 1))
+    sleep(1)                              // the parent may suspend between spawn
+    return h1.join() + h2.join()          // and join; the group drains at teardown
+}
+
+// if-let / guard-let over a suspending call (design 62 G2):
+func maybe_step(n: Int) -> Int? {
+    yield_now()
+    if n > 0 { return n * 10 }
+    return None
+}
+func using_iflet(n: Int) -> Int {
+    if let v = maybe_step(n) { return v } // condition hoisted to a driven temp
+    return -1
 }
 
 // Cooperative cancellation (NO forced destroy):

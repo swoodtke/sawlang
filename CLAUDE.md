@@ -137,10 +137,29 @@ continues per-brief in `designs/`.
   unjoined result drops once at teardown. Cancellation is cooperative: a
   frame-resident `__cancel` word set by `handle.cancel()`, read by `cancelled()`
   (rewritten to the frame word), observed through normal control flow — NO forced
-  destroy. Suspending channel receive = `Channel.try_receive() -> T?` + the Part-0
-  `yield_now`-on-empty loop idiom. The design-21b `spawn`/`Task`/`Channel`
-  thread-per-task engine is separate and untouched — the two engines coexist,
-  not unified.
+  destroy. The design-21b `spawn`/`Task`/`Channel` thread-per-task engine is
+  separate and untouched — the two engines coexist, not unified.
+- Async v1 gaps closed (design 62), each with tests:
+  * **G3 first-class `Channel.receive() -> T`**: the cooperative suspending
+    receive. The transform lowers each `let v = ch.receive()` / `ch.receive()`
+    call site INLINE into the `try_receive()`+`yield_now()` loop against the
+    caller's frame (no callee frame → no generic-method-frame gap). Cooperative
+    method is `receive`; the blocking thread-engine `recv` is untouched (same
+    `(&self) -> T` signature, so no overload can distinguish them by effect).
+  * **G2 `if let`/`guard let` over a suspending call**: the suspending condition
+    is hoisted into a preceding driven temp (`let __t = f()`) then bound over
+    ordinarily. Only the plain-call form is hoisted (move-in-condition stays a
+    clean error). The `T?` temp uses the new `self_opt` frame encoding — an
+    already-optional field is stored as-is, not double-wrapped `(T?)?`. `while let`
+    is not in the grammar.
+  * **G1 `TaskGroup` in a suspending fn**: the group + its erased run queue are
+    frame-resident; `group.spawn(...)`'s `&group` resolves to an addressable
+    frame field (plain-encoded, real empty-`TaskGroup()` placeholder — synthesized
+    `__Frame_*` structs are exempt from Deinit/NoCopy containment since they are
+    torn down memberwise in place). The group's `Deinit` still drains children at
+    frame cleanup (structured join via LIFO) across a parent suspension between
+    spawn and drop; each group's executor drives ONLY its own queue (nested groups
+    compose, no re-entrancy); cancellation words stay frame-resident.
 
 ## Open Questions
 
