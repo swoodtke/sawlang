@@ -1556,6 +1556,11 @@ class StatementsMixin:
             if loop_var_type is None:
                 loop_var_type = SawType(TypeKind.INT)  # Default to Int on error
 
+        # Stash the loop variable's type for codegen: an OWNING loop variable (a
+        # retained element yielded by a custom iterator) must be released at the
+        # end of each iteration unless it was moved out (design 65).
+        stmt.element_type = loop_var_type
+
         # Create new scope for loop body with loop variable
         old_scope = self.current_scope
         self.current_scope = Scope(parent=old_scope)
@@ -1593,6 +1598,10 @@ class StatementsMixin:
             loop_var_type = self._get_iterator_item_type(iterable_type, expr.line, expr.column)
             if loop_var_type is None:
                 loop_var_type = SawType(TypeKind.INT)  # Default to Int on error
+
+        # Stash for codegen (design 65): release an owning loop variable per
+        # iteration unless it is moved out.
+        expr.element_type = loop_var_type
 
         # For loops are always conditional (have a finite range), so return Optional<T>
         # Push loop info onto stack: (break_type, is_infinite=False, has_break)

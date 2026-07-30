@@ -144,8 +144,28 @@ class LoopsMixin:
         self.builder.store(loop_val, loop_var_alloca)
         self.variables[stmt.variable] = loop_var_alloca
 
+        # An OWNING loop variable (a retained element yielded by a custom
+        # iterator, e.g. `for e in set.iter()`) must be RELEASED at the end of
+        # each iteration unless the body moved it out (design 65). Register it in
+        # a per-iteration cleanup scope with a fresh drop flag (reset each pass),
+        # then drop-if-unmoved before branching back to the condition.
+        elem_saw = getattr(stmt, 'element_type', None)
+        drop_loop_var = (elem_saw is not None
+                         and not isinstance(stmt.iterable, RangeExpr)
+                         and self._needs_cleanup(elem_saw))
+        if drop_loop_var:
+            self.variable_types[stmt.variable] = elem_saw
+            self.cleanup_stack.append([])
+            self._register_cleanup(stmt.variable, elem_saw)
+
         # Generate body block
         self._generate_block(stmt.body)
+
+        # Release the loop variable (if not moved out) before the back-edge.
+        if drop_loop_var and not self.builder.block.is_terminated:
+            self._cleanup_scope(self.cleanup_stack.pop())
+        elif drop_loop_var:
+            self.cleanup_stack.pop()
 
         # If block doesn't end with terminator, go back to condition
         if not self.builder.block.is_terminated:
@@ -156,6 +176,9 @@ class LoopsMixin:
 
         # Clean up loop variable from scope
         del self.variables[stmt.variable]
+        if drop_loop_var:
+            self.variable_types.pop(stmt.variable, None)
+            self.drop_flags.pop(stmt.variable, None)
 
         # Position at end block for next statements
         self.builder.position_at_end(end_block)
@@ -281,8 +304,24 @@ class LoopsMixin:
         self.builder.store(loop_val, loop_var_alloca)
         self.variables[expr.variable] = loop_var_alloca
 
+        # Release an owning loop variable per iteration unless moved (design 65),
+        # mirroring the statement-context for-loop.
+        elem_saw = getattr(expr, 'element_type', None)
+        drop_loop_var = (elem_saw is not None
+                         and not isinstance(expr.iterable, RangeExpr)
+                         and self._needs_cleanup(elem_saw))
+        if drop_loop_var:
+            self.variable_types[expr.variable] = elem_saw
+            self.cleanup_stack.append([])
+            self._register_cleanup(expr.variable, elem_saw)
+
         # Generate body block
         self._generate_block(expr.body)
+
+        if drop_loop_var and not self.builder.block.is_terminated:
+            self._cleanup_scope(self.cleanup_stack.pop())
+        elif drop_loop_var:
+            self.cleanup_stack.pop()
 
         # If block doesn't end with terminator, go back to condition
         if not self.builder.block.is_terminated:
@@ -293,6 +332,9 @@ class LoopsMixin:
 
         # Clean up loop variable from scope
         del self.variables[expr.variable]
+        if drop_loop_var:
+            self.variable_types.pop(expr.variable, None)
+            self.drop_flags.pop(expr.variable, None)
 
         # Load and return result
         self.builder.position_at_end(end_block)

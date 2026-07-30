@@ -1104,6 +1104,7 @@ class ForLoop(Statement):
     line: int = 0
     column: int = 0
     result_type: Optional['SawType'] = None  # Set by typechecker for expression context
+    element_type: Optional['SawType'] = None  # Loop-variable type (design 65: drop owning loop var per iteration)
 
 
 @dataclass
