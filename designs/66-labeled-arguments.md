@@ -118,3 +118,32 @@ filter; effects through labeled overloads (sync/non-sync pair);
 - Mangling changes must not alter symbols for NON-overloaded
   functions (object-file/IR spot check).
 Full suite per commit; zero xfails.
+
+## Init-unification verdict (item 3) — KEEP init untouched; DID NOT unify
+Attempted per the brief; init resolution stays on its own scheme. The
+two schemes are **semantically incompatible**:
+
+- **Init/struct-field/enum-payload construction is order-INDEPENDENT,
+  set-based name matching.** `Point(y: 4, x: 3)` and a reordered custom
+  init `Point(tag: 9, mag: 1)` are both valid TODAY (verified), because
+  field/init/payload arguments are matched to their parameter by NAME in
+  any order. Init overloading is by the *set* of parameter names (which
+  names are supplied selects the init), not by parameter TYPES.
+- **The design-66 binding rule is order-DEPENDENT and forbids
+  reordering.** Arguments bind strictly left to right; a label may only
+  skip FORWARD over defaulted parameters; `f(b:.., a:..)` is a
+  backward-binding error.
+
+Routing init through the design-66 label-filter would turn reordered
+field/init construction into a backward-binding error — a real
+regression against a large, tested feature. So init keeps its existing
+set-based resolution; enum payload construction (adjacent, same
+order-independent semantics) is likewise unchanged. Both were re-checked
+for regressions and pass. The `name(label: value, …)` parse ambiguity is
+still handled: the parser builds a StructInit, and when the name is a
+FUNCTION (not a struct) the typechecker reinterprets it as a fully
+labeled call — a real struct name always resolves to init first, so the
+init path is never disturbed. Unifying the two would require init to
+adopt ordered binding (breaking reorder) or the call side to adopt
+set-based matching (breaking the design-66 no-reorder rule); neither is
+desirable, so they remain two schemes by design.

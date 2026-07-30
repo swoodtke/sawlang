@@ -1,0 +1,36 @@
+// Design 66: `name(label: value, ...)` parses as struct init; when the name is a
+// STRUCT it stays struct init (order-independent field/init matching preserved),
+// and when it is a FUNCTION the typechecker reinterprets it as a labeled call.
+// Both coexist in one file; struct init keeps its reorder freedom.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 4
+// 1
+// 9
+// 12
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point {
+    init(mag: Int, tag: Int) -> Point {
+        Point(x: mag, y: tag)
+    }
+}
+
+func combine(a: Int, b: Int) -> Int {
+    a * 10 + b
+}
+
+func main() {
+    let p = Point(y: 4, x: 3)      // reordered field init (struct path)
+    print(p.x)
+    print(p.y)
+    let q = Point(tag: 9, mag: 1)  // reordered custom-init args (struct path)
+    print(q.x)
+    print(q.y)
+    print(combine(a: 1, b: 2))     // labeled function call (reinterpreted)
+}
