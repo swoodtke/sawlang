@@ -21,11 +21,12 @@ Milestone: UART "blink" from a Saw kernel on the P4.
 **Tier-1 briefs (any-real-app blockers), post-async:**
 - T1a. Bitwise operators (`& | ^ ~ << >>`) + hex/binary literals.
 - T1b. Runtime bounds checks on dynamic array indexing (closes a real
-  safety hole; panic machinery exists).
+  safety hole; panic machinery exists). — LANDED (design 63).
 - T1c. Ordering + hashing: Comparable/Ord + sort, Hash + real HashMap
   (Map is Vector-backed linear scan) — needs D13/D14 shapes decided.
 - T1d. Pattern-matching completion: literal/range patterns, guards,
-  tuple destructuring.
+  tuple destructuring. — LANDED (design 63; + distinct-type cast + named
+  tuple fields).
 - T1e. `panic(msg)`/`assert` (M4) + in-language test support (shape:
   D15).
 - T1f. Debug info (line tables minimum → backtraces); multiplies
@@ -244,6 +245,39 @@ A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
   double-free. L16: clean typechecker error for `.value`/member on a distinct
   non-struct `type`. Deferred out: L17 (owning-KEY containers + Arc-in-enum
   extraction — needs copy-with-retain). Compiler suite 676, 0 xfails. [both apps]
+- **Design 63 "patterns + bounds + cast + named tuples" — LANDED** (six
+  commits, suite 688 -> 722, 0 xfails). **Part 1 (distinct-type `as` cast):**
+  a distinct alias projects TOWARD its underlying with `id as Int` — the
+  sanctioned replacement for the never-implemented `.value` (T1b/L16 followup).
+  One-directional; partial projection to a chain alias legal; sibling-alias
+  (`UserId as OrderId`) + reverse rejected. TypeAliasSymbol now stores the
+  unresolved immediate target to tell a partial projection from a sibling.
+  Non-integer underlyings (String/Bool/struct) project by identity. Design-61
+  `.value` error now suggests the cast. **Part 2 (T1b, dynamic array bounds
+  checks):** a non-constant fixed-array index is checked `0 <= i < N` (one
+  unsigned compare, negatives caught) -> panic "index out of range"; ALWAYS ON,
+  no flag; read + `&arr[i]` + assign + compound-assign paths; constants fold
+  away; raw-pointer/UnsafeMemory the explicit unchecked escape. **Part 3 (T1d,
+  patterns):** new Pattern AST + a general if-chain match lowering ALONGSIDE the
+  untouched enum switch (design 61 consume model + coroutine CFG walk preserved).
+  Literal (Int/Bool/String via `_emit_equals` borrow chain), range (`1..9` +
+  `1..=9`), guard (`case n if ...`, runs after binding, falls through), tuple
+  arms nested with payload-enum/Optional patterns. Routing = general when
+  scrutinee is not an enum OR any arm has a guard/literal/range/tuple/binding.
+  Exhaustiveness: literal/range/guarded never prove it; `true`+`false` exhaust
+  Bool; irrefutable arm = fallback; integer range-cover NOT computed (future
+  work). Plus `let`/`var` destructuring (DestructuringLet, irrefutable only,
+  per-position `_`, nested, whole tuple consumed per L1, use-after-move holds)
+  and `if let`/`guard let (x, y) = optTuple`. **Part 4 (named tuples):**
+  `(x: Int, y: Int)` types + `(x: 3, y: 4)` literals (SawType.tuple_field_names /
+  TupleLiteral.field_names, carried through repr/substitute/resolve); named<->
+  positional same-shape compatible, different-names/reorder incompatible, all-
+  or-nothing labeling; `.name` access (stamped index -> extract_value) + `.0`/
+  `[i]`; named PATTERN form deferred (clean error). Report-back: non-primitive
+  cast underlyings NOT restricted (struct/String identity projection works via a
+  codegen `value.type == to_llvm` fallback). Deferred/untouched: L17 (still
+  needs copy-with-retain); named free-FUNCTION-call args remain unsupported
+  (pre-existing; named tuples are orthogonal). [both apps — closes T1b + T1d]
 
 **DEFERRED** (user, Jul 29): slices (needs own design vs no-escape
 refs); `\x` byte escapes; where clauses; extension sugar (computed

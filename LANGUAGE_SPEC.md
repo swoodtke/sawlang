@@ -78,7 +78,9 @@ the value as the final owner (through the value-transfer checkpoint — a NoCopy
 source needs `move`), drops it immediately at the end of the statement like an
 unused temporary, and creates **no** binding. `_` is unreadable, and two
 `let _` in one scope never collide. `var _` is rejected (a discard has nothing
-to mutate). Tuple-destructuring and parameter discards are out of scope for now.
+to mutate). Per-position `_` in a tuple destructuring (`let (a, _) = pair`,
+design 63) discards that component the same way. Parameter discards are out of
+scope for now.
 
 ```saw
 let _ = compute()      // run compute() for its effect; drop the result now
@@ -251,14 +253,25 @@ match direction {
     case _ -> "sideways"
 }
 
-// (illustrative — planned) Literal, range, and guard patterns are NOT yet
-// implemented. Today you match on enum variants (with binding), Result/Option
-// variants, and `_`:
-//   match value {
-//       case 0 -> "zero",              // literal patterns: planned
-//       case 1..=9 -> "single digit",  // range patterns: planned
-//       case n if n < 0 -> "negative", // guard patterns: planned
-//   }
+// Literal, range, guard, and tuple patterns (design 63 — implemented). A match
+// on a value/tuple scrutinee tests arms in order:
+match value {
+    case 0 -> "zero",              // integer / Bool / String literal patterns
+    case 1..=9 -> "single digit",  // range patterns (`1..9` and `1..=9`)
+    case n if n < 0 -> "negative", // guard: runs after binding, falls through
+    case _ -> "big",               // fallback (see exhaustiveness below)
+}
+// Tuple patterns destructure and nest with the other forms:
+match pair {
+    case (0, 0) -> "origin",
+    case (x, 0) -> "on x axis",
+    case (Some(v), n) if v == n -> "match",   // nested payload / Optional pattern
+    case (x, y) -> "general",                 // irrefutable arm = fallback
+}
+// Exhaustiveness: literal / range / guarded arms never prove it on an open type
+// — a wildcard or bare-binding (or irrefutable tuple) arm is required. EXCEPTION:
+// `true` + `false` arms exhaust Bool. A closed integer range-cover is not
+// computed (v1 — always add a fallback).
 
 // For loops over ranges
 for i in 0..5 {
@@ -458,11 +471,26 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
 let point: (Int, Int) = (10, 20)
 let x = point.0
 
-// Named tuple fields (illustrative — planned). Named tuple *types* appear in
-// return signatures, but named tuple literals and `.name` field access are not
-// yet parsed; use positional tuples (`.0`, `.1`) or a struct today.
+// Tuple destructuring (design 63 — implemented). Irrefutable only: bindings,
+// per-position `_` discard, and nested tuples. The whole source is consumed
+// (owning components move out; a bare ImplicitCopy/POD source is copied).
+let (a, b) = point            // a = 10, b = 20
+var (mx, my) = (1, 2)         // mutable bindings
+let (first, _) = point        // discard the second component
+let (p, (q, r)) = (1, (2, 3)) // nested
+
+// Named tuple fields (design 63 — implemented, Swift-compatible). Field names +
+// order + types are part of the type. A named tuple and a POSITIONAL tuple of
+// the same shape are mutually compatible (labels are a view over the positional
+// layout); two named tuples with different names or a different order are NOT.
+// Literals are all-or-nothing labeled and may not reorder against a known
+// target. Access by `.name` OR positionally (`.0`/`[i]`).
 let named: (x: Int, y: Int) = (x: 10, y: 20)
-let y = named.y
+let y = named.y                     // by name
+let y2 = named.1                    // positionally (same field)
+let flowed: (Int, Int) = named      // named -> positional (compatible)
+// The NAMED pattern form `let (x: a, y: b) = named` is deferred — use the
+// positional form `let (a2, b2) = named` (labels are ignored in patterns).
 
 // Arrays (fixed size, stack allocated)
 let fixed: [Int; 5] = [1, 2, 3, 4, 5]
@@ -885,10 +913,13 @@ type Kilometers = Float64
 let m: Miles = Miles(100.0)
 let k: Kilometers = m  // Error! Can't mix miles and kilometers
 
-// Access the underlying value (illustrative — planned). A `.value` projection
-// on a distinct `type` is not yet implemented; a distinct type flows *to* its
-// underlying type in typed positions, but there is no field accessor today.
-let raw: Float64 = m.value
+// Project a distinct type TO its underlying with an explicit cast (design 63).
+// This is the sanctioned form — there is no `.value` accessor. The cast is
+// ONE-DIRECTIONAL (toward the underlying): `raw as Miles` stays an error, and a
+// sibling-alias cast (`user as OrderId`) is rejected too. A partial projection
+// to an intermediate alias on the chain is allowed.
+let raw: Float64 = m as Float64
+let uid: Int64 = user as Int64
 
 // Type definitions for function signatures
 type Callback = (Int) -> Bool
@@ -1725,7 +1756,13 @@ func get_index(arr: [Int], i: Int) -> Int {
   **`try!` on an `Err`** panics, reporting the source line.
 - **Fixed-array indexing with an out-of-bounds compile-time constant** is a
   **compile error** ("index out of range"), mirroring the tuple-index check.
-  Bounds checking for *dynamic* array indices is not yet implemented.
+- **Fixed-array indexing with a *dynamic* index** is **bounds-checked at
+  runtime** (design 63): `0 <= i < N` (folded to one unsigned compare, so a
+  negative index is caught too); an out-of-range index panics "index out of
+  range". ALWAYS ON, every profile, no disable flag (the same posture as integer
+  overflow). An in-range constant index is folded away; raw-pointer /
+  `UnsafeMemory` indexing is the explicit unchecked escape. Read and write paths
+  are both checked.
 - **Tuple indexing** past the tuple's arity is a compile error.
 
 ### Equality (`Equatable`)

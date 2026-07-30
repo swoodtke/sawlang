@@ -356,6 +356,13 @@ The compiler currently supports:
 
 ### Type System
 - Tuples: literals, indexing, multiple return values
+- Named tuple fields (design 63): `(x: Int, y: Int)` types + `(x: 3, y: 4)`
+  literals; `.name` access alongside positional `.0`/`[i]`. Named↔positional
+  same-shape mutually compatible; different-names/reorder incompatible;
+  all-or-nothing labeling; named PATTERN form deferred (clean error).
+- Tuple destructuring (design 63): `let (a, b) = pair` / `var (x, y) = p`
+  (irrefutable only; per-position `_` discard; nested; whole tuple consumed per
+  L1), plus `if let`/`guard let (x, y) = optTuple`.
 - Structs: declarations, field access, initialization
 - Field assignment: `obj.field = value`
 - Optionals (`T?`): `None`, `!`, `??`, `?.`
@@ -366,6 +373,11 @@ The compiler currently supports:
   (`id<Int?>(5)` is an error — explicit optional required). Move/copy unchanged.
 - Optional binding: `if let`/`if var`, `guard let`/`guard var`
 - Enums with associated values and `match` expressions
+- Pattern matching (design 63 T1d): value/tuple matches add literal (Int/Bool/
+  String), range (`1..9`/`1..=9`), guard (`case n if ...`), and tuple-destructure
+  arms — composing with enum-payload patterns via a general if-chain lowering
+  (the classic enum switch is untouched). Exhaustiveness: literal/range/guarded
+  arms never prove it (fallback required) EXCEPT `true`+`false` exhaust Bool.
 - Match exhaustiveness checking (must cover all variants or use `_` wildcard)
 - Result<T, E> with auto-wrap returns
 - `try`/`try?`/`try!` operators for error handling
@@ -396,6 +408,10 @@ The compiler currently supports:
   - Alias can flow to underlying: `func double(x: Int)` accepts `MyInt`
   - Underlying cannot flow to alias: `func process(x: MyInt)` rejects `Int`
   - Chained aliases work: `type A = Int`, `type B = A` → B flows to A flows to Int
+  - Explicit projection cast (design 63): `id as Int` projects a distinct alias
+    TO its underlying (replaces the never-implemented `.value`). One-directional
+    (`42 as UserId` errors); partial projection to a chain alias is legal;
+    sibling-alias casts (`UserId as OrderId`) are rejected.
 - Associated types in traits: `type Item`
 - Type assignments in extensions: `type Item = Int`
 
@@ -556,6 +572,10 @@ The compiler currently supports:
   `assert` is a no-op on true, else panics `assertion failed: {msg} (line N)`.
 - Division / modulo by zero panics ("division by zero")
 - Out-of-bounds constant array index is a compile error; tuple index bounds checked
+- Dynamic fixed-array index bounds check (design 63 T1b): a non-constant index
+  panics "index out of range" on `0 <= i < N` (one unsigned compare, negatives
+  caught); ALWAYS ON, no flag, read + write paths; in-range constants fold away;
+  raw-pointer / `UnsafeMemory` indexing is the explicit unchecked escape
 - Force-unwrap of `None` and `try!` on `Err` panic with a message
 - Integer overflow panics ("integer overflow") — always, every profile — for
   `+`/`-`/`*` on any integer type, `-Int.min`, and `INT_MIN / -1` (and `% -1`),
