@@ -231,8 +231,19 @@ A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
   CLOSED with named proving tests; C4 verified no leak/double-free (no fix).
   **G** 52/52b v1 gaps scoped only (A1c). Discovered + DEFERRED: L14
   (enum-payload container element deinit) + L15 (collection-literal owning-
-  element aliasing double-free) — a joint fix, out of this batch's scope.
-  Compiler suite 669, 0 xfails. [both apps]
+  element aliasing double-free) — a joint fix, out of this batch's scope
+  (both LANDED in design 61 below). Compiler suite 669, 0 xfails. [both apps]
+- **Design 61 "container element-drop fixes" — LANDED**: L14+L15 (joint) +
+  L16, three commits. L14: `_canonicalize_type_kind` re-tags STRUCT-named-enum
+  -> ENUM at monomorphization so enum drop glue selects for owning enum-payload
+  container elements; `match` on an owned enum now consumes the scrutinee
+  (bindings own their fields, drop once unless moved), fixing Map grow/remove/
+  overwrite; Map probe helpers bind `_` for the value to avoid dropping a
+  non-retained slot copy. L15: let-annotation canonicalize+default-fill so a
+  literal-bound container's deinit resolves — no leak, no residual-temp
+  double-free. L16: clean typechecker error for `.value`/member on a distinct
+  non-struct `type`. Deferred out: L17 (owning-KEY containers + Arc-in-enum
+  extraction — needs copy-with-retain). Compiler suite 676, 0 xfails. [both apps]
 
 **DEFERRED** (user, Jul 29): slices (needs own design vs no-escape
 refs); `\x` byte escapes; where clauses; extension sugar (computed
@@ -290,9 +301,9 @@ contradictions were probed:
   - glob imports `import mod.*` — LANDED (spec de-planned)
   - scoped visibility `public(package)` — LANDED (spec de-planned)
   - named tuple field access + `.value` on distinct types — NOT landed
-    (named-tuple literal = parse error; **`.value` on a distinct `type`
-    ICEs — new ledger item L16**, needs a clean error or the feature);
-    spec examples relabeled illustrative/planned.
+    (named-tuple literal = parse error; `.value` on a distinct `type`
+    was ledger item **L16 — now CLOSED (design 61): a clean typechecker
+    error, not the feature**); spec examples relabeled illustrative/planned.
 Additional Part-3 corrections: Comparable (48), extension Int/Float
 (57), Never return type (58), `..=` operator (53) all reconciled from
 stale "planned" markers. README fully refreshed (real install/test
@@ -354,28 +365,56 @@ LLVM-exception).
   no XFAIL. [40 report, 59 F]
 - **L12.** Fixed arrays cannot take extension methods (parse error) —
   blocked M1's fixed-array swap variant. [40 report]
-- **L14 (design 59 E, DISCOVERED — DEFERRED).** Owning **enum-payload**
-  container elements are not dropped on container deinit: a
-  `Vector<enum-with-owning-payload>` (and hence `Map<K, owning V>`, whose
-  slots are `Vector<MapSlot>`) drops nothing for its `Occupied` payloads
-  because the element type reaches the drop glue kind-tagged STRUCT (the
-  type-arg default), so the enum drop path is never selected. A direct
-  `Vector<Struct>` drops correctly; only enum payloads leak. A codegen
-  re-tag of the element type to ENUM in the cleanup path fixes plain-insert
-  Map value deinit — BUT it exposes L15 (turns that leak into a
-  double-free in the literal path), so it was reverted here and both need
-  a joint fix. Probe: `.build/scratch/vec_elem_deinit.saw`
-  (Vector<Struct>=2 drops, Vector<enum>=0). [59 E investigation]
-- **L15 (design 59 E, DISCOVERED — DEFERRED).** A collection **literal**
-  bound to a value with owning elements has a tmp/`m` ownership-handoff
-  bug: the literal builds into a temp and returns `load(tmp_ptr)` (a
-  bitwise copy of the NoCopy container), so the temp and the binding alias
-  the same buffer. With element drop glue active this double-frees the
-  owning elements (behaviour is monomorphization-order / allocator
-  dependent — masked as a leak while L14 suppresses element drops). The
-  narrow E1 fix (drop the discarded insert-return) is unaffected and
-  correct. Probe: `.build/scratch/e1_ca.saw` (3 values created,
-  4–5 deinits with element drops on). [59 E investigation]
+- **L14 — CLOSED (design 61, joint with L15).** Root cause: a named type that
+  denotes an ENUM is parsed/kept STRUCT-kinded (the parser can't know), and
+  while `_get_llvm_type`/`_needs_cleanup` special-case such names, the drop-glue
+  selector `_emit_drop_at` dispatched purely on `saw_type.kind` — so a
+  monomorphization binding like the `T` of `Vector<MapSlot<K,V>>` reached
+  drop-glue tagged STRUCT and the enum tag-switch cleanup (payload drops) never
+  ran. Fixed at the source: `_canonicalize_type_kind` (codegen/generics.py)
+  re-tags STRUCT-named-enum -> ENUM (recursively) and default-fills omitted
+  trailing type args, applied where the monomorphization context is recorded
+  (`_ensure_monomorphized_struct/_enum`) and on written let-annotations; erased
+  `Box<any Trait>` is left untouched. Enabling element drops surfaced the
+  Map/Set move/read ownership bugs (as L15 predicted): `match` on an owned enum
+  scrutinee now CONSUMES it (owning bindings own their fields, drop once at arm
+  end unless `move`d; scrutinee drop suppressed), fixing grow/remove/overwrite;
+  the Map probe helpers bind `_` for the value so a non-retained slot inspection
+  never releases the live payload. Proving tests (all PASS):
+  `vector_enum_payload_deinit`, `map_owning_value_deinit`,
+  `map_owning_remove_overwrite`. [61]
+- **L15 — CLOSED (design 61, joint with L14).** Root cause: the literal built
+  into a temp and returned `load(tmp_ptr)`, and — separately — a written
+  `let m: Map<Int, V> = { ... }` annotation kept 2 type args, so its deinit
+  lookup missed the 3-arg (`…,Global`) monomorphized deinit and the whole
+  container leaked at scope end. Fixed by canonicalizing+default-filling the
+  let annotation (so the deinit resolves) plus the L14 consume-model (so each
+  element transfers exactly once, no residual temp double-free). Proving tests:
+  `map_literal_owning_values`, `vector_literal_owning_deinit`,
+  `vector_literal_owning_use_after_move_error` (moved element bindings still
+  error), and the pre-existing `map_literal_dup_key_no_leak` (E1, exact count).
+  [61]
+- **L16 — CLOSED (design 61).** `.value` (or any member) on a distinct `type`
+  over a non-struct underlying (`type MyInt = Int; x.value`) reached codegen and
+  ICE'd ("Cannot find field value in struct with type i64"). The `.value`
+  accessor is not a language feature (spec labels it planned/illustrative), so
+  the typechecker's `_check_member_access` now emits a clean error naming the
+  alias; a distinct alias of a STRUCT still falls through to the field check.
+  Proving test: `distinct_type_value_access_error`. [61]
+- **L17 (design 61, DISCOVERED — DEFERRED).** Owning-KEY containers
+  (`Set<OwningT>`, `Map<OwningK, V>`) still miscount, and enum payloads whose
+  fields contain an optional/pointer (notably `Arc`) extract GARBAGE when
+  matched. Both trace to one gap: copying a struct/enum out by value (the
+  `Vector.get()`-based probe reads a non-retained slot copy; `Map._key_eq`
+  compares that copied owning key and then drops it) does NOT recursively
+  RETAIN owning fields, and match-extracting an aggregate payload with an
+  optional field reads the wrong bytes. Memory-safe for NoCopy value payloads
+  (Map<Int,OwningV> is exact); Set<OwningT> over-counts by the number of
+  probe comparisons; `Arc` in an enum/map corrupts. Fix needs enum/struct
+  copy-with-retain (a copy-semantics feature) + correct aggregate-payload
+  extraction — out of scope for a drop-fix brief. Probes:
+  `.build/scratch/setval2.saw` (dup-insert counts 2, want 1),
+  `.build/scratch/enumarc.saw` (matched Arc payload reads garbage). [61]
 
 - **L1.** Partial moves — DECIDED forbidden + LANDED (design 35,
   `2829364`): field/nested/index forms all get naming diagnostics; the
