@@ -12,7 +12,7 @@ Usage:
 from llvmlite import ir
 from ast_nodes import (TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex, IntLiteral,
                        MapLiteral, SetLiteral, FunctionCall, MethodCall, Identifier,
-                       Argument)
+                       Argument, SawType, TypeKind)
 
 
 class CollectionsMixin:
@@ -49,7 +49,7 @@ class CollectionsMixin:
         return self.builder.extract_value(tuple_val, expr.index)
 
     def _build_collection_literal(self, container_type, expr, method_name,
-                                  insert_arg_lists):
+                                  insert_arg_lists, discard_saw_type=None):
         """Shared lowering for map / set / vector literals (design 54): construct
         the container, then call `method_name` (insert/push) once per element in
         source order, and yield the finished value.
@@ -58,7 +58,12 @@ class CollectionsMixin:
         `Container<..>()` + `.insert(...)`/`.push(...)`, so monomorphization,
         value-transfer (moves/copies of owning elements), and Deinit all behave
         identically. A synthetic local binds the temp so the synthesized
-        `insert`/`push` method calls resolve their `&var self` receiver."""
+        `insert`/`push` method calls resolve their `&var self` receiver.
+
+        `discard_saw_type` is the type of each call's discarded return value
+        (Map.insert returns the shadowed old value `V?`); when it needs cleanup,
+        the return is dropped like a discarded call result so a duplicate-key map
+        literal with owning values does not leak the shadowed value."""
         ct = container_type
         if ct is not None and self.type_param_context:
             ct = ct.substitute(self.type_param_context)
@@ -88,7 +93,16 @@ class CollectionsMixin:
                     object=obj, method_name=method_name,
                     arguments=[Argument(value=a, name=None) for a in arg_list],
                     line=expr.line, column=expr.column)
-                self._generate_expression(mc)
+                res = self._generate_expression(mc)
+                # Drop an owning discarded return (Map.insert's shadowed `V?` on a
+                # duplicate key) so it is not leaked — same as a discarded call
+                # result at statement end.
+                if (discard_saw_type is not None and res is not None
+                        and not isinstance(res.type, ir.VoidType)
+                        and self._needs_cleanup(discard_saw_type)):
+                    ret_slot = self._entry_alloca(res.type, name="collit_discard")
+                    self.builder.store(res, ret_slot)
+                    self._emit_drop_at(ret_slot, discard_saw_type)
         finally:
             self.variables.pop(tmpname, None)
             self.variable_types.pop(tmpname, None)
@@ -98,8 +112,16 @@ class CollectionsMixin:
     def _generate_map_literal(self, expr: MapLiteral):
         """Lower a map literal `{k: v, ...}` / `{:}` (design 54)."""
         ct = getattr(expr, 'resolved_type', None)
+        # Map.insert returns the shadowed old value `V?`; a duplicate key inside
+        # the literal discards it, so pass its type to be dropped (only owning V
+        # actually needs it). V is the map's second type arg.
+        discard = None
+        sub = ct.substitute(self.type_param_context) if (ct is not None and self.type_param_context) else ct
+        if sub is not None and sub.type_args and len(sub.type_args) >= 2:
+            discard = SawType(TypeKind.OPTIONAL, inner_type=sub.type_args[1])
         return self._build_collection_literal(
-            ct, expr, "insert", [[k, v] for (k, v) in expr.entries])
+            ct, expr, "insert", [[k, v] for (k, v) in expr.entries],
+            discard_saw_type=discard)
 
     def _generate_set_literal(self, expr: SetLiteral):
         """Lower a set literal `{a, b, ...}` (design 54)."""

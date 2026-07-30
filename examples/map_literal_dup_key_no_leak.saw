@@ -1,0 +1,39 @@
+// A duplicate key in a map literal with owning values must DROP the shadowed
+// value, not leak it (design 59 E1). The literal lowers to per-entry
+// `insert(k, v)` calls; `Map.insert` returns the previous value (`V?`) when the
+// key already exists, and that discarded return was never dropped — so the first
+// `1: ...` value leaked when the second `1: ...` shadowed it.
+//
+// We observe the drop WHILE the map is still alive: the shadowed value is
+// dropped during construction (the discarded insert-return), so the deinit count
+// read before the map goes out of scope counts exactly the shadowed values.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 1
+
+static DEINITS: Atomic<Int> = Atomic(0)
+
+struct Val { id: Int }
+extension Val: Deinit {
+    func deinit(&var self) { DEINITS.fetch_add(1) }
+}
+extension Val: NoCopy {}
+
+// Build a literal whose key 1 appears twice, then read the deinit count while
+// the map is still live and return it. Only the shadowed Val(id: 10) has been
+// dropped at this point (during construction); the two live values {1: 99,
+// 2: 20} are dropped later, at scope end.
+func shadowed_drops() -> Int {
+    let m: Map<Int, Val> = {
+        1: Val(id: 10),
+        2: Val(id: 20),
+        1: Val(id: 99)
+    }
+    print(m.len())          // 2 (last-wins)
+    DEINITS.load()          // 1 — the shadowed Val(id: 10) was dropped, not leaked
+}
+
+func main() {
+    print(shadowed_drops())
+}

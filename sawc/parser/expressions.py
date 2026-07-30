@@ -1033,10 +1033,19 @@ class ExpressionsMixin:
                                   TokenType.RETURN, TokenType.BREAK, TokenType.CONTINUE,
                                   TokenType.ASSIGN):
                         return 'closure'   # a statement body -> block
-                if t.type in (TokenType.LT, TokenType.LPAREN, TokenType.LBRACE,
+                # NOTE: `<`/`>` are deliberately NOT treated as depth brackets
+                # (design 59 E2). They are ambiguous — a comparison (`a > 0`) or a
+                # generic-arg bracket (`Map<K, V>`) — and treating them as depth
+                # made an unparenthesized comparison element (`{a > 0, b > 0}`)
+                # drive depth negative so the real depth-0 `,` was missed and the
+                # brace misclassified as a block. Closures are decided BEFORE this
+                # scan (named-param / capture-list checks above), so dropping
+                # `<`/`>` here cannot regress closure parsing. Only `()`/`[]`/`{}`
+                # — which cannot be a comparison — bound nested `,`/`:`.
+                if t.type in (TokenType.LPAREN, TokenType.LBRACE,
                               TokenType.LBRACKET):
                     depth += 1
-                elif t.type in (TokenType.GT, TokenType.RPAREN, TokenType.RBRACE,
+                elif t.type in (TokenType.RPAREN, TokenType.RBRACE,
                                 TokenType.RBRACKET):
                     depth -= 1
                 self.advance()

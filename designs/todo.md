@@ -321,6 +321,28 @@ spec examples aspirational).
   overflow intrinsics already do. [40 report]
 - **L12.** Fixed arrays cannot take extension methods (parse error) —
   blocked M1's fixed-array swap variant. [40 report]
+- **L14 (design 59 E, DISCOVERED — DEFERRED).** Owning **enum-payload**
+  container elements are not dropped on container deinit: a
+  `Vector<enum-with-owning-payload>` (and hence `Map<K, owning V>`, whose
+  slots are `Vector<MapSlot>`) drops nothing for its `Occupied` payloads
+  because the element type reaches the drop glue kind-tagged STRUCT (the
+  type-arg default), so the enum drop path is never selected. A direct
+  `Vector<Struct>` drops correctly; only enum payloads leak. A codegen
+  re-tag of the element type to ENUM in the cleanup path fixes plain-insert
+  Map value deinit — BUT it exposes L15 (turns that leak into a
+  double-free in the literal path), so it was reverted here and both need
+  a joint fix. Probe: `.build/scratch/vec_elem_deinit.saw`
+  (Vector<Struct>=2 drops, Vector<enum>=0). [59 E investigation]
+- **L15 (design 59 E, DISCOVERED — DEFERRED).** A collection **literal**
+  bound to a value with owning elements has a tmp/`m` ownership-handoff
+  bug: the literal builds into a temp and returns `load(tmp_ptr)` (a
+  bitwise copy of the NoCopy container), so the temp and the binding alias
+  the same buffer. With element drop glue active this double-frees the
+  owning elements (behaviour is monomorphization-order / allocator
+  dependent — masked as a leak while L14 suppresses element drops). The
+  narrow E1 fix (drop the discarded insert-return) is unaffected and
+  correct. Probe: `.build/scratch/e1_ca.saw` (3 values created,
+  4–5 deinits with element drops on). [59 E investigation]
 
 - **L1.** Partial moves — DECIDED forbidden + LANDED (design 35,
   `2829364`): field/nested/index forms all get naming diagnostics; the
