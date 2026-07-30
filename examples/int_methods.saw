@@ -1,0 +1,33 @@
+// Int numeric extensions (design 57): abs / min / max / clamp / pow / is_even /
+// is_odd / signum.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 5
+// 3
+// 9
+// 7
+// 8
+// 1000
+// 1
+// 1
+// 0
+// 1
+// -1
+// 0
+
+func main() {
+    print((5).abs())         // 5
+    print((-5).abs())        // 5
+    print((3).min(9))        // 3
+    print((3).max(9))        // 9
+    print((12).clamp(0, 7))  // 7
+    print((8).clamp(8, 20))  // 8
+    print((10).pow(3))       // 1000
+    print(if (4).is_even() { 1 } else { 0 })   // 1
+    print(if (7).is_odd() { 1 } else { 0 })    // 1
+    print(if (7).is_even() { 1 } else { 0 })   // 0
+    print((42).signum())     // 1
+    print((-42).signum())    // -1
+    print((0).signum())      // 0
+}

@@ -1,0 +1,127 @@
+// Numeric extensions on the Int and Float primitives (design 57 Part 5).
+//
+// These attach to the `Int` / `Float` pseudo-structs (the same mechanism
+// `String` methods use). Int arithmetic is checked — `abs`/`pow` panic on
+// overflow per the house rule (design 31), which is a BUG signal, distinct
+// from data-level failures. Float methods follow IEEE semantics (NaN
+// propagates) and lower to the libm math functions.
+
+// =============================================================================
+// libm (Float math)
+// =============================================================================
+
+extern "C" {
+    func fabs(x: Float) -> Float
+    func floor(x: Float) -> Float
+    func ceil(x: Float) -> Float
+    func round(x: Float) -> Float
+    func sqrt(x: Float) -> Float
+    func fmin(a: Float, b: Float) -> Float
+    func fmax(a: Float, b: Float) -> Float
+}
+
+// =============================================================================
+// Int
+// =============================================================================
+
+extension Int {
+    // Absolute value. PANICS on Int.min: its magnitude is unrepresentable as a
+    // positive Int, so the negation overflows (house overflow rule, design 31).
+    func abs(&self) -> Int {
+        if self < 0 {
+            -self
+        } else {
+            self
+        }
+    }
+
+    // The smaller / larger of self and other.
+    func min(&self, other: Int) -> Int {
+        if self < other { self } else { other }
+    }
+
+    func max(&self, other: Int) -> Int {
+        if self > other { self } else { other }
+    }
+
+    // Clamp into [low, high]. Assumes low <= high.
+    func clamp(&self, low: Int, high: Int) -> Int {
+        if self < low {
+            low
+        } else if self > high {
+            high
+        } else {
+            self
+        }
+    }
+
+    // Integer power by repeated (checked) multiplication. A negative exponent
+    // has no integer result, so it PANICS; overflow panics via the checked `*`.
+    func pow(&self, exp: Int) -> Int {
+        if exp < 0 {
+            panic("negative exponent")
+        }
+        var result = 1
+        var e = exp
+        while e > 0 {
+            result = result * self
+            e = e - 1
+        }
+        result
+    }
+
+    func is_even(&self) -> Bool {
+        self % 2 == 0
+    }
+
+    func is_odd(&self) -> Bool {
+        self % 2 != 0
+    }
+
+    // -1, 0, or 1 for negative, zero, positive.
+    func signum(&self) -> Int {
+        if self > 0 {
+            1
+        } else if self < 0 {
+            -1
+        } else {
+            0
+        }
+    }
+}
+
+// =============================================================================
+// Float — IEEE semantics; NaN propagates. Lowered to libm.
+// =============================================================================
+
+extension Float {
+    func abs(&self) -> Float {
+        fabs(self)
+    }
+
+    func floor(&self) -> Float {
+        floor(self)
+    }
+
+    func ceil(&self) -> Float {
+        ceil(self)
+    }
+
+    // Round half away from zero (C `round`).
+    func round(&self) -> Float {
+        round(self)
+    }
+
+    func sqrt(&self) -> Float {
+        sqrt(self)
+    }
+
+    // IEEE min/max: if exactly one argument is NaN, the non-NaN is returned.
+    func min(&self, other: Float) -> Float {
+        fmin(self, other)
+    }
+
+    func max(&self, other: Float) -> Float {
+        fmax(self, other)
+    }
+}

@@ -81,6 +81,18 @@ class RegistrationMixin:
         self.namespace.register_conformance("String", "Comparable")
         self.namespace.register_conformance("String", "Hashable")
 
+        # Register Int and Float as pseudo-structs so they can carry method
+        # extensions (design 57 Part 5), the same mechanism String uses. No
+        # conformances are registered here: their Copy/Equatable/Comparable/
+        # Hashable behavior is handled by the primitive-aware bound checks and
+        # the compiler-intercepted copy/hash/compare/format lowerings, all of
+        # which run before ordinary struct-method dispatch. The pseudo-struct
+        # only makes `extension Int { ... }` / `extension Float { ... }` and
+        # value.method() dispatch resolve.
+        for _prim in ("Int", "Float"):
+            self.namespace.register_struct(_prim, StructSymbol(
+                fields={}, field_order=[], line=0, column=0))
+
         # Register Result<T, E> as a built-in generic enum
         from ast_nodes import TypeParameter
 
@@ -655,6 +667,20 @@ class RegistrationMixin:
         'UInt8', 'UInt16', 'UInt32', 'UInt64',
     }
 
+    # Primitive types that carry method extensions (design 57): the pseudo-struct
+    # name maps to the primitive SawType used for `self`.
+    PRIMITIVE_EXT_SELF_KINDS = {
+        'String': TypeKind.STRING,
+        'Int': TypeKind.INT,
+        'Float': TypeKind.FLOAT,
+    }
+
+    def _primitive_ext_self_type(self, name):
+        """The `self` SawType for a method in an extension on a primitive
+        pseudo-struct (String/Int/Float), or None for an ordinary struct."""
+        kind = self.PRIMITIVE_EXT_SELF_KINDS.get(name)
+        return SawType(kind) if kind is not None else None
+
     def _is_known_type(self, name: str) -> bool:
         """Check if a name refers to a known type (built-in or user-defined)."""
         return (name in self.BUILTIN_TYPE_NAMES or
@@ -1053,9 +1079,8 @@ class RegistrationMixin:
 
             # Register method
             # Determine the Self type for this extension
-            if extension.struct_name == "String":
-                self_type = SawType(TypeKind.STRING)
-            else:
+            self_type = self._primitive_ext_self_type(extension.struct_name)
+            if self_type is None:
                 self_type = SawType(TypeKind.STRUCT, struct_name=extension.struct_name)
 
             # Resolve Self types in parameter types
@@ -1272,9 +1297,11 @@ class RegistrationMixin:
         """Resolve Self and associated types in a trait type."""
         # Handle Self type (TypeKind.SELF)
         if trait_type.kind == TypeKind.SELF:
-            # Special case: String is a primitive type, not a struct
-            if self_type_name == "String":
-                return SawType(TypeKind.STRING)
+            # Primitive pseudo-structs (String/Int/Float) map Self to the
+            # primitive type, not a struct (design 57).
+            prim = self._primitive_ext_self_type(self_type_name)
+            if prim is not None:
+                return prim
             return SawType(TypeKind.STRUCT, struct_name=self_type_name)
         if trait_type.kind == TypeKind.STRUCT and trait_type.struct_name:
             # Handle associated types

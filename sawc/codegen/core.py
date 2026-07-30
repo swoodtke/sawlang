@@ -1508,9 +1508,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             else:
                 # Regular instance methods include self as first parameter
                 # Determine the Self type for this extension
-                if extension.struct_name == "String":
-                    self_llvm_type = ir.IntType(8).as_pointer()  # String is i8*
-                else:
+                self_llvm_type = self._primitive_self_llvm_type(extension.struct_name)
+                if self_llvm_type is None:
                     self_llvm_type = self.struct_types[extension.struct_name][0]
 
                 param_types = []

@@ -54,6 +54,18 @@ class ResourcesMixin:
             return saw_type.enum_name
         return None
 
+    def _primitive_self_llvm_type(self, struct_name: str):
+        """The LLVM `self` type for a method in an extension on a primitive
+        pseudo-struct (String/Int/Float, design 57), or None for an ordinary
+        struct. String is i8*; Int is the platform word; Float is a double."""
+        if struct_name == "String":
+            return ir.IntType(8).as_pointer()
+        if struct_name == "Int":
+            return self.int_type
+        if struct_name == "Float":
+            return ir.DoubleType()
+        return None
+
     def _type_method_base(self, saw_type: SawType) -> Optional[str]:
         """Base symbol for a type's compiler-invoked methods (deinit / copy).
 
@@ -66,6 +78,11 @@ class ResourcesMixin:
         """
         if saw_type.kind == TypeKind.STRING:
             return "String"
+        # Primitive pseudo-structs carrying method extensions (design 57).
+        if saw_type.kind == TypeKind.INT:
+            return "Int"
+        if saw_type.kind == TypeKind.FLOAT:
+            return "Float"
         if saw_type.kind in (TypeKind.STRUCT, TypeKind.ENUM):
             return mangle_type(saw_type)
         return None

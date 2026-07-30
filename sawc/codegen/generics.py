@@ -436,8 +436,9 @@ class GenericsMixin:
         A plain/generic struct's self is its (possibly monomorphized) struct
         type; `String`'s self is `i8*` (design 40 item 9 — String has no entry
         in struct_types, matching the eager `_generate_method` path)."""
-        if struct_name == "String":
-            return ir.IntType(8).as_pointer()
+        prim = self._primitive_self_llvm_type(struct_name)
+        if prim is not None:
+            return prim
         return self.struct_types[struct_name][0]
 
     def _declare_monomorphized_method(self, mangled_struct_name: str, method: Method,

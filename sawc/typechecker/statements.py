@@ -132,8 +132,9 @@ class StatementsMixin:
         self.current_scope = Scope()
 
         # Determine the Self type for this extension
-        if struct_name == "String":
-            self_type = SawType(TypeKind.STRING)
+        _prim_self = self._primitive_ext_self_type(struct_name)
+        if _prim_self is not None:
+            self_type = _prim_self
         else:
             # For specialized extensions, include the type args in self_type
             if type_subst:

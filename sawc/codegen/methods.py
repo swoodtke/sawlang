@@ -71,9 +71,11 @@ class MethodsMixin:
         self.drop_flags = {}
 
         # Determine the Self type for this extension
-        if struct_name == "String":
-            self_llvm_type = ir.IntType(8).as_pointer()  # String is i8*
-            self_saw_type = SawType(TypeKind.STRING)
+        self_llvm_type = self._primitive_self_llvm_type(struct_name)
+        if self_llvm_type is not None:
+            _prim_saw_kind = {"String": TypeKind.STRING, "Int": TypeKind.INT,
+                              "Float": TypeKind.FLOAT}[struct_name]
+            self_saw_type = SawType(_prim_saw_kind)
         else:
             self_llvm_type = self.struct_types[struct_name][0]
             self_saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)

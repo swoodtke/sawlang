@@ -1,0 +1,31 @@
+// Float numeric extensions (design 57): abs / floor / ceil / round / sqrt /
+// min / max, with IEEE NaN semantics. Print renders 6 fractional digits.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2.500000
+// 2.000000
+// 3.000000
+// 3.000000
+// 4.000000
+// 1.000000
+// 5.000000
+// true
+
+func main() {
+    print((0.0 - 2.5).abs())    // 2.500000
+    print((2.7).floor())        // 2.000000
+    print((2.1).ceil())         // 3.000000
+    print((2.5).round())        // 3.000000 (half away from zero)
+    print((16.0).sqrt())        // 4.000000
+    print((1.0).min(5.0))       // 1.000000
+    print((1.0).max(5.0))       // 5.000000
+
+    // IEEE: min with a NaN returns the non-NaN operand.
+    let real_nan = sqrt_nan()
+    print(real_nan.min(3.0) == 3.0)    // true (NaN dropped)
+}
+
+// sqrt of a negative is NaN.
+func sqrt_nan() -> Float {
+    (0.0 - 1.0).sqrt()
+}

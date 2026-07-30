@@ -1,0 +1,9 @@
+// Int.abs() on Int.min panics: the positive magnitude of Int.min is
+// unrepresentable, so the negation overflows (house overflow rule, design 57).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: integer overflow
+
+func main() {
+    let mn = -9223372036854775807 - 1   // Int.min (exact, no overflow)
+    print(mn.abs())                     // -Int.min -> panic
+}

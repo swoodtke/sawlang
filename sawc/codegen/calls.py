@@ -602,10 +602,16 @@ class CallsMixin:
                     struct_name = name
                     break
 
-        # Check for primitive type extensions (String)
+        # Check for primitive type extensions (design 57). The LLVM type of an
+        # Int (i64) is ambiguous with Int64/UInt, so use the typechecker's stamped
+        # SawType (`recv_saw`) to name the primitive pseudo-struct precisely;
+        # fall back to the i8* shape for String.
         if struct_name is None:
-            # String is i8* (pointer to i8)
-            if isinstance(obj_type, ir.PointerType):
+            if recv_saw is not None and recv_saw.kind == TypeKind.INT:
+                struct_name = "Int"
+            elif recv_saw is not None and recv_saw.kind == TypeKind.FLOAT:
+                struct_name = "Float"
+            elif isinstance(obj_type, ir.PointerType):
                 pointee = obj_type.pointee
                 if isinstance(pointee, ir.IntType) and pointee.width == 8:
                     struct_name = "String"

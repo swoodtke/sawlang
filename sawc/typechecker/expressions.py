@@ -3483,8 +3483,14 @@ class ExpressionsMixin:
             return self._check_type_param_method_call(
                 expr, obj_type, type_params[obj_type.struct_name])
 
-        if obj_type.kind == TypeKind.STRING:
-            struct_name = "String"
+        _prim_ext_name = {
+            TypeKind.STRING: "String",
+            TypeKind.INT: "Int",
+            TypeKind.FLOAT: "Float",
+        }.get(obj_type.kind)
+        if _prim_ext_name is not None:
+            # Method on a primitive pseudo-struct (design 57: String/Int/Float).
+            struct_name = _prim_ext_name
             struct_info = self.get_struct_info(struct_name)
         elif obj_type.kind == TypeKind.STRUCT:
             struct_name = obj_type.struct_name
