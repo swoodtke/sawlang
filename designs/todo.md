@@ -100,17 +100,46 @@ A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
   `Result<Manifest, Box<any Error>>` (ManifestError auto-erase + TomlError
   `try` re-box), new `blade/tests/erased_manifest_error.saw`. Compiler suite
   568 passing, 0 xfails. [App-1]
-- **N4/N5/N7 → BRIEFED as design 57** (`designs/57-blade-enablers.md`,
-  decided Jul 29, queued after 56): HashMap iteration = visitors
-  (each/each_key/each_value, non-escaping) + snapshots (keys()/values()
-  Vectors, K: Copy) — old Map explicitly SKIPPED (dying per design 54);
-  String.to_int()/to_int(radix:)/to_float() -> Optional (whole-string,
-  panic-free overflow→None); **DF3 ADOPTED** (call-site T→T? auto-wrap,
-  one level, after overload resolution, not through generic params);
-  std.time (Duration Int64-nanos, monotonic Instant, unix_timestamp(),
-  hosted-only); extension Int (abs/min/max/clamp/pow/is_even/is_odd/
-  signum) + extension Float (abs/floor/ceil/round/sqrt/min/max); Blade
-  dogfood per part. [App-1]
+- **N4/N5/N7 → design 57 — LANDED** (`designs/57-blade-enablers.md`):
+  HashMap iteration (visitors each/each_key/each_value + snapshots
+  keys()/values(), old Map skipped); String.to_int()/to_int(radix:)/
+  to_float() -> Optional; DF3 call-site optional auto-wrap; std.time;
+  extension Int/Float. Compiler suite 587, 0 xfails. Choices/deferrals:
+  * **Visitor element passing:** BY VALUE via the same whole-slot copy
+    path get/_get_value use (the brief's "by value" fallback) — per-
+    category by-reference (&K/&V for ExplicitCopy/NoCopy) is not
+    expressible yet (no by-ref projection into an enum payload inside a
+    vector slot), so visitors work for any K/V that get already supports
+    (trivial + ImplicitCopy, e.g. Int/String; payload-free enum values).
+    Snapshots keys()/values() are K: Copy / V: Copy bounded; no entries()
+    (deferred). HashMap order is unspecified (table order; sort keys() for
+    determinism).
+  * **to_float precision:** naive accumulation (NOT correctly-rounded
+    strtod — last-ULP may differ); exponent accumulator clamped so it
+    can't overflow. to_int accumulates as a non-positive magnitude with
+    wrapping-op + divide-back overflow detection (portable, no Int.max
+    constant; Int.min round-trips). radix is a design-55 overload.
+  * **DF3 payload scope:** all call forms + init + enum-payload construction
+    covered (the memberwise struct-field path already wrapped via LLVM
+    shape-matching). One level only (`T??` is unspellable anyway; an
+    already-optional argument is passed through, never re-wrapped). Bare
+    `None` call arguments now annotated (were untyped). See DF3 ledger.
+  * **std.time:** hosted-only (added to HOSTED_STD_MODULES). Two compiler
+    clock shims (saw_clock_monotonic_nanos / saw_unix_timestamp_secs) keep
+    the timespec layout + macOS(6)/Linux(1) CLOCK_MONOTONIC variance inside
+    codegen. Duration.format uses early-returns (a void if/else-chain in
+    tail position emits an invalid void phi — worked around).
+  * **Int/Float extensions** required NEW primitive-extension infra:
+    registered Int/Float as pseudo-structs (like String) and generalized
+    the String-only self-type / method-dispatch spots to a primitive map
+    across typechecker + codegen. Int.abs panics on Int.min; Int.pow checked
+    (negative exp panics); Float via libm (fabs/floor/ceil/round/sqrt/
+    fmin/fmax), IEEE NaN. Survey: no hand-rolled abs/min/max in Blade.
+    KNOWN LIMITATION: match-expression inside a Void-returning closure
+    ICEs (void phi) — pre-existing, sidestepped in the enum-value test.
+  * **Blade dogfood:** toml.saw int_value()/get_int() (to_int); tester.saw
+    Instant/Duration timing + HashMap failed-name tally sorted via keys();
+    blade tests toml_int_value.saw + df3_map_time.saw. [App-1]
 - **N6 → BRIEFED as design 58** (`designs/58-attributes-exports.md`,
   decided Jul 29, queued after 57): Swift-style `@attr` grammar (v1:
   top-level func/static only); unified `@export`/`@export("sym")` =

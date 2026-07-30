@@ -302,6 +302,11 @@ The compiler currently supports:
 - Structs: declarations, field access, initialization
 - Field assignment: `obj.field = value`
 - Optionals (`T?`): `None`, `!`, `??`, `?.`
+- Call-site optional auto-wrap (design 57, DF3): a bare `T` argument auto-wraps
+  into a `T?` parameter at all call forms (free/method/static/module/init/enum
+  payload). One level only; ordered AFTER overload resolution (exact beats
+  optional-wrap, design 55 rule 1); NOT through a generic-instantiation boundary
+  (`id<Int?>(5)` is an error — explicit optional required). Move/copy unchanged.
 - Optional binding: `if let`/`if var`, `guard let`/`guard var`
 - Enums with associated values and `match` expressions
 - Match exhaustiveness checking (must cover all variants or use `_` wildcard)
@@ -440,7 +445,11 @@ The compiler currently supports:
   Result<String, Utf8Error>` validates at runtime). `bytes()`/`chars()` iterator
   views (chars yields Int scalars — no `Char` type yet); `withCString { ptr in
   ... }` non-escaping C-string borrow. `StringBuilder`: Global-backed, geometric
-  growth, `append`/`append_int`, refcount-correct `build()`
+  growth, `append`/`append_int`, refcount-correct `build()`. Number parsing
+  (design 57): `to_int() -> Int?`, `to_int(radix: Int) -> Int?` (design-55
+  overload, 2..=36), `to_float() -> Float?` — whole-string match, no trimming,
+  empty/junk/overflow → None (panic-free; to_int uses wrapping ops + divide-back
+  overflow detection, to_float is naive accumulation, not correctly-rounded)
 - Pluggable allocation: `Allocator` trait + `Global`; alloc-layer containers
   carry the allocator as a public default type parameter
   (`Vector<T, A: Allocator = Global>`, `Map<K, V, A = Global>`). `A().alloc(...)`
@@ -455,6 +464,17 @@ The compiler currently supports:
   grow at 3/4 load. `insert`/`get`/`remove`/`contains_key`/`len`; Int and String
   keys. Slots are an enum `{ Empty, Tombstone, Occupied(k, v) }` (owning-key-safe);
   NoCopy. The Vector-backed `Map` STAYS (deprecation is a later decision).
+  Iteration (design 57): non-escaping closure VISITORS `each(K,V)`/`each_key(K)`/
+  `each_value(V)` (K/V passed by value; skip Empty/Tombstone; order UNSPECIFIED —
+  table order) + SNAPSHOTS `keys() -> Vector<K,A>` (K: Copy) / `values()` (V: Copy),
+  built via the visitors. Mutating the map inside its own visitor is a static
+  exclusivity error. No `entries()` in v1.
+- Numeric extensions (design 57, `std/numeric.saw`): `extension Int` — `abs()`
+  (panics on Int.min per overflow rule), `min`/`max`/`clamp`, `pow` (checked;
+  negative exp panics), `is_even`/`is_odd`/`signum`; `extension Float` — `abs`/
+  `floor`/`ceil`/`round`/`sqrt`/`min`/`max` (via libm, IEEE NaN). Enabled by
+  registering Int/Float as extendable primitive pseudo-structs (the String
+  mechanism, generalized).
 
 ### Runtime & Tooling
 - `panic(message: String) -> Never` and `assert(cond: Bool, message: String)`
@@ -472,6 +492,12 @@ The compiler currently supports:
   (integer-only, same precedence as `+`/`-`/`*`)
 - Shift by a negative amount or `>=` the operand width panics ("shift out of
   range") — same house rule as overflow (decided in `designs/50`, landed)
+- `std.time` (design 57, `std/time.saw`, HOSTED-ONLY — excluded from
+  freestanding): `Duration { nanos: Int64 }` (secs/millis/micros/nanos +
+  from_millis/from_secs; Equatable + Comparable + Printable human form
+  "1.42s"/"230ms"), `Instant.now()` (monotonic), `elapsed()`/`duration_since()`,
+  free `unix_timestamp() -> Int64` (wall clock). Backed by two compiler clock
+  shims that hide the timespec layout + macOS/Linux CLOCK_MONOTONIC variance.
 - Compiler flags: `-o`, `-v`, `-c`, `--emit-ir`, `--emit-ast`, `-O0`
   (default is an O1-style pass pipeline)
 

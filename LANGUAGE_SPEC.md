@@ -339,6 +339,17 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   cannot leak. The closure returns `Void`; a result is produced by
   borrow-capturing an enclosing variable
   (`s.withCString { [&var n] ptr in n = strlen(ptr) }`).
+- **Number parsing** (`designs/57`). Three optional-returning methods parse the
+  **whole** string (no trimming — the caller trims with `trim`; empty → `None`;
+  any trailing/leading junk → `None`). Parse failure is *data*, so these never
+  panic: `to_int() -> Int?` (base 10), `to_int(radix: Int) -> Int?`
+  (a design-55 overload, radix 2..=36, digits `0-9a-zA-Z`, no `0x` prefix — the
+  caller strips it), and `to_float() -> Float?`
+  (`[+-]?digits[.digits][e[+-]digits]`). Overflow returns `None`: the integer
+  parser accumulates a **non-positive magnitude** with wrapping arithmetic and
+  divide-back checks (portable across Int widths, no `Int.max` constant needed;
+  `Int.min` round-trips). `to_float` is naive accumulation — fine for typical
+  input, but **not** a correctly-rounded `strtod` (the last ULP may differ).
 - **The refcount is atomic** (`i64`), from day one. This is a deliberate cost
   paid up front so `String` is `Send`-ready before multithreading lands, so the
   concurrency milestone does not have to relitigate the memory model. The
@@ -483,6 +494,18 @@ guard let value = maybe else {
     return
 }
 ```
+
+**Call-site optional auto-wrap** (`designs/57`, DF3). The implicit `T → T?` wrap
+also applies at **call boundaries**: a bare `T` argument auto-wraps into a `T?`
+parameter at every call form (free function, method, static method,
+module-qualified, struct `init`, and enum-payload construction). It is **one
+level only** (`T → T?`, never `T → T??` — and an already-optional argument is
+passed through, never re-wrapped). It runs **after overload resolution**, so an
+exact match still beats the wrap (design 55 rule 1: `f(5)` picks `f(Int)` over a
+coexisting `f(Int?)`). It does **not** fire through a generic-instantiation
+boundary — passing a bare `Int` where a generic parameter `U` was instantiated to
+`Int?` is an error; the optional must be explicit there. Move/copy semantics are
+unchanged (the wrap consumes the argument exactly as an explicit `Some(x)` would).
 
 ### Traits
 
@@ -1713,6 +1736,39 @@ table (linear probing, tombstone deletion) over a `Vector` of slot enums:
 - The existing Vector-backed **`Map` stays** as-is; migrating/deprecating it is
   a later decision.
 
+**Iteration** (`designs/57`). Saw's no-escape references mean an iterator object
+cannot borrow the map, so iteration is not an Iterator-over-a-borrow. Two forms:
+
+- **Visitors** (the zero-allocation primitive) — non-escaping closures, same
+  borrow discipline as `Vector.sort_by`/`withCString`:
+  `each(body: (K, V) -> Void)`, `each_key((K) -> Void)`, `each_value((V) -> Void)`.
+  Keys/values are handed to the closure **by value** (through the same whole-slot
+  copy path `get` uses), so a visitor works for any key/value type `get` already
+  supports (trivial + ImplicitCopy). Empty/Tombstone slots are skipped. **Order is
+  UNSPECIFIED** (table/bucket order, not insertion order) — sort a `keys()`
+  snapshot for deterministic output. Mutating the map inside its own visitor is a
+  static Law-of-Exclusivity error (iterator invalidation caught at compile time).
+- **Snapshots** (the convenience, built on the visitors): `keys() -> Vector<K, A>`
+  (bounded `K: Copy`) and `values() -> Vector<V, A>` (bounded `V: Copy`). There is
+  no `entries()` in v1 (a tuple-of-copies has containment wrinkles the visitors
+  already cover).
+
+### Numeric methods (`Int` / `Float`)
+
+**Status: implemented** (`designs/57`, `std/numeric.saw`). `Int` and `Float` are
+extendable primitive pseudo-structs (the same mechanism `String` uses), so
+methods are called with ordinary `value.method(...)` syntax.
+
+- `extension Int`: `abs()` (**panics on `Int.min`** — its positive magnitude is
+  unrepresentable, so the negation overflows, per the house overflow rule),
+  `min(other:)` / `max(other:)` / `clamp(low:, high:)`, `pow(exp:)` (repeated
+  **checked** multiply; a negative exponent **panics** — no integer result),
+  `is_even()` / `is_odd()`, `signum()` (−1 / 0 / 1).
+- `extension Float`: `abs()`, `floor()`, `ceil()`, `round()` (half away from
+  zero), `sqrt()`, `min(other:)` / `max(other:)`. These lower to the libm math
+  functions and follow **IEEE** semantics — a `NaN` propagates, and `min`/`max`
+  with one `NaN` operand return the non-`NaN` one.
+
 ---
 
 ## 6. Concurrency
@@ -2409,6 +2465,15 @@ std.hash.{Hash, Hasher}
 std.time.{Instant, Duration}
 ```
 
+**`std.time`** is **implemented** (`designs/57`, `std/time.saw`) and
+**hosted-only** (it links libc for the clock; freestanding kernels provide their
+own timer): `Duration { nanos: Int64 }` with `secs`/`millis`/`micros`/`nanos`
+accessors and `from_millis`/`from_secs` constructors (Equatable + Comparable +
+Printable, rendering a human form like `1.42s` / `230ms`); `Instant.now()` (a
+monotonic clock), `elapsed()`, and `duration_since(earlier:)`; and a free
+`unix_timestamp() -> Int64` (wall-clock seconds since the Unix epoch). `Int64`
+nanoseconds keep the layout stable across platform Int widths.
+
 ### Profiles (hosted and freestanding)
 
 **Status: freestanding stage 1 implemented.** Saw compiles under two profiles.
@@ -2422,8 +2487,8 @@ symbols the environment must supply at link time — `saw_alloc(size, align)`,
 libc-backed defaults (overridable at link time without a flag). Freestanding
 programs may use `core` and the `alloc`-layer types (`String`, `Vector`, `Map`,
 `Data`, `StringBuilder`, `Path`), which allocate only through the seams; the
-hosted-only modules (`File`, `Process`, `Env`, `Directory`) and `Float` printing
-are unavailable. See `designs/19-freestanding-profile.md` for the full design.
+hosted-only modules (`File`, `Process`, `Env`, `Directory`, `time`) and `Float`
+printing are unavailable. See `designs/19-freestanding-profile.md` for the full design.
 
 ---
 
