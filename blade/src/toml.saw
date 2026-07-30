@@ -306,6 +306,20 @@ public extension TomlDoc {
         move doc
     }
 
+    // All section names, in document order (lets a caller enumerate e.g. every
+    // [pkg.*] section of a lock file).
+    func section_names(&self) -> Vector<String> {
+        var out = Vector<String>()
+        var i = 0
+        while i < self.sections.len() {
+            if let s = self.sections.get(i) {
+                out.push(s.name)
+            }
+            i = i + 1
+        }
+        move out
+    }
+
     // Get a section by name
     func get_section(&self, name: String) -> TomlSection? {
         var i = 0

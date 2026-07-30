@@ -1,0 +1,39 @@
+// B4: Saw.lock serialization is deterministic (byte-identical) and round-trips
+// through the parser. Uses the chain/app path fixture (app -> a -> b).
+import src.lock.*
+import src.resolver.*
+import src.manifest.*
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/chain/app")) {
+        case Ok(m) -> {
+            match resolve(m) {
+                case Ok(res) -> {
+                    let mhash = manifest_deps_hash(m)
+                    let text1 = serialize(&res, mhash)
+                    let text2 = serialize(&res, mhash)
+                    assert(text1.equals(text2), "serialization is byte-identical across runs")
+
+                    // Write it out too (exercises the file path).
+                    assert(write_lock(&res, mhash, Path(s: ".build/scratch/test_roundtrip.lock")), "write_lock succeeds")
+
+                    guard let lock = parse_lock(text1) else {
+                        panic("lock did not parse")
+                    }
+                    assert(lock.len() == 2, "two locked packages")
+                    let ai = lock.index_of("a")
+                    let bi = lock.index_of("b")
+                    assert(ai >= 0, "a locked")
+                    assert(bi >= 0, "b locked")
+                    assert(lock.version(ai).equals("1.0.0"), "a version 1.0.0")
+                    assert(lock.source(ai).equals("path"), "a source is path")
+                    assert(lock.version(bi).equals("2.0.0"), "b version 2.0.0")
+                    assert(lock.manifest_hash.equals(mhash), "manifest hash recorded")
+                    print("lock_roundtrip: ok")
+                },
+                case Err(e) -> panic("resolve failed: {e.text()}")
+            }
+        },
+        case Err(_) -> panic("could not load chain/app manifest")
+    }
+}

@@ -110,7 +110,14 @@ Progress log (newest last):
   cloned into `.blade/deps/<name>-<version>/` (self-gitignoring `.blade/`), and
   recorded with kind "git" + rev. 3 blade tests: git_parse (pure), git_local_repo
   and git_resolve (local file:// repos built in .build/scratch via system() — no
-  network). Blade tests 14 -> 17. Suite 765 (no compiler edit). Next: B4 Saw.lock.
+  network). Blade tests 14 -> 17. Suite 765 (no compiler edit).
+- B4 landed: `blade/src/lock.saw` — deterministic Saw.lock (sorted [pkg.<name>]
+  sections, no timestamps -> byte-identical), `serialize`/`write_lock`/
+  `parse_lock`, and a manifest-deps `manifest_hash` (djb2, wrapping) with
+  `lock_is_current` drift detection. toml module gained `TomlDoc.section_names`.
+  2 blade tests (lock_roundtrip incl. byte-identical + write; lock_drift). Blade
+  tests 17 -> 19. Suite 765. (Build-honoring/`blade update` orchestration is B6.)
+  Next: B6 build integration + incremental.
 
 ### Dogfood findings — design 64 (Blade)
 - **DF-GlobConf — FIXED (this brief, `typechecker/core.py`).** A glob import

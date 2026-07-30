@@ -1,0 +1,206 @@
+// Saw.lock — the deterministic resolution lockfile (design 64 B4).
+//
+// Written next to Saw.toml. Packages are sorted by name and there are no
+// timestamps, so the bytes are identical across runs. A `manifest_hash` records
+// a digest of the manifest's [dependencies] so that editing the manifest is
+// detected as drift (build errors toward `blade update` rather than silently
+// re-resolving).
+//
+// Format (parseable by the existing toml module — one [section] per package):
+//   [lock]
+//   manifest_hash = "..."
+//
+//   [pkg.<name>]
+//   version = "..."
+//   source  = "path" | "git"
+//   loc     = "<dir or url>"
+//   rev     = "<sha or empty>"
+
+import src.toml
+import src.manifest.*
+import src.resolver.*
+
+// =============================================================================
+// Lock data (columnar)
+// =============================================================================
+
+public struct LockData {
+    manifest_hash: String
+    names: Vector<String>
+    versions: Vector<String>
+    sources: Vector<String>
+    locs: Vector<String>
+    revs: Vector<String>
+}
+
+extension LockData: NoCopy {
+    func deinit(var self) {}
+}
+
+public extension LockData {
+    init() -> LockData {
+        let a = Vector<String>()
+        let b = Vector<String>()
+        let c = Vector<String>()
+        let d = Vector<String>()
+        let e = Vector<String>()
+        LockData(manifest_hash: "", names: move a, versions: move b, sources: move c, locs: move d, revs: move e)
+    }
+
+    func len(&self) -> Int { self.names.len() }
+    func name(&self, i: Int) -> String { self.names.get(i) ?? "" }
+    func version(&self, i: Int) -> String { self.versions.get(i) ?? "" }
+    func source(&self, i: Int) -> String { self.sources.get(i) ?? "" }
+    func loc(&self, i: Int) -> String { self.locs.get(i) ?? "" }
+    func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
+
+    func index_of(&self, name: String) -> Int {
+        var i = 0
+        while i < self.names.len() {
+            if (self.names.get(i) ?? "").equals(name) {
+                return i
+            }
+            i = i + 1
+        }
+        -1
+    }
+}
+
+// =============================================================================
+// Manifest-deps hash (drift detection)
+// =============================================================================
+
+// djb2 with WRAPPING arithmetic (Saw panics on overflow, so a hash must wrap).
+func hash_str(s: String) -> Int {
+    var h = 5381
+    for byte in s.bytes() {
+        h = (h &* 33) &+ (byte as Int)
+    }
+    h
+}
+
+// A stable digest of the manifest's [dependencies] (sorted name|kind|loc|version
+// lines). Returns "0" if the deps cannot be read.
+public func manifest_deps_hash(m: Manifest) -> String {
+    let deps = match m.dependencies() {
+        case Ok(d) -> move d,
+        case Err(_) -> { return "0" }
+    }
+    var entries = Vector<String>()
+    var i = 0
+    while i < deps.len() {
+        guard let d = deps.get(i) else {
+            break
+        }
+        let kind = if d.is_path() { "path" } else { "git" }
+        let loc = match d.source {
+            case PathDep(dir) -> dir,
+            case GitDep(url) -> url
+        }
+        entries.push("{d.name}|{kind}|{loc}|{d.version}")
+        i = i + 1
+    }
+    entries.sort()
+
+    var b = StringBuilder()
+    for e in entries.iter() {
+        b.append(e)
+        b.append("\n")
+    }
+    let h = hash_str(b.build())
+    "{h}"
+}
+
+// =============================================================================
+// Serialize / write
+// =============================================================================
+
+// The exact lock text for a resolution. Deterministic: packages sorted by name,
+// no timestamps.
+public func serialize(res: &Resolution, manifest_hash: String) -> String {
+    var names = Vector<String>()
+    var i = 0
+    while i < res.len() {
+        names.push(res.name(i))
+        i = i + 1
+    }
+    names.sort()
+
+    var b = StringBuilder()
+    b.append("[lock]\n")
+    b.append("manifest_hash = \"")
+    b.append(manifest_hash)
+    b.append("\"\n")
+
+    for n in names.iter() {
+        let idx = res.index_of(n)
+        b.append("\n[pkg.")
+        b.append(n)
+        b.append("]\n")
+        b.append("version = \"")
+        b.append(res.version(idx))
+        b.append("\"\n")
+        b.append("source = \"")
+        b.append(res.kind(idx))
+        b.append("\"\n")
+        b.append("loc = \"")
+        b.append(res.loc(idx))
+        b.append("\"\n")
+        b.append("rev = \"")
+        b.append(res.rev(idx))
+        b.append("\"\n")
+    }
+    b.build()
+}
+
+// Write the lock file. True on success.
+public func write_lock(res: &Resolution, manifest_hash: String, path: Path) -> Bool {
+    let text = serialize(&res, manifest_hash)
+    if let f = File.create(path) {
+        let data = text.to_data()
+        f.write(move data)
+        true
+    } else {
+        false
+    }
+}
+
+// =============================================================================
+// Parse
+// =============================================================================
+
+public func parse_lock(content: String) -> LockData? {
+    let doc = match toml.TomlDoc.parse(content) {
+        case Ok(d) -> move d,
+        case Err(_) -> { return None }
+    }
+
+    var data = LockData()
+
+    guard let lock_sec = doc.get_section("lock") else {
+        return None
+    }
+    data.manifest_hash = lock_sec.get("manifest_hash") ?? ""
+
+    let secs = doc.section_names()
+    for name in secs.iter() {
+        if name.starts_with("pkg.") {
+            let pkg = name.substring(4, name.len())
+            guard let sec = doc.get_section(name) else {
+                continue
+            }
+            data.names.push(pkg)
+            data.versions.push(sec.get("version") ?? "")
+            data.sources.push(sec.get("source") ?? "")
+            data.locs.push(sec.get("loc") ?? "")
+            data.revs.push(sec.get("rev") ?? "")
+        }
+    }
+
+    move data
+}
+
+// True if the lock's manifest_hash still matches the manifest (no drift).
+public func lock_is_current(lock: &LockData, m: Manifest) -> Bool {
+    lock.manifest_hash.equals(manifest_deps_hash(m))
+}

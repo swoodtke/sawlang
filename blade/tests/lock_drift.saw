@@ -1,0 +1,27 @@
+// B4: the manifest-deps hash is stable, and drift (a lock whose hash no longer
+// matches the manifest) is detected -> build must steer the user to
+// `blade update` rather than silently re-resolve.
+import src.lock.*
+import src.manifest.*
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/simple/app")) {
+        case Ok(m) -> {
+            let h1 = manifest_deps_hash(m)
+            assert(not h1.equals("0"), "a hash was computed")
+            let h2 = manifest_deps_hash(m)
+            assert(h1.equals(h2), "hash is stable across calls")
+
+            var current = LockData()
+            current.manifest_hash = h1
+            assert(lock_is_current(&current, m), "matching hash -> current")
+
+            var stale = LockData()
+            stale.manifest_hash = "not-the-hash"
+            assert(not lock_is_current(&stale, m), "mismatched hash -> drift")
+
+            print("lock_drift: ok")
+        },
+        case Err(_) -> panic("could not load simple/app manifest")
+    }
+}
