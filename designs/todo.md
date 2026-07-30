@@ -435,20 +435,51 @@ LLVM-exception).
   the typechecker's `_check_member_access` now emits a clean error naming the
   alias; a distinct alias of a STRUCT still falls through to the field check.
   Proving test: `distinct_type_value_access_error`. [61]
-- **L17 (design 61, DISCOVERED — DEFERRED).** Owning-KEY containers
-  (`Set<OwningT>`, `Map<OwningK, V>`) still miscount, and enum payloads whose
-  fields contain an optional/pointer (notably `Arc`) extract GARBAGE when
-  matched. Both trace to one gap: copying a struct/enum out by value (the
-  `Vector.get()`-based probe reads a non-retained slot copy; `Map._key_eq`
-  compares that copied owning key and then drops it) does NOT recursively
-  RETAIN owning fields, and match-extracting an aggregate payload with an
-  optional field reads the wrong bytes. Memory-safe for NoCopy value payloads
-  (Map<Int,OwningV> is exact); Set<OwningT> over-counts by the number of
-  probe comparisons; `Arc` in an enum/map corrupts. Fix needs enum/struct
-  copy-with-retain (a copy-semantics feature) + correct aggregate-payload
-  extraction — out of scope for a drop-fix brief. Probes:
-  `.build/scratch/setval2.saw` (dup-insert counts 2, want 1),
-  `.build/scratch/enumarc.saw` (matched Arc payload reads garbage). [61]
+- **L17 — CLOSED (design 65) for the core; one narrow followup remains.**
+  Two symptoms, both fixed:
+  - *Symptom 2 (aggregate extraction garbage):* the enum payload byte array was
+    sized by a naive field-size SUM (`_estimate_type_size`) that ignored
+    alignment padding, so any payload with internal padding — `Arc<T>` (an
+    optional pointer `{i1, ptr}` = 16 bytes, sum 9) or an optional/pointer after
+    a smaller field — was TRUNCATED on construction and read OUT OF BOUNDS on
+    match extraction. Fixed by sizing the payload with the variant struct's true
+    `get_abi_size(target_data)` (codegen/core.py). Both match lowering paths
+    (design-61 switch + design-63 general if-chain) share the extraction and both
+    benefit. Tests: `enum_arc_struct_payload_match`, `enum_optional_payload_roundtrip`.
+  - *Symptom 1 (owning key/value probe over-drop):* reading an owning aggregate
+    out of a container slot (`Vector.get`'s `buf[i]` of a `MapSlot<String,V>` /
+    an `Arc`-bearing payload) now COPIES WITH RETAIN — recursive
+    `_emit_retain_at` (mirror of drop glue) via `_generate_copy` /
+    `_transfer_needs_copy`, so the copy is a genuine owner. The match consume
+    model RELEASES a `_`-discarded owning payload field with the symmetric
+    inverse `_emit_release_at` (releases refcounted leaves, skips a non-refcounted
+    `Deinit` value the slot still owns — keeps the design-61 exactly-once VALUE
+    tests green). Instance-method owning by-value params are now registered for
+    cleanup (made safe by teaching the placement-move `ptr[i]=value` to clear the
+    source drop flag); generic free-function params too. Also fixed a shared
+    `_needs_cleanup` cache poisoning where a STRUCT-kinded name that denotes an
+    enum (L14) cached the bare name `False`. Owning for-loop variables are now
+    released per iteration. Verified exactly-once via Arc strong_count:
+    `set_owning_key_refcount`, `map_string_owning_value_balance`.
+  - *ROOT CAUSE of the honest v1 limit:* copy-with-retain balances owning
+    keys/values that are ImplicitCopy (refcounted: String, Arc, Arc-bearing
+    structs). A pure **NoCopy struct with a side-effecting `Deinit` but no
+    refcount** (a `Val{id:Int}` counter) CANNOT be a safe Set/Map KEY: the
+    generic map bitwise-copies keys to probe, and such copies cannot be balanced
+    (retain is a no-op, drop runs the deinit). This over-counts (memory-safe for
+    a pure counter, but would double-free a real resource). Such keys should
+    become a clean typechecker error (keys must be copyable-with-retain) — a
+    deferred followup. NoCopy-Deinit VALUES stay exact (moved, never probe-copied).
+  - *REMAINING (flagged):* Set `union`/`intersection`/`difference` with owning
+    elements still LEAK their `to_vector()` snapshot refs — the snapshot's
+    `Vector_deinit` is emitted and reached (flags set) but does not release the
+    elements' refs, and ONLY in the GENERIC bounded-extension method (the same
+    pattern balances in a non-generic method and a free function). Distinct from
+    the probe-copy root cause; memory-safe (leak, not UAF), algebra RESULTS are
+    correct. Also surfaced: `moved_variables` is a process-global set never reset
+    per-function (a latent cross-function drop-skip for flag-less same-named
+    bindings) and struct init with an `Int8` field + int literal ICEs
+    ("Can only insert i8 at [0]: got i64"). [61, 65]
 
 - **L1.** Partial moves — DECIDED forbidden + LANDED (design 35,
   `2829364`): field/nested/index forms all get naming diagnostics; the
