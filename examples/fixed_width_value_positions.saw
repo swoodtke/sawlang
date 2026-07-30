@@ -1,0 +1,29 @@
+// Design 65 followup: a bare integer literal adopts a fixed-width type in every
+// value position — parameter, return, and enum-payload field (struct field and
+// array element already worked). Each is coerced to the exact width, so none
+// ICE, and all round-trip.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 100
+// 42
+// 7
+
+func takes(x: Int8, y: UInt16) -> Int { (x as Int) + (y as Int) }   // param position
+func makes() -> Int8 { 42 }                                          // return position
+
+enum Tagged {
+    case Small(v: Int8),
+    case Absent
+}
+
+func main() {
+    print(takes(5, 0) + 0)         // 5
+    print(takes(-1, 101) as Int)   // -1 + 101 = 100
+    print(makes() as Int)          // 42
+    let t = Tagged.Small(v: 7)     // enum payload position
+    match t {
+        case Small(v) -> print(v as Int),   // 7
+        case Absent -> print(0)
+    }
+}

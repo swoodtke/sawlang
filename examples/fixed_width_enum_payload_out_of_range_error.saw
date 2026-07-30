@@ -1,0 +1,10 @@
+// Design 65 followup: a bare literal out of range for a fixed-width ENUM PAYLOAD
+// field is a clean error, not a codegen ICE.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not fit in `Int8`
+
+enum E { case V(x: Int8), case N }
+func main() {
+    let e = E.V(x: 999)
+    match e { case V(x) -> print(x as Int), case N -> print(0) }
+}

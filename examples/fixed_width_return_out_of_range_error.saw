@@ -1,0 +1,7 @@
+// Design 65 followup: a bare literal out of range for a fixed-width RETURN type
+// is a clean error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not fit in `Int8`
+
+func g() -> Int8 { 999 }
+func main() { print(g() as Int) }

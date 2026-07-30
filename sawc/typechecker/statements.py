@@ -181,6 +181,13 @@ class StatementsMixin:
         if expected_return.is_optional() and method.body.final_expr:
             self._propagate_optional_type(method.body.final_expr, expected_return)
 
+        # A bare integer literal in tail-return position adopts a fixed-width
+        # return type — range check it (design 65 followup).
+        if method.body.final_expr is not None:
+            self._check_fixed_width_literal(
+                method.body.final_expr, expected_return,
+                method.body.final_expr.line, method.body.final_expr.column)
+
         if expected_return.kind != TypeKind.VOID:
             if body_type is None and not self.found_return_with_value:
                 self._error(
@@ -309,6 +316,13 @@ class StatementsMixin:
         """
         if resolved_return_type.kind == TypeKind.VOID:
             return
+        # Range-check a bare literal in tail-return position against a fixed-width
+        # return type (design 65 followup).
+        body = getattr(func, 'body', None)
+        if body is not None and getattr(body, 'final_expr', None) is not None:
+            self._check_fixed_width_literal(
+                body.final_expr, resolved_return_type,
+                body.final_expr.line, body.final_expr.column)
         # Function can return a value via either:
         # 1. An explicit return statement (found_return_with_value)
         # 2. A final expression in the body (body_type)
@@ -1372,6 +1386,9 @@ class StatementsMixin:
                 )
         else:
             value_type = self._check_expression(stmt.value)
+            # Range-check a bare literal against a fixed-width return type
+            # (design 65 followup).
+            self._check_fixed_width_literal(stmt.value, expected, stmt.line, stmt.column)
             if value_type and expected.kind == TypeKind.VOID:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,

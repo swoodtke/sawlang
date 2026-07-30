@@ -944,6 +944,11 @@ class ExpressionsMixin:
                     f"argument {i + 1} expects `{expected}` but got `{at}`",
                     arg.value.line, arg.value.column
                 )
+            # A bare integer literal adopts a fixed-width parameter's type — range
+            # check it (design 65 followup: out-of-range = clean error, not an ICE
+            # / silent truncation at the call).
+            self._check_fixed_width_literal(arg.value, expected,
+                                            arg.value.line, arg.value.column)
             self._check_value_transfer(arg.value, expected, "call argument",
                                        arg.value.line, arg.value.column)
 
@@ -1408,6 +1413,8 @@ class ExpressionsMixin:
                         f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
                         arg.value.line, arg.value.column
                     )
+                self._check_fixed_width_literal(arg.value, expected_type,
+                                                arg.value.line, arg.value.column)
                 self._check_value_transfer(arg.value, expected_type, "call argument",
                                            arg.value.line, arg.value.column)
             self._check_call_exclusivity([a.value for a in expr.arguments], param_types)
@@ -1652,6 +1659,8 @@ class ExpressionsMixin:
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
                 )
+            self._check_fixed_width_literal(arg.value, expected_type,
+                                            arg.value.line, arg.value.column)
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
         # Variadic extra arguments have no declared parameter type to check
@@ -4470,6 +4479,8 @@ class ExpressionsMixin:
                         f"expected type `{expected_type}` for parameter `{arg.name}`, got `{arg_type}`",
                         arg.value.line, arg.value.column
                     )
+                self._check_fixed_width_literal(arg.value, expected_type,
+                                                arg.value.line, arg.value.column)
                 self._check_value_transfer(arg.value, expected_type, "enum payload",
                                            arg.value.line, arg.value.column)
             else:
@@ -4483,6 +4494,8 @@ class ExpressionsMixin:
                         f"expected type `{expected_type}` for parameter `{param_name}`, got `{arg_type}`",
                         arg.value.line, arg.value.column
                     )
+                self._check_fixed_width_literal(arg.value, expected_type,
+                                                arg.value.line, arg.value.column)
                 self._check_value_transfer(arg.value, expected_type, "enum payload",
                                            arg.value.line, arg.value.column)
         return SawType(TypeKind.ENUM, enum_name=expr.enum_name, type_args=expr.type_args, symbol=enum_info)

@@ -770,7 +770,7 @@ class GenericsMixin:
             if substituted_return.kind == TypeKind.VOID:
                 self.builder.ret_void()
             elif result is not None:
-                self.builder.ret(result)
+                self.builder.ret(self._coerce_ret_value(result))
             else:
                 return_type = self._get_llvm_type(substituted_return)
                 self.builder.ret(ir.Constant(return_type, ir.Undefined))
@@ -814,7 +814,7 @@ class GenericsMixin:
         # Return the result (should be a struct)
         if not self.builder.block.is_terminated:
             if result is not None:
-                self.builder.ret(result)
+                self.builder.ret(self._coerce_ret_value(result))
             else:
                 struct_type, _ = self.struct_types[struct_name]
                 self.builder.ret(ir.Constant(struct_type, ir.Undefined))

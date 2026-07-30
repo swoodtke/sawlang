@@ -46,6 +46,52 @@ class CallsMixin:
             if defaults[i] is not None:
                 args.append(self._gen_transfer_value(defaults[i]))
 
+    def _coerce_int_llvm(self, value, target):
+        """Coerce an integer `value` to the LLVM `target` IntType (design 65
+        followup). A bare integer literal reaches a fixed-width slot as the
+        platform word (i64); retype the constant to the target width (out-of-range
+        constants are already rejected by the typechecker). A runtime integer is
+        truncated / sign-extended to fit."""
+        if isinstance(value, ir.Constant):
+            return ir.Constant(target, value.constant)
+        if value.type.width > target.width:
+            return self.builder.trunc(value, target, name="arg_trunc")
+        return self.builder.sext(value, target, name="arg_sext")
+
+    def _coerce_call_args(self, callee, args):
+        """Coerce integer call arguments to the callee's exact parameter widths
+        (design 65 followup) — without it a bare int literal passed to a
+        fixed-width param (`f(5)` with `f(x: Int8)`) ICE'd on the call verifier
+        (`i8 != i64`). Non-integer / same-width args pass through unchanged."""
+        ftype = getattr(callee, 'function_type', None)
+        if ftype is None:
+            pointee = getattr(getattr(callee, 'type', None), 'pointee', None)
+            ftype = pointee if isinstance(pointee, ir.FunctionType) else None
+        if ftype is None:
+            return args
+        params = ftype.args
+        out = []
+        for i, a in enumerate(args):
+            if (i < len(params) and isinstance(a.type, ir.IntType)
+                    and isinstance(params[i], ir.IntType)
+                    and a.type.width != params[i].width):
+                a = self._coerce_int_llvm(a, params[i])
+            out.append(a)
+        return out
+
+    def _coerce_ret_value(self, value):
+        """Coerce an integer return value to the current function's declared
+        return width (design 65 followup) — a bare literal tail/`return` in a
+        fixed-width-returning function (`func g() -> Int8 { 5 }`) reaches here as
+        the platform word (i64) and would fail LLVM verification."""
+        if value is None:
+            return value
+        rt = self.builder.function.function_type.return_type
+        if (isinstance(value.type, ir.IntType) and isinstance(rt, ir.IntType)
+                and value.type.width != rt.width):
+            return self._coerce_int_llvm(value, rt)
+        return value
+
     def _generate_function_call(self, expr: FunctionCall):
         """Generate code for a function call.
 
@@ -174,7 +220,7 @@ class CallsMixin:
             func = self.functions[resolved_symbol]
             args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
             self._fill_func_defaults(args, resolved_symbol)
-            return self.builder.call(func, args, name="calltmp")
+            return self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
 
         # Check if the name refers to a closure variable
         if expr.name in self.variables:
@@ -186,7 +232,7 @@ class CallsMixin:
                 fn_ptr = self.builder.extract_value(closure_val, 0, name="fn_ptr")
                 env_ptr = self.builder.extract_value(closure_val, 1, name="env_ptr")
                 arg_vals = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
-                return self.builder.call(fn_ptr, [env_ptr] + arg_vals, name="closure_call")
+                return self.builder.call(fn_ptr, self._coerce_call_args(fn_ptr, [env_ptr] + arg_vals), name="closure_call")
 
         # `A()` where `A` is a type parameter bound to the concrete allocator in
         # the current monomorphization (design 37). Resolve `A` to its concrete
@@ -249,7 +295,7 @@ class CallsMixin:
         args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
         # Fill omitted trailing arguments from their default expressions (design 53).
         self._fill_func_defaults(args, expr.name)
-        result = self.builder.call(func, args, name="calltmp")
+        result = self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
 
         # Wrap result in optional for extern functions that return nullable pointers
         if expr.name in self.extern_optional_returns:
@@ -871,7 +917,7 @@ class CallsMixin:
                     args.append(self._generate_expression(defaults[i]))
 
         # Call the method
-        return self.builder.call(method_func, args, name="methodcall")
+        return self.builder.call(method_func, self._coerce_call_args(method_func, args), name="methodcall")
 
     def _atomic_cell_pointer(self, obj_expr):
         """Return an `i64*` pointing at an Atomic receiver's cell (its `value`
@@ -1205,7 +1251,7 @@ class CallsMixin:
         fn_ptr = self.builder.extract_value(closure_val, 0, name="field_fn_ptr")
         env_ptr = self.builder.extract_value(closure_val, 1, name="field_env_ptr")
         arg_vals = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
-        return self.builder.call(fn_ptr, [env_ptr] + arg_vals, name="field_closure_call")
+        return self.builder.call(fn_ptr, self._coerce_call_args(fn_ptr, [env_ptr] + arg_vals), name="field_closure_call")
 
     def _generate_static_method_call(self, expr: MethodCall, struct_name: str):
         """Generate a static method call: StructName.method(args)"""
@@ -1244,7 +1290,7 @@ class CallsMixin:
                 if defaults[i] is not None:
                     args.append(self._generate_expression(defaults[i]))
 
-        return self.builder.call(method_func, args, name="static_methodcall")
+        return self.builder.call(method_func, self._coerce_call_args(method_func, args), name="static_methodcall")
 
     def _resolve_module_chain(self, expr: MemberAccess):
         """Resolve a chain of module accesses like Parent.Child to get the final ModuleSymbol.
@@ -1283,7 +1329,7 @@ class CallsMixin:
         for arg in expr.arguments:
             args.append(self._gen_transfer_value(arg.value))
 
-        return self.builder.call(func, args, name="module_call")
+        return self.builder.call(func, self._coerce_call_args(func, args), name="module_call")
 
     def _generate_module_struct_init(self, expr: MethodCall):
         """Generate a module struct initialization: ModuleName.StructName(args)
@@ -1483,11 +1529,16 @@ class CallsMixin:
                 # Match arguments to parameters (named takes precedence, then positional)
                 for i, (param_name, param_type) in enumerate(variant_params):
                     if param_name in arg_dict:
-                        arg_val = self._gen_transfer_value(arg_dict[param_name])
+                        arg_expr = arg_dict[param_name]
                     elif i < len(arg_list):
-                        arg_val = self._gen_transfer_value(arg_list[i])
+                        arg_expr = arg_list[i]
                     else:
                         raise ValueError(f"Missing argument for parameter {param_name}")
+                    arg_val = self._gen_transfer_value(arg_expr)
+                    # Coerce a bare integer literal to a fixed-width payload field's
+                    # exact width (design 65 followup) — same as struct init; without
+                    # it an `Int8` payload field ICE'd inserting an i64.
+                    arg_val = self._coerce_int_to_field(arg_val, param_type, arg_expr)
                     arg_values.append(arg_val)
 
                 # Create a struct for the associated values

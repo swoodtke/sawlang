@@ -629,6 +629,7 @@ class StatementsMixin:
 
         # Now return
         if value is not None:
+            value = self._coerce_ret_value(value)
             self.builder.ret(value)
         else:
             # A valueless `return` in a Saw void function. main() is the one such

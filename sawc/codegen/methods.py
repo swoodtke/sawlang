@@ -146,7 +146,7 @@ class MethodsMixin:
         else:
             if not self.builder.block.is_terminated:
                 if result is not None:
-                    self.builder.ret(result)
+                    self.builder.ret(self._coerce_ret_value(result))
                 else:
                     # Return default value
                     default = ir.Constant(self._get_llvm_type(method.return_type), 0)
@@ -211,7 +211,7 @@ class MethodsMixin:
 
             result = self.builder.insert_value(result, field_val, i)
 
-        self.builder.ret(result)
+        self.builder.ret(self._coerce_ret_value(result))
 
     def _generate_derived_equals_body(self, struct_name: str):
         """Emit the body of a compiler-derived memberwise equals() (design 32).
@@ -227,7 +227,7 @@ class MethodsMixin:
         other_val = self.builder.load(other_ptr, name="other_val")
         saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
         result = self._emit_memberwise_equals(self_val, other_val, saw_type)
-        self.builder.ret(result)
+        self.builder.ret(self._coerce_ret_value(result))
 
     def _generate_derived_compare_body(self, struct_name: str):
         """Emit the body of a compiler-derived lexicographic compare() (design
@@ -238,7 +238,7 @@ class MethodsMixin:
         other_val = self.builder.load(other_ptr, name="other_val")
         saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
         result = self._emit_memberwise_compare(self_val, other_val, saw_type)
-        self.builder.ret(result)
+        self.builder.ret(self._coerce_ret_value(result))
 
     def _generate_derived_hash_body(self, struct_name: str):
         """Emit the body of a compiler-derived field-streaming hash() (design
@@ -291,7 +291,7 @@ class MethodsMixin:
         # Handle return - init methods must return the struct
         if not self.builder.block.is_terminated:
             if result is not None:
-                self.builder.ret(result)
+                self.builder.ret(self._coerce_ret_value(result))
             else:
                 # Error: init must return a struct
                 # For now, return a default struct value
@@ -353,7 +353,7 @@ class MethodsMixin:
             if method.return_type.kind == TypeKind.VOID:
                 self.builder.ret_void()
             elif result is not None:
-                self.builder.ret(result)
+                self.builder.ret(self._coerce_ret_value(result))
             else:
                 self.builder.ret_void()
 
@@ -428,7 +428,7 @@ class MethodsMixin:
                 # Cleanup parameter scope before return
                 self._cleanup_all_scopes()
                 if result is not None:
-                    self.builder.ret(result)
+                    self.builder.ret(self._coerce_ret_value(result))
                 else:
                     # Return default value
                     default = ir.Constant(self._get_llvm_type(func.return_type), 0)
