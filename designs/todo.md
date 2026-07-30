@@ -78,12 +78,14 @@ T1d patterns, 48 Ord/Hash, 49 assert/blade-test, 51 any (in flight),
 A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
 
 ### NEED TO HAVE (blocks App-1 Blade or App-2 kernel)
-- **N1. Trait default method bodies** — spec'd since day one; unlocks
-  Display/Debug/Error ergonomics. [App-1]
-- **N2. Display trait + user types in string interpolation** — rides
-  N1; Blade output quality. [App-1]
-- **N3. Error trait** (`message()`, catch-all matching) — buildable
-  once 51 lands (`any Error`). [App-1]
+- **N1–N3 → BRIEFED as design 56** (`designs/56-printable-error-defaults.md`,
+  decided Jul 29, in flight): trait default method bodies; **Printable**
+  (renamed from Display, user preference) — streaming `format(&self,
+  into: &var StringBuilder)` + default-body `to_string()`; `trait
+  Error: Printable {}`; erased Results FULL in v1 (`Result<T,
+  Box<any Error>>`, auto-erase at return, try re-box/passthrough,
+  catch binds the box; error downcasting deferred — needs a type-id
+  design). No Debug trait (deferred, own design). [App-1]
 - **N4. Map iteration (keys/values/entries) + string→number parsing
   helpers** — Blade TOML tables, semver, lock files. [App-1]
 - **N5. std.time (Instant/Duration, hosted)** — blade test timing,
