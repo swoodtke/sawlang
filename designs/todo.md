@@ -100,30 +100,53 @@ A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
   `Result<Manifest, Box<any Error>>` (ManifestError auto-erase + TomlError
   `try` re-box), new `blade/tests/erased_manifest_error.saw`. Compiler suite
   568 passing, 0 xfails. [App-1]
-- **N4. Map iteration (keys/values/entries) + string→number parsing
-  helpers** — Blade TOML tables, semver, lock files. [App-1]
-- **N5. std.time (Instant/Duration, hosted)** — blade test timing,
-  build reports. [App-1]
-- **N6. Minimal attribute grammar + C-callable exports** —
-  no_mangle-equivalent, repr(C), extern exports; the kernel entry
-  symbol (F7) needs it; also unlocks future #[test]/derive surface.
-  [App-2]
-- **N7. Built-in type extensions where still missing (extension Int
-  etc.)** — small; String already has them. [App-1]
+- **N4/N5/N7 → BRIEFED as design 57** (`designs/57-blade-enablers.md`,
+  decided Jul 29, queued after 56): HashMap iteration = visitors
+  (each/each_key/each_value, non-escaping) + snapshots (keys()/values()
+  Vectors, K: Copy) — old Map explicitly SKIPPED (dying per design 54);
+  String.to_int()/to_int(radix:)/to_float() -> Optional (whole-string,
+  panic-free overflow→None); **DF3 ADOPTED** (call-site T→T? auto-wrap,
+  one level, after overload resolution, not through generic params);
+  std.time (Duration Int64-nanos, monotonic Instant, unix_timestamp(),
+  hosted-only); extension Int (abs/min/max/clamp/pow/is_even/is_odd/
+  signum) + extension Float (abs/floor/ceil/round/sqrt/min/max); Blade
+  dogfood per part. [App-1]
+- **N6 → BRIEFED as design 58** (`designs/58-attributes-exports.md`,
+  decided Jul 29, queued after 57): Swift-style `@attr` grammar (v1:
+  top-level func/static only); unified `@export`/`@export("sym")` =
+  C ABI + unmangled/named symbol + DCE-survival (free, non-generic,
+  sync fns; strict C-safe signature whitelist, by-value structs
+  rejected — pass UnsafePointer<S>); NO repr(C) attribute (the
+  decl-order natural-ABI guarantee becomes the documented rule);
+  `@section` on funcs/statics; `@export` statics (vector-table idiom);
+  `@inline` deferred. Unblocks F7. [App-2]
 
 ### NICE TO HAVE — TRIAGED Jul 29 (user, one-by-one)
-**ADD before apps** (→ briefs 53/54):
-- Brief 53 "ergonomics family": default parameter values; `..=` +
-  enumerate(); Int.max/min constants + fixed-width literal suffixes
-  (closes design 47's riscv32 literal gap); `\u{}` escapes (UTF-8-safe;
-  `\x` stays deferred pending a byte-string design); import aliasing
-  `as`; static_assert (kernel register-block size checks);
-  use-before-init (probe first — bindings may make it structurally
-  impossible; implement or document per verdict).
-- Brief 54 "collections family" (after 48): Set<T> (HashMap-backed);
-  collection literals for Map/Set/Vector (mini-design inside the
-  brief: `{ }` ambiguity vs closures/blocks, empty forms `{:}`/`{}`,
-  the spec's sketched syntax).
+**ADD before apps** (→ briefs 53/54, both now WRITTEN + DECIDED Jul 29):
+- **Design 53 "ergonomics"** (`designs/53-ergonomics.md`, queued after
+  58): default params (trailing-only, arbitrary exprs per-call, no
+  other-param refs, DECL-SITE shape-expansion rejection vs design-55
+  overloads); `..=` (dedicated RangeInclusive — no b+1 desugar,
+  Int.max-safe); vec.enumerated() + each_indexed (concrete, no generic
+  adapter); Int.max/min + .max/.min on all fixed-width types;
+  Rust-style literal suffixes (`255u8`/`255_u8`, exact-typed,
+  range-checked — closes 47's riscv32 gap); `\u{}` escapes (scalar-
+  validated at lex); import aliasing (module + symbol `as`);
+  static_assert (reuses the existing const evaluator); use-before-init
+  probe-then-verdict; **DF1 `let _` discard** (true discard, move-
+  consuming, no binding).
+- **Design 54 "collections"** (`designs/54-collections.md`, queued
+  LAST): **Map UNIFICATION — the Vector-backed Map is RETIRED, HashMap
+  renamed → Map** (one hash dictionary; closes the Map-deprecation
+  open decision; unspecified order documented, sort keys() for
+  deterministic output; old Map's copy() not carried over). Set<T>
+  (core + algebra: union/intersection/difference/is_subset; wrapper-
+  over-Map preferred, probe first). Collection literals per the
+  closure rule: `{k: v}` map / `{a, b}` set / `{:}` empty map;
+  **`{}` and `{expr}` are ALWAYS closures** — Set<T>()/Set.of(x) for
+  empty/singleton; duplicate keys last-wins. Context-driven Vector
+  literals (`[1,2,3]` builds a Vector when the expected type says so;
+  array default byte-identical).
 
 **DEFERRED** (user, Jul 29): slices (needs own design vs no-escape
 refs); `\x` byte escapes; where clauses; extension sugar (computed
