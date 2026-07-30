@@ -2987,8 +2987,15 @@ class ExpressionsMixin:
           or (name in getattr(self, 'current_type_params', {}))
         if not is_callable:
             return None
-        from ast_nodes import FunctionCall as _FC, Argument as _Arg
-        args = [_Arg(value=v, name=n) for (n, v) in expr.field_inits]
+        from ast_nodes import FunctionCall as _FC, Argument as _Arg, ReferenceExpr as _Ref
+        args = []
+        for (n, v) in expr.field_inits:
+            # A `&`/`&var` value is only legal in argument position (design 34);
+            # struct-init parsing did not mark it, so mark it now that we know
+            # this is a call.
+            if isinstance(v, _Ref):
+                v.in_argument_position = True
+            args.append(_Arg(value=v, name=n))
         fc = _FC(name=name, arguments=args, type_args=expr.type_args,
                  line=expr.line, column=expr.column)
         return fc

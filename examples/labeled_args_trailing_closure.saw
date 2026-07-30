@@ -1,0 +1,14 @@
+// Design 66: a labeled leading argument composes with a trailing closure (the
+// closure still binds the last parameter). `name(label: v) { ... }` parses as a
+// call even though the labeled prefix looks like struct init.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+
+func run(tag: Int, body: () -> Int) -> Int {
+    tag + body()
+}
+
+func main() {
+    print(run(tag: 5) { 10 })
+}

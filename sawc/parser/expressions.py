@@ -780,6 +780,27 @@ class ExpressionsMixin:
 
         self.expect(TokenType.RPAREN)
 
+        # Design 66: a trailing closure after `name(label: value, ...)` is an
+        # unambiguous FUNCTION call (structs never take trailing closures). The
+        # `IDENT COLON` lookahead routed us here, but with a trailing `{` this is
+        # a fully-labeled call — build a FunctionCall (labeled args + the closure
+        # bound to the last parameter) so the typechecker resolves it as a call.
+        if self.allow_trailing_closure and self.match(TokenType.LBRACE):
+            trailing_closure = self._parse_closure_expression()
+            args = []
+            for (n, v) in field_inits:
+                if isinstance(v, ReferenceExpr):
+                    v.in_argument_position = True
+                args.append(Argument(value=v, name=n))
+            args.append(Argument(value=trailing_closure, name=None))
+            return FunctionCall(
+                name=name_token.value,
+                arguments=args,
+                type_args=type_args,
+                line=name_token.line,
+                column=name_token.column
+            )
+
         return StructInit(
             struct_name=name_token.value,
             field_inits=field_inits,

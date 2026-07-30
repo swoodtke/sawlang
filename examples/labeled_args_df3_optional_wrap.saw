@@ -1,0 +1,15 @@
+// Design 66 + 57 (DF3): the call-site `T -> T?` optional auto-wrap applies to a
+// LABELED argument identically — the wrap happens after the label binds.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 1
+
+func opt(label: Int, x: Int?) -> Int {
+    label + (x ?? 0)
+}
+
+func main() {
+    print(opt(label: 1, x: 5))    // Int 5 auto-wraps to Int?
+    print(opt(label: 1, x: None)) // explicit None
+}
