@@ -1,0 +1,44 @@
+// design 56 (N3) x design 51: `trait Error: Printable {}` is object-safe, so it
+// is any-able. `&any Printable` dispatches `to_string`; `Box<any Error>` is
+// built erased-direct, dispatches `to_string`/`format` through the vtable, and
+// interpolates via `{...}`. One-shot Error spelling (format inherited from
+// Printable).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// (1, 2)
+// err(42)
+// boxed = err(42)
+
+struct Point { x: Int, y: Int }
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("(")
+        into.append(self.x)
+        into.append(", ")
+        into.append(self.y)
+        into.append(")")
+    }
+}
+
+struct MyErr { code: Int }
+extension MyErr: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append("err(")
+        into.append(self.code)
+        into.append(")")
+    }
+}
+
+func viaany(p: &any Printable) -> String {
+    p.to_string()
+}
+
+func main() {
+    let pt = Point(x: 1, y: 2)
+    print(viaany(&pt))            // (1, 2) — &any Printable dispatch
+
+    let e = MyErr(code: 42)
+    let boxed = Box<any Error>.make(e)
+    print(boxed.to_string())     // err(42) — vtable dispatch through the box
+    print("boxed = {boxed}")     // boxed = err(42) — {...} via the vtable
+}

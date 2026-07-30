@@ -953,6 +953,44 @@ class Namespace:
         TypeKind.FLOAT, TypeKind.BOOL,
     })
 
+    def trait_refines(self, trait_name: str, target: str) -> bool:
+        """Whether `trait_name` is `target` or transitively refines it via parent
+        traits (e.g. `Error` refines `Printable`)."""
+        seen = set()
+        stack = [trait_name]
+        while stack:
+            name = stack.pop()
+            if name == target:
+                return True
+            if name in seen:
+                continue
+            seen.add(name)
+            info = self.traits.get(name)
+            if info is None:
+                for module_sym in self.modules.values():
+                    if module_sym.namespace and name in module_sym.namespace.traits:
+                        info = module_sym.namespace.traits[name]
+                        break
+            if info is not None:
+                stack.extend(getattr(info, 'parent_traits', []) or [])
+        return False
+
+    def _erased_trait_of(self, saw_type: SawType) -> Optional[str]:
+        """The trait name if `saw_type` is an erased value (`any T`, `&any T`, or
+        `Box<any T, A>`); else None (mirrors codegen's receiver detection)."""
+        if saw_type is None:
+            return None
+        if saw_type.kind == TypeKind.EXISTENTIAL:
+            return saw_type.existential_trait
+        if (saw_type.kind == TypeKind.REFERENCE and saw_type.inner_type is not None
+                and saw_type.inner_type.kind == TypeKind.EXISTENTIAL):
+            return saw_type.inner_type.existential_trait
+        if (saw_type.kind == TypeKind.STRUCT and saw_type.struct_name == "Box"
+                and saw_type.type_args
+                and saw_type.type_args[0].kind == TypeKind.EXISTENTIAL):
+            return saw_type.type_args[0].existential_trait
+        return None
+
     def is_printable(self, saw_type: SawType) -> bool:
         """Whether values of `saw_type` are Printable (design 56).
 
@@ -962,6 +1000,12 @@ class Namespace:
         `extension T: Printable` (or `extension T: Error`, which refines it) or a
         hand-written conformance. A type alias flows to its underlying type.
         """
+        # An erased value (`any T` / `&any T` / `Box<any T, A>`) is Printable
+        # when its trait is Printable or refines it (Error) — `to_string`/`format`
+        # dispatch through the vtable (design 56, catch/erased-error interpolation).
+        erased_trait = self._erased_trait_of(saw_type)
+        if erased_trait is not None:
+            return self.trait_refines(erased_trait, "Printable")
         saw_type = self._normalize_struct_enum(saw_type)
         if saw_type is None:
             return False

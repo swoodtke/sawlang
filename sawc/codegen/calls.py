@@ -310,9 +310,12 @@ class CallsMixin:
             arg_saw = arg_saw.substitute(self.type_param_context)
         if arg_saw is not None:
             arg_saw = self._resolve_type_alias(arg_saw)
+        # A non-builtin Printable value (user struct/enum, or an erased
+        # `&any Printable`/`Box<any Error>`) is rendered via `to_string()`;
+        # builtins and non-Printable values keep the paths below.
         if (arg_saw is not None
-                and arg_saw.kind in (TypeKind.STRUCT, TypeKind.ENUM)
-                and self.namespace.is_printable(arg_saw)):
+                and self.namespace.is_printable(arg_saw)
+                and not self._is_builtin_interp_type(arg_saw)):
             mc = MethodCall(object=arg.value, method_name="to_string",
                             arguments=[], line=0, column=0)
             mc.resolved_type = SawType(TypeKind.STRING)
@@ -672,6 +675,13 @@ class CallsMixin:
             recv_type = self._expr_type(expr.object)
             if recv_type is not None and self.type_param_context:
                 recv_type = recv_type.substitute(self.type_param_context)
+            # Erased receiver (`&any Printable` / `Box<any Error>`): dispatch
+            # through the vtable slot (design 56 x 51). A synthesized to_string
+            # call (from interpolation/print) has no stamped existential_dispatch,
+            # so detect it here.
+            erased_trait = self._existential_receiver_info(recv_type)
+            if erased_trait is not None:
+                return self._generate_existential_method_call(expr, erased_trait)
             base = self._type_method_base(recv_type) if recv_type is not None else None
             mangled = self._mangle_method_name(base, expr.method_name) if base else None
             if mangled is None or mangled not in self.functions:
