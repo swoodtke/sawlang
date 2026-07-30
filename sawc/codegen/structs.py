@@ -98,8 +98,33 @@ class StructsMixin:
 
         return struct_val
 
+    # Design 53 integer limits: (type name) -> (bit width or None for platform, is_signed).
+    _INT_LIMIT_SPECS = {
+        'Int': (None, True), 'UInt': (None, False),
+        'Int8': (8, True), 'Int16': (16, True), 'Int32': (32, True), 'Int64': (64, True),
+        'UInt8': (8, False), 'UInt16': (16, False), 'UInt32': (32, False), 'UInt64': (64, False),
+    }
+
     def _generate_member_access(self, expr: MemberAccess):
         """Generate code for member access on structs or enum variant access."""
+        # Design 53: integer limits `Int.max`/`Int.min` (and every fixed-width
+        # type). Platform `Int`/`UInt` use the target word width so a riscv32
+        # build gets 32-bit bounds; fixed-width types use their own width.
+        limit = getattr(expr, 'int_limit', None)
+        if limit is not None:
+            type_name, which = limit
+            width, signed = self._INT_LIMIT_SPECS[type_name]
+            if width is None:
+                width = self.int_width
+                llvm_ty = self.int_type
+            else:
+                llvm_ty = ir.IntType(width)
+            if which == "max":
+                value = (1 << (width - 1)) - 1 if signed else (1 << width) - 1
+            else:  # min
+                value = -(1 << (width - 1)) if signed else 0
+            return ir.Constant(llvm_ty, value)
+
         # design 46: UnsafeMemory projection — `UM<Struct, Use>.field` computes
         # base + compile-time field offset WITHOUT loading the aggregate.
         if getattr(expr, 'um_projection', False):

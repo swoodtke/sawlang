@@ -1,0 +1,33 @@
+// Design 53 Part 3: `Int.max`/`Int.min` (platform-width, one source of truth
+// from design 47) and `.max`/`.min` on every fixed-width integer type. Hosted
+// targets are 64-bit, so `Int` bounds are the 64-bit values here.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 9223372036854775807
+// -9223372036854775808
+// 0
+// 127
+// -128
+// 255
+// 2147483647
+// -2147483648
+// 65535
+
+func main() {
+    print(Int.max)
+    print(Int.min)
+    print(UInt.min)
+
+    let a: Int8 = Int8.max
+    print(a)          // 127
+    let b: Int8 = Int8.min
+    print(b)          // -128
+    let c: UInt8 = UInt8.max
+    print(c)          // 255
+    let d: Int32 = Int32.max
+    print(d)          // 2147483647
+    let e: Int32 = Int32.min
+    print(e)          // -2147483648
+    let f: UInt16 = UInt16.max
+    print(f)          // 65535
+}

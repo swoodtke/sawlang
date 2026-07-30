@@ -133,6 +133,9 @@ class Token:
     value: str
     line: int
     column: int
+    # Integer-literal suffix (design 53): one of i8/i16/i32/i64/u8/u16/u32/u64
+    # when the literal was written `255u8` / `0xFF_u8`; otherwise None.
+    suffix: Optional[str] = None
 
 
 KEYWORDS = {
@@ -285,6 +288,49 @@ class Lexer:
                 f"(max {self.INT_LITERAL_MAX})"
             )
 
+    # Design 53 literal suffixes: each maps to its bit width. A suffixed literal
+    # IS that fixed-width type, range-checked at the literal (`256u8` errors).
+    INT_SUFFIX_WIDTHS = {
+        'i8': 8, 'i16': 16, 'i32': 32, 'i64': 64,
+        'u8': 8, 'u16': 16, 'u32': 32, 'u64': 64,
+    }
+
+    def _try_read_int_suffix(self):
+        """Positioned just after an integer literal's digits (underscores already
+        consumed), tentatively read a fixed-width suffix (design 53). Returns the
+        suffix string (e.g. `u8`) and consumes it, or returns None and consumes
+        nothing when the following characters are not a clean suffix (so `5abc`
+        stays INT + IDENT and `0xFace` reads as hex)."""
+        ch = self.peek()
+        if ch not in ('i', 'u'):
+            return None
+        j = self.pos + 1
+        digits = []
+        while j < len(self.source) and self.source[j].isdigit():
+            digits.append(self.source[j])
+            j += 1
+        cand = ch + ''.join(digits)
+        if cand not in self.INT_SUFFIX_WIDTHS:
+            return None
+        # A trailing identifier character means this wasn't a bare suffix.
+        if j < len(self.source) and (self.source[j].isalnum() or self.source[j] == '_'):
+            return None
+        for _ in range(len(cand)):
+            self.advance()
+        return cand
+
+    def _check_suffixed_range(self, value: int, suffix: str, start_col: int):
+        width = self.INT_SUFFIX_WIDTHS[suffix]
+        # A literal is non-negative (unary minus is a separate operator); it is
+        # legal iff its bit pattern fits the width (0 .. 2**width - 1), matching
+        # the platform-Int rule (signed low bound through unsigned high bound).
+        if value > (1 << width) - 1:
+            raise SyntaxError(
+                f"Lexer error at {self.line}:{start_col}: integer literal "
+                f"{value}{suffix} is out of range for `{suffix}` "
+                f"(max {(1 << width) - 1})"
+            )
+
     def read_number(self) -> Token:
         start_col = self.column
 
@@ -307,8 +353,13 @@ class Lexer:
                 self.error(f"integer literal has no digits after '0{prefix}'")
             base = {'x': 16, 'b': 2, 'o': 8}[prefix]
             value = int(digit_str, base)
-            self._check_int_range(value, start_col)
-            return Token(TokenType.INT, '0' + prefix + digit_str, self.line, start_col)
+            suffix = self._try_read_int_suffix()
+            if suffix is not None:
+                self._check_suffixed_range(value, suffix, start_col)
+            else:
+                self._check_int_range(value, start_col)
+            return Token(TokenType.INT, '0' + prefix + digit_str, self.line,
+                         start_col, suffix=suffix)
 
         # Decimal integer or float, with underscore digit separators (`1_000_000`).
         result = []
@@ -325,9 +376,15 @@ class Lexer:
 
         value = ''.join(result).replace('_', '')
         if is_float:
+            # Float literals take no integer suffix (design 53).
             return Token(TokenType.FLOAT, value, self.line, start_col)
-        self._check_int_range(int(value), start_col)
-        return Token(TokenType.INT, value, self.line, start_col)
+        ival = int(value)
+        suffix = self._try_read_int_suffix()
+        if suffix is not None:
+            self._check_suffixed_range(ival, suffix, start_col)
+        else:
+            self._check_int_range(ival, start_col)
+        return Token(TokenType.INT, value, self.line, start_col, suffix=suffix)
 
     def read_identifier(self) -> Token:
         start_col = self.column

@@ -1,0 +1,9 @@
+// Design 53 Part 3: a suffixed literal is range-checked at the literal.
+// 256 does not fit `u8`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: out of range for `u8`
+
+func main() {
+    let x = 256u8
+    print(x)
+}

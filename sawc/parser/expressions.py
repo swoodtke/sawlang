@@ -507,7 +507,8 @@ class ExpressionsMixin:
         if self.match(TokenType.INT):
             self.advance()
             return IntLiteral(value=self._decode_int_literal(token.value),
-                              line=token.line, column=token.column)
+                              line=token.line, column=token.column,
+                              suffix=token.suffix)
 
         elif self.match(TokenType.FLOAT):
             self.advance()

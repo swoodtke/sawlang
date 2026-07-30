@@ -57,7 +57,27 @@ class ExpressionsMixin:
 
     # ===== Expression Visitor Methods =====
 
+    # Design 53: a suffixed integer literal IS its fixed-width type.
+    _SUFFIX_TYPE_KINDS = {
+        'i8': TypeKind.INT8, 'i16': TypeKind.INT16,
+        'i32': TypeKind.INT32, 'i64': TypeKind.INT64,
+        'u8': TypeKind.UINT8, 'u16': TypeKind.UINT16,
+        'u32': TypeKind.UINT32, 'u64': TypeKind.UINT64,
+    }
+
+    # Design 53: type names carrying `.max`/`.min` integer limits → their kind.
+    _INT_LIMIT_TYPE_KINDS = {
+        'Int': TypeKind.INT, 'UInt': TypeKind.UINT,
+        'Int8': TypeKind.INT8, 'Int16': TypeKind.INT16,
+        'Int32': TypeKind.INT32, 'Int64': TypeKind.INT64,
+        'UInt8': TypeKind.UINT8, 'UInt16': TypeKind.UINT16,
+        'UInt32': TypeKind.UINT32, 'UInt64': TypeKind.UINT64,
+    }
+
     def visit_IntLiteral(self, expr: IntLiteral) -> Optional[SawType]:
+        suffix = getattr(expr, 'suffix', None)
+        if suffix is not None:
+            return SawType(self._SUFFIX_TYPE_KINDS[suffix])
         return SawType(TypeKind.INT)
 
     def visit_FloatLiteral(self, expr: FloatLiteral) -> Optional[SawType]:
@@ -2238,6 +2258,14 @@ class ExpressionsMixin:
                         )
                         return None
         if isinstance(expr.object, Identifier):
+            # Design 53: integer limits `Int.max` / `Int.min` and `.max`/`.min`
+            # on every fixed-width type. The result has the named integer type;
+            # the platform-`Int` bounds are materialized at codegen (target word).
+            limit_kind = self._INT_LIMIT_TYPE_KINDS.get(expr.object.name)
+            if limit_kind is not None and expr.member in ("max", "min"):
+                expr.int_limit = (expr.object.name, expr.member)
+                return SawType(limit_kind)
+
             module_sym = self.namespace.modules.get(expr.object.name)
             if module_sym and module_sym.namespace:
                 from namespace import SymbolKind

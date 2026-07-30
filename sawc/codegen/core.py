@@ -1679,6 +1679,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # the literal — on a 32-bit target this loudly rejects a constant that
         # would otherwise silently truncate. Hosted targets are 64-bit, so every
         # literal the pre-47 compiler accepted still fits.
+        # Design 53: a suffixed literal (`255u8`) is materialized at the suffix's
+        # fixed width. Its value was range-checked at lex time; emit the bit
+        # pattern masked to the width (a high-bit signed literal like `255i8`
+        # reads back as -1, matching the two's-complement interpretation).
+        suffix = getattr(expr, 'suffix', None)
+        if suffix is not None:
+            width = {'i8': 8, 'i16': 16, 'i32': 32, 'i64': 64,
+                     'u8': 8, 'u16': 16, 'u32': 32, 'u64': 64}[suffix]
+            return ir.Constant(ir.IntType(width), expr.value & ((1 << width) - 1))
         w = self.int_width
         if not (-(1 << (w - 1)) <= expr.value < (1 << w)):
             raise ValueError(

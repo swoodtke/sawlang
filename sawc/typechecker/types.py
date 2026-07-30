@@ -676,13 +676,20 @@ class TypeUtilsMixin:
             if a.is_struct() and a.struct_name == b.struct_name:
                 return True
 
-        # Allow integer literal (INT) to be compatible with any integer type
-        # This enables: let x: Int8 = 42
-        int_kinds = {TypeKind.INT, TypeKind.UINT,
-                     TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        # Integer compatibility. A platform `Int`/`UInt` (which is also the type
+        # of an UNSUFFIXED integer literal) coerces to/from any integer type —
+        # this enables `let x: Int8 = 42`. But two DISTINCT fixed-width kinds do
+        # NOT implicitly convert (design 53): a suffixed literal `5u16` assigned
+        # to an `Int8` is a type error; explicit `as` is required. Same-kind is
+        # always compatible.
+        platform_int = {TypeKind.INT, TypeKind.UINT}
+        fixed_int = {TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
                      TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}
+        int_kinds = platform_int | fixed_int
         if a.kind in int_kinds and b.kind in int_kinds:
-            return True
+            if a.kind in platform_int or b.kind in platform_int or a.kind == b.kind:
+                return True
+            return False
 
         # Allow String to be passed where UnsafePointer<Int8> is expected (for FFI)
         # Saw strings are null-terminated C strings internally
