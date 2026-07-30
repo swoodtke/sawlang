@@ -1,0 +1,35 @@
+// Design 65 (L17): an enum whose payload is a STRUCT containing an Arc must
+// (1) match-extract the aggregate at correct offsets — symptom 2, the
+// alignment-padded payload ABI-size fix — and (2) account the refcount
+// exactly-once as the extracted value is bound and dropped — symptom 1.
+// Before the fix the Arc pointer was truncated (garbage strong_count) and the
+// consuming match then over/under-released.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 2
+// 1
+
+struct Payload { tag: Int, handle: Arc<Int> }
+extension Payload: Deinit { func deinit(&var self) {} }
+extension Payload: ImplicitCopy {
+    func copy(&self) -> Payload { Payload(tag: self.tag, handle: self.handle.copy()) }
+}
+
+enum Msg {
+    case Data(p: Payload),
+    case Done
+}
+
+func main() {
+    let shared = Arc<Int>(value: 99)          // strong 1
+    let m = Msg.Data(p: Payload(tag: 7, handle: shared.copy()))  // strong 2
+    print(shared.strong_count())              // 2
+    match m {                                 // consumes m
+        case Data(p) -> {
+            print(p.handle.strong_count())    // 2 — correct bytes, not garbage
+        },                                    // p (and its Arc) dropped at arm end
+        case Done -> print(0)
+    }
+    print(shared.strong_count())              // 1 — released exactly once
+}

@@ -1,0 +1,46 @@
+// Design 65 (L17 symptom 1): a Set with an OWNING, refcounted key must probe
+// (hash / compare / slot-state) with exactly-once refcount accounting — a copy
+// materialized for inspection is copy-WITH-RETAIN and released symmetrically, so
+// no probe over-releases the key the set still owns.
+//
+// The key `AK` is ImplicitCopy and wraps an `Arc<Int>`, so its exact live count
+// is observable through `probe.strong_count()` — every stored key holds one
+// reference to the shared `probe` block, plus `probe` itself.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 3
+// 3
+// 2
+// 1
+// 1
+
+struct AK { id: Int, rc: Arc<Int> }
+extension AK: Deinit { func deinit(&var self) {} }
+extension AK: ImplicitCopy { func copy(&self) -> AK { AK(id: self.id, rc: self.rc.copy()) } }
+extension AK: Equatable { func equals(&self, other: AK) -> Bool { self.id == other.id } }
+extension AK: Hashable { func hash(&self, h: &var Hasher) { self.id.hash(&var h) } }
+
+func exercise(probe: &Arc<Int>) {
+    var s = Set<AK>()
+    let _ = s.insert(AK(id: 1, rc: probe.copy()))      // strong 1->2
+    let _ = s.insert(AK(id: 2, rc: probe.copy()))      // strong 2->3
+    print(probe.strong_count())                         // 3
+
+    let _ = s.contains(AK(id: 1, rc: probe.copy()))     // probe balanced
+    let _ = s.contains(AK(id: 9, rc: probe.copy()))     // absent, balanced
+    print(probe.strong_count())                         // 3
+
+    let _ = s.insert(AK(id: 1, rc: probe.copy()))       // dup collapses
+    print(probe.strong_count())                         // 3
+
+    let _ = s.remove(AK(id: 2, rc: probe.copy()))       // id 2 leaves
+    print(probe.strong_count())                         // 2
+    print(s.len())                                      // 1
+}   // set deinit drops the remaining key -> back to just `probe`
+
+func main() {
+    let probe = Arc<Int>(value: 0)
+    exercise(&probe)
+    print(probe.strong_count())                         // 1 — set fully torn down
+}

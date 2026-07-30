@@ -1,0 +1,38 @@
+// Design 65 (L17 symptom 1): a Map<String, owning-V> must keep exact refcount
+// balance across keyed operations. `get` hands back a copy-WITH-RETAIN of the
+// value (caller owns it, map keeps its own), `contains_key` probes the KEY only
+// and never touches the value, and `remove` MOVES the value out (no phantom
+// copy). Observed through the Arc value's strong_count.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 4
+// 3
+// 3
+// 3
+// 2
+// 1
+
+func exercise(probe: &Arc<Int>) {
+    var m = Map<String, Arc<Int>>()
+    let _ = m.insert("a", probe.copy())        // strong 1->2
+    let _ = m.insert("b", probe.copy())        // strong 2->3
+    print(probe.strong_count())                // 3
+    if let v = m.get("a") {
+        print(v.strong_count())                // 4 — get returned a retained copy
+    }                                          // that copy drops here
+    print(probe.strong_count())                // 3
+    let _ = m.contains_key("a")                // present-key probe: value untouched
+    let _ = m.contains_key("z")                // absent-key probe
+    print(probe.strong_count())                // 3
+    if let old = m.remove("b") {               // value moves out of the map
+        print(old.strong_count())              // 3
+    }                                          // old drops -> 2
+    print(probe.strong_count())                // 2
+}   // map deinit drops the "a" value -> back to just `probe`
+
+func main() {
+    let probe = Arc<Int>(value: 0)
+    exercise(&probe)
+    print(probe.strong_count())                // 1
+}
