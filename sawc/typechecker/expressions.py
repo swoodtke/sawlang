@@ -2530,6 +2530,26 @@ class ExpressionsMixin:
         obj_type = self._check_expression(expr.object)
         if obj_type is None:
             return None
+        # A distinct `type` over a non-struct underlying (e.g. `type MyInt = Int`)
+        # has no fields, and the `.value` underlying-accessor is not a language
+        # feature (the spec labels it planned/illustrative, ledger L16). Accessing
+        # a member on one used to reach codegen and ICE ("Cannot find field ...
+        # in struct with type i64"); emit a clean typechecker error instead. (A
+        # distinct alias of a struct falls through to the normal field check.)
+        if obj_type.kind == TypeKind.STRUCT and obj_type.struct_name is not None:
+            alias_sym = self.get_type_alias_info(obj_type.struct_name)
+            if alias_sym is not None:
+                underlying = self._resolve_type_alias(obj_type)
+                if underlying is None or underlying.kind != TypeKind.STRUCT:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"cannot access member `{expr.member}` on the distinct "
+                        f"type `{obj_type.struct_name}`: it has no fields and there "
+                        f"is no `.value` accessor — a distinct type flows to its "
+                        f"underlying type implicitly, so use it directly",
+                        expr.line, expr.column,
+                    )
+                    return None
         # design 46: member access on `UnsafeMemory<Struct, Use>` PROJECTS to
         # `UnsafeMemory<Field, Use>` at base + compile-time offset — the shared
         # projection engine. No memory is loaded.
