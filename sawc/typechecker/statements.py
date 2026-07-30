@@ -996,6 +996,13 @@ class StatementsMixin:
 
             # Check type
             value_type = self._check_expression(stmt.value)
+            # Propagate an optional VARIABLE type onto a `None` RHS (mirrors the
+            # let/return/field paths) so the None literal carries its inner type.
+            var_resolved = self._resolve_type_alias(var_info.type)
+            if (value_type and value_type.is_none_literal()
+                    and var_resolved.is_optional()):
+                self._propagate_optional_type(stmt.value, var_resolved)
+                value_type = var_resolved
             if value_type and not self._types_compatible(value_type, var_info.type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -1068,6 +1075,15 @@ class StatementsMixin:
 
             # Check value type
             value_type = self._check_expression(stmt.value)
+            # Propagate an optional FIELD type onto a `None` RHS so the None
+            # literal carries its inner type (mirrors the let/return paths). This
+            # matters for the coro transform's `self.__result = None` store into an
+            # optional-encoded result field, re-checked after the transform.
+            field_resolved = self._resolve_type_alias(field_type)
+            if (value_type and value_type.is_none_literal()
+                    and field_resolved.is_optional()):
+                self._propagate_optional_type(stmt.value, field_resolved)
+                value_type = field_resolved
             if value_type and not self._types_compatible(value_type, field_type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,

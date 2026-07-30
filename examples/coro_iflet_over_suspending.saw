@@ -1,0 +1,32 @@
+// design 62 G2: `if let` over a SUSPENDING call. The coro transform hoists the
+// suspending condition into a preceding driven temp (`let __hoist = maybe_get(n)`,
+// the already-supported nested-suspending-call-in-let) then binds an ordinary
+// if-let over the temp. The temp's `Int?` result uses the design-62 self_opt
+// frame encoding (an already-optional field is stored as-is, not double-wrapped).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 51
+// -1
+
+func maybe_get(n: Int) -> Int? {
+    yield_now()
+    if n > 0 {
+        return n * 10
+    }
+    return None
+}
+
+func worker(n: Int) -> Int {
+    if let v = maybe_get(n) {
+        return v + 1
+    }
+    return -1
+}
+
+func main() {
+    var group = TaskGroup()
+    let h1 = group.spawn(worker(5))
+    let h2 = group.spawn(worker(0))
+    print(h1.join())   // 51
+    print(h2.join())   // -1
+}

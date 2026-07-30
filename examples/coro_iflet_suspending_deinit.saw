@@ -1,0 +1,39 @@
+// design 62 G2: drop-flag exactness for the hoisted temp. The suspending call
+// returns an owning `Res?`; the hoisted `Res?` temp's payload must deinit EXACTLY
+// ONCE on BOTH branches — once when the Some path consumes/holds it, and never on
+// the None path (the temp is None, its drop flag reads not-live). The deinit oracle
+// prints 900+id, so the single trailing `907` proves exactly-once for worker(7)
+// and the absence of any deinit for worker(0).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// -1
+// 907
+
+struct Res { id: Int }
+extension Res: Deinit { func deinit(&var self) { print(900 + self.id) } }
+extension Res: NoCopy {}
+
+func maybe_res(n: Int) -> Res? {
+    yield_now()
+    if n > 0 {
+        return Res(id: n)
+    }
+    return None
+}
+
+func worker(n: Int) -> Int {
+    if let r = maybe_res(n) {
+        return r.id       // Some: payload lives in the frame, dropped once
+    }
+    return -1             // None: nothing to drop
+}
+
+func main() {
+    var group = TaskGroup()
+    let h1 = group.spawn(worker(7))    // Some(Res(7))
+    let h2 = group.spawn(worker(0))    // None
+    print(h1.join())   // 7
+    print(h2.join())   // -1
+    // group teardown: worker(7)'s Res(7) drops exactly once (907); worker(0) none
+}

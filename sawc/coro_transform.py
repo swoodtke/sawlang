@@ -37,6 +37,7 @@ from ast_nodes import (
     CastExpr, ReferenceExpr, RangeExpr, ForLoop, MoveExpr,
     BreakStatement, ContinueStatement,
     ExpressionStatement, LetStatement, AssignStatement, WhileExpr,
+    GuardLetStatement,
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
     Parameter, SawType, TypeKind, Visibility,
 )
@@ -130,6 +131,35 @@ def _zero_of(saw_type):
 def _opt(saw_type):
     """The optional type `T?` used to encode a cleanup-needing frame field."""
     return SawType(TypeKind.OPTIONAL, inner_type=saw_type)
+
+
+# Frame-field encodings (design 44 + 62):
+#   "plain"    — POD field; field type == declared type; read `self.name`; zero-init.
+#   "opt"      — cleanup-needing non-optional type `T`, encoded as `T?`; the
+#                None/Some tag IS the drop flag; read `self.name!`; init None.
+#   "self_opt" — a declared type that is ALREADY optional (`T?`); encoded as-is
+#                (NOT `(T?)?` — that double-wrap miscompiles stores/reads). Its own
+#                tag is the drop flag; read `self.name` (no unwrap); init None.
+def _enc_of(saw_type):
+    if _is_pod(saw_type):
+        return "plain"
+    if saw_type is not None and saw_type.kind == TypeKind.OPTIONAL:
+        return "self_opt"
+    return "opt"
+
+
+def _field_type(saw_type, enc):
+    return _opt(saw_type) if enc == "opt" else saw_type
+
+
+def _enc_unwraps(enc):
+    return enc == "opt"
+
+
+def _enc_cleanup(enc):
+    """True for an encoding whose field carries a drop flag (None/Some): a move
+    out must `__forget` it, and its initial (not-yet-live) value is `None`."""
+    return enc in ("opt", "self_opt")
 
 
 # --------------------------------------------------------------------------- #
@@ -272,6 +302,84 @@ class _FrameBuilder:
         self.frame_name = f"__Frame_{self.name}"
         self.ret = func.return_type or SawType(TypeKind.VOID)
         self.is_void = (self.ret.kind == TypeKind.VOID)
+
+    # ------------------------------------------------------------------ #
+    # design 62 G2: if-let / guard-let condition hoisting
+    # ------------------------------------------------------------------ #
+    def _hoist_suspending_conditions(self):
+        """Rewrite every `if let x = f() { ... }` / `guard let x = f() else { ... }`
+        whose condition is a PLAIN suspending free-function call into a preceding
+        `let __hoistN = f()` (the already-supported nested-suspending-call-in-let)
+        plus the binding over the temp. ONLY the plain-call form is hoisted — a
+        `move` or other rejected condition shape is left untouched (do not
+        accidentally legalize what design 52 Part 0 rejects)."""
+        self._hoist_ctr = 0
+        self._hoist_block(self.func.body)
+
+    def _hoist_block(self, block):
+        new_stmts = []
+        for s in block.statements:
+            new_stmts.extend(self._maybe_hoist(s))
+        block.statements = new_stmts
+        for s in block.statements:
+            self._hoist_recurse(s)
+
+    def _hoist_recurse(self, s):
+        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        if isinstance(ctrl, IfExpr):
+            self._hoist_block(ctrl.then_branch)
+            if ctrl.else_branch is not None:
+                self._hoist_block(ctrl.else_branch)
+        elif isinstance(ctrl, IfLetExpr):
+            self._hoist_block(ctrl.then_branch)
+            if ctrl.else_branch is not None:
+                self._hoist_block(ctrl.else_branch)
+        elif isinstance(ctrl, WhileExpr):
+            self._hoist_block(ctrl.body)
+        elif isinstance(ctrl, MatchExpr):
+            for arm in ctrl.arms:
+                if isinstance(arm.body, Block):
+                    self._hoist_block(arm.body)
+        elif isinstance(s, ForLoop):
+            self._hoist_block(s.body)
+        elif isinstance(s, GuardLetStatement):
+            self._hoist_block(s.else_branch)
+
+    def _maybe_hoist(self, s):
+        """Return the replacement statement list for `s` (either `[s]` unchanged or
+        `[let __hoistN = f(), s']` with `s'`'s condition rebound to the temp)."""
+        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        cond = None
+        if isinstance(ctrl, IfLetExpr):
+            cond = ctrl.optional_expr
+        elif isinstance(s, GuardLetStatement):
+            cond = s.optional_expr
+        if cond is None:
+            return [s]
+        hoisted = self._hoist_cond(cond)
+        if hoisted is None:
+            return [s]
+        let_stmt, ident = hoisted
+        if isinstance(ctrl, IfLetExpr):
+            ctrl.optional_expr = ident
+        else:
+            s.optional_expr = ident
+        return [let_stmt, s]
+
+    def _hoist_cond(self, cond):
+        # Only the plain suspending free-function call form is hoistable.
+        if (isinstance(cond, FunctionCall) and cond.name in self._suspends
+                and not getattr(cond, 'type_args', None)):
+            tmp = f"__hoist{self._hoist_ctr}"
+            self._hoist_ctr += 1
+            let_stmt = LetStatement(name=tmp, type_annotation=None, value=cond,
+                                    mutable=False, line=cond.line, column=cond.column)
+            ident = Identifier(name=tmp, line=cond.line, column=cond.column)
+            # Carry the optional type so downstream typing of the temp field is
+            # exact (its value's `resolved_type` is the callee's `T?`).
+            ident.resolved_type = getattr(cond, 'resolved_type', None)
+            return (let_stmt, ident)
+        return None
 
     def _collect_frame_locals(self):
         """Conservative-by-scope liveness (design 52 Part 0): every local whose
@@ -459,6 +567,11 @@ class _FrameBuilder:
     def prepare(self, suspends):
         self._suspends = suspends
         func = self.func
+        # design 62 G2: hoist a suspending call out of an `if let`/`guard let`
+        # CONDITION into a preceding driven temp, BEFORE call/local collection —
+        # the temp is then an ordinary nested-suspending-call-in-let and the
+        # binding is over a non-spanning optional. Runs after `_suspends` is set.
+        self._hoist_suspending_conditions()
         # A method's `self` receiver is held as the `__recv` pointer, not a normal
         # param — drop it if the parser placed it in `parameters`.
         self.params = [p for p in func.parameters
@@ -471,26 +584,28 @@ class _FrameBuilder:
 
         encmap = {}
         for p in self.params:
-            encmap[p.name] = "plain" if _is_pod(p.type) else "opt"
+            encmap[p.name] = _enc_of(p.type)
         for lname, lt in self.frame_locals:
-            encmap[lname] = "plain" if _is_pod(lt) else "opt"
+            encmap[lname] = _enc_of(lt)
         if self.is_void:
             self.result_enc = "plain"
-        elif self.force_opt_result or not _is_pod(self.ret):
+        elif self.force_opt_result:
+            # A spawn root forces its result opt-encoded so the `TaskHandle<T>`
+            # uniformly holds `UnsafePointer<T?>`, regardless of T.
             self.result_enc = "opt"
         else:
-            self.result_enc = "plain"
+            self.result_enc = _enc_of(self.ret)
         self.encmap = encmap
 
         fields = []
         if self.is_method:
             fields.append(StructField(name="__recv", type=self.recv_type))
         for p in self.params:
-            ft = p.type if encmap[p.name] == "plain" else _opt(p.type)
-            fields.append(StructField(name=p.name, type=ft))
+            fields.append(StructField(name=p.name,
+                                      type=_field_type(p.type, encmap[p.name])))
         for lname, lt in self.frame_locals:
-            ft = lt if encmap[lname] == "plain" else _opt(lt)
-            fields.append(StructField(name=lname, type=ft))
+            fields.append(StructField(name=lname,
+                                      type=_field_type(lt, encmap[lname])))
         for c in self.calls:
             fields.append(StructField(
                 name=c['sub'],
@@ -515,8 +630,8 @@ class _FrameBuilder:
         # forced destroy — the frame exits only through its own control flow.
         fields.append(StructField(name="__cancel", type=SawType(TypeKind.BOOL)))
         if not self.is_void:
-            rt = self.ret if self.result_enc == "plain" else _opt(self.ret)
-            fields.append(StructField(name="__result", type=rt))
+            fields.append(StructField(name="__result",
+                                      type=_field_type(self.ret, self.result_enc)))
         self.frame_struct = Struct(name=self.frame_name, fields=fields,
                                    line=func.line, column=func.column,
                                    source_file=getattr(func, 'source_file', ""))
@@ -1029,11 +1144,11 @@ class _FrameBuilder:
         done_body = []
         if target is not None and not callee_fb.is_void:
             res = MemberAccess(object=_self_field(sub), member="__result")
-            if callee_fb.result_enc == "opt":
+            if _enc_unwraps(callee_fb.result_enc):
                 res = ForceUnwrap(expr=res)
             done_body.append(AssignStatement(
                 target=_self_field(target), value=res))
-            if callee_fb.result_enc == "opt":
+            if _enc_cleanup(callee_fb.result_enc):
                 done_body.append(ExpressionStatement(expression=FunctionCall(
                     name="__forget", arguments=[Argument(name=None,
                         value=MemberAccess(object=_self_field(sub),
@@ -1113,7 +1228,7 @@ class _FrameBuilder:
         if isinstance(node, MoveExpr) and node.path is None and node.variable in self.encmap:
             name = node.variable
             enc = self.encmap[name]
-            if enc == "opt":
+            if _enc_cleanup(enc):
                 forgets.append(name)
             return _read_field(name, enc, getattr(node, 'line', 0),
                                getattr(node, 'column', 0))
@@ -1181,6 +1296,22 @@ class _FrameBuilder:
         # generated). Handle both; lower nested blocks so a nested `return`,
         # `move`+`__forget`, or nested-suspension diagnostic reaches them.
         ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        # design 62 G2: a non-spanning `if let`/`guard let` (its suspending
+        # condition, if any, was hoisted out in `prepare`). Rewrite the optional
+        # expression and lower the branch blocks in place, so a `return` inside a
+        # branch becomes the coroutine done-sequence (not a raw `return`).
+        if isinstance(ctrl, IfLetExpr):
+            forgets = []
+            ctrl.optional_expr = self._rewrite_expr(ctrl.optional_expr, forgets)
+            self._lower_block_in_place(ctrl.then_branch)
+            if ctrl.else_branch is not None:
+                self._lower_block_in_place(ctrl.else_branch)
+            return [s] + self._forgets(forgets)
+        if isinstance(s, GuardLetStatement):
+            forgets = []
+            s.optional_expr = self._rewrite_expr(s.optional_expr, forgets)
+            self._lower_block_in_place(s.else_branch)
+            return [s] + self._forgets(forgets)
         if isinstance(ctrl, (IfExpr, WhileExpr, MatchExpr)):
             e = ctrl
             if isinstance(e, IfExpr):
@@ -1259,7 +1390,7 @@ def _zeroed_value(enc, saw_type):
     cleanup-needing (opt-encoded) field — the drop flag reads not-live, so the
     frame never drops a placeholder — and a zero for a POD field (needs no
     cleanup)."""
-    return NoneLiteral() if enc == "opt" else _zero_of(saw_type)
+    return NoneLiteral() if _enc_cleanup(enc) else _zero_of(saw_type)
 
 
 def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):
@@ -1389,7 +1520,7 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
         # Reading the result CONSUMES the slot (opt-encoded: force-unwrap the
         # Some); an unconsumed result (e.g. driven only for its step count) stays
         # in the frame and is dropped once at frame death.
-        final = ForceUnwrap(expr=result_acc) if fb.result_enc == "opt" else result_acc
+        final = ForceUnwrap(expr=result_acc) if _enc_unwraps(fb.result_enc) else result_acc
 
     driver_params = [Parameter(name=p.name, type=p.type) for p in params]
     if fb.is_method:

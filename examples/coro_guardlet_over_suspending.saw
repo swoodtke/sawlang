@@ -1,0 +1,31 @@
+// design 62 G2: `guard let` over a SUSPENDING call shares the if-let hoist
+// machinery — the suspending condition is hoisted into a driven temp, and the
+// guard binds over it (its else-branch `return` lowers to the coroutine
+// done-sequence like any driven return).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 52
+// -1
+
+func maybe_get(n: Int) -> Int? {
+    yield_now()
+    if n > 0 {
+        return n * 10
+    }
+    return None
+}
+
+func worker(n: Int) -> Int {
+    guard let v = maybe_get(n) else {
+        return -1
+    }
+    return v + 2
+}
+
+func main() {
+    var group = TaskGroup()
+    let h1 = group.spawn(worker(5))
+    let h2 = group.spawn(worker(0))
+    print(h1.join())   // 52
+    print(h2.join())   // -1
+}
