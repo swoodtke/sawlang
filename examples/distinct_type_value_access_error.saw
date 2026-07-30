@@ -4,8 +4,9 @@
 // struct with type i64"); it must be a clean typechecker error naming the alias.
 // A distinct type flows to its underlying type implicitly, so it is used
 // directly (no accessor needed).
+// The error now also suggests the explicit projection cast (design 63).
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: distinct type
+// EXPECT-ERROR-CONTAINS: x as Int
 
 type MyInt = Int
 

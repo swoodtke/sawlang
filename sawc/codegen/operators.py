@@ -1162,6 +1162,17 @@ class OperatorsMixin:
         """Generate code for type cast: expr as Type"""
         value = self._generate_expression(expr.expr)
         from_saw_type = self._expr_type(expr.expr)
+        # Distinct-type projection (design 63): if the operand is a distinct
+        # `type` alias, resolve it to its underlying so the signedness/size
+        # logic below reads the real numeric kind rather than STRUCT.
+        if from_saw_type is not None:
+            _seen = set()
+            while (from_saw_type is not None and from_saw_type.kind == TypeKind.STRUCT
+                   and from_saw_type.struct_name
+                   and self.namespace.lookup_type_alias(from_saw_type.struct_name)
+                   and from_saw_type.struct_name not in _seen):
+                _seen.add(from_saw_type.struct_name)
+                from_saw_type = self._resolve_type_alias(from_saw_type)
         to_type = expr.target_type
         to_llvm = self._get_llvm_type(to_type)
 
@@ -1198,5 +1209,11 @@ class OperatorsMixin:
             return self.builder.ptrtoint(value, to_llvm, name="ptrtoint")
         if isinstance(value.type, ir.IntType) and isinstance(to_llvm, ir.PointerType):
             return self.builder.inttoptr(value, to_llvm, name="inttoptr")
+
+        # Identity projection (design 63): a distinct alias over a non-integer
+        # underlying (String / struct) has the same layout as that underlying,
+        # so `n as String` / `p as Point` is a representation no-op.
+        if value.type == to_llvm:
+            return value
 
         raise ValueError(f"Cannot cast from {value.type} to {to_llvm}")

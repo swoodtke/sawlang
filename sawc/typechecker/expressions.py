@@ -429,6 +429,41 @@ class ExpressionsMixin:
             TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
             TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
         }
+        # Distinct-type projection (design 63): a value of a distinct `type`
+        # alias may be cast TOWARD its underlying type. This is the sanctioned
+        # explicit projection (it replaces the never-implemented `.value`).
+        # ONE-DIRECTIONAL: `42 as UserId` stays an error (the reverse never
+        # matches here — a primitive `from_type` is not an alias). We walk the
+        # operand's alias chain toward the underlying:
+        #   - if `to_type` is an alias ON that chain (a partial projection like
+        #     `b as A` where `type B = A`), the cast is legal, result = to_type;
+        #   - otherwise resolve `from_type` to its underlying and fall through to
+        #     the normal kind-based rules with that underlying (so `id as Int`
+        #     and `id as Int8` are ordinary integer casts, while a sibling alias
+        #     `UserId as OrderId` finds no matching rule and errors).
+        if from_type.is_struct() and self.get_type_alias_info(from_type.struct_name):
+            # Walk the UNRESOLVED immediate targets so intermediate aliases stay
+            # visible (`aliased_type` collapses the whole chain to the underlying).
+            # This yields the set of distinct aliases strictly BELOW `from_type`
+            # on its definition chain — a target in that set is a legal partial
+            # projection; a sibling alias (same underlying, not on the chain) is
+            # not, and reverse casts never reach here.
+            ancestor_alias_names = set()
+            cur = from_type
+            seen = set()
+            while (cur is not None and cur.is_struct() and cur.struct_name
+                   and self.get_type_alias_info(cur.struct_name)
+                   and cur.struct_name not in seen):
+                seen.add(cur.struct_name)
+                sym = self.get_type_alias_info(cur.struct_name)
+                cur = getattr(sym, 'immediate_type', None)
+                if cur is not None and cur.is_struct() and self.get_type_alias_info(cur.struct_name):
+                    ancestor_alias_names.add(cur.struct_name)
+            # Partial projection: target is a distinct alias on the chain.
+            if (to_type.is_struct() and to_type.struct_name in ancestor_alias_names):
+                return to_type
+            # Full projection: continue the kind-match against the underlying.
+            from_type = self._get_underlying_type(from_type)
         if from_type.kind in int_kinds and to_type.kind in int_kinds:
             return to_type
         if from_type.kind == TypeKind.POINTER and to_type.kind == TypeKind.POINTER:
@@ -453,6 +488,17 @@ class ExpressionsMixin:
         if from_type.kind == TypeKind.POINTER and to_type.kind == TypeKind.STRING:
             if from_type.inner_type and from_type.inner_type.kind == TypeKind.INT8:
                 return to_type
+        # Distinct-alias projection to a non-integer primitive / String / struct
+        # underlying (design 63): after resolving the operand's alias above,
+        # an identity-kind cast is a legal reinterpretation (same layout). Int
+        # identity is already covered by the integer rule; this handles
+        # `type Name = String; n as String` and struct-underlying aliases.
+        if from_type.kind == to_type.kind and from_type.kind in (
+                TypeKind.STRING, TypeKind.FLOAT, TypeKind.BOOL):
+            return to_type
+        if (from_type.kind == to_type.kind == TypeKind.STRUCT
+                and from_type.struct_name == to_type.struct_name):
+            return to_type
         self._error(
             ErrorKind.TYPE_MISMATCH,
             f"cannot cast `{from_type}` to `{to_type}`",
@@ -2546,7 +2592,8 @@ class ExpressionsMixin:
                         f"cannot access member `{expr.member}` on the distinct "
                         f"type `{obj_type.struct_name}`: it has no fields and there "
                         f"is no `.value` accessor — a distinct type flows to its "
-                        f"underlying type implicitly, so use it directly",
+                        f"underlying type implicitly (use it directly), or project "
+                        f"it explicitly with a cast like `x as {underlying}`",
                         expr.line, expr.column,
                     )
                     return None

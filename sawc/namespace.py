@@ -132,6 +132,12 @@ class TypeAliasSymbol:
     kind: SymbolKind = SymbolKind.TYPE_ALIAS
     aliased_type: Optional[SawType] = None
     visibility: Visibility = Visibility.PRIVATE
+    # The UNRESOLVED immediate alias target (`type A = B` stores `B` verbatim,
+    # possibly itself an alias). `aliased_type` collapses the whole chain to the
+    # final underlying; `immediate_type` preserves one hop so the distinct-type
+    # cast (design 63) can distinguish a partial projection toward an ancestor
+    # alias (`b as A` where `type B = A`) from a sibling-alias cast.
+    immediate_type: Optional[SawType] = None
 
 
 @dataclass

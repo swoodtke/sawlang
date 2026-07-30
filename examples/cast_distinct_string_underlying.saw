@@ -1,0 +1,13 @@
+// Design 63 Part 1: distinct-alias projection also works for a String underlying
+// (identity reinterpretation — same layout).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// hi
+
+type Name = String
+
+func main() {
+    let n: Name = "hi"
+    let s: String = n as String
+    print(s)
+}

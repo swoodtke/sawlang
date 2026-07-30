@@ -1,0 +1,16 @@
+// Design 63 Part 1: a value of a distinct `type` alias projects TOWARD its
+// underlying type with an explicit `as` cast (the sanctioned replacement for
+// the never-implemented `.value`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 84
+
+type UserId = Int
+
+func main() {
+    let id: UserId = 42
+    let n: Int = id as Int   // distinct -> underlying
+    print(n)                 // 42
+    print(n * 2)             // 84
+}

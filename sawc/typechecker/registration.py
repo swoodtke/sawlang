@@ -213,6 +213,7 @@ class RegistrationMixin:
         resolved_type = self._resolve_type_alias(type_def.defined_type)
         self.namespace.register_type_alias(type_def.name, TypeAliasSymbol(
             aliased_type=resolved_type,
+            immediate_type=type_def.defined_type,
             visibility=getattr(type_def, 'visibility', Visibility.PRIVATE)
         ))
 
