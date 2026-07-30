@@ -1,0 +1,29 @@
+// design 56 (N3): a `try { } catch` whose tried call returns an erased Result
+// binds `error` as `Box<any Error>`; `"{error}"` interpolates via the vtable.
+// (Downcasting to a concrete case on an erased box is deferred — needs a
+// type-id design.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// caught: io#8
+
+struct IoErr { n: Int }
+extension IoErr: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append("io#")
+        into.append(self.n)
+    }
+}
+
+func step(ok: Bool) -> Result<Int, Box<any Error>> {
+    if ok { return 1 }
+    return IoErr(n: 8)
+}
+
+func main() {
+    try {
+        let a = try step(false)
+        print(a)
+    } catch {
+        print("caught: {error}")   // caught: io#8
+    }
+}

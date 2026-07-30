@@ -1,0 +1,55 @@
+// design 56 (N3): `try` inside a function returning `Result<T, Box<any Error>>`.
+// A callee returning a CONCRETE-error Result has its error erased into a fresh
+// box at the propagation edge (re-box); a callee already returning the erased
+// box passes straight through (move, no re-box).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// parse#9
+// io#5
+
+struct ParseErr { code: Int }
+extension ParseErr: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append("parse#")
+        into.append(self.code)
+    }
+}
+struct IoErr { n: Int }
+extension IoErr: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append("io#")
+        into.append(self.n)
+    }
+}
+
+func step_concrete(ok: Bool) -> Result<Int, ParseErr> {
+    if ok { return 1 }
+    return ParseErr(code: 9)
+}
+
+func step_erased(ok: Bool) -> Result<Int, Box<any Error>> {
+    if ok { return 2 }
+    return IoErr(n: 5)
+}
+
+func run(a: Bool, b: Bool) -> Result<Int, Box<any Error>> {
+    let x = try step_concrete(a)   // concrete error -> re-box at propagation
+    let y = try step_erased(b)     // erased box -> passthrough
+    return x + y
+}
+
+func main() {
+    match run(true, true) {
+        case Ok(n) -> print(n),        // 3
+        case Err(e) -> print("{e}")
+    }
+    match run(false, true) {
+        case Ok(n) -> print(n),
+        case Err(e) -> print("{e}")    // parse#9 (re-boxed)
+    }
+    match run(true, false) {
+        case Ok(n) -> print(n),
+        case Err(e) -> print("{e}")    // io#5 (passthrough)
+    }
+}

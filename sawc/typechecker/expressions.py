@@ -4605,10 +4605,10 @@ class ExpressionsMixin:
                 return self._check_try_with_catch(expr, ok_type, err_type)
 
             # Otherwise, try expr propagates - function must return Result<_, E>
-            self._validate_error_propagation(err_type, expr.line, expr.column)
+            self._validate_error_propagation(err_type, expr.line, expr.column, expr)
             return ok_type
 
-    def _validate_error_propagation(self, err_type: SawType, line: int, column: int):
+    def _validate_error_propagation(self, err_type: SawType, line: int, column: int, expr=None):
         """Validate that error can be propagated from current function or to enclosing catch."""
         # If we're inside a try-catch block, errors go to the catch block
         if self.in_try_catch_block:
@@ -4642,12 +4642,25 @@ class ExpressionsMixin:
             return
 
         expected_err = expected_return.unwrap_result_err()
-        if not self._types_compatible(err_type, expected_err):
-            self._error(
-                ErrorKind.TYPE_MISMATCH,
-                f"cannot propagate error of type `{err_type}` from function returning `Result<_, {expected_err}>`",
-                line, column
-            )
+        if self._types_compatible(err_type, expected_err):
+            return  # passthrough (includes an already-erased box == box)
+        # Erased Result (design 56): the function returns `Result<_, Box<any
+        # Trait>>` and this callee's error is a concrete conformer — re-box it at
+        # the propagation edge. Stamp the erasure for codegen.
+        trait = self.namespace._erased_trait_of(expected_err)
+        if trait is not None and self._can_erase_to(err_type, trait):
+            if expr is not None:
+                expr.erase_propagate = {
+                    'trait': trait,
+                    'concrete': err_type,
+                    'allocator': SawType(TypeKind.STRUCT, struct_name="Global"),
+                }
+            return
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"cannot propagate error of type `{err_type}` from function returning `Result<_, {expected_err}>`",
+            line, column
+        )
 
     def _check_try_with_catch(self, expr: TryExpr, ok_type: SawType, err_type: SawType) -> Optional[SawType]:
         """Check try expression with inline catch block."""

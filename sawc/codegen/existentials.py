@@ -262,7 +262,15 @@ class ExistentialsMixin:
         trait_name = info['trait']
         concrete_saw = info['concrete']
         alloc_saw = info['allocator']
+        # Lower the concrete payload value once (consumes/moves the argument).
+        value = self._gen_transfer_value(expr.arguments[0].value)
+        return self._erase_value_to_box(value, concrete_saw, trait_name, alloc_saw)
 
+    def _erase_value_to_box(self, value, concrete_saw, trait_name, alloc_saw):
+        """Box an already-lowered concrete `value` behind `trait_name` through
+        `alloc_saw`, returning the fat pointer { data, vtable }. Shared by
+        `Box<any T>.make(v)` and auto-erasure of a concrete error at a return /
+        propagation edge (design 56). OOM panics (the infallible tier)."""
         i8 = self._i8ptr()
         concrete_llvm = self._get_llvm_type(concrete_saw)
         size = ir.Constant(self.int_type,
@@ -277,8 +285,6 @@ class ExistentialsMixin:
         is_some = self.builder.extract_value(opt, 0)
         raw = self.builder.extract_value(opt, 1)  # i8* (valid only if is_some)
 
-        # Lower the concrete payload value once (consumes/moves the argument).
-        value = self._gen_transfer_value(expr.arguments[0].value)
         vt = self._get_or_emit_vtable(concrete_saw, trait_name)
         vt_i8 = self.builder.bitcast(vt, i8)
 

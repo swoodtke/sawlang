@@ -1,0 +1,50 @@
+// design 56 (N3): `Result<T, Box<any Error>>` as a return type. A concrete
+// `E: Error` returned from such a function auto-wraps to Err AND auto-erases to
+// a Box<any Error> at the return boundary (resolution 55 -> auto-wrap 30 ->
+// erase 56). Matching Err(e) binds the erased box; `{e}` renders via the vtable.
+// A `sync` function erases in a sync context (boxing + vtable are sync).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// parse error 7
+// sync ok 1
+// bad parse error 3
+
+struct ParseErr { code: Int }
+extension ParseErr: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append("parse error ")
+        into.append(self.code)
+    }
+}
+
+func parse(ok: Bool) -> Result<Int, Box<any Error>> {
+    if ok {
+        return 42
+    }
+    return ParseErr(code: 7)   // auto-wrap Err + auto-erase to Box<any Error>
+}
+
+func sync_parse(ok: Bool) sync -> Result<Int, Box<any Error>> {
+    if ok { return 1 }
+    return ParseErr(code: 3)
+}
+
+func main() {
+    match parse(true) {
+        case Ok(n) -> print(n),          // 42
+        case Err(e) -> print("{e}")
+    }
+    match parse(false) {
+        case Ok(n) -> print(n),
+        case Err(e) -> print("{e}")      // parse error 7
+    }
+    match sync_parse(true) {
+        case Ok(n) -> print("sync ok {n}"),   // sync ok 1
+        case Err(e) -> print("{e}")
+    }
+    match sync_parse(false) {
+        case Ok(n) -> print(n),
+        case Err(e) -> print("bad {e}")       // bad parse error 3
+    }
+}

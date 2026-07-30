@@ -184,7 +184,15 @@ class ResultsMixin:
             self.builder.store(value_to_store, err_alloca_ptr[0])
             self.builder.branch(catch_bb)
         else:
-            # No enclosing catch - propagate to caller
+            # No enclosing catch - propagate to caller. Erased Result (design
+            # 56): if the enclosing function returns `Result<_, Box<any Trait>>`
+            # and this callee's error is concrete, erase it into a fresh box at
+            # the propagation edge (re-box). A callee already returning the box
+            # passes straight through (no re-box) — no erase_propagate is set.
+            erase = getattr(expr, 'erase_propagate', None)
+            if erase is not None:
+                err_value = self._erase_value_to_box(
+                    err_value, erase['concrete'], erase['trait'], erase['allocator'])
             caller_result = self._create_result_err_for_return(err_value)
             self._cleanup_all_scopes()
             self.builder.ret(caller_result)
@@ -487,6 +495,16 @@ class ResultsMixin:
         """
         value = self._gen_transfer_value(expr.value)
         return self._create_result_err_for_return(value)
+
+    def visit_ErasedErrWrap(self, expr):
+        """Generate code for ErasedErrWrap (design 56): erase a concrete `E`
+        into a `Box<any Trait>` (through the allocator, Global by default), then
+        build the Err payload from the fat pointer."""
+        value = self._gen_transfer_value(expr.value)
+        alloc_saw = expr.allocator or SawType(TypeKind.STRUCT, struct_name="Global")
+        fat = self._erase_value_to_box(value, expr.concrete_err,
+                                       expr.trait_name, alloc_saw)
+        return self._create_result_err_for_return(fat)
 
     def _get_result_enum_name(self, result_type: SawType) -> str:
         """Get the monomorphized enum name for a Result type."""

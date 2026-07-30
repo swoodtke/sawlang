@@ -671,6 +671,30 @@ class ResultErrWrap(Expression):
 
 
 @dataclass
+class ErasedErrWrap(Expression):
+    """Wraps a concrete error value E into Result<T, Box<any Error>> as Err,
+    erasing E into a `Box<any Trait>` first (design 56 N3 erased Results).
+
+    Inserted by the typechecker when a concrete `E: Error` is returned from a
+    function declared to return an erased Result. Codegen boxes the value
+    (through `allocator`, Global by default) with the (E, trait) vtable, then
+    builds the Err payload from the fat pointer.
+    """
+    value: Expression
+    result_type: Optional['SawType'] = None   # Result<T, Box<any Trait>>
+    concrete_err: Optional['SawType'] = None   # E
+    trait_name: str = "Error"
+    allocator: Optional['SawType'] = None      # Global by default
+    line: int = 0
+    column: int = 0
+    resolved_type: Optional['SawType'] = None
+
+    def __post_init__(self):
+        if self.resolved_type is None:
+            self.resolved_type = self.result_type
+
+
+@dataclass
 class TryExpr(Expression):
     """Try expression: unwraps Ok, propagates/handles Err.
 

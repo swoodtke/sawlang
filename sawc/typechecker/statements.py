@@ -207,6 +207,13 @@ class StatementsMixin:
                             line=method.body.final_expr.line,
                             column=method.body.final_expr.column
                         )
+                    elif (self._erased_err_target(expected_return) is not None
+                          and self._can_erase_to(
+                              body_type, self._erased_err_target(expected_return))):
+                        # Erased Result (design 56): box + Err-wrap a concrete error.
+                        method.body.final_expr = self._make_erased_err_wrap(
+                            method.body.final_expr, expected_return, body_type,
+                            self._erased_err_target(expected_return))
                     else:
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
@@ -242,6 +249,41 @@ class StatementsMixin:
         self.current_method = None
         self.moved_bindings = saved_moves
         self.current_type_params = prev_method_type_params
+
+    def _erased_err_target(self, result_type):
+        """If `result_type` is `Result<T, Box<any Trait>>` (an erased Result,
+        design 56), return the erased trait name; else None."""
+        if result_type is None or not result_type.is_result():
+            return None
+        err = result_type.unwrap_result_err()
+        return self.namespace._erased_trait_of(err) if err is not None else None
+
+    def _can_erase_to(self, body_type, trait_name) -> bool:
+        """Whether a concrete `body_type` conforms to `trait_name` and so may be
+        erased into a `Box<any Trait>` at a return / propagation edge."""
+        if body_type is None:
+            return False
+        if body_type.kind == TypeKind.STRUCT:
+            name = body_type.struct_name
+        elif body_type.kind == TypeKind.ENUM:
+            name = body_type.enum_name
+        else:
+            return False
+        return self.namespace.type_conforms_to(name, trait_name)
+
+    def _make_erased_err_wrap(self, value_expr, result_type, body_type, trait_name):
+        """Build an ErasedErrWrap: a concrete `E: <trait>` returned from an erased
+        Result is boxed (Global) and wrapped as Err (design 56)."""
+        from ast_nodes import ErasedErrWrap
+        return ErasedErrWrap(
+            value=value_expr,
+            result_type=result_type,
+            concrete_err=body_type,
+            trait_name=trait_name,
+            allocator=SawType(TypeKind.STRUCT, struct_name="Global"),
+            line=getattr(value_expr, 'line', 0),
+            column=getattr(value_expr, 'column', 0),
+        )
 
     def _reconcile_return_type(self, func, resolved_return_type, body_type):
         """Reconcile a function body's type against its declared return type.
@@ -295,6 +337,15 @@ class StatementsMixin:
                         line=func.body.final_expr.line,
                         column=func.body.final_expr.column
                     )
+                elif (self._erased_err_target(resolved_return_type) is not None
+                      and self._can_erase_to(
+                          body_type, self._erased_err_target(resolved_return_type))):
+                    # Erased Result (design 56): a concrete `E: Error` is boxed
+                    # and Err-wrapped at the return boundary (resolution 55 ->
+                    # auto-wrap 30 -> ERASE 56, one sequence).
+                    func.body.final_expr = self._make_erased_err_wrap(
+                        func.body.final_expr, resolved_return_type, body_type,
+                        self._erased_err_target(resolved_return_type))
                 else:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -1161,6 +1212,15 @@ class StatementsMixin:
                             line=stmt.value.line,
                             column=stmt.value.column
                         )
+                        self.found_return_with_value = True
+                    elif (self._erased_err_target(expected) is not None
+                          and self._can_erase_to(
+                              value_type, self._erased_err_target(expected))):
+                        # Erased Result (design 56): box + Err-wrap a concrete error
+                        # at an explicit `return E`.
+                        stmt.value = self._make_erased_err_wrap(
+                            stmt.value, expected, value_type,
+                            self._erased_err_target(expected))
                         self.found_return_with_value = True
                     else:
                         self._error(
