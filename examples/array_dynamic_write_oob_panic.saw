@@ -1,0 +1,10 @@
+// Design 63 T1b: the WRITE path (`arr[i] = v`) is bounds checked too.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: index out of range
+
+func main() {
+    var arr = [10, 20, 30]
+    var i = 5
+    arr[i] = 99      // OOB write -> panic
+    print(arr[0])
+}

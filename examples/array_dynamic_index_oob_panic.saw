@@ -1,0 +1,10 @@
+// Design 63 T1b: a dynamic index equal to the length N is out of range and
+// panics "index out of range" (always on, no disable flag).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: index out of range
+
+func main() {
+    let arr = [10, 20, 30]
+    var i = 3
+    print(arr[i])   // i == N -> panic
+}

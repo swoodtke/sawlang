@@ -1370,6 +1370,8 @@ class CallsMixin:
         index_val = self._generate_expression(expr.index)
         pointee = container_ptr.type.pointee
         if isinstance(pointee, ir.ArrayType):
+            # Dynamic bounds check (design 63 T1b) on the write lvalue `arr[i] = v`.
+            self._emit_array_bounds_check(index_val, pointee.count, expr.index)
             zero = ir.Constant(ir.IntType(64), 0)
             return self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
         if isinstance(pointee, ir.PointerType):

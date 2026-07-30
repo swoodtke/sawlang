@@ -338,6 +338,8 @@ class StatementsMixin:
                 container_val = self.builder.load(container_ptr, name="container")
 
                 if isinstance(container_val.type, ir.ArrayType):
+                    # Dynamic bounds check (design 63 T1b) on `arr[i] = v`.
+                    self._emit_array_bounds_check(index_val, container_val.type.count, stmt.target.index)
                     # Array: GEP with two indices [0, index]
                     zero = ir.Constant(ir.IntType(64), 0)
                     elem_ptr = self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
@@ -466,6 +468,8 @@ class StatementsMixin:
                 container_val = self.builder.load(container_ptr, name="container")
 
                 if isinstance(container_val.type, ir.ArrayType):
+                    # Dynamic bounds check (design 63 T1b) on `arr[i] += v`.
+                    self._emit_array_bounds_check(index_val, container_val.type.count, stmt.target.index)
                     # Array: GEP with two indices [0, index]
                     zero = ir.Constant(ir.IntType(64), 0)
                     elem_ptr = self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")

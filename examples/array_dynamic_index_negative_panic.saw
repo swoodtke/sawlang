@@ -1,0 +1,11 @@
+// Design 63 T1b: a negative dynamic index is caught by the same unsigned
+// compare (a negative reinterpreted as unsigned is enormous).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: index out of range
+
+func main() {
+    let arr = [10, 20, 30]
+    var i = 0
+    i = i - 1        // -1
+    print(arr[i])    // negative -> panic
+}

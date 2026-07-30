@@ -10,7 +10,7 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, TypeKind, Identifier, MemberAccess, ArrayIndex, SelfExpr, SawType
+from ast_nodes import BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, TypeKind, Identifier, MemberAccess, ArrayIndex, SelfExpr, SawType, IntLiteral
 from .mangle import mangle_named
 
 # Unsigned integer kinds: everything else that is an integer is treated as
@@ -228,6 +228,33 @@ class OperatorsMixin:
         if signed:
             return self.builder.ashr(left, amt, name="ashrtmp")
         return self.builder.lshr(left, amt, name="lshrtmp")
+
+    def _emit_array_bounds_check(self, index_val, count, index_expr):
+        """Panic if a fixed-array index is out of range (design 63 T1b).
+
+        `0 <= i < N` folded into one UNSIGNED compare `i >= N`: a negative index
+        reinterpreted as unsigned is enormous, so it is caught by the same test.
+        N is the compile-time array length. ALWAYS ON, every profile, no disable
+        flag (the same posture as integer overflow, design 31). A CONSTANT index
+        never reaches here — an out-of-range constant is already a compile error
+        and an in-range one needs no guard — so this only guards genuinely
+        dynamic indices, and the optimizer folds it away where it can prove the
+        index in range (hot-loop tests stay clean). Raw-pointer / UnsafeMemory
+        indexing is deliberately NOT routed here (the explicit unsafe escape).
+        """
+        if isinstance(index_expr, IntLiteral):
+            return
+        if not isinstance(index_val.type, ir.IntType):
+            return
+        nconst = ir.Constant(index_val.type, count)
+        oob = self.builder.icmp_unsigned('>=', index_val, nconst, name="idx_oob")
+        func = self.builder.function
+        panic_bb = func.append_basic_block(name="idx_panic")
+        cont_bb = func.append_basic_block(name="idx_cont")
+        self.builder.cbranch(oob, panic_bb, cont_bb)
+        self.builder.position_at_end(panic_bb)
+        self._emit_panic("panic: index out of range")
+        self.builder.position_at_end(cont_bb)
 
     def _generate_binary_op(self, expr: BinaryOp):
         """Generate code for binary operations.
@@ -1148,6 +1175,8 @@ class OperatorsMixin:
 
         pointee = container_ptr.type.pointee
         if isinstance(pointee, ir.ArrayType):
+            # Dynamic bounds check (design 63 T1b) on `&arr[i]`.
+            self._emit_array_bounds_check(index_val, pointee.count, expr.index)
             zero = ir.Constant(ir.IntType(64), 0)
             return self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
         elif isinstance(pointee, ir.PointerType):

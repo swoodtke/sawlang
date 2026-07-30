@@ -169,6 +169,10 @@ class CollectionsMixin:
             # Array indexing - need to allocate, store, and use GEP
             index_val = self._generate_expression(expr.index)
 
+            # Dynamic bounds check (design 63 T1b): panic on an out-of-range
+            # index into a fixed array before the GEP/load.
+            self._emit_array_bounds_check(index_val, container_val.type.count, expr.index)
+
             # Allocate space for the array on stack
             array_ptr = self._entry_alloca(container_val.type, name="arr_tmp")
             self.builder.store(container_val, array_ptr)
