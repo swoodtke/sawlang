@@ -500,6 +500,24 @@ The compiler currently supports:
   shims that hide the timespec layout + macOS/Linux CLOCK_MONOTONIC variance.
 - Compiler flags: `-o`, `-v`, `-c`, `--emit-ir`, `--emit-ast`, `-O0`
   (default is an O1-style pass pipeline)
+- Attributes + C exports (design 58): Swift-style `@name` / `@name("string")`
+  lines before a declaration, v1 legal ONLY on top-level `func`/`static`
+  (anything else = clean "attributes are not supported on X"; unknown/duplicate/
+  bad-arity errors list the known set `@export`, `@section`). `@export` /
+  `@export("sym")` = C calling convention + exact unmangled-or-given symbol +
+  external linkage + DCE-survival (`@llvm.used`, holds at default -O1). Exported
+  functions must be non-generic, effect-`sync` (an effect ROOT like `main`), and
+  match a C-safe signature whitelist (fixed-width ints, `Int`/`UInt`, `Float`,
+  `UnsafePointer<T>`, `Void`/`Never` return — `Never` lowers to `void`+noreturn,
+  the `_start` shape). REJECTED: `Bool` (bare-`i1` vs C `_Bool` ABI — verdict:
+  reject in v1), `String`, optionals, `Result`, tuples, closures, by-value
+  structs (pass `UnsafePointer<S>`). Exported statics relax to arrays/structs of
+  whitelisted fields (vector-table idiom). Symbol hygiene: duplicate export
+  symbol / `main`/`saw_*`/`__saw_*` collision = error; an overloaded name carries
+  `@export` on only ONE overload unless explicit distinct symbols. `@section(
+  "name")` on funcs/statics = LLVM section (composes with `@export`, verbatim
+  name; ELF `.foo` vs mach-o `SEG,sect`). NO `repr(C)` — the declaration-order
+  natural-ABI layout is THE documented struct layout rule. `@inline` deferred.
 
 ## Example Code
 

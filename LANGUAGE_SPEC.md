@@ -431,6 +431,17 @@ p.translate(1.0, 1.0)
 let p2 = Point(magnitude: 5.0)  // Creates Point(x: 5.0, y: 5.0)
 ```
 
+**Layout rule (language-level).** Every struct uses **declaration-order,
+natural-ABI layout**: fields are laid out in source order at their target's
+natural alignment, with padding inserted only to satisfy alignment. This is a
+guarantee, not an optimization — there is no field reordering and there is no
+`repr` attribute to request one layout over another (the rule *is* the C-
+compatible layout, which is why an aggregate can be shared with C through
+`UnsafePointer<Struct>` and why `UnsafeMemory<Struct, Device>` can project to a
+register at a fixed offset). Reserved `_pad` fields are the interim idiom for
+deliberate holes. It generalizes the design-46 register-block layout guarantee
+to all structs.
+
 ### Enums (Algebraic Data Types)
 
 ```saw
@@ -2494,39 +2505,112 @@ printing are unavailable. See `designs/19-freestanding-profile.md` for the full 
 
 ## 10. Interoperability
 
-**Status: partially implemented.** `extern "C"` function declarations and the
-pointer types `UnsafePointer<T>` / `UnsafeConstPointer<T>` (plus `sizeof<T>()`
-and `alignof<T>()` builtins, which fold to the target's ABI size and alignment
-of `T` in bytes at monomorphization time) are used by the stdlib today. The
-`#[repr(C)]` / `#[no_mangle]`
-attributes, C-varargs, and `extern "C"` *exports* are *planned* — the examples
-below using them are illustrative. There are **no** `unsafe` blocks/functions/
-traits — unsafety is type-carried (see [Unsafe Code](#unsafe-code) below). (The
-spec's `*Char`/`*var Void` shorthand is illustrative; the implemented spelling is
-`UnsafePointer<T>` / `UnsafeConstPointer<T>`.)
+**Status: implemented.** `extern "C"` function declarations, the pointer types
+`UnsafePointer<T>` / `UnsafeConstPointer<T>` (plus `sizeof<T>()` and
+`alignof<T>()` builtins, which fold to the target's ABI size and alignment of
+`T` in bytes at monomorphization time), and **C-callable exports via `@export`**
+(design 58) are all shipped. There is **no** `#[repr(C)]` attribute: every Saw
+struct already has a stable **declaration-order, natural-ABI layout** (see
+[Structs](#structs)), so C-compatibility is the language rule rather than an
+opt-in — export signatures are gated by a C-safe type whitelist instead. There
+are **no** `unsafe` blocks/functions/traits — unsafety is type-carried (see
+[Unsafe Code](#unsafe-code) below). Still *planned*: C-varargs on the export
+side. (The spec's `*Char`/`*var Void` shorthand is illustrative; the implemented
+spelling is `UnsafePointer<T>` / `UnsafeConstPointer<T>`.)
 
 ### C FFI
 
 ```saw
 // Declare external C functions
 extern "C" {
-    func printf(format: *Char, ...) -> Int
-    func malloc(size: UInt) -> *var Void
-    func free(ptr: *var Void)
+    func printf(format: UnsafeConstPointer<Int8>, ...) -> Int
+    func malloc(size: UInt) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
 }
 
-// Export for C
-#[no_mangle]
-public extern "C" func my_function(x: Int32) -> Int32 {
+// Export a Saw function under the exact C symbol `my_function` (design 58):
+// C calling convention, unmangled symbol, external linkage, kept alive
+// through DCE. See the Attributes section for the signature whitelist.
+@export
+func my_function(x: Int32) -> Int32 {
     x * 2
 }
 
-// C-compatible types
-#[repr(C)]
+// Rename the emitted symbol, and place it in an object-file section:
+@export("_start")
+@section(".text.boot")
+func kernel_entry() -> Never {
+    // ... never returns; lowered to a `void` + `noreturn` C symbol ...
+    panic("unreachable")
+}
+
+// Aggregates cross the boundary by pointer (the layout guarantee makes this
+// correct); pass `UnsafePointer<CStruct>`, never a by-value struct.
 struct CStruct {
     x: Int32,
     y: Int32,
 }
+```
+
+### Attributes (design 58)
+
+**Status: implemented.** Attributes are Swift-style `@name` / `@name("string")`
+lines placed immediately before a declaration. In v1 they are legal **only on
+top-level `func` and `static` declarations** — an attribute on a struct, enum,
+trait, extension, type alias, extern block, method, or local is a clean
+"attributes are not supported on X" error (the grammar leaves room for
+`#[test]`/derive-style growth without opening it yet). An unknown attribute name,
+a repeated attribute, or the wrong argument shape is a compile error. The v1 set
+is `@export` and `@section`; `@inline` is reserved for a later design.
+
+**`@export` / `@export("sym")`** makes a function or static callable from C. It
+is one unified attribute whose meaning is inseparable: **C calling convention +
+exact unmangled symbol** (or the explicit `"sym"`) **+ external linkage + kept
+alive through DCE** (via `@llvm.used`, so it survives the default -O1 pipeline
+even when nothing in the program references it — the `_start` / vector-table
+shape). There is deliberately no separate `no_mangle`/`c_abi` split.
+
+Restrictions on an exported **function** (each a clean error):
+
+- top-level free functions only (grammar already excludes methods/closures);
+- **not** generic (a C symbol has no type parameters);
+- effect-`sync`: an export is an effect **root** like `main` and must be
+  transitively suspension-free — a coroutine frame cannot cross a C boundary;
+- **signature whitelist** (params and return): the fixed-width integers
+  `Int8`…`Int64` / `UInt8`…`UInt64`, the platform words `Int` / `UInt` (the C
+  `intptr_t`/`uintptr_t` shape), `Float`, and `UnsafePointer<T>`; the return may
+  additionally be `Void` or `Never` (lowered to a `void` + `noreturn` symbol).
+  **Rejected in v1:** `Bool` (the extern-import path lowers it as a bare `i1`,
+  which does not match the platform C `_Bool` ABI), `String`, optionals,
+  `Result`, tuples, closures, and **all by-value structs/enums** — pass an
+  aggregate as `UnsafePointer<S>` (the layout guarantee makes that correct).
+
+An exported **static** relaxes the whitelist (data has no calling convention):
+fixed-width integers, `Int`/`UInt`, `Float`, **arrays** thereof, and **structs**
+whose fields are all whitelisted. Statics are already immortal and `Sync`-only
+(see [Statics](#module-level-statics)); `@export` only names the symbol and keeps
+it alive.
+
+**Symbol hygiene.** Two exports resolving to the same symbol are an error (an
+unmangled C symbol must be unique); colliding with a reserved runtime symbol
+(`main`, `saw_*`, `__saw_*`) is an error. `@export` composes with overloading
+(the exact-match model): an exported function's *name* may be overloaded
+Saw-side, but only **one** overload may carry `@export` without an explicit
+symbol name — otherwise both would claim the same unmangled symbol. `public` is
+not required (export is its own visibility to the linker), but module visibility
+still governs Saw-side callers.
+
+**`@section("name")`** places a top-level function or static in the named
+object-file section (the LLVM section attribute). It composes with `@export` and
+does not require it; the name is passed through verbatim (the linker's problem)
+beyond a non-empty check. Section-name *syntax* is target-specific — ELF accepts
+`.vector_table`, mach-o requires the `SEG,sect` form.
+
+```saw
+// The freestanding vector-table idiom (design 58 Part 3):
+@export("_vectors")
+@section(".vector_table")
+static VECTORS: [UInt32; 64]        // externally-visible, kept alive, in-section
 ```
 
 ### Unsafe Code — unsafety is type-carried, not region-carried
@@ -2641,8 +2725,10 @@ arithmetic (an inbounds GEP through the natural-ABI layout, folded to a constant
 offset).
 
 **Layout guarantee.** The viewed struct uses **declaration-order, natural-ABI
-layout**. Reserved `_pad` fields are the interim idiom for holes; explicit
-`repr`/offset attributes are deferred until a device demands them.
+layout** — the same language-level rule that governs [all structs](#structs), so
+a register block's field offsets are exactly what the hardware manual lists.
+Reserved `_pad` fields are the interim idiom for holes; there is no `repr`
+attribute (design 58 — the layout rule replaces one).
 
 ```saw
 struct UartRegs {
@@ -2860,6 +2946,8 @@ Implemented
   Reference:      &  &var             (`&x` at a call site; `&var` params)
   Cast:           as                 (`x as Int`)
   Member/return:  .  ->
+  Attribute:      @                  (`@export`, `@section("...")` — design 58;
+                                      declaration position only)
 
 Planned (parsed shape may differ or be rejected today)
   Arithmetic:     **                 (power)

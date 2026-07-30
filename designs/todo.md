@@ -140,15 +140,36 @@ A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
   * **Blade dogfood:** toml.saw int_value()/get_int() (to_int); tester.saw
     Instant/Duration timing + HashMap failed-name tally sorted via keys();
     blade tests toml_int_value.saw + df3_map_time.saw. [App-1]
-- **N6 → BRIEFED as design 58** (`designs/58-attributes-exports.md`,
-  decided Jul 29, queued after 57): Swift-style `@attr` grammar (v1:
-  top-level func/static only); unified `@export`/`@export("sym")` =
-  C ABI + unmangled/named symbol + DCE-survival (free, non-generic,
-  sync fns; strict C-safe signature whitelist, by-value structs
-  rejected — pass UnsafePointer<S>); NO repr(C) attribute (the
-  decl-order natural-ABI guarantee becomes the documented rule);
-  `@section` on funcs/statics; `@export` statics (vector-table idiom);
-  `@inline` deferred. Unblocks F7. [App-2]
+- **N6 → design 58 — LANDED**: Swift-style `@attr` grammar (v1: top-level
+  func/static only; unknown/dup/bad-arity/wrong-position all clean errors);
+  unified `@export`/`@export("sym")` = C calling convention + unmangled/named
+  symbol + external linkage + DCE-survival via `@llvm.used` (verified at the
+  DEFAULT -O1 pipeline). Restrictions: non-generic, effect-`sync` (export is an
+  effect ROOT like `main`, marked in effects.py), C-safe signature whitelist
+  (fixed-width ints, Int/UInt, Float, UnsafePointer<T>, Void/Never return —
+  `Never` now spellable, lowered `void`+noreturn = the `_start` shape). NO
+  repr(C): the decl-order natural-ABI layout is documented as THE struct layout
+  rule (spec §Structs + §UnsafeMemory updated). `@export` statics relax to
+  arrays/structs of whitelisted fields; the vector-table idiom
+  (`@export("_vectors") @section(".vector_table") static VECTORS: [UInt32; 64]`)
+  is verified on an ELF target. `@section` on funcs/statics (composes with
+  @export). Symbol hygiene: dup export symbol / `main`/`saw_*`/`__saw_*`
+  collision = error; overloaded name may `@export` only ONE overload w/o an
+  explicit symbol. Choices/deferrals:
+  * **Bool VERDICT — REJECTED in v1.** The extern-IMPORT path lowers Bool as a
+    bare `i1` (no zeroext/i8 normalization), which does not match the platform
+    C `_Bool` ABI, and NO stdlib extern actually passes a Bool, so there is no
+    sound precedent to mirror. Symmetric: neither side has a validated Bool ABI.
+  * **Testing:** in-binary round trip preferred (an `extern "C"` decl of an
+    `@export`ed symbol in the same unit UNIFIES with the definition via bodyless-
+    decl reuse — no C compiler, no separate module needed). Committed run-tests
+    use mach-o `SEG,sect` section names (ELF `.foo` names crash mach-o object
+    emission on the host); ELF section names + the vector-table idiom + noreturn
+    + `@llvm.used` at -O1 are verified via `--emit-ir` scratch probes and were
+    all confirmed. The test harness has no per-test flag/emit-ir directive.
+  * **`@inline` deferred** (grammar makes it trivial later).
+  Compiler suite 607, 0 xfails. **Unblocks F7** (kernel entry symbol / vector
+  table — the export machinery is ready; the boot shim stays assembly). [App-2]
 
 ### NICE TO HAVE — TRIAGED Jul 29 (user, one-by-one)
 **ADD before apps** (→ briefs 53/54, both now WRITTEN + DECIDED Jul 29):
@@ -428,7 +449,10 @@ spec examples aspirational).
   unsafe story for user lock-free structures. [19]
 - **F6.** dtoa / Float printing under `--freestanding` (currently a
   compile error). [20]
-- **F7.** Custom entry symbols (`_start` / vector table). [20]
+- **F7.** Custom entry symbols (`_start` / vector table) — UNBLOCKED by design
+  58: `@export("_start")`/`@section` + `Never` return (noreturn) + exported
+  vector-table statics are the mechanism. Remaining F7 work is the boot shim
+  (stack setup, stays assembly) + wiring, not compiler surface. [20, 58]
 - **F8.** Linker scripts. [20]
 - **F9.** QEMU/CI freestanding smoke target ("blink"). [20]
 
