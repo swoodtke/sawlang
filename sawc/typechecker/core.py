@@ -526,6 +526,21 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                         ns.register_trait(name, sym)
                     ns.make_accessible(name)
 
+        # When an import copies a public struct/enum symbol into THIS namespace
+        # (glob `import foo.*` or specific `import foo.{A}`), carry its trait
+        # conformances along too. Without this, a containment/conformance query
+        # in the importing module (e.g. "does DepList implement NoCopy?") sees the
+        # copied struct but not its NoCopy conformance and wrongly errors — the
+        # glob path does not register the source module in `ns.modules`, so
+        # `type_conforms_to`'s cross-module walk cannot reach it either.
+        def _import_conformances(dst_name, src_name, src_ns):
+            src_map = src_ns.conformances.get(src_name)
+            if not src_map:
+                return
+            dst_map = ns.conformances.setdefault(dst_name, {})
+            for trait_name, assoc in src_map.items():
+                dst_map.setdefault(trait_name, assoc)
+
         # Process imports - register imported modules in this namespace
         for imp in getattr(module_ast, 'imports', []):
             imp_path = tuple(imp.path)
@@ -549,11 +564,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                             if name not in ns.structs:
                                 ns.register_struct(name, sym)
                             ns.make_accessible(name)
+                            _import_conformances(name, name, source_ns)
                     for name, sym in source_ns.enums.items():
                         if sym.visibility == Visibility.PUBLIC:
                             if name not in ns.enums:
                                 ns.register_enum(name, sym)
                             ns.make_accessible(name)
+                            _import_conformances(name, name, source_ns)
                     for name, sym in source_ns.functions.items():
                         if sym.visibility == Visibility.PUBLIC:
                             if name not in ns.functions:
@@ -586,12 +603,14 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                                 if local not in ns.structs:
                                     ns.register_struct(local, sym)
                                 ns.make_accessible(local)
+                                _import_conformances(local, sym_name, source_ns)
                         elif sym_name in source_ns.enums:
                             sym = source_ns.enums[sym_name]
                             if sym.visibility == Visibility.PUBLIC:
                                 if local not in ns.enums:
                                     ns.register_enum(local, sym)
                                 ns.make_accessible(local)
+                                _import_conformances(local, sym_name, source_ns)
                         elif sym_name in source_ns.functions:
                             sym = source_ns.functions[sym_name]
                             if sym.visibility == Visibility.PUBLIC:

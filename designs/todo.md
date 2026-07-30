@@ -80,7 +80,44 @@ Progress log (newest last):
   std > mapped > file-relative; mapped-shadows-local = error). Threaded
   through compile/emit-ir paths. Test runner gained a `// COMPILE-FLAGS:`
   directive (`{TESTDIR}` placeholder). 3 fixtures (lib/submodule/shadow).
-  Suite 761 -> 764. Next: B1 manifest [dependencies] + TOML inline tables.
+  Suite 761 -> 764.
+- B1 landed: TOML inline tables (`k = { a = "1", ... }`, one level) in
+  libs/toml (blade/src/toml.saw) + `TomlSection.is_table/table_value/names`;
+  manifest `[dependencies]` schema (`DepSource` Path/Git, `Dependency`,
+  columnar `DepList`) + `Manifest.dependencies()` (erased Result) rejecting a
+  bare version dep ("no registry yet"), both-sources, and no-source. Fixed a
+  real compiler bug in passing (see DF6). Suite 764 -> 765; blade tests 6 -> 9.
+  Next: B2 semver package (libs/semver).
+
+### Dogfood findings — design 64 (Blade)
+- **DF-GlobConf — FIXED (this brief, `typechecker/core.py`).** A glob import
+  (`import foo.*`) or specific import copied a public struct/enum symbol into
+  the importing namespace but NOT its trait conformances, and the glob path
+  does not register the source module in `ns.modules` — so a containment/
+  conformance query in the importer (e.g. "does DepList implement NoCopy?")
+  saw the copied struct as non-conforming and wrongly errored. Fix: propagate
+  conformances alongside imported struct/enum symbols. Regression test
+  `examples/glob_import_conformance.saw` (would fail pre-fix).
+- **DF6 (RECORDED, worked around) — generic-with-default-type-param mangling
+  divergence.** Two symptoms, one root cause: nested generic default type args
+  (`Vector<T>` -> `Vector<T, Global>`) are NOT filled consistently, so
+  `mangle_type` produces `Vector$1$T` in some paths and `Vector$2$T$Global` in
+  others. (a) `Result<Vector<T>, Box<any Error>>` as a return type ICEs on the
+  err-return path (`KeyError: Result$2$Vector$1$Dependency$...` — the Result
+  enum was registered under the arity-2 name). (b) In the full multi-module
+  Blade build, a `Vector<Dependency>` element extraction is confused with
+  another Vector monomorphization (a `Dependency` read back as `TomlValue`).
+  Blade workaround: `DepList` stores columnar `Vector<String>` (consistently
+  mangled) and reconstructs `Dependency` on `get(i)` — no `Vector<user-struct>`
+  as a Result Ok type or across the module boundary. Proper fix (recursive
+  default-type-arg filling before mangling) deferred — flagged for a compiler
+  brief.
+- **DF7 (RECORDED, worked around) — `if let x = opt { return ... }` in
+  statement position ICEs codegen** ("assert not isinstance(pointee,
+  VoidType)" — `_generate_if_let_expression` allocas the Void-typed branch
+  result). Hit writing the dependency validation; restructured to unwrap with
+  `?? ""` sentinels + plain `if`. Proper fix: treat a value-less/diverging
+  if-let body as a statement (no result alloca).
 
 ## SPEC-GAP PRIORITIES (Jul 29 sweep of LANGUAGE_SPEC planned-not-implemented)
 

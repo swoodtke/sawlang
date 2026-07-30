@@ -56,9 +56,50 @@ public extension TomlValue {
     }
 }
 
+// An inline table value: `key = { subkey = "v", ... }` (one level, design 64
+// B1). The inner scalar pairs are stored as a Vector<TomlValue>. NoCopy with an
+// empty deinit — same discipline as TomlSection (the container owns the buffer).
+public struct TomlTable {
+    key: String
+    values: Vector<TomlValue>
+}
+
+extension TomlTable: NoCopy {
+    func deinit(var self) {
+        // Vector handles its own cleanup
+    }
+}
+
+public extension TomlTable {
+    init(k: String) -> TomlTable {
+        let v = Vector<TomlValue>()
+        TomlTable(key: k, values: move v)
+    }
+
+    // Get an inner value by subkey.
+    func get(&self, subkey: String) -> String? {
+        var i = 0
+        while i < self.values.len() {
+            if let val = self.values.get(i) {
+                if val.key.equals(subkey) {
+                    return val.value
+                }
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    // Add an inner scalar pair.
+    func add(&var self, k: String, v: String) {
+        self.values.push(TomlValue(key: k, value: v))
+    }
+}
+
 public struct TomlSection {
     name: String
     values: Vector<TomlValue>
+    tables: Vector<TomlTable>
 }
 
 extension TomlSection: NoCopy {
@@ -70,10 +111,11 @@ extension TomlSection: NoCopy {
 public extension TomlSection {
     init(section_name: String) -> TomlSection {
         let v = Vector<TomlValue>()
-        TomlSection(name: section_name, values: move v)
+        let t = Vector<TomlTable>()
+        TomlSection(name: section_name, values: move v, tables: move t)
     }
 
-    // Get a value by key
+    // Get a scalar value by key
     func get(&self, key: String) -> String? {
         var i = 0
         while i < self.values.len() {
@@ -87,9 +129,63 @@ public extension TomlSection {
         None
     }
 
-    // Add a value to this section
+    // Add a scalar value to this section
     func add(&var self, key: String, value: String) {
         self.values.push(TomlValue(key: key, value: value))
+    }
+
+    // Add an inline-table value to this section.
+    func add_table(&var self, table: TomlTable) {
+        self.tables.push(move table)
+    }
+
+    // True if `key` names an inline table in this section.
+    func is_table(&self, key: String) -> Bool {
+        var i = 0
+        while i < self.tables.len() {
+            if let t = self.tables.get(i) {
+                if t.key.equals(key) {
+                    return true
+                }
+            }
+            i = i + 1
+        }
+        false
+    }
+
+    // Look up `subkey` inside the inline table named `key`.
+    func table_value(&self, key: String, subkey: String) -> String? {
+        var i = 0
+        while i < self.tables.len() {
+            if let t = self.tables.get(i) {
+                if t.key.equals(key) {
+                    return t.get(subkey)
+                }
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    // All entry names in this section, scalars first then inline tables, in the
+    // order they appear. Lets a caller enumerate e.g. every [dependencies] entry.
+    func names(&self) -> Vector<String> {
+        var out = Vector<String>()
+        var i = 0
+        while i < self.values.len() {
+            if let val = self.values.get(i) {
+                out.push(val.key)
+            }
+            i = i + 1
+        }
+        var j = 0
+        while j < self.tables.len() {
+            if let t = self.tables.get(j) {
+                out.push(t.key)
+            }
+            j = j + 1
+        }
+        move out
     }
 
     // Typed lookup (design 57 dogfood): a value parsed as an integer, or None if
@@ -100,6 +196,36 @@ public extension TomlSection {
         }
         None
     }
+}
+
+// Parse an inline table body `{ a = "1", b = "2" }` into a TomlTable named
+// `key`. Minimal (design 64 B1): one level, comma-separated `subkey = "value"`
+// pairs, quotes stripped. Malformed fragments are skipped rather than erroring
+// (the manifest layer validates the meaningful keys it needs).
+func parse_inline_table(key: String, raw: String) -> TomlTable {
+    var table = TomlTable(k: key)
+    // Strip the surrounding braces, then split on commas.
+    let inner = raw.substring(1, raw.len() - 1).trim()
+    if inner.is_empty() {
+        return move table
+    }
+    let parts = inner.split(",")
+    for part in parts.iter() {
+        let frag = part.trim()
+        if frag.is_empty() {
+            continue
+        }
+        if let eq = frag.index_of_char(61 as Int8) {  // '='
+            let subkey = frag.substring(0, eq).trim()
+            let raw_sub = frag.substring(eq + 1, frag.len()).trim()
+            var subval = raw_sub
+            if raw_sub.starts_with("\"") && raw_sub.ends_with("\"") {
+                subval = raw_sub.substring(1, raw_sub.len() - 1)
+            }
+            table.add(subkey, subval)
+        }
+    }
+    move table
 }
 
 public struct TomlDoc {
@@ -152,20 +278,28 @@ public extension TomlDoc {
                 let key = trimmed.substring(0, eq_pos).trim()
                 let raw_value = trimmed.substring(eq_pos + 1, trimmed.len()).trim()
 
-                // Handle quoted strings
-                var value = raw_value
-                if raw_value.starts_with("\"") && raw_value.ends_with("\"") {
-                    value = raw_value.substring(1, raw_value.len() - 1)
+                // Inline table (one level): key = { subkey = "v", ... }
+                // (literal braces in the string patterns are escaped as \{ \}
+                // so the interpolation lexer does not treat them as splices).
+                if raw_value.starts_with("\{") && raw_value.ends_with("\}") {
+                    let table = parse_inline_table(key, raw_value)
+                    current_section.add_table(move table)
+                } else {
+                    // Handle quoted strings
+                    var value = raw_value
+                    if raw_value.starts_with("\"") && raw_value.ends_with("\"") {
+                        value = raw_value.substring(1, raw_value.len() - 1)
+                    }
+                    current_section.add(key, value)
                 }
-
-                current_section.add(key, value)
             } else {
                 return TomlError(msg: "Invalid line: {trimmed}", at_line: line_num)
             }
         }
 
         // Don't forget the last section
-        if not current_section.name.is_empty() || current_section.values.len() > 0 {
+        let has_content = current_section.values.len() > 0 || current_section.tables.len() > 0
+        if not current_section.name.is_empty() || has_content {
             doc.sections.push(move current_section)
         }
 

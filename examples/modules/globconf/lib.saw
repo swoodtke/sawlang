@@ -1,0 +1,38 @@
+// Library module for the glob-import conformance regression test.
+// `Bag` is a public NoCopy struct owning a Vector (an ExplicitCopy/Deinit
+// field). A module that glob-imports this one must carry Bag's NoCopy
+// conformance along, or its own containment check wrongly rejects Bag.
+// Skipped by the test runner (under a `modules/` directory).
+public struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {
+    func deinit(var self) {
+        // Vector handles its own cleanup
+    }
+}
+
+public extension Bag {
+    init() -> Bag {
+        let v = Vector<Int>()
+        Bag(items: move v)
+    }
+
+    func total(&self) -> Int {
+        var s = 0
+        var i = 0
+        while i < self.items.len() {
+            s = s + (self.items.get(i) ?? 0)
+            i = i + 1
+        }
+        s
+    }
+}
+
+public func make_bag() -> Bag {
+    var b = Bag()
+    b.items.push(3)
+    b.items.push(4)
+    move b
+}

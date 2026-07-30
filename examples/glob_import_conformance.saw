@@ -1,0 +1,15 @@
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+// COMPILE-FLAGS: --module-path bag={TESTDIR}/modules/globconf
+//
+// Regression: a glob import (`import bag.*`) copies the public NoCopy struct
+// `Bag` into this module. The import must carry Bag's NoCopy conformance too,
+// otherwise this module's containment check rejects Bag ("contains ExplicitCopy
+// field but does not implement ExplicitCopy"). Fixed by propagating conformances
+// on import.
+import bag.*
+
+func main() {
+    let b = make_bag()
+    print(b.total())
+}

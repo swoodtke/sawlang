@@ -1,0 +1,25 @@
+// B1: the TOML parser understands one-level inline tables
+//   key = { subkey = "v", ... }
+// used by [dependencies] entries. Pure parser test — no filesystem.
+import src.toml
+
+func main() {
+    let src = "[package]\nname = \"app\"\n\n[dependencies]\nmathx = \{ path = \"../mathx\" \}\njsonx = \{ git = \"https://x/jsonx\", version = \"1.2.0\" \}\n"
+    match toml.TomlDoc.parse(src) {
+        case Ok(doc) -> {
+            guard let deps = doc.get_section("dependencies") else {
+                panic("expected a [dependencies] section")
+            }
+            assert(deps.is_table("mathx"), "mathx should be an inline table")
+            assert(deps.is_table("jsonx"), "jsonx should be an inline table")
+            assert((deps.table_value("mathx", "path") ?? "").equals("../mathx"), "mathx path")
+            assert((deps.table_value("jsonx", "git") ?? "").equals("https://x/jsonx"), "jsonx git")
+            assert((deps.table_value("jsonx", "version") ?? "").equals("1.2.0"), "jsonx version")
+            assert((deps.table_value("mathx", "git") ?? "").is_empty(), "mathx has no git")
+            let names = deps.names()
+            assert(names.len() == 2, "two dependency entries")
+            print("deps_inline_table: ok")
+        },
+        case Err(e) -> panic("parse failed: {e.message}")
+    }
+}

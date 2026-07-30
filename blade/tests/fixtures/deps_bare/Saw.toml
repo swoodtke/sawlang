@@ -1,0 +1,6 @@
+[package]
+name = "bareapp"
+version = "0.1.0"
+
+[dependencies]
+tiny = "0.3.1"

@@ -1,0 +1,21 @@
+// B1: a bare version dependency (`tiny = "0.3.1"`) has no source. With no
+// registry in v1, that is a clean error, not a silent default. Uses
+// fixtures/deps_bare/.
+import src.manifest.*
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/deps_bare")) {
+        case Ok(m) -> {
+            match m.dependencies() {
+                case Ok(_) -> panic("expected a bare-dependency error"),
+                case Err(e) -> {
+                    // The erased error renders via {e}; check it names the issue.
+                    let msg = "{e}"
+                    assert(msg.contains("no registry"), "error mentions no registry")
+                    print("manifest_bare_dep_error: ok")
+                }
+            }
+        },
+        case Err(e) -> panic("load_from failed: {e}")
+    }
+}

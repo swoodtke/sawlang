@@ -30,6 +30,96 @@ public extension ManifestError: Error {
 // Package Manifest Data Structures
 // =============================================================================
 
+// =============================================================================
+// Dependency Data (design 64 B1)
+// =============================================================================
+
+// Where a dependency's source comes from. v1 supports path and git sources
+// only; a bare version string (no source) is rejected — there is no registry.
+public enum DepSource {
+    case PathDep(dir: String),
+    case GitDep(url: String)
+}
+
+// A single [dependencies] entry: its name, its source, and its raw version
+// requirement string (e.g. "1.2.0", "^1.0.0", or "" when unspecified — a path
+// dep takes its version from the depended-on package's own manifest).
+public struct Dependency {
+    name: String
+    source: DepSource
+    version: String
+}
+
+public extension Dependency {
+    func is_path(&self) -> Bool {
+        match self.source {
+            case PathDep(_) -> true,
+            case GitDep(_) -> false
+        }
+    }
+}
+
+// A parsed [dependencies] table.
+//
+// Stored COLUMNAR — four parallel `Vector<String>` — rather than as a single
+// `Vector<Dependency>`. Two current compiler limitations (dogfood DF6) drove
+// this: (a) `Result<Vector<T>, Box<any Error>>` ICEs because the default
+// allocator type param mangles inconsistently between the Result-enum
+// registration and lookup paths, and (b) in the full multi-module build a
+// `Vector<Dependency>` element extraction gets confused with another Vector
+// monomorphization (`Dependency` read back as `TomlValue`). `Vector<String>`
+// is exercised everywhere and mangles consistently, so the columnar form is
+// robust; `get(i)` reconstructs a fresh `Dependency` (no `Vector<Dependency>`
+// anywhere). Both limitations are recorded in the tracker.
+public struct DepList {
+    names: Vector<String>
+    kinds: Vector<String>     // "path" or "git"
+    locs: Vector<String>      // path dir, or git url
+    versions: Vector<String>  // version requirement string ("" if unspecified)
+}
+
+extension DepList: NoCopy {
+    func deinit(var self) {
+        // Vectors handle their own cleanup
+    }
+}
+
+public extension DepList {
+    init() -> DepList {
+        let n = Vector<String>()
+        let k = Vector<String>()
+        let l = Vector<String>()
+        let v = Vector<String>()
+        DepList(names: move n, kinds: move k, locs: move l, versions: move v)
+    }
+
+    func add(&var self, name: String, kind: String, loc: String, version: String) {
+        self.names.push(name)
+        self.kinds.push(kind)
+        self.locs.push(loc)
+        self.versions.push(version)
+    }
+
+    func len(&self) -> Int {
+        self.names.len()
+    }
+
+    func get(&self, i: Int) -> Dependency? {
+        guard let n = self.names.get(i) else {
+            return None
+        }
+        let kind = self.kinds.get(i) ?? "path"
+        let loc = self.locs.get(i) ?? ""
+        let ver = self.versions.get(i) ?? ""
+        let src = if kind.equals("git") {
+            DepSource.GitDep(url: loc)
+        } else {
+            DepSource.PathDep(dir: loc)
+        }
+        Dependency(name: n, source: src, version: ver)
+    }
+}
+
 public struct Package {
     name: String
     version: String
@@ -115,6 +205,60 @@ public extension Manifest {
         let version = pkg_section.get("version") ?? "0.0.0"
 
         return Manifest(package: Package(name: name, version: version), root_dir: dir)
+    }
+
+    // Read and validate the [dependencies] table from this package's manifest
+    // (design 64 B1). Re-reads Saw.toml from `root_dir` so `Manifest` stays a
+    // cheap copyable value. Returns an empty list when there is no
+    // [dependencies] section. Errors (erased): a bare version with no source
+    // ("no registry yet"), a dep with both path and git, or a dep with neither.
+    func dependencies(&self) -> Result<DepList, Box<any Error>> {
+        let manifest_path = self.root_dir.join("Saw.toml")
+
+        guard var file = File.open(manifest_path) else {
+            return ManifestError(msg: "Could not open {manifest_path.as_str()}")
+        }
+        guard let data = file.read() else {
+            return ManifestError(msg: "Could not read {manifest_path.as_str()}")
+        }
+        let content = data.to_string()
+        let doc = try toml.TomlDoc.parse(content)
+
+        var list = DepList()
+
+        guard let section = doc.get_section("dependencies") else {
+            return move list
+        }
+
+        let names = section.names()
+        for name in names.iter() {
+            if section.is_table(name) {
+                // Empty-string sentinels: a present path/git is never empty, so
+                // `is_empty()` cleanly distinguishes present vs absent without the
+                // nested `if let ... { return }` shape that currently ICEs codegen.
+                let path_s = section.table_value(name, "path") ?? ""
+                let git_s = section.table_value(name, "git") ?? ""
+                let version = section.table_value(name, "version") ?? ""
+                let has_path = not path_s.is_empty()
+                let has_git = not git_s.is_empty()
+
+                if has_path && has_git {
+                    return ManifestError(msg: "dependency `{name}` has both path and git sources; pick one")
+                } else if has_path {
+                    list.add(name, "path", path_s, version)
+                } else if has_git {
+                    list.add(name, "git", git_s, version)
+                } else {
+                    return ManifestError(msg: "dependency `{name}` has no path or git source")
+                }
+            } else {
+                // Bare version string, e.g. `tiny = "0.3.1"`: no source, and there
+                // is no registry in v1.
+                return ManifestError(msg: "dependency `{name}`: no registry yet; specify path or git")
+            }
+        }
+
+        move list
     }
 
     // Get the package name

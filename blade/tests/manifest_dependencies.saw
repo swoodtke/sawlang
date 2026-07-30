@@ -1,0 +1,42 @@
+// B1: Manifest.dependencies() reads the [dependencies] table, distinguishing a
+// path source from a git source (with its version requirement). Uses the
+// fixtures/deps_ok/ package. Runs with cwd = blade/ (the tester's cwd).
+import src.manifest.*
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/deps_ok")) {
+        case Ok(m) -> {
+            match m.dependencies() {
+                case Ok(deps) -> {
+                    assert(deps.len() == 2, "two dependencies expected")
+                    var saw_path = false
+                    var saw_git = false
+                    var i = 0
+                    while i < deps.len() {
+                        guard let d = deps.get(i) else { panic("dep index out of range") }
+                        if d.name.equals("mathx") {
+                            assert(d.is_path(), "mathx is a path dep")
+                            match d.source {
+                                case PathDep(dir) -> assert(dir.equals("../mathx"), "mathx dir"),
+                                case GitDep(_) -> panic("mathx should be a path dep")
+                            }
+                            saw_path = true
+                        } else if d.name.equals("jsonx") {
+                            match d.source {
+                                case GitDep(url) -> assert(url.equals("https://github.com/u/jsonx"), "jsonx url"),
+                                case PathDep(_) -> panic("jsonx should be a git dep")
+                            }
+                            assert(d.version.equals("1.2.0"), "jsonx version req")
+                            saw_git = true
+                        }
+                        i = i + 1
+                    }
+                    assert(saw_path && saw_git, "both deps observed")
+                    print("manifest_dependencies: ok")
+                },
+                case Err(e) -> panic("dependencies() failed: {e}")
+            }
+        },
+        case Err(e) -> panic("load_from failed: {e}")
+    }
+}
