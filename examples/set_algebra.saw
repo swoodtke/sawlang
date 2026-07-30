@@ -1,0 +1,58 @@
+// Set algebra (design 54): union / intersection / difference return NEW sets;
+// is_subset / is_superset test containment. Operands are borrowed (&other) and
+// stay live. Contents are checked via sorted to_vector for determinism.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+// 2
+// 3
+// 1
+// 1
+// 0
+// 1
+// 1
+// 1
+// 1
+
+func main() {
+    var a = Set<Int>()
+    a.insert(1)
+    a.insert(2)
+    a.insert(3)
+    var b = Set<Int>()
+    b.insert(2)
+    b.insert(3)
+    b.insert(4)
+
+    var u = a.union(&b)
+    var uv = u.to_vector()
+    uv.sort()
+    for e in uv.iter() { print(e) }        // 1 2 3 4
+
+    var i = a.intersection(&b)
+    var iv = i.to_vector()
+    iv.sort()
+    for e in iv.iter() { print(e) }        // 2 3
+
+    var d = a.difference(&b)
+    var dv = d.to_vector()
+    dv.sort()
+    for e in dv.iter() { print(e) }        // 1
+
+    // subset / superset
+    var small = Set<Int>()
+    small.insert(2)
+    small.insert(3)
+    if small.is_subset(&a) { print(1) } else { print(0) }    // 1
+    if a.is_subset(&small) { print(1) } else { print(0) }    // 0 (a bigger)
+    if a.is_superset(&small) { print(1) } else { print(0) }  // 1
+
+    // edges: empty set is a subset of anything and of itself; self ⊆ self
+    var empty = Set<Int>()
+    if empty.is_subset(&a) { print(1) } else { print(0) }     // 1
+    if a.is_subset(&a) { print(1) } else { print(0) }         // 1
+    if empty.is_subset(&empty) { print(1) } else { print(0) } // 1
+}

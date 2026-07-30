@@ -635,6 +635,22 @@ class CallsMixin:
                 if isinstance(pointee, ir.IntType) and pointee.width == 8:
                     struct_name = "String"
 
+        # Reference receiver (`&T` / `&var T` parameter, e.g. Set algebra's
+        # `other: &Set<...>`): _generate_expression yields a POINTER to the
+        # struct, so the checks above (which key on an identified struct VALUE
+        # type) leave struct_name None. Recover it from the pointee so dispatch
+        # and mangling work. A by-value (`&self`) method then needs the receiver
+        # loaded, handled at the self_arg step below.
+        if struct_name is None and isinstance(obj_type, ir.PointerType):
+            pointee = obj_type.pointee
+            if hasattr(pointee, 'name') and pointee.name in self.struct_types:
+                struct_name = pointee.name
+            else:
+                for name, (llvm_type, _) in self.struct_types.items():
+                    if str(pointee) == str(llvm_type):
+                        struct_name = name
+                        break
+
         # Array `.copy()` (design 33): a fixed array copies per element in index
         # order. `[trivial; N]` is a bitwise copy of the whole value; an array of
         # ExplicitCopy/ImplicitCopy elements calls each element's copy(). The
@@ -829,6 +845,17 @@ class CallsMixin:
                 self_alloca = self._entry_alloca(obj_val.type, name="self_temp")
                 self.builder.store(obj_val, self_alloca)
                 self_arg = self_alloca
+
+        # Reference receiver to a by-value (`&self`) method: `self_arg` is a
+        # pointer to the struct (from a `&T` parameter), but an immutable-self
+        # method takes the struct by value. Deref once so the LLVM types match.
+        # (A normal local receiver is already a struct value, so `self_arg` is
+        # not a pointer and this is skipped; a `&var self` method's first arg IS
+        # a pointer, so this is skipped there too.)
+        if (not is_mutable_self and method_func.args
+                and not isinstance(method_func.args[0].type, ir.PointerType)
+                and isinstance(self_arg.type, ir.PointerType)):
+            self_arg = self.builder.load(self_arg, name="ref_recv_deref")
 
         args = [self_arg]  # self is first argument
         # Arguments are Argument objects with .value

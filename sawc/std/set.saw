@@ -96,12 +96,79 @@ extension Set<T: Hashable + Equatable, A: Allocator = Global> {
     }
 }
 
-// A snapshot Vector of the elements requires duplicating each element (they stay
-// live in the set), so `T: Copy` — the same bound `Map.keys()` carries.
+// Snapshot + set algebra both DUPLICATE elements into a fresh set/vector while
+// the operands stay live, so the whole extension is bounded `T: Copy` — the
+// same bound `Map.keys()` carries. (This is the tightest achievable bound: even
+// membership-only ops like `is_subset` must read each element BY VALUE to probe
+// the other set, and the visitor/snapshot read path is by-value — a looser
+// `Hashable + Equatable` bound would need by-reference enum-payload projection,
+// which is not expressible yet, same limit as design 57's snapshots.)
 extension Set<T: Hashable + Equatable + Copy, A: Allocator = Global> {
     // A fresh Vector of all elements (copies), in unspecified (table) order.
     func to_vector(&self) -> Vector<T, A> {
         self.map.keys()
+    }
+
+    // A NEW set containing every element of self OR other.
+    func union(&self, other: &Set<T, A>) -> Set<T, A> {
+        var result = Set<T, A>()
+        let a = self.to_vector()
+        for e in a.iter() {
+            let _ = result.insert(e)
+        }
+        let b = other.to_vector()
+        for e in b.iter() {
+            let _ = result.insert(e)
+        }
+        move result
+    }
+
+    // A NEW set containing every element in BOTH self and other.
+    func intersection(&self, other: &Set<T, A>) -> Set<T, A> {
+        var result = Set<T, A>()
+        let a = self.to_vector()
+        for e in a.iter() {
+            if other.contains(e.copy()) {
+                let _ = result.insert(e)
+            }
+        }
+        move result
+    }
+
+    // A NEW set of the elements in self that are NOT in other.
+    func difference(&self, other: &Set<T, A>) -> Set<T, A> {
+        var result = Set<T, A>()
+        let a = self.to_vector()
+        for e in a.iter() {
+            if not other.contains(e.copy()) {
+                let _ = result.insert(e)
+            }
+        }
+        move result
+    }
+
+    // Whether every element of self is also in other.
+    func is_subset(&self, other: &Set<T, A>) -> Bool {
+        let a = self.to_vector()
+        var ok = true
+        for e in a.iter() {
+            if not other.contains(e) {
+                ok = false
+            }
+        }
+        ok
+    }
+
+    // Whether self contains every element of other (the dual of is_subset).
+    func is_superset(&self, other: &Set<T, A>) -> Bool {
+        let b = other.to_vector()
+        var ok = true
+        for e in b.iter() {
+            if not self.contains(e) {
+                ok = false
+            }
+        }
+        ok
     }
 }
 
