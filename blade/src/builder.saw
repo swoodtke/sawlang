@@ -1,7 +1,14 @@
-// Builder - Build orchestration for Blade
-// Part of the Blade package manager
+// Builder - Build orchestration for Blade (design 64 B6)
+//
+// `blade build` now runs the full dependency pipeline: resolve the graph (or
+// honor an existing Saw.lock), write the lock, compile the root with one
+// `--module-path <name>=<checkout>/src` per resolved dependency (B0), and skip
+// the compile entirely when nothing reachable has changed (content-hash build
+// avoidance in .blade/build-hash; `--force` bypasses it).
 
 import src.manifest.*
+import src.resolver.*
+import src.lock.*
 
 // =============================================================================
 // Error Types
@@ -23,6 +30,44 @@ public extension BuildError {
 }
 
 // =============================================================================
+// File helpers (content hashing)
+// =============================================================================
+
+func read_file(path_str: String) -> String {
+    let p = Path(s: path_str)
+    if not File.exists(p) {
+        return ""
+    }
+    guard var f = File.open(p) else {
+        return ""
+    }
+    guard let data = f.read() else {
+        return ""
+    }
+    data.to_string()
+}
+
+// Append the contents of every `*.saw` file directly in `dir` to `b`.
+func append_dir_saw(b: &var StringBuilder, dir: String) {
+    guard let entries = Directory.list(Path(s: dir)) else {
+        return
+    }
+    var i = 0
+    while i < entries.len() {
+        if let e = entries.get(i) {
+            if let ext = e.ext() {
+                if ext.equals("saw") {
+                    b.append(e.as_str())
+                    b.append("\n")
+                    b.append(read_file(e.as_str()))
+                }
+            }
+        }
+        i = i + 1
+    }
+}
+
+// =============================================================================
 // Builder - Compiles Saw projects
 // =============================================================================
 
@@ -35,49 +80,116 @@ public extension Builder {
         Builder(manifest: m)
     }
 
+    // The compiler command. Honours a `SAWC` override so an in-tree compiler can
+    // drive the build (matches the tester).
+    func compiler(&self) -> String {
+        if let c = Env.get("SAWC") {
+            c
+        } else {
+            "sawc"
+        }
+    }
+
     // Find the main source file
     func find_source_file(&self) -> String? {
-        // Try src/main.saw first
         let src_main = Path(s: "src/main.saw")
         if File.exists(src_main) {
             return "src/main.saw"
         }
-
-        // Try main.saw in root
         let root_main = Path(s: "main.saw")
         if File.exists(root_main) {
             return "main.saw"
         }
-
-        // Try src/lib.saw for libraries
         let src_lib = Path(s: "src/lib.saw")
         if File.exists(src_lib) {
             return "src/lib.saw"
         }
-
         None
     }
 
-    // Build the project
-    func build(&self) -> Result<Int, BuildError> {
+    // The local directory a resolved dependency lives in: the path dir itself,
+    // or the git checkout under .blade/deps/.
+    func dep_dir(&self, res: &Resolution, i: Int) -> String {
+        if res.kind(i).equals("git") {
+            ".blade/deps/{res.name(i)}-{res.version(i)}"
+        } else {
+            res.loc(i)
+        }
+    }
+
+    // Content hash of everything the build reads: Saw.toml, Saw.lock, and every
+    // reachable `*.saw` source (root + each dependency checkout), plus a compiler
+    // marker. Hashes CONTENT, not mtimes.
+    func build_hash(&self, res: &Resolution) -> String {
+        var b = StringBuilder()
+        b.append("sawc-1;")
+        b.append(read_file("Saw.toml"))
+        b.append(read_file("Saw.lock"))
+        append_dir_saw(&var b, "src")
+        var i = 0
+        while i < res.len() {
+            append_dir_saw(&var b, "{self.dep_dir(&res, i)}/src")
+            i = i + 1
+        }
+        hash_string(b.build())
+    }
+
+    // Resolve dependencies (writing Saw.lock) and return the resolution.
+    func resolve_deps(&self) -> Result<Resolution, BuildError> {
+        match resolve(self.manifest) {
+            case Ok(res) -> {
+                let mhash = manifest_deps_hash(self.manifest)
+                let _ = write_lock(&res, mhash, Path(s: "Saw.lock"))
+                move res
+            },
+            case Err(e) -> BuildError(msg: "dependency resolution failed: {e.text()}")
+        }
+    }
+
+    // Compile the project. `force` bypasses build avoidance.
+    func build(&self, force: Bool) -> Result<Int, BuildError> {
         guard let source_file = self.find_source_file() else {
             return BuildError(msg: "No main.saw or lib.saw found")
         }
-
-        // Determine output binary name from package name
         let output_name = self.manifest.name()
+
+        // Resolve dependencies + write the lock.
+        let res = try self.resolve_deps()
+
+        // Build avoidance: skip the compile when nothing reachable changed.
+        let hash = self.build_hash(&res)
+        let hash_path = Path(s: ".blade/build-hash")
+        if not force {
+            if read_file(".blade/build-hash").equals(hash) {
+                if File.exists(Path(s: output_name)) {
+                    print("    Finished {output_name} (up to date)")
+                    return 0
+                }
+            }
+        }
 
         print("   Compiling {output_name} v{self.manifest.version()}")
 
-        // Invoke sawc
-        var cmd = Command(program: "sawc")
+        var cmd = Command(program: self.compiler())
         cmd.arg(source_file)
         cmd.arg("-o")
         cmd.arg(output_name)
+        var i = 0
+        while i < res.len() {
+            let name = res.name(i)
+            cmd.arg("--module-path")
+            cmd.arg("{name}={self.dep_dir(&res, i)}/src")
+            i = i + 1
+        }
 
         let exit_code = cmd.run()
-
         if exit_code == (0 as Int32) {
+            // Record the successful build's hash (create .blade first).
+            let _ = Directory.create(Path(s: ".blade"))
+            if let f = File.create(hash_path) {
+                let data = hash.to_data()
+                f.write(move data)
+            }
             print("    Finished {output_name}")
             0
         } else {
@@ -85,23 +197,17 @@ public extension Builder {
         }
     }
 
-    // Build and run the project
+    // Build (never avoided) then run the resulting binary.
     func run(&self, args: Vector<String>) -> Result<Int, BuildError> {
-        // First build
-        match self.build() {
+        match self.build(true) {
             case Ok(_) -> {},
             case Err(e) -> { return e }
         }
 
-        // Construct binary path
         let binary_name = "./{self.manifest.name()}"
-
         print("     Running `{binary_name}`")
 
-        // Run the binary with provided arguments
         var cmd = Command(program: binary_name)
-
-        // Add any arguments passed to blade run
         var i = 0
         while i < args.len() {
             if let arg = args.get(i) {
@@ -109,7 +215,6 @@ public extension Builder {
             }
             i = i + 1
         }
-
         let exit_code = cmd.run()
         exit_code as Int
     }

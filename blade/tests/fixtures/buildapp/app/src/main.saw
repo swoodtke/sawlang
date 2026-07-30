@@ -1,0 +1,7 @@
+// Build-integration fixture app: imports the `greet` path dependency, which the
+// builder makes reachable via `--module-path greet=../greet/src`.
+import greet
+
+func main() {
+    print(greet.hello())
+}

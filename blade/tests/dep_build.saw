@@ -1,0 +1,44 @@
+// B6: the build path — resolve a path dependency, then compile the app with
+// `--module-path <dep>=<dir>/src` and run it. Exercises B0 + B3 + B6 together
+// on the buildapp fixture (app imports the `greet` dependency).
+import src.resolver.*
+import src.manifest.*
+
+extern "C" {
+    func system(command: UnsafePointer<Int8>) -> Int32
+}
+
+func sh(cmd: String) -> Bool {
+    let full = "( {cmd} ) > /dev/null 2>&1"
+    system(full as UnsafePointer<Int8>) == (0 as Int32)
+}
+
+func compiler() -> String {
+    if let c = Env.get("SAWC") {
+        c
+    } else {
+        "sawc"
+    }
+}
+
+func main() {
+    let app = "tests/fixtures/buildapp/app"
+    match Manifest.load_from(Path(s: app)) {
+        case Ok(m) -> {
+            match resolve(m) {
+                case Ok(res) -> {
+                    let gi = res.index_of("greet")
+                    assert(gi >= 0, "greet dependency resolved")
+                    let gdir = res.loc(gi)
+                    let bin = ".build/scratch/dep_build_bin"
+                    let cmd = "{compiler()} {app}/src/main.saw -o {bin} --module-path greet={gdir}/src"
+                    assert(sh(cmd), "app compiles with the dependency module-path")
+                    assert(sh(bin), "the built binary runs successfully")
+                    print("dep_build: ok")
+                },
+                case Err(e) -> panic("resolve failed: {e.text()}")
+            }
+        },
+        case Err(_) -> panic("could not load buildapp/app manifest")
+    }
+}

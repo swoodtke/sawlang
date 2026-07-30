@@ -8,6 +8,7 @@
 // later refinement). No new language surface: the test harness is just Saw.
 
 import src.manifest.*
+import src.resolver.*
 
 extern "C" {
     // Run a command line through the shell and return its raw wait status. A
@@ -46,9 +47,36 @@ public extension Tester {
         system(ptr) == (0 as Int32)
     }
 
-    // Compile `source` to `bin`, then run it. Passes iff both succeed.
-    func run_one(&self, source: Path, bin: Path) -> Bool {
-        let compile_cmd = "{self.compiler()} {source.as_str()} -o {bin.as_str()}"
+    // Dependency `--module-path` flags for compiling tests — the same flags
+    // `blade build` uses, so a test sees the project's dependencies (design 64
+    // B6). Empty string when there are no deps (or resolution fails; a test that
+    // needs a missing dep then fails to compile, surfacing it).
+    func dep_flags(&self) -> String {
+        match resolve(self.manifest) {
+            case Ok(res) -> {
+                var b = StringBuilder()
+                var i = 0
+                while i < res.len() {
+                    let name = res.name(i)
+                    let dir = if res.kind(i).equals("git") {
+                        ".blade/deps/{name}-{res.version(i)}"
+                    } else {
+                        res.loc(i)
+                    }
+                    b.append(" --module-path ")
+                    b.append("{name}={dir}/src")
+                    i = i + 1
+                }
+                b.build()
+            },
+            case Err(_) -> ""
+        }
+    }
+
+    // Compile `source` to `bin` (with dependency flags), then run it. Passes iff
+    // both succeed.
+    func run_one(&self, source: Path, bin: Path, flags: String) -> Bool {
+        let compile_cmd = "{self.compiler()} {source.as_str()} -o {bin.as_str()}{flags}"
         if not self.shell_ok(compile_cmd) {
             return false
         }
@@ -84,6 +112,9 @@ public extension Tester {
         let started = Instant.now()
         var failed_tests = Map<String, Bool>()
 
+        // Resolve dependency flags once for the whole run.
+        let flags = self.dep_flags()
+
         var total = 0
         var passed = 0
 
@@ -96,7 +127,7 @@ public extension Tester {
                         let name = entry.stem() ?? entry.as_str()
                         let bin = out_dir.join(name)
 
-                        if self.run_one(entry, bin) {
+                        if self.run_one(entry, bin, flags) {
                             passed = passed + 1
                             print("test {name} ... ok")
                         } else {

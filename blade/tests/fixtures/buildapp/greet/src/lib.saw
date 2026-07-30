@@ -1,0 +1,4 @@
+// Library dependency for the build-integration fixture.
+public func hello() -> Int {
+    42
+}

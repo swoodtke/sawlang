@@ -117,7 +117,18 @@ Progress log (newest last):
   `lock_is_current` drift detection. toml module gained `TomlDoc.section_names`.
   2 blade tests (lock_roundtrip incl. byte-identical + write; lock_drift). Blade
   tests 17 -> 19. Suite 765. (Build-honoring/`blade update` orchestration is B6.)
-  Next: B6 build integration + incremental.
+- B6 landed: `blade build` runs the full pipeline — resolve (write Saw.lock),
+  compile the root with one `--module-path <name>=<checkout>/src` per resolved
+  dep (B0), and content-hash build avoidance in `.blade/build-hash` ("up to
+  date"; `--force` bypasses). Honours a `SAWC` override. `blade test` uses the
+  same dep flags (tester.dep_flags). `blade build --force` via cli/main. Fixed
+  normalize_path to preserve a leading `/` (absolute manifest roots). New
+  self-contained blade test `dep_build` (resolve -> module-path -> compile ->
+  run on the buildapp fixture); end-to-end build/avoidance/force verified by
+  .build/scratch/run_build_e2e.py. Blade tests 19 -> 20. Suite 765. Next: B7
+  (CLI add/tree/timing) + B8 (self-hosting — but see DF9: importing the external
+  semver package is compiler-blocked, so B8's blade-depends-on-semver plan needs
+  a compiler fix first).
 
 ### Dogfood findings — design 64 (Blade)
 - **DF-GlobConf — FIXED (this brief, `typechecker/core.py`).** A glob import

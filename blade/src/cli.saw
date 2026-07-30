@@ -6,7 +6,7 @@
 // =============================================================================
 
 public enum BladeCommand {
-    case Build,
+    case Build(force: Bool),
     case Run(args: Vector<String>),
     case Test,
     case New(name: String),
@@ -47,7 +47,17 @@ public extension Cli {
         }
 
         if cmd.equals("build") {
-            Cli(command: BladeCommand.Build)
+            var force = false
+            var i = 2
+            while i < args.len() {
+                if let a = args.get(i) {
+                    if a.equals("--force") {
+                        force = true
+                    }
+                }
+                i = i + 1
+            }
+            Cli(command: BladeCommand.Build(force: force))
         } else if cmd.equals("run") {
             // Collect remaining args after "run"
             var run_args = Vector<String>()

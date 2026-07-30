@@ -79,6 +79,12 @@ func hash_str(s: String) -> Int {
     h
 }
 
+// Public string digest (decimal), reused by the builder's content-hash build
+// avoidance.
+public func hash_string(s: String) -> String {
+    "{hash_str(s)}"
+}
+
 // A stable digest of the manifest's [dependencies] (sorted name|kind|loc|version
 // lines). Returns "0" if the deps cannot be read.
 public func manifest_deps_hash(m: Manifest) -> String {

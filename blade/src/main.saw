@@ -97,11 +97,11 @@ func main() {
     match cli.Cli.parse() {
         case Ok(parsed_cli) -> {
             match parsed_cli.command {
-                case Build -> {
+                case Build(force) -> {
                     match manifest.Manifest.load() {
                         case Ok(m) -> {
                             let b = builder.Builder(m: m)
-                            match b.build() {
+                            match b.build(force) {
                                 case Ok(_) -> {},
                                 case Err(e) -> print("error: {e.message}")
                             }
