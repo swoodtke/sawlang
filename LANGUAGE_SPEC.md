@@ -488,21 +488,38 @@ guard let value = maybe else {
 
 Trait definitions, conformance via `extension Type: Trait`, conformance
 checking, single and multiple conformance, associated types (with resolution),
-`T: Trait` generic bounds, and `any Trait` existentials (type-erased dynamic
-dispatch, below) are **implemented**. Trait *default method bodies* and
-multi-bound `+` syntax (`T: A + B`) are *planned* — the examples below that use
-them are illustrative.
+`T: Trait` generic bounds, **trait default method bodies** (below), and
+`any Trait` existentials (type-erased dynamic dispatch, below) are
+**implemented**. Multi-bound `+` syntax (`T: A + B`) is *planned* — the one
+example below that uses it is illustrative.
+
+**Trait default method bodies** are implemented: a trait method declared *with*
+a `{ ... }` body is a default. A conformer may omit it (it inherits a
+per-conformer copy of the default, compiled with `Self` bound to the concrete
+type) or override it with its own method. A default body may call the trait's
+other methods (including required ones) — those calls dispatch to the
+conformer's implementation. Defaults flow through trait inheritance (a single
+`extension T: Child` inherits the defaults of `Child` *and* its supertraits),
+get an `any Trait` vtable slot (pointing at the override if present, else the
+monomorphized default), and have their effects inferred per conformer (a `sync`
+default body is a checked suspension-free context). A method with *no* default
+is still a required method: omitting it fails conformance.
 
 ```saw
-trait Display {
-    func display(&self) -> String
+trait Greeter {
+    func name(&self) -> String
+    func greet(&self) -> String {   // default body — calls a required method
+        "Hello, {self.name()}!"
+    }
 }
 
-trait Debug {
-    func debug(&self) -> String {
-        // Default implementation  (illustrative — default bodies are planned)
-        "<opaque>"
-    }
+extension Robot: Greeter {
+    func name(&self) -> String { "R2" }
+    // greet() inherited from the default; prints "Hello, R2!"
+}
+
+trait Display {
+    func display(&self) -> String
 }
 
 // Interface implementation via extension
@@ -607,6 +624,108 @@ dispatchable. These are rejected with a diagnostic naming the reason:
   addition);
 - a marker trait (`Send`/`Sync`/`NoCopy`, or any trait with no methods) — there
   is nothing to dispatch.
+
+#### `Printable` — formatting
+
+**Status: implemented.** `Printable` is the prelude-visible formatting trait
+(like `Equatable`/`Comparable`). Its core method is a **streaming formatter**;
+`to_string` rides on it as a default method body:
+
+```saw
+trait Printable {
+    func format(&self, into: &var StringBuilder)
+
+    func to_string(&self) -> String {   // default body (see default methods)
+        var b = StringBuilder()
+        self.format(into: &var b)
+        b.build()
+    }
+}
+```
+
+- `Int`/`UInt` and the fixed-width integers, `Float`, `Bool`, and `String`
+  conform **builtin** — the compiler renders them inline.
+- User types conform **by hand** — there is *no* auto-conformance or synthesis
+  (that is the deferred `Debug` design's territory).
+- **String interpolation** `"{expr}"` and **`print(expr)`** accept any Printable
+  value, streaming it through `format`; builtin pieces keep their existing
+  byte-identical fast path. A **non-Printable** type used in interpolation is a
+  clean compile error naming the type and the trait.
+- A `T: Printable` generic bound grants `format`/`to_string` and interpolation of
+  `T` values in generic bodies.
+
+```saw
+struct Point { x: Int, y: Int }
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("(")
+        into.append(self.x)     // append(Int) overload
+        into.append(", ")
+        into.append(self.y)
+        into.append(")")
+    }
+}
+// A Printable field is streamed into the SAME builder (no intermediate Strings):
+struct Line { a: Point, b: Point }
+extension Line: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("Line[")
+        self.a.format(into: &var into)   // forward the shared builder
+        into.append(" -> ")
+        self.b.format(into: &var into)
+        into.append("]")
+    }
+}
+
+let p = Point(x: 3, y: 4)
+print("point = {p}")   // point = (3, 4)
+```
+
+#### `Error` and erased Results
+
+**Status: implemented.** An error type is a Printable value:
+
+```saw
+trait Error: Printable {}
+```
+
+Both conformance spellings are legal: a one-shot `extension E: Error { func
+format(...) {...} }` (format is inherited from `Printable`), or a split
+`extension E: Printable {...}` + an empty `extension E: Error {}`.
+
+`Result<T, Box<any Error>>` is a supported return type — an **erased Result**:
+
+- Returning a concrete `E: Error` from such a function auto-wraps it to `Err`
+  **and** auto-erases it into a `Box<any Error>` at the return boundary. The
+  return checkpoint runs one well-ordered sequence: overload resolution →
+  `Result`/`Optional` auto-wrap → erase.
+- `try callee()` where the callee returns `Result<U, Box<any Error>>` propagates
+  the box as-is (a move, no re-box); where the callee returns a concrete
+  `Result<U, E>`, the `E` is erased into a fresh box at the propagation edge.
+- Matching `Err(e)` (or a `catch` whose tried calls include an erased box) binds
+  `e` as `Box<any Error>`; `"{e}"` / `e.to_string()` render it through the
+  vtable. Downcasting an erased error to a concrete case is **deferred** (it
+  needs a type-id design).
+
+```saw
+struct ParseErr { code: Int }
+extension ParseErr: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append("parse error ")
+        into.append(self.code)
+    }
+}
+
+func parse(ok: Bool) -> Result<Int, Box<any Error>> {
+    if ok { return 42 }        // Ok
+    return ParseErr(code: 7)   // auto-wrap Err + auto-erase to Box<any Error>
+}
+```
+
+> **Freestanding note.** Erasing an error boxes it through `Global`, so
+> `Result<T, Box<any Error>>` is a *hosted convenience*. Kernel / freestanding
+> code that must avoid hidden allocation keeps concrete or closed-union error
+> types (`Result<T, ConcreteE>`), which allocate nothing.
 
 ### Type Definitions
 

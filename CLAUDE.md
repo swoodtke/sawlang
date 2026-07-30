@@ -378,6 +378,32 @@ The compiler currently supports:
   `Equatable`'s gating (auto for trivial structs + payload-free enums; opt-in
   synthesis otherwise; primitives + `String` builtin). Requires `Equatable`;
   hash/== contract holds (synthesis streams exactly the fields `==` compares).
+- **Trait default method bodies** (design 56): a trait method declared with a
+  `{ ... }` body is a default. A conformer omits it (inherits a per-conformer
+  synthesized copy, typechecked with `Self` = the concrete type) or overrides it;
+  a default may call required methods (dispatching to the conformer). Defaults
+  flow through trait inheritance, get an `any Trait` vtable slot
+  (override-or-default), and infer effects per instantiation (a `sync` default is
+  a checked suspension-free context). A method with no default stays required.
+- `Printable` trait (design 56, prelude-visible): `format(&self, into: &var
+  StringBuilder)` + a default-body `to_string(&self) -> String`. Integer types,
+  `Float`, `Bool`, `String` conform builtin (rendered inline; **no
+  auto-conformance/synthesis** for user types). String interpolation `"{expr}"`
+  and `print(expr)` accept any Printable (builtins keep byte-identical fast
+  paths; a non-Printable in interpolation is a clean error); `T: Printable` bound
+  grants it in generics. `&var` re-borrow of a mutable-reference parameter is
+  allowed (forwarding the shared builder to a nested `format`).
+- `Error` trait (design 56): `trait Error: Printable {}` (both spellings: one-shot
+  `extension E: Error { format }` or split `: Printable` + empty `: Error {}`).
+  `Result<T, Box<any Error>>` is a supported **erased Result** return type:
+  returning a concrete `E: Error` auto-wraps Err AND auto-erases into a
+  `Box<any Error>` at the return boundary (sequence: overload resolution 55 →
+  auto-wrap 30 → erase 56); `try` re-boxes a concrete-error callee at the
+  propagation edge and passes an already-erased callee straight through; matching
+  `Err(e)`/`catch` binds the box and `"{e}"` renders via the vtable. Boxing uses
+  `Global` (hosted convenience; kernel code keeps concrete/union errors — no
+  hidden allocation). Erased-error downcasting is deferred (needs a type-id
+  design). `type_conforms_to` looks through imported modules (cross-module erase).
 
 ### Memory & Safety
 - Copy trait family: auto-`Copy` trivial types, `ImplicitCopy`, `ExplicitCopy`,

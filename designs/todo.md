@@ -78,14 +78,28 @@ T1d patterns, 48 Ord/Hash, 49 assert/blade-test, 51 any (in flight),
 A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
 
 ### NEED TO HAVE (blocks App-1 Blade or App-2 kernel)
-- **N1–N3 → BRIEFED as design 56** (`designs/56-printable-error-defaults.md`,
-  decided Jul 29, in flight): trait default method bodies; **Printable**
-  (renamed from Display, user preference) — streaming `format(&self,
-  into: &var StringBuilder)` + default-body `to_string()`; `trait
-  Error: Printable {}`; erased Results FULL in v1 (`Result<T,
-  Box<any Error>>`, auto-erase at return, try re-box/passthrough,
-  catch binds the box; error downcasting deferred — needs a type-id
-  design). No Debug trait (deferred, own design). [App-1]
+- **N1–N3 → design 56 — LANDED**: trait default method bodies
+  (per-conformer synthesis from a deep-copied body, override-or-inherit,
+  calls-required-dispatch-to-conformer, through trait inheritance, `any`
+  vtable slot, effects per instantiation, missing-no-default still errors);
+  **Printable** (streaming `format` + default-body `to_string`; builtin
+  conformance for integers/Float/Bool/String rendered inline, NO
+  synthesis; interpolation + `print` accept Printable, builtins stay
+  byte-identical; `T: Printable` bound); `trait Error: Printable {}` (both
+  conformance spellings, object-safe/any-able); erased Results FULL
+  (`Result<T, Box<any Error>>` return type, auto-erase at all three return
+  checkpoints via `ErasedErrWrap`, `try` re-box + passthrough, `Err(e)`/
+  `catch` bind the box with `{e}` via vtable). Boxing uses Global (hosted;
+  freestanding keeps concrete/union errors — spec note added).
+  Choices/deferrals: NO Debug trait (own design); **enum-direct Printable
+  deferred** (enum method dispatch is a general missing feature — enum data
+  is rendered through a Printable wrapper struct's `format`); erased-error
+  **downcasting deferred** (needs a type-id design). Enablers landed
+  alongside: `&var` re-borrow of a mutable-reference param; cross-module
+  `type_conforms_to`. Blade dogfood: manifest errors migrated to
+  `Result<Manifest, Box<any Error>>` (ManifestError auto-erase + TomlError
+  `try` re-box), new `blade/tests/erased_manifest_error.saw`. Compiler suite
+  568 passing, 0 xfails. [App-1]
 - **N4. Map iteration (keys/values/entries) + string→number parsing
   helpers** — Blade TOML tables, semver, lock files. [App-1]
 - **N5. std.time (Instant/Duration, hosted)** — blade test timing,
