@@ -90,32 +90,43 @@ trait Comparable {
 
 // Hasher is the streaming hash accumulator (FNV-1a, 64-bit). A `hash`
 // implementation feeds its fields into a Hasher via `write_int`; the map reads
-// the digest with `finish`. The initial state is the FNV-1a offset basis
-// (14695981039346656037, which as a signed 64-bit Int is the constant below);
-// `write_int` is the FNV-1a step (XOR the input into the state, then multiply
-// by the FNV prime 1099511628211 with wrapping arithmetic). Mixing is done on
-// whole Ints rather than byte-by-byte; `finish` folds the high half into the
-// low bits so a power-of-two bucket mask still sees well-mixed bits.
+// the digest with `finish`. The state is a FIXED-WIDTH `Int64`, NOT the platform
+// `Int`: the hash is 64-bit by design (design 48) and the codegen FNV lowering
+// is hardcoded i64, so a platform-`Int` state would (a) overflow the 32-bit word
+// on riscv32 — the offset basis and FNV prime don't fit i32, erroring at the
+// literal (design 47) — and (b) mismatch the i64 lowering. Using `Int64` (with
+// design-53 `i64` literal suffixes) makes the constants and math 64-bit on EVERY
+// target while staying byte-identical on hosted (where `Int` is already i64, and
+// signed `Int64 >> 32` is the same arithmetic shift the platform-`Int` state
+// used). The initial state is the FNV-1a offset basis, written as its unsigned
+// value `14695981039346656037i64` (an `i64` literal takes any 0..2^64-1 bit
+// pattern, here the two's-complement i64 -3750763034362895579 the platform-`Int`
+// state used before); `write_int` XORs the
+// input into the state then multiplies by the FNV prime 1099511628211 with
+// wrapping arithmetic. `finish` folds the high half into the low bits so a
+// power-of-two bucket mask still sees well-mixed bits, then narrows to `Int`.
 struct Hasher {
-    state: Int
+    state: Int64
 }
 
 extension Hasher {
     init() -> Hasher {
-        Hasher(state: -3750763034362895579)
+        Hasher(state: 14695981039346656037i64)
     }
 
     // FNV-1a step over one Int of input. Uses wrapping multiply (`&*`) because
     // the FNV prime overflows 64 bits by construction and the wrap is intended.
+    // `n` is a platform `Int`, widened to the 64-bit hash state.
     func write_int(&var self, n: Int) {
-        self.state = (self.state ^ n) &* 1099511628211
+        self.state = (self.state ^ (n as Int64)) &* 1099511628211i64
     }
 
     // The finished 64-bit digest, with a final xor-shift avalanche so the low
-    // bits (used by a power-of-two bucket mask) depend on the whole state.
+    // bits (used by a power-of-two bucket mask) depend on the whole state, then
+    // narrowed to the platform `Int` the map indexes with.
     func finish(&self) -> Int {
         let h = self.state
-        h ^ (h >> 32)
+        (h ^ (h >> 32i64)) as Int
     }
 }
 
