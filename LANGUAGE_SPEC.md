@@ -101,7 +101,7 @@ func divide(a: Int, b: Int) -> (quotient: Int, remainder: Int) {
 func swap<T>(a: &var T, b: &var T) {
     // (illustrative) — mutation through a &var reference uses compound
     // assignment or mutating methods; direct `a = b` is rejected. A real
-    // swap goes through a by-value temporary or a stdlib `swapAt` helper.
+    // in-place swap of two Vector slots uses the `Vector.swap(i, j)` method.
 }
 
 // Functions with default parameter values (implemented, design 53)
@@ -389,7 +389,8 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   NUL-terminated for zero-copy C FFI, and `len` is authoritative (O(1),
   interior NUL bytes are representable). The buffer is immutable after
   construction: concatenation and interpolation build fresh buffers (an
-  `s + t` loop is O(n²); a mutable `StringBuilder` is future stdlib work).
+  `s + t` loop is O(n²); the mutable, geometrically-growing `StringBuilder`
+  (design 38) is the efficient builder — `append`/`build`).
 - **`\u{...}` escapes** (design 53). A string literal may contain a Unicode
   scalar escape `\u{1F600}` — 1–6 hex digits — encoded to its UTF-8 bytes in the
   literal. Surrogates (`D800`–`DFFF`) and code points above `0x10FFFF` are
@@ -452,10 +453,14 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
 ### Composite Types
 
 ```saw
-// Tuples
+// Tuples (positional — implemented). Access fields by index with `.N`.
 let point: (Int, Int) = (10, 20)
-let named: (x: Int, y: Int) = (x: 10, y: 20)
 let x = point.0
+
+// Named tuple fields (illustrative — planned). Named tuple *types* appear in
+// return signatures, but named tuple literals and `.name` field access are not
+// yet parsed; use positional tuples (`.0`, `.1`) or a struct today.
+let named: (x: Int, y: Int) = (x: 10, y: 20)
 let y = named.y
 
 // Arrays (fixed size, stack allocated)
@@ -619,10 +624,9 @@ unchanged (the wrap consumes the argument exactly as an explicit `Some(x)` would
 
 Trait definitions, conformance via `extension Type: Trait`, conformance
 checking, single and multiple conformance, associated types (with resolution),
-`T: Trait` generic bounds, **trait default method bodies** (below), and
-`any Trait` existentials (type-erased dynamic dispatch, below) are
-**implemented**. Multi-bound `+` syntax (`T: A + B`) is *planned* — the one
-example below that uses it is illustrative.
+`T: Trait` generic bounds, multi-bound `+` syntax (`T: A + B`), **trait default
+method bodies** (below), and `any Trait` existentials (type-erased dynamic
+dispatch, below) are **implemented**.
 
 **Trait default method bodies** are implemented: a trait method declared *with*
 a `{ ... }` body is a default. A conformer may omit it (it inherits a
@@ -667,8 +671,8 @@ func print_all<T: Display>(items: [T]) {
     }
 }
 
-// Multiple bounds  (illustrative — `+` multi-bound syntax is planned)
-func process<T: Display + Debug + Clone>(item: T)
+// Multiple bounds (implemented) — require several traits with `+`
+func process<T: Display + Equatable>(item: T)
 
 // Associated types
 trait Iterator {
@@ -880,7 +884,9 @@ type Kilometers = Float64
 let m: Miles = Miles(100.0)
 let k: Kilometers = m  // Error! Can't mix miles and kilometers
 
-// Access underlying value with .value
+// Access the underlying value (illustrative — planned). A `.value` projection
+// on a distinct `type` is not yet implemented; a distinct type flows *to* its
+// underlying type in typed positions, but there is no field accessor today.
 let raw: Float64 = m.value
 
 // Type definitions for function signatures
@@ -985,7 +991,7 @@ claim: the cost of every transfer is now readable at the use site.
   are in this class. `x.copy()` on them compiles to a bitwise copy.
 - **`ImplicitCopy`** — the compiler invokes `copy()` automatically at every
   transfer site (binding, assignment, argument, return, aggregate element).
-  **Contract: cheap, O(1)-ish** — e.g. a refcount bump. `String` and `Rc`/`Arc`
+  **Contract: cheap, O(1)-ish** — e.g. a refcount bump. `String` and `Arc`
   are `ImplicitCopy`.
 - **`ExplicitCopy`** — the compiler *never* copies implicitly; a transfer out of
   an existing binding requires `move`, and duplication is always a visible
@@ -1188,8 +1194,8 @@ Access paths compared for disjointness are `x`, `x.f`, `x.0`, and `x[i]`:
 same root with differing fields, tuple indices, or differing *constant* array
 indices are disjoint; different roots are always disjoint. A non-constant
 (dynamic) array index is treated conservatively — `swap(&var a[i], &a[j])` is
-rejected even when `i != j` at runtime (a checked `a.swapAt(i, j)` stdlib
-method is the intended escape hatch).
+rejected even when `i != j` at runtime (the checked `Vector.swap(i, j)` method
+is the intended escape hatch; landed in design 40).
 
 > **Invariant (for future features):** the fully-static guarantee rests on the
 > no-escape property. If closures capturing by reference, returned/stored
@@ -1199,64 +1205,55 @@ method is the intended escape hatch).
 
 ### Shared Ownership
 
-**Status: planned** (the examples below are illustrative; `Rc`/`Arc`/`Box`
-wrapper types and `thread.spawn` are not yet in the stdlib). The `ImplicitCopy`
-+ `Deinit` machinery they rely on *is* implemented and is exactly how `String`
-works today.
-
-For data that needs multiple owners, use reference-counted wrappers. These implement `ImplicitCopy` to increment the reference count on copy and `deinit` to decrement it:
+**Status: implemented.** `Arc<T>` (atomic reference counting) and
+`Box<T, A>` (owned heap allocation) are in the stdlib. Saw is **Arc-only** —
+there is no single-threaded `Rc<T>` (decided in design 16): the atomic refcount
+is the one shared-ownership primitive. `Arc` is `ImplicitCopy + Deinit`
+(retain on copy, release on drop; the last owner runs the payload's `deinit`
+exactly once), built on the same machinery as `String`.
 
 ```saw
-// Reference counting (single-threaded shared ownership)
-let shared: Rc<Data> = Rc(Data { ... })
-let shared2 = shared  // copy() called, ref count increases
-
 // Atomic reference counting (thread-safe shared ownership)
-let atomic: Arc<Data> = Arc(Data { ... })
+let shared = Arc<Payload>(value: Payload(id: 7))
+let shared2 = shared          // copy() called, strong count increases
+print(shared2.strong_count()) // 2
 
-// Send Arc across threads
-thread.spawn {
-    let local = atomic  // Safe to share across threads
-    process(local)
-}
-
-// Box for heap allocation without sharing
-let boxed: Box<LargeStruct> = Box(LargeStruct { ... })
+// Box<T, A>: owned heap allocation without sharing (NoCopy — move to transfer).
+// Static factories: `.make` (panics on OOM) and `.make_or` (fallible).
+let boxed = Box<Int>.make(42)
+print(boxed.value())          // 42
 ```
 
 ### Synchronized Access
 
-**Status: planned** (illustrative — `Mutex`/`RwLock`, lock guards, and threads
-are not yet implemented).
-
-For mutable shared state, wrap in synchronization primitives. Lock guards implement `NoCopy` so they can't be shared, and `deinit` to automatically release the lock:
+**Status: `Mutex<T>` implemented (hosted); `RwLock` planned.** `Mutex<T>` is
+`NoCopy + Deinit`, backed by a `pthread_mutex_t` on the hosted engine. Rather
+than a returned lock guard, `lock` takes a non-escaping closure and runs it with
+`&var` access to the guarded payload under the lock — the lock is always
+released on the way out. `get()` snapshots the payload (`T: Copy`).
 
 ```saw
 // Mutex for exclusive mutable access
-let counter: Arc<Mutex<Int>> = Arc(Mutex(0))
+let m = Mutex<Int>(value: 0)
 
-thread.spawn {
-    var guard = counter.lock()  // Returns MutexGuard: NoCopy
-    *guard += 1
-}  // guard.deinit() called, lock released automatically
+m.lock { &var c in
+    c = c + 1
+    true            // the closure returns a Bool result
+}                   // lock released automatically
 
-// RwLock for multiple readers or single writer
-let data: Arc<RwLock<Map<String, Int>>> = Arc(RwLock(Map()))
-
-// Read lock (shared)
-let guard = data.read()
-let value = guard.get("key")
-
-// Write lock (exclusive)
-var guard = data.write()
-guard.insert("key", 42)
+if let v = m.get() {
+    print(v)        // 1
+}
 ```
+
+`RwLock` (multiple readers XOR single writer) is planned; it is not yet in the
+stdlib.
 
 ### Resource Management Interfaces
 
 **Status: implemented.** Saw provides a hierarchy of traits for types that need
 custom copy behavior or cleanup when going out of scope. This enables reference
-counting (like `String` and the planned `Arc<T>`), deep-copy owning types (like
+counting (like `String` and `Arc<T>`), deep-copy owning types (like
 `Vector`), RAII patterns (like file handles), and move-only types. Conformance
 is always declared through an `extension` (`extension T: Trait`); there is no
 struct-header conformance syntax. The full family is `Copy`
@@ -1902,13 +1899,15 @@ methods are called with ordinary `value.method(...)` syntax.
 
 ## 6. Concurrency
 
-**Status: partially implemented (stage 1, in progress).** The concurrency model
-is defined in `designs/18-async-await.md`; it lands in stages behind a
-task-only API (no user-facing thread API — the engine is a swappable
-implementation detail and never leaks thread identity). Stage 1
-(`designs/21-concurrency-stage1.md`) builds the sharing primitives on a
-thread-per-task engine with **no new syntax**. Async/await (stages 2-3) remain
-illustrative below.
+**Status: implemented.** Saw's concurrency is **colorless** (designs/18 Axis
+B′): there is NO `async`/`await` keyword and there never will be — any call may
+suspend, and the marked side is the rare negative effect `sync` (a checked
+suspension-free context). The model is task-only: no user-facing thread API, no
+thread identity ever exposed — the engine is a swappable implementation detail.
+Two engines ship and coexist (they are not unified): the design-21b
+thread-per-task engine (`spawn`/`Task`/`Channel`, below) and the cooperative
+single-threaded executor (the coroutine transform, suspending `main`, and the
+multi-task `TaskGroup` — designs 44/45/52/52b, below).
 
 **Landed in stage 1:**
 
@@ -1974,9 +1973,9 @@ The atomic-ordering runtime (`__saw_atomic_*`, per the String protocol) is
 shared by `Arc` and `Channel`; the `pthread_create`/`join` and condvar wrappers
 back `spawn`/`Task` and `Channel`. Under the future cooperative engine, `recv()`
 and channel waits become suspension points but keep their shapes; `lock`'s
-critical section stays synchronous (a `sync` closure cannot `await`), which is
-how the never-block invariant makes holding a lock across `await` a compile
-error. Task bodies may suspend under that engine, so a `spawn` closure is not a
+critical section stays synchronous (a `sync` closure cannot suspend), which is
+how the never-block invariant makes holding a lock across a suspension point a
+compile error. Task bodies may suspend under that engine, so a `spawn` closure is not a
 `sync` context.
 
 **Status: tasks, channels, Mutex, Send/Sync — implemented (stage 1,
@@ -2477,12 +2476,11 @@ struct Config {
 
 ## 8. Module System
 
-**Status: partially implemented.** `import` (module, specific-symbol, and
-qualified forms), inline and external `module` declarations, `public`
-visibility, and qualified access (`module.Type`) are built. Scoped visibility
-(`public(package)`, `public(parent)`), import aliasing (`as`), and glob imports
-(`import x.*`) are *planned* and marked *(illustrative)* below. The `Saw.toml`
-package layout is handled by the Blade package manager.
+**Status: implemented.** `import` (module, specific-symbol, and qualified
+forms), inline and external `module` declarations, `public` visibility, scoped
+visibility (`public(package)`, `public(parent)`), import aliasing (`as`, design
+53), glob imports (`import x.*`), and qualified access (`module.Type`) are all
+built. The `Saw.toml` package layout is handled by the Blade package manager.
 
 ### Module Declaration
 
@@ -2507,7 +2505,7 @@ struct Internal { ... }
 // Public
 public struct Public { ... }
 
-// (illustrative — planned) Scoped visibility
+// Scoped visibility (implemented)
 public(package) func internal_api() { ... }
 public(parent) func parent_visible() { ... }
 ```
@@ -2541,7 +2539,7 @@ import std.collections.{Map as Dict, Set}        // per-symbol alias
 import package.parser.Parser
 import parent.helpers.utility
 
-// (illustrative — planned) Glob import (discouraged)
+// Glob import (implemented, discouraged) — all public symbols enter scope
 import std.prelude.*
 ```
 
@@ -2569,11 +2567,15 @@ my_project/
 ## 9. Standard Library Overview
 
 **Status: partially implemented.** The module *paths* below sketch the intended
-namespace layout and are largely *illustrative*. Actually shipped today:
-`String`, `Vector<T>`, `Map<K,V>`, `File`, `Directory`, `Path`, `Data`, `Env`,
-`Process` (and `Result`/optionals as language features). I/O beyond files, `net`,
-`thread`, `sync`, `channel`, `future`, and the `fmt`/`iter`/`cmp`/`hash`/`time`
-utility modules are planned.
+namespace layout and are largely *illustrative* (the concrete names may differ).
+Actually shipped today: `String`, `StringBuilder`, `Vector<T, A>`,
+`Map<K, V, A>`, `Set<T, A>`, `Arc<T>`, `Box<T, A>`, `Mutex<T>`, `Channel<T>`,
+`Task<T>`, `TaskGroup`, `File`, `Directory`, `Path`, `Data`, `Env`, `Process`,
+`std.time` (`Duration`/`Instant`), plus `Int`/`Float` numeric extensions and the
+`Equatable`/`Comparable`/`Hashable`/`Printable`/`Error` traits (and
+`Result`/optionals as language features). I/O beyond files, `net`, `RwLock`, and
+a formalized module namespacing are still planned. There is no `async`/`future`
+module: concurrency is colorless (no `async`/`await`).
 
 ### Core Types
 
@@ -2596,10 +2598,12 @@ std.net.{TcpStream, TcpListener, UdpSocket}
 ### Concurrency
 
 ```saw
-std.thread.{spawn, sleep, current}
-std.sync.{Mutex, RwLock, Arc, Barrier}
-std.channel.{channel, Sender, Receiver}
-std.future.{Future, async, await}
+// Colorless tasks — no thread API, no async/await. Cooperative primitives
+// (yield_now/sleep), TaskGroup (spawn/join/cancel), and the thread-per-task
+// spawn/Task/Channel engine. See §6 Concurrency for the real API.
+spawn { ... } -> Task<T>          // thread-per-task engine
+group.spawn(f(args)) -> TaskHandle<T>   // cooperative TaskGroup
+Mutex<T>, Arc<T>, Channel<T>      // sharing + synchronization primitives
 ```
 
 ### Utilities
@@ -3063,9 +3067,12 @@ Contextual (recognized only in type/effect positions; still valid identifiers):
 any      escaping sync
 
 Planned / reserved:
-and  async  await  const  defer  do  generic  macro  none  or
+and  const  defer  do  generic  macro  none  or
 some  unsafe  where
 ```
+
+`async` and `await` are deliberately **absent** — Saw is colorless and will
+never have them (see §6 Concurrency).
 
 ## Appendix B: Operators
 
@@ -3077,7 +3084,7 @@ Implemented
   Comparison:     == != <  >  <= >=
   Logical:        &&  ||  not        (`not` is logical NOT — not `!`)
   Assignment:     =  += -= *= /= %=  &= |= ^= <<= >>=
-  Range:          ..                 (half-open, e.g. `for i in 0..5`)
+  Range:          ..  ..=            (`..` half-open, `..=` inclusive — design 53)
   Optional:       ?  ??  ?.  !        (`!` is force-unwrap; `?.` optional chain)
   Reference:      &  &var             (`&x` at a call site; `&var` params)
   Cast:           as                 (`x as Int`)
@@ -3086,8 +3093,7 @@ Implemented
                                       declaration position only)
 
 Planned (parsed shape may differ or be rejected today)
-  Arithmetic:     **                 (power)
-  Range:          ..=                (inclusive)
+  Arithmetic:     **                 (power — use `Int.pow(...)` today)
   Match arrow:    =>                 (superseded — Saw match arms use `->`)
   Path:           ::
 ```
@@ -3102,7 +3108,7 @@ rows below it). C-family: shifts sit above comparison, and `&` above `^` above
   multiplicative   *  /  %  &*
   additive         +  -  &+  &-
   shift            <<  >>
-  range            ..
+  range            ..  ..=
   comparison       == != <  >  <= >=
   bitwise AND      &
   bitwise XOR      ^
