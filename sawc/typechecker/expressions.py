@@ -2119,9 +2119,43 @@ class ExpressionsMixin:
         if isinstance(value_expr, (MapLiteral, SetLiteral, ArrayLiteral)):
             value_expr.expected_type = expected_type
 
+    def _key_copyable_reason(self, key_type):
+        """Return None if `key_type` may be a Map/Set KEY, else a short reason it
+        cannot (design 65 followup, L19). A key is probed by COPY (hash / compare
+        / slot inspection), so it must be copyable-with-retain in a balanced way:
+        a trivial/POD type (bitwise, no deinit), an ImplicitCopy type (refcount
+        bump), or an ExplicitCopy type (deep copy + symmetric deinit) all balance.
+        A NoCopy type, or a `Deinit` type with no copy conformance (move-only,
+        no refcount to retain), cannot — its probe copies would run the deinit and
+        miscount / double-free. VALUES are unaffected (never probe-copied)."""
+        if key_type is None:
+            return None
+        # An opaque generic type parameter is not concretely known here; the
+        # concrete instantiation is checked at the user's call site.
+        if (key_type.kind == TypeKind.STRUCT
+                and key_type.struct_name in (getattr(self, 'current_type_params', {}) or {})):
+            return None
+        if (self._is_trivially_copyable(key_type)
+                or self._is_implicit_copy_type(key_type)
+                or self._is_explicit_copy_type(key_type)):
+            return None
+        if self._is_no_copy_type(key_type):
+            return "is NoCopy"
+        return "owns a Deinit without a copy (it is move-only, not retainable)"
+
+    def _check_map_key_copyable(self, key_type, expr, what="map key"):
+        reason = self._key_copyable_reason(key_type)
+        if reason is not None:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"{what} type `{key_type}` must be copyable (trivial, ImplicitCopy, "
+                f"or ExplicitCopy with retain semantics): `{key_type}` {reason}",
+                expr.line, expr.column)
+
     def _check_map_key_bounds(self, key_type, expr, what="map key"):
         """A map key / set element type must be Hashable + Equatable (design
-        54, same bound as constructing the container)."""
+        54, same bound as constructing the container) AND copyable-with-retain
+        (design 65 followup: the container probes keys by copy)."""
         if key_type is None:
             return
         for bound in ("Hashable", "Equatable"):
@@ -2132,6 +2166,7 @@ class ExpressionsMixin:
                     f"(map keys and set elements require Hashable + Equatable)",
                     expr.line, expr.column)
                 return
+        self._check_map_key_copyable(key_type, expr, what)
 
     def _check_array_index(self, expr: ArrayIndex) -> Optional[SawType]:
         """Check array or tuple indexing with [index] syntax."""
@@ -2777,6 +2812,16 @@ class ExpressionsMixin:
                                 f"`{expr.struct_name}`",
                                 expr.line, expr.column
                             )
+        # design 65 (L19): a Map/Set KEY must be copyable-with-retain — the
+        # container probes keys by copy (hash / compare / slot inspection), which
+        # a NoCopy or move-only-Deinit key cannot balance. Checked here at
+        # construction; VALUES are unaffected. Set delegates to Map internally,
+        # but this fires at the user-facing `Set<T>()` site; the internal
+        # `Map<T, SetMark>` in set.saw is checked with a GENERIC T and passes.
+        if expr.struct_name in ("Map", "Set") and expr.type_args:
+            self._check_map_key_copyable(
+                self._resolve_type(expr.type_args[0]), expr,
+                "map key" if expr.struct_name == "Map" else "set element")
         provided_params = {field_name for field_name, _ in expr.field_inits}
         field_names = set(struct_info.fields.keys())
         matches_fields = provided_params == field_names

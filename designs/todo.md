@@ -493,6 +493,23 @@ LLVM-exception).
   state (NOT the copy-with-retain path, which only EXPOSED it by making snapshots
   retain). Memory-safe (leak, not UAF). Set algebra was rerouted to `while`+`get`
   to sidestep it (see above); the general fix is deferred. [65]
+- **L19 — CLOSED (design 65 followup, user-approved).** Map/Set KEYS are now
+  restricted to copyable-with-retain types: the container probes keys BY COPY
+  (hash/compare/slot inspection), so a NoCopy key, or a `Deinit`-only move-only
+  key, cannot be balanced (its probe copies would run the deinit → miscount /
+  double-free). The typechecker rejects such a key at construction
+  (`Map<K,V>()` / `Set<T>()`) and at the map/set LITERAL forms, with a clean
+  bound-style error naming the type ("map key type `Counted` must be copyable
+  (trivial, ImplicitCopy, or ExplicitCopy with retain semantics): `Counted` owns
+  a Deinit without a copy"). Trivial/POD, `String`, `Arc<T>`, and other
+  ImplicitCopy keys stay legal; **ExplicitCopy keys stay legal too** (the retain
+  glue deep-copies via `copy()` and releases via `deinit()` symmetrically — a
+  balanced probe). VALUES are unaffected (NoCopy values are moved, never
+  probe-copied, and stay exact). Set inherits the rule through its wrapper; the
+  internal `Map<T, SetMark>` in set.saw is checked with a GENERIC T and passes,
+  so the error fires at the user's `Set<T>()` site. Tests:
+  `map_nocopy_key_error`, `set_nocopy_key_error`, `map_nocopy_key_literal_error`;
+  existing String/Int/Arc key tests stay green. [65]
 
 - **L1.** Partial moves — DECIDED forbidden + LANDED (design 35,
   `2829364`): field/nested/index forms all get naming diagnostics; the

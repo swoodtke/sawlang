@@ -1,0 +1,19 @@
+// Design 65 followup (L19, user-approved): a Map KEY must be copyable-with-retain
+// because the container probes keys BY COPY (hash / compare / slot inspection). A
+// struct that owns a Deinit but no copy conformance is move-only and its probe
+// copies cannot be balanced — rejected cleanly at construction. (VALUES are
+// unaffected: a NoCopy value is fine.)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: map key type `Counted` must be copyable
+
+static DROPS: Atomic<Int> = Atomic(0)
+struct Counted { id: Int }
+extension Counted: Deinit { func deinit(&var self) { DROPS.fetch_add(1) } }
+extension Counted: Equatable {}
+extension Counted: Hashable {}
+
+func main() {
+    var m = Map<Counted, Int>()
+    let _ = m.insert(Counted(id: 1), 100)
+    print(m.len())
+}

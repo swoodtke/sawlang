@@ -1877,6 +1877,11 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
   on update), `get(key) -> V?`, `contains_key(key) -> Bool`,
   `remove(key) -> V?`. Works with `Int` and `String` keys (and any
   `Hashable + Equatable` key).
+- **Keys must be copyable-with-retain** (design 65): the container probes keys BY
+  COPY (hash / compare / slot inspection), so a KEY must be trivial/POD,
+  `ImplicitCopy` (String, `Arc<T>`), or `ExplicitCopy` — a **NoCopy** key, or a
+  `Deinit`-only move-only key, is a clean compile error. VALUES have no such
+  restriction (a NoCopy value is fine — it is moved, never probe-copied).
 - Slots are an enum `{ Empty, Tombstone, Occupied(key, value) }`, so a fresh
   table is deinit-safe even for owning key/value types; slot updates/removals
   move the old slot out (`Vector.swap_out`, a refcount-neutral move), so nothing
@@ -1890,7 +1895,9 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
 **Status: implemented** (`designs/54`). An unordered hash set, implemented as a
 thin wrapper over `Map<T, SetMark>` (a zero-field unit value), so there is one
 hash implementation to trust. `Set` is **NoCopy**; order is **UNSPECIFIED**
-(sort a `to_vector()` snapshot for deterministic output).
+(sort a `to_vector()` snapshot for deterministic output). Elements inherit the
+Map **key** rule: they must be copyable-with-retain (trivial/POD, `ImplicitCopy`,
+or `ExplicitCopy`) — a NoCopy / move-only-Deinit element is a compile error.
 
 - Core: `insert(v) -> Bool` (true iff newly inserted), `remove(v) -> Bool`,
   `contains(v) -> Bool`, `len()`, `is_empty()`, `each(body: (T) -> Void)`

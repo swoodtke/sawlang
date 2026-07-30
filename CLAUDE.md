@@ -535,7 +535,11 @@ The compiler currently supports:
 - `Map<K: Hashable + Equatable, V, A: Allocator = Global>` (`std/map.saw`,
   designs 48 + 54): THE dictionary type — open addressing (linear probing,
   tombstones), power-of-two cap, grow at 3/4 load. `insert`/`get`/`remove`/
-  `contains_key`/`len`; Int and String keys. Slots are an enum
+  `contains_key`/`len`; Int and String keys. KEYS must be copyable-with-retain
+  (trivial/POD, ImplicitCopy like String/`Arc<T>`, or ExplicitCopy) — a NoCopy /
+  move-only-Deinit key is a clean compile error (design 65, keys are probed by
+  copy); VALUES are unrestricted (NoCopy values are moved, never probe-copied).
+  Slots are an enum
   `{ Empty, Tombstone, Occupied(k, v) }` (owning-key-safe); NoCopy (no `.copy()`).
   The old Vector-backed linear-scan `Map` was RETIRED (design 54) — one `Map`,
   and the name `HashMap` no longer exists. Iteration (design 57): non-escaping
