@@ -1,0 +1,20 @@
+// Design 66 + 63: `f((x: 3, y: 4))` is ONE named-tuple argument; `g(a: 1, b: 2)`
+// is TWO labeled arguments. The parser keeps these distinct; both forms coexist
+// in one file.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 12
+
+func takesPair(p: (x: Int, y: Int)) -> Int {
+    p.x + p.y
+}
+
+func twoArgs(a: Int, b: Int) -> Int {
+    a * 10 + b
+}
+
+func main() {
+    print(takesPair((x: 3, y: 4)))  // single named-tuple arg
+    print(twoArgs(a: 1, b: 2))      // two labeled args
+}

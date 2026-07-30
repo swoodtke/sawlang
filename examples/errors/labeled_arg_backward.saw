@@ -1,0 +1,12 @@
+// Design 66: labels never bind backward. Here `c` skips the defaulted `b`
+// forward; a later `b:` would bind BEHIND the cursor — rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot bind backward
+
+func f(a: Int, b: Int = 0, c: Int = 0) -> Int {
+    a + b + c
+}
+
+func main() {
+    print(f(a: 1, c: 9, b: 5))
+}

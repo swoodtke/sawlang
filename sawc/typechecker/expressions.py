@@ -915,6 +915,120 @@ class ExpressionsMixin:
             return False
         return True
 
+    def _call_has_labels(self, expr) -> bool:
+        """Whether the call carries at least one labeled argument (design 66).
+        Positional-only calls take the byte-identical legacy path everywhere;
+        the labeled binding machinery engages only when this is True."""
+        return any(getattr(a, 'name', None) is not None for a in expr.arguments)
+
+    def _compute_binding(self, param_names, default_values, arguments):
+        """Design 66 argument binding, no diagnostics. `param_names`/
+        `default_values` are LOGICAL (self already stripped for methods).
+
+        Arguments bind LEFT TO RIGHT: a positional argument binds the next
+        unbound parameter; a labeled argument binds the parameter it names,
+        provided that parameter sits AT or AFTER the next unbound position and
+        every parameter skipped forward over it carries a default. No backward
+        binding, no reordering. Returns `(mapping, err)` where `mapping[i]` is
+        the logical parameter index bound by source argument `i`, and `err` is
+        None on success or `(kind, code, detail, arg_index)` describing the
+        first binding failure (`arg_index` is None for a trailing missing
+        parameter). Codes: 'too_many', 'unknown', 'duplicate', 'backward',
+        'missing'."""
+        n = len(param_names)
+        dvals = default_values or []
+        has_default = [(i < len(dvals) and dvals[i] is not None) for i in range(n)]
+        next_pos = 0
+        mapping = []
+        bound = set()
+        for ai, arg in enumerate(arguments):
+            if getattr(arg, 'name', None) is None:
+                if next_pos >= n:
+                    return (None, ('too_many', 'too_many', None, ai))
+                mapping.append(next_pos)
+                bound.add(next_pos)
+                next_pos += 1
+            else:
+                if arg.name not in param_names:
+                    return (None, ('unknown', 'unknown', arg.name, ai))
+                target = param_names.index(arg.name)
+                if target in bound:
+                    return (None, ('duplicate', 'duplicate', arg.name, ai))
+                if target < next_pos:
+                    return (None, ('backward', 'backward', arg.name, ai))
+                for k in range(next_pos, target):
+                    if not has_default[k]:
+                        return (None, ('missing', 'missing', param_names[k], ai))
+                mapping.append(target)
+                bound.add(target)
+                next_pos = target + 1
+        for k in range(n):
+            if k not in bound and not has_default[k]:
+                return (None, ('missing', 'missing', param_names[k], None))
+        return (mapping, None)
+
+    def _bind_args(self, expr, param_names, default_values, display_name):
+        """Design 66 binding with call-site diagnostics. Returns `mapping`
+        (source-arg index -> logical parameter index) and stamps `expr.arg_plan`
+        (a list over logical parameters: the source-arg index that binds each,
+        or None for a default-filled parameter) for codegen. Returns None after
+        reporting the binding error. Only called for calls that carry a label."""
+        mapping, err = self._compute_binding(param_names, default_values, expr.arguments)
+        if err is not None:
+            _, code, detail, ai = err
+            if ai is not None and ai < len(expr.arguments):
+                node = expr.arguments[ai].value
+                line, col = node.line, node.column
+            else:
+                line, col = expr.line, expr.column
+            if code == 'too_many':
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`{display_name}` was given more arguments than it has parameters",
+                    line, col)
+            elif code == 'unknown':
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`{display_name}` has no parameter named `{detail}`",
+                    line, col)
+            elif code == 'duplicate':
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"argument `{detail}` specified more than once",
+                    line, col)
+            elif code == 'backward':
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"labeled argument `{detail}` cannot bind backward; "
+                    f"arguments bind left to right",
+                    line, col,
+                    hint="labels may skip forward only over parameters with defaults")
+            else:  # missing
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"missing argument for parameter `{detail}`",
+                    line, col)
+            return None
+        plan = [None] * len(param_names)
+        for ai, p in enumerate(mapping):
+            plan[p] = ai
+        expr.arg_plan = plan
+        return mapping
+
+    def _aligned_call_meta(self, expr, mapping, param_types, param_names):
+        """Return (param_types, param_names) positionally aligned to the source
+        arguments for the exclusivity check. With no labels (`mapping is None`)
+        this is the identity — the legacy positional alignment. With labels the
+        binding may reorder/skip, so each source argument's parameter type/name
+        is looked up through `mapping`."""
+        if mapping is None:
+            return param_types, param_names
+        pt = list(param_types) if param_types is not None else []
+        pn = list(param_names) if param_names is not None else []
+        aligned_types = [pt[p] if p < len(pt) else None for p in mapping]
+        aligned_names = [pn[p] if p < len(pn) else None for p in mapping]
+        return aligned_types, aligned_names
+
     def _overload_arg_types(self, expr):
         """Type-check the non-closure arguments once (recording moves/effects a
         single time) and return the list of argument types, with `None` in each
@@ -1389,6 +1503,16 @@ class ExpressionsMixin:
         var_info = self.current_scope.lookup(expr.name)
         if var_info and var_info.type.kind == TypeKind.FUNCTION:
             func_type = var_info.type
+            # Design 66: closure/function-value types are STRUCTURAL — they carry
+            # no parameter names, so a labeled call through one has nothing to
+            # bind to.
+            if self._call_has_labels(expr):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"labeled arguments are not allowed when calling through the "
+                    f"closure value `{expr.name}` (closure types are structural)",
+                    expr.line, expr.column)
+                return func_type.func_return_type or SawType(TypeKind.VOID)
             # design 22: a call through a function-typed value. If the value's
             # type is not `sync`, the caller conservatively suspends.
             self._effect_indirect_call(func_type, expr.line)
@@ -1611,49 +1735,67 @@ class ExpressionsMixin:
         has_defaults = any(dv is not None for dv in dvals)
         required = (sum(1 for dv in dvals if dv is None) if has_defaults
                     else len(param_types))
-        if func_info.is_variadic:
-            if len(expr.arguments) < len(param_types):
-                self._error(
-                    ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"function `{expr.name}` takes at least {len(param_types)} argument(s), "
-                    f"but {len(expr.arguments)} were given",
-                    expr.line, expr.column
-                )
-                return return_type
-        elif has_defaults:
-            if len(expr.arguments) < required or len(expr.arguments) > len(param_types):
-                self._error(
-                    ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"function `{expr.name}` takes between {required} and "
-                    f"{len(param_types)} argument(s), but {len(expr.arguments)} "
-                    f"were given",
-                    expr.line, expr.column
-                )
+        # Design 66: labeled arguments bind by the binding rule (which also
+        # validates arity/missing/too-many); positional-only calls keep the
+        # exact legacy arity checks and identity binding.
+        has_labels = self._call_has_labels(expr)
+        if has_labels and func_info.is_variadic:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"labeled arguments are not supported on variadic function "
+                f"`{expr.name}`", expr.line, expr.column)
+            return return_type
+        if has_labels:
+            mapping = self._bind_args(expr, func_info.param_names, dvals, expr.name)
+            if mapping is None:
                 return return_type
         else:
-            if len(expr.arguments) != len(param_types):
-                self._error(
-                    ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"function `{expr.name}` takes {len(param_types)} argument(s), "
-                    f"but {len(expr.arguments)} were given",
-                    expr.line, expr.column
-                )
-                return return_type
-        for i, (arg, expected_type) in enumerate(zip(expr.arguments, param_types)):
+            mapping = None
+            if func_info.is_variadic:
+                if len(expr.arguments) < len(param_types):
+                    self._error(
+                        ErrorKind.WRONG_ARGUMENT_COUNT,
+                        f"function `{expr.name}` takes at least {len(param_types)} argument(s), "
+                        f"but {len(expr.arguments)} were given",
+                        expr.line, expr.column
+                    )
+                    return return_type
+            elif has_defaults:
+                if len(expr.arguments) < required or len(expr.arguments) > len(param_types):
+                    self._error(
+                        ErrorKind.WRONG_ARGUMENT_COUNT,
+                        f"function `{expr.name}` takes between {required} and "
+                        f"{len(param_types)} argument(s), but {len(expr.arguments)} "
+                        f"were given",
+                        expr.line, expr.column
+                    )
+                    return return_type
+            else:
+                if len(expr.arguments) != len(param_types):
+                    self._error(
+                        ErrorKind.WRONG_ARGUMENT_COUNT,
+                        f"function `{expr.name}` takes {len(param_types)} argument(s), "
+                        f"but {len(expr.arguments)} were given",
+                        expr.line, expr.column
+                    )
+                    return return_type
+        for i, arg in enumerate(expr.arguments):
+            p = mapping[i] if mapping is not None else i
+            expected_type = param_types[p] if p < len(param_types) else None
             if isinstance(arg.value, ClosureExpr):
                 arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
             else:
                 self._apply_literal_expected_type(arg.value, expected_type)
                 arg_type = self._check_expression(arg.value)
-            declared = (func_info.param_types[i]
-                        if i < len(func_info.param_types) else None)
+            declared = (func_info.param_types[p]
+                        if p < len(func_info.param_types) else None)
             allow_wrap = self._df3_allow_wrap(
                 declared, {tp.name for tp in (func_info.type_params or [])})
             if self._try_existential_arg_coercion(arg, arg_type, expected_type):
                 pass  # `&concrete -> &any Trait` erasure (or its error) handled
-            elif arg_type and not self._arg_type_ok(
+            elif arg_type and expected_type is not None and not self._arg_type_ok(
                     arg.value, arg_type, expected_type, allow_wrap):
-                param_name = func_info.param_names[i]
+                param_name = func_info.param_names[p]
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
@@ -1665,13 +1807,16 @@ class ExpressionsMixin:
                                        arg.value.line, arg.value.column)
         # Variadic extra arguments have no declared parameter type to check
         # against, but must still flow through the chokepoint so codegen sees
-        # their resolved_type annotations.
-        for arg in expr.arguments[len(param_types):]:
-            self._check_expression(arg.value)
-            self._check_value_transfer(arg.value, None, "call argument",
-                                       arg.value.line, arg.value.column)
-        self._check_call_exclusivity([a.value for a in expr.arguments], param_types,
-                                     param_names=func_info.param_names)
+        # their resolved_type annotations. (Variadic calls are never labeled.)
+        if mapping is None:
+            for arg in expr.arguments[len(param_types):]:
+                self._check_expression(arg.value)
+                self._check_value_transfer(arg.value, None, "call argument",
+                                           arg.value.line, arg.value.column)
+        aligned_types, aligned_names = self._aligned_call_meta(
+            expr, mapping, param_types, func_info.param_names)
+        self._check_call_exclusivity([a.value for a in expr.arguments], aligned_types,
+                                     param_names=aligned_names)
         return return_type
 
     def _check_if_expr(self, expr: IfExpr) -> Optional[SawType]:
@@ -2782,10 +2927,43 @@ class ExpressionsMixin:
                 f"`{expected_type}` (range {lo}..={hi})",
                 line, column)
 
+    def _reinterpret_struct_init_as_call(self, expr: StructInit):
+        """Design 66: if `expr.struct_name` names a FUNCTION (free or overloaded),
+        build the equivalent fully-labeled `FunctionCall` from the struct-init's
+        field inits so a labeled call `f(a: 1, b: 2)` — which the parser routes
+        to StructInit — resolves as a call. Returns the FunctionCall, or None
+        when the name is not a callable function."""
+        name = expr.struct_name
+        # The name must be callable-but-not-a-struct: a free/overloaded function,
+        # an in-scope binding (a closure value), or a constructible type param.
+        # A genuinely-unknown name keeps the "undefined struct" diagnostic.
+        is_callable = (
+            (self.get_function_info(name) is not None
+             or len(self.namespace.lookup_function_overloads(name)) >= 1)
+            and self.namespace.is_accessible(name)
+        ) or (self.current_scope.lookup(name) is not None) \
+          or (name in getattr(self, 'current_type_params', {}))
+        if not is_callable:
+            return None
+        from ast_nodes import FunctionCall as _FC, Argument as _Arg
+        args = [_Arg(value=v, name=n) for (n, v) in expr.field_inits]
+        fc = _FC(name=name, arguments=args, type_args=expr.type_args,
+                 line=expr.line, column=expr.column)
+        return fc
+
     def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
         """Check struct initialization with parameter-based resolution."""
         struct_info = self.get_struct_info(expr.struct_name)
         if struct_info is None:
+            # Design 66: `name(label: value, ...)` is syntactically identical to
+            # struct init; the parser eagerly builds a StructInit. When the name
+            # is actually a FUNCTION (not a struct), this is a fully-labeled
+            # function call — reinterpret it as one and delegate. Codegen reads
+            # `expr.as_function_call` to emit the call instead of a struct build.
+            fc = self._reinterpret_struct_init_as_call(expr)
+            if fc is not None:
+                expr.as_function_call = fc
+                return self._check_function_call(fc)
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined struct `{expr.struct_name}`",
@@ -3457,6 +3635,15 @@ class ExpressionsMixin:
         expr.is_field_call = True  # consumed by codegen
         param_types = func_type.param_types or []
         return_type = func_type.func_return_type or SawType(TypeKind.VOID)
+        # Design 66: a function-typed field is a STRUCTURAL closure type — no
+        # parameter names to label against.
+        if self._call_has_labels(expr):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"labeled arguments are not allowed when calling through the "
+                f"function-typed field `{expr.method_name}` (closure types are "
+                f"structural)", expr.line, expr.column)
+            return return_type
         if len(expr.arguments) != len(param_types):
             self._error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
@@ -4059,24 +4246,36 @@ class ExpressionsMixin:
         total_params = len(method_info.param_types) - param_offset
         defaults_for_params = method_info.default_values[param_offset:] if method_info.default_values else []
         required_count = sum(1 for dv in defaults_for_params if dv is None) if defaults_for_params else total_params
-        if len(expr.arguments) < required_count:
-            self._error(
-                ErrorKind.WRONG_ARGUMENT_COUNT,
-                f"method `{expr.method_name}` takes at least {required_count} argument(s), "
-                f"but {len(expr.arguments)} were given",
-                expr.line, expr.column
-            )
-            return method_info.return_type
-        if len(expr.arguments) > total_params:
-            self._error(
-                ErrorKind.WRONG_ARGUMENT_COUNT,
-                f"method `{expr.method_name}` takes at most {total_params} argument(s), "
-                f"but {len(expr.arguments)} were given",
-                expr.line, expr.column
-            )
-            return method_info.return_type
+        logical_names = method_info.param_names[param_offset:]
+        # Design 66: labeled arguments bind by the binding rule; positional-only
+        # calls keep the exact legacy arity checks and identity binding.
+        has_labels = self._call_has_labels(expr)
+        if has_labels:
+            mapping = self._bind_args(expr, logical_names, defaults_for_params,
+                                      expr.method_name)
+            if mapping is None:
+                return method_info.return_type
+        else:
+            mapping = None
+            if len(expr.arguments) < required_count:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"method `{expr.method_name}` takes at least {required_count} argument(s), "
+                    f"but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+                return method_info.return_type
+            if len(expr.arguments) > total_params:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"method `{expr.method_name}` takes at most {total_params} argument(s), "
+                    f"but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+                return method_info.return_type
         for i, arg in enumerate(expr.arguments):
-            declared_type = method_info.param_types[i + param_offset]
+            p = mapping[i] if mapping is not None else i
+            declared_type = method_info.param_types[p + param_offset]
             expected_type = declared_type
             if type_subst:
                 expected_type = expected_type.substitute(type_subst)
@@ -4089,7 +4288,7 @@ class ExpressionsMixin:
             else:
                 arg_type = self._check_expression(arg.value)
             if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
-                param_name = method_info.param_names[i + param_offset]
+                param_name = method_info.param_names[p + param_offset]
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
@@ -4113,12 +4312,14 @@ class ExpressionsMixin:
                 )
         # Exclusivity: the receiver of a `var self` method is a mutable path;
         # its parameter types (excluding self) align with the arguments.
+        aligned_types, aligned_names = self._aligned_call_meta(
+            expr, mapping, method_info.param_types[param_offset:], logical_names)
         self._check_call_exclusivity(
             [a.value for a in expr.arguments],
-            method_info.param_types[param_offset:],
+            aligned_types,
             receiver=expr.object if not method_info.is_init else None,
             receiver_mutable=method_info.self_mutable,
-            param_names=method_info.param_names[param_offset:],
+            param_names=aligned_names,
         )
         return_type = method_info.return_type
         if type_subst:
@@ -4196,28 +4397,42 @@ class ExpressionsMixin:
         # into a separately-checked module resolves to no node and is a
         # non-suspending leaf (design 22 §5), which is safe today.
         self._effect_call_function(func_info, expr.method_name, expr.line)
-        if len(expr.arguments) != len(func_info.param_types):
-            self._error(
-                ErrorKind.WRONG_ARGUMENT_COUNT,
-                f"function `{expr.method_name}` takes {len(func_info.param_types)} argument(s), "
-                f"but {len(expr.arguments)} were given",
-                expr.line, expr.column
-            )
-            return func_info.return_type
-        for i, (arg, expected_type) in enumerate(zip(expr.arguments, func_info.param_types)):
+        # Design 66: labeled arguments bind by the binding rule; positional-only
+        # calls keep the exact legacy arity check and identity binding.
+        has_labels = self._call_has_labels(expr)
+        if has_labels:
+            mapping = self._bind_args(expr, list(func_info.param_names),
+                                      func_info.default_values, expr.method_name)
+            if mapping is None:
+                return func_info.return_type
+        else:
+            mapping = None
+            if len(expr.arguments) != len(func_info.param_types):
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"function `{expr.method_name}` takes {len(func_info.param_types)} argument(s), "
+                    f"but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+                return func_info.return_type
+        for i, arg in enumerate(expr.arguments):
+            p = mapping[i] if mapping is not None else i
+            expected_type = func_info.param_types[p] if p < len(func_info.param_types) else None
             arg_type = self._check_expression(arg.value)
             allow_wrap = self._df3_allow_wrap(
                 expected_type, {tp.name for tp in (func_info.type_params or [])})
-            if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
+            if arg_type and expected_type is not None and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
+                    f"argument `{func_info.param_names[p]}` expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
                 )
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
+        aligned_types, aligned_names = self._aligned_call_meta(
+            expr, mapping, func_info.param_types, func_info.param_names)
         self._check_call_exclusivity([a.value for a in expr.arguments],
-                                     func_info.param_types)
+                                     aligned_types, param_names=aligned_names)
         return func_info.return_type
 
     def _check_module_struct_init(self, expr: MethodCall, struct_sym) -> Optional[SawType]:
@@ -4326,22 +4541,33 @@ class ExpressionsMixin:
         self._effect_call_method(
             method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
         required_count = sum(1 for dv in method_info.default_values if dv is None)
-        if len(expr.arguments) < required_count:
-            self._error(
-                ErrorKind.WRONG_ARGUMENT_COUNT,
-                f"static method `{struct_name}.{expr.method_name}` takes at least {required_count} argument(s), "
-                f"but {len(expr.arguments)} were given",
-                expr.line, expr.column
-            )
-            return method_info.return_type
-        if len(expr.arguments) > len(method_info.param_types):
-            self._error(
-                ErrorKind.WRONG_ARGUMENT_COUNT,
-                f"static method `{struct_name}.{expr.method_name}` takes at most {len(method_info.param_types)} argument(s), "
-                f"but {len(expr.arguments)} were given",
-                expr.line, expr.column
-            )
-            return method_info.return_type
+        # Design 66: labeled arguments bind by the binding rule; positional-only
+        # calls keep the exact legacy arity checks and identity binding.
+        has_labels = self._call_has_labels(expr)
+        if has_labels:
+            mapping = self._bind_args(expr, list(method_info.param_names),
+                                      method_info.default_values,
+                                      f"{struct_name}.{expr.method_name}")
+            if mapping is None:
+                return method_info.return_type
+        else:
+            mapping = None
+            if len(expr.arguments) < required_count:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"static method `{struct_name}.{expr.method_name}` takes at least {required_count} argument(s), "
+                    f"but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+                return method_info.return_type
+            if len(expr.arguments) > len(method_info.param_types):
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"static method `{struct_name}.{expr.method_name}` takes at most {len(method_info.param_types)} argument(s), "
+                    f"but {len(expr.arguments)} were given",
+                    expr.line, expr.column
+                )
+                return method_info.return_type
         # Build the struct type-param -> concrete-arg map from the receiver's
         # explicit type args (default-filled, design 37), so a static factory
         # whose PARAMETERS mention the struct's type params — `Box<Int>.make(v: T)`
@@ -4356,7 +4582,8 @@ class ExpressionsMixin:
             for tp, ta in zip(struct_type_params, resolved_args):
                 type_map[tp.name] = ta
         for i, arg in enumerate(expr.arguments):
-            declared_type = method_info.param_types[i]
+            p = mapping[i] if mapping is not None else i
+            declared_type = method_info.param_types[p]
             expected_type = declared_type
             if expected_type is not None and type_map:
                 expected_type = expected_type.substitute(type_map)
@@ -4366,7 +4593,7 @@ class ExpressionsMixin:
             allow_wrap = self._df3_allow_wrap(
                 declared_type, set(type_map.keys()) if type_map else None)
             if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
-                param_name = method_info.param_names[i]
+                param_name = method_info.param_names[p]
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
@@ -4374,9 +4601,11 @@ class ExpressionsMixin:
                 )
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
+        aligned_types, aligned_names = self._aligned_call_meta(
+            expr, mapping, method_info.param_types, method_info.param_names)
         self._check_call_exclusivity([a.value for a in expr.arguments],
-                                     method_info.param_types,
-                                     param_names=method_info.param_names)
+                                     aligned_types,
+                                     param_names=aligned_names)
         # For a static factory on a GENERIC struct called with explicit type
         # args (`Vector<Int>.try_with_capacity(...)`), substitute the struct's
         # type params into the return type so the caller sees the concrete

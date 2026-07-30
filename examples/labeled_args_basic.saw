@@ -1,0 +1,18 @@
+// Design 66: labeled arguments on a non-overloaded function — all-labeled,
+// partial-labeled, and positional (byte-identical) calls all resolve to the
+// same function. Labels are available for clarity; never required here.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 7
+// 7
+
+func sub(a: Int, b: Int) -> Int {
+    a - b
+}
+
+func main() {
+    print(sub(a: 10, b: 3))   // fully labeled
+    print(sub(10, b: 3))      // partial (positional then labeled)
+    print(sub(10, 3))         // positional
+}

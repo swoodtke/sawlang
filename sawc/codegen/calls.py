@@ -46,6 +46,25 @@ class CallsMixin:
             if defaults[i] is not None:
                 args.append(self._gen_transfer_value(defaults[i]))
 
+    def _planned_arg_values(self, expr, logical_defaults, gen_default=None):
+        """Design 66: build the ordered argument values (excluding self) for a
+        LABELED call from `expr.arg_plan`. Each plan slot is either a source-arg
+        index (emit that argument's value) or None (a default-filled parameter,
+        lowered from `logical_defaults[p]`). `logical_defaults` is indexed by
+        logical parameter position (self already stripped). The binding rule
+        never reorders bound arguments, so evaluation stays left-to-right;
+        skipped defaults are interleaved into their parameter slots."""
+        if gen_default is None:
+            gen_default = self._gen_transfer_value
+        plan = expr.arg_plan
+        vals = []
+        for p, ai in enumerate(plan):
+            if ai is not None:
+                vals.append(self._gen_transfer_value(expr.arguments[ai].value))
+            else:
+                vals.append(gen_default(logical_defaults[p]))
+        return vals
+
     def _coerce_int_llvm(self, value, target):
         """Coerce an integer `value` to the LLVM `target` IntType (design 65
         followup). A bare integer literal reaches a fixed-width slot as the
@@ -218,8 +237,12 @@ class CallsMixin:
         resolved_symbol = getattr(expr, 'resolved_symbol', None)
         if resolved_symbol is not None and resolved_symbol in self.functions:
             func = self.functions[resolved_symbol]
-            args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
-            self._fill_func_defaults(args, resolved_symbol)
+            if getattr(expr, 'arg_plan', None) is not None:
+                args = self._planned_arg_values(
+                    expr, self.func_defaults.get(resolved_symbol) or [])
+            else:
+                args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
+                self._fill_func_defaults(args, resolved_symbol)
             return self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
 
         # Check if the name refers to a closure variable
@@ -292,9 +315,15 @@ class CallsMixin:
             func = self.functions[expr.name]
 
         # Arguments are now Argument objects with .value
-        args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
-        # Fill omitted trailing arguments from their default expressions (design 53).
-        self._fill_func_defaults(args, expr.name)
+        if getattr(expr, 'arg_plan', None) is not None:
+            # Design 66: labeled/mid-skip call — emit args by the binding plan,
+            # interleaving default-filled parameter slots.
+            args = self._planned_arg_values(
+                expr, self.func_defaults.get(expr.name) or [])
+        else:
+            args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
+            # Fill omitted trailing arguments from their default expressions (design 53).
+            self._fill_func_defaults(args, expr.name)
         result = self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
 
         # Wrap result in optional for extern functions that return nullable pointers
@@ -904,17 +933,26 @@ class CallsMixin:
             self_arg = self.builder.load(self_arg, name="ref_recv_deref")
 
         args = [self_arg]  # self is first argument
-        # Arguments are Argument objects with .value
-        for arg in expr.arguments:
-            args.append(self._gen_transfer_value(arg.value))
+        if getattr(expr, 'arg_plan', None) is not None:
+            # Design 66: labeled/mid-skip call — build the non-self args by the
+            # binding plan. `method_defaults` includes self at index 0, so the
+            # logical (self-stripped) default list is `defaults[1:]`.
+            method_defs = self.method_defaults.get(mangled_name) or []
+            logical_defs = method_defs[1:] if method_defs else []
+            args.extend(self._planned_arg_values(
+                expr, logical_defs, self._generate_expression))
+        else:
+            # Arguments are Argument objects with .value
+            for arg in expr.arguments:
+                args.append(self._gen_transfer_value(arg.value))
 
-        # Fill in default values for missing arguments
-        if mangled_name in self.method_defaults:
-            defaults = self.method_defaults[mangled_name]
-            # defaults includes self, so adjust index: args[0] is self, defaults[0] is self
-            for i in range(len(args), len(defaults)):
-                if defaults[i] is not None:
-                    args.append(self._generate_expression(defaults[i]))
+            # Fill in default values for missing arguments
+            if mangled_name in self.method_defaults:
+                defaults = self.method_defaults[mangled_name]
+                # defaults includes self, so adjust index: args[0] is self, defaults[0] is self
+                for i in range(len(args), len(defaults)):
+                    if defaults[i] is not None:
+                        args.append(self._generate_expression(defaults[i]))
 
         # Call the method
         return self.builder.call(method_func, self._coerce_call_args(method_func, args), name="methodcall")
@@ -1279,16 +1317,23 @@ class CallsMixin:
         method_func = self.functions[mangled_name]
 
         # Generate provided arguments
-        args = []
-        for arg in expr.arguments:
-            args.append(self._gen_transfer_value(arg.value))
+        if getattr(expr, 'arg_plan', None) is not None:
+            # Design 66: static methods have no self, so method_defaults is the
+            # logical (self-stripped) default list directly.
+            logical_defs = self.method_defaults.get(mangled_name) or []
+            args = self._planned_arg_values(
+                expr, logical_defs, self._generate_expression)
+        else:
+            args = []
+            for arg in expr.arguments:
+                args.append(self._gen_transfer_value(arg.value))
 
-        # Fill in default values for missing arguments
-        if mangled_name in self.method_defaults:
-            defaults = self.method_defaults[mangled_name]
-            for i in range(len(args), len(defaults)):
-                if defaults[i] is not None:
-                    args.append(self._generate_expression(defaults[i]))
+            # Fill in default values for missing arguments
+            if mangled_name in self.method_defaults:
+                defaults = self.method_defaults[mangled_name]
+                for i in range(len(args), len(defaults)):
+                    if defaults[i] is not None:
+                        args.append(self._generate_expression(defaults[i]))
 
         return self.builder.call(method_func, self._coerce_call_args(method_func, args), name="static_methodcall")
 
@@ -1325,9 +1370,15 @@ class CallsMixin:
         func = self.functions[func_name]
 
         # Generate arguments
-        args = []
-        for arg in expr.arguments:
-            args.append(self._gen_transfer_value(arg.value))
+        if getattr(expr, 'arg_plan', None) is not None:
+            # Design 66: labeled module call. Module functions carry no separate
+            # default table here; the plan's slots are all argument-bound.
+            args = self._planned_arg_values(
+                expr, self.func_defaults.get(func_name) or [])
+        else:
+            args = []
+            for arg in expr.arguments:
+                args.append(self._gen_transfer_value(arg.value))
 
         return self.builder.call(func, self._coerce_call_args(func, args), name="module_call")
 

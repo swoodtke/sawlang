@@ -1,0 +1,11 @@
+// Design 66: a label that names no parameter of the callee is an error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no parameter named `z`
+
+func sub(a: Int, b: Int) -> Int {
+    a - b
+}
+
+func main() {
+    print(sub(a: 1, z: 2))
+}

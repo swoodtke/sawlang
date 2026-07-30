@@ -1,0 +1,33 @@
+// Design 66: labeled arguments work on instance methods and static (no-self)
+// methods, including forward skip over a defaulted parameter.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 103
+// 11
+// 15
+// 10
+
+struct Calc {
+    base: Int
+}
+
+extension Calc {
+    func combine(&self, x: Int, y: Int = 100) -> Int {
+        self.base + x + y
+    }
+    func make(seed: Int, bump: Int = 5) -> Calc {
+        Calc(base: seed + bump)
+    }
+}
+
+func main() {
+    let c = Calc(base: 1)
+    print(c.combine(x: 2, y: 3))   // 1 + 2 + 3
+    print(c.combine(x: 2))         // 1 + 2 + 100 (default y)
+    print(c.combine(2, y: 8))      // 1 + 2 + 8
+    let d = Calc.make(seed: 10)    // base = 10 + 5
+    print(d.base)
+    let e = Calc.make(seed: 10, bump: 0)
+    print(e.base)
+}

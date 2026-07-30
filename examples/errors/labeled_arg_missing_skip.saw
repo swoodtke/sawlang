@@ -1,0 +1,12 @@
+// Design 66: a labeled argument may skip forward ONLY over parameters that have
+// defaults. Skipping a NON-defaulted parameter is a clean missing-argument error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: missing argument for parameter `b`
+
+func three(a: Int, b: Int, c: Int) -> Int {
+    a + b + c
+}
+
+func main() {
+    print(three(a: 1, c: 3))
+}

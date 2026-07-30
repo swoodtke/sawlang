@@ -23,6 +23,12 @@ class StructsMixin:
 
     def _generate_struct_init(self, expr: StructInit):
         """Generate code for struct initialization."""
+        # Design 66: the typechecker reinterpreted this `name(label: ...)` node
+        # as a fully-labeled FUNCTION call (the parser could not tell struct init
+        # from a labeled call). Emit the call instead of a struct build.
+        as_call = getattr(expr, 'as_function_call', None)
+        if as_call is not None:
+            return self._generate_function_call(as_call)
         # Handle generic struct instantiation
         struct_name = expr.struct_name
         if expr.type_args:
