@@ -1,0 +1,15 @@
+// DF3 does NOT wrap through a generic instantiation boundary (design 57):
+// when a generic parameter U is instantiated to Int?, a bare Int argument does
+// not auto-wrap — the optional must be explicit at the generic boundary.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: expects
+
+func id<U>(x: U) -> U {
+    x
+}
+
+func main() {
+    // U := Int?, argument is a bare Int -> rejected (no wrap through generics).
+    let r = id<Int?>(5)
+    print(0)
+}

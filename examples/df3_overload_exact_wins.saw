@@ -1,0 +1,21 @@
+// DF3 x design-55 rule 1: an exact match beats an optional auto-wrap. With both
+// f(Int) and f(Int?) visible, f(5) resolves to the exact f(Int) (no wrap), and
+// an already-optional argument selects f(Int?).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1000
+// 2000
+
+func f(x: Int) -> Int {
+    1000
+}
+
+func f(x: Int?) -> Int {
+    2000
+}
+
+func main() {
+    print(f(5))       // exact Int overload wins over the Int? wrap -> 1000
+    let o: Int? = 5
+    print(f(o))       // an already-optional argument selects f(Int?) -> 2000
+}

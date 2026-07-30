@@ -551,6 +551,9 @@ class ResourcesMixin:
         value = self._generate_expression(value_expr)
         if self._transfer_needs_copy(value_expr):
             value = self._generate_copy(value, self._expr_type(value_expr))
+            # DF3 (design 57): a copied/retained value wrapped into an optional
+            # parameter — the Some(...) owns the fresh reference.
+            return self._maybe_autowrap_optional(value_expr, value)
         elif isinstance(value_expr, Identifier):
             # No copy/retain was needed, yet the value is being transferred into a
             # NEW home — for a named owned (ExplicitCopy/NoCopy) binding that means
@@ -565,7 +568,22 @@ class ResourcesMixin:
             if flag is not None:
                 self.builder.store(ir.Constant(ir.IntType(1), 0), flag)
             self.moved_variables.add(name)
-        return value
+        return self._maybe_autowrap_optional(value_expr, value)
+
+    def _maybe_autowrap_optional(self, value_expr, value):
+        """DF3 (design 57): if the typechecker recorded a one-level `T -> T?`
+        call-site auto-wrap on `value_expr`, construct the `{ i1 is_some, T }`
+        optional around the already-materialized (and move/copy-resolved)
+        `value`. Otherwise return `value` unchanged."""
+        opt_type = getattr(value_expr, 'autowrap_to_optional', None)
+        if opt_type is None:
+            return value
+        opt_llvm = self._get_llvm_type(opt_type)
+        opt_val = ir.Constant(opt_llvm, ir.Undefined)
+        opt_val = self.builder.insert_value(
+            opt_val, ir.Constant(ir.IntType(1), 1), 0, name="autowrap_some")
+        opt_val = self.builder.insert_value(opt_val, value, 1, name="autowrap_val")
+        return opt_val
 
     def _transfer_needs_copy(self, value_expr) -> bool:
         """Whether transferring `value_expr` into a new owner must copy/retain."""

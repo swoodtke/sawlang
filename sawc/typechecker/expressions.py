@@ -781,6 +781,66 @@ class ExpressionsMixin:
         )
         return None
 
+    def _arg_type_ok(self, arg_value, arg_type, expected_type, allow_wrap=True):
+        """Argument-position type check with DF3 call-site optional auto-wrap
+        (design 57). Returns True if a value of `arg_type` may be passed where
+        `expected_type` is wanted, recording a one-level `T -> T?` wrap on
+        `arg_value` (an AST node) when that is what makes it compatible — so
+        codegen constructs `Some(x)` at the argument edge.
+
+        Ordering: this runs AFTER overload resolution (design 55 rule 1 already
+        preferred an exact match over an optional-wrap), then injects the wrap
+        at the argument-passing edge (the design-30 return machinery is
+        untouched). Only ONE level (`T -> T?`, never `T -> T??`). `allow_wrap`
+        is False at a generic-instantiation boundary: a bare type parameter that
+        substitutes to an optional does NOT auto-wrap — wrapping must be explicit
+        there.
+        """
+        if arg_value is not None and hasattr(arg_value, 'autowrap_to_optional'):
+            arg_value.autowrap_to_optional = None
+        if arg_type is None or expected_type is None:
+            return True
+        # A bare `None` argument to an optional parameter: annotate the literal
+        # with the concrete optional type so codegen can build the None value
+        # (call-argument None was previously untyped — same fix struct-field
+        # init already applies).
+        if arg_type.is_none_literal():
+            if expected_type.is_optional() and arg_value is not None:
+                arg_value.resolved_type = expected_type
+            return self._types_compatible(arg_type, expected_type)
+        # Not the wrap case (expected is non-optional, or the argument is itself
+        # already optional): defer to ordinary compatibility, no wrap.
+        if not (expected_type.is_optional() and not arg_type.is_optional()):
+            return self._types_compatible(arg_type, expected_type)
+        # Here: `expected` is optional and `arg` is a bare (non-optional) value —
+        # a candidate one-level `T -> T?` auto-wrap (DF3, design 57).
+        inner = expected_type.inner_type
+        if inner is None or inner.is_optional():
+            return False  # would be a >1-level wrap (e.g. Int -> Int??): reject
+        if arg_type.kind == TypeKind.NEVER:
+            return True   # a diverging expression fits any home
+        if not self._types_compatible(arg_type, inner):
+            return False
+        if not allow_wrap:
+            return False  # no auto-wrap across a generic-instantiation boundary
+        if arg_value is not None:
+            arg_value.autowrap_to_optional = expected_type
+        return True
+
+    def _df3_allow_wrap(self, declared_type, tp_names=None):
+        """DF3: auto-wrap is disallowed when the parameter's optional-ness comes
+        from substituting a generic type parameter (design 57 — explicit at
+        generic boundaries). Returns False iff the DECLARED (pre-substitution)
+        parameter type is a bare type-parameter reference."""
+        if declared_type is None:
+            return True
+        if declared_type.kind == TypeKind.TYPE_PARAM:
+            return False
+        if (declared_type.kind == TypeKind.STRUCT and tp_names
+                and declared_type.struct_name in tp_names):
+            return False
+        return True
+
     def _overload_arg_types(self, expr):
         """Type-check the non-closure arguments once (recording moves/effects a
         single time) and return the list of argument types, with `None` in each
@@ -804,7 +864,7 @@ class ExpressionsMixin:
             else:
                 at = arg_types[i]
             if (at is not None and expected is not None
-                    and not self._types_compatible(at, expected)):
+                    and not self._arg_type_ok(arg.value, at, expected)):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument {i + 1} expects `{expected}` but got `{at}`",
@@ -1267,7 +1327,7 @@ class ExpressionsMixin:
                     arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
                 else:
                     arg_type = self._check_expression(arg.value)
-                if arg_type and not self._types_compatible(arg_type, expected_type):
+                if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
@@ -1476,9 +1536,14 @@ class ExpressionsMixin:
                 arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
             else:
                 arg_type = self._check_expression(arg.value)
+            declared = (func_info.param_types[i]
+                        if i < len(func_info.param_types) else None)
+            allow_wrap = self._df3_allow_wrap(
+                declared, {tp.name for tp in (func_info.type_params or [])})
             if self._try_existential_arg_coercion(arg, arg_type, expected_type):
                 pass  # `&concrete -> &any Trait` erasure (or its error) handled
-            elif arg_type and not self._types_compatible(arg_type, expected_type):
+            elif arg_type and not self._arg_type_ok(
+                    arg.value, arg_type, expected_type, allow_wrap):
                 param_name = func_info.param_names[i]
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -2402,13 +2467,16 @@ class ExpressionsMixin:
         if matches_fields:
             expr.resolved_init_params = None
             for field_name, field_value in expr.field_inits:
-                expected_type = struct_info.fields[field_name]
+                declared_type = struct_info.fields[field_name]
+                expected_type = declared_type
                 if type_mapping:
                     expected_type = expected_type.substitute(type_mapping)
                 actual_type = self._check_init_field_value(field_value, expected_type)
                 if expected_type.kind == TypeKind.OPTIONAL and isinstance(field_value, NoneLiteral):
                     field_value.resolved_type = expected_type
-                if actual_type and not self._types_compatible(actual_type, expected_type):
+                allow_wrap = self._df3_allow_wrap(
+                    declared_type, set(type_mapping.keys()) if type_mapping else None)
+                if actual_type and not self._arg_type_ok(field_value, actual_type, expected_type, allow_wrap):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"field `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
@@ -2428,11 +2496,14 @@ class ExpressionsMixin:
             init_param_names = []
             for field_name, field_value in expr.field_inits:
                 param_idx = method_info.param_names.index(field_name)
-                expected_type = method_info.param_types[param_idx]
+                declared_type = method_info.param_types[param_idx]
+                expected_type = declared_type
                 if type_mapping:
                     expected_type = expected_type.substitute(type_mapping)
                 actual_type = self._check_init_field_value(field_value, expected_type)
-                if actual_type and not self._types_compatible(actual_type, expected_type):
+                allow_wrap = self._df3_allow_wrap(
+                    declared_type, set(type_mapping.keys()) if type_mapping else None)
+                if actual_type and not self._arg_type_ok(field_value, actual_type, expected_type, allow_wrap):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"parameter `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
@@ -2973,7 +3044,7 @@ class ExpressionsMixin:
                 arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
             else:
                 arg_type = self._check_expression(arg.value)
-            if arg_type and not self._types_compatible(arg_type, expected_type):
+            if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
@@ -3573,16 +3644,19 @@ class ExpressionsMixin:
             )
             return method_info.return_type
         for i, arg in enumerate(expr.arguments):
-            expected_type = method_info.param_types[i + param_offset]
+            declared_type = method_info.param_types[i + param_offset]
+            expected_type = declared_type
             if type_subst:
                 expected_type = expected_type.substitute(type_subst)
+            allow_wrap = self._df3_allow_wrap(
+                declared_type, set(type_subst.keys()) if type_subst else None)
             # Closure arguments infer their parameter types from the expected
             # function type and may carry reference params (e.g. Mutex.lock).
             if isinstance(arg.value, ClosureExpr):
                 arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
             else:
                 arg_type = self._check_expression(arg.value)
-            if arg_type and not self._types_compatible(arg_type, expected_type):
+            if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
                 param_name = method_info.param_names[i + param_offset]
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -3694,7 +3768,9 @@ class ExpressionsMixin:
             return func_info.return_type
         for i, (arg, expected_type) in enumerate(zip(expr.arguments, func_info.param_types)):
             arg_type = self._check_expression(arg.value)
-            if arg_type and not self._types_compatible(arg_type, expected_type):
+            allow_wrap = self._df3_allow_wrap(
+                expected_type, {tp.name for tp in (func_info.type_params or [])})
+            if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
@@ -3766,7 +3842,7 @@ class ExpressionsMixin:
             for field_name, field_value in field_inits:
                 expected_type = struct_sym.fields[field_name]
                 actual_type = self._check_init_field_value(field_value, expected_type)
-                if actual_type and not self._types_compatible(actual_type, expected_type):
+                if actual_type and not self._arg_type_ok(field_value, actual_type, expected_type):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"field `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
@@ -3791,7 +3867,7 @@ class ExpressionsMixin:
                 param_idx = method_info.param_names.index(field_name)
                 expected_type = method_info.param_types[param_idx]
                 actual_type = self._check_init_field_value(field_value, expected_type)
-                if actual_type and not self._types_compatible(actual_type, expected_type):
+                if actual_type and not self._arg_type_ok(field_value, actual_type, expected_type):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"argument `{field_name}` expects `{expected_type}` but got `{actual_type}`",
@@ -3843,10 +3919,13 @@ class ExpressionsMixin:
                 type_map[tp.name] = ta
         for i, arg in enumerate(expr.arguments):
             arg_type = self._check_expression(arg.value)
-            expected_type = method_info.param_types[i]
+            declared_type = method_info.param_types[i]
+            expected_type = declared_type
             if expected_type is not None and type_map:
                 expected_type = expected_type.substitute(type_map)
-            if arg_type and not self._types_compatible(arg_type, expected_type):
+            allow_wrap = self._df3_allow_wrap(
+                declared_type, set(type_map.keys()) if type_map else None)
+            if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
                 param_name = method_info.param_names[i]
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -3954,7 +4033,7 @@ class ExpressionsMixin:
                     continue
                 arg_type = self._check_expression(arg.value)
                 expected_type = expected_dict[arg.name]
-                if arg_type and not self._types_compatible(arg_type, expected_type):
+                if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"expected type `{expected_type}` for parameter `{arg.name}`, got `{arg_type}`",
@@ -3967,7 +4046,7 @@ class ExpressionsMixin:
                     continue
                 param_name, expected_type = expected_list[i]
                 arg_type = self._check_expression(arg.value)
-                if arg_type and not self._types_compatible(arg_type, expected_type):
+                if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"expected type `{expected_type}` for parameter `{param_name}`, got `{arg_type}`",

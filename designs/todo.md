@@ -210,9 +210,22 @@ spec examples aspirational).
   status by 256, silently discarding signal-death info — a SIGABRT
   (failed assert/panic) is misreported as success. Real std/process
   bug (same family as the old process_simple issue). → std fix brief.
-- **DF3.** Bare `Int` literal → `Int?` parameter not auto-wrapped at
-  call sites (pre-existing; N4/parsing-adjacent). Optional auto-wrap
-  at call boundaries — decide scope.
+- **DF3 — LANDED (design 57 Part 3).** Call-site `T -> T?` optional
+  auto-wrap. One level only (`Int -> Int?`; `Int -> Int??` is moot —
+  `T??` is unspellable in the type grammar; an already-optional argument
+  is passed through, never re-wrapped). Ordered AFTER overload resolution
+  (design 55 rule 1 "exact beats optional-wrap" holds: `f(5)` picks
+  `f(Int)` over `f(Int?)`). NOT through a generic-instantiation boundary
+  (`id<Int?>(5)` is an error — explicit optional required). Move/copy
+  rules unchanged (the wrap consumes the argument exactly as `Some(x)`
+  would; NoCopy payload moves in, dropped once). All call forms + init +
+  enum-payload covered. Impl: typechecker `_arg_type_ok` records a
+  `autowrap_to_optional` flag on the argument node (generic boundary via
+  `_df3_allow_wrap`); codegen `_maybe_autowrap_optional` builds the
+  `{i1 1, T}` optional at the argument edge in `_gen_transfer_value`
+  (struct memberwise init already wrapped via LLVM shape-matching). Also
+  fixed: a bare `None` call argument is now annotated with the concrete
+  optional type (was untyped before).
 - **DF4.** Blade bit-rot: needed `guard var` (was `guard let` + &var
   method) and `move` for Data/Vector args — expected migration, not a
   bug, but Blade needs periodic re-validation as the compiler tightens.

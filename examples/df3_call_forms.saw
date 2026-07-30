@@ -1,0 +1,60 @@
+// DF3 (design 57): call-site T -> T? optional auto-wrap across call forms —
+// free function, instance method, static method, struct init (memberwise), and
+// enum-payload construction. A bare value flows into the T? home; None still
+// passes.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// -1
+// 7
+// 9
+// 11
+// 13
+
+func free_fn(x: Int?) -> Int {
+    if let v = x { v } else { -1 }
+}
+
+struct Thing {
+    n: Int?
+}
+
+extension Thing {
+    func stored(&self) -> Int {
+        if let v = self.n { v } else { -1 }
+    }
+
+    // instance method with an optional parameter
+    func method(&self, x: Int?) -> Int {
+        if let v = x { v } else { -1 }
+    }
+
+    // static method (no &self) returning a Thing
+    func make(x: Int?) -> Thing {
+        Thing(n: x)
+    }
+}
+
+enum Boxed {
+    case Wrap(v: Int?)
+}
+
+func main() {
+    print(free_fn(5))          // free: 5 -> Int?
+    print(free_fn(None))       // None still passes
+
+    let t = Thing(n: 7)        // init memberwise: 7 -> Int?
+    print(t.stored())          // 7
+
+    let t2 = Thing.make(9)     // static method: 9 -> Int?
+    print(t2.stored())         // 9
+
+    print(t.method(11))        // instance method: 11 -> Int?
+
+    let b = Boxed.Wrap(v: 13)  // enum payload: 13 -> Int?
+    match b {
+        case Wrap(x) -> {
+            if let v = x { print(v) } else { print(-1) }   // 13
+        }
+    }
+}
