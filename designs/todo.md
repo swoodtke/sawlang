@@ -538,31 +538,36 @@ LLVM-exception).
   en route: datalayout offsets (45), struct-init optional wrap + if-let
   move-out double-free (52). Generic driven functions still blocked on A5.
   [44, 45, 52, 52b]
-- **A1c. 52/52b v1 gaps — SCOPE-ONLY notes (design 59 G, feature work
-  for a later brief; reproductions in `.build/scratch/g{1,2,3}_*.saw`):**
-  * **G1 TaskGroup inside a suspending fn.** Rejection: the coro transform
-    can't lower `group.spawn(...)` inside a frame — "can only take
-    reference to a variable, field, or array element" (the synthesized
-    `&group` has no addressable frame location yet). Surface: MEDIUM-LARGE
-    — coro_transform.py + taskgroup spawn lowering; the group + its erased
-    run-queue must become frame-resident state and spawn's synthesized
-    receiver/enqueue must resolve through the frame pointer (like the 0c
-    `&var self`-across-suspend receiver work).
-  * **G2 if-let over a suspending call.** Rejection: a suspending call in
-    an if-let condition (`if let v = maybe()` where `maybe` yields) fails
-    to compile (the condition expression is not a hoistable suspend point).
-    Surface: MEDIUM — coro_transform.py: hoist a suspending call out of an
-    if-let / guard / while condition into a preceding driven temp
-    (`let __t = __drive(maybe())`), then bind on the temp; parallels the
-    existing spanning-condition rejection but as a supported rewrite.
-  * **G3 first-class `ch.receive()` suspension.** Rejection: `type Channel
-    has no method receive` — only `try_receive() -> T?` exists; the
-    blocking receive is the hand-written `try_receive()`+`yield_now()`
-    loop. Surface: SMALL-MEDIUM — add a suspending `Channel.receive()`
-    (std/channel.saw) wrapping that loop so it is a first-class suspend
-    point; the coro transform already drives suspending method calls, so
-    the work is the stdlib method + confirming it is recognized as
-    suspending. [52, 52b]
+- **A1c. 52/52b v1 gaps — CLOSED (design 62, LANDED; ran in a worktree
+  concurrent with 61, cherry-picked onto main):**
+  * **G1 TaskGroup inside a suspending fn — CLOSED.** A frame-resident
+    TaskGroup is plain-encoded (addressable `self.group`, real empty-
+    `TaskGroup()` placeholder); `__Frame_*` structs exempted from
+    Deinit/NoCopy containment (torn down memberwise). group Deinit
+    drains children across a parent suspension (structured join via
+    LIFO); nested groups compose (each executor drives only its own
+    queue); cancellation words frame-resident. Tests:
+    taskgroup_in_suspending_fn, _suspending_parent_sleep,
+    _suspending_deinit_join, _suspending_cancel, _nested_groups.
+  * **G2 if-let/guard-let over a suspending call — CLOSED.** Condition
+    hoisted to a driven temp; guard-let shares the machinery; while-let
+    absent from grammar. New self_opt frame encoding (no double-wrap of
+    `T?` fields — fixed a latent miscompile for optional-returning
+    suspending callees) + assign-to-optional None-propagation. Tests:
+    coro_iflet_over_suspending, coro_guardlet_over_suspending,
+    coro_iflet_suspending_deinit.
+  * **G3 first-class `Channel.receive()` — CLOSED.** Cooperative
+    suspending receive lowered INLINE (try_receive+yield_now against
+    the caller's frame — no callee frame, so the generic-method-frame
+    blocker never arises); named `receive` (the blocking thread-engine
+    method was already `recv` — same signature can't overload by
+    effect). Buried expression-position receive rejected cleanly.
+    Tests: channel_recv_producer_consumer, _cancel, _nested,
+    _buried_error. [52, 52b, 62]
+- **Design 62 "async v1 gaps" — LANDED**: G1/G2/G3 above, one commit
+  each + docs (spec concurrency section + CLAUDE.md). Suite 669 → 681
+  in its worktree; 688 combined with design 61 on main. Naming:
+  cooperative `receive` / blocking `recv`.
 - **D16 — DECIDED Jul 29 (user): user-facing `any Trait` NOW**
   (design 51): contextual `any` keyword, erased values behind &/Box
   only (no hidden existential container), construct-erased-directly
