@@ -1,0 +1,34 @@
+// design 56 (N2): a Printable field is formatted inside its parent's `format`
+// by forwarding the shared builder (`self.a.format(into: &var into)`) — a
+// re-borrow of the `&var StringBuilder` reference parameter, streaming with no
+// intermediate Strings.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Line[(1, 2) -> (3, 4)]
+
+struct Point { x: Int, y: Int }
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("(")
+        into.append(self.x)
+        into.append(", ")
+        into.append(self.y)
+        into.append(")")
+    }
+}
+
+struct Line { a: Point, b: Point }
+extension Line: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("Line[")
+        self.a.format(into: &var into)
+        into.append(" -> ")
+        self.b.format(into: &var into)
+        into.append("]")
+    }
+}
+
+func main() {
+    let l = Line(a: Point(x: 1, y: 2), b: Point(x: 3, y: 4))
+    print("{l}")   // Line[(1, 2) -> (3, 4)]
+}

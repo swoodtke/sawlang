@@ -297,7 +297,28 @@ class CallsMixin:
 
         # Arguments are Argument objects with .value
         arg = arguments[0]
-        value = self._generate_expression(arg.value)
+        # Printable (design 56): a non-builtin Printable argument is rendered via
+        # its `to_string()` and printed as a String; builtins keep their fast
+        # path below (byte-identical). Non-Printable non-builtins fall through to
+        # the existing "cannot print" error.
+        # Read the annotation defensively (getattr, not _expr_type): a
+        # module-qualified expression can reach codegen without a resolved_type
+        # (the pre-existing L6 gap), and print of such a value must keep working
+        # via its LLVM value type below — not ICE.
+        arg_saw = getattr(arg.value, 'resolved_type', None)
+        if arg_saw is not None and self.type_param_context:
+            arg_saw = arg_saw.substitute(self.type_param_context)
+        if arg_saw is not None:
+            arg_saw = self._resolve_type_alias(arg_saw)
+        if (arg_saw is not None
+                and arg_saw.kind in (TypeKind.STRUCT, TypeKind.ENUM)
+                and self.namespace.is_printable(arg_saw)):
+            mc = MethodCall(object=arg.value, method_name="to_string",
+                            arguments=[], line=0, column=0)
+            mc.resolved_type = SawType(TypeKind.STRING)
+            value = self._generate_expression(mc)
+        else:
+            value = self._generate_expression(arg.value)
 
         if isinstance(value.type, ir.IntType):
             if value.type.width == 1:
@@ -641,6 +662,32 @@ class CallsMixin:
             else:
                 self._emit_hash(hash_val, recv_type, hasher_ptr)
             return ir.Constant(ir.IntType(32), 0)
+
+        # Printable `.to_string()` / `.format(into:)` (design 56). A receiver with
+        # a real method (a Printable user struct) dispatches normally; a builtin
+        # (primitive / String) receiver is rendered inline. The typechecker only
+        # marked builtin receivers as handled, so if there is no real method here
+        # the receiver is a builtin and we emit inline.
+        if expr.method_name in ("to_string", "format"):
+            recv_type = self._expr_type(expr.object)
+            if recv_type is not None and self.type_param_context:
+                recv_type = recv_type.substitute(self.type_param_context)
+            base = self._type_method_base(recv_type) if recv_type is not None else None
+            mangled = self._mangle_method_name(base, expr.method_name) if base else None
+            if mangled is None or mangled not in self.functions:
+                # Bring a reference receiver to its value type.
+                val = obj_val
+                if recv_type is not None:
+                    expected = self._get_llvm_type(recv_type)
+                    while (val.type != expected
+                           and isinstance(val.type, ir.PointerType)
+                           and not (isinstance(expected, ir.PointerType))):
+                        val = self.builder.load(val, name="fmt_recv_deref")
+                if expr.method_name == "to_string":
+                    return self._emit_to_string(val, recv_type)
+                sb_ptr = self._generate_expression(expr.arguments[0].value)
+                self._emit_format(val, recv_type, sb_ptr)
+                return None
 
         if struct_name is None:
             raise ValueError(f"Cannot determine struct type for method call to {expr.method_name}")

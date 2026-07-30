@@ -946,6 +946,43 @@ class Namespace:
             return all(len(fields) == 0 for fields in enum_sym.variants.values())
         return False
 
+    _PRINTABLE_PRIMITIVE_KINDS = frozenset({
+        TypeKind.INT, TypeKind.UINT,
+        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+        TypeKind.FLOAT, TypeKind.BOOL,
+    })
+
+    def is_printable(self, saw_type: SawType) -> bool:
+        """Whether values of `saw_type` are Printable (design 56).
+
+        Int/UInt + the fixed-width integer types, Float, Bool, and String conform
+        BUILTIN (the compiler renders them inline). There is NO auto-conformance
+        for user types — a struct/enum is Printable only when it declares
+        `extension T: Printable` (or `extension T: Error`, which refines it) or a
+        hand-written conformance. A type alias flows to its underlying type.
+        """
+        saw_type = self._normalize_struct_enum(saw_type)
+        if saw_type is None:
+            return False
+        kind = saw_type.kind
+        if kind in self._PRINTABLE_PRIMITIVE_KINDS:
+            return True
+        if kind == TypeKind.STRING:
+            return True
+        if kind == TypeKind.STRUCT:
+            name = saw_type.struct_name
+            alias_sym = self._lookup_type_alias_deep(name)
+            if alias_sym and alias_sym.aliased_type:
+                return self.is_printable(alias_sym.aliased_type)
+            return (self.type_conforms_to(name, "Printable")
+                    or self.type_conforms_to(name, "Error"))
+        if kind == TypeKind.ENUM:
+            name = saw_type.enum_name
+            return (self.type_conforms_to(name, "Printable")
+                    or self.type_conforms_to(name, "Error"))
+        return False
+
     def type_satisfies_bound(self, saw_type: SawType, bound: str) -> bool:
         """Whether a concrete type satisfies a single type-parameter bound.
 
@@ -962,6 +999,8 @@ class Namespace:
             return self.is_comparable(saw_type)
         if bound == "Hashable":
             return self.is_hashable(saw_type)
+        if bound == "Printable":
+            return self.is_printable(saw_type)
         if bound == "Send":
             return self.is_send(saw_type)
         if bound == "Sync":

@@ -1,0 +1,11 @@
+// design 56 (N2): a non-Printable type in string interpolation is a clean
+// compile error naming the type and the trait (no auto-conformance).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: it is not `Printable`
+
+struct Bare { x: Int }
+
+func main() {
+    let b = Bare(x: 1)
+    print("{b}")
+}

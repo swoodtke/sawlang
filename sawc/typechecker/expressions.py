@@ -70,8 +70,13 @@ class ExpressionsMixin:
         return SawType(TypeKind.STRING)
 
     def visit_StringInterpolation(self, expr: StringInterpolation) -> Optional[SawType]:
-        """Type check string interpolation expressions."""
-        allowed_kinds = {
+        """Type check string interpolation expressions (design 56).
+
+        Builtin types (integers, Float, Bool, String) keep the existing fast
+        lowering. Any other type must be Printable: it is streamed into the
+        interpolation builder via its `format`/`to_string`. A non-Printable type
+        is a clean error naming the type and the trait."""
+        builtin_kinds = {
             TypeKind.INT, TypeKind.UINT, TypeKind.FLOAT, TypeKind.BOOL, TypeKind.STRING,
             TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
             TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
@@ -80,10 +85,29 @@ class ExpressionsMixin:
             expr_type = self._check_expression(sub_expr)
             if expr_type is None:
                 return None
-            if expr_type.kind not in allowed_kinds:
-                self.error(f"Cannot interpolate type '{expr_type}' in string; only primitive types are allowed", sub_expr)
+            if expr_type.kind in builtin_kinds:
+                continue
+            # Non-builtin: require Printable (a `T: Printable` bound satisfies it
+            # inside a generic body).
+            if not self._bound_satisfied(expr_type, "Printable"):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot interpolate value of type `{expr_type}` in a string: "
+                    f"it is not `Printable`",
+                    getattr(sub_expr, 'line', 0), getattr(sub_expr, 'column', 0),
+                    hint=f"conform it with `extension {self._type_display_name(expr_type)}: Printable {{ ... }}`")
                 return None
         return SawType(TypeKind.STRING)
+
+    def _type_display_name(self, saw_type: SawType) -> str:
+        """A bare type name for diagnostics (struct/enum name, else the type)."""
+        if saw_type is None:
+            return "T"
+        if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
+            return saw_type.struct_name
+        if saw_type.kind == TypeKind.ENUM and saw_type.enum_name:
+            return saw_type.enum_name
+        return str(saw_type)
 
     def visit_Identifier(self, expr: Identifier) -> Optional[SawType]:
         return self._check_identifier(expr)
@@ -333,7 +357,15 @@ class ExpressionsMixin:
                              "synchronized type for mutation".format(expr.expr.name)
                     )
                     return None
-                if var_info and not var_info.mutable:
+                # A `&var T` reference parameter is already a mutable borrow, so
+                # re-borrowing it (`&var ref` — forwarding it to another `&var`
+                # parameter, e.g. nested `Printable.format(into:)`, design 56) is
+                # sound even though the binding itself is not a `var`.
+                is_mut_ref_binding = (var_info is not None
+                                      and var_info.type is not None
+                                      and var_info.type.kind == TypeKind.REFERENCE
+                                      and var_info.type.reference_mutable)
+                if var_info and not var_info.mutable and not is_mut_ref_binding:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"cannot take mutable reference to immutable variable `{expr.expr.name}`",
@@ -2802,6 +2834,50 @@ class ExpressionsMixin:
         expr.resolved_type = SawType(TypeKind.VOID)
         return True, SawType(TypeKind.VOID)
 
+    def _check_printable_call(self, expr: MethodCall, obj_type: SawType):
+        """Handle `.to_string()` / `.format(into:)` (design 56). Returns
+        (handled, result). handled=False means the receiver has a real method
+        (a Printable user struct) or is a generic `T` — normal / bound resolution
+        proceeds. handled=True means a builtin receiver was resolved inline."""
+        mname = expr.method_name
+        type_params = getattr(self, 'current_type_params', {})
+        # Opaque generic `T`: leave to the bound-aware resolver.
+        if obj_type.kind == TypeKind.STRUCT and obj_type.struct_name in type_params:
+            return False, None
+        # Concrete struct/enum carrying a real method: normal dispatch.
+        if obj_type.kind == TypeKind.STRUCT:
+            struct_info = self.get_struct_info(obj_type.struct_name, from_type=obj_type)
+            if struct_info and self._lookup_method(struct_info, mname, obj_type.type_args) is not None:
+                return False, None
+        # Builtin (primitive / String) receiver: must be Printable, resolved here.
+        if obj_type.kind not in (TypeKind.STRUCT, TypeKind.ENUM, TypeKind.STRING) \
+                or (obj_type.kind == TypeKind.STRING):
+            pass  # primitives / String handled below
+        if not self.namespace.is_printable(obj_type):
+            return False, None
+        if mname == "to_string":
+            if len(expr.arguments) != 0:
+                return False, None
+            expr.resolved_type = SawType(TypeKind.STRING)
+            return True, SawType(TypeKind.STRING)
+        # format(into: &var StringBuilder)
+        if len(expr.arguments) != 1:
+            return False, None
+        arg_type = self._check_expression(expr.arguments[0].value)
+        ok = (arg_type is not None and arg_type.kind == TypeKind.REFERENCE
+              and arg_type.inner_type is not None
+              and arg_type.inner_type.kind == TypeKind.STRUCT
+              and arg_type.inner_type.struct_name == "StringBuilder")
+        if not ok:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`format` expects a `&var StringBuilder` argument, got `{arg_type}`",
+                expr.line, expr.column,
+                hint="pass a mutable reference to a StringBuilder: `x.format(into: &var b)`"
+            )
+        expr.resolved_type = SawType(TypeKind.VOID)
+        return True, SawType(TypeKind.VOID)
+
     def _check_type_param_method_call(self, expr: MethodCall, obj_type: SawType,
                                       bounds) -> Optional[SawType]:
         """Resolve `x.method()` where `x` has opaque generic type `T` (design 24
@@ -3311,6 +3387,16 @@ class ExpressionsMixin:
         # (POD struct / payload-free enum) receiver is resolved here.
         if expr.method_name == "hash" and len(expr.arguments) == 1:
             handled, result = self._check_hash_call(expr, obj_type)
+            if handled:
+                return result
+
+        # `.to_string()` / `.format(into:)` — the Printable operations (design 56).
+        # A user struct conforming to Printable carries real methods (its
+        # hand-written `format` and its synthesized `to_string`) and dispatches
+        # normally; a builtin (primitive / String) receiver is resolved here and
+        # emitted inline by codegen. A generic `T` is left to the bound resolver.
+        if (expr.method_name in ("to_string", "format")):
+            handled, result = self._check_printable_call(expr, obj_type)
             if handled:
                 return result
 

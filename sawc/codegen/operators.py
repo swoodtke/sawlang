@@ -1092,6 +1092,14 @@ class OperatorsMixin:
                 if var_name in self.static_globals:
                     return self.static_globals[var_name]
                 raise ValueError(f"Undefined variable: {var_name}")
+            # Re-borrowing an existing reference binding (`&var ref` / `&ref`,
+            # design 56): the alloca holds the reference (a pointer to the real
+            # value), so forward THAT pointer — not `&alloca` (one level too
+            # many). A non-reference binding yields its alloca as before.
+            var_type = self.variable_types.get(var_name)
+            if var_type is not None and var_type.kind == TypeKind.REFERENCE:
+                return self.builder.load(self.variables[var_name],
+                                         name=f"{var_name}_reborrow")
             return self.variables[var_name]
         elif isinstance(inner_expr, SelfExpr):
             # Reference to self - return self's alloca/pointer

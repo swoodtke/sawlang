@@ -1,0 +1,32 @@
+// design 56 (N2): rendering enum-shaped data through Printable. Enums don't
+// carry methods directly (enum method dispatch is out of scope here), so a
+// Printable wrapper struct matches on the enum and streams the right text.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// status: Ready
+// status: Failed(code=7)
+
+enum Status {
+    case Ready,
+    case Failed(code: Int)
+}
+
+struct Report { s: Status }
+extension Report: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("status: ")
+        match self.s {
+            case Ready -> into.append("Ready"),
+            case Failed(c) -> {
+                into.append("Failed(code=")
+                into.append(c)
+                into.append(")")
+            }
+        }
+    }
+}
+
+func main() {
+    print("{Report(s: Status.Ready)}")
+    print("{Report(s: Status.Failed(code: 7))}")
+}

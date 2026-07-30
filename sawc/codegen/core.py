@@ -1580,11 +1580,24 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Convert every interpolated expression to a C string pointer once; the
         # same pointers are reused for both the length pass and the build pass.
+        # Builtins keep the existing fast lowering (byte-identical). A non-builtin
+        # Printable piece is rendered via its `to_string()` -> owned String (a
+        # NUL-terminated i8*), spliced in like any String piece (design 56).
         piece_ptrs = []
         for sub_expr in expr.expressions:
-            value = self._generate_expression(sub_expr)
             saw_type = self._expr_type(sub_expr)
-            piece_ptrs.append(self._value_to_string(value, saw_type))
+            if saw_type is not None and self.type_param_context:
+                saw_type = saw_type.substitute(self.type_param_context)
+            if saw_type is not None:
+                saw_type = self._resolve_type_alias(saw_type)
+            if self._is_builtin_interp_type(saw_type):
+                value = self._generate_expression(sub_expr)
+                piece_ptrs.append(self._value_to_string(value, saw_type))
+            else:
+                mc = MethodCall(object=sub_expr, method_name="to_string",
+                                arguments=[], line=expr.line, column=expr.column)
+                mc.resolved_type = SawType(TypeKind.STRING)
+                piece_ptrs.append(self._generate_expression(mc))
 
         strlen_fn = self._libc_func("strlen", i64, [i8ptr])
 
@@ -1677,6 +1690,53 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # Fallback for unknown types
             fallback = self._create_string_constant("<?>")
             return self.builder.gep(fallback, [zero, zero], inbounds=True)
+
+    _BUILTIN_INTERP_KINDS = frozenset({
+        TypeKind.INT, TypeKind.UINT, TypeKind.FLOAT, TypeKind.BOOL, TypeKind.STRING,
+        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+    })
+
+    def _is_builtin_interp_type(self, saw_type: SawType) -> bool:
+        """Whether an interpolation piece uses the builtin fast lowering (design
+        56). None is treated as builtin so callers with unresolved types keep the
+        old <?>-fallback behaviour rather than attempting a Printable dispatch. A
+        type alias flows to its underlying type (a `type MyInt = Int` stays a
+        builtin fast path)."""
+        if saw_type is None:
+            return True
+        resolved = self._resolve_type_alias(saw_type)
+        return resolved.kind in self._BUILTIN_INTERP_KINDS
+
+    def _emit_to_string(self, value, saw_type: SawType):
+        """Render a builtin (primitive / String) value to an owned Saw String
+        (design 56 `to_string`). Reuses the interpolation `_value_to_string`
+        C-string rendering, then copies the bytes into a fresh refcount=1 String
+        via `__saw_string_from_bytes` — so the result never aliases the receiver
+        (a String receiver is duplicated, not shared)."""
+        i8ptr = ir.IntType(8).as_pointer()
+        if saw_type is not None and saw_type.kind == TypeKind.STRING:
+            c_ptr = value
+            length = self.builder.call(self.functions["__saw_string_len"], [value],
+                                       name="ts_len")
+        else:
+            c_ptr = self._value_to_string(value, saw_type)
+            strlen_fn = self._libc_func("strlen", self.int_type, [i8ptr])
+            length = self.builder.call(strlen_fn, [c_ptr], name="ts_len")
+        return self.builder.call(self.functions["__saw_string_from_bytes"],
+                                 [c_ptr, length], name="ts_str")
+
+    def _emit_format(self, value, saw_type: SawType, sb_ptr):
+        """Stream a builtin value's rendering into a StringBuilder (design 56
+        `format`). Renders to an owned String, then appends it through
+        `StringBuilder.append(String)` (always emitted — StringBuilder is a
+        non-generic std extension). `sb_ptr` is the `&var StringBuilder`
+        receiver pointer that `append`'s `&var self` expects."""
+        from codegen.mangle import mangle_overload
+        s = self._emit_to_string(value, saw_type)
+        append_sym = mangle_overload("StringBuilder_append",
+                                     [SawType(TypeKind.STRING)])
+        self.builder.call(self.functions[append_sym], [sb_ptr, s])
 
     def visit_Identifier(self, expr: Identifier):
         if expr.name not in self.variables:

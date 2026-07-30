@@ -132,6 +132,53 @@ trait Hashable {
 }
 
 // =============================================================================
+// Printable (design 56)
+// =============================================================================
+
+// Printable is the streaming-formatter trait (design 56, prelude-visible like
+// Equatable/Comparable). The core method `format` appends the value's rendering
+// into a shared `StringBuilder` (no intermediate Strings); `to_string` rides on
+// it as a default method body (design 56 N1). A user type conforms by hand
+// (NO auto-conformance / synthesis — that is the deferred Debug design's job):
+//
+//     extension Point: Printable {
+//         func format(&self, into: &var StringBuilder) {
+//             into.append("(")
+//             into.append(self.x)
+//             into.append(", ")
+//             into.append(self.y)
+//             into.append(")")
+//         }
+//     }
+//
+// Int/UInt + the fixed-width integer types, Float, Bool, and String conform
+// BUILTIN (the compiler emits `format`/`to_string` inline; string interpolation
+// and `print` keep their existing byte-identical fast paths for these). A
+// non-Printable type used in `"{...}"` interpolation is a clean compile error.
+trait Printable {
+    func format(&self, into: &var StringBuilder)
+
+    func to_string(&self) -> String {
+        var b = StringBuilder()
+        self.format(into: &var b)
+        b.build()
+    }
+}
+
+// =============================================================================
+// Error (design 56) — an error type is a Printable value
+// =============================================================================
+
+// Error refines Printable: any error type renders itself via `format`, so
+// `"{error}"` works uniformly and `Result<T, Box<any Error>>` can carry an
+// erased error whose message is recoverable through the vtable. Both conformance
+// spellings are legal: a one-shot `extension E: Error { func format(...) {...} }`
+// (Error inherits format from Printable), or a split `extension E: Printable
+// {...}` + an empty `extension E: Error {}`.
+trait Error: Printable {
+}
+
+// =============================================================================
 // Thread-safety marker traits (design 21 item 1)
 // =============================================================================
 

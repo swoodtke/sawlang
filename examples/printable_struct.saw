@@ -1,0 +1,38 @@
+// design 56 (N2): a user struct conforms to Printable by hand (streaming
+// `format`); `to_string` rides on the N1 default. Interpolation and print of a
+// Printable value stream through format; a `T: Printable` bound grants both the
+// method and interpolation in generic bodies. Builtins keep their fast path.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// (3, 4)
+// point = (3, 4)
+// (3, 4)
+// (3, 4)
+// 42
+// n=42 b=true
+
+struct Point { x: Int, y: Int }
+
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("(")
+        into.append(self.x)
+        into.append(", ")
+        into.append(self.y)
+        into.append(")")
+    }
+}
+
+func show<T: Printable>(x: T) -> String {
+    x.to_string()
+}
+
+func main() {
+    let p = Point(x: 3, y: 4)
+    print(p)                 // (3, 4)  — print accepts a Printable
+    print("point = {p}")     // point = (3, 4)  — interpolation via format
+    print(p.to_string())     // (3, 4)  — N1 default
+    print(show<Point>(p))    // (3, 4)  — T: Printable bound (struct)
+    print(show<Int>(42))     // 42      — T: Printable bound (builtin)
+    print("n={42} b={true}") // n=42 b=true — builtin fast path unchanged
+}

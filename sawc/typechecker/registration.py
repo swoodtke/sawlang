@@ -97,22 +97,9 @@ class RegistrationMixin:
             type_params=result_type_params
         ))
 
-        # Register Error trait for error types
-        self.namespace.register_trait("Error", TraitSymbol(
-            name="Error",
-            methods={
-                "message": TraitMethodSymbol(
-                    name="message",
-                    param_types=[SawType(TypeKind.SELF)],
-                    return_type=SawType(TypeKind.STRING),
-                    param_names=["self"],
-                    self_mutable=False,
-                    self_is_reference=True
-                )
-            },
-            associated_types=[],
-            parent_traits=[]
-        ))
+        # The `Error` trait (design 56) is defined in builtin.saw as
+        # `trait Error: Printable {}`, registered by the ordinary trait pass — no
+        # hardcoded registration here.
 
     def _block_has_early_exit(self, block: Block) -> bool:
         """Check if a block definitely exits early (return, break, continue).
