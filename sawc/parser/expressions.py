@@ -597,6 +597,31 @@ class ExpressionsMixin:
                 self.advance()
                 return TupleLiteral(elements=[], line=start.line, column=start.column)
 
+            # Named tuple literal (design 63): `(x: 3, y: 4)`. A leading `IDENT :`
+            # (inside a grouping/tuple paren — NOT a call's argument list) begins
+            # one. All-or-nothing labeling is enforced per element.
+            if (self.current().type == TokenType.IDENT
+                    and self.peek(1).type == TokenType.COLON):
+                field_names = []
+                elements = []
+                while True:
+                    if not (self.current().type == TokenType.IDENT
+                            and self.peek(1).type == TokenType.COLON):
+                        self.error("named tuple literal must label every element "
+                                   "(all-or-nothing)")
+                    field_names.append(self.advance().value)
+                    self.advance()  # consume ':'
+                    elements.append(self.parse_expression())
+                    if self.match(TokenType.COMMA):
+                        self.advance()
+                        if self.match(TokenType.RPAREN):
+                            break
+                        continue
+                    break
+                self.expect(TokenType.RPAREN, "Expected ')' after named tuple")
+                return TupleLiteral(elements=elements, field_names=field_names,
+                                    line=start.line, column=start.column)
+
             # Parse first expression
             first_expr = self.parse_expression()
 
@@ -972,11 +997,22 @@ class ExpressionsMixin:
         # Tuple pattern: `(p0, p1, ...)`
         if self.match(TokenType.LPAREN):
             self.advance()
+
+            def _named_pattern_check():
+                # The NAMED pattern form `(x: a, y: b)` is deferred (design 63) —
+                # reject it cleanly rather than positional-parse into confusion.
+                if (self.current().type == TokenType.IDENT
+                        and self.peek(1).type == TokenType.COLON):
+                    self.error("named tuple patterns (`(x: a)`) are not supported "
+                               "yet; use positional destructuring (`(a, b)`)")
+
             elements = []
             if not self.match(TokenType.RPAREN):
+                _named_pattern_check()
                 elements.append(self.parse_pattern())
                 while self.match(TokenType.COMMA):
                     self.advance()
+                    _named_pattern_check()
                     elements.append(self.parse_pattern())
             self.expect(TokenType.RPAREN, "Expected ')' to close tuple pattern")
             return TuplePattern(elements=elements, line=tok.line, column=tok.column)

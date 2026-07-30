@@ -422,7 +422,8 @@ class TypeUtilsMixin:
         elif saw_type.kind == TypeKind.TUPLE:
             if saw_type.element_types:
                 resolved_elems = [self._resolve_type_alias(t) for t in saw_type.element_types]
-                return SawType(TypeKind.TUPLE, element_types=resolved_elems)
+                return SawType(TypeKind.TUPLE, element_types=resolved_elems,
+                               tuple_field_names=saw_type.tuple_field_names)
             return saw_type
         elif saw_type.kind == TypeKind.ENUM:
             if saw_type.type_args:
@@ -525,7 +526,8 @@ class TypeUtilsMixin:
         elif saw_type.kind == TypeKind.TUPLE and saw_type.element_types:
             # Recursively resolve tuple element types
             resolved_elements = [self._resolve_type(t) for t in saw_type.element_types]
-            return SawType(TypeKind.TUPLE, element_types=resolved_elements)
+            return SawType(TypeKind.TUPLE, element_types=resolved_elements,
+                           tuple_field_names=saw_type.tuple_field_names)
         elif saw_type.kind == TypeKind.ENUM and saw_type.type_args:
             # Recursively resolve enum type args
             resolved_args = [self._resolve_type(t) for t in saw_type.type_args]
@@ -723,8 +725,18 @@ class TypeUtilsMixin:
                 return True
             if len(a.element_types) != len(b.element_types):
                 return False
-            return all(self._types_compatible(at, bt)
-                      for at, bt in zip(a.element_types, b.element_types))
+            if not all(self._types_compatible(at, bt)
+                       for at, bt in zip(a.element_types, b.element_types)):
+                return False
+            # Named-tuple label rule (design 63): a named and a POSITIONAL tuple
+            # of the same shape are mutually compatible (labels are a view over
+            # the positional layout). Two NAMED tuples must agree on names AND
+            # order; a mismatch (different names, or a reorder) is incompatible.
+            an = a.tuple_field_names
+            bn = b.tuple_field_names
+            if an is not None and bn is not None:
+                return list(an) == list(bn)
+            return True
 
         # For struct types, check struct names match
         if a.is_struct():

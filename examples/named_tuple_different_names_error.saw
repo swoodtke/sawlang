@@ -1,0 +1,11 @@
+// Design 63 Part 4: two named tuples of the same shape but DIFFERENT names are
+// incompatible.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign
+
+func take(p: (x: Int, y: Int)) -> Int { p.x }
+
+func main() {
+    let bad: (x: Int, y: Int) = (a: 1, b: 2)
+    print(take(bad))
+}

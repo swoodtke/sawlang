@@ -1,0 +1,41 @@
+// Design 63 Part 4: named tuple fields — `.name` access, positional `.0`/`[i]`
+// interop, named<->positional flow both directions, and a named return type.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 4
+// 3
+// 4
+// 7
+// 10
+// 3
+// 8
+
+func makePoint() -> (x: Int, y: Int) {
+    (x: 3, y: 4)
+}
+
+func dist(p: (Int, Int)) -> Int {   // named arg flows to positional param
+    p.0 + p.1
+}
+
+func minmax(a: Int, b: Int) -> (min: Int, max: Int) {
+    if a < b { (min: a, max: b) } else { (min: b, max: a) }
+}
+
+func main() {
+    let p = makePoint()
+    print(p.x)       // 3 (by name)
+    print(p.y)       // 4
+    print(p.0)       // 3 (positional still works)
+    print(p[1])      // 4
+
+    print(dist(p))   // 7 — named -> positional
+
+    let q: (x: Int, y: Int) = (10, 20)   // positional -> named
+    print(q.x)       // 10
+
+    let mm = minmax(8, 3)
+    print(mm.min)    // 3
+    print(mm.max)    // 8
+}

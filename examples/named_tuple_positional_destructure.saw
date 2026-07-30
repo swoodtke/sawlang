@@ -1,0 +1,12 @@
+// Design 63 Part 4: positional destructuring works on a named tuple.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 4
+
+func main() {
+    let p: (x: Int, y: Int) = (3, 4)
+    let (a, b) = p
+    print(a)
+    print(b)
+}

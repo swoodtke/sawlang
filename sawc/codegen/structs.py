@@ -125,6 +125,13 @@ class StructsMixin:
                 value = -(1 << (width - 1)) if signed else 0
             return ir.Constant(llvm_ty, value)
 
+        # Named-tuple field access (design 63): the typechecker stamped the
+        # resolved position; extract that element from the tuple value.
+        tfi = getattr(expr, 'tuple_field_index', None)
+        if tfi is not None:
+            obj_val = self._generate_expression(expr.object)
+            return self.builder.extract_value(obj_val, tfi, name=f"tup_{expr.member}")
+
         # design 46: UnsafeMemory projection — `UM<Struct, Use>.field` computes
         # base + compile-time field offset WITHOUT loading the aggregate.
         if getattr(expr, 'um_projection', False):

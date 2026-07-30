@@ -1897,7 +1897,8 @@ class ExpressionsMixin:
             return then_type
 
     def _check_tuple_literal(self, expr: TupleLiteral) -> Optional[SawType]:
-        """Check a tuple literal."""
+        """Check a tuple literal (design 63: carries field labels for a named
+        tuple literal `(x: 3, y: 4)`)."""
         element_types = []
         for element in expr.elements:
             elem_type = self._check_expression(element)
@@ -1906,7 +1907,9 @@ class ExpressionsMixin:
             element_types.append(elem_type)
             self._check_value_transfer(element, elem_type, "tuple element",
                                        element.line, element.column)
-        return SawType(TypeKind.TUPLE, element_types=element_types)
+        field_names = getattr(expr, 'field_names', None)
+        return SawType(TypeKind.TUPLE, element_types=element_types,
+                       tuple_field_names=field_names)
 
     def _check_tuple_index(self, expr: TupleIndex) -> Optional[SawType]:
         """Check tuple indexing."""
@@ -2583,6 +2586,15 @@ class ExpressionsMixin:
         obj_type = self._check_expression(expr.object)
         if obj_type is None:
             return None
+        # Named-tuple field access (design 63): `p.x` resolves to the position of
+        # `x` in the tuple's label list, returning that element's type. Positional
+        # `.0` / `[0]` keep working via the tuple-index path.
+        obj_resolved = self._resolve_type_alias(obj_type)
+        if (obj_resolved.kind == TypeKind.TUPLE and obj_resolved.tuple_field_names
+                and expr.member in obj_resolved.tuple_field_names):
+            idx = obj_resolved.tuple_field_names.index(expr.member)
+            expr.tuple_field_index = idx  # stamp for codegen
+            return obj_resolved.element_types[idx]
         # A distinct `type` over a non-struct underlying (e.g. `type MyInt = Int`)
         # has no fields, and the `.value` underlying-accessor is not a language
         # feature (the spec labels it planned/illustrative, ledger L16). Accessing

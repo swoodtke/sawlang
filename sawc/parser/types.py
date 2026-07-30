@@ -84,11 +84,26 @@ class TypeParsingMixin:
             # Could be tuple type: (Type, Type, ...) or function type: (Type, Type) -> ReturnType
             self.advance()
             element_types = []
-            if not self.match(TokenType.RPAREN):
+            field_names = []  # per-element name or None (design 63 named tuples)
+
+            def _parse_tuple_element():
+                # `IDENT :` prefix marks a named field. `IDENT .` / `IDENT <` /
+                # `IDENT IDENT` (a bare type name) are positional — only a colon
+                # begins a label.
+                if (self.current().type == TokenType.IDENT
+                        and self.peek(1).type == TokenType.COLON):
+                    fname = self.advance().value
+                    self.advance()  # consume ':'
+                    field_names.append(fname)
+                else:
+                    field_names.append(None)
                 element_types.append(self.parse_type())
+
+            if not self.match(TokenType.RPAREN):
+                _parse_tuple_element()
                 while self.match(TokenType.COMMA):
                     self.advance()
-                    element_types.append(self.parse_type())
+                    _parse_tuple_element()
             self.expect(TokenType.RPAREN)
 
             # Post-parameter effect slot (designs 18/22/16/29): `(T) sync -> U`
@@ -126,7 +141,17 @@ class TypeParsingMixin:
                     fn_type.func_is_escaping = True
                 return fn_type
             else:
-                return SawType(TypeKind.TUPLE, element_types=element_types)
+                # All-or-nothing labeling (design 63): a partially-labeled tuple
+                # type is an error.
+                named = [n for n in field_names if n is not None]
+                tfn = None
+                if named:
+                    if len(named) != len(field_names):
+                        self.error("named tuple type must label every field "
+                                   "(all-or-nothing)")
+                    tfn = field_names
+                return SawType(TypeKind.TUPLE, element_types=element_types,
+                               tuple_field_names=tfn)
         elif token.type == TokenType.IDENT:
             # Could be a built-in type, struct, enum, type parameter, Self, pointer type,
             # or module-qualified type (lib.Point)

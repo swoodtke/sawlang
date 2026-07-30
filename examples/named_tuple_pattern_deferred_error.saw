@@ -1,0 +1,10 @@
+// Design 63 Part 4: the NAMED pattern form is deferred — using it is a clean
+// error directing to positional destructuring.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: named tuple patterns
+
+func main() {
+    let p: (x: Int, y: Int) = (3, 4)
+    let (x: a, y: b) = p
+    print(a + b)
+}

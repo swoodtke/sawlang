@@ -47,6 +47,11 @@ class SawType:
     kind: TypeKind
     # For tuple types, this holds the element types
     element_types: Optional[List['SawType']] = None
+    # For NAMED tuple types (design 63): field names aligned with element_types
+    # (`(x: Int, y: Int)`). None for a positional tuple. Names + order + types are
+    # all part of the type; a named and a positional tuple of the same shape are
+    # mutually compatible (labels are a view over the positional layout).
+    tuple_field_names: Optional[List[str]] = None
     # For struct types, this holds the struct name
     struct_name: Optional[str] = None
     # For optional types, this holds the inner type
@@ -94,7 +99,11 @@ class SawType:
 
     def __repr__(self):
         if self.kind == TypeKind.TUPLE and self.element_types:
-            types_str = ", ".join(str(t) for t in self.element_types)
+            if self.tuple_field_names:
+                types_str = ", ".join(
+                    f"{n}: {t}" for n, t in zip(self.tuple_field_names, self.element_types))
+            else:
+                types_str = ", ".join(str(t) for t in self.element_types)
             return f"({types_str})"
         if self.kind == TypeKind.STRUCT and self.struct_name:
             if self.type_args:
@@ -297,7 +306,8 @@ class SawType:
         # Handle tuple types
         if self.kind == TypeKind.TUPLE and self.element_types:
             substituted_elements = [t.substitute(type_map) for t in self.element_types]
-            return SawType(TypeKind.TUPLE, element_types=substituted_elements)
+            return SawType(TypeKind.TUPLE, element_types=substituted_elements,
+                           tuple_field_names=self.tuple_field_names)
 
         # Handle array types
         if self.kind == TypeKind.ARRAY and self.array_element_type:
@@ -550,6 +560,9 @@ class TupleLiteral(Expression):
     elements: List[Expression]
     line: int = 0
     column: int = 0
+    # Field labels for a NAMED tuple literal (design 63): `(x: 3, y: 4)`. None
+    # for a positional literal; all-or-nothing (the parser rejects a mix).
+    field_names: Optional[List[str]] = None
 
 
 @dataclass
