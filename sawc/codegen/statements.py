@@ -287,6 +287,25 @@ class StatementsMixin:
                 ir.Constant(ir.IntType(32), field_index)
             ], name=f"{stmt.target.member}_ptr")
 
+            # LIVE-SLOT RELEASE (design 39 item 2, extended to struct fields): a
+            # struct field always holds a live value — fields are fully
+            # initialized at construction and partial moves are forbidden
+            # (design 35) — so overwriting an owning field must run the old
+            # value's drop glue BEFORE the store, exactly as the variable- and
+            # array-element-assignment paths do. Without this, `self.field =
+            # move new` (e.g. Map._grow's `self.slots = move new_slots`) leaks
+            # the old field's backing buffer. The drop goes through the field's
+            # OWN concrete type, so a `Vector<..., A>` field frees via its
+            # allocator `A`, not a default.
+            field_saw = self._struct_field_saw_type(struct_name, stmt.target.member)
+            if field_saw is not None and self._needs_cleanup(field_saw):
+                self._emit_drop_at(field_ptr, field_saw)
+            # ImplicitCopy retain when the RHS is an existing binding (mirrors the
+            # variable- and array-element-assignment paths); NoCopy/ExplicitCopy
+            # already moved at the value-transfer checkpoint.
+            if field_saw is not None and isinstance(stmt.value, Identifier):
+                value = self._generate_copy(value, field_saw)
+
             # Check if we need to wrap in optional (non-optional value for optional field)
             expected_field_type = field_ptr.type.pointee
             if isinstance(expected_field_type, ir.LiteralStructType) and len(expected_field_type.elements) == 2:

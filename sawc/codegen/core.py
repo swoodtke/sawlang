@@ -172,6 +172,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Struct types (name -> (LLVM type, field_order))
         self.struct_types: dict = {}
+        # Reverse map for monomorphized generic structs: mangled name ->
+        # (base struct name, [type_args]). Lets a monomorphized `deinit` body
+        # reconstruct its receiver's concrete SawType so appended field cleanup
+        # resolves owning fields (e.g. Map's `slots: Vector<..., A>`) through the
+        # value's OWN allocator `A`, not a default.
+        self.mono_struct_args: dict = {}
 
         # Enum types (name -> (LLVM type, variant_tags, variant_info))
         # variant_tags: dict[variant_name, tag_value]

@@ -1,0 +1,46 @@
+// A `Map<K, V, A>` with a custom allocator must free its backing slots buffer
+// through its own allocator `A` — both the OLD buffer released on each rehash
+// grow (`self.slots = move new_slots`) and the final buffer at deinit. Before
+// the design-59 part-B fix the Map's empty deinit body dropped nothing (the
+// monomorphized deinit path skipped the appended field cleanup) and the grow's
+// field assignment leaked the old slots, so a Map leaked its buffer entirely.
+// `CountAlloc` tallies alloc/dealloc; after the map's scope-end deinit the two
+// tallies must be equal and nonzero.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 30
+// true
+// true
+
+static ALLOCS: Atomic<Int> = Atomic(0)
+static DEALLOCS: Atomic<Int> = Atomic(0)
+
+struct CountAlloc {}
+extension CountAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+        ALLOCS.fetch_add(1)
+        Global().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+        DEALLOCS.fetch_add(1)
+        Global().dealloc(ptr, size, align)
+    }
+}
+
+// The map lives and dies inside this function so its deinit runs before main
+// reads the tallies. String keys prove the owning-key slots drop cleanly too.
+func use_map() {
+    var m = Map<Int, Int, CountAlloc>()
+    var i = 0
+    while i < 30 {
+        m.insert(i, i * 2)   // several rehash grows (cap 8, 16, 32, 64)
+        i = i + 1
+    }
+    print(m.len())           // 30
+}
+
+func main() {
+    use_map()
+    print(ALLOCS.load() == DEALLOCS.load())   // true — buffer freed through A
+    print(ALLOCS.load() > 0)                   // true — allocated through A
+}

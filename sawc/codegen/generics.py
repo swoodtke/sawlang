@@ -241,6 +241,9 @@ class GenericsMixin:
         # Store the type and field order
         field_order = [field.name for field in generic_struct.fields]
         self.struct_types[mangled_name] = (llvm_struct_type, field_order)
+        # Record base name + concrete args so a monomorphized deinit can rebuild
+        # its receiver's SawType for appended field cleanup (allocator leak fix).
+        self.mono_struct_args[mangled_name] = (struct_name, list(type_args))
 
         # Restore context before generating extensions
         # (extensions will set their own context)
@@ -652,6 +655,25 @@ class GenericsMixin:
 
         # Generate method body
         result = self._generate_block(method.body)
+
+        # For a monomorphized `deinit`, append field cleanup exactly as the
+        # non-generic path does (methods.py `_generate_field_deinit_calls`). A
+        # user deinit body with owning by-value fields — e.g. Map/Set's backing
+        # `Vector<..., A>` — relies on this to drop them; without it the backing
+        # buffer leaks and never routes through the value's own allocator `A`.
+        # The receiver's concrete SawType (base + args) is rebuilt so the field
+        # types substitute `A` correctly and the right monomorphized field-deinit
+        # is selected.
+        if (method.name == "deinit"
+                and not method.is_static
+                and not self.builder.block.is_terminated):
+            self_ptr = self.variables.get("self")
+            base_args = self.mono_struct_args.get(struct_name)
+            if self_ptr is not None and base_args is not None:
+                base_name, targs = base_args
+                self_saw = SawType(TypeKind.STRUCT, struct_name=base_name,
+                                   type_args=list(targs))
+                self._emit_field_cleanup_at(self_ptr, self_saw)
 
         # Handle return — for a static factory, clean the param scope on the
         # fall-through path (explicit `return`s inside already ran cleanup).

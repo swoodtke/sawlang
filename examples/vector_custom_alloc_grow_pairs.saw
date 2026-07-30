@@ -1,0 +1,45 @@
+// A `Vector<T, A>` with a custom allocator must pair every alloc with a dealloc
+// across its whole lifetime — including the OLD buffer freed on each grow and
+// the final buffer freed at deinit — routing all of them through the value's own
+// allocator `A` (design 37/48). `CountAlloc` tallies alloc/dealloc calls through
+// `Atomic<Int>` statics; after the vector's scope-end deinit the two tallies must
+// be equal (balanced) and nonzero (it really did grow through CountAlloc).
+// Regression for the design-59 part-B leak (grow left the old buffer unfreed).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 40
+// true
+// true
+
+static ALLOCS: Atomic<Int> = Atomic(0)
+static DEALLOCS: Atomic<Int> = Atomic(0)
+
+struct CountAlloc {}
+extension CountAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+        ALLOCS.fetch_add(1)
+        Global().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+        DEALLOCS.fetch_add(1)
+        Global().dealloc(ptr, size, align)
+    }
+}
+
+// The vector lives and dies inside this function, so its deinit has run by the
+// time control returns to main and the tallies are read.
+func use_vector() {
+    var v = Vector<Int, CountAlloc>()
+    var i = 0
+    while i < 40 {
+        v.push(i)          // forces several grows (cap 4, 8, 16, 32, 64)
+        i = i + 1
+    }
+    print(v.len())         // 40
+}
+
+func main() {
+    use_vector()
+    print(ALLOCS.load() == DEALLOCS.load())   // true — every alloc was freed
+    print(ALLOCS.load() > 0)                   // true — grew through CountAlloc
+}

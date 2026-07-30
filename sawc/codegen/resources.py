@@ -179,6 +179,26 @@ class ResourcesMixin:
                     for fn, ft in fields.items()}
         return dict(fields)
 
+    def _struct_field_saw_type(self, struct_name: str, field_name: str):
+        """Concrete SawType of `struct_name`'s field `field_name`, or None.
+
+        `struct_name` may be a plain struct name or a monomorphized generic key
+        (e.g. `Map$3$Int$Int$CountAlloc`); in the latter case the base name and
+        type args are recovered from `mono_struct_args` so the field type
+        substitutes its type params (a `Vector<..., A>` field resolves `A` to the
+        instantiation's concrete allocator). Used by field-assignment release."""
+        base_args = self.mono_struct_args.get(struct_name)
+        if base_args is not None:
+            base_name, targs = base_args
+            saw = SawType(TypeKind.STRUCT, struct_name=base_name,
+                          type_args=list(targs))
+        else:
+            saw = SawType(TypeKind.STRUCT, struct_name=struct_name)
+        fields = self._concrete_field_types(saw)
+        if not fields:
+            return None
+        return fields.get(field_name)
+
     def _struct_needs_field_cleanup(self, saw_type: SawType) -> bool:
         """Whether a struct transitively holds any field that needs cleanup.
 
