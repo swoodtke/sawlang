@@ -1,0 +1,42 @@
+import src.lib.*
+
+func mk(a: Int, b: Int, c: Int) -> Version {
+    Version(major: a, minor: b, patch: c)
+}
+
+func req(s: String) -> VersionReq {
+    match parse_req(s) {
+        case Ok(r) -> r,
+        case Err(e) -> panic("req parse failed for {s}: {e}")
+    }
+}
+
+func main() {
+    // Bare version = exact pin.
+    let ex = req("1.2.3")
+    assert(ex.matches(mk(1, 2, 3)), "exact matches itself")
+    assert(not ex.matches(mk(1, 2, 4)), "exact rejects a different patch")
+
+    // Caret, major > 0: compatible within the major.
+    let c1 = req("^1.2.3")
+    assert(c1.matches(mk(1, 5, 0)), "caret accepts higher minor in same major")
+    assert(not c1.matches(mk(2, 0, 0)), "caret rejects the next major")
+    assert(not c1.matches(mk(1, 2, 2)), "caret rejects a lower version")
+
+    // Caret, 0.x: compatible within the minor.
+    let c0 = req("^0.2.3")
+    assert(c0.matches(mk(0, 2, 5)), "caret 0.x accepts higher patch in same minor")
+    assert(not c0.matches(mk(0, 3, 0)), "caret 0.x rejects the next minor")
+
+    // Tilde: same major.minor, patch at least.
+    let t1 = req("~1.2.3")
+    assert(t1.matches(mk(1, 2, 9)), "tilde accepts higher patch")
+    assert(not t1.matches(mk(1, 3, 0)), "tilde rejects the next minor")
+
+    // AtLeast.
+    let a1 = req(">=1.2.3")
+    assert(a1.matches(mk(2, 0, 0)), "at-least accepts higher")
+    assert(not a1.matches(mk(1, 0, 0)), "at-least rejects lower")
+
+    print("req_match: ok")
+}

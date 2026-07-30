@@ -1,0 +1,169 @@
+// semver — a minimal semantic-version library for Saw (design 64 B2).
+//
+// A real dogfood of design 48 (Comparable/Equatable) and design 56 (Printable):
+//   - `Version` (MAJOR.MINOR.PATCH) parses from a string, is Equatable +
+//     Comparable (lexicographic over the three fields) + Printable.
+//   - `VersionReq` (Exact / Caret `^` / Tilde `~` / AtLeast `>=`) parses and
+//     answers `matches(v)`.
+//
+// Pre-release (`-rc1`) and build-metadata (`+build`) tags are DEFERRED: they
+// are parse-rejected with a clear error rather than silently dropped.
+
+// =============================================================================
+// Errors
+// =============================================================================
+
+public struct SemverError {
+    message: String
+}
+
+public extension SemverError {
+    init(msg: String) -> SemverError {
+        SemverError(message: msg)
+    }
+}
+
+public extension SemverError: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append("semver error: ")
+        into.append(self.message)
+    }
+}
+
+// =============================================================================
+// Version
+// =============================================================================
+
+public struct Version {
+    major: Int
+    minor: Int
+    patch: Int
+}
+
+// Trivial (POD) struct: auto-Equatable. Comparable is opt-in; the empty body
+// synthesizes a lexicographic compare over (major, minor, patch) in declaration
+// order — exactly semantic-version precedence.
+public extension Version: Comparable {}
+
+public extension Version: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append(self.major)
+        into.append(".")
+        into.append(self.minor)
+        into.append(".")
+        into.append(self.patch)
+    }
+}
+
+// Parse "MAJOR.MINOR.PATCH". Pre-release / build metadata are rejected.
+public func parse_version(s: String) -> Result<Version, SemverError> {
+    if s.contains("-") {
+        return SemverError(msg: "pre-release versions are not supported yet: {s}")
+    }
+    if s.contains("+") {
+        return SemverError(msg: "build metadata is not supported yet: {s}")
+    }
+
+    let parts = s.split(".")
+    if parts.len() != 3 {
+        return SemverError(msg: "expected MAJOR.MINOR.PATCH, got: {s}")
+    }
+
+    guard let major = (parts.get(0) ?? "").to_int() else {
+        return SemverError(msg: "invalid major version in: {s}")
+    }
+    guard let minor = (parts.get(1) ?? "").to_int() else {
+        return SemverError(msg: "invalid minor version in: {s}")
+    }
+    guard let patch = (parts.get(2) ?? "").to_int() else {
+        return SemverError(msg: "invalid patch version in: {s}")
+    }
+
+    if major < 0 || minor < 0 || patch < 0 {
+        return SemverError(msg: "version components must be non-negative: {s}")
+    }
+
+    Version(major: major, minor: minor, patch: patch)
+}
+
+// =============================================================================
+// Version requirement
+// =============================================================================
+
+public enum ReqKind {
+    case Exact,
+    case Caret,
+    case Tilde,
+    case AtLeast
+}
+
+public struct VersionReq {
+    kind: ReqKind
+    version: Version
+}
+
+// Parse a requirement string. A bare version is an EXACT pin (design 64 ruling);
+// ranges require an explicit operator (`^`, `~`, `>=`).
+public func parse_req(s: String) -> Result<VersionReq, SemverError> {
+    let t = s.trim()
+
+    // Select the operator and the remaining version text first, THEN parse and
+    // construct a single `VersionReq`. Constructing it once (rather than one per
+    // branch) sidesteps a codegen bug where returning a struct-literal with a
+    // nested-struct field from multiple branches builds a malformed aggregate
+    // constant — recorded as dogfood DF8.
+    var kind = ReqKind.Exact
+    var rest = t
+    if t.starts_with(">=") {
+        kind = ReqKind.AtLeast
+        rest = t.substring(2, t.len()).trim()
+    } else if t.starts_with("^") {
+        kind = ReqKind.Caret
+        rest = t.substring(1, t.len()).trim()
+    } else if t.starts_with("~") {
+        kind = ReqKind.Tilde
+        rest = t.substring(1, t.len()).trim()
+    }
+
+    let v = try parse_version(rest)
+    VersionReq(kind: kind, version: v)
+}
+
+public extension VersionReq {
+    // Does version `v` satisfy this requirement?
+    func matches(&self, v: Version) -> Bool {
+        match self.kind {
+            case Exact -> v == self.version,
+            case AtLeast -> v >= self.version,
+            // ~1.2.3 := >=1.2.3, <1.3.0 (same major.minor).
+            case Tilde -> v >= self.version && v.major == self.version.major && v.minor == self.version.minor,
+            // ^X.Y.Z compatible-within-leftmost-nonzero:
+            //   major>0 : same major
+            //   major==0, minor>0 : same major(0) and minor
+            //   0.0.Z   : exactly that patch
+            case Caret -> {
+                if not (v >= self.version) {
+                    false
+                } else if self.version.major > 0 {
+                    v.major == self.version.major
+                } else if self.version.minor > 0 {
+                    v.major == 0 && v.minor == self.version.minor
+                } else {
+                    v.major == 0 && v.minor == 0 && v.patch == self.version.patch
+                }
+            }
+        }
+    }
+}
+
+public extension VersionReq: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self.kind {
+            case Exact -> {},
+            case Caret -> into.append("^"),
+            case Tilde -> into.append("~"),
+            case AtLeast -> into.append(">=")
+        }
+        into.append(self.version.to_string())
+    }
+}

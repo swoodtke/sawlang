@@ -1,0 +1,32 @@
+import src.lib.*
+
+func main() {
+    match parse_version("1.2.3") {
+        case Ok(v) -> {
+            assert(v.major == 1, "major should be 1")
+            assert(v.minor == 2, "minor should be 2")
+            assert(v.patch == 3, "patch should be 3")
+        },
+        case Err(e) -> panic("1.2.3 should parse: {e}")
+    }
+
+    // Wrong shape (missing patch) is rejected.
+    match parse_version("1.2") {
+        case Ok(_) -> panic("1.2 should not parse"),
+        case Err(_) -> {}
+    }
+
+    // Pre-release tags are parse-rejected with a clear message (deferred feature).
+    match parse_version("1.2.3-rc1") {
+        case Ok(_) -> panic("pre-release should be rejected"),
+        case Err(e) -> assert("{e}".contains("pre-release"), "message mentions pre-release")
+    }
+
+    // Non-numeric components are rejected.
+    match parse_version("a.b.c") {
+        case Ok(_) -> panic("a.b.c should not parse"),
+        case Err(_) -> {}
+    }
+
+    print("version_parse: ok")
+}

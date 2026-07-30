@@ -1,0 +1,21 @@
+import src.lib.*
+
+func req_str(s: String) -> String {
+    match parse_req(s) {
+        case Ok(r) -> r.to_string(),
+        case Err(e) -> panic("req parse failed for {s}: {e}")
+    }
+}
+
+func main() {
+    let v = Version(major: 1, minor: 2, patch: 3)
+    assert(v.to_string().equals("1.2.3"), "Version.to_string")
+    assert("{v}".equals("1.2.3"), "Version interpolation")
+
+    assert(req_str("1.2.3").equals("1.2.3"), "exact renders bare")
+    assert(req_str("^1.2.3").equals("^1.2.3"), "caret renders ^")
+    assert(req_str("~1.2.3").equals("~1.2.3"), "tilde renders ~")
+    assert(req_str(">=1.2.3").equals(">=1.2.3"), "atleast renders >=")
+
+    print("version_print: ok")
+}

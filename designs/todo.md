@@ -87,7 +87,14 @@ Progress log (newest last):
   columnar `DepList`) + `Manifest.dependencies()` (erased Result) rejecting a
   bare version dep ("no registry yet"), both-sources, and no-source. Fixed a
   real compiler bug in passing (see DF6). Suite 764 -> 765; blade tests 6 -> 9.
-  Next: B2 semver package (libs/semver).
+- B2 landed: `libs/semver/` real package (Saw.toml `name = "semver"` +
+  `src/lib.saw`). `Version` (MAJOR.MINOR.PATCH; Equatable auto + Comparable via
+  empty-body synthesis = lexicographic + Printable), `parse_version`
+  (pre-release/build-metadata parse-rejected); `VersionReq`
+  (Exact/Caret/Tilde/AtLeast) + `parse_req` (bare = exact pin) + `matches` (0.x
+  caret rule) + Printable. 4 blade tests in libs/semver/tests
+  (parse/compare/match/print) green. Hit + worked around DF8. Suite 765
+  (unchanged; no compiler edit). Next: B3 resolver (path deps first).
 
 ### Dogfood findings — design 64 (Blade)
 - **DF-GlobConf — FIXED (this brief, `typechecker/core.py`).** A glob import
@@ -118,6 +125,16 @@ Progress log (newest last):
   result). Hit writing the dependency validation; restructured to unwrap with
   `?? ""` sentinels + plain `if`. Proper fix: treat a value-less/diverging
   if-let body as a statement (no result alloca).
+- **DF8 (RECORDED, worked around) — returning a struct-literal with a
+  NESTED-STRUCT field from 2+ branches ICEs codegen** ("'int' object is not
+  iterable" in llvmlite's aggregate `format_constant` at `ret` emission). A
+  `struct Wrap { version: Version }` with `if c { return Wrap(version: v) }
+  else { return Wrap(version: v) }` builds a malformed aggregate CONSTANT for
+  the returned value (a nested-struct field set to a scalar). A SINGLE
+  construction/return is fine. Hit in semver `parse_req`; worked around by
+  selecting the operator into a `var` and constructing `VersionReq` exactly
+  once at the end. Proper fix: the struct-literal codegen must not fold a
+  literal with non-constant (SSA) nested-aggregate fields into an ir.Constant.
 
 ## SPEC-GAP PRIORITIES (Jul 29 sweep of LANGUAGE_SPEC planned-not-implemented)
 
