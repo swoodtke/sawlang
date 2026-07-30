@@ -66,6 +66,24 @@ let pi: Float64 = 3.14159
 var items: [Int] = []
 ```
 
+**Bindings always initialize.** Every `let`/`var` requires an initializer at the
+declaration (`var x: Int` with no `= ...` is a parse error). There is no
+uninitialized local, so use-before-initialization is structurally impossible —
+no definite-initialization analysis is needed.
+
+**Discard binding `let _`.** (design 53) `_` in `let` position is a true
+discard: it evaluates the right-hand side (running its side effects), consumes
+the value as the final owner (through the value-transfer checkpoint — a NoCopy
+source needs `move`), drops it immediately at the end of the statement like an
+unused temporary, and creates **no** binding. `_` is unreadable, and two
+`let _` in one scope never collide. `var _` is rejected (a discard has nothing
+to mutate). Tuple-destructuring and parameter discards are out of scope for now.
+
+```saw
+let _ = compute()      // run compute() for its effect; drop the result now
+let _ = openFile()     // a NoCopy result is deinit'd at end of this statement
+```
+
 ### Functions
 
 ```saw
@@ -86,10 +104,12 @@ func swap<T>(a: &var T, b: &var T) {
     // swap goes through a by-value temporary or a stdlib `swapAt` helper.
 }
 
-// Functions with default parameters  (illustrative — default values planned)
+// Functions with default parameter values (implemented, design 53)
 func greet(name: String, greeting: String = "Hello") -> String {
     "{greeting}, {name}!"
 }
+greet("Sam")             // greeting defaults to "Hello"
+greet("Sam", "Hi")       // explicit
 
 // Trailing closure syntax  (illustrative — method-chained `.map` is planned)
 func map<T, U>(list: [T], transform: (T) -> U) -> [U]
@@ -155,6 +175,36 @@ signature (post-alias, with bare type parameters folded to one placeholder, so
 `f<T>(T)`/`f<U>(U)` collide) — are a **declaration-site** error. Same-arity
 different-types and different-arity are always legal.
 
+**Default parameter values.**
+**Status: implemented (design 53).** A parameter may carry a default value on
+free functions, methods, and inits. Rules:
+
+- **Trailing only.** A parameter without a default may not follow one that has
+  a default (a declaration error).
+- **Per-call, at the call site.** An omitted trailing argument is filled by
+  evaluating the default expression *at the call site, once per call* — a fresh
+  value each time (a default that calls a counter observes a new value on every
+  call that omits the argument). The fill flows through the value-transfer
+  checkpoint exactly like an explicit argument, so a NoCopy default construction
+  moves in cleanly.
+- **Arbitrary expressions, no self/other-param refs.** A default may be any
+  expression (including calls) but may reference only module-level items — never
+  another parameter or `self`.
+- **Effects flow through.** A suspending default makes the callee suspending, so
+  a `sync` context that fills it is diagnosed.
+- **Overload interaction.** A defaulted declaration expands into its reachable
+  call *shapes* (full arity down to the first defaulted arity). Any shape
+  colliding with another overload's shape is a declaration-site ambiguity error
+  (the same bucket as an identical normalized signature above). Mangling is
+  unchanged — defaults are filled caller-side.
+
+```saw
+func connect(host: String, port: Int = 8080, tls: Bool = false) -> Int { port }
+connect("a")                 // port 8080, tls false
+connect("a", 443)            // port 443, tls false
+connect("a", 443, true)      // all explicit
+```
+
 ### Built-in Functions
 
 A handful of functions are compiler-known (no import needed):
@@ -211,8 +261,22 @@ match direction {
 
 // For loops over ranges
 for i in 0..5 {
-    print(i)
+    print(i)        // 0 1 2 3 4 (exclusive)
 }
+
+// Inclusive range `..=` (design 53): a dedicated Int.max-safe iterator, NOT a
+// `0..(5+1)` desugar — `0..=Int.max` yields Int.max and stops without phantom
+// overflow. Empty when start > end.
+for i in 0..=5 {
+    print(i)        // 0 1 2 3 4 5 (inclusive)
+}
+
+// enumerated() yields (index, element) pairs; each_indexed is its closure twin.
+for pair in vec.enumerated() {
+    print(pair.0)   // index
+    print(pair.1)   // element
+}
+vec.each_indexed { i, x in print(i) }
 
 // While loops (conditional and infinite `while { }`)
 while condition {
@@ -287,10 +351,24 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
 - The representable **range of `Int` (its max/min) is target-dependent**:
   `-2^63 … 2^63 - 1` on a 64-bit target, `-2^31 … 2^31 - 1` on riscv32 (and
   likewise `UInt`'s max). Code that must reason about a specific range should use
-  a fixed-width type. (`Int.max`/`Int.min` named constants are not yet provided.)
-- An **integer literal is a platform `Int`**; a literal that does not fit the
-  target word is a compile error *at the literal* (so `9_999_999_999` compiles on
-  a 64-bit host but is rejected under a 32-bit target).
+  a fixed-width type.
+- **`Int.max`/`Int.min` named constants** (design 53) give those bounds from a
+  single source of truth (the target word width), and **`.max`/`.min` are
+  available on every fixed-width type and `UInt`** (`Int8.max == 127`,
+  `UInt8.max == 255`, `Int32.min == -2147483648`, …). Use them instead of
+  hand-writing a bound (and to spell `Int8.min`, which a `-128i8` literal cannot).
+- An **integer literal is a platform `Int`** by default; a literal that does not
+  fit the target word is a compile error *at the literal* (so `9_999_999_999`
+  compiles on a 64-bit host but is rejected under a 32-bit target).
+- **Literal suffixes** (design 53) type a literal as an exact fixed-width type:
+  `255u8`, `1_000i32`, `0xFFFF_FFFFu32`, `0b1010u8`, `0o17u16` — suffix set
+  `i8/i16/i32/i64/u8/u16/u32/u64`, with an optional single `_` before the suffix.
+  A suffixed literal IS that type (no platform-`Int` involvement — this is how a
+  64-bit constant is written on riscv32), range-checked at the literal (`256u8`
+  is a compile error). A suffixed literal does not implicitly convert to a
+  different fixed-width type (`let x: Int8 = 5u16` is an error); a plain
+  (unsuffixed) literal still coerces to any integer type. Float literals take no
+  suffix.
 - **Use the fixed-width types (`Int8`…`Int64`, `UInt8`…`UInt64`) for anything
   whose layout must be stable across targets** — wire formats, on-disk
   structures, and device/MMIO register maps. Their widths never change, and D1's
@@ -311,11 +389,16 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   interior NUL bytes are representable). The buffer is immutable after
   construction: concatenation and interpolation build fresh buffers (an
   `s + t` loop is O(n²); a mutable `StringBuilder` is future stdlib work).
+- **`\u{...}` escapes** (design 53). A string literal may contain a Unicode
+  scalar escape `\u{1F600}` — 1–6 hex digits — encoded to its UTF-8 bytes in the
+  literal. Surrogates (`D800`–`DFFF`) and code points above `0x10FFFF` are
+  rejected *at lex time*, so a literal can never hold an invalid scalar. It
+  composes with interpolation: `"{x} \u{2713}"`.
 - **UTF-8 guarantee.** A `String` always holds valid UTF-8. Two doors admit
   bytes and both enforce it: **string literals** are validated for free — source
-  files are decoded as UTF-8 before lexing and there are no byte/`\x`/`\u`
-  escape sequences, so an invalid-UTF-8 literal cannot be written (should byte
-  escapes ever be added, they must validate at lex time — TODO); and
+  files are decoded as UTF-8 before lexing, and the only escape that introduces
+  a code point (`\u{...}`) is scalar-validated at lex time (there are no
+  byte/`\x` escapes), so an invalid-UTF-8 literal cannot be written; and
   **`String.fromBytes(data: &Data) -> Result<String, Utf8Error>`** copies raw
   bytes into a fresh string after a full runtime UTF-8 scan (rejecting invalid
   lead/continuation bytes, overlong encodings, UTF-16 surrogates, scalars beyond
@@ -2278,19 +2361,34 @@ where
 
 ### Compile-Time Evaluation
 
-**Status: planned** (illustrative — `const func`, `static_assert`, macros, and
-compile-time reflection below are all designed but not implemented).
+**`static_assert` — implemented (design 53).** `const func`, macros, and
+compile-time reflection below are still *planned*.
+
+`static_assert(<const-expr>, "message")` is legal at top level and in statement
+position. The condition is evaluated at compile time (with authoritative target
+layout, so `sizeof`/`alignof` are exact): a false result is a **compile error
+carrying the message**, a true result emits **zero code**. The evaluator accepts
+integer/`Bool` literals, unary `-`/`not`, arithmetic/comparison/logical
+operators, `sizeof<T>()`/`alignof<T>()`, and the `Int.max`/`.min` limits;
+anything else (e.g. a runtime function call) is rejected as non-constant.
 
 ```saw
-// Const functions evaluated at compile time
+// Kernel register-block drift check
+static_assert(sizeof<UartRegs>() == 0x1C, "UartRegs layout drift")
+static_assert(alignof<UInt32>() == 4, "unexpected alignment")
+
+func f() {
+    static_assert(Int.max > 0, "sanity")   // also valid in statement position
+}
+```
+
+```saw
+// Const functions evaluated at compile time (planned)
 const func factorial(n: Int) -> Int {
     if n <= 1 { 1 } else { n * factorial(n - 1) }
 }
 
 const FACT_10: Int = factorial(10)
-
-// Compile-time assertions
-static_assert(size_of<MyStruct>() <= 64, "Struct too large")
 ```
 
 ### Macros
@@ -2397,9 +2495,12 @@ let s = Set()           // Set is directly available
 import std.io.File
 let f = File.open("data.txt")
 
-// (illustrative — planned) Aliasing
-import std.collections.HashMap as Map
-import std.io as fileio
+// Aliasing (implemented, design 53). Module alias (`as`) — only the alias
+// enters the namespace; and per-symbol aliases inside a selective import. Both
+// are purely local renames (mangling and the module graph are unchanged). Two
+// entries of one selective import binding the same local name is an error.
+import std.io as fileio                          // module alias
+import std.collections.{HashMap as Map, Set}     // per-symbol alias
 
 // Import from current package
 import package.parser.Parser

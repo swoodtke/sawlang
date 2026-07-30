@@ -173,18 +173,25 @@ A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
 
 ### NICE TO HAVE — TRIAGED Jul 29 (user, one-by-one)
 **ADD before apps** (→ briefs 53/54, both now WRITTEN + DECIDED Jul 29):
-- **Design 53 "ergonomics"** (`designs/53-ergonomics.md`, queued after
-  58): default params (trailing-only, arbitrary exprs per-call, no
-  other-param refs, DECL-SITE shape-expansion rejection vs design-55
-  overloads); `..=` (dedicated RangeInclusive — no b+1 desugar,
-  Int.max-safe); vec.enumerated() + each_indexed (concrete, no generic
-  adapter); Int.max/min + .max/.min on all fixed-width types;
-  Rust-style literal suffixes (`255u8`/`255_u8`, exact-typed,
-  range-checked — closes 47's riscv32 gap); `\u{}` escapes (scalar-
-  validated at lex); import aliasing (module + symbol `as`);
-  static_assert (reuses the existing const evaluator); use-before-init
-  probe-then-verdict; **DF1 `let _` discard** (true discard, move-
-  consuming, no binding).
+- **Design 53 "ergonomics" — LANDED**: default params (trailing-only,
+  arbitrary exprs per-call through the value-transfer checkpoint, no
+  other-param/self refs, effects flow through, DECL-SITE shape-expansion
+  rejection extending design-55's `_overload_sig_key`; free funcs +
+  methods + inits); `..=` (dedicated Int.max-safe RangeInclusive, no b+1
+  desugar); `vec.enumerated()` + `each_indexed` (concrete (Int,T)
+  iterator/closure); `Int.max`/`.min` + `.max`/`.min` on all fixed-width
+  types + UInt; Rust-style literal suffixes (`255u8`/`0xFF_u8`, exact-
+  typed, range-checked at the literal — closes 47's riscv32 gap; distinct
+  fixed-width kinds no longer implicitly convert); `\u{}` escapes (scalar-
+  validated at lex, UTF-8 encoded); import aliasing (module `as` + per-
+  symbol `as`, local renames, dup-local error); `static_assert` (const-
+  eval at codegen — exact sizeof/alignof — clean compile error on
+  fail/non-const, zero codegen on pass); **DF1 `let _` discard CLOSED**
+  (true discard: move-consuming, immediate drop, no binding, `var _`
+  error). **use-before-init VERDICT (Part 7): structurally impossible** —
+  every `let`/`var` requires an initializer (uninitialized decl is a parse
+  error), so no definite-init analysis is needed; documented in the spec,
+  no code. Compiler suite 640 → docs commit, 0 xfails. [ergonomics]
 - **Design 54 "collections"** (`designs/54-collections.md`, queued
   LAST): **Map UNIFICATION — the Vector-backed Map is RETIRED, HashMap
   renamed → Map** (one hash dictionary; closes the Map-deprecation
@@ -253,9 +260,11 @@ tuple field access + `.value` on distinct types (probably NOT landed —
 spec examples aspirational).
 
 ## BLADE DOGFOOD FINDINGS (brief 49, Jul 29 — feed N-family / small fixes)
-- **DF1.** `let _` is not a discard — it's a real binding, so two
-  `let _ =` collide. A real `_` wildcard discard is missing and
-  idiomatic. Small, high-value. → fold into brief 53 (ergonomics).
+- **DF1 — LANDED (design 53 Part 8).** `let _` is now a true discard:
+  evaluates the RHS, consumes it as final owner (move for NoCopy), drops
+  it immediately at statement end, binds nothing; two `let _` never
+  collide; `_` unreadable; `var _` is an error. Destructuring/param
+  discards deferred (no tuple-destructuring `let` yet).
 - **DF2.** `Command`/`system()`/`.run()`/`.output()` divide wait
   status by 256, silently discarding signal-death info — a SIGABRT
   (failed assert/panic) is misreported as success. Real std/process

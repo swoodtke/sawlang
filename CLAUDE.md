@@ -82,6 +82,10 @@ Currently in design phase. See `LANGUAGE_SPEC.md` for the full specification.
 - Python-style imports (no namespace pollution)
 - `import std.io` adds only `io` to namespace
 - `import std.io.{Read, Write}` adds specific symbols
+- Aliasing (design 53): `import std.io as sio` (module alias) and
+  `import std.io.{Read as R, Write}` (per-symbol alias) — purely local renames
+  (mangling/module graph unchanged); duplicate local name in one selective import
+  is an error
 - Full keywords: `module`, `public`, `import` (not `mod`, `pub`, `use`)
 - `package` and `parent` for relative imports (not `crate`, `super`)
 
@@ -271,6 +275,13 @@ The compiler currently supports:
   trailing arg is filled from its default BEFORE mangling, so `Vector<Int>` and
   `Vector<Int, Global>` are one type / one monomorphization. Too-few-with-no-default
   and a default that fails its bound are errors.
+- Default parameter VALUES (design 53): `func f(x: Int, y: Int = <expr>)` on free
+  funcs, methods, inits. Trailing-only; the default is evaluated PER CALL at the
+  call site (fresh value each time) through the value-transfer checkpoint (NoCopy
+  moves in cleanly); effects flow through (a suspending default taints the callee,
+  so a `sync` caller filling it is diagnosed); decl-site shape expansion extends
+  design 55's `_overload_sig_key` (a defaulted decl's reachable arities must not
+  collide with another overload's shape). Mangling unchanged (filled caller-side).
 - Basic types: Int, Float, Bool, String
 - `Int`/`UInt` are **pointer-width** (design 47): i64 on x86-64/aarch64, i32 on
   riscv32. The `Int` range (max/min) is target-dependent; an integer literal is a platform
@@ -282,7 +293,14 @@ The compiler currently supports:
   the String header (`{ isize refcount, isize len, bytes }`), and the Arc/Channel
   atomic refcount all follow the platform word too — the stdlib already types
   them `Int`, so hosted (64-bit) codegen is byte-for-byte unchanged.
-- Variables: `let` (immutable) and `var` (mutable)
+- `Int.max`/`Int.min` (design 53): platform-width bounds from one source of truth
+  (the target word); `.max`/`.min` on every fixed-width type + `UInt`.
+- Variables: `let` (immutable) and `var` (mutable). Every binding MUST initialize
+  (uninitialized `var x: Int` is a parse error) — use-before-init is structurally
+  impossible (design 53 Part 7 verdict, no definite-init analysis needed).
+- Discard binding `let _ = expr` (design 53 / DF1): evaluates the RHS, consumes
+  it as final owner (move for NoCopy), drops it immediately at statement end,
+  binds nothing. `_` unreadable; two `let _` never collide; `var _` is an error.
 - Arithmetic: `+`, `-`, `*`, `/`, `%` (modulo); wrapping `&+ &- &*`
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - Logical: `&&`, `||`, `not`
@@ -290,7 +308,16 @@ The compiler currently supports:
   C-family precedence; `>>` arithmetic on signed / logical on unsigned; a shift
   amount that is negative or `>=` the width panics ("shift out of range")
 - Integer literals: decimal, hex `0xFF`, binary `0b1010`, octal `0o755`, with
-  `_` digit separators (`0xDEAD_BEEF`, `1_000_000`)
+  `_` digit separators (`0xDEAD_BEEF`, `1_000_000`). Rust-style fixed-width
+  suffixes (design 53): `255u8`, `1_000i32`, `0xFF_u8` (set i8/i16/i32/i64/
+  u8/u16/u32/u64, optional single `_` before the suffix) — the literal IS that
+  fixed-width type, range-checked at the literal (`256u8` errors), and does not
+  implicitly convert to another fixed-width type.
+- String escapes include `\u{1F600}` (design 53): 1-6 hex digits, valid Unicode
+  scalar only (surrogates + >0x10FFFF rejected at lex time), encoded to UTF-8.
+- Ranges: `a..b` (exclusive) and `a..=b` (inclusive, design 53 — a dedicated
+  Int.max-safe `RangeInclusive`, no `a..(b+1)` desugar). `vec.enumerated()`
+  ((Int, T) iterator) + `vec.each_indexed((Int, T) -> Void)`.
 - Arrays: literals `[1, 2, 3]`, indexing `arr[i]`, type `[Int; 5]`
 - Control flow: `if`/`else` expressions, `while` loops, `for` loops
 - Loop control: `break`, `continue`
@@ -477,6 +504,12 @@ The compiler currently supports:
   mechanism, generalized).
 
 ### Runtime & Tooling
+- `static_assert(<const-expr>, "message")` (design 53): legal at top level and in
+  statement position. Const-evaluated at codegen (authoritative target layout →
+  exact `sizeof`/`alignof`); a false result is a clean compile error carrying the
+  message, a true result emits zero code. Evaluator handles int/bool literals,
+  unary `-`/`not`, arithmetic/comparison/logical ops, `sizeof<T>`/`alignof<T>`,
+  and Int limits; anything else is rejected as non-constant.
 - `panic(message: String) -> Never` and `assert(cond: Bool, message: String)`
   builtins (design 49): both route through the freestanding-safe `saw_panic`
   seam. `panic` has the bottom type `Never` (diverges — a function ending in it

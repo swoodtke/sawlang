@@ -1,4 +1,11 @@
-# Design 53 — Ergonomics family (DECIDED Jul 29)
+# Design 53 — Ergonomics family (DECIDED Jul 29 — LANDED Jul 30)
+
+**Landed:** all nine parts shipped. Part 7 verdict: uninitialized bindings are
+rejected at parse time, so use-before-init is structurally impossible (doc-only,
+no analysis). DF1 (`let _` discard) closed. See the tracker entry and the spec
+(§Functions default params, §Variables discard + always-init, §Primitive Types
+limits/suffixes, §String `\u{}`, §Control Flow `..=`/enumerate, §Imports
+aliasing, §Compile-Time Evaluation static_assert).
 
 **Ruling (user):** the triaged nice-to-have ergonomics ship as one
 brief. Decisions: default parameter values use **decl-site rejection**
