@@ -315,10 +315,12 @@ spec examples aspirational).
   designs/40-cleanup-family.md + its report in the commit trail).
   Notable: `&var self`-on-`let` was also unenforced (fixed);
   `withCString<R>` is now value-returning (C6 fixed).
-- **L13.** UInt division/modulo emit `sdiv`/`srem` (wrong for high-bit
-  values) — XFAIL-ledgered `uint_division_signedness.saw` (brief 40
-  item-3 sidecar discovery). Fix: pick udiv/urem by signedness like the
-  overflow intrinsics already do. [40 report]
+- **L13 — CLOSED (verified fixed, design 59 F).** UInt division/modulo now
+  emit `udiv`/`urem`. Proving tests assert real high-bit values (not just
+  compile): `uint_division_signedness.saw` (10000000000000000000 / 2 ==
+  5000000000000000000, differs from the signed divide) and
+  `uint_modulo_signedness.saw` (10000000000000000000 % 7 == 3); both PASS,
+  no XFAIL. [40 report, 59 F]
 - **L12.** Fixed arrays cannot take extension methods (parse error) —
   blocked M1's fixed-array swap variant. [40 report]
 - **L14 (design 59 E, DISCOVERED — DEFERRED).** Owning **enum-payload**
@@ -351,20 +353,32 @@ spec examples aspirational).
 - **L2.** Return-type reconciliation for type-param / associated-type
   returns in generic bodies — documented deferred looseness from brief 24.
   [02, 24]
-- **L3. VERIFY:** cross-module fallback lookup in
-  `typechecker/types.py` (`get_struct_info`/`get_enum_info`) scans all
-  modules ignoring visibility, resolving by dict order. Brief 26 fixed
-  collisions at the codegen merge; the typechecker-side lookup may still
-  need a visibility check + ambiguity diagnostic. [critique structural]
-- **L5.** Array-mutation gaps (brief-33 observations, XFAIL-ledgered):
-  `a[0].v = 99` silently no-ops (`array_elem_field_assign.saw`);
-  `a[0] = newElem` never deinits the overwritten element
-  (`array_elem_overwrite_deinit.saw`). [33]
-- **L6.** Module-qualified MemberAccess (`mod.struct_value.field`) reaches
-  codegen without `resolved_type` — pre-existing typechecker annotation
-  gap, worked around non-fatally in brief 31's signedness probe
-  (defaults to signed). Close by annotating in the module member-access
-  checker. [31 report]
+- **L3 — CLOSED (verified fixed, design 59 F).** The cross-module lookup
+  now honors visibility with an ambiguity diagnostic. Proving tests (all
+  PASS): `l3_private_struct_bare.saw` (a bare reference to another module's
+  PRIVATE struct is "undefined struct `Secret`", not silently resolved),
+  `l3_struct_ambiguity.saw` (two modules exporting a public `Shape` is
+  "ambiguous struct `Shape`", not dict-order), `l3_qualified_still_works.saw`
+  (legitimate qualified access still succeeds). [critique structural, 59 F]
+- **L5 — CLOSED (verified fixed, design 59 F).** Array-mutation gaps closed;
+  proving tests assert real behavior, not just compile: `array_elem_field_assign.saw`
+  (`a[0].v = 99` then prints 99 — the mutation lands) and
+  `array_elem_overwrite_deinit.saw` (`a[0] = new` runs the overwritten
+  element's deinit at overwrite, then reverse-order scope cleanup). Both
+  PASS, no XFAIL. [33, 59 F]
+- **L6 — CLOSED (verified fixed, design 59 F).** The typechecker's module
+  member-access checker stamps `resolved_type` on the nested qualified
+  object (typechecker/expressions.py `_check_member_access`, "so
+  signedness/type-driven lowering never falls back"), and the interpolation
+  path reads the fail-loud `_expr_type` — the design-56-era defensive
+  print-path fallback is gone. Probe: `_int_is_signed` is never reached with
+  a None type for the module case. New proving test
+  `l6_module_qualified_signedness.saw`: a DIRECTLY module-qualified UInt
+  field (`mod.factory().field`) in an overflow-checked add (5e18+5e18=1e19,
+  exceeds signed max) AND in interpolation renders unsigned, no panic.
+  (The deliberate signed-default in `_int_is_signed` for genuinely
+  unannotated non-critical hints is kept by design — not a workaround.)
+  [31 report, 59 F]
 - **L7.** ~~Generic Result direct consumption~~ — FIXED (brief 36):
   return-type substitution + match scrutinee normalization; red-proven
   tests kept. [30 report, 36]
@@ -375,20 +389,22 @@ spec examples aspirational).
 - **L9.** `==` over Optional- or array-bearing members not yet
   lowerable (auto-conform deliberately excludes them; clean error at
   comparison site). Extend the equals derivation when needed. [32]
-- **L10.** Implicit tail-return of an owned ImplicitCopy value
-  auto-wrapped into `Ok(...)` releases the owned buffer at scope exit
-  while the payload still points at it (premature free) — found in
-  brief 38's fromBytes; worked around with explicit `return move`.
-  Needs the auto-wrap path to treat the wrapped value as transferred.
-  [38 report]
+- **L10 — CLOSED (verified fixed, design 59 F).** The auto-wrap path treats
+  the wrapped value as transferred, so no premature free. Proving tests
+  assert the payload is intact after a filler string that would reuse a
+  freed slot: `autowrap_ok_no_premature_free.saw` (Ok-wrapped String prints
+  intact), plus `autowrap_err_no_premature_free.saw` and
+  `autowrap_optional_no_premature_free.saw`. All PASS, no XFAIL. [38 report,
+  59 F]
 - **C6.** Method-level generic type params don't monomorphize on
   NON-generic-type extensions (`extension String { func f<R>(...) }` →
   "Undefined struct: R") — blocks value-returning `withCString<R>`.
   Sibling of C5, surfaced in brief 38. [38 report]
-- **L4. VERIFY:** `Vector<File>.copy()`-style diagnostic — was a raw
-  Python traceback (brief 09 report); brief 26's ICE wrapper now catches
-  it, but it should be a proper user-facing typechecker error, not an ICE.
-  [09, 26]
+- **L4 — CLOSED (verified fixed, design 59 F).** `Vector<File>.copy()` is a
+  clean user-facing typechecker error, NOT an ICE/traceback: "type
+  `Vector<File, Global>` has no method `copy`: requires `T: Copy`, and `File`
+  does not conform" with a `T: Copy` hint. Probe:
+  `.build/scratch/l4_vecfile.saw`. [09, 26, 59 F]
 
 ## String stack
 
@@ -424,9 +440,19 @@ spec examples aspirational).
   work. [36]
 - **C3.** `Weak<T>` — Arc's weak-count slot is already reserved; build when
   stored callbacks give it a use case. [16, 21]
-- **C4. VERIFY:** general (non-spawn) escaping-closure environment
-  teardown / closure-`Deinit` — brief 21b shipped the spawn-consumer path;
-  confirm what non-spawn escapes do. [21b]
+- **C4 — VERIFIED (design 59 F): no leak/double-free proven; closure-Deinit
+  is real future work.** Probed a non-spawn escaping closure (bound/returned)
+  dropped WITHOUT being called: a moved-in NoCopy capture deinits exactly
+  once (`.build/scratch/c4_probe.saw`: 1 Res -> 1 deinit) and an Arc capture
+  returns to its baseline refcount (`c4_arc.saw`: 1/2→1), so NO value leak
+  and NO double-free — per the brief's "fix only if a leak/double-free is
+  proven", no fix. Discovered (deferred, needs the closure-Deinit feature,
+  NOT a small fix): the generated env destructor (`codegen_env_dtor`) is only
+  invoked by the spawn trampoline, so a non-spawn closure's drop does not run
+  it — the owning capture is released at the CREATING frame's exit rather
+  than at the closure's drop (early but exactly-once), and the heap env block
+  itself is not freed on that path. Wiring `codegen_env_dtor` into the
+  closure-typed variable's drop glue is the real C4/closure-Deinit work. [21b]
 
 ## Concurrency & async
 
@@ -435,13 +461,38 @@ spec examples aspirational).
   0: CFG-walk state machine — while/for-range/if/match/break/continue,
   arbitrary nesting; honest rejections: for-over-iterable suspension,
   value-producing break from suspending loops, move in spanning
-  conditions). Single-task runtime landed (45). **Remaining: A1b =
-  brief 52b (in flight)** — TaskGroup-owned run queue (the C1 nursery
-  model; group Deinit runs the executor = structured join via LIFO),
-  spawn/TaskHandle/cancel/suspending-channel, on design 51's validated
-  erasure. Soundness catches en route: datalayout offsets (45),
-  struct-init optional wrap + if-let move-out double-free (52).
-  Generic driven functions still blocked on A5. [44, 45, 52, 52b]
+  conditions). Single-task runtime landed (45). **A1b = brief 52b —
+  LANDED**: TaskGroup-owned run queue (the C1 nursery model; group Deinit
+  runs the executor = structured join via LIFO), spawn/TaskHandle/cancel/
+  suspending-channel, on design 51's validated erasure. Soundness catches
+  en route: datalayout offsets (45), struct-init optional wrap + if-let
+  move-out double-free (52). Generic driven functions still blocked on A5.
+  [44, 45, 52, 52b]
+- **A1c. 52/52b v1 gaps — SCOPE-ONLY notes (design 59 G, feature work
+  for a later brief; reproductions in `.build/scratch/g{1,2,3}_*.saw`):**
+  * **G1 TaskGroup inside a suspending fn.** Rejection: the coro transform
+    can't lower `group.spawn(...)` inside a frame — "can only take
+    reference to a variable, field, or array element" (the synthesized
+    `&group` has no addressable frame location yet). Surface: MEDIUM-LARGE
+    — coro_transform.py + taskgroup spawn lowering; the group + its erased
+    run-queue must become frame-resident state and spawn's synthesized
+    receiver/enqueue must resolve through the frame pointer (like the 0c
+    `&var self`-across-suspend receiver work).
+  * **G2 if-let over a suspending call.** Rejection: a suspending call in
+    an if-let condition (`if let v = maybe()` where `maybe` yields) fails
+    to compile (the condition expression is not a hoistable suspend point).
+    Surface: MEDIUM — coro_transform.py: hoist a suspending call out of an
+    if-let / guard / while condition into a preceding driven temp
+    (`let __t = __drive(maybe())`), then bind on the temp; parallels the
+    existing spanning-condition rejection but as a supported rewrite.
+  * **G3 first-class `ch.receive()` suspension.** Rejection: `type Channel
+    has no method receive` — only `try_receive() -> T?` exists; the
+    blocking receive is the hand-written `try_receive()`+`yield_now()`
+    loop. Surface: SMALL-MEDIUM — add a suspending `Channel.receive()`
+    (std/channel.saw) wrapping that loop so it is a first-class suspend
+    point; the coro transform already drives suspending method calls, so
+    the work is the stdlib method + confirming it is recognized as
+    suspending. [52, 52b]
 - **D16 — DECIDED Jul 29 (user): user-facing `any Trait` NOW**
   (design 51): contextual `any` keyword, erased values behind &/Box
   only (no hidden existential container), construct-erased-directly

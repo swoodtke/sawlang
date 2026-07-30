@@ -1,0 +1,25 @@
+// L6 (design 59 F close): a UInt field reached through a DIRECTLY
+// module-qualified struct value (`mod.factory().field`, no intermediate local)
+// must keep its unsigned annotation into codegen — in both a signedness-
+// sensitive arithmetic context AND string interpolation. The typechecker's
+// module member-access checker stamps resolved_type on the nested qualified
+// object (typechecker/expressions.py), and interpolation reads the fail-loud
+// _expr_type, so the design-56-era defensive print-path fallback is gone.
+//
+// 5e18 + 5e18 = 1e19 fits UInt but exceeds the SIGNED 64-bit max, so the
+// overflow check (which consults the signedness annotation) must use the
+// unsigned intrinsic — a lost annotation would panic. Interpolation of the field
+// must render it unsigned (%llu), not as a negative.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10000000000000000000
+// 5000000000000000000
+
+import modules.l6_pair
+
+func main() {
+    // Directly module-qualified field access, no intermediate binding.
+    let r = l6_pair.makePair().a + l6_pair.makePair().b
+    print("{r}")                        // 10000000000000000000 (unsigned add ok)
+    print("{l6_pair.makePair().a}")     // 5000000000000000000 (unsigned render)
+}
