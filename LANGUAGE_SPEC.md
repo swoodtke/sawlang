@@ -175,8 +175,10 @@ a closure's expected-type inference single-target).
 
 Two declarations that no rule could separate — an identical normalized
 signature (post-alias, with bare type parameters folded to one placeholder, so
-`f<T>(T)`/`f<U>(U)` collide) — are a **declaration-site** error. Same-arity
-different-types and different-arity are always legal.
+`f<T>(T)`/`f<U>(U)` collide) **and the same parameter labels** — are a
+**declaration-site** error. Same-arity different-types and different-arity are
+always legal; so is **same types with different labels** (see labeled
+arguments below — `f(a:b:)` and `f(kind:value:)` coexist).
 
 **Default parameter values.**
 **Status: implemented (design 53).** A parameter may carry a default value on
@@ -207,6 +209,59 @@ connect("a")                 // port 8080, tls false
 connect("a", 443)            // port 443, tls false
 connect("a", 443, true)      // all explicit
 ```
+
+**Labeled arguments (lenient model).**
+**Status: implemented (design 66).** Call arguments may be written with their
+parameter's label. **Labels are required only where a call is otherwise
+ambiguous; they are available everywhere for clarity.** A positional call is
+always legal wherever it is unambiguous, and behaves identically to the same
+call without labels.
+
+*The binding rule.* Arguments bind **left to right**:
+
+- a **positional** argument binds the next unbound parameter;
+- a **labeled** argument binds the parameter with that name, provided that
+  parameter sits **at or after** the next unbound position — a label may skip
+  **forward** only over parameters that have defaults, **never backward**, and
+  arguments are **never reordered**. A forward skip over a non-defaulted
+  parameter is a `missing argument` error; a label that would bind behind the
+  cursor is a backward-binding error.
+- a label that names **no** parameter of the callee eliminates that candidate
+  (a call-site error naming the label if none survives).
+
+This subsumes pure positional calls (byte-identical), fully-labeled calls in
+declaration order, partial labels as constraints, and **mid-default skipping**
+(a labeled argument may skip a defaulted parameter that a positional call could
+not).
+
+```saw
+func connect(host: Int, port: Int = 8080, retries: Int = 3) -> Int { … }
+connect(1)                    // both defaults
+connect(1, retries: 5)        // skip the defaulted `port` (mid-default skip)
+connect(host: 2, port: 80)    // fully / partly labeled — same call
+```
+
+*Overloading.* Labels are part of a function's identity. The **label filter**
+runs first (candidates whose parameter names cannot bind the call's labels are
+eliminated), then the exact-type matching + tie-breaks above run on the
+survivors. Two overloads may share parameter types but differ in labels; a
+single disambiguating label resolves the call, while a bare positional call
+over such a pair is an ambiguity error that lists the labeled forms.
+
+```saw
+func f(a: Int, b: Int) -> Int { … }
+func f(kind: Int, value: Int) -> Int { … }   // same types, different labels — OK
+f(a: 1, b: 2)        // f(a:b:)
+f(0, value: 4)       // one label suffices — resolves to f(kind:value:)
+f(1, 2)              // error: ambiguous — write the labels
+```
+
+*Scope.* Labeled calling covers free functions, instance/static methods, and
+module-qualified calls. **Closures take no labels** — closure/function-value
+types are structural and carry no parameter names. Struct/`init` and enum
+payload construction keep their own **order-independent** name matching
+(`Point(y: 4, x: 3)` is valid); they are a separate resolution scheme from the
+ordered call binding rule, by design (design 66).
 
 ### Built-in Functions
 

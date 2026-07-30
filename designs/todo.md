@@ -277,7 +277,38 @@ A1a CFG split, A1b multi-task async, T1f debug info, F10 fences.
   cast underlyings NOT restricted (struct/String identity projection works via a
   codegen `value.type == to_llvm` fallback). Deferred/untouched: L17 (still
   needs copy-with-retain); named free-FUNCTION-call args remain unsupported
-  (pre-existing; named tuples are orthogonal). [both apps — closes T1b + T1d]
+  (pre-existing; named tuples are orthogonal) — **NOW CLOSED by design 66
+  below.** [both apps — closes T1b + T1d]
+
+- **Design 66 "labeled arguments, lenient model" — LANDED** (four commits,
+  suite 739 -> 759, 0 xfails). Closes the named-args ledger item (design 63's
+  deferred "named free-FUNCTION-call args unsupported"). **Binding rule:**
+  arguments bind LEFT TO RIGHT — a positional arg binds the next unbound param;
+  a labeled arg binds its named param at-or-after the cursor, skipping FORWARD
+  only over defaulted params (mid-default skip closes the trailing-only default
+  limitation), never backward, never reordered; unknown label eliminates the
+  candidate. Labels are REQUIRED only at real ambiguity, AVAILABLE always;
+  positional-only calls take the byte-identical legacy path (the binding
+  machinery — `_bind_args`/`_compute_binding` — engages only when a label is
+  present), and a per-call `arg_plan` interleaves mid-skipped defaults for
+  codegen. Applies to free funcs, instance/static methods, module-qualified
+  calls; NO closure labels (structural types). **Overloads:** the label filter
+  eliminates candidates FIRST, then design-55 exact-type matching runs on
+  survivors; same TYPES + different LABELS now coexist (`f(a:b:)` vs
+  `f(kind:value:)`; `f(0, value: 4)` resolves by one label — the user-confirmed
+  case), a positional call over such a pair is an ambiguity error listing the
+  labeled forms, same types + same names stays a decl error. Decl-site
+  distinctness (`_overload_sig_key`/shape-expansion) is now name-qualified;
+  `$OL$` mangling gains a `$LB$` label suffix ONLY for same-type overload pairs
+  (non-overloaded + type-distinct symbols unchanged, IR-verified). **Parse
+  ambiguity:** `name(label: value, …)` is syntactically struct init; the parser
+  builds a StructInit and the typechecker reinterprets it as a labeled call when
+  the name is a function/closure/type-param (a real struct name resolves to init
+  first, so init is never disturbed). **Init NOT unified** (deliberate): init /
+  struct-field / enum-payload construction keeps its order-INDEPENDENT set-based
+  name matching — the ordered binding rule would break reordered `Point(y: 4,
+  x: 3)` (verified valid today); verdict recorded in designs/66. [both apps —
+  labeled calling for the Blade dogfood]
 
 **DEFERRED** (user, Jul 29): slices (needs own design vs no-escape
 refs); `\x` byte escapes; where clauses; extension sugar (computed

@@ -312,6 +312,24 @@ The compiler currently supports:
   so a `sync` caller filling it is diagnosed); decl-site shape expansion extends
   design 55's `_overload_sig_key` (a defaulted decl's reachable arities must not
   collide with another overload's shape). Mangling unchanged (filled caller-side).
+- Labeled arguments, lenient model (design 66): call arguments may carry their
+  parameter label (`f(a: 1, b: 2)`); labels are REQUIRED only at real ambiguity,
+  AVAILABLE always. Binding rule: arguments bind LEFT TO RIGHT — a positional arg
+  binds the next unbound param; a labeled arg binds its named param at-or-after
+  the cursor, skipping FORWARD only over defaulted params (mid-default skip:
+  `connect(host, retries: 5)` skips defaulted `port`) — never backward, never
+  reordered. Positional-only calls are byte-identical to the legacy path (the
+  binding machinery engages only when a label is present); a per-call `arg_plan`
+  interleaves mid-skipped defaults for codegen. Labels are part of overload
+  identity: the label filter eliminates candidates first, then design-55 exact
+  type matching runs on survivors. Same TYPES + different LABELS now coexist
+  (`f(a:b:)` vs `f(kind:value:)`; positional call over the pair = ambiguity error
+  listing labeled forms); same types + same names still a decl error. `$OL$`
+  mangling gains a `$LB$` label suffix ONLY for same-type overload pairs
+  (non-overloaded + type-distinct symbols unchanged). Free funcs, methods
+  (instance+static), module-qualified; NO closure labels (structural). Init/enum
+  construction keeps its own order-INDEPENDENT name matching (NOT unified — the
+  ordered binding rule would break reordered `Point(y: 4, x: 3)`).
 - Basic types: Int, Float, Bool, String
 - `Int`/`UInt` are **pointer-width** (design 47): i64 on x86-64/aarch64, i32 on
   riscv32. The `Int` range (max/min) is target-dependent; an integer literal is a platform

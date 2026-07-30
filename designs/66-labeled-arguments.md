@@ -1,4 +1,4 @@
-# Design 66 — Labeled arguments, lenient model (DECIDED Jul 30)
+# Design 66 — Labeled arguments, lenient model (DECIDED Jul 30 — LANDED Jul 30)
 
 **Ruling (user):** free-function and method calls gain parameter
 labels under the **lenient Swift model**: labels are part of a
