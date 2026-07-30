@@ -1,0 +1,34 @@
+// HashMap snapshots (design 57): keys() / values() return Vectors of copies.
+// Order is unspecified, so we sort the snapshot for deterministic output, then
+// iterate it with a normal for-in (the returned Vector goes through the
+// existing Iterator machinery).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 60
+// 3
+
+func main() {
+    var m = HashMap<Int, Int>()
+    m.insert(3, 30)
+    m.insert(1, 10)
+    m.insert(2, 20)
+
+    var ks = m.keys()
+    ks.sort()
+    for k in ks.iter() {
+        print(k)      // 1, 2, 3 (sorted)
+    }
+
+    // values() snapshot, summed (order-independent).
+    let vs = m.values()
+    var total = 0
+    for v in vs.iter() {
+        total = total + v
+    }
+    print(total)      // 60
+
+    print(ks.len())   // 3
+}

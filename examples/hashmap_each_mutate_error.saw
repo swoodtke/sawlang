@@ -1,0 +1,15 @@
+// HashMap iteration exclusivity (design 57): `each` borrows the map shared
+// (`&self`) for the whole walk, so a visitor that also captures the SAME map
+// mutably (to insert/remove during the visit) is a static Law-of-Exclusivity
+// error — iterator invalidation is caught at compile time.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+func main() {
+    var m = HashMap<Int, Int>()
+    m.insert(1, 10)
+    m.each { [&var m] k, v in
+        m.insert(k + 100, v)   // mutating the map being iterated: rejected
+    }
+    print(m.len())
+}

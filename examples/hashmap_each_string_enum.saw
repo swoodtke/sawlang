@@ -1,0 +1,41 @@
+// HashMap iteration over String keys and (payload-free) enum values
+// (design 57). A payload-free enum auto-conforms to Copy and Equatable, so it
+// can be read out by value and compared inside a visitor. Order is
+// unspecified, so we accumulate order-independent counts.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 3
+// 3
+
+enum Color {
+    case Red,
+    case Green,
+    case Blue
+}
+
+func main() {
+    var m = HashMap<String, Color>()
+    m.insert("a", Color.Red)
+    m.insert("b", Color.Green)
+    m.insert("c", Color.Red)
+
+    // Count Red values (order-independent).
+    var reds = 0
+    m.each_value { [&var reds] v in
+        if v == Color.Red {
+            reds = reds + 1
+        }
+    }
+    print(reds)   // 2
+
+    // Count keys via the key visitor.
+    var keycount = 0
+    m.each_key { [&var keycount] k in keycount = keycount + 1 }
+    print(keycount)   // 3
+
+    // each visits (key, value) pairs.
+    var pairs = 0
+    m.each { [&var pairs] k, v in pairs = pairs + 1 }
+    print(pairs)      // 3
+}

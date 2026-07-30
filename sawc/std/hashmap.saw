@@ -279,6 +279,111 @@ extension HashMap<K: Hashable + Equatable, V, A: Allocator = Global> {
     }
 }
 
+// =============================================================================
+// Iteration (design 57) — visitors + snapshots.
+// =============================================================================
+//
+// Saw's no-escape references mean an iterator object cannot borrow the map, so
+// there is no Iterator-over-a-borrow. Instead the map offers non-escaping
+// closure VISITORS (the zero-allocation primitive) and Vector SNAPSHOTS (the
+// convenience, built on the visitors).
+//
+// ELEMENT PASSING: keys and values are handed to the visitor BY VALUE, through
+// exactly the same whole-slot copy path the map's own `get`/`_get_value` use
+// (a slot read retains an ImplicitCopy key/value, or bitwise-copies a trivial
+// one, then the copy is `move`d into the closure). This is the "by value"
+// fallback the brief anticipated: per-category by-reference passing (`&K`/`&V`
+// for ExplicitCopy/NoCopy elements) is not cleanly expressible yet — there is
+// no by-reference projection into an enum payload inside a vector slot — so the
+// visitor is usable for every K/V that the map's `get` already supports (the
+// trivial and ImplicitCopy element types, i.e. Int/String keys and values).
+//
+// ORDER IS UNSPECIFIED: visitors walk the backing slot array, skipping Empty
+// and Tombstone slots, so entries surface in table (bucket) order, NOT
+// insertion order. Do not depend on it; sort a `keys()` snapshot for
+// deterministic output.
+//
+// EXCLUSIVITY: `each*` borrow the map shared (`&self`) for the whole walk, so a
+// closure that also captures the SAME map mutably (to insert/remove during the
+// visit) is a static Law-of-Exclusivity error — see
+// examples/hashmap_each_mutate_error.saw.
+extension HashMap<K: Hashable + Equatable, V, A: Allocator = Global> {
+    // Read a copy of the key in the occupied slot at `idx` (None otherwise).
+    func _key_at(&self, idx: Int) -> K? {
+        if let s = self.slots.get(idx) {
+            match s {
+                case Occupied(k, v) -> { return k },
+                case Empty -> { return None },
+                case Tombstone -> { return None }
+            }
+        }
+        None
+    }
+
+    // Visit each live entry, passing (key, value) copies to `body`. Order is
+    // unspecified (table order). `body` is non-escaping.
+    func each(&self, body: (K, V) -> Void) {
+        var i = 0
+        while i < self.cap {
+            if self._slot_state(i) == 1 {
+                if let k = self._key_at(i) {
+                    if let v = self._get_value(i) {
+                        body(move k, move v)
+                    }
+                }
+            }
+            i = i + 1
+        }
+    }
+
+    // Visit each live key (a copy) in table order. `body` is non-escaping.
+    func each_key(&self, body: (K) -> Void) {
+        var i = 0
+        while i < self.cap {
+            if let k = self._key_at(i) {
+                body(move k)
+            }
+            i = i + 1
+        }
+    }
+
+    // Visit each live value (a copy) in table order. `body` is non-escaping.
+    func each_value(&self, body: (V) -> Void) {
+        var i = 0
+        while i < self.cap {
+            if let v = self._get_value(i) {
+                body(move v)
+            }
+            i = i + 1
+        }
+    }
+}
+
+// Snapshots. Building a Vector of key/value COPIES duplicates elements that
+// stay live in the map, so the element must be copyable — `K: Copy` for
+// `keys()`, `V: Copy` for `values()` (the same bounded-extension mechanism
+// `Vector<T: Copy>: ExplicitCopy` uses). Built via the visitors. The returned
+// Vector uses the map's own allocator `A`. There is deliberately NO
+// `entries()` snapshot in v1 (a tuple-of-copies has containment wrinkles the
+// visitors already cover) — deferred.
+extension HashMap<K: Hashable + Equatable + Copy, V, A: Allocator = Global> {
+    // A fresh Vector of all live keys (copies), in unspecified (table) order.
+    func keys(&self) -> Vector<K, A> {
+        var out = Vector<K, A>(capacity: self.count)
+        self.each_key({ [&var out] k in out.push(move k) })
+        move out
+    }
+}
+
+extension HashMap<K: Hashable + Equatable, V: Copy, A: Allocator = Global> {
+    // A fresh Vector of all live values (copies), in unspecified (table) order.
+    func values(&self) -> Vector<V, A> {
+        var out = Vector<V, A>(capacity: self.count)
+        self.each_value({ [&var out] v in out.push(move v) })
+        move out
+    }
+}
+
 // HashMap owns a Vector (Deinit), so it must declare a copy policy. It is
 // NoCopy (move-only): a hash table is not implicitly duplicated, and there is
 // no `.copy()` — transfer it with `move`. (The existing Vector-backed `Map` is

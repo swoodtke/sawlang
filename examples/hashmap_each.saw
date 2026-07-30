@@ -1,0 +1,39 @@
+// HashMap iteration (design 57): the non-escaping closure visitors
+// each / each_key / each_value. Order is unspecified (table order), so the test
+// accumulates order-independent sums.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 60
+// 6
+// 60
+// 3
+
+func main() {
+    var m = HashMap<Int, Int>()
+    m.insert(1, 10)
+    m.insert(2, 20)
+    m.insert(3, 30)
+
+    var ksum = 0
+    var vsum = 0
+    m.each { [&var ksum, &var vsum] k, v in
+        ksum = ksum + k
+        vsum = vsum + v
+    }
+    print(ksum)   // 1+2+3 = 6
+    print(vsum)   // 10+20+30 = 60
+
+    var kc = 0
+    m.each_key { [&var kc] k in kc = kc + k }
+    print(kc)     // 6
+
+    var vc = 0
+    m.each_value { [&var vc] v in vc = vc + v }
+    print(vc)     // 60
+
+    // Count of live entries visited.
+    var n = 0
+    m.each { [&var n] k, v in n = n + 1 }
+    print(n)      // 3
+}
