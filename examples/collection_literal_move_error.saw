@@ -1,0 +1,21 @@
+// Each element of a collection literal is consumed exactly as an insert
+// argument would be (design 54): an owning value `move`d into a map literal is
+// moved-from afterwards, so touching it is a use-after-move error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable `r`
+
+struct R {
+    id: Int
+}
+
+extension R: NoCopy {
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    let r = R(id: 7)
+    var m = {1: move r}    // r is moved into the map
+    print(r.id)            // r was moved — rejected
+    print(m.len())
+}

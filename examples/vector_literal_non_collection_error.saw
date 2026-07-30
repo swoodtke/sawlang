@@ -1,0 +1,10 @@
+// An expected type that is neither an array nor a Vector keeps today's error
+// behavior for a `[..]` literal (design 54 Part 4): a bracket literal cannot
+// initialize a scalar.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign
+
+func main() {
+    let x: Int = [1, 2, 3]
+    print(x)
+}

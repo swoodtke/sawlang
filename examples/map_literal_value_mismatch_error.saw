@@ -1,0 +1,8 @@
+// All values in a map literal must share one type (design 54).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: all values in a map literal must share one type
+
+func main() {
+    var m = {1: 10, 2: "twenty"}
+    print(m.len())
+}

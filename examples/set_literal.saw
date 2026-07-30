@@ -1,0 +1,24 @@
+// Set literals (design 54 Part 3): `{a, b, ...}` (two or more elements — the
+// comma disambiguates from a `{expr}` closure). De-duplicates; sorted snapshot
+// for deterministic output.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 1
+// 0
+// 1
+// 2
+// 3
+
+func main() {
+    var s = {1, 2, 3, 2, 1}
+    print(s.len())                          // 3 (deduped)
+    if s.contains(2) { print(1) } else { print(0) }   // 1
+    if s.contains(9) { print(1) } else { print(0) }   // 0
+
+    // Annotated set of strings, sorted snapshot.
+    let names: Set<Int> = {3, 1, 2}
+    var v = names.to_vector()
+    v.sort()
+    for e in v.iter() { print(e) }          // 1 2 3
+}

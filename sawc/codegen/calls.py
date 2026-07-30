@@ -1429,10 +1429,19 @@ class CallsMixin:
 
     def _generate_enum_init(self, expr: EnumInit):
         """Generate code for enum variant initialization."""
-        # Handle generic enum with type_args
+        # Handle generic enum with type_args. Substitute the type args against
+        # the active monomorphization context FIRST (mirroring struct init), so
+        # e.g. `MapSlot<K, V>.Occupied(...)` inside `Map<Int, Int>` resolves to
+        # `MapSlot<Int, Int>` and NOT some other live instantiation. Without this
+        # the enum-init size can be taken from a sibling monomorphization (e.g.
+        # `MapSlot<Int, SetMark>` when a Set and a Map coexist).
         enum_name = expr.enum_name
         if expr.type_args:
-            enum_name = self._ensure_monomorphized_enum(expr.enum_name, expr.type_args)
+            resolved_args = expr.type_args
+            if self.type_param_context:
+                resolved_args = [self._substitute_saw_type(a, self.type_param_context)
+                                 for a in expr.type_args]
+            enum_name = self._ensure_monomorphized_enum(expr.enum_name, resolved_args)
 
         if enum_name not in self.enum_types:
             raise ValueError(f"Undefined enum: {enum_name}")

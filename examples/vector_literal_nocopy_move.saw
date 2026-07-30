@@ -1,0 +1,25 @@
+// A context-driven Vector literal moves owning (NoCopy) elements in, exactly
+// like the array literal's move-in rules (design 54 Part 4).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 7
+// 9
+
+struct R {
+    id: Int
+}
+
+extension R: NoCopy {
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    let a = R(id: 7)
+    let b = R(id: 9)
+    let v: Vector<R> = [move a, move b]
+    print(v.len())                     // 2
+    if let x = v.get(0) { print(x.id) }  // 7
+    if let x = v.get(1) { print(x.id) }  // 9
+}

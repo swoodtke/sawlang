@@ -260,6 +260,9 @@ def run_codegen(codegen, ast):
     except SystemExit:
         raise
     except Exception as e:
+        if os.environ.get("SAW_DEBUG"):
+            import traceback
+            traceback.print_exc()
         print(f"\033[1;31merror\033[0m: internal compiler error: {e}",
               file=sys.stderr)
         sys.exit(1)

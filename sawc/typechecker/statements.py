@@ -168,6 +168,11 @@ class StatementsMixin:
         if method.is_init:
             expected_return = self_type
 
+        # design 54: collection/array literal in return position.
+        if expected_return is not None:
+            resolved_ret = self._resolve_type(expected_return)
+            self._stamp_return_literal_types(method.body, resolved_ret)
+
         # Check body
         body_type = self._check_block(method.body)
 
@@ -570,6 +575,10 @@ class StatementsMixin:
         # Resolve return type first (needed for None propagation)
         resolved_return_type = self._resolve_type(func.return_type)
 
+        # design 54: a collection/array literal in return position (tail or a
+        # top-level `return`) gets the return type as its expected type.
+        self._stamp_return_literal_types(func.body, resolved_return_type)
+
         # Check body (stamps annotations at the _check_expression chokepoint)
         body_type = self._check_block(func.body)
 
@@ -692,6 +701,18 @@ class StatementsMixin:
     def visit_ExpressionStatement(self, stmt: ExpressionStatement):
         self._check_expression(stmt.expression)
 
+    def _stamp_return_literal_types(self, body, return_type):
+        """Stamp `return_type` as the expected type on any collection/array
+        literal in return position (design 54): the block's tail expression and
+        every top-level `return <literal>`. Nested branches self-infer."""
+        if body is None or return_type is None:
+            return
+        if getattr(body, 'final_expr', None) is not None:
+            self._apply_literal_expected_type(body.final_expr, return_type)
+        for stmt in getattr(body, 'statements', []):
+            if isinstance(stmt, ReturnStatement) and stmt.value is not None:
+                self._apply_literal_expected_type(stmt.value, return_type)
+
     def _check_let_statement(self, stmt: LetStatement):
         """Check a let/var statement."""
         from .core import VariableInfo
@@ -723,6 +744,13 @@ class StatementsMixin:
                 hint=f"previous definition was at line {existing.line}"
             )
             return
+
+        # Design 54: a collection/array literal RHS gets the annotation as its
+        # expected type (K/V/T inference, custom allocator, Vector-vs-array)
+        # BEFORE it is checked.
+        if stmt.type_annotation is not None:
+            self._apply_literal_expected_type(
+                stmt.value, self._resolve_type(stmt.type_annotation))
 
         # Infer or check type
         value_type = self._check_expression(stmt.value)

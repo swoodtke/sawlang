@@ -22,6 +22,7 @@ from ast_nodes import (
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation, Identifier,
     BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
+    MapLiteral, SetLiteral,
     MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     TryExpr, TryCatchExpr,
@@ -648,6 +649,15 @@ class ExpressionsMixin:
             return ArrayLiteral(elements=elements, line=start.line, column=start.column)
 
         elif self.match(TokenType.LBRACE):
+            # A `{` opens a closure/block, a map literal `{k: v}` / `{:}`, or a
+            # set literal `{a, b, ...}` (design 54). Bounded lookahead (no
+            # backtracking) picks which; `{}` and `{expr}` are ALWAYS a
+            # closure/block, and `{ x in ... }` closure params are unambiguous.
+            kind = self._classify_brace_literal()
+            if kind == 'map':
+                return self._parse_map_literal()
+            elif kind == 'set':
+                return self._parse_set_literal()
             # Closure expression: { x in x * 2 } or { $0 * 2 }
             return self._parse_closure_expression()
 
@@ -972,6 +982,111 @@ class ExpressionsMixin:
             line=start.line,
             column=start.column
         )
+
+    # === Collection Literals (design 54) ===
+
+    def _classify_brace_literal(self) -> str:
+        """Bounded lookahead from `{` deciding 'map', 'set', or 'closure'.
+
+        Rules (design 54, NO type feedback):
+          - `{:}`                              -> map (empty)
+          - first depth-0 delimiter is `:`     -> map literal
+          - first depth-0 delimiter is `,`     -> set literal
+          - `{}`, `{expr}`, `{ x in ... }`, `{ [caps] ... }` -> closure/block
+
+        Closure params (`x in`, `x, y in`, `x: T in`) are detected FIRST so
+        their `,`/`:` are never mistaken for collection delimiters. The scan is
+        bounded — it peeks to the first depth-0 `:`/`,`/`}`/`in` after the
+        opening expression and never backtracks (the hot parse path)."""
+        saved = self.pos
+        try:
+            self.advance()  # consume '{'
+            self.skip_newlines()
+            # `{}` empty block/closure.
+            if self.match(TokenType.RBRACE):
+                return 'closure'
+            # `{:}` empty map — the only construct that starts with a colon.
+            if self.match(TokenType.COLON):
+                return 'map'
+            # A bracketed capture list `{ [caps] ... in ... }` => closure.
+            if self.match(TokenType.LBRACKET) and self._closure_capture_list_ahead():
+                return 'closure'
+            # Closure params (`x in`, `x, y in`, `x: Type in`) => closure.
+            if self._is_closure_with_named_params():
+                return 'closure'
+            # Scan the leading expression to its first depth-0 delimiter.
+            depth = 0
+            while True:
+                t = self.current()
+                if t.type == TokenType.EOF:
+                    return 'closure'
+                if depth == 0:
+                    if t.type == TokenType.COLON:
+                        return 'map'
+                    if t.type == TokenType.COMMA:
+                        return 'set'
+                    if t.type == TokenType.RBRACE:
+                        return 'closure'   # `{expr}` single expression -> block
+                    if t.type == TokenType.IN:
+                        return 'closure'   # defensive (params handled above)
+                    if t.type in (TokenType.SEMICOLON, TokenType.LET, TokenType.VAR,
+                                  TokenType.RETURN, TokenType.BREAK, TokenType.CONTINUE,
+                                  TokenType.ASSIGN):
+                        return 'closure'   # a statement body -> block
+                if t.type in (TokenType.LT, TokenType.LPAREN, TokenType.LBRACE,
+                              TokenType.LBRACKET):
+                    depth += 1
+                elif t.type in (TokenType.GT, TokenType.RPAREN, TokenType.RBRACE,
+                                TokenType.RBRACKET):
+                    depth -= 1
+                self.advance()
+        finally:
+            self.pos = saved
+
+    def _parse_map_literal(self) -> MapLiteral:
+        """Parse `{k1: v1, k2: v2, ...}` or the empty map `{:}` (design 54)."""
+        start = self.current()
+        self.expect(TokenType.LBRACE)
+        self.skip_newlines()
+        # Empty map `{:}`.
+        if self.match(TokenType.COLON):
+            self.advance()
+            self.skip_newlines()
+            self.expect(TokenType.RBRACE, "Expected '}' after '{:' (empty map)")
+            return MapLiteral(entries=[], line=start.line, column=start.column)
+        entries = []
+        while not self.match(TokenType.RBRACE):
+            key = self.parse_expression()
+            self.expect(TokenType.COLON, "Expected ':' between map key and value")
+            value = self.parse_expression()
+            entries.append((key, value))
+            self.skip_newlines()
+            if self.match(TokenType.COMMA):
+                self.advance()
+                self.skip_newlines()
+            else:
+                break
+        self.skip_newlines()
+        self.expect(TokenType.RBRACE, "Expected '}' at end of map literal")
+        return MapLiteral(entries=entries, line=start.line, column=start.column)
+
+    def _parse_set_literal(self) -> SetLiteral:
+        """Parse `{a, b, ...}` (design 54, two or more elements)."""
+        start = self.current()
+        self.expect(TokenType.LBRACE)
+        self.skip_newlines()
+        elements = []
+        while not self.match(TokenType.RBRACE):
+            elements.append(self.parse_expression())
+            self.skip_newlines()
+            if self.match(TokenType.COMMA):
+                self.advance()
+                self.skip_newlines()
+            else:
+                break
+        self.skip_newlines()
+        self.expect(TokenType.RBRACE, "Expected '}' at end of set literal")
+        return SetLiteral(elements=elements, line=start.line, column=start.column)
 
     # === Closure Parsing ===
 

@@ -1,0 +1,60 @@
+// Context-driven Vector literals (design 54 Part 4): `[..]` builds a Vector when
+// the EXPECTED type is Vector<T> (annotation / param / return / struct field),
+// including the empty `[]`. With no expected type it stays a fixed-size array.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4
+// 30
+// 0
+// 3
+// 6
+// 2
+// 1
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: Deinit {
+    func deinit(&var self) {
+    }
+}
+
+extension Bag: NoCopy {
+}
+
+func total(xs: Vector<Int>) -> Int {
+    var acc = 0
+    for x in xs.iter() { acc = acc + x }
+    acc
+}
+
+func make_range() -> Vector<Int> {
+    [1, 2, 3]
+}
+
+func main() {
+    // Annotation context.
+    let v: Vector<Int> = [10, 20, 30, 40]
+    print(v.len())                       // 4
+    if let x = v.get(2) { print(x) }     // 30
+
+    // Empty vector via context.
+    let e: Vector<Int> = []
+    print(e.len())                       // 0
+
+    // Return context.
+    let r = make_range()
+    print(r.len())                       // 3
+
+    // Parameter context.
+    print(total([1, 2, 3]))              // 6
+
+    // Struct field context.
+    let b = Bag(items: [7, 8])
+    print(b.items.len())                 // 2
+
+    // No expected type -> fixed-size array (unchanged).
+    let arr = [1, 2, 3]
+    print(arr[0])                        // 1
+}

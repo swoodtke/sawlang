@@ -1,0 +1,30 @@
+// A collection literal honors a custom allocator named in the expected type
+// (design 54): a `Vector<Int, LoudAlloc>` literal routes its backing
+// allocation through LoudAlloc, observable via its alloc/dealloc prints — the
+// annotation's `A` threads through the literal exactly as `Map<..., A>` /
+// `Set<..., A>` do.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// alloc 32
+// 4
+// dealloc 32
+
+struct LoudAlloc {}
+extension LoudAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+        print("alloc {size}")
+        Global().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+        print("dealloc {size}")
+        Global().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    // The literal builds a Vector<Int, LoudAlloc>; its grow (4 * 8 = 32 bytes)
+    // and its scope-end deinit both route through LoudAlloc.
+    let v: Vector<Int, LoudAlloc> = [1, 2, 3, 4]
+    print(v.len())                               // 4
+    // Scope end: v deinits -> "dealloc 32".
+}

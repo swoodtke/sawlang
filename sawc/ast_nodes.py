@@ -562,7 +562,34 @@ class TupleIndex(Expression):
 
 @dataclass
 class ArrayLiteral(Expression):
-    """Array literal: [1, 2, 3]"""
+    """Array literal: [1, 2, 3].
+
+    By default lowers to a fixed-size array. When the EXPECTED type (from a
+    binding annotation, parameter, return, or struct field) is `Vector<T, A>`,
+    the typechecker stamps `vector_container_type` and it builds a Vector
+    instead (design 54 Part 4)."""
+    elements: List[Expression]
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class MapLiteral(Expression):
+    """Map literal `{k1: v1, k2: v2}` and the empty map `{:}` (design 54).
+
+    Lowers to a Map construction + one insert per entry, in source order
+    (duplicate keys: last wins). `{:}` (no entries) requires an expected type."""
+    entries: List[tuple]  # [(key_expr, value_expr), ...]
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class SetLiteral(Expression):
+    """Set literal `{a, b, ...}` (design 54, two or more elements — the comma
+    disambiguates it from a `{expr}` closure/block).
+
+    Lowers to a Set construction + one insert per element, in source order."""
     elements: List[Expression]
     line: int = 0
     column: int = 0

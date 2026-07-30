@@ -14,7 +14,7 @@ from ast_nodes import (
     Expression, IntLiteral, FloatLiteral, BoolLiteral, StringLiteral,
     StringInterpolation, Identifier, BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr,
     FunctionCall, IfExpr, IfLetExpr, TupleLiteral, TupleIndex,
-    ArrayLiteral, ArrayIndex, MemberAccess, StructInit, NoneLiteral,
+    ArrayLiteral, MapLiteral, SetLiteral, ArrayIndex, MemberAccess, StructInit, NoneLiteral,
     ForceUnwrap, NilCoalesce, OptionalChain, MethodCall, SelfExpr,
     EnumInit, MatchExpr, WhileExpr, RangeExpr, ForLoop, ClosureExpr,
     TryExpr, TryCatchExpr,
@@ -164,6 +164,12 @@ class ExpressionsMixin:
 
     def visit_ArrayLiteral(self, expr: ArrayLiteral) -> Optional[SawType]:
         return self._check_array_literal(expr)
+
+    def visit_MapLiteral(self, expr: MapLiteral) -> Optional[SawType]:
+        return self._check_map_literal(expr)
+
+    def visit_SetLiteral(self, expr: SetLiteral) -> Optional[SawType]:
+        return self._check_set_literal(expr)
 
     def visit_ArrayIndex(self, expr: ArrayIndex) -> Optional[SawType]:
         return self._check_array_index(expr)
@@ -1346,6 +1352,7 @@ class ExpressionsMixin:
                 if isinstance(arg.value, ClosureExpr):
                     arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
                 else:
+                    self._apply_literal_expected_type(arg.value, expected_type)
                     arg_type = self._check_expression(arg.value)
                 if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type):
                     self._error(
@@ -1581,6 +1588,7 @@ class ExpressionsMixin:
             if isinstance(arg.value, ClosureExpr):
                 arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
             else:
+                self._apply_literal_expected_type(arg.value, expected_type)
                 arg_type = self._check_expression(arg.value)
             declared = (func_info.param_types[i]
                         if i < len(func_info.param_types) else None)
@@ -1871,33 +1879,203 @@ class ExpressionsMixin:
         return tuple_type.element_types[expr.index]
 
     def _check_array_literal(self, expr: ArrayLiteral) -> Optional[SawType]:
-        """Check an array literal and infer its type."""
+        """Check an array literal and infer its type.
+
+        Design 54 Part 4: when the EXPECTED type (stamped by a binding
+        annotation / parameter / return / struct field) is `Vector<T, A>`, the
+        literal builds a Vector (per-element push) instead of a fixed-size
+        array. With no expected type it stays a fixed-size array, byte-for-byte
+        as before."""
+        expected = getattr(expr, 'expected_type', None)
+        vec_elem = None
+        if (expected is not None and expected.kind == TypeKind.STRUCT
+                and expected.struct_name == "Vector" and expected.type_args):
+            vec_elem = expected.type_args[0]
+
         if len(expr.elements) == 0:
+            if vec_elem is not None:
+                # Empty Vector via context: `let v: Vector<Int> = []`.
+                expr.vector_container_type = expected
+                return expected
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 "cannot infer type of empty array literal; use explicit type annotation",
                 expr.line, expr.column
             )
             return None
+
+        # Element unification target: the Vector element type when building a
+        # Vector, otherwise inferred from the first element.
         first_type = self._check_expression(expr.elements[0])
         if first_type is None:
             return None
-        self._check_value_transfer(expr.elements[0], first_type, "array element",
+        target = vec_elem if vec_elem is not None else first_type
+        if vec_elem is not None and not self._types_compatible(first_type, vec_elem):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"vector literal element 0 has type `{first_type}`, expected `{vec_elem}`",
+                expr.elements[0].line, expr.elements[0].column)
+            return None
+        self._check_value_transfer(expr.elements[0], target, "array element",
                                    expr.elements[0].line, expr.elements[0].column)
         for i, element in enumerate(expr.elements[1:], start=1):
             elem_type = self._check_expression(element)
             if elem_type is None:
                 return None
-            if not self._types_compatible(elem_type, first_type):
+            if not self._types_compatible(elem_type, target):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"array element {i} has type `{elem_type}`, expected `{first_type}`",
+                    f"array element {i} has type `{elem_type}`, expected `{target}`",
                     element.line, element.column
                 )
                 return None
-            self._check_value_transfer(element, first_type, "array element",
+            self._check_value_transfer(element, target, "array element",
                                        element.line, element.column)
+        if vec_elem is not None:
+            expr.vector_container_type = expected
+            return expected
         return SawType(TypeKind.ARRAY, array_element_type=first_type, array_size=len(expr.elements))
+
+    def _check_map_literal(self, expr: MapLiteral) -> Optional[SawType]:
+        """Check a map literal `{k: v, ...}` / `{:}` (design 54 Part 3).
+
+        K/V are inferred from the entries, or taken from an expected
+        `Map<K, V, A>` type (annotation/param/return/field) which also allows a
+        custom allocator. `{:}` requires an expected type."""
+        expected = getattr(expr, 'expected_type', None)
+        exp_map = (expected if (expected is not None and expected.kind == TypeKind.STRUCT
+                                and expected.struct_name == "Map") else None)
+        if expected is not None and exp_map is None:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"a map literal cannot initialize a value of type `{expected}`",
+                expr.line, expr.column)
+            return None
+
+        exp_k = exp_map.type_args[0] if (exp_map and len(exp_map.type_args) >= 1) else None
+        exp_v = exp_map.type_args[1] if (exp_map and len(exp_map.type_args) >= 2) else None
+
+        if len(expr.entries) == 0:
+            # `{:}` — the empty map needs an expected type to fix K/V.
+            if exp_map is None:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "cannot infer the type of the empty map literal `{:}`; "
+                    "add a type annotation (e.g. `let m: Map<String, Int> = {:}`)",
+                    expr.line, expr.column)
+                return None
+            self._check_map_key_bounds(exp_k, expr)
+            expr.resolved_type = exp_map
+            return exp_map
+
+        key_type = exp_k
+        val_type = exp_v
+        for i, (k_expr, v_expr) in enumerate(expr.entries):
+            kt = self._check_expression(k_expr)
+            vt = self._check_expression(v_expr)
+            if kt is None or vt is None:
+                return None
+            if key_type is None:
+                key_type = kt
+            elif not self._types_compatible(kt, key_type):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"map key {i} has type `{kt}`, expected `{key_type}` "
+                    f"(all keys in a map literal must share one type)",
+                    k_expr.line, k_expr.column)
+                return None
+            if val_type is None:
+                val_type = vt
+            elif not self._types_compatible(vt, val_type):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"map value {i} has type `{vt}`, expected `{val_type}` "
+                    f"(all values in a map literal must share one type)",
+                    v_expr.line, v_expr.column)
+                return None
+
+        self._check_map_key_bounds(key_type, expr)
+        container = exp_map if exp_map is not None else SawType(
+            TypeKind.STRUCT, struct_name="Map", type_args=[key_type, val_type])
+        # Each entry is consumed exactly as an `insert(k, v)` argument would be
+        # (moves for owning values); the checkpoint sees N independent transfers.
+        eff_k = exp_k if exp_k is not None else key_type
+        eff_v = exp_v if exp_v is not None else val_type
+        for (k_expr, v_expr) in expr.entries:
+            self._check_value_transfer(k_expr, eff_k, "map key",
+                                       k_expr.line, k_expr.column)
+            self._check_value_transfer(v_expr, eff_v, "map value",
+                                       v_expr.line, v_expr.column)
+        expr.resolved_type = container
+        return container
+
+    def _check_set_literal(self, expr: SetLiteral) -> Optional[SawType]:
+        """Check a set literal `{a, b, ...}` (design 54 Part 3)."""
+        expected = getattr(expr, 'expected_type', None)
+        exp_set = (expected if (expected is not None and expected.kind == TypeKind.STRUCT
+                                and expected.struct_name == "Set") else None)
+        if expected is not None and exp_set is None:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"a set literal cannot initialize a value of type `{expected}`",
+                expr.line, expr.column)
+            return None
+        exp_t = exp_set.type_args[0] if (exp_set and len(exp_set.type_args) >= 1) else None
+
+        elem_type = exp_t
+        for i, e_expr in enumerate(expr.elements):
+            et = self._check_expression(e_expr)
+            if et is None:
+                return None
+            if elem_type is None:
+                elem_type = et
+            elif not self._types_compatible(et, elem_type):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"set element {i} has type `{et}`, expected `{elem_type}` "
+                    f"(all elements in a set literal must share one type)",
+                    e_expr.line, e_expr.column)
+                return None
+
+        self._check_map_key_bounds(elem_type, expr, what="set element")
+
+        container = exp_set if exp_set is not None else SawType(
+            TypeKind.STRUCT, struct_name="Set", type_args=[elem_type])
+        eff_t = exp_t if exp_t is not None else elem_type
+        for e_expr in expr.elements:
+            self._check_value_transfer(e_expr, eff_t, "set element",
+                                       e_expr.line, e_expr.column)
+        expr.resolved_type = container
+        return container
+
+    def _apply_literal_expected_type(self, value_expr, expected_type):
+        """Push a resolved expected type down onto a collection/array literal
+        BEFORE it is checked, so it can pick K/V/T, honor a custom allocator, or
+        build a Vector instead of an array (design 54). No-op for anything else.
+        """
+        if expected_type is None or value_expr is None:
+            return
+        # Only a concrete named-struct expectation is meaningful to a literal
+        # (Map / Set / Vector, or another struct which yields a clean error);
+        # abstract params / optionals / etc. let the literal self-infer.
+        if expected_type.kind != TypeKind.STRUCT:
+            return
+        if isinstance(value_expr, (MapLiteral, SetLiteral, ArrayLiteral)):
+            value_expr.expected_type = expected_type
+
+    def _check_map_key_bounds(self, key_type, expr, what="map key"):
+        """A map key / set element type must be Hashable + Equatable (design
+        54, same bound as constructing the container)."""
+        if key_type is None:
+            return
+        for bound in ("Hashable", "Equatable"):
+            if not self._bound_satisfied(key_type, bound):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"{what} type `{key_type}` must be `{bound}` "
+                    f"(map keys and set elements require Hashable + Equatable)",
+                    expr.line, expr.column)
+                return
 
     def _check_array_index(self, expr: ArrayIndex) -> Optional[SawType]:
         """Check array or tuple indexing with [index] syntax."""
@@ -2394,6 +2572,9 @@ class ExpressionsMixin:
         if (isinstance(value, ClosureExpr) and expected_type is not None
                 and expected_type.kind == TypeKind.FUNCTION):
             return self._check_closure(value, expected_type)
+        # design 54: a collection/array literal in a struct field gets the field
+        # type as its expected type (build a Vector/Map/Set, custom allocator).
+        self._apply_literal_expected_type(value, expected_type)
         return self._check_expression(value)
 
     def _fill_or_report_type_args(self, provided, type_params, what, line, column):
@@ -3995,11 +4176,13 @@ class ExpressionsMixin:
             for tp, ta in zip(struct_type_params, resolved_args):
                 type_map[tp.name] = ta
         for i, arg in enumerate(expr.arguments):
-            arg_type = self._check_expression(arg.value)
             declared_type = method_info.param_types[i]
             expected_type = declared_type
             if expected_type is not None and type_map:
                 expected_type = expected_type.substitute(type_map)
+            if not isinstance(arg.value, ClosureExpr):
+                self._apply_literal_expected_type(arg.value, expected_type)
+            arg_type = self._check_expression(arg.value)
             allow_wrap = self._df3_allow_wrap(
                 declared_type, set(type_map.keys()) if type_map else None)
             if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):

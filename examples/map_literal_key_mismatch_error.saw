@@ -1,0 +1,9 @@
+// All keys in a map literal must share one type (design 54): a mixed-key
+// literal is a clean error naming both types.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: all keys in a map literal must share one type
+
+func main() {
+    var m = {1: 10, "two": 20}
+    print(m.len())
+}

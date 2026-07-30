@@ -2052,6 +2052,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def visit_ArrayLiteral(self, expr: ArrayLiteral):
         return self._generate_array_literal(expr)
 
+    def visit_MapLiteral(self, expr):
+        return self._generate_map_literal(expr)
+
+    def visit_SetLiteral(self, expr):
+        return self._generate_set_literal(expr)
+
     def visit_ArrayIndex(self, expr: ArrayIndex):
         return self._generate_array_index(expr)
 
