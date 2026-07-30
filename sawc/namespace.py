@@ -671,11 +671,25 @@ class Namespace:
         method = self.lookup_method(struct_name, method_name)
         return method.is_init if method else False
 
-    def type_conforms_to(self, type_name: str, trait_name: str) -> bool:
-        """Check if a type conforms to a trait."""
-        if type_name not in self.conformances:
-            return False
-        return trait_name in self.conformances[type_name]
+    def type_conforms_to(self, type_name: str, trait_name: str, _visiting=None) -> bool:
+        """Check if a type conforms to a trait.
+
+        Checks this namespace, then any imported module namespace (conformances
+        are registered per-module at typecheck time and only merged for codegen,
+        so a cross-module query — e.g. a manifest module erasing a TomlError from
+        the toml module — must look through imports too, design 56). The visited
+        set guards against import cycles."""
+        if type_name in self.conformances and trait_name in self.conformances[type_name]:
+            return True
+        if _visiting is None:
+            _visiting = set()
+        _visiting.add(id(self))
+        for module_sym in self.modules.values():
+            ns = getattr(module_sym, 'namespace', None)
+            if ns is not None and id(ns) not in _visiting:
+                if ns.type_conforms_to(type_name, trait_name, _visiting):
+                    return True
+        return False
 
     def get_conformances(self, type_name: str) -> List[str]:
         """Get all traits a type conforms to."""

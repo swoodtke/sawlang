@@ -1,0 +1,23 @@
+// Test (design 56 dogfood): Manifest.load_from now returns
+// `Result<Manifest, Box<any Error>>`. Loading from a nonexistent directory
+// yields a ManifestError that is auto-erased into the box at the return
+// boundary; the caller recovers the message uniformly through the Printable
+// vtable (`{error}` / to_string). This is a real Blade error path migrated off a
+// hand-written concrete error type.
+
+import src.manifest
+
+func main() {
+    match manifest.Manifest.load_from(Path(s: "/no/such/blade/dir")) {
+        case Ok(_) -> {
+            panic("loading from a nonexistent directory should fail")
+        },
+        case Err(e) -> {
+            // `{error}` renders through the erased vtable.
+            let msg = e.to_string()
+            let expected = "Saw.toml not found in /no/such/blade/dir"
+            assert(msg.equals(expected), "erased manifest error should render its message")
+            print("erased_manifest_error: {e}")
+        }
+    }
+}

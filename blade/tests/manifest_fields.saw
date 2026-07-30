@@ -11,7 +11,7 @@ func main() {
             print("manifest_fields: ok")
         },
         case Err(e) -> {
-            panic("Saw.toml should load: {e.message}")
+            panic("Saw.toml should load: {e}")
         }
     }
 }

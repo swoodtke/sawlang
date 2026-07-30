@@ -25,6 +25,20 @@ public extension TomlError {
     }
 }
 
+// A TOML error is a Printable error (design 56): it renders itself, so it can be
+// erased into a `Box<any Error>` and propagated with `try` across error kinds.
+public extension TomlError: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append("TOML parse error: ")
+        into.append(self.message)
+        if self.line > 0 {
+            into.append(" (line ")
+            into.append(self.line)
+            into.append(")")
+        }
+    }
+}
+
 // =============================================================================
 // TOML Data Structures
 // =============================================================================

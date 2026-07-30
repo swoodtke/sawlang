@@ -17,6 +17,15 @@ public extension ManifestError {
     }
 }
 
+// A manifest error is a Printable error (design 56): manifest loading returns
+// `Result<Manifest, Box<any Error>>`, so a ManifestError is auto-erased into the
+// box at the return boundary and a TomlError is re-boxed by `try` (below).
+public extension ManifestError: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append(self.message)
+    }
+}
+
 // =============================================================================
 // Package Manifest Data Structures
 // =============================================================================
@@ -32,8 +41,15 @@ public struct Manifest {
 }
 
 public extension Manifest {
-    // Load manifest from current directory
-    func load() -> Result<Manifest, ManifestError> {
+    // Load manifest from current directory.
+    //
+    // design 56 dogfood: this returns an ERASED Result. A `ManifestError`
+    // returned here is auto-erased into the `Box<any Error>` at the return
+    // boundary; the `try` on the TOML parse re-boxes a `TomlError` into the same
+    // box at the propagation edge. Two distinct error types flow through one
+    // return type without a hand-written union, and callers render either with
+    // `{error}` via the Printable vtable.
+    func load() -> Result<Manifest, Box<any Error>> {
         let manifest_path = Path(s: "Saw.toml")
 
         if not File.exists(manifest_path) {
@@ -51,33 +67,28 @@ public extension Manifest {
         // Convert Data to String
         let content = data.to_string()
 
-        match toml.TomlDoc.parse(content) {
-            case Ok(doc) -> {
-                // Extract [package] section
-                guard let pkg_section = doc.get_section("package") else {
-                    return ManifestError(msg: "Missing [package] section in Saw.toml")
-                }
+        // `try` re-boxes a TomlError into Box<any Error> on failure.
+        let doc = try toml.TomlDoc.parse(content)
 
-                let name = pkg_section.get("name") ?? "unknown"
-                let version = pkg_section.get("version") ?? "0.0.0"
-
-                // Get current directory as root
-                let root = if let cwd = Directory.current() {
-                    cwd
-                } else {
-                    Path(s: ".")
-                }
-
-                Manifest(package: Package(name: name, version: version), root_dir: root)
-            },
-            case Err(e) -> {
-                ManifestError(msg: "TOML parse error: {e.message}")
-            }
+        guard let pkg_section = doc.get_section("package") else {
+            return ManifestError(msg: "Missing [package] section in Saw.toml")
         }
+
+        let name = pkg_section.get("name") ?? "unknown"
+        let version = pkg_section.get("version") ?? "0.0.0"
+
+        // Get current directory as root
+        let root = if let cwd = Directory.current() {
+            cwd
+        } else {
+            Path(s: ".")
+        }
+
+        return Manifest(package: Package(name: name, version: version), root_dir: root)
     }
 
-    // Load manifest from a specific directory
-    func load_from(dir: Path) -> Result<Manifest, ManifestError> {
+    // Load manifest from a specific directory (erased Result, as `load`).
+    func load_from(dir: Path) -> Result<Manifest, Box<any Error>> {
         let manifest_path = dir.join("Saw.toml")
 
         if not File.exists(manifest_path) {
@@ -94,21 +105,16 @@ public extension Manifest {
 
         let content = data.to_string()
 
-        match toml.TomlDoc.parse(content) {
-            case Ok(doc) -> {
-                guard let pkg_section = doc.get_section("package") else {
-                    return ManifestError(msg: "Missing [package] section in Saw.toml")
-                }
+        let doc = try toml.TomlDoc.parse(content)
 
-                let name = pkg_section.get("name") ?? "unknown"
-                let version = pkg_section.get("version") ?? "0.0.0"
-
-                Manifest(package: Package(name: name, version: version), root_dir: dir)
-            },
-            case Err(e) -> {
-                ManifestError(msg: "TOML parse error: {e.message}")
-            }
+        guard let pkg_section = doc.get_section("package") else {
+            return ManifestError(msg: "Missing [package] section in Saw.toml")
         }
+
+        let name = pkg_section.get("name") ?? "unknown"
+        let version = pkg_section.get("version") ?? "0.0.0"
+
+        return Manifest(package: Package(name: name, version: version), root_dir: dir)
     }
 
     // Get the package name

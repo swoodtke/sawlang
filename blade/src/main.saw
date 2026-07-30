@@ -106,7 +106,7 @@ func main() {
                                 case Err(e) -> print("error: {e.message}")
                             }
                         },
-                        case Err(e) -> print("error: {e.message}")
+                        case Err(e) -> print("error: {e}")
                     }
                 },
                 case Run(args) -> {
@@ -118,7 +118,7 @@ func main() {
                                 case Err(e) -> print("error: {e.message}")
                             }
                         },
-                        case Err(e) -> print("error: {e.message}")
+                        case Err(e) -> print("error: {e}")
                     }
                 },
                 case Test -> {
@@ -129,7 +129,7 @@ func main() {
                             exit(code as Int32)
                         },
                         case Err(e) -> {
-                            print("error: {e.message}")
+                            print("error: {e}")
                             exit(1 as Int32)
                         }
                     }
