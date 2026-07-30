@@ -1527,10 +1527,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 # Create a struct to hold the associated values
                 if variant_types:
                     variant_struct = ir.LiteralStructType(variant_types)
-                    # Get size of the variant struct in bytes
-                    # For simplicity, we calculate a conservative size
-                    # In a real implementation, we'd use LLVM's DataLayout
-                    size = sum(self._estimate_type_size(t) for t in variant_types)
+                    # Size the payload byte array by the variant struct's TRUE ABI
+                    # size (via LLVM's DataLayout), NOT a naive field-size sum. The
+                    # sum ignores alignment padding, so any payload with internal
+                    # padding — a pointer/optional after a smaller field, e.g.
+                    # `Arc<T>` (an optional pointer `{i1, ptr}` = 16 bytes, sum 9)
+                    # or an `Int8` before a wide field — undersizes `[N x i8]` and
+                    # both TRUNCATES the aggregate on construction and reads OOB on
+                    # extraction (design 65, L17 symptom 2).
+                    size = variant_struct.get_abi_size(self.target_data)
                     max_payload_size = max(max_payload_size, size)
 
         # Create LLVM type for enum
