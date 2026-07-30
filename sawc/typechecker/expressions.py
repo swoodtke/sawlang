@@ -1440,6 +1440,11 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return None
+        # design 53: an aliased selective import (`import m.{add as plus}`)
+        # registers a symbol carrying its real codegen name in `mangled_name`;
+        # stamp it so codegen calls the real definition, not the alias.
+        if func_info.mangled_name:
+            expr.resolved_symbol = func_info.mangled_name
         # design 22: record the call edge in the suspend graph (blocking externs
         # are a direct suspension source; other calls are edges to their node).
         self._effect_call_function(func_info, expr.name, expr.line)

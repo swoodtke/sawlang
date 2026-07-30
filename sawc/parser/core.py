@@ -377,19 +377,39 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                     column=start.column
                 )
 
-            # Check for symbol set: import foo.{A, B}
+            # Check for symbol set: import foo.{A, B as C} (design 53: per-symbol
+            # `as` aliases).
             if self.match(TokenType.LBRACE):
                 self.advance()
                 symbols = []
-                if not self.match(TokenType.RBRACE):
+                symbol_aliases = {}
+                local_names = set()
+
+                def parse_one_symbol():
                     sym = self.expect(TokenType.IDENT, "Expected symbol name in import")
                     symbols.append(sym.value)
+                    local = sym.value
+                    if self.match(TokenType.AS):
+                        self.advance()
+                        alias_tok = self.expect(TokenType.IDENT,
+                                                "Expected alias name after 'as'")
+                        symbol_aliases[sym.value] = alias_tok.value
+                        local = alias_tok.value
+                    # design 53: two entries of one selective import may not bind
+                    # the same local name (an alias colliding with another
+                    # imported name), reported with the offending local name.
+                    if local in local_names:
+                        self.error(f"imported name `{local}` is already bound by "
+                                   f"this import")
+                    local_names.add(local)
+
+                if not self.match(TokenType.RBRACE):
+                    parse_one_symbol()
                     while self.match(TokenType.COMMA):
                         self.advance()
                         if self.match(TokenType.RBRACE):
                             break
-                        sym = self.expect(TokenType.IDENT, "Expected symbol name in import")
-                        symbols.append(sym.value)
+                        parse_one_symbol()
                 self.expect(TokenType.RBRACE)
                 return ImportDecl(
                     path=path,
@@ -397,7 +417,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                     alias=None,
                     is_glob=False,
                     line=start.line,
-                    column=start.column
+                    column=start.column,
+                    symbol_aliases=(symbol_aliases or None)
                 )
 
             # Regular path component

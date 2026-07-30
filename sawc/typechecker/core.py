@@ -568,38 +568,51 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 # import foo.{A, B} -> copy specific symbols to local namespace
                 if imp_path in checked_modules:
                     _, source_ns = checked_modules[imp_path]
+                    aliases = imp.symbol_aliases or {}
                     for sym_name in imp.symbols:
+                        # design 53: a `Name as Local` import binds the symbol
+                        # under `Local` in this namespace — a pure local rename
+                        # (the symbol object, and thus its mangling, is unchanged).
+                        local = aliases.get(sym_name, sym_name)
                         # Copy the symbol from source to local namespace
                         if sym_name in source_ns.structs:
                             sym = source_ns.structs[sym_name]
                             if sym.visibility == Visibility.PUBLIC:
-                                if sym_name not in ns.structs:
-                                    ns.register_struct(sym_name, sym)
-                                ns.make_accessible(sym_name)
+                                if local not in ns.structs:
+                                    ns.register_struct(local, sym)
+                                ns.make_accessible(local)
                         elif sym_name in source_ns.enums:
                             sym = source_ns.enums[sym_name]
                             if sym.visibility == Visibility.PUBLIC:
-                                if sym_name not in ns.enums:
-                                    ns.register_enum(sym_name, sym)
-                                ns.make_accessible(sym_name)
+                                if local not in ns.enums:
+                                    ns.register_enum(local, sym)
+                                ns.make_accessible(local)
                         elif sym_name in source_ns.functions:
                             sym = source_ns.functions[sym_name]
                             if sym.visibility == Visibility.PUBLIC:
-                                if sym_name not in ns.functions:
-                                    ns.register_function(sym_name, sym)
-                                ns.make_accessible(sym_name)
+                                # For an ALIASED function, bind a copy whose
+                                # codegen name is the real symbol (design 53), so
+                                # a call under the alias reaches the real
+                                # definition. Unaliased imports are unchanged.
+                                if local != sym_name and not sym.mangled_name:
+                                    import dataclasses
+                                    sym = dataclasses.replace(
+                                        sym, mangled_name=sym_name)
+                                if local not in ns.functions:
+                                    ns.register_function(local, sym)
+                                ns.make_accessible(local)
                         elif sym_name in source_ns.statics:
                             sym = source_ns.statics[sym_name]
                             if sym.visibility == Visibility.PUBLIC:
-                                if sym_name not in ns.statics:
-                                    ns.register_static(sym_name, sym)
-                                ns.make_accessible(sym_name)
+                                if local not in ns.statics:
+                                    ns.register_static(local, sym)
+                                ns.make_accessible(local)
                         elif sym_name in source_ns.traits:
                             sym = source_ns.traits[sym_name]
                             if sym.visibility == Visibility.PUBLIC:
-                                if sym_name not in ns.traits:
-                                    ns.register_trait(sym_name, sym)
-                                ns.make_accessible(sym_name)
+                                if local not in ns.traits:
+                                    ns.register_trait(local, sym)
+                                ns.make_accessible(local)
                     # Also register module for qualified access to non-imported symbols
                     alias = imp.path[-1] if imp.path else ""
                     from namespace import ModuleSymbol

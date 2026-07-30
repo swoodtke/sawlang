@@ -342,10 +342,14 @@ class ImportDecl:
     """Import declaration: import std.io or import std.io.{File, Directory}"""
     path: List[str]                    # ["std", "io"]
     symbols: Optional[List[str]]       # ["File", "Directory"] or None for module import
-    alias: Optional[str]               # For 'as name' syntax
+    alias: Optional[str]               # For 'as name' syntax (module alias)
     is_glob: bool = False              # For import foo.*
     line: int = 0
     column: int = 0
+    # Per-symbol aliases for selective imports (design 53): original name ->
+    # local name, e.g. `import std.io.{Read as R}` -> {"Read": "R"}. A symbol
+    # with no alias is absent here (imported under its own name).
+    symbol_aliases: Optional[dict] = None
 
 
 @dataclass
