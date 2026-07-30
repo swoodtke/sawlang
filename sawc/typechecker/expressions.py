@@ -770,28 +770,40 @@ class ExpressionsMixin:
     def _format_overload_candidate(self, name: str, cand, is_method: bool) -> str:
         offset = self._overload_cand_offset(cand, is_method)
         ps = cand.param_types[offset:]
+        ns = cand.param_names[offset:] if cand.param_names else []
         prefix = "<T> " if cand.type_params else ""
-        return f"{prefix}{name}(" + ", ".join(str(p) for p in ps) + ")"
+        # Design 66: show the labeled form (`name(label: Type, ...)`) so an
+        # ambiguity diagnostic tells the user which labels disambiguate.
+        parts = []
+        for i, p in enumerate(ps):
+            nm = ns[i] if i < len(ns) else None
+            parts.append(f"{nm}: {p}" if nm else f"{p}")
+        return f"{prefix}{name}(" + ", ".join(parts) + ")"
 
     def _resolve_overload(self, display_name, candidates, arg_types,
-                          has_type_args, is_method, line, column):
-        """Select the unique matching overload for a call (design 55).
+                          has_type_args, is_method, line, column, arguments):
+        """Select the unique matching overload for a call (design 55 + 66).
 
         `arg_types[i] is None` marks a closure argument, which is neutral for
         matching (the closure-arg rule: resolve on the non-closure arguments;
         if candidates still tie and differ only in closure-param types they stay
-        tied and yield the ambiguity error below). Tie-breaks, in order:
+        tied and yield the ambiguity error below).
+
+        Design 66 LABEL FILTER runs FIRST: a candidate is eliminated if the
+        call's labels cannot bind under the binding rule (unknown label, backward
+        binding, missing forward-skip, arity). Surviving candidates then face the
+        design-55 exact-type matching + tie-breaks, in order:
           1. exact beats optional-wrap (fewest implicit `T -> T?` wraps wins);
-          2. resolution precedes Result/Optional auto-wrap (this runs on the
-             raw argument types, before any wrap machinery);
-          3. concrete beats generic (a generic overload only competes when the
-             call gives explicit type arguments — Saw has no generic inference —
-             so a bare call always lands on a concrete overload).
-        Returns the chosen FunctionSymbol, or None after reporting a no-match or
-        ambiguity diagnostic that lists the candidates with their types.
+          2. resolution precedes Result/Optional auto-wrap (raw argument types);
+          3. concrete beats generic (a generic overload competes only with
+             explicit call-site type args — Saw has no generic inference).
+        Returns `(chosen FunctionSymbol, binding_mapping)`; the mapping is the
+        per-source-argument logical parameter index for the winner (used to align
+        argument checks and stamp `arg_plan`). Returns `(None, None)` after a
+        no-match or ambiguity diagnostic listing the candidates in LABELED form.
         """
         n = len(arg_types)
-        matches = []  # (candidate, wrap_penalty, is_generic)
+        matches = []  # (candidate, wrap_penalty, is_generic, mapping)
         for cand in candidates:
             is_generic = bool(cand.type_params)
             # A generic overload competes only with explicit call-site type args
@@ -802,23 +814,24 @@ class ExpressionsMixin:
                 continue
             offset = self._overload_cand_offset(cand, is_method)
             cparams = cand.param_types[offset:]
+            cnames = list(cand.param_names[offset:]) if cand.param_names else []
             defaults = cand.default_values[offset:] if cand.default_values else []
-            if defaults and any(dv is not None for dv in defaults):
-                required = sum(1 for dv in defaults if dv is None)
-                if n < required or n > len(cparams):
-                    continue
-            elif n != len(cparams):
+            # LABEL FILTER (design 66): the labels + arity must bind. This also
+            # subsumes the old arity gate for positional calls.
+            mapping, berr = self._compute_binding(cnames, defaults, arguments)
+            if berr is not None:
                 continue
             tp_names = {tp.name for tp in (cand.type_params or [])}
             ok = True
             penalty = 0
             for i in range(n):
-                pt = cparams[i]
+                p = mapping[i]
+                pt = cparams[p] if p < len(cparams) else None
                 at = arg_types[i]
                 is_gp = pt is not None and (
                     pt.kind == TypeKind.TYPE_PARAM
                     or (pt.kind == TypeKind.STRUCT and pt.struct_name in tp_names))
-                if is_gp or at is None:
+                if is_gp or at is None or pt is None:
                     continue  # generic slot / closure arg: neutral
                 if not self._types_compatible(at, pt):
                     ok = False
@@ -826,7 +839,7 @@ class ExpressionsMixin:
                 if pt.is_optional() and not at.is_optional():
                     penalty += 1  # exact-vs-optional-wrap discriminator
             if ok:
-                matches.append((cand, penalty, is_generic))
+                matches.append((cand, penalty, is_generic, mapping))
         if not matches:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -837,13 +850,15 @@ class ExpressionsMixin:
                     self._format_overload_candidate(display_name, c, is_method)
                     for c in candidates)
             )
-            return None
+            return None, None
         minpen = min(m[1] for m in matches)
         matches = [m for m in matches if m[1] == minpen]
         if any(not m[2] for m in matches):
             matches = [m for m in matches if not m[2]]  # concrete beats generic
         if len(matches) == 1:
-            return matches[0][0]
+            return matches[0][0], matches[0][3]
+        # Same-type different-label overloads under a POSITIONAL call tie here;
+        # the labeled forms in the hint tell the user how to disambiguate.
         self._error(
             ErrorKind.TYPE_MISMATCH,
             f"ambiguous call to `{display_name}`: multiple overloads match the "
@@ -853,7 +868,7 @@ class ExpressionsMixin:
                 self._format_overload_candidate(display_name, m[0], is_method)
                 for m in matches)
         )
-        return None
+        return None, None
 
     def _arg_type_ok(self, arg_value, arg_type, expected_type, allow_wrap=True):
         """Argument-position type check with DF3 call-site optional auto-wrap
@@ -1015,6 +1030,19 @@ class ExpressionsMixin:
         expr.arg_plan = plan
         return mapping
 
+    def _stamp_overload_plan(self, expr, logical_param_names, mapping):
+        """Design 66: for a LABELED overloaded call, stamp `expr.arg_plan` (a list
+        over the winner's logical parameters: source-arg index or None for a
+        default-filled slot) so codegen interleaves mid-skipped defaults. A
+        positional overloaded call keeps `arg_plan` unset (legacy codegen path)."""
+        if mapping is None or not self._call_has_labels(expr):
+            return
+        plan = [None] * len(logical_param_names)
+        for ai, p in enumerate(mapping):
+            if p < len(plan):
+                plan[p] = ai
+        expr.arg_plan = plan
+
     def _aligned_call_meta(self, expr, mapping, param_types, param_names):
         """Return (param_types, param_names) positionally aligned to the source
         arguments for the exclusivity check. With no labels (`mapping is None`)
@@ -1041,12 +1069,16 @@ class ExpressionsMixin:
                 arg_types.append(self._check_expression(arg.value))
         return arg_types
 
-    def _finish_overloaded_args(self, expr, param_types, arg_types):
+    def _finish_overloaded_args(self, expr, param_types, arg_types, mapping=None):
         """Shared tail for a resolved overloaded call: check each argument
         against its resolved parameter type (closures inferred now) and run the
-        value-transfer chokepoint exactly once per argument."""
+        value-transfer chokepoint exactly once per argument. `param_types` is the
+        winner's LOGICAL parameter list; `mapping[i]` (design 66) is the logical
+        parameter index bound by source argument `i` — identity when the call is
+        positional."""
         for i, arg in enumerate(expr.arguments):
-            expected = param_types[i] if i < len(param_types) else None
+            p = mapping[i] if mapping is not None else i
+            expected = param_types[p] if p < len(param_types) else None
             if isinstance(arg.value, ClosureExpr):
                 at = self._check_closure(arg.value, expected, as_call_argument=True)
             else:
@@ -1069,9 +1101,10 @@ class ExpressionsMixin:
     def _check_overloaded_function_call(self, expr, candidates):
         """Resolve and check a call to an overloaded free function (design 55)."""
         arg_types = self._overload_arg_types(expr)
-        func_info = self._resolve_overload(
+        func_info, mapping = self._resolve_overload(
             expr.name, candidates, arg_types, bool(expr.type_args),
-            is_method=False, line=expr.line, column=expr.column)
+            is_method=False, line=expr.line, column=expr.column,
+            arguments=expr.arguments)
         if func_info is None:
             return None
         # Concrete overload: stamp its codegen symbol so codegen calls the right
@@ -1079,6 +1112,7 @@ class ExpressionsMixin:
         # (routed through the normal generic path), so it is left unstamped.
         if func_info.mangled_name:
             expr.resolved_symbol = func_info.mangled_name
+        self._stamp_overload_plan(expr, func_info.param_names, mapping)
         # Single chokepoint: the effect edge is recorded to the RESOLVED callee.
         self._effect_call_function(func_info, expr.name, expr.line)
         if func_info.type_params:
@@ -1091,9 +1125,12 @@ class ExpressionsMixin:
         else:
             param_types = func_info.param_types
             return_type = func_info.return_type
-        self._finish_overloaded_args(expr, param_types, arg_types)
-        self._check_call_exclusivity([a.value for a in expr.arguments], param_types,
-                                     param_names=func_info.param_names)
+        self._finish_overloaded_args(expr, param_types, arg_types, mapping)
+        aligned_types, aligned_names = self._aligned_call_meta(
+            expr, mapping if self._call_has_labels(expr) else None,
+            param_types, func_info.param_names)
+        self._check_call_exclusivity([a.value for a in expr.arguments], aligned_types,
+                                     param_names=aligned_names)
         return return_type
 
     def _check_overloaded_method_call(self, expr, struct_name, candidates,
@@ -1104,22 +1141,24 @@ class ExpressionsMixin:
         checks each argument exactly once (so a `move`/mutating argument is not
         double-processed)."""
         arg_types = self._overload_arg_types(expr)
-        method_info = self._resolve_overload(
+        method_info, mapping = self._resolve_overload(
             f"{struct_name}.{expr.method_name}", candidates, arg_types,
-            bool(expr.type_args), is_method=True, line=expr.line, column=expr.column)
+            bool(expr.type_args), is_method=True, line=expr.line, column=expr.column,
+            arguments=expr.arguments)
         if method_info is None:
             return None
         if method_info.mangled_name:
             expr.resolved_symbol = method_info.mangled_name
+        offset = self._overload_cand_offset(method_info, is_method=True)
+        self._stamp_overload_plan(expr, method_info.param_names[offset:], mapping)
         # Single chokepoint: effect edge to the resolved method.
         self._effect_call_method(
             method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
-        offset = self._overload_cand_offset(method_info, is_method=True)
         param_types = method_info.param_types[offset:]
         if type_subst:
             param_types = [t.substitute(type_subst) if t is not None else t
                            for t in param_types]
-        self._finish_overloaded_args(expr, param_types, arg_types)
+        self._finish_overloaded_args(expr, param_types, arg_types, mapping)
         # `&var self` method may not be called on an immutable binding (L11).
         if getattr(method_info, "self_mutable", False) and not method_info.is_init:
             imm_root = self._assign_target_immutable_struct_root(expr.object)
@@ -1131,11 +1170,14 @@ class ExpressionsMixin:
                     expr.line, expr.column,
                     hint="consider using `var` instead of `let` to make it mutable",
                 )
+        aligned_types, aligned_names = self._aligned_call_meta(
+            expr, mapping if self._call_has_labels(expr) else None,
+            param_types, method_info.param_names[offset:])
         self._check_call_exclusivity(
-            [a.value for a in expr.arguments], param_types,
+            [a.value for a in expr.arguments], aligned_types,
             receiver=expr.object if not method_info.is_init else None,
             receiver_mutable=method_info.self_mutable,
-            param_names=method_info.param_names[offset:],
+            param_names=aligned_names,
         )
         return_type = method_info.return_type
         if type_subst and return_type is not None:
@@ -4337,19 +4379,24 @@ class ExpressionsMixin:
         (design 55). Modules are merged at codegen, so the resolved overload's
         stamped symbol is a plain global — routed via expr.resolved_symbol."""
         arg_types = self._overload_arg_types(expr)
-        func_info = self._resolve_overload(
+        func_info, mapping = self._resolve_overload(
             expr.method_name, candidates, arg_types,
             bool(getattr(expr, 'type_args', None)),
-            is_method=False, line=expr.line, column=expr.column)
+            is_method=False, line=expr.line, column=expr.column,
+            arguments=expr.arguments)
         if func_info is None:
             return None
         if func_info.mangled_name:
             expr.resolved_symbol = func_info.mangled_name
+        self._stamp_overload_plan(expr, func_info.param_names, mapping)
         self._effect_call_function(func_info, expr.method_name, expr.line)
         param_types = func_info.param_types
-        self._finish_overloaded_args(expr, param_types, arg_types)
-        self._check_call_exclusivity([a.value for a in expr.arguments], param_types,
-                                     param_names=func_info.param_names)
+        self._finish_overloaded_args(expr, param_types, arg_types, mapping)
+        aligned_types, aligned_names = self._aligned_call_meta(
+            expr, mapping if self._call_has_labels(expr) else None,
+            param_types, func_info.param_names)
+        self._check_call_exclusivity([a.value for a in expr.arguments], aligned_types,
+                                     param_names=aligned_names)
         return func_info.return_type
 
     def _check_overloaded_static_method_call(self, expr, struct_name,
@@ -4357,13 +4404,15 @@ class ExpressionsMixin:
         """Resolve and check an overloaded static method call (design 55):
         `StructName.method(args)` with 2+ static overloads."""
         arg_types = self._overload_arg_types(expr)
-        method_info = self._resolve_overload(
+        method_info, mapping = self._resolve_overload(
             f"{struct_name}.{expr.method_name}", candidates, arg_types,
-            bool(expr.type_args), is_method=True, line=expr.line, column=expr.column)
+            bool(expr.type_args), is_method=True, line=expr.line, column=expr.column,
+            arguments=expr.arguments)
         if method_info is None:
             return None
         if method_info.mangled_name:
             expr.resolved_symbol = method_info.mangled_name
+        self._stamp_overload_plan(expr, method_info.param_names, mapping)
         self._effect_call_method(
             method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
         # Build the struct type-param -> concrete map from the receiver's type
@@ -4381,9 +4430,12 @@ class ExpressionsMixin:
         if type_map:
             param_types = [t.substitute(type_map) if t is not None else t
                            for t in param_types]
-        self._finish_overloaded_args(expr, param_types, arg_types)
-        self._check_call_exclusivity([a.value for a in expr.arguments], param_types,
-                                     param_names=method_info.param_names)
+        self._finish_overloaded_args(expr, param_types, arg_types, mapping)
+        aligned_types, aligned_names = self._aligned_call_meta(
+            expr, mapping if self._call_has_labels(expr) else None,
+            param_types, method_info.param_names)
+        self._check_call_exclusivity([a.value for a in expr.arguments], aligned_types,
+                                     param_names=aligned_names)
         ret = method_info.return_type
         if ret is not None and type_map:
             ret = ret.substitute(type_map)

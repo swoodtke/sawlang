@@ -1,0 +1,29 @@
+// Design 66: same-type different-label overloads work on instance and static
+// methods too, resolved by the label filter.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12
+// 21
+// 30
+// 7
+
+struct P {
+    v: Int
+}
+
+extension P {
+    func at(&self, x: Int, y: Int) -> Int { self.v + x * 10 + y }
+    func at(&self, row: Int, col: Int) -> Int { self.v + row + col * 10 }
+    func of(a: Int, b: Int) -> P { P(v: a - b) }
+    func of(lo: Int, hi: Int) -> P { P(v: hi - lo) }
+}
+
+func main() {
+    let p = P(v: 0)
+    print(p.at(x: 1, y: 2))       // 12
+    print(p.at(row: 1, col: 2))   // 21
+    let q = P.of(a: 40, b: 10)    // 30
+    print(q.v)
+    let r = P.of(lo: 3, hi: 10)   // 7
+    print(r.v)
+}

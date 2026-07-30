@@ -1,0 +1,19 @@
+// Design 66 + 55: the negative half. A `sync` caller labeling the SUSPENDING
+// overload of a same-type pair is diagnosed — the effect edge follows the
+// label-resolved callee, not the shared name.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func`
+
+func work(fast: Int) -> Int { fast }
+func work(slow: Int) -> Int {
+    __test_suspend()
+    slow
+}
+
+func caller() sync -> Int {
+    work(slow: 5)   // label picks the suspending overload -> sync violation
+}
+
+func main() {
+    print(caller())
+}

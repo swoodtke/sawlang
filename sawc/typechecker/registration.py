@@ -424,10 +424,11 @@ class RegistrationMixin:
         # 53). Non-defaulted declarations expand to a single shape, so this
         # subsumes design 55's identical-signature rejection.
         new_keys = self._overload_shape_keys(param_types, func.type_params,
-                                              default_values)
+                                              default_values, param_names)
         for other in self.namespace.lookup_function_overloads(func.name):
             other_keys = self._overload_shape_keys(
-                other.param_types, other.type_params, other.default_values)
+                other.param_types, other.type_params, other.default_values,
+                other.param_names)
             if new_keys & other_keys:
                 self._error(
                     ErrorKind.DUPLICATE_FUNCTION,
@@ -453,33 +454,41 @@ class RegistrationMixin:
             decl_node=func
         ))
 
-    def _overload_sig_key(self, param_types, type_params) -> tuple:
+    def _overload_sig_key(self, param_types, type_params, param_names=None) -> tuple:
         """Normalized signature key for declaration-site overload distinctness
-        (design 55).
+        (design 55 + design 66).
 
         Each parameter is mangled after (a) folding any bare type parameter of
         this declaration to a single canonical placeholder — so `f<T>(T)` and
         `f<U>(U)` collide — and (b) resolving distinct-type aliases to their
-        underlying type — so `type A = Int; f(A)` and `f(Int)` collide. Two
-        declarations with equal keys are indistinguishable and rejected.
+        underlying type — so `type A = Int; f(A)` and `f(Int)` collide.
+
+        Design 66 makes parameter LABELS part of a function's identity: two
+        overloads with the same types but DIFFERENT names are distinct (the
+        newly-legal `f(a:b:)` vs `f(type:value:)`). So each part carries its
+        parameter name alongside the normalized type; a key collision now
+        requires same types AND same names at every position. Two declarations
+        with equal keys are indistinguishable and rejected.
         """
         from codegen.mangle import mangle_type
         tp_names = {tp.name for tp in (type_params or [])}
+        names = list(param_names) if param_names is not None else []
         parts = []
-        for t in (param_types or []):
+        for i, t in enumerate(param_types or []):
+            nm = names[i] if i < len(names) else None
             if t is None:
-                parts.append("Void")
+                parts.append(("Void", nm))
                 continue
             if t.kind == TypeKind.TYPE_PARAM:
-                parts.append("$P")
+                parts.append(("$P", nm))
                 continue
             if t.kind == TypeKind.STRUCT and t.struct_name in tp_names:
-                parts.append("$P")
+                parts.append(("$P", nm))
                 continue
             norm = t
             if t.kind == TypeKind.STRUCT and self.get_type_alias_info(t.struct_name):
                 norm = self._resolve_type_alias(t)
-            parts.append(mangle_type(norm))
+            parts.append((mangle_type(norm), nm))
         return tuple(parts)
 
     def _check_trailing_defaults(self, parameters, line, column, what):
@@ -504,17 +513,20 @@ class RegistrationMixin:
                 )
                 return
 
-    def _overload_shape_keys(self, param_types, type_params, default_values):
-        """Design 53: the set of reachable call-SHAPE keys for a declaration.
+    def _overload_shape_keys(self, param_types, type_params, default_values,
+                             param_names=None):
+        """Design 53 + 66: the set of reachable call-SHAPE keys for a declaration.
 
         A declaration with trailing defaults can be called at several arities —
         from the count of required (non-defaulted) parameters up to the full
         arity. Each reachable arity is normalized with `_overload_sig_key` over
         that many leading parameters. A declaration with no defaults yields a
-        single key (its full signature), so this generalizes design 55's
-        single-key distinctness cleanly.
+        single key (its full signature). Keys carry parameter LABELS (design 66),
+        so a defaulted-arity shape collides with another overload only when the
+        types AND names match at every position of that shape.
         """
         pts = list(param_types or [])
+        names = list(param_names) if param_names is not None else []
         n = len(pts)
         if default_values and any(dv is not None for dv in default_values):
             required = sum(1 for dv in default_values if dv is None)
@@ -522,7 +534,8 @@ class RegistrationMixin:
             required = n
         keys = set()
         for arity in range(required, n + 1):
-            keys.add(self._overload_sig_key(pts[:arity], type_params))
+            keys.add(self._overload_sig_key(pts[:arity], type_params,
+                                            names[:arity]))
         return keys
 
     def _stamp_overload_symbols(self):
@@ -533,14 +546,31 @@ class RegistrationMixin:
         keep their plain symbol. Generic overloads keep their type-argument
         instantiation naming and are left plain here.
         """
-        from codegen.mangle import mangle_overload, mangle_method
+        from codegen.mangle import mangle_overload, mangle_method, mangle_type
+
+        def _type_sig(param_types):
+            return tuple(mangle_type(p) if p is not None else "Void"
+                         for p in param_types)
+
         for name, overloads in self.namespace.function_overloads.items():
             if len(overloads) < 2:
                 continue
+            # Design 66: within a set, members that share a parameter-TYPE
+            # signature (now legal when their labels differ) need their labels
+            # appended to stay distinct; type-unique members keep design-55 symbols.
+            sig_counts = {}
             for sym in overloads:
                 if sym.type_params:
                     continue
-                mangled = mangle_overload(name, sym.param_types)
+                sig_counts[_type_sig(sym.param_types)] = \
+                    sig_counts.get(_type_sig(sym.param_types), 0) + 1
+            for sym in overloads:
+                if sym.type_params:
+                    continue
+                need_labels = sig_counts.get(_type_sig(sym.param_types), 0) > 1
+                mangled = mangle_overload(
+                    name, sym.param_types,
+                    sym.param_names if need_labels else None)
                 sym.mangled_name = mangled
                 if sym.decl_node is not None:
                     sym.decl_node.mangled_symbol = mangled
@@ -549,11 +579,22 @@ class RegistrationMixin:
                 if len(overloads) < 2:
                     continue
                 base = mangle_method(struct_name, mname)
+                sig_counts = {}
                 for sym in overloads:
                     if sym.type_params:
                         continue
                     offset = 0 if sym.is_init else 1
-                    mangled = mangle_overload(base, sym.param_types[offset:])
+                    sig_counts[_type_sig(sym.param_types[offset:])] = \
+                        sig_counts.get(_type_sig(sym.param_types[offset:]), 0) + 1
+                for sym in overloads:
+                    if sym.type_params:
+                        continue
+                    offset = 0 if sym.is_init else 1
+                    tsig = _type_sig(sym.param_types[offset:])
+                    need_labels = sig_counts.get(tsig, 0) > 1
+                    mangled = mangle_overload(
+                        base, sym.param_types[offset:],
+                        sym.param_names[offset:] if need_labels else None)
                     sym.mangled_name = mangled
                     if sym.decl_node is not None:
                         sym.decl_node.mangled_symbol = mangled
@@ -1184,14 +1225,15 @@ class RegistrationMixin:
                 new_offset = 1  # exclude self
                 new_keys = self._overload_shape_keys(
                     param_types[new_offset:], method.type_params,
-                    default_values[new_offset:])
+                    default_values[new_offset:], param_names[new_offset:])
                 collides = False
                 for other in struct_info.method_overloads.get(method.name, []):
                     o_off = 0 if other.is_init else 1
                     other_keys = self._overload_shape_keys(
                         other.param_types[o_off:], other.type_params,
                         (other.default_values[o_off:] if other.default_values
-                         else []))
+                         else []),
+                        other.param_names[o_off:])
                     if new_keys & other_keys:
                         collides = True
                         break

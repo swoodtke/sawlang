@@ -1,0 +1,12 @@
+// Design 66: a POSITIONAL call over same-type different-label overloads is an
+// ambiguity error whose message lists the labeled forms to disambiguate.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous call to `f`
+// EXPECT-ERROR-CONTAINS: kind: Int, value: Int
+
+func f(a: Int, b: Int) -> Int { a * 100 + b }
+func f(kind: Int, value: Int) -> Int { kind + value * 1000 }
+
+func main() {
+    print(f(1, 2))
+}

@@ -1,0 +1,15 @@
+// Design 66: the label filter runs before the concrete-beats-generic tie-break;
+// explicit type args are unaffected. A bare labeled call lands on the concrete
+// overload; an explicit `<T>` labeled call takes the generic one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 999
+
+func pick(a: Int, b: Int) -> Int { a - b }
+func pick<T>(a: T, b: T) -> Int { 999 }
+
+func main() {
+    print(pick(a: 10, b: 3))              // concrete beats generic
+    print(pick<Bool>(a: true, b: false))  // explicit generic, labeled
+}

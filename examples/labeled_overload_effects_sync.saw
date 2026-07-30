@@ -1,0 +1,20 @@
+// Design 66 + 55: per-overload effect edges are keyed to the LABEL-resolved
+// overload. Two same-type overloads differ only by label; one suspends. A `sync`
+// caller labeling the NON-suspending overload is fine.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+
+func work(fast: Int) -> Int { fast }
+func work(slow: Int) -> Int {
+    __test_suspend()
+    slow
+}
+
+func caller() sync -> Int {
+    work(fast: 5)   // label picks the suspension-free overload
+}
+
+func main() {
+    print(caller() - 5)
+}

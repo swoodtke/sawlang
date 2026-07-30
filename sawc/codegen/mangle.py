@@ -151,8 +151,8 @@ def mangle_function(name: str, type_args) -> str:
     return mangle_named(name, type_args)
 
 
-def mangle_overload(base: str, param_types) -> str:
-    """Canonical codegen symbol for one overload of a name (design 55).
+def mangle_overload(base: str, param_types, param_names=None) -> str:
+    """Canonical codegen symbol for one overload of a name (design 55 + 66).
 
     `base` is the plain symbol a single-declaration name would use (a free
     function's source name, or `mangle_method(struct, method)` for a method).
@@ -163,9 +163,18 @@ def mangle_overload(base: str, param_types) -> str:
     makes the per-parameter encoding injective. A zero-parameter overload maps
     to `base$OL$` (two zero-arg overloads are a declaration-site error, so the
     empty body is never ambiguous).
+
+    Design 66 permits two overloads with identical parameter TYPES but different
+    LABELS. When the caller detects such a type-collision within an overload set
+    it passes `param_names`, which are appended with a `$LB$` tag so the symbols
+    stay distinct. The names are only appended when needed, so a set whose
+    members already differ by type keeps its design-55 symbols (no churn).
     """
     body = "$".join(mangle_type(p) for p in param_types) if param_types else ""
-    return f"{base}$OL${body}"
+    sym = f"{base}$OL${body}"
+    if param_names:
+        sym += "$LB$" + "$".join(param_names)
+    return sym
 
 
 def mangle_method(struct_name: str, method_name: str, param_names=None,
