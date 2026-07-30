@@ -695,6 +695,24 @@ class StatementsMixin:
     def _check_let_statement(self, stmt: LetStatement):
         """Check a let/var statement."""
         from .core import VariableInfo
+        # `let _ = expr` is a true discard (design 53 / DF1): it evaluates the
+        # RHS, consumes it (the value-transfer checkpoint treats the discard as
+        # the final consumer, so a NoCopy source needs `move`), and binds NOTHING
+        # — `_` is unreadable and two `let _` in one scope never collide.
+        if stmt.name == "_":
+            value_type = self._check_expression(stmt.value)
+            if stmt.type_annotation:
+                resolved = self._resolve_type(stmt.type_annotation)
+                if (value_type is not None and not self._types_compatible(
+                        value_type, resolved, allow_literal_to_distinct=True)):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"cannot discard `{value_type}` as `{stmt.type_annotation}`",
+                        stmt.line, stmt.column)
+            self._check_value_transfer(stmt.value, value_type, "discard `let _`",
+                                       stmt.line, stmt.column)
+            return
+
         # Check for duplicate in current scope
         existing = self.current_scope.lookup_local(stmt.name)
         if existing:

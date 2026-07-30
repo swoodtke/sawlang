@@ -1,0 +1,19 @@
+// Design 53 Part 8 (DF1): `let _` is a true discard — it evaluates the RHS
+// (side effects happen) and binds nothing, so two `let _` in one scope never
+// collide.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 42
+// 0
+
+func f() -> Int {
+    print(42)
+    7
+}
+
+func main() {
+    let _ = f()
+    let _ = f()
+    print(0)
+}

@@ -130,6 +130,12 @@ class StatementsMixin:
         start = self.advance()  # consume let/var
         name_token = self.expect(TokenType.IDENT, "Expected variable name")
 
+        # `_` is a discard, not a binding (design 53 / DF1). `var _` has nothing
+        # to mutate, so it is rejected.
+        if name_token.value == "_" and mutable:
+            self.error("`var _` is not allowed: `_` is a discard binding and has "
+                       "nothing to mutate (use `let _` to evaluate and drop)")
+
         # Optional type annotation
         type_annotation = None
         if self.match(TokenType.COLON):

@@ -74,7 +74,25 @@ class StatementsMixin:
         self._eval_static_assert(stmt)
 
     def visit_LetStatement(self, stmt: LetStatement):
+        if stmt.name == "_":
+            self._generate_discard_let(stmt)
+            return
         self._generate_let_statement(stmt)
+
+    def _generate_discard_let(self, stmt: LetStatement):
+        """Design 53 / DF1: `let _ = expr` evaluates the RHS, takes ownership,
+        and drops it at the end of THIS statement (immediately, like an unused
+        temporary) — no binding is created. An ImplicitCopy lvalue is copied so
+        the source is untouched and the COPY is what gets released."""
+        value = self._generate_expression(stmt.value)
+        var_type = (self._resolve_type_alias(stmt.type_annotation)
+                    if stmt.type_annotation else self._expr_type(stmt.value))
+        if (var_type and isinstance(stmt.value, Identifier)
+                and not isinstance(stmt.value, MoveExpr)):
+            value = self._generate_copy(value, var_type)
+        if (var_type and self._needs_cleanup(var_type)
+                and not self.builder.block.is_terminated):
+            self._register_stmt_temp(value, var_type)
 
     def visit_AssignStatement(self, stmt: AssignStatement):
         self._generate_assign_statement(stmt)

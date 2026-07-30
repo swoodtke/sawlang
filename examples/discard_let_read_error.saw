@@ -1,0 +1,8 @@
+// Design 53 Part 8 (DF1): `_` is a discard, not a readable binding.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: undefined variable `_`
+
+func main() {
+    let _ = 5
+    print(_)
+}

@@ -1,0 +1,18 @@
+// Design 53 Part 8 (DF1): a discarded owned value is deinit'd immediately, at
+// the end of the `let _` statement (like an unused temporary), NOT at scope
+// exit. Observable order: the resource's deinit (1) runs BEFORE the following
+// print (2). A real binding would drop at scope end and print 2 then 1.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+
+struct Res { v: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print(self.v) }
+}
+
+func main() {
+    let _ = Res(v: 1)   // deinit prints 1 right here
+    print(2)
+}
