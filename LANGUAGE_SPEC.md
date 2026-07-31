@@ -3171,23 +3171,64 @@ explicit `as`-casts that mint them are the entire surface: touching one of these
 types *is* the opt-out, so the obligation travels with the value that carries it
 rather than being fenced off in a lexical region.
 
-This is deliberate. In the driver and allocator code that motivates raw memory
-access, nearly every line touches a device register or a raw pointer, so a
-region block would wrap the whole body in `unsafe { }` and communicate nothing;
-a type that says "this is a raw device view" at the declaration is where the
-audit actually wants to look. The `unsafe` keyword stays reserved (costlessly)
-in case a future design revisits this, but no region form is planned.
+**The visibility rule (design 81).** The type-carried principle gains one
+refinement: *where a raw pointer would flow **invisibly** — with no `Unsafe*`
+type spelled at that exact site — the `unsafe` expression marker is required
+there.* `unsafe` is a contextual keyword that prefixes an expression; it sits
+just below assignment and looser than every operator (`unsafe base + n` marks
+the whole arithmetic; `unsafe p[0] = 5` marks the whole store — the marker
+lifts off the lvalue onto the assignment). This keeps every entry to the raw
+domain greppable — by a signature, a field type, a pointer-naming cast, or the
+`unsafe` keyword — without a region block that would say nothing.
+
+Where the marker is **required** (in a function whose own signature carries no
+`Unsafe*` type):
+
+- **Deref / index — read or write:** `unsafe ptr[i]`, `unsafe ptr[i] = v`.
+- **Raw pointer arithmetic:** `unsafe base + n`.
+- **Binding a pointer produced by a call:** `let p = unsafe A().alloc(s, a)` —
+  a pointer-returning call shows no pointer type at the call syntax (this
+  includes a discarded pointer-returning call, e.g. `unsafe memcpy(...)`).
+
+Where it is **not** required — the pointer is already visible or is pass-through:
+
+- A **cast that names a pointer type** and any pointer op transitively inside it:
+  `(base + n) as UnsafePointer<T>` needs no marker (the cast is the marker).
+- A **parameter / return / field** of pointer type (the signature or field decl
+  is the visible marker), and **passing** a pointer value through a call.
+- Inside the **marked domain**: a function whose own signature carries a raw
+  pointer (parameter or return), OR a `self`-receiver method of a struct that
+  declares a raw-pointer field — there the field decl is the marker, which is
+  what keeps container *access* methods (`Vector.get`/`push`, `Arc.copy`) marker-
+  free while a no-`self` **factory** (`Box.make`, which mints a fresh pointer via
+  `alloc`) still shows the marker.
+
+`unsafe` on an expression that performs **no** unsafe operation is a clean
+error ("`unsafe` marks an expression with no unsafe operation") — markers stay
+honest. Compiler-synthesized code (coroutine frames) is exempt by provenance.
 
 ```saw
 // The obligation rides the type. Constructing a raw view IS the opt-out —
 // no block, no `unsafe func`.
 static UART0: UnsafeMemory<UartRegs, Device> = UnsafeMemory(0x1800_0000)
 
+// `addr: Int` carries no Unsafe* type, so the raw-pointer flow is marked.
 func poke(addr: Int) {
-    let p = addr as UnsafePointer<Int32>   // the cast is the visible marker
-    p[0] = 42                              // placement-move through a raw pointer
+    let p = addr as UnsafePointer<Int32>   // cast NAMES the type: visible, no marker
+    unsafe p[0] = 42                       // placement-move through a raw pointer
+}
+
+// Signature carries `UnsafePointer` -> the MARKED DOMAIN: ops here are free.
+func poke_domain(p: UnsafePointer<Int32>) {
+    p[0] = 42
 }
 ```
+
+For scoped, no-copy access to a container element (including a `NoCopy` one)
+without minting a raw pointer at all, use `Vector.with_ref`/`with_var_ref`
+(design 81): a non-escaping `&T`/`&var T` borrow of the element in place, with
+the whole vector held borrowed for the body (reallocation- and
+invalidation-proof). This replaced the removed `ref_at`.
 
 ### Placement writes (the placement-move primitive)
 

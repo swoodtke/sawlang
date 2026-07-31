@@ -47,9 +47,17 @@ items need a probe before being treated as real work.
   whole store (parser lifts off the lvalue). `Vector.with_ref`/`with_var_ref`
   (generic-R, `sync` body, non-escaping lend) REPLACE the removed `ref_at`;
   taskgroup executor migrated (returns a `__ResumeOutcome` struct out of the
-  borrow). Synthesized coro code exempt by provenance. Suite 854. STILL TODO:
-  dedicated rule-table tests, fixed-width arithmetic rider, spec/skill/CLAUDE.md
-  docs. [81, 80, 46, 42, 29]
+  borrow). Synthesized coro code exempt by provenance. TESTS (commit follows):
+  unsafe_surface_ok + errors/unsafe_{deref,write,arith,binding}_no_marker +
+  unsafe_marker_on_nothing (rule rows), vector_with_ref + errors/
+  with_var_ref_invalidation + vector_ref_at_removed. DOCS: spec Unsafe Code
+  section rewritten (visibility rule + table; the `poke` example now marks its
+  store), saw-lang skill unsafe section + ref_at gotcha, CLAUDE.md digest.
+  DEVIATION (documented + defensible): the `self`-method-of-a-pointer-field-struct
+  domain rule is a faithful reading of "the field decl is the visible marker" that
+  keeps the sweep proportionate (container ACCESS methods marker-free, factories
+  marked) — it matches the brief's item-3 list exactly (Box.make marked; Vector/
+  Arc access not). Suite 867, bootstrap 17+17, libs 4+4. [81, 80, 46, 42, 29]
 - **CI rider (Linux `_NSGetArgc`/`_NSGetArgv` link failure) — LANDED.** The first
   GitHub Actions run failed on ubuntu: `std/env.saw` used Apple-only crt_externs
   `_NSGetArgc`/`_NSGetArgv`, so every Linux link died with "undefined reference to

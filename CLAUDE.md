@@ -101,5 +101,12 @@ allocator type params + Box/slab + statics/Atomic + UnsafeMemory +
 `@export`/`@section` (freestanding-ready), platform-width Int,
 bounds/overflow/shift checks always on. Member visibility (design 80):
 struct fields + extension methods are private-by-default outside the
-defining module (std under the gate too). Blade (package manager in Saw)
-is self-hosting. License: Apache-2.0 WITH LLVM-exception.
+defining module (std under the gate too). Unsafe surface (design 81):
+unsafety is type-carried, plus an `unsafe` expression marker required
+wherever a raw pointer flows invisibly — a deref/index/write, pointer
+arithmetic, or binding a pointer produced by a call — in a function whose
+signature carries no `Unsafe*` type (a pointer-naming cast, a
+pointer param/return/field, or a `self`-method of a pointer-field struct is
+already the marked domain); `Vector.with_ref`/`with_var_ref` (scoped,
+invalidation-proof element borrow) replaced `ref_at`. Blade (package manager
+in Saw) is self-hosting. License: Apache-2.0 WITH LLVM-exception.

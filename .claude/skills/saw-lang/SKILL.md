@@ -222,6 +222,19 @@ Float, UnsafePointer, Void/Never — no Bool/String/aggregates by
 value); `static_assert(sizeof<T> == N, "msg")`; struct layout =
 declaration-order natural ABI (documented rule). Unsafety is
 TYPE-carried (Unsafe* prefix), not region-carried — no unsafe blocks.
+**`unsafe` marker (design 81):** an expression prefix, required where a raw
+pointer flows INVISIBLY in a function whose signature carries no `Unsafe*`
+type — a deref/index read or write (`unsafe ptr[i]`, `unsafe ptr[i] = v`),
+pointer arithmetic (`unsafe base + n`), or binding a pointer produced by a
+call (`let p = unsafe A().alloc(s, a)`). NOT needed where visible: a cast that
+names `UnsafePointer<T>` (and any op inside it), a pointer param/return/field,
+a passed-through pointer. Free inside the MARKED DOMAIN: a fn whose signature
+carries a raw pointer, OR a `self`-method of a struct with a pointer field
+(so container access methods need no marker; a no-`self` factory like
+`Box.make` does). `unsafe` on nothing-unsafe = error. Precedence: below
+assignment, looser than every operator (`unsafe p[0] = 5` marks the store).
+For scoped no-copy element access use `Vector.with_ref`/`with_var_ref` (a
+non-escaping `&T`/`&var T` borrow, invalidation-proof) — this REPLACED `ref_at`.
 
 ## Gotchas
 - An escaping closure (bound/returned/stored/`spawn`) is **ImplicitCopy**
@@ -236,7 +249,8 @@ TYPE-carried (Unsafe* prefix), not region-carried — no unsafe blocks.
 - A dependency name mapped via `--module-path` shadowing a local
   module file is an error.
 - `Vector.get(i)` returns a COPY (needs copyable element); use
-  `swap_out(i, v)` to move a slot out; `ref_at` for NoCopy access.
+  `swap_out(i, v)` to move a slot out; `with_ref`/`with_var_ref(i, body)`
+  for scoped in-place (NoCopy) access (design 81; `ref_at` was removed).
 - String `chars()` yields Int scalars (no Char type).
 - `to_int()`/`to_float()` are whole-string, no trimming → Optional.
 - std.time/std.process/std.file/std.net are HOSTED-only (link libc).
