@@ -1,0 +1,27 @@
+// design 70 (A5): `TaskGroup.spawn` of a GENERIC suspending call. The
+// instantiation is monomorphized to a concrete function (mangled symbol); the
+// coroutine transform then builds its frame + `Resumable` conformance +
+// `__spawn_<f>` helper exactly like a non-generic spawn root.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// 40
+
+trait Seed { func seed(&self) -> Int }
+
+struct Slow { n: Int }
+extension Slow: Seed { func seed(&self) -> Int { self.n } }
+
+func work<T: Seed>(w: T) -> Int {
+    let base = w.seed()
+    yield_now()
+    base * 2
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work<Slow>(Slow(n: 10)))
+    let b = group.spawn(work<Slow>(Slow(n: 20)))
+    print(a.join())   // 20
+    print(b.join())   // 40
+}

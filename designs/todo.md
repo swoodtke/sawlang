@@ -68,8 +68,21 @@ items need a probe before being treated as real work.
   deleted Jul 30 — see git history]
 
 ## Async (post-52b roadmap)
-- **A5.** Effect polymorphism via monomorphization-time re-inference —
-  BLOCKS generic suspending/driven functions. [18, 22]
+- ~~**A5.** Effect polymorphism via monomorphization-time re-inference —
+  BLOCKS generic suspending/driven functions.~~ DONE (design 70): effect
+  inference runs PER instantiation (keyed by mangled symbol); the coroutine
+  transform accepts suspending instantiations of generic functions/methods by
+  monomorphizing them to concrete functions/methods before frame synthesis
+  (driven free fn, `TaskGroup.spawn`, and `&var self` method all land). A `sync`
+  context calling an instantiation that suspends is a violation reported AT the
+  call, naming the instantiation + suspension path (minimal A8). Still rejected
+  with precise diagnostics: a buried suspending method-on-`T` call inside a
+  driven body, nested suspending generic calls, generic-struct-extension driven
+  methods, and cross-module generic templates (re-ledgered below). [18, 22]
+  - **A5-rest.** Buried suspending method-call embedding (drive `w.step()`
+    nested in a driven body as a method sub-frame — needs Part-0c embedding, the
+    method twin of Part-0b); driven methods on GENERIC structs; cross-module
+    generic driven templates (design 68 territory). [70]
 - **A2.** Multi-threaded work-stealing executor + Send-on-frames check.
 - **A3.** Explicit-only cancellation points (`Task.cancelled()`, select).
 - **A4.** IO reactor (poller-only v1, kqueue/epoll, never-block).

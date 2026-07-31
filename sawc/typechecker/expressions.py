@@ -701,6 +701,33 @@ class ExpressionsMixin:
                 return None
         return None
 
+    def _drive_generic_method(self, inner, struct_name, mode, expr):
+        """design 70 (A5): drive a generic (method-level type params) suspending
+        method. Monomorphize the method to a concrete method keyed by the mangled
+        symbol, register + splice it onto the receiver's extension, record it a
+        driven-method root, and rewrite the call so the coroutine transform's
+        Part-0c method driving sees an ordinary non-generic method."""
+        resolved_args = [self._resolve_type(a) for a in inner.type_args]
+        if not all(self._is_concrete_type(a) for a in resolved_args):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{expr.name}(...)` of a generic method requires concrete type "
+                f"arguments", inner.line, inner.column)
+            return
+        from codegen.mangle import mangle_named
+        mono_name = mangle_named(inner.method_name, resolved_args)
+        if not self._effect_queue_method_mono(struct_name, inner.method_name,
+                                              resolved_args, mono_name):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"driving generic method `{struct_name}.{inner.method_name}` is not "
+                f"supported (its template could not be monomorphized for effect "
+                f"inference)", inner.line, inner.column)
+            return
+        self._effect_record_driven_method(struct_name, mono_name, mode)
+        inner.method_name = mono_name
+        inner.type_args = None
+
     def _check_spawn(self, expr: FunctionCall) -> Optional[SawType]:
         """Type-check the `spawn { ... }` intrinsic (design 21 item 5).
 
@@ -1438,9 +1465,33 @@ class ExpressionsMixin:
                         f"`{expr.name}(...)` on a method requires a concrete struct "
                         f"receiver", expr.line, expr.column)
                     return inner_type if inner_type is not None else SawType(TypeKind.VOID)
-                self._effect_record_driven_method(struct_name, inner.method_name, mode)
+                # design 70 (A5): a generic method (its own type params) is
+                # monomorphized to a concrete method before frame synthesis.
+                if getattr(inner, 'type_args', None):
+                    self._drive_generic_method(inner, struct_name, mode, expr)
+                else:
+                    self._effect_record_driven_method(struct_name, inner.method_name, mode)
             else:
-                self._effect_record_driven(inner.name, mode)
+                # design 70 (A5): driving a generic free function. Monomorphize the
+                # instantiation to a concrete function keyed by the mangled symbol,
+                # record it as the driven root, and rewrite the inner call so the
+                # coroutine transform sees an ordinary non-generic call.
+                if getattr(inner, 'type_args', None):
+                    resolved_args = [self._resolve_type(a) for a in inner.type_args]
+                    if not all(self._is_concrete_type(a) for a in resolved_args):
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"`{expr.name}(...)` of a generic function requires "
+                            f"concrete type arguments (cannot drive an instantiation "
+                            f"whose type arguments are themselves type parameters)",
+                            inner.line, inner.column)
+                    else:
+                        mangled = self._effect_queue_fn_mono(inner.name, resolved_args)
+                        self._effect_record_driven(mangled, mode)
+                        inner.name = mangled
+                        inner.type_args = None
+                else:
+                    self._effect_record_driven(inner.name, mode)
             if expr.name == "__drive_steps":
                 return SawType(TypeKind.INT)
             return inner_type if inner_type is not None else SawType(TypeKind.VOID)
@@ -1759,6 +1810,18 @@ class ExpressionsMixin:
                             type_assigns = self.namespace.get_type_assignments(concrete_type_name, bound)
                             for assoc_name, assoc_type in type_assigns.items():
                                 type_map[assoc_name] = assoc_type
+            # design 70 (A5): record a deferred effect edge to this instantiation.
+            # Materialized at finalize only if `expr.name`'s template is
+            # effect-polymorphic (calls a method on a type-param receiver), so an
+            # instantiation whose concrete `T` suspends taints its caller / trips a
+            # sync context, while ordinary generic calls stay untouched. Only when
+            # the concrete args are fully resolved (not themselves type params of an
+            # enclosing generic — that call is re-inferred when the OUTER template
+            # is instantiated).
+            resolved_args = [type_map.get(tp.name) for tp in func_info.type_params]
+            if all(a is not None and self._is_concrete_type(a) for a in resolved_args):
+                self._effect_record_poly_call(
+                    expr.name, resolved_args, f"`{expr.name}`", expr.line)
             param_types = [t.substitute(type_map) for t in func_info.param_types]
             return_type = func_info.return_type.substitute(type_map)
         else:
@@ -3649,6 +3712,12 @@ class ExpressionsMixin:
                     self._check_closure(arg.value, None, as_call_argument=True)
                 else:
                     self._check_expression(arg.value)
+            # design 70 (A5): a method call on a type-PARAMETER receiver makes the
+            # enclosing body effect-polymorphic — its suspendability depends on the
+            # concrete `T`. A trait method contributes no edge here (abstract body),
+            # so instead we flag the body; a call to it with concrete type args then
+            # re-infers effects on the instantiation.
+            self._effect_mark_poly()
             if method_sym.return_type is None:
                 return SawType(TypeKind.VOID)
             return self._resolve_type(method_sym.return_type)
@@ -3860,13 +3929,6 @@ class ExpressionsMixin:
                 "e.g. `group.spawn(worker(n))`",
                 expr.line, expr.column)
             return None
-        if getattr(inner, 'type_args', None):
-            self._error(
-                ErrorKind.TYPE_MISMATCH,
-                f"`group.spawn(...)` of a generic function `{inner.name}` is not "
-                f"supported (effect-polymorphism, design 18 A5)",
-                expr.line, expr.column)
-            return None
         # Check the inner call inside an absorbing scope so its suspension does not
         # taint the spawning function; this also validates the argument types and
         # stamps `inner.resolved_type`.
@@ -3874,8 +3936,24 @@ class ExpressionsMixin:
         inner_type = self._check_expression(inner)
         self._effect_unabsorb(sentinel)
         result_type = inner_type if inner_type is not None else SawType(TypeKind.VOID)
-        self._effect_record_spawn(inner.name, result_type)
-        expr.spawn_root = inner.name
+        # design 70 (A5): spawning a generic function monomorphizes the
+        # instantiation to a concrete function (keyed by the mangled symbol) and
+        # spawns THAT, so the coroutine transform's frame + `__spawn_<f>` synthesis
+        # sees an ordinary non-generic function.
+        spawn_name = inner.name
+        if getattr(inner, 'type_args', None):
+            resolved_args = [self._resolve_type(a) for a in inner.type_args]
+            if not all(self._is_concrete_type(a) for a in resolved_args):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`group.spawn(...)` of a generic function requires concrete "
+                    f"type arguments", expr.line, expr.column)
+                return None
+            spawn_name = self._effect_queue_fn_mono(inner.name, resolved_args)
+            inner.name = spawn_name
+            inner.type_args = None
+        self._effect_record_spawn(spawn_name, result_type)
+        expr.spawn_root = spawn_name
         handle_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle",
                               type_args=[result_type])
         # Stamp the handle type so the transform's `__spawn_<f>` rewrite can carry

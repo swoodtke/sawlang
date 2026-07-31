@@ -1,0 +1,32 @@
+// design 70 (A5): a GENERIC suspending method (method-level type param) driven
+// via `&var self` across a suspension. The method is monomorphized to a concrete
+// method (mangled symbol) on the concrete receiver, then the existing Part-0c
+// method-driving builds a frame holding `__recv` -> the caller's `Counter`, so
+// the mutation is observed. `T` (the absorbed worker) parameterizes data.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 106
+// 106
+
+trait Seed { func seed(&self) -> Int }
+
+struct Slow { n: Int }
+extension Slow: Seed { func seed(&self) -> Int { self.n } }
+
+struct Counter { value: Int }
+extension Counter {
+    func absorb<T: Seed>(&var self, w: T) -> Int {
+        self.value = self.value + w.seed()   // state 0
+        __suspend()
+        self.value = self.value + 1          // state 1 (self survived)
+        self.value
+    }
+}
+
+func main() {
+    var c = Counter(value: 100)
+    let s = Slow(n: 5)
+    let r = __drive(c.absorb<Slow>(move s))
+    print(r)          // 106
+    print(c.value)    // 106 — mutation observed through &var self
+}

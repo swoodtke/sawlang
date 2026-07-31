@@ -1,0 +1,45 @@
+// design 70 (A5): the KEY both-ways case. One generic `run<T>` is called from
+// two `sync` contexts. Effect is re-inferred PER instantiation: `run<Fast>` is
+// suspension-free (fine in a sync context), while `run<Slow>` suspends, so the
+// sync context is a violation reported AT the call, naming the instantiation
+// (`run$1$Slow`) and the full suspension path. Both instantiations coexist, each
+// inferred independently (scope items 1 + 3 + 5).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: run$1$Slow
+// EXPECT-ERROR-CONTAINS: Slow.step
+
+trait Worker { func step(&var self) -> Int }
+
+struct Slow { n: Int }
+extension Slow: Worker {
+    func step(&var self) -> Int {
+        __suspend()
+        self.n
+    }
+}
+
+struct Fast { m: Int }
+extension Fast: Worker {
+    func step(&var self) -> Int { self.m }
+}
+
+func run<T: Worker>(w: &var T) -> Int {
+    w.step()
+}
+
+// T=Fast is sync -> OK
+func caller_fast() sync -> Int {
+    var f = Fast(m: 5)
+    run<Fast>(&var f)
+}
+
+// T=Slow suspends -> sync violation naming run$1$Slow
+func caller_slow() sync -> Int {
+    var s = Slow(n: 7)
+    run<Slow>(&var s)
+}
+
+func main() {
+    print(caller_fast())
+}

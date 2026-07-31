@@ -145,7 +145,13 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
 - `func f(...) sync -> T` promises no suspension (checked).
 - Thread engine (`spawn`/`Task`/`Channel.recv`) is separate from the
   cooperative TaskGroup engine — don't mix per task.
-- Generic suspending functions not yet supported (A5).
+- Generic suspending functions/methods work (design 70): effect is
+  re-inferred PER instantiation, so `f<A>` may suspend while `f<B>` is
+  sync. You can `__drive` / `group.spawn` a generic instantiation and drive
+  a generic `&var self` method. Still unsupported (clean compile error): a
+  buried suspending method call on a `T`-typed value inside a driven body
+  (drive the method directly, or make the call a nested free function),
+  and driven methods on generic STRUCTS.
 
 ## Modules & packages
 ```saw

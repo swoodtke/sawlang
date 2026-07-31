@@ -1792,6 +1792,10 @@ def transform_program(program, typechecker):
                 f"coroutine transform: suspending function `{n}` not found in the "
                 f"entry module (driving supports entry-module free functions only)")
         if func.type_params:
+            # design 70 (A5): a GENERIC template is never a driven root — the
+            # typechecker monomorphizes each driven/spawned instantiation into a
+            # concrete function (name = mangled symbol) and records THAT. Reaching
+            # a template here means the instantiation was not materialized.
             raise CoroTransformError(
                 f"coroutine transform: transforming generic suspending function "
                 f"`{n}` is not supported (effect-polymorphism, design 18 A5)",

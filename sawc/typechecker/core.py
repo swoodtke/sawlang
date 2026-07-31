@@ -792,6 +792,25 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Enable import checking for this module
         ns.enable_import_checking()
 
+        # design 70 (A5): snapshot pristine (pre-body-check) copies of every
+        # generic function template, so a suspending instantiation can be cloned +
+        # substituted + re-checked for per-instantiation effect inference.
+        import copy as _copy
+        for func in module_ast.functions:
+            if getattr(func, 'type_params', None) and not getattr(
+                    func, 'is_mono_instance', False):
+                self._pristine_generics[func.name] = _copy.deepcopy(func)
+        # Method-level generic methods on a NON-generic extension: pristine snapshot
+        # keyed by (struct, method), with the owning extension (design 70).
+        for ext in module_ast.extensions:
+            if getattr(ext, 'type_params', None):
+                continue
+            for m in ext.methods:
+                if getattr(m, 'type_params', None) and not getattr(
+                        m, 'is_mono_instance', False):
+                    self._pristine_generic_methods[(ext.struct_name, m.name)] = (
+                        _copy.deepcopy(m), ext)
+
         # Type check function bodies
         for func in module_ast.functions:
             self._check_function(func)
@@ -799,6 +818,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Type check method bodies
         for extension in module_ast.extensions:
             self._check_extension(extension)
+
+        # design 70 (A5): build + re-check every queued generic instantiation so
+        # its effect node (keyed by the mangled symbol) is populated before the
+        # whole-program fixpoint. Splices concrete clones into `module_ast`, which
+        # the coroutine transform and codegen then treat as ordinary functions.
+        if is_entry:
+            self._process_effect_monos(module_ast)
 
         # design 53: walk top-level static_assert conditions so their annotations
         # (Int.max limit tag, sizeof type args) are stamped for codegen.

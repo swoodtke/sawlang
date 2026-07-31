@@ -30,9 +30,40 @@ Scope guard: no executor, no state machines, no async/await. `__test_suspend`
 codegens to a no-op; this pass is pure typechecker machinery.
 """
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from errors import ErrorKind
+
+
+def substitute_ast_types(node, type_map):
+    """In-place: rewrite every `SawType` in an AST subtree through
+    `SawType.substitute(type_map)` (design 70). Used to monomorphize a pristine
+    generic function template into a concrete instantiation for per-instantiation
+    effect re-inference. `SawType.substitute` recurses through nested type
+    structure, so this walker only has to reach each SawType-valued field once.
+    Walks any dataclass node (AST nodes, `Parameter`, `Argument`, `StructField`,
+    …) but treats a `SawType` itself as a leaf (handled by `_subst_ast_value`).
+    """
+    from ast_nodes import SawType
+    if not dataclasses.is_dataclass(node) or isinstance(node, (SawType, type)):
+        return
+    for f in dataclasses.fields(node):
+        setattr(node, f.name, _subst_ast_value(getattr(node, f.name), type_map))
+
+
+def _subst_ast_value(val, type_map):
+    from ast_nodes import SawType
+    if isinstance(val, SawType):
+        return val.substitute(type_map)
+    if dataclasses.is_dataclass(val) and not isinstance(val, type):
+        substitute_ast_types(val, type_map)
+        return val
+    if isinstance(val, list):
+        return [_subst_ast_value(v, type_map) for v in val]
+    if isinstance(val, tuple):
+        return tuple(_subst_ast_value(v, type_map) for v in val)
+    return val
 
 
 @dataclass
@@ -63,6 +94,12 @@ class SuspendNode:
     direct: List[SuspendSource] = field(default_factory=list)
     edges: List[SuspendEdge] = field(default_factory=list)
     suspends: bool = False              # computed by the fixpoint
+    # design 70 (A5): set when this body calls a method on a type-PARAMETER
+    # receiver (`w.step()` for `w: T`). Such a body's suspendability is
+    # effect-polymorphic — it depends on the concrete `T` — so a call to this
+    # generic function with concrete type args triggers per-INSTANTIATION effect
+    # re-inference (monomorphize + re-check the body with `T` bound).
+    poly_candidate: bool = False
 
 
 class EffectsMixin:
@@ -89,6 +126,27 @@ class EffectsMixin:
         # `__spawn_<f>` helper (boxes the frame, enqueues it, returns
         # `TaskHandle<T>`) — but no `__drive_*` driver.
         self._spawn_roots: Dict[str, Any] = {}
+        # design 70 (A5): effect polymorphism via monomorphization-time
+        # re-inference. Pristine (pre-body-check) copies of every generic function
+        # template, keyed by name, so an instantiation can be cloned + substituted
+        # + re-checked to get its OWN effect node keyed by the mangled symbol.
+        self._pristine_generics: Dict[str, Any] = {}
+        # Queued instantiation builds: list of (template_name, resolved_type_args,
+        # mangled). Driven / spawned / method-generic roots queue eagerly (the
+        # mangled name is needed at the site to rewrite the call); the build (clone
+        # + re-check) is deferred to `_process_effect_monos`.
+        self._pending_mono: List[Any] = []
+        self._mono_built: set = set()   # mangled symbols already built/queued
+        # Method-generic instantiations (design 70): pristine templates keyed by
+        # (struct_name, method_name) -> (Method, owning Extension), and queued
+        # concrete builds (struct_name, method_name, resolved_args, mono_name).
+        self._pristine_generic_methods: Dict[Any, Any] = {}
+        self._pending_method_mono: List[Any] = []
+        # Deferred potential effect edges from a generic CALL with concrete type
+        # args to its instantiation node: (caller_node_key, template_name,
+        # resolved_type_args, short, line). Materialized into real edges (after
+        # building the instantiation) only when the template is effect-polymorphic.
+        self._poly_call_edges: List[Any] = []
 
     def _effect_record_driven(self, name: str, mode: str):
         self._driven_roots.setdefault(name, set()).add(mode)
@@ -245,6 +303,163 @@ class EffectsMixin:
         if not getattr(func_type, "func_is_sync", False):
             self._effect_direct_source(
                 "a call through a non-`sync` function value", line)
+
+    # ---------------------------------------------- design 70: effect polymorphism
+    def _effect_mark_poly(self):
+        """Flag the current body as effect-polymorphic (it calls a method on a
+        type-parameter receiver, so its suspendability depends on the concrete
+        binding — re-inferred per instantiation)."""
+        node = self._effect_current()
+        if node is not None:
+            node.poly_candidate = True
+
+    def _effect_queue_fn_mono(self, template_name: str, resolved_args) -> str:
+        """Queue a build of the concrete instantiation `template_name<args>` and
+        return its mangled symbol. Idempotent per mangled symbol. Used at driven /
+        spawned / effect-polymorphic call sites where the concrete symbol is needed
+        immediately (to rewrite the call) but the clone re-check is deferred to
+        `_process_effect_monos`."""
+        from codegen.mangle import mangle_function
+        mangled = mangle_function(template_name, resolved_args)
+        if mangled not in self._mono_built:
+            self._mono_built.add(mangled)
+            self._pending_mono.append((template_name, list(resolved_args), mangled))
+        return mangled
+
+    def _effect_queue_method_mono(self, struct_name, method_name, resolved_args,
+                                  mono_name) -> bool:
+        """Queue a build of the concrete method instantiation
+        `struct_name.method_name<args>` (a method-level generic). Returns False if
+        no pristine template is known (e.g. the method lives on a generic struct /
+        another module — not supported here). Idempotent per (struct, mono_name)."""
+        if (struct_name, method_name) not in self._pristine_generic_methods:
+            return False
+        marker = ("method", struct_name, mono_name)
+        if marker not in self._mono_built:
+            self._mono_built.add(marker)
+            self._pending_method_mono.append(
+                (struct_name, method_name, list(resolved_args), mono_name))
+        return True
+
+    def _effect_record_poly_call(self, template_name: str, resolved_args,
+                                 short: str, line: int):
+        """Record a deferred potential effect edge from the current body to the
+        instantiation `template_name<args>`. Materialized (and the instantiation
+        built) at finalize time ONLY if the template turns out effect-polymorphic,
+        so ordinary generic calls (identity/map/…) are untouched."""
+        node = self._effect_current()
+        if node is None or node.key is None:
+            return
+        self._poly_call_edges.append(
+            (node.key, template_name, list(resolved_args), short, line))
+
+    def _process_effect_monos(self, module_ast):
+        """Build every queued generic instantiation (design 70): clone its pristine
+        template, substitute the concrete type args, register + splice it into the
+        entry AST, and re-check its body so it gets its OWN effect node keyed by the
+        mangled symbol. Runs to a fixpoint (a clone may itself queue more monos or
+        record more polymorphic calls). Must run AFTER all normal bodies are checked
+        (every concrete method's effect node exists) and BEFORE `finalize_effects`.
+        """
+        progress = True
+        while progress:
+            progress = False
+            # 1. Drain eagerly-queued (driven / spawn / method-generic) builds.
+            while self._pending_mono:
+                template_name, resolved_args, mangled = self._pending_mono.pop()
+                if self._build_fn_mono(module_ast, template_name, resolved_args,
+                                       mangled):
+                    progress = True
+            while self._pending_method_mono:
+                struct_name, method_name, resolved_args, mono_name = \
+                    self._pending_method_mono.pop()
+                if self._build_method_mono(struct_name, method_name, resolved_args,
+                                           mono_name):
+                    progress = True
+            # 2. Materialize polymorphic call edges whose template is poly. Build
+            #    the instantiation, then add a real edge caller -> instantiation.
+            remaining = []
+            for (caller_key, template_name, resolved_args, short, line) in \
+                    self._poly_call_edges:
+                tmpl_node = self._suspend_nodes.get(("fn", template_name))
+                if tmpl_node is None or not tmpl_node.poly_candidate:
+                    continue  # ordinary generic call — leave conservative behavior
+                from codegen.mangle import mangle_function
+                mangled = mangle_function(template_name, resolved_args)
+                if mangled not in self._mono_built:
+                    self._mono_built.add(mangled)
+                    self._build_fn_mono(module_ast, template_name, resolved_args,
+                                        mangled)
+                    progress = True
+                caller = self._suspend_nodes.get(caller_key)
+                if caller is not None:
+                    caller.edges.append(SuspendEdge(
+                        target=("fn", mangled), short=short, line=line))
+            self._poly_call_edges = remaining
+
+    def _build_fn_mono(self, module_ast, template_name, resolved_args, mangled):
+        """Clone + substitute + register + re-check one free-function instantiation.
+        Returns True if a clone was actually built (False if already present or the
+        template is not an entry-module generic). Errors from the re-check are
+        SUPPRESSED — this pass only harvests effect edges; genuine instantiation
+        errors surface through the normal codegen monomorphization path."""
+        import copy
+        # Already materialized as a real function (a prior pass, or a re-entry).
+        if self.namespace.has_function(mangled):
+            return False
+        pristine = self._pristine_generics.get(template_name)
+        if pristine is None:
+            # Cross-module generic template: not supported for effect re-inference
+            # here (design 68 territory). Leave conservative; codegen still works.
+            return False
+        clone = copy.deepcopy(pristine)
+        type_map = {tp.name: arg
+                    for tp, arg in zip(pristine.type_params, resolved_args)}
+        substitute_ast_types(clone, type_map)
+        clone.name = mangled
+        clone.type_params = []
+        clone.mangled_symbol = None
+        clone.is_mono_instance = True   # marks a synthesized instantiation
+        # Register the signature so calls resolve, splice into the entry AST so the
+        # coroutine transform and codegen see it as an ordinary concrete function.
+        self._register_function(clone)
+        module_ast.functions.append(clone)
+        # Re-check the body with errors suppressed (effect harvest only).
+        saved_errors = len(self.reporter.errors)
+        saved_warnings = len(self.reporter.warnings)
+        self._check_function(clone)
+        del self.reporter.errors[saved_errors:]
+        del self.reporter.warnings[saved_warnings:]
+        return True
+
+    def _build_method_mono(self, struct_name, method_name, resolved_args, mono_name):
+        """Clone + substitute + splice + re-check one method-generic instantiation
+        (design 70). The concrete method is appended to the owning extension so the
+        coroutine transform's Part-0c method driving finds it; re-checking stamps
+        the resolved types the frame builder consumes. Errors suppressed (effect /
+        annotation harvest only)."""
+        import copy
+        entry = self._pristine_generic_methods.get((struct_name, method_name))
+        if entry is None:
+            return False
+        pristine, ext = entry
+        # Already materialized on the extension (a prior pass / re-entry).
+        if any(getattr(m, 'name', None) == mono_name for m in ext.methods):
+            return False
+        clone = copy.deepcopy(pristine)
+        type_map = {tp.name: arg
+                    for tp, arg in zip(pristine.type_params, resolved_args)}
+        substitute_ast_types(clone, type_map)
+        clone.name = mono_name
+        clone.type_params = []
+        clone.is_mono_instance = True
+        ext.methods.append(clone)
+        saved_errors = len(self.reporter.errors)
+        saved_warnings = len(self.reporter.warnings)
+        self._check_method(struct_name, clone, {})
+        del self.reporter.errors[saved_errors:]
+        del self.reporter.warnings[saved_warnings:]
+        return True
 
     # -------------------------------------------------- fixpoint + diagnostics
     def finalize_effects(self):

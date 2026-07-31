@@ -2159,11 +2159,30 @@ Observable rules:
   suspensions; the caller observes the mutation.
 - **`deinit` may not suspend** — a destructor is always a `sync` context, so a
   suspension inside one is a compile error (deterministic destruction).
-- **Not yet supported** (rejected with a diagnostic, not miscompiled):
-  transforming a *generic* suspending function/method (blocked on
-  effect-polymorphism re-inference, design 18 A5); a suspension inside a `for`
-  over a non-range iterable; and a value-producing `break` out of a
-  suspension-spanning loop.
+- **Effect polymorphism — generic suspending functions/methods** (design 70,
+  A5). A generic function's suspend-bit is not fixed at its declaration: effect
+  inference runs **per instantiation**, keyed by the mangled symbol. Each
+  monomorphized instantiation re-runs the suspend fixpoint with its concrete
+  type arguments bound, so `func run<T: Worker>(w: &var T)` suspends iff the
+  instantiated `T`'s methods do — `run<Slow>` may suspend while `run<Fast>` is
+  suspension-free, and the two coexist, each inferred independently. The
+  coroutine transform accepts a suspending instantiation by monomorphizing it to
+  a concrete function/method (name = mangled symbol) *before* frame synthesis, so
+  a generic instantiation can be `__drive`n, `TaskGroup.spawn`ed, or driven as a
+  `&var self` method through the ordinary (non-generic) machinery. A `sync`
+  context that calls an instantiation which suspends is the normal sync
+  violation, reported **at the call site**, naming the instantiation and the full
+  suspension path (e.g. `run$1$Slow → Slow.step → __suspend`). Trait-object
+  (`any Trait`) dispatch is unaffected: its effect follows the **declared** trait
+  method signature (a `sync` trait method stays sync-callable through `any`), not
+  a per-instantiation re-inference — erasure has no concrete `T` to re-infer.
+- **Not yet supported** (rejected with a diagnostic, not miscompiled): a *buried*
+  suspending method call on a `T`-typed value inside a driven body (drive the
+  method directly, or route the suspension through a nested free function);
+  driven methods on *generic structs*; nested suspending *generic* calls;
+  cross-module generic driven templates; a suspension inside a `for` over a
+  non-range iterable; and a value-producing `break` out of a suspension-spanning
+  loop.
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately

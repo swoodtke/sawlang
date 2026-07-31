@@ -1,0 +1,30 @@
+// design 70 (A5): effect polymorphism. A single generic function `run<T>` is
+// DRIVEN at two instantiations. Each is monomorphized to a concrete function
+// (keyed by its mangled symbol) whose effects are re-inferred, then the
+// coroutine transform builds a frame PER instantiation. `T` parameterizes data;
+// suspension is a lowerable `__suspend()` boundary.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 21
+
+trait Seed { func seed(&self) -> Int }
+
+struct Slow { n: Int }
+extension Slow: Seed { func seed(&self) -> Int { self.n } }
+
+struct Fast { m: Int }
+extension Fast: Seed { func seed(&self) -> Int { self.m } }
+
+func run<T: Seed>(w: T) -> Int {
+    let base = w.seed()
+    __suspend()
+    base + 1
+}
+
+func main() {
+    let s = Slow(n: 10)
+    print(__drive(run<Slow>(move s)))    // 11
+    let f = Fast(m: 20)
+    print(__drive(run<Fast>(move f)))    // 21
+}
