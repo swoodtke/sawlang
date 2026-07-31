@@ -29,10 +29,16 @@ kernel region + one root-server region + device window).
    Syscalls for M1: `debug_print(ptr, len)`, `yield()`, `exit()` —
    the ABI proof, not the object model (channels/handles are M2+).
    Static allocation only (slab over statics, design 42) — no Global.
-3. **sosimg**: format constant in a shared Saw module; kernel-side
-   parser/loader (copy segments to their load addresses, PMP-fence,
-   mret to entry in U-mode); emitter side in build.py (objcopy +
-   header pack) v1.
+3. **sosimg**: format constant in a shared Saw module; ALL header
+   fields FIXED-WIDTH (UInt32 offsets/lens/flags, UInt64 where an
+   address may be 64-bit — the format is shared with the arm64 MMU
+   profile, design 79/spec §5b); kernel-side parser/loader (copy
+   segments to their load addresses, PMP-fence, mret to entry in
+   U-mode); emitter side in build.py (objcopy + header pack) v1.
+   Structure code you write with the two-profile HAL split in mind
+   (spec §5b): arch-specific bits (boot shim, trap entry, UART
+   address) live under sos/hal/riscv32-virt/ so design 79 can add
+   sos/hal/arm64-virt/ beside it without surgery.
 4. **Root server M1**: a freestanding Saw program using the `sos`
    userspace module (syscall wrappers via inline ecall — probe how to
    emit ecall: an `@export`-adjacent intrinsic or asm shim per
