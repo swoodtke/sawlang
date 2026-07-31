@@ -1,0 +1,25 @@
+// design 70 (A5): an effect-polymorphic generic (`run<T>` calls `w.step()` on a
+// type-param receiver) called normally — NOT driven — from a non-sync context.
+// Per-instantiation effect inference builds the instantiation's effect node
+// (effect-only, without splicing a duplicate definition), while codegen
+// monomorphizes `run$1$Fast` from the template exactly once. Regression guard for
+// the "no double definition" invariant.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+
+trait Worker { func step(&var self) -> Int }
+
+struct Fast { m: Int }
+extension Fast: Worker {
+    func step(&var self) -> Int { self.m }
+}
+
+func run<T: Worker>(w: &var T) -> Int {
+    w.step()
+}
+
+func main() {
+    var f = Fast(m: 42)
+    print(run<Fast>(&var f))
+}

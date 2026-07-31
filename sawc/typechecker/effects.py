@@ -378,34 +378,45 @@ class EffectsMixin:
                     progress = True
             # 2. Materialize polymorphic call edges whose template is poly. Build
             #    the instantiation, then add a real edge caller -> instantiation.
-            remaining = []
-            for (caller_key, template_name, resolved_args, short, line) in \
-                    self._poly_call_edges:
+            #    Snapshot + clear first: a clone's re-check may append NEW edges,
+            #    which accumulate for the next fixpoint round (not this one).
+            edges, self._poly_call_edges = self._poly_call_edges, []
+            for (caller_key, template_name, resolved_args, short, line) in edges:
                 tmpl_node = self._suspend_nodes.get(("fn", template_name))
                 if tmpl_node is None or not tmpl_node.poly_candidate:
                     continue  # ordinary generic call — leave conservative behavior
                 from codegen.mangle import mangle_function
                 mangled = mangle_function(template_name, resolved_args)
-                if mangled not in self._mono_built:
-                    self._mono_built.add(mangled)
+                if ("fn", mangled) not in self._suspend_nodes:
+                    # Effect-only build: create the instantiation's suspend node
+                    # WITHOUT splicing it (codegen still monomorphizes it from the
+                    # template — a spliced clone would double-define the symbol).
                     self._build_fn_mono(module_ast, template_name, resolved_args,
-                                        mangled)
+                                        mangled, splice=False)
                     progress = True
                 caller = self._suspend_nodes.get(caller_key)
-                if caller is not None:
+                if caller is not None and not any(
+                        e.target == ("fn", mangled) for e in caller.edges):
                     caller.edges.append(SuspendEdge(
                         target=("fn", mangled), short=short, line=line))
-            self._poly_call_edges = remaining
 
-    def _build_fn_mono(self, module_ast, template_name, resolved_args, mangled):
-        """Clone + substitute + register + re-check one free-function instantiation.
-        Returns True if a clone was actually built (False if already present or the
-        template is not an entry-module generic). Errors from the re-check are
-        SUPPRESSED — this pass only harvests effect edges; genuine instantiation
-        errors surface through the normal codegen monomorphization path."""
+    def _build_fn_mono(self, module_ast, template_name, resolved_args, mangled,
+                       splice=True):
+        """Clone + substitute + re-check one free-function instantiation. Returns
+        True if a clone was built. Errors from the re-check are SUPPRESSED — this
+        pass only harvests effect edges; genuine instantiation errors surface
+        through the normal codegen monomorphization path.
+
+        `splice=True` (driven / spawn roots) registers the clone and appends it to
+        the entry AST so the coroutine transform sees it as an ordinary concrete
+        function (and then REMOVES it, replacing it with a frame — so codegen never
+        double-defines it). `splice=False` (an effect-polymorphic plain call) only
+        creates the effect node: the instantiation stays codegen's job (from the
+        template), so the clone must NOT be left in the AST / namespace."""
         import copy
-        # Already materialized as a real function (a prior pass, or a re-entry).
-        if self.namespace.has_function(mangled):
+        if ("fn", mangled) in self._suspend_nodes:
+            return False  # effect node already built (a prior pass / dual role)
+        if splice and self.namespace.has_function(mangled):
             return False
         pristine = self._pristine_generics.get(template_name)
         if pristine is None:
@@ -420,10 +431,9 @@ class EffectsMixin:
         clone.type_params = []
         clone.mangled_symbol = None
         clone.is_mono_instance = True   # marks a synthesized instantiation
-        # Register the signature so calls resolve, splice into the entry AST so the
-        # coroutine transform and codegen see it as an ordinary concrete function.
-        self._register_function(clone)
-        module_ast.functions.append(clone)
+        if splice:
+            self._register_function(clone)
+            module_ast.functions.append(clone)
         # Re-check the body with errors suppressed (effect harvest only).
         saved_errors = len(self.reporter.errors)
         saved_warnings = len(self.reporter.warnings)
