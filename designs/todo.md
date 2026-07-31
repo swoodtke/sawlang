@@ -12,6 +12,36 @@ items need a probe before being treated as real work.
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
 ## Design 77 — Generics & closures completion + accumulated riders (IN PROGRESS)
+- **Item 5 (A5-rest shape 1: buried suspending method sub-frame) — RE-LEDGERED
+  (per the brief's escape hatch; rejection stays clean + anchored).** The FEATURE
+  (embed a nested suspending METHOD call `let r = c.step()` as a sub-frame — the
+  Part-0b method twin) still needs the design-74 triad: (a) make the phase-1
+  frame-prep a FIXPOINT that discovers method callees while preparing (today
+  `_collect_calls`/`closure` is a fixed set of free-function names; method
+  sub-frames aren't in `fbs`), (b) receiver addressing — `__recv = (&var
+  self.recv) as UnsafePointer<Struct>` into the CALLER frame's field (only a
+  simple frame-local receiver is addressable; `foo().m()` / `self.f.m()` need
+  spilling), (c) build the method frame + thread it into `fbs` so
+  `_build_sub_frame`/`_emit_nested_call` (which already accept a `recv_value`)
+  drive it. `_build_frame_init` already supports a method `__recv`. Bounded but
+  it touches the central transform flow — and item 4's closure-in-frame surgery
+  (this same territory) surfaced several subtle exactly-once/UAF hazards that took
+  the bulk of this brief's budget, so bundling shape 1 too risks the 834-test bar.
+  Workaround is exact and the rejection names it (drive the method directly, or
+  wrap in a nested free fn). [74, 44, 45]
+- **Item 6 (A5-rest shape 4: cross-module generic driven) — RE-LEDGERED (per the
+  escape hatch; rejection stays clean + anchored).** `_pristine_generics` /
+  `_pristine_generic_methods` capture ENTRY-module templates only, so
+  `_build_fn_mono` / `_splice_fn_mono` return False for an imported template and
+  the nested/driven generic call is rejected (anchored) by `_classify_call`.
+  Lifting needs: (a) snapshot imported-module generic templates into the pristine
+  maps (keyed to avoid cross-module name clashes), (b) design-68 canonicalization
+  — the mangled instantiation key computed in the transform must agree
+  byte-for-byte with codegen's cross-module monomorphization symbol, or the
+  frame's callee and codegen's mono double-define / mismatch. The
+  mangling-agreement surface is exactly design-68 territory and risky against
+  bootstrap (blade is generic- and multi-module-heavy). Deferred with the same
+  budget reasoning as shape 1. [74, 68]
 - **Item 1 (spawn-Void ICE) — LANDED.** `spawn { void_body }` ICE'd building the
   `{i8*, i8*, void}` control block (a `void` struct field is illegal LLVM). The
   result slot becomes a 1-byte placeholder for a Void body (never stored/read in
