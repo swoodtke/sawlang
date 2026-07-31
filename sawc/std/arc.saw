@@ -31,7 +31,7 @@ extension Arc<T> {
     // Construct a fresh Arc owning `value` (strong = 1, weak = 1).
     init(value: T) -> Arc<T> {
         let size = 16 + sizeof<T>()
-        if let block = Global().alloc(size, 16) {
+        if let block = GlobalAllocator().alloc(size, 16) {
             let strong_ptr = block as UnsafePointer<Int>
             strong_ptr[0] = 1
             let weak_ptr = (block + 8) as UnsafePointer<Int>
@@ -73,7 +73,7 @@ extension Arc<T>: Deinit {
                 let wold = __saw_atomic_sub_i64_release(weak_ptr, 1)
                 if wold == 1 {
                     __saw_atomic_fence_acquire()
-                    Global().dealloc(block, 16 + sizeof<T>(), 16)
+                    GlobalAllocator().dealloc(block, 16 + sizeof<T>(), 16)
                 }
             }
         }

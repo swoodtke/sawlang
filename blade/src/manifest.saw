@@ -65,7 +65,7 @@ public extension Dependency {
 // erased-box default-type-arg mangling divergence made `Result<DepList,
 // Box<any Error>>` register under an arity-1 `Box<any Error>` name while a
 // `match`/`try` looked it up at the typechecker's arity-2 `Box<any Error,
-// Global>`, so the mangle-miss fell back to LLVM-type matching and silently
+// GlobalAllocator>`, so the mangle-miss fell back to LLVM-type matching and silently
 // selected a same-sized wrong monomorphization — `deps.get(i)` returned a
 // `TomlValue`/`String`-shaped value. With the erased box normalized to one
 // canonical arity across registration and lookup, natural rows work.)

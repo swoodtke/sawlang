@@ -808,7 +808,7 @@ existential container (a divergence from Swift, where `any P` silently boxes).
 Costs are visible in the type:
 
 - `&any Trait` — a borrowed erased value (a non-escaping reference).
-- `Box<any Trait, A = Global>` — an owned erased value (NoCopy; the payload is
+- `Box<any Trait, A = GlobalAllocator>` — an owned erased value (NoCopy; the payload is
   heap-allocated through `A`).
 
 Anywhere else — a by-value binding, field, parameter, or return, or any other
@@ -996,7 +996,7 @@ func parse(ok: Bool) -> Result<Int, Box<any Error>> {
 }
 ```
 
-> **Freestanding note.** Erasing an error boxes it through `Global`, so
+> **Freestanding note.** Erasing an error boxes it through `GlobalAllocator`, so
 > `Result<T, Box<any Error>>` is a *hosted convenience*. Kernel / freestanding
 > code that must avoid hidden allocation keeps concrete or closed-union error
 > types (`Result<T, ConcreteE>`), which allocate nothing.
@@ -1981,7 +1981,7 @@ trait Hashable {            // requires Equatable
   `T: Copy` (the `Vector.each` precedent). No ExplicitCopy element is ever
   silently duplicated.
 
-### `Map<K: Hashable + Equatable, V, A: Allocator = Global>`
+### `Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator>`
 
 **Status: implemented** (`designs/48-ord-hash.md`, unified by `designs/54`).
 `Map` is **THE dictionary type** — an **open-addressing** hash table (linear
@@ -2008,7 +2008,7 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
 - **Iteration order is UNSPECIFIED** (table/bucket order). For deterministic
   output, sort a `keys()` snapshot (`String`/`Int` are `Comparable`).
 
-### `Set<T: Hashable + Equatable, A: Allocator = Global>`
+### `Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator>`
 
 **Status: implemented** (`designs/54`). An unordered hash set, implemented as a
 thin wrapper over `Map<T, SetMark>` (a zero-field unit value), so there is one
@@ -2668,7 +2668,7 @@ own generic type parameters, *in addition to* the type's own — the canonical
 case being a transform whose output type is independent of the element type:
 
 ```saw
-extension Vector<T: Copy, A: Allocator = Global> {
+extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // `U` is a METHOD-level type parameter, distinct from the element type `T`
     // and the allocator `A` (which the result vector inherits).
     func map<U>(&self, transform: (T) -> U) -> Vector<U, A> { /* ... */ }
@@ -2700,18 +2700,18 @@ defaults). A reference site may then omit that (and every following) argument,
 and it is filled from the default:
 
 ```saw
-struct Vector<T, A: Allocator = Global> { /* ... */ }
+struct Vector<T, A: Allocator = GlobalAllocator> { /* ... */ }
 
-var xs = Vector<Int>()           // A defaults to Global
-var ys = Vector<Int, Global>()   // identical type to `xs`
+var xs = Vector<Int>()           // A defaults to GlobalAllocator
+var ys = Vector<Int, GlobalAllocator>()   // identical type to `xs`
 var zs = Vector<Int, MySlab>()   // a distinct type over a custom allocator
 ```
 
 The **identity rule** is the load-bearing guarantee: defaults are applied
-**before name mangling**, so `Vector<Int>` and `Vector<Int, Global>` produce the
+**before name mangling**, so `Vector<Int>` and `Vector<Int, GlobalAllocator>` produce the
 *same* mangled name and the *same* monomorphized struct — they are one type, not
 two that happen to coincide. Consequences:
-- A function declared over `Vector<Int>` accepts a `Vector<Int, Global>` value,
+- A function declared over `Vector<Int>` accepts a `Vector<Int, GlobalAllocator>` value,
   and vice-versa — they are interchangeable everywhere.
 - A `Vector<Int, MySlab>` is a **distinct type**: passing it where `Vector<Int>`
   is expected is a compile error. Allocator identity is part of the type (this is
@@ -2719,7 +2719,7 @@ two that happen to coincide. Consequences:
 - Omitting an argument for a parameter that has **no default** is an arity error,
   and a default that fails its parameter's bound (`A: Allocator = SomeNonAllocator`)
   is rejected. Defaults referencing an earlier parameter are not supported (every
-  stdlib default is a ground type such as `Global`).
+  stdlib default is a ground type such as `GlobalAllocator`).
 
 **Status: planned** — const generics (`struct Array<T, const N: Int>`) and
 `where` clauses are *illustrative* below and not yet implemented:
@@ -3240,21 +3240,21 @@ slab_init(EARLY_HEAP.ptr(), EARLY_HEAP.len())    // hand the region to a slab
 Fabricating an address is in the same trust bucket as the `UnsafePointer` family
 (unsafe blocks remain deferred; the naming convention is the marker).
 
-### Allocators (`Allocator` trait, `Global`, public `A` parameter)
+### Allocators (`Allocator` trait, `GlobalAllocator`, public `A` parameter)
 
-**Status: implemented — public type parameter, `Global` default.** Alloc-layer
+**Status: implemented — public type parameter, `GlobalAllocator` default.** Alloc-layer
 stdlib types (`Vector`, `Map`, `Data`, `StringBuilder`, `Arc`, ...) obtain memory
 through the `Allocator` trait — `alloc(&self, size: Int, align: Int) ->
 UnsafePointer<Int8>?` and `dealloc(&self, ptr, size, align)` — rather than
-calling the `saw_alloc` / `saw_dealloc` seams directly. `Global` is a zero-field
-unit struct that wraps the seams; because it is zero-sized, `Global().alloc(...)`
+calling the `saw_alloc` / `saw_dealloc` seams directly. `GlobalAllocator` is a zero-field
+unit struct that wraps the seams; because it is zero-sized, `GlobalAllocator().alloc(...)`
 monomorphizes to a direct seam call with no allocator value materialized at
 runtime.
 
 The allocator is a **public type parameter with a default**:
-`Vector<T, A: Allocator = Global>` and `Map<K, V, A = Global>`. Hosted code
-writes `Vector<T>` unchanged — the default fills `A = Global` before mangling, so
-`Vector<T>` and `Vector<T, Global>` are one type (see
+`Vector<T, A: Allocator = GlobalAllocator>` and `Map<K, V, A = GlobalAllocator>`. Hosted code
+writes `Vector<T>` unchanged — the default fills `A = GlobalAllocator` before mangling, so
+`Vector<T>` and `Vector<T, GlobalAllocator>` are one type (see
 [Default type parameters](#generics)). A custom allocator is written as a
 zero-field unit struct conforming to `Allocator`:
 
@@ -3284,9 +3284,9 @@ default allocator), which paper 19 keeps for when kernel code justifies it.
 
 ### `Box<T, A>` — a single owned heap allocation
 
-**Status: implemented (design 42).** `Box<T, A: Allocator = Global>` owns one
+**Status: implemented (design 42).** `Box<T, A: Allocator = GlobalAllocator>` owns one
 `T` allocated through allocator `A`. Hosted code writes `Box<T>` (the default
-fills `A = Global`); a kernel writes `Box<Job, JobSlab>` to place the value in a
+fills `A = GlobalAllocator`); a kernel writes `Box<Job, JobSlab>` to place the value in a
 per-type slab (the design-19 §4 "kernel idiom"). `Box` is **NoCopy** — it is
 `move`d, never silently duplicated — and its single heap `T` is released exactly
 once on deinit.

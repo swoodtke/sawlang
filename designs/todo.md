@@ -12,6 +12,19 @@ items need a probe before being treated as real work.
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
 ## Design 77 — Generics & closures completion + accumulated riders (IN PROGRESS)
+- **Item 7 RIDER (rename `Global` -> `GlobalAllocator`) — LANDED.** TRUE rename
+  (not a `type` alias — that would shatter allocator identity). Swept all `.saw`
+  (std alloc.saw struct + `Allocator` conformance, every `= GlobalAllocator`
+  default and `GlobalAllocator()` construction across vector/map/set/box/arc/
+  channel/mutex/task/taskgroup/stringbuilder/data/net, blade/manifest, libs,
+  examples) and the compiler's hardcoded `struct_name="Global"` sites
+  (existentials/results/generics/expressions/statements) -> `"GlobalAllocator"`.
+  Mangled names shift `$Global` -> `$GlobalAllocator` uniformly (nothing external
+  links them; registration + lookup agree since the mangler keys on the struct
+  name). `Global` no longer resolves (clean `undefined function` /
+  does-not-conform error). Spec + saw-lang skill updated (CLAUDE.md on disk
+  carries no `Global` mention). Test `errors/global_renamed_unknown`. Suite 835,
+  bootstrap 17+17, libs 4+4. Standing policy oracle: whole suite green.
 - **Item 5 (A5-rest shape 1: buried suspending method sub-frame) — RE-LEDGERED
   (per the brief's escape hatch; rejection stays clean + anchored).** The FEATURE
   (embed a nested suspending METHOD call `let r = c.step()` as a sub-frame — the

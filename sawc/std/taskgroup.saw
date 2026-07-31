@@ -95,7 +95,7 @@ extension TaskGroup {
         }
         var lk: UnsafePointer<Int8>? = None
         if w >= 2 {
-            if let block = Global().alloc(64, 16) {
+            if let block = GlobalAllocator().alloc(64, 16) {
                 __saw_pthread_mutex_init_default(block)
                 lk = block
             }
@@ -431,7 +431,7 @@ extension TaskGroup: Deinit {
         // design 75 (A2): release the run-queue mutex (multi-threaded groups only).
         if let lk = self.lock {
             pthread_mutex_destroy(lk)
-            Global().dealloc(lk, 64, 16)
+            GlobalAllocator().dealloc(lk, 64, 16)
         }
     }
 }

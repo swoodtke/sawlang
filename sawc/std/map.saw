@@ -32,7 +32,7 @@ enum MapSlot<K, V> {
 // `Map<K, V, A>` allocates through the SAME allocator. `cap` is the number
 // of slots (a power of two, 0 before the first insert); `count` is the number
 // of live (Occupied) entries.
-struct Map<K, V, A: Allocator = Global> {
+struct Map<K, V, A: Allocator = GlobalAllocator> {
     slots: Vector<MapSlot<K, V>, A>
     count: Int
     cap: Int
@@ -42,7 +42,7 @@ struct Map<K, V, A: Allocator = Global> {
 // operations extension is bounded `K: Hashable + Equatable` (design 48). Every
 // key type used with these methods (Int, String, a `: Hashable`-declaring
 // struct, ...) satisfies both.
-extension Map<K: Hashable + Equatable, V, A: Allocator = Global> {
+extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     // Create an empty map (no allocation until the first insert).
     init() -> Map<K, V, A> {
         Map<K, V, A>(slots: Vector<MapSlot<K, V>, A>(), count: 0, cap: 0)
@@ -324,7 +324,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = Global> {
 // closure that also captures the SAME map mutably (to insert/remove during the
 // visit) is a static Law-of-Exclusivity error — see
 // examples/map_each_mutate_error.saw.
-extension Map<K: Hashable + Equatable, V, A: Allocator = Global> {
+extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     // Read a copy of the key in the occupied slot at `idx` (None otherwise).
     func _key_at(&self, idx: Int) -> K? {
         if let s = self.slots.get(idx) {
@@ -386,7 +386,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = Global> {
 // Vector uses the map's own allocator `A`. There is deliberately NO
 // `entries()` snapshot in v1 (a tuple-of-copies has containment wrinkles the
 // visitors already cover) — deferred.
-extension Map<K: Hashable + Equatable + Copy, V, A: Allocator = Global> {
+extension Map<K: Hashable + Equatable + Copy, V, A: Allocator = GlobalAllocator> {
     // A fresh Vector of all live keys (copies), in unspecified (table) order.
     func keys(&self) -> Vector<K, A> {
         var out = Vector<K, A>(capacity: self.count)
@@ -395,7 +395,7 @@ extension Map<K: Hashable + Equatable + Copy, V, A: Allocator = Global> {
     }
 }
 
-extension Map<K: Hashable + Equatable, V: Copy, A: Allocator = Global> {
+extension Map<K: Hashable + Equatable, V: Copy, A: Allocator = GlobalAllocator> {
     // A fresh Vector of all live values (copies), in unspecified (table) order.
     func values(&self) -> Vector<V, A> {
         var out = Vector<V, A>(capacity: self.count)
@@ -413,10 +413,10 @@ extension Map<K: Hashable + Equatable, V: Copy, A: Allocator = Global> {
 // deinit body suffices because the compiler appends the field cleanup — the
 // slots Vector's own deinit drops every occupied slot's key/value and frees the
 // buffer.
-extension Map<K, V, A: Allocator = Global>: Deinit {
+extension Map<K, V, A: Allocator = GlobalAllocator>: Deinit {
     func deinit(&var self) {
     }
 }
 
-extension Map<K, V, A: Allocator = Global>: NoCopy {
+extension Map<K, V, A: Allocator = GlobalAllocator>: NoCopy {
 }

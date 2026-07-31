@@ -501,7 +501,7 @@ class ResultsMixin:
         into a `Box<any Trait>` (through the allocator, Global by default), then
         build the Err payload from the fat pointer."""
         value = self._gen_transfer_value(expr.value)
-        alloc_saw = expr.allocator or SawType(TypeKind.STRUCT, struct_name="Global")
+        alloc_saw = expr.allocator or SawType(TypeKind.STRUCT, struct_name="GlobalAllocator")
         fat = self._erase_value_to_box(value, expr.concrete_err,
                                        expr.trait_name, alloc_saw)
         return self._create_result_err_for_return(fat)

@@ -25,7 +25,7 @@ extension NullAlloc: Allocator {
 }
 
 func main() {
-    // Success (Global, Int payload): Ok, value() reads 7.
+    // Success (GlobalAllocator, Int payload): Ok, value() reads 7.
     match Box<Int>.make_or(7) {
         case Ok(b) -> print(b.value()),   // 7
         case Err(e) -> print(e.size)

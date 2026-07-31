@@ -245,7 +245,7 @@ class GenericsMixin:
         if self._is_erased_box(saw_type):
             targs = saw_type.type_args
             if (len(targs) == 2 and targs[1].kind == TypeKind.STRUCT
-                    and targs[1].struct_name == "Global"
+                    and targs[1].struct_name == "GlobalAllocator"
                     and not targs[1].type_args):
                 return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name,
                                type_args=[targs[0]], symbol=saw_type.symbol)

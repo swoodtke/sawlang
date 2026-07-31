@@ -339,7 +339,7 @@ class StatementsMixin:
             result_type=result_type,
             concrete_err=body_type,
             trait_name=trait_name,
-            allocator=SawType(TypeKind.STRUCT, struct_name="Global"),
+            allocator=SawType(TypeKind.STRUCT, struct_name="GlobalAllocator"),
             line=getattr(value_expr, 'line', 0),
             column=getattr(value_expr, 'column', 0),
         )

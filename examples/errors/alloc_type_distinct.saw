@@ -1,17 +1,17 @@
 // Allocator identity is part of the type: a `Vector<Int, LoudAlloc>` is a
-// DISTINCT type from `Vector<Int>` (= `Vector<Int, Global>`) and cannot be
+// DISTINCT type from `Vector<Int>` (= `Vector<Int, GlobalAllocator>`) and cannot be
 // passed where the latter is expected (design 37 item 4 — the D4
 // cross-heap-unrepresentable property, now testable).
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: expects `Vector<Int, Global>` but got `Vector<Int, LoudAlloc>`
+// EXPECT-ERROR-CONTAINS: expects `Vector<Int, GlobalAllocator>` but got `Vector<Int, LoudAlloc>`
 
 struct LoudAlloc {}
 extension LoudAlloc: Allocator {
     func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
-        Global().alloc(size, align)
+        GlobalAllocator().alloc(size, align)
     }
     func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
-        Global().dealloc(ptr, size, align)
+        GlobalAllocator().dealloc(ptr, size, align)
     }
 }
 

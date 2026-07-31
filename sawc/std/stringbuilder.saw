@@ -5,7 +5,7 @@
 // FFI declarations
 // =============================================================================
 
-// StringBuilder is an alloc-layer type: it allocates through the `Global`
+// StringBuilder is an alloc-layer type: it allocates through the `GlobalAllocator`
 // allocator (design 19 §4 / brief 28), which wraps the runtime seams — never
 // libc directly. memcpy is a compiler builtin, not a seam.
 extern "C" {
@@ -36,7 +36,7 @@ extension StringBuilder {
         if capacity <= 0 {
             StringBuilder(buffer: None, length: 0, capacity: 0)
         } else {
-            if let ptr = Global().alloc(capacity, 1) {
+            if let ptr = GlobalAllocator().alloc(capacity, 1) {
                 StringBuilder(buffer: ptr, length: 0, capacity: capacity)
             } else {
                 StringBuilder(buffer: None, length: 0, capacity: 0)
@@ -141,14 +141,14 @@ extension StringBuilder {
         if let buf = self.buffer {
             // Grow via alloc + copy + dealloc (the seams provide no realloc).
             let old_capacity = self.capacity
-            if let new_buf = Global().alloc(new_capacity, 1) {
+            if let new_buf = GlobalAllocator().alloc(new_capacity, 1) {
                 memcpy(new_buf, buf, old_capacity)
-                Global().dealloc(buf, old_capacity, 1)
+                GlobalAllocator().dealloc(buf, old_capacity, 1)
                 self.buffer = new_buf
                 self.capacity = new_capacity
             }
         } else {
-            if let new_buf = Global().alloc(new_capacity, 1) {
+            if let new_buf = GlobalAllocator().alloc(new_capacity, 1) {
                 self.buffer = new_buf
                 self.capacity = new_capacity
                 new_buf[0] = 0  // Initialize with null terminator
@@ -161,7 +161,7 @@ extension StringBuilder {
 extension StringBuilder: NoCopy {
     func deinit(&var self) {
         if let buf = self.buffer {
-            Global().dealloc(buf, self.capacity, 1)
+            GlobalAllocator().dealloc(buf, self.capacity, 1)
         }
     }
 }

@@ -26,7 +26,7 @@ func main() {
 
     // Failure path (deterministic): 1e18 elements * 8 bytes/elem = 8e18 bytes,
     // which is below Int64 max (no multiply overflow) yet far beyond what the
-    // hosted allocator can satisfy, so malloc returns NULL -> Global.alloc
+    // hosted allocator can satisfy, so malloc returns NULL -> GlobalAllocator.alloc
     // yields None -> the factory returns Err(AllocError) with size context.
     match Vector<Int>.try_with_capacity(1000000000000000000) {
         case Ok(v) -> {

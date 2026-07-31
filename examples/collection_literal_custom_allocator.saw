@@ -13,11 +13,11 @@ struct LoudAlloc {}
 extension LoudAlloc: Allocator {
     func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
         print("alloc {size}")
-        Global().alloc(size, align)
+        GlobalAllocator().alloc(size, align)
     }
     func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
         print("dealloc {size}")
-        Global().dealloc(ptr, size, align)
+        GlobalAllocator().dealloc(ptr, size, align)
     }
 }
 

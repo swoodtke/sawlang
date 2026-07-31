@@ -1,4 +1,4 @@
-// Box<Int> over the default Global allocator (design 42 item 1): the infallible
+// Box<Int> over the default GlobalAllocator allocator (design 42 item 1): the infallible
 // factory `make` allocates + placement-moves the value, `value()` reads a Copy
 // payload back, and the single heap Int is freed when the Box dies. Box is
 // NoCopy, so it is moved, never silently duplicated.

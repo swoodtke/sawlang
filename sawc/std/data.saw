@@ -30,7 +30,7 @@
 // FFI declarations for memory management
 // =============================================================================
 
-// Data is an alloc-layer type: it allocates through the `Global` allocator
+// Data is an alloc-layer type: it allocates through the `GlobalAllocator` allocator
 // (design 19 §4 / brief 28), which wraps the runtime seams — never libc
 // directly. memcpy is a compiler builtin, not a seam.
 extern "C" {
@@ -294,9 +294,9 @@ extension Data {
         if let inner = self.inner {
             // Grow via alloc + copy + dealloc (the seams provide no realloc).
             let raw = inner[0].buffer as UnsafePointer<Int8>
-            if let new_raw = Global().alloc(new_capacity, 1) {
+            if let new_raw = GlobalAllocator().alloc(new_capacity, 1) {
                 memcpy(new_raw, raw, current_cap)
-                Global().dealloc(raw, current_cap, 1)
+                GlobalAllocator().dealloc(raw, current_cap, 1)
                 inner[0].buffer = new_raw as UnsafePointer<UInt8>
                 inner[0].capacity = new_capacity
             }
@@ -354,11 +354,11 @@ extension Data {
     func allocate_buffer(&var self, capacity: Int) {
         // Allocate the DataBuffer struct (size = pointer + 2 ints)
         let buffer_struct_size = 24  // sizeof(UnsafePointer) + sizeof(Int) + sizeof(Int)
-        if let inner_raw = Global().alloc(buffer_struct_size, 16) {
+        if let inner_raw = GlobalAllocator().alloc(buffer_struct_size, 16) {
             let inner = inner_raw as UnsafePointer<DataBuffer>
 
             // Allocate the actual byte buffer
-            if let buf_raw = Global().alloc(capacity, 1) {
+            if let buf_raw = GlobalAllocator().alloc(capacity, 1) {
                 let buf = buf_raw as UnsafePointer<UInt8>
                 inner[0].buffer = buf
                 inner[0].capacity = capacity
@@ -367,7 +367,7 @@ extension Data {
                 self.offset = 0
             } else {
                 // Failed to allocate buffer, free the struct
-                Global().dealloc(inner_raw, buffer_struct_size, 16)
+                GlobalAllocator().dealloc(inner_raw, buffer_struct_size, 16)
             }
         }
     }
@@ -382,10 +382,10 @@ extension Data: NoCopy {
             if inner[0].refcount == 0 {
                 // We're the last reference - free everything
                 let buf = inner[0].buffer as UnsafePointer<Int8>
-                Global().dealloc(buf, inner[0].capacity, 1)
+                GlobalAllocator().dealloc(buf, inner[0].capacity, 1)
 
                 let inner_raw = inner as UnsafePointer<Int8>
-                Global().dealloc(inner_raw, 24, 16)
+                GlobalAllocator().dealloc(inner_raw, 24, 16)
             }
         }
     }

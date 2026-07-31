@@ -12,9 +12,9 @@
 // correctly-aligned backing store rather than a hardcoded constant.
 //
 // STAGE 4 (brief 37): the allocator is now a PUBLIC type parameter
-// `A: Allocator = Global`. Hosted code writes `Vector<T>` unchanged — the
-// default fills `A = Global` before mangling, so `Vector<T>` and
-// `Vector<T, Global>` are one type. `A()` is a zero-sized construction that
+// `A: Allocator = GlobalAllocator`. Hosted code writes `Vector<T>` unchanged — the
+// default fills `A = GlobalAllocator` before mangling, so `Vector<T>` and
+// `Vector<T, GlobalAllocator>` are one type. `A()` is a zero-sized construction that
 // monomorphizes to a direct call into the concrete allocator's methods, with no
 // allocator value stored per Vector (A is a phantom type parameter — it appears
 // in no field). memcpy is a compiler builtin, not a seam.
@@ -26,13 +26,13 @@ extern "C" {
 // Vector<T, A> - A dynamically-sized array over allocator `A`
 // =============================================================================
 
-struct Vector<T, A: Allocator = Global> {
+struct Vector<T, A: Allocator = GlobalAllocator> {
     buffer: UnsafePointer<T>?
     length: Int
     capacity: Int
 }
 
-extension Vector<T, A: Allocator = Global> {
+extension Vector<T, A: Allocator = GlobalAllocator> {
     // Create an empty vector
     init() -> Vector<T, A> {
         Vector<T, A>(buffer: None, length: 0, capacity: 0)
@@ -259,7 +259,7 @@ extension Vector<T, A: Allocator = Global> {
 // compiler-internal `__deinit_in_place` intrinsic (usable only inside a deinit
 // body). Elements popped/moved out first decrement `length`, so the loop below
 // never touches them and cannot double-free.
-extension Vector<T, A: Allocator = Global>: Deinit {
+extension Vector<T, A: Allocator = GlobalAllocator>: Deinit {
     func deinit(&var self) {
         if let buf = self.buffer {
             var i = 0
@@ -269,7 +269,7 @@ extension Vector<T, A: Allocator = Global>: Deinit {
             }
             let raw_ptr = buf as UnsafePointer<Int8>
             // Deinit routes back to THIS vector's own allocator `A` — a
-            // `Vector<T, LoudAlloc>` frees through `LoudAlloc`, never `Global`.
+            // `Vector<T, LoudAlloc>` frees through `LoudAlloc`, never `GlobalAllocator`.
             A().dealloc(raw_ptr, self.capacity * sizeof<T>(), alignof<T>())
         }
     }
@@ -284,7 +284,7 @@ extension Vector<T, A: Allocator = Global>: Deinit {
 // `.copy()` a compile error naming the element type at monomorphization.
 // (Deinit is provided unconditionally above; ExplicitCopy: Deinit is satisfied
 // by that separate conformance.)
-extension Vector<T: Copy, A: Allocator = Global>: ExplicitCopy {
+extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
     // Deep copy: allocate a fresh buffer (through the SAME allocator `A`) and
     // copy each element. The copy of a `Vector<T, A>` is a `Vector<T, A>`.
     func copy(&self) -> Vector<T, A> {
@@ -319,7 +319,7 @@ extension Vector<T: Copy, A: Allocator = Global>: ExplicitCopy {
 // same bound `Vector`'s own `.copy()` carries. A `Vector<File>` (NoCopy
 // element) therefore cannot call `each`/`map`/`fold`; a future by-reference
 // (`(&T)`) overload would lift that, but is out of scope here.
-extension Vector<T: Copy, A: Allocator = Global> {
+extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // Visit each element in order, passing it to `body`.
     func each(&self, body: (T) -> Void) {
         var i = 0
@@ -411,7 +411,7 @@ extension Vector<T: Copy, A: Allocator = Global> {
 // carries. A `Vector<File>` (NoCopy element) therefore cannot be sorted; a
 // future by-reference comparison overload would lift that. `sort` additionally
 // requires `T: Comparable` for the `<`/`>` ordering.
-extension Vector<T: Comparable + Copy, A: Allocator = Global> {
+extension Vector<T: Comparable + Copy, A: Allocator = GlobalAllocator> {
     // Sort ascending by the element type's Comparable order. Stable.
     func sort(&var self) {
         var i = 1
@@ -444,7 +444,7 @@ extension Vector<T: Comparable + Copy, A: Allocator = Global> {
 // NON-escaping parameter (the default), so a comparator passed directly may
 // borrow-capture enclosing locals. Same stability and movement discipline as
 // `sort` (byte-level swap; equal-or-less elements are left in place).
-extension Vector<T: Copy, A: Allocator = Global> {
+extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     func sort_by(&var self, compare: (T, T) -> Ordering) {
         var i = 1
         while i < self.length {

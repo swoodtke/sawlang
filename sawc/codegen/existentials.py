@@ -342,7 +342,7 @@ class ExistentialsMixin:
         """The allocator type arg of a `Box<any Trait, A>` (Global by default)."""
         trait_args = box_saw.type_args or []
         return trait_args[1] if len(trait_args) > 1 else SawType(
-            TypeKind.STRUCT, struct_name="Global")
+            TypeKind.STRUCT, struct_name="GlobalAllocator")
 
     def _erased_run_dtor(self, data, vtable_ptr):
         """Slot 0: run the payload's drop glue in place (from the vtable)."""

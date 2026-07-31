@@ -825,7 +825,7 @@ class RegistrationMixin:
                 return ()
 
         # Design 37: pad omitted trailing parameters with the struct's declared
-        # defaults so `extension Vector<String>` keys as `("String", "Global")`,
+        # defaults so `extension Vector<String>` keys as `("String", "GlobalAllocator")`,
         # matching a lookup on the fully-applied `Vector<String, Global>`.
         struct_info = self.get_struct_info(extension.struct_name)
         params = getattr(struct_info, 'type_params', None) if struct_info else None

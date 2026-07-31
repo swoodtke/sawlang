@@ -1,7 +1,7 @@
-// Default omission is IDENTICAL to explicit Global (design 37 item 4): same
+// Default omission is IDENTICAL to explicit GlobalAllocator (design 37 item 4): same
 // behavior AND same type identity. A function declared over `Vector<Int>`
-// accepts a `Vector<Int, Global>` argument, because `Vector<Int>` resolves to
-// `Vector<Int, Global>` before mangling — one type, one monomorphization.
+// accepts a `Vector<Int, GlobalAllocator>` argument, because `Vector<Int>` resolves to
+// `Vector<Int, GlobalAllocator>` before mangling — one type, one monomorphization.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 1
@@ -26,11 +26,11 @@ func main() {
     a.push(1)
 
     // Written with the allocator spelled out — SAME type as `a`.
-    var b = Vector<Int, Global>()
+    var b = Vector<Int, GlobalAllocator>()
     b.push(2)
 
     print(total(move a))   // 1  — Vector<Int> accepted
-    print(total(move b))   // 2  — Vector<Int, Global> accepted where Vector<Int> expected
+    print(total(move b))   // 2  — Vector<Int, GlobalAllocator> accepted where Vector<Int> expected
 
     // And a fresh default-form vector behaves the same.
     var c = Vector<Int>()

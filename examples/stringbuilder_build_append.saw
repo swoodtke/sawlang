@@ -1,4 +1,4 @@
-// StringBuilder modernization (brief 38 item 5): allocates through Global,
+// StringBuilder modernization (brief 38 item 5): allocates through GlobalAllocator,
 // append(String) uses the O(1) header length, the append(Int) overload
 // (design 55; formerly append_int) reuses the interpolation formatting path,
 // and build() produces an owned refcounted String. Geometric growth (doubling)

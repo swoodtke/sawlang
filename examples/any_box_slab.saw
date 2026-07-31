@@ -1,6 +1,6 @@
 // design 51: an erased `Box<any Shape, SlabA>` over a custom allocator. Erased
 // teardown pulls the destructor + size + align from the vtable AND routes the
-// dealloc through the box's own allocator `A` (here a slab), not Global — the
+// dealloc through the box's own allocator `A` (here a slab), not GlobalAllocator — the
 // chunk returns to the slab's free-list. The Deinit payload's "gone 7" proves
 // exactly-once teardown through the erased, slab-backed box.
 // EXPECT: success
@@ -36,7 +36,7 @@ func use_one() {
     let b = Box<any Shape, ShapeSlab>.make(Res(id: 7))
     print(b.area())   // 700 — dispatch through the erased, slab-backed box
     // b dies here -> vtable dtor runs Res.deinit ("gone 7"), then the chunk is
-    // returned to ShapeSlab's free-list (dealloc routed to A, not Global).
+    // returned to ShapeSlab's free-list (dealloc routed to A, not GlobalAllocator).
 }
 
 func main() {

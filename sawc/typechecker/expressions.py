@@ -4063,7 +4063,7 @@ class ExpressionsMixin:
         type_args = [self._resolve_type(t) for t in (expr.object.type_args or [])]
         type_args = self._append_default_type_args("Box", type_args)
         allocator = type_args[1] if len(type_args) > 1 else SawType(
-            TypeKind.STRUCT, struct_name="Global")
+            TypeKind.STRUCT, struct_name="GlobalAllocator")
 
         if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
             self._error(
@@ -6150,7 +6150,7 @@ class ExpressionsMixin:
                 expr.erase_propagate = {
                     'trait': trait,
                     'concrete': err_type,
-                    'allocator': SawType(TypeKind.STRUCT, struct_name="Global"),
+                    'allocator': SawType(TypeKind.STRUCT, struct_name="GlobalAllocator"),
                 }
             return
         self._error(

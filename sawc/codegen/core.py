@@ -318,7 +318,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """Design 37: extend a specialized-extension key with the struct's
         declared trailing default type-arg names, so a spec extension written
         against the default-omitted form matches the fully-applied lookup key.
-        `extension Vector<String>` -> `("String", "Global")`."""
+        `extension Vector<String>` -> `("String", "GlobalAllocator")`."""
         params = struct_type_params_by_name.get(struct_name)
         if not params or len(spec_key) >= len(params):
             return spec_key
@@ -1427,7 +1427,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # access to generic extensions.
         # Design 37: a specialized extension written against the default-omitted
         # form (`extension Vector<String>`) must key by the FULLY-APPLIED type
-        # args (`("String", "Global")`) so it matches a lookup on the resolved
+        # args (`("String", "GlobalAllocator")`) so it matches a lookup on the resolved
         # `Vector<String, Global>`. Pad the concrete spec key with the struct's
         # declared trailing defaults. The struct ASTs carry the defaults; build a
         # lookup now (generic_structs is populated later, after this loop).

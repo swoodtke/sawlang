@@ -4,7 +4,7 @@
 // unmet bound. (Diagnostic improved from the old codegen-time "cannot copy
 // value of type `File`" to this typechecker-time bound diagnostic.)
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: type `Vector<File, Global>` has no method `copy`
+// EXPECT-ERROR-CONTAINS: type `Vector<File, GlobalAllocator>` has no method `copy`
 // EXPECT-ERROR-CONTAINS: requires `T: Copy`, and `File` does not conform
 
 func main() {

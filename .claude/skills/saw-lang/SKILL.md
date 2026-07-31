@@ -196,7 +196,7 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
 
 ## Systems/embedded corner
 `static NAME: T = const_init` (Sync-only, immortal); `Atomic<Int>`;
-allocator type params `Vector<T, A: Allocator = Global>`, `Box<T, A>`,
+allocator type params `Vector<T, A: Allocator = GlobalAllocator>`, `Box<T, A>`,
 slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
 (volatile, RO/WO markers); `@export("sym")`/`@section(".s")` on
 top-level func/static (C ABI, whitelist: fixed-width ints, Int/UInt,

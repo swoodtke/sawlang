@@ -19,11 +19,11 @@ struct CountAlloc {}
 extension CountAlloc: Allocator {
     func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
         ALLOCS.fetch_add(1)
-        Global().alloc(size, align)
+        GlobalAllocator().alloc(size, align)
     }
     func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
         DEALLOCS.fetch_add(1)
-        Global().dealloc(ptr, size, align)
+        GlobalAllocator().dealloc(ptr, size, align)
     }
 }
 

@@ -1,7 +1,7 @@
 // Box<T, A> — a single owned heap allocation (design 42 item 1).
 //
-// `Box<T, A: Allocator = Global>` owns one `T` allocated through allocator `A`.
-// Hosted code writes `Box<T>` (the default fills `A = Global`); a kernel writes
+// `Box<T, A: Allocator = GlobalAllocator>` owns one `T` allocated through allocator `A`.
+// Hosted code writes `Box<T>` (the default fills `A = GlobalAllocator`); a kernel writes
 // `Box<Task, TaskSlab>` to place the value in a per-type slab — the design-19 §4
 // "kernel idiom". Box is NoCopy: transferring it is a `move`, and its single
 // heap `T` is released exactly once on deinit.
@@ -10,7 +10,7 @@
 // constructors are STATIC METHODS on Box, reached through the brief-28
 // static-factory path — `Box<T>.make(v)` and `Box<T>.make_or(v)`. Static methods
 // on the generic struct were chosen over free `MakeBox`/`MakeBoxOr` functions
-// because the struct's own type arguments (and their `A = Global` default) are
+// because the struct's own type arguments (and their `A = GlobalAllocator` default) are
 // supplied and defaulted at the call site by the same generics machinery Vector's
 // `try_with_capacity` already uses, with no free-function type-inference gap.
 // `make` IS the D4-pinned infallible `MakeBox`; `make_or` is the fallible
@@ -21,14 +21,14 @@
 // (infallible tier), `make_or` returns `Err` (fallible tier). A memberwise
 // `Box(ptr:)` still exists (used internally) but is a raw wrapper, not the API.
 
-struct Box<T, A: Allocator = Global> {
+struct Box<T, A: Allocator = GlobalAllocator> {
     // Points directly at the heap `T`. Always valid in a live Box: `make` panics
     // rather than construct a null Box, and `make_or` returns `Err` without
     // constructing one, so no inert/None state exists (unlike Arc's OOM path).
     ptr: UnsafePointer<T>
 }
 
-extension Box<T, A: Allocator = Global> {
+extension Box<T, A: Allocator = GlobalAllocator> {
     // MakeBox — the infallible constructor. Allocates one `T`-sized chunk through
     // `A`, placement-moves `value` into it, and wraps it. On allocator failure it
     // PANICS (design 19 three-tier model, infallible tier): a kernel's `saw_panic`
@@ -73,18 +73,18 @@ extension Box<T, A: Allocator = Global> {
 
 // Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
 // requirement is already satisfied when NoCopy is checked (mirrors Task/Arc).
-extension Box<T, A: Allocator = Global>: Deinit {
+extension Box<T, A: Allocator = GlobalAllocator>: Deinit {
     func deinit(&var self) {
         // Release the LIVE payload in place (its own drop glue), THEN free the
         // chunk through THIS box's own allocator `A` — a Box<T, TaskSlab> frees
-        // through the slab, never Global. Exactly one release of the payload.
+        // through the slab, never GlobalAllocator. Exactly one release of the payload.
         __deinit_in_place(self.ptr)
         let raw = self.ptr as UnsafePointer<Int8>
         A().dealloc(raw, sizeof<T>(), alignof<T>())
     }
 }
 
-extension Box<T, A: Allocator = Global>: NoCopy {
+extension Box<T, A: Allocator = GlobalAllocator>: NoCopy {
 }
 
 // Read accessor for a Copy payload (design 42 item 1). Bounded `T: Copy`: it
@@ -92,7 +92,7 @@ extension Box<T, A: Allocator = Global>: NoCopy {
 // refcount bump for an ImplicitCopy T like String), leaving the box's own `T`
 // intact. A NoCopy payload has no `.copy()`, so `value()` is simply unavailable
 // there — reach such a payload through method forwarding (below) instead.
-extension Box<T: Copy, A: Allocator = Global> {
+extension Box<T: Copy, A: Allocator = GlobalAllocator> {
     func value(&self) -> T {
         self.ptr[0].copy()
     }

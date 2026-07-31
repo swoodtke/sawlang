@@ -1,0 +1,10 @@
+// Design 77 rider: the default allocator was renamed `Global` -> `GlobalAllocator`
+// (a TRUE rename, not an alias — `type` would shatter allocator identity). The old
+// name `Global` no longer resolves.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: undefined function `Global`
+
+func main() {
+    let g = Global()
+    print(0)
+}

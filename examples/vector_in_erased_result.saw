@@ -6,10 +6,10 @@
 // err7
 
 // Regression (design 67 / dogfood DF6): a generic type with a DEFAULT type param
-// used with fewer args (`Vector<Dependency>` = `Vector<Dependency, Global>`) must
+// used with fewer args (`Vector<Dependency>` = `Vector<Dependency, GlobalAllocator>`) must
 // fill that default consistently BEFORE mangling, including when NESTED inside
 // another generic (a `Result` Ok type). Previously the default-arg filling
-// diverged — `Vector$1$Dependency` in one path, `Vector$2$Dependency$Global` in
+// diverged — `Vector$1$Dependency` in one path, `Vector$2$Dependency$GlobalAllocator` in
 // another — so `Result<Vector<Dependency>, Box<any Error>>` registered the enum
 // under one mangled name and looked it up under the other, ICE'ing the err-return
 // path (`KeyError: Result$...Vector$1$Dependency...`). Now the arities agree.

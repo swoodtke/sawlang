@@ -51,7 +51,7 @@ struct Channel<T: Send> {
 extension Channel<T: Send> {
     // Create a fresh empty channel (refcount = 1, count = 0).
     init() -> Channel<T> {
-        if let block = Global().alloc(160, 16) {
+        if let block = GlobalAllocator().alloc(160, 16) {
             __saw_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
             __saw_pthread_cond_init_default(cond)
@@ -70,7 +70,7 @@ extension Channel<T: Send> {
         if let block = self.block {
             pthread_mutex_lock(block)
             // Allocate and fill a node { next, value }.
-            if let node = Global().alloc(8 + sizeof<T>(), 16) {
+            if let node = GlobalAllocator().alloc(8 + sizeof<T>(), 16) {
                 let val_slot = (node + 8) as UnsafePointer<T>
                 val_slot[0] = v
                 let count = (block + 136) as UnsafePointer<Int>
@@ -120,7 +120,7 @@ extension Channel<T: Send> {
                 let node_next = node as UnsafePointer<UnsafePointer<Int8>>
                 head_slot[0] = node_next[0]
             }
-            Global().dealloc(node, 8 + sizeof<T>(), 16)
+            GlobalAllocator().dealloc(node, 8 + sizeof<T>(), 16)
             pthread_mutex_unlock(block)
             return value
         }
@@ -170,7 +170,7 @@ extension Channel<T: Send> {
                 let node_next = node as UnsafePointer<UnsafePointer<Int8>>
                 head_slot[0] = node_next[0]
             }
-            Global().dealloc(node, 8 + sizeof<T>(), 16)
+            GlobalAllocator().dealloc(node, 8 + sizeof<T>(), 16)
             pthread_mutex_unlock(block)
             value
         } else {
@@ -203,12 +203,12 @@ extension Channel<T: Send>: Deinit {
                         let node_next = node as UnsafePointer<UnsafePointer<Int8>>
                         head_slot[0] = node_next[0]
                     }
-                    Global().dealloc(node, 8 + sizeof<T>(), 16)
+                    GlobalAllocator().dealloc(node, 8 + sizeof<T>(), 16)
                 }
                 let cond = (block + 64) as UnsafePointer<Int8>
                 pthread_cond_destroy(cond)
                 pthread_mutex_destroy(block)
-                Global().dealloc(block, 160, 16)
+                GlobalAllocator().dealloc(block, 160, 16)
             }
         }
     }

@@ -117,14 +117,14 @@ func net_would_block(r: Int) -> Bool {
 // with `net_free_buffer`). NOT per-call: the socket read/write paths themselves
 // (`tcp_try_read`/`tcp_try_write`) allocate nothing — they take this pointer.
 func net_buffer(size: Int) -> UnsafePointer<Int8> {
-    if let p = Global().alloc(size, 1) {
+    if let p = GlobalAllocator().alloc(size, 1) {
         return p
     }
     panic("net_buffer: out of memory")
 }
 
 func net_free_buffer(buf: UnsafePointer<Int8>, size: Int) {
-    Global().dealloc(buf, size, 1)
+    GlobalAllocator().dealloc(buf, size, 1)
 }
 
 // Bytes -> owned String (convenience for tests / text protocols).

@@ -2,7 +2,7 @@
 // exactly once — no residual temp that drop glue also frees (the double-free
 // L15 describes) and no leak of the live entries. The literal lowers to
 // per-entry `insert` on a temp; the finished map is bound to `m`, and `m`'s
-// deinit (found via the default-filled `Map<Int, Val, Global>` identity) drops
+// deinit (found via the default-filled `Map<Int, Val, GlobalAllocator>` identity) drops
 // each live value exactly once at scope end.
 // EXPECT: success
 // EXPECT-OUTPUT:
