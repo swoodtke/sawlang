@@ -1,0 +1,60 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// a
+// b
+// err7
+
+// Regression (design 67 / dogfood DF6): a generic type with a DEFAULT type param
+// used with fewer args (`Vector<Dependency>` = `Vector<Dependency, Global>`) must
+// fill that default consistently BEFORE mangling, including when NESTED inside
+// another generic (a `Result` Ok type). Previously the default-arg filling
+// diverged — `Vector$1$Dependency` in one path, `Vector$2$Dependency$Global` in
+// another — so `Result<Vector<Dependency>, Box<any Error>>` registered the enum
+// under one mangled name and looked it up under the other, ICE'ing the err-return
+// path (`KeyError: Result$...Vector$1$Dependency...`). Now the arities agree.
+
+struct Dependency {
+    name: String
+}
+
+struct MyError {
+    code: Int
+}
+
+extension MyError: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append("err")
+        into.append(self.code)
+    }
+}
+
+// Ok type `Vector<Dependency>` (arity-1 written), erased-error Result.
+func build(ok: Bool) -> Result<Vector<Dependency>, Box<any Error>> {
+    if not ok {
+        return MyError(code: 7)
+    }
+    var v = Vector<Dependency>()
+    v.push(Dependency(name: "a"))
+    v.push(Dependency(name: "b"))
+    return move v
+}
+
+func main() {
+    match build(true) {
+        case Ok(v) -> {
+            print(v.len())
+            var i = 0
+            while i < v.len() {
+                guard let d = v.get(i) else { break }
+                print(d.name)
+                i = i + 1
+            }
+        },
+        case Err(e) -> print("{e}")
+    }
+    match build(false) {
+        case Ok(v) -> print(v.len()),
+        case Err(e) -> print("{e}")
+    }
+}

@@ -133,6 +133,26 @@ In progress (interruption-safe: one DF per commit). Progress log (newest last):
   branch value to None in `_generate_if_let_expression`, mirroring the Void
   contract `_generate_if_expression` already enforces. Regression:
   `examples/if_let_void_branches.saw`. Suite 768 -> 769.
+- **DF6 — (a) FIXED + locked; (b) RE-LEDGERED (still open).** Symptom (a) — the
+  arity-1/arity-2 default-type-arg mangling divergence for a `Vector<T>` nested in
+  an erased `Result` (`KeyError: Result$…Vector$1$…`) — no longer reproduces:
+  defaults fill consistently before mangling (all `Vector$2$…$Global`), and a
+  single- OR multi-module `Result<Vector<Dependency>, Box<any Error>>` compiles and
+  runs correctly. Locked with `examples/vector_in_erased_result.saw`. Symptom (b) —
+  a `Vector<Dependency>` element read confused with another Vector monomorphization
+  — STILL reproduces IN THE FULL BLADE BUILD ONLY. Probed the un-work-around
+  (reverted blade's columnar `DepList` to hold `Vector<Dependency>`): it ICEs
+  `Cannot find field name in struct with type i8` at the resolver's
+  `try visit(d.name, …)` — `d` from `guard let d = deps.get(i)` is codegen-typed
+  `i8` (a `Vector<Dependency>.get` monomorphization collision, likely with a
+  `Vector<Bool>`/byte-vector in blade's type set). Faithful ISOLATED repros —
+  cross-module `Vector<Dependency>` in an erased Result, a `DepList`-style wrapper
+  struct with `get()` forwarding, AND the `DepSource` owning-enum field — all
+  compile and run fine, so (b) is specific to blade's full type population and NOT
+  reproducible in isolation. Columnar `Vector<String>` workaround RETAINED; (b)
+  needs its own investigation (a monomorphization name-collision / element-type
+  tracking bug, distinct from the DF12 corruption). Suite 769 -> 770 (test only;
+  no compiler edit for DF6).
 
 ## Design 64 — Blade for real (deps/semver/lock/git/incremental/self-host)
 
