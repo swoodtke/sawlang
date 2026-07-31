@@ -24,3 +24,4 @@ venv/
 # Claude internal (settings.json is shared; everything else is local)
 .claude/*
 !.claude/settings.json
+!.claude/skills/
