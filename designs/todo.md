@@ -11,7 +11,7 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
-## Design 71 — Closure Deinit (in flight)
+## Design 71 — Closure Deinit (LANDED)
 - **Commit 1 (core):** Closures now carry their own env destructor
   (`{fn_ptr, env_ptr, dtor_ptr}`, design 71). An escaping closure binding is an
   OWNING value: `_needs_cleanup(FUNCTION-escaping)` + `_emit_closure_drop_at`
@@ -73,8 +73,11 @@ items need a probe before being treated as real work.
 - Labeled-arg `_` opt-out; labeled-only enforcement. [66]
 - Integer range-cover exhaustiveness. [63]
 - Generic-method type-arg inference. [36]
-- Closure-Deinit: wire `codegen_env_dtor` into closure drop glue (C4
-  verified no leak today — env released at creating frame's exit). [21b, 59]
+- ~~Closure-Deinit: wire `codegen_env_dtor` into closure drop glue (C4).~~
+  **CLOSED (design 71 landed):** escaping closures carry their env destructor
+  and drop it at the closure's own drop (exactly once); early frame release
+  removed; escaping closures are NoCopy. Residual owning-closure-in-copyable-
+  struct-then-copied gap tracked under the design-71 section. [21b, 59, 71]
 - `Weak<T>` (Arc slot reserved). [16, 21]
 - Slices (needs own design vs no-escape refs); `\x` byte escapes;
   where clauses; extension sugar (computed properties, conditional

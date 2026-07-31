@@ -174,6 +174,13 @@ declaration-order natural ABI (documented rule). Unsafety is
 TYPE-carried (Unsafe* prefix), not region-carried — no unsafe blocks.
 
 ## Gotchas
+- An escaping closure (bound/returned/stored/`spawn`) that captures owned
+  values is an OWNING value: it drops its captures when the closure
+  drops, and is **NoCopy** — `let g = f` on a closure binding is an
+  error, use `move f`. Forwarding a closure into a non-escaping
+  (borrowing) param needs no move. Storing an owning closure in a
+  COPYABLE struct and then copying that struct still double-frees
+  (known gap) — put it behind a NoCopy owner if you must copy.
 - `guard` must exit (return/break/continue/panic).
 - A dependency name mapped via `--module-path` shadowing a local
   module file is an error.

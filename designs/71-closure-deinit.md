@@ -38,3 +38,27 @@ the generated `codegen_env_dtor` only runs from the spawn trampoline).
 Bars: full suite + blade/libs + bootstrap green per commit; zero
 xfails; the C1/design-29 closure family + spawn tests are the oracle.
 Standing policy applies.
+
+## Landed (Jul 30)
+- Closure representation is now `{ fn_ptr, env_ptr, dtor_ptr }` — an escaping
+  closure carries its own env destructor. `_needs_cleanup(FUNCTION-escaping)` +
+  `_emit_closure_drop_at` (null-dtor no-op) run it at the closure's own drop
+  (LIFO + drop flags), releasing owned captures exactly once and freeing the
+  heap env. The closure literal's resolved FUNCTION type records its escaping
+  bit so codegen sees the owning binding.
+- Early release REMOVED in the same commit: a `move` capture clears the source
+  binding's drop flag. This also fixed a latent thread-`spawn` double-free of a
+  move-captured NoCopy (deinit had run at frame exit AND in the trampoline).
+- Copy class: escaping closures are NoCopy (move-only) — a bitwise copy aliased
+  the shared heap env (double free, observed exit 133). Forwarding an escaping
+  closure into a non-escaping/borrowing slot stays a lend (no move). Closure
+  FIELDS excluded from NoCopy CONTAINMENT so capture-less-closure structs stay
+  copyable.
+- Spawn path unchanged in behavior: the trampoline runs the destructor exactly
+  once (the spawn closure is consumed, never bound).
+- Tests: `closure_deinit_{drop_order, arc_balance, struct_field, vector,
+  returned, dropped_uncalled, called_then_dropped, conditional_move}` +
+  `closure_copy_requires_move_error`. Suite 789, bootstrap 17+17, libs 4+4.
+- RESIDUAL GAP (documented): an owning closure stored in a COPYABLE struct that
+  is then copied still double-frees — the declared field type cannot say a
+  stored value owns an env; closing it needs value-flow (not type) analysis.
