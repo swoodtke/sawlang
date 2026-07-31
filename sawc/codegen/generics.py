@@ -292,6 +292,43 @@ class GenericsMixin:
                            array_size=saw_type.array_size)
         return saw_type
 
+    def _mark_stored_closure_escaping(self, saw_type: SawType) -> SawType:
+        """Mark a function TYPE bound to a container's type parameter as escaping
+        (design 77 item 3).
+
+        A closure stored in a container (a Vector/Map/Set element, an Optional/
+        tuple/array payload of one) is an OWNING value: its refcounted env must be
+        retained on copy and released at teardown. The typechecker stamps the
+        escaping bit on such stored positions, but it is not part of the mangling,
+        so a type arg reconstructed from a mangled monomorphization key arrives
+        with the bit cleared — and then `_needs_cleanup`/the Copy-bound predicate
+        (which gate on `func_is_escaping`) treat the element as non-owning: the env
+        leaks and copies are unbalanced. Restore the bit for the STORED positions.
+        A function type in a genuine parameter role never reaches here (it lives in
+        a method signature, not a container type argument). Returns a fresh SawType
+        so no shared instance is mutated.
+        """
+        if saw_type is None:
+            return saw_type
+        k = saw_type.kind
+        if k == TypeKind.FUNCTION and not saw_type.func_is_escaping:
+            return SawType(TypeKind.FUNCTION, param_types=saw_type.param_types,
+                           func_return_type=saw_type.func_return_type,
+                           func_is_sync=saw_type.func_is_sync,
+                           func_is_escaping=True)
+        if k == TypeKind.OPTIONAL and saw_type.inner_type is not None:
+            return SawType(TypeKind.OPTIONAL,
+                           inner_type=self._mark_stored_closure_escaping(saw_type.inner_type))
+        if k == TypeKind.ARRAY and saw_type.array_element_type is not None:
+            return SawType(TypeKind.ARRAY,
+                           array_element_type=self._mark_stored_closure_escaping(saw_type.array_element_type),
+                           array_size=saw_type.array_size)
+        if k == TypeKind.TUPLE and saw_type.element_types:
+            return SawType(TypeKind.TUPLE,
+                           element_types=[self._mark_stored_closure_escaping(e)
+                                          for e in saw_type.element_types])
+        return saw_type
+
     def _ensure_monomorphized_struct(self, struct_name: str, type_args: List[SawType]) -> str:
         """Ensure a monomorphized version of a generic struct exists.
         Returns the mangled name of the monomorphized struct."""
@@ -304,6 +341,13 @@ class GenericsMixin:
         # and enum drop glue is selected for owning enum-payload elements. Kind is
         # not part of the mangling, so identity is unchanged.
         type_args = [self._canonicalize_type_kind(a) for a in type_args]
+        # A function TYPE bound to a container's type param is a STORED (escaping)
+        # closure: it lives in the buffer, so its env must be retained on copy and
+        # released at teardown. The escaping bit is not part of the mangling and
+        # is lost when a type arg is reconstructed from a mangled name, so restore
+        # it here (design 77 item 3) — else `_needs_cleanup`/copy-bound treat the
+        # element as non-owning and the env leaks / is not retained.
+        type_args = [self._mark_stored_closure_escaping(a) for a in type_args]
         mangled_name = self._mangle_generic_struct_name(struct_name, type_args)
 
         # Already generated

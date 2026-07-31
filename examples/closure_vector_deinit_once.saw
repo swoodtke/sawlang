@@ -1,0 +1,41 @@
+// Exact-count balance for closures stored in a Vector, copied, and read back
+// (design 77 item 3, DF-C2). Each closure captures an Arc (retain into the
+// refcounted env). `.copy()` bumps each element's ENV refcount (the Arc is NOT
+// re-retained — the env is shared, ImplicitCopy semantics), and `.get()` reads
+// an env-retaining copy out. When fs, dup, and the read-out copies all drop,
+// each unique env is released to zero exactly once, releasing its Arc once, so
+// the payload deinits exactly ONCE. A missing element-teardown would leak (no
+// "deinit"); an over-release would double-free.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 3
+// 1
+// 2
+// deinit 7
+// 999
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func build() {
+    let a = Arc<Res>(value: Res(id: 7))
+    // Two DISTINCT closures each capture `a` (retain) -> strong = 1 + 2 = 3.
+    let fs: Vector<() -> Int> = [{ a.strong_count() * 0 + 1 }, { a.strong_count() * 0 + 2 }]
+    print(a.strong_count())     // 3
+    let dup = fs.copy()         // env refcount bump per element; Arc shared -> strong still 3
+    print(a.strong_count())     // 3
+    let d0 = dup.get(0)!
+    let d1 = dup.get(1)!
+    print(d0())                 // 1
+    print(d1())                 // 2
+    // scope end: d1, d0, dup, fs all drop -> each of the 2 envs hits zero once
+    // -> 2 Arc releases -> strong 3 -> 1; then a drops -> "deinit 7" once.
+}
+
+func main() {
+    build()
+    print(999)
+}

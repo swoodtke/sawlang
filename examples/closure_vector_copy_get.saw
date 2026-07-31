@@ -1,0 +1,22 @@
+// Closures satisfy the umbrella `Copy` bound (design 77 item 3, DF-C2): an
+// escaping closure is ImplicitCopy (design 73), so `Vector<() -> Int>` is
+// ExplicitCopy and its `.copy()`/`.get()` element-copy paths run the closure
+// env retain. Previously a clean compile error ("does not conform to Copy").
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 13
+// 12
+
+func main() {
+    let base = 10
+    let fs: Vector<() -> Int> = [{ base + 1 }, { base + 2 }, { base + 3 }]
+    let g = fs.get(0)!
+    print(g())          // 11
+    let h = fs.get(2)!
+    print(h())          // 13
+
+    let dup = fs.copy()   // deep copy: each element env is retained
+    let d1 = dup.get(1)!
+    print(d1())         // 12
+}

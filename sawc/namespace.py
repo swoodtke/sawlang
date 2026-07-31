@@ -790,12 +790,17 @@ class Namespace:
             return False
         if self.is_trivially_copyable(saw_type):
             return True
-        # Note (design 73): an escaping closure IS ImplicitCopy, but the generic
-        # `Copy`-bound container machinery (`Vector<() -> Int>.copy()`/`.get()`,
-        # Set/Map with closure elements) is not yet wired to route closure element
-        # copies through the refcount retain, so closures deliberately do NOT
-        # satisfy the umbrella `Copy` bound here — a clean compile error rather than
-        # an unbalanced container copy. Deferred; see the tracker.
+        # An escaping closure IS ImplicitCopy (design 73): copying it retains the
+        # refcounted heap env (a no-op on a null env). It satisfies the umbrella
+        # `Copy` bound so `Vector<() -> Int>.copy()`/`.get()` work — codegen routes
+        # every element copy through the closure-env retain glue (design 77 item 3).
+        # Any function TYPE used as a stored value (a container element, a struct
+        # field) is escaping; the `escaping` bit is a typechecker resolution
+        # artifact not always present on the codegen-side type arg, so accept the
+        # FUNCTION kind uniformly (a non-escaping closure is parameter-only and
+        # never reaches this Copy-bound machinery).
+        if saw_type.kind == TypeKind.FUNCTION:
+            return True
         # A fixed array `[T; N]` inherits T's copy class (design 33): it
         # satisfies `Copy` iff its element type does.
         if saw_type.kind == TypeKind.ARRAY:

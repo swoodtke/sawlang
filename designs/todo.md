@@ -35,6 +35,23 @@ items need a probe before being treated as real work.
   promotion path is left to items 5/6 (that combines with the promotion surface,
   not the standalone bound check fixed here). Suite 828, bootstrap 17+17, libs
   4+4. [74]
+- **Item 3 (DF-C2: closures satisfy `Copy`) — LANDED.** An escaping closure is
+  ImplicitCopy (design 73) and now satisfies the umbrella `Copy` bound
+  (`type_satisfies_copy_bound` accepts `TypeKind.FUNCTION`), so
+  `Vector<() -> Int>` is ExplicitCopy and its `.copy()`/`.get()` work. Three
+  wiring fixes to make it BALANCED (the naive enable exit-133'd): (a) codegen
+  `.copy()` on a closure receiver emits the env retain (`_emit_closure_env_retain`)
+  instead of a bitwise alias; (b) the ROOT cause of the leak/double-free — the
+  `escaping` bit is not part of the mangling and was lost when a container's
+  closure type arg was reconstructed from the mangled key, so `_needs_cleanup`
+  and the Copy-bound predicate (both gate on `func_is_escaping`) treated the
+  element as non-owning. `_ensure_monomorphized_struct` now re-marks a stored
+  closure type arg escaping (`_mark_stored_closure_escaping`, recursing through
+  Optional/array/tuple), which is safe (a function type reaching a container
+  type-param slot is always a stored value, never a borrowed param). Exact-count
+  Arc-capture probe: deinit runs exactly ONCE through copy+get. Tests
+  `closure_vector_copy_get`, `closure_vector_deinit_once`,
+  `closure_satisfies_copy_bound`. Suite 831, bootstrap 17+17, libs 4+4. [73, 54]
 
 ## Design 76 — A4 IO reactor + A6 extern-blocking + A3 remainder (IN PROGRESS)
 - **Commit 1 (A4 reactor + std.net + A3 io-cancel; ST + entry executor):** A

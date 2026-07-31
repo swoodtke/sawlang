@@ -806,6 +806,22 @@ class CallsMixin:
         if expr.method_name == "copy" and len(expr.arguments) == 0:
             copy_mangled = self._mangle_method_name(struct_name, "copy") if struct_name else None
             if copy_mangled is None or copy_mangled not in self.functions:
+                # An escaping closure is ImplicitCopy (design 73): `.copy()` bumps
+                # the env refcount so the duplicate and the original each release
+                # exactly once (design 77 item 3). This is the element-copy path
+                # `Vector<() -> Int>.copy()` reaches via `buf[i].copy()`; without
+                # the retain the shared env is freed twice (exit 133). The value
+                # bytes are unchanged (the env pointer is aliased) — only the
+                # atomic increment, null-env guarded inside the retain helper.
+                recv_saw_copy = self._expr_type(expr.object)
+                if (recv_saw_copy is not None
+                        and recv_saw_copy.kind == TypeKind.FUNCTION
+                        and isinstance(obj_val.type, ir.LiteralStructType)
+                        and len(obj_val.type.elements) == 3):
+                    env_ptr = self.builder.extract_value(obj_val, 1, name="copy_env")
+                    dtor_ptr = self.builder.extract_value(obj_val, 2, name="copy_dtor")
+                    self._emit_closure_env_retain(env_ptr, dtor_ptr)
+                    return obj_val
                 if struct_name is not None:
                     conformances = self.namespace.get_conformances(struct_name)
                     if any(c in ("NoCopy", "ImplicitCopy", "ExplicitCopy", "Deinit")

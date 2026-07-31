@@ -211,9 +211,9 @@ TYPE-carried (Unsafe* prefix), not region-carried — no unsafe blocks.
   refcount bump (both valid), and the captures are torn down exactly once
   when the last owner drops. Copying a struct/`Vector` that holds a
   closure retains the env; capture-less closures are trivially copyable.
-  `move f` still transfers ownership. Not-yet: closures don't satisfy the
-  generic `Copy` bound, so `Vector<() -> Int>.copy()`/`.get()` are a clean
-  compile error for now.
+  `move f` still transfers ownership. A closure also satisfies the generic
+  `Copy` bound, so `Vector<() -> Int>` is copyable — `.copy()`/`.get()` each
+  retain the element env exactly once (deinit-once through copy).
 - `guard` must exit (return/break/continue/panic).
 - A dependency name mapped via `--module-path` shadowing a local
   module file is an error.

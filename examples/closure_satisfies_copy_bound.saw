@@ -1,0 +1,23 @@
+// A closure satisfies a generic `T: Copy` bound directly (design 77 item 3):
+// an escaping closure is ImplicitCopy, so `.copy()` under the bound is a free
+// refcount bump and the original stays valid.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 6
+// 6
+
+func dup2<T: Copy>(x: T) -> (T, T) {
+    (x.copy(), x.copy())
+}
+
+func main() {
+    let base = 5
+    let f: () -> Int = { base + 1 }
+    let pair = dup2<() -> Int>(f)
+    let a = pair.0
+    let b = pair.1
+    print(a())          // 6
+    print(b())          // 6
+    print(f())          // 6 (original still valid — ImplicitCopy)
+}
