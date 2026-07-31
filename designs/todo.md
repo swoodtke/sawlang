@@ -64,6 +64,60 @@ items need a probe before being treated as real work.
   coroutines; a typechecker generics issue). Nested shape-3 tests use concrete type
   args at each level to avoid it. Fix is disproportionate to design 74 — flagged
   for a generics brief. [74]
+- **Commit 4 (shape 1 rejection + A8 for methods + docs):** A BURIED suspending
+  METHOD call in a driven body (`let r = c.step()`, `Counter.step` suspends) is now
+  a CLEAN, user-anchored rejection at the exact call site naming the workaround
+  (`__drive(recv.step())` directly, or wrap in a nested free fn) — it previously
+  lowered in place and tripped a confusing sync-violation on the synthesized
+  `__Frame_*.resume`. The transform builds a (struct, method) suspend set from the
+  effect nodes and `_collect_calls` detects the buried call. Docs: spec concurrency
+  limits + saw-lang skill limits updated for shapes 2/3 landed and shapes 1/4 (+
+  combined struct-and-method-generic) remaining. Test:
+  `errors/coro_buried_suspending_method` (asserts message + `file:line:col`). [74]
+
+## Design 74 — RE-LEDGERED remainder (attempted, deferred with analysis)
+- **Shape 1 FEATURE (method sub-frame embedding) — DEFERRED.** The rejection is now
+  clean + anchored (commit 4). The FEATURE (embed a nested suspending method call
+  as a sub-frame, the Part-0b method twin) needs: (a) making the phase-1 frame-prep
+  a FIXPOINT that discovers method callees while preparing (today `closure` is a
+  fixed set of free-function names; method sub-frames aren't in `fbs`), (b)
+  receiver addressing — `__recv = (&var self.recv) as UnsafePointer<Struct>` into
+  the CALLER frame's field for the receiver (only a simple frame-local-identifier
+  receiver is addressable; `foo().m()` / `self.f.m()` need spilling), (c) building
+  the method frame + threading it into `fbs` so `_build_sub_frame`/`_emit_nested_
+  call` (which already accept a `recv_value`, see `_build_frame_init`) drive it.
+  `_build_frame_init` already supports a method `__recv`; the missing piece is the
+  discovery/prep fixpoint + receiver addressing. Bounded but touches the central
+  transform flow — deferred to keep the 810-test bar safe; workaround is exact and
+  the rejection names it. [74, 44, 45]
+- **Shape 4 (cross-module generic driven templates) — DEFERRED.** `_pristine_
+  generics` / `_pristine_generic_methods` capture ENTRY-module templates only, so
+  `_build_fn_mono` / `_splice_fn_mono` return False for an imported template and the
+  nested/driven generic call is rejected (anchored) by `_classify_call`. Lifting
+  needs: (a) snapshot imported-module generic templates into the pristine maps
+  (keyed to avoid cross-module name clashes), (b) design-68 canonicalization — the
+  mangled instantiation key computed in the transform must agree byte-for-byte with
+  codegen's cross-module monomorphization symbol, or the frame's callee and
+  codegen's mono double-define / mismatch. Deferred: the mangling-agreement surface
+  is exactly design-68 territory and risky against bootstrap (blade is generic- and
+  multi-module-heavy). Rejection stands with a workaround. [74, 68]
+- **Rider DF-C1 (closures inside driven/suspending frames) — DEFERRED (attempted).**
+  Confirmed both shapes still error on this tree (as design 73 flagged): a closure
+  local CALLED in a driven body errors "undefined function `f`" (the resume method
+  doesn't rewrite `f(n)` on a frame-local closure to an indirect `self.f(n)` call),
+  and a closure HELD across a suspend errors "redundant `escaping`" (the frame
+  struct field for a closure trips the typechecker's "closure types outside
+  parameter position are always escaping" check). The fix is a genuine multi-part
+  feature: (1) type the closure frame field without tripping the escaping check,
+  (2) rewrite a frame-local-closure CALL to an indirect closure call on `self.f`,
+  (3) closure env retain/release exactly-once across the suspend + at frame drop.
+  This is closure-in-frame representation surgery in both the typechecker and the
+  transform — disproportionate to bundle safely here; re-ledgered per the rider's
+  own escape clause. Blocks a TaskGroup frame that OWNS a closure. [73, 74, 44, 52b]
+- **Rider DF-C2 (`Vector<closure>` satisfies the generic `Copy` bound) — DEFERRED.**
+  Unchanged from design 73: the container element-copy path must route through the
+  closure-env retain (a naive enable crashed exit 133). Independent of the coroutine
+  transform work in this brief; belongs with the container-Copy-glue work. [73, 54]
 
 ## Design 72 — Small fixes: L12/M1, L9, erased-error downcasting (LANDED)
 - **Commit 1 (L12/M1 — fixed-array builtins):** Fixed arrays `[T; N]` gained two
@@ -249,16 +303,21 @@ items need a probe before being treated as real work.
   with precise diagnostics: a buried suspending method-on-`T` call inside a
   driven body, nested suspending generic calls, generic-struct-extension driven
   methods, and cross-module generic templates (re-ledgered below). [18, 22]
-  - **A5-rest.** Buried suspending method-call embedding (drive `w.step()`
-    nested in a driven body as a method sub-frame — needs Part-0c embedding, the
-    method twin of Part-0b); driven methods on GENERIC structs; cross-module
-    generic driven templates (design 68 territory). [70]
+  - **A5-rest.** PARTLY DONE (design 74): driven methods on GENERIC structs
+    (shape 2) and nested suspending generic calls (shape 3) LANDED; A8 diagnostic
+    anchors LANDED (coroutine-transform rejections anchor at the user's
+    file:line:col). Remaining, now CLEAN user-anchored rejections (re-ledgered
+    under the design-74 section with analysis): buried suspending METHOD-call
+    embedding (shape 1, the Part-0b method twin); cross-module generic driven
+    templates (shape 4, design 68 territory). [70, 74]
 - **A2.** Multi-threaded work-stealing executor + Send-on-frames check.
 - **A3.** Explicit-only cancellation points (`Task.cancelled()`, select).
 - **A4.** IO reactor (poller-only v1, kqueue/epoll, never-block).
 - **A6.** `extern blocking` offload pool. **A7.** Separate-compilation
-  interface format w/ suspends bit. **A8.** Suspension-path diagnostic
-  anchors. **A9.** Actor sugar. [18]
+  interface format w/ suspends bit. ~~**A8.** Suspension-path diagnostic
+  anchors.~~ DONE (design 74): coroutine-transform rejections + sync violations
+  anchor at the user's file:line:col with a source snippet, naming the
+  instantiation + suspension path. **A9.** Actor sugar. [18, 74]
 - Two runtimes coexist (thread-engine spawn/Task vs cooperative
   TaskGroup) — unification unscheduled. [21b, 52b]
 

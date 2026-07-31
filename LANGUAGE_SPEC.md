@@ -2242,13 +2242,19 @@ Observable rules:
   (`any Trait`) dispatch is unaffected: its effect follows the **declared** trait
   method signature (a `sync` trait method stays sync-callable through `any`), not
   a per-instantiation re-inference — erasure has no concrete `T` to re-infer.
-- **Not yet supported** (rejected with a diagnostic, not miscompiled): a *buried*
-  suspending method call on a `T`-typed value inside a driven body (drive the
-  method directly, or route the suspension through a nested free function);
-  driven methods on *generic structs*; nested suspending *generic* calls;
-  cross-module generic driven templates; a suspension inside a `for` over a
-  non-range iterable; and a value-producing `break` out of a suspension-spanning
-  loop.
+  Driven methods on *generic structs* (`__drive(b.run())` for `b: Holder<Int>`,
+  design 74 shape 2) and *nested suspending generic calls* from a driven body
+  (design 74 shape 3) are also supported: a generic-struct method is monomorphized
+  over the struct's type params so the frame's receiver pointer gets a concrete
+  layout, and a nested suspending generic call is promoted to a concrete spliced
+  callee embedded as a sub-frame by value (keyed by its mangled instantiation).
+- **Not yet supported** (rejected with a diagnostic anchored at the user's source
+  line, not miscompiled): a *buried* suspending METHOD call on a value inside a
+  driven body (drive the method directly, or route the suspension through a nested
+  free function); a nested suspending *generic* call to a template in *another
+  module*; a method that is *both* struct-generic and method-generic; a suspension
+  inside a `for` over a non-range iterable; and a value-producing `break` out of a
+  suspension-spanning loop.
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately

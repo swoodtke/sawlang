@@ -563,6 +563,10 @@ class _FrameBuilder:
                 self.calls.append(info)
                 self.call_by_id[id(s)] = info
                 return
+            # design 74 (A5-rest, shape 1): a buried suspending METHOD call in a
+            # driven body — reject cleanly (anchored, naming the workaround) rather
+            # than lower it in place and trip a confusing sync-violation later.
+            self._reject_suspending_method_call(s)
             ctrl = s.expression if isinstance(s, ExpressionStatement) else s
             if isinstance(ctrl, IfExpr):
                 visit_block(ctrl.then_branch)
@@ -711,6 +715,42 @@ class _FrameBuilder:
                 f"coroutine transform: `receive()` in `{self.name}` has no "
                 f"resolved element type", mc.line, mc.column)
         return {'receiver': mc.object, 'target': target, 'elem_type': elem_type}
+
+    def _suspending_method_call(self, stmt):
+        """If `stmt` is a top-level `let x = recv.m(args)` / bare `recv.m(args)`
+        whose method `m` on `recv`'s concrete struct type suspends, return the
+        MethodCall; else None. Consults the transform's (struct, method) suspend set
+        (design 74 shape 1)."""
+        mc = None
+        if isinstance(stmt, LetStatement) and isinstance(stmt.value, MethodCall):
+            mc = stmt.value
+        elif (isinstance(stmt, ExpressionStatement)
+              and isinstance(stmt.expression, MethodCall)):
+            mc = stmt.expression
+        if mc is None or getattr(mc, 'is_chan_recv', False):
+            return None
+        susp = getattr(self._tc, '_suspending_methods_set', None) if self._tc else None
+        if not susp:
+            return None
+        recv_type = getattr(mc.object, 'resolved_type', None)
+        sname = getattr(recv_type, 'struct_name', None) if recv_type else None
+        if sname is not None and (sname, mc.method_name) in susp:
+            return mc
+        return None
+
+    def _reject_suspending_method_call(self, stmt):
+        mc = self._suspending_method_call(stmt)
+        if mc is not None:
+            recv_type = getattr(mc.object, 'resolved_type', None)
+            sname = getattr(recv_type, 'struct_name', None) if recv_type else "?"
+            raise CoroTransformError(
+                f"coroutine transform: a buried suspending method call "
+                f"`{sname}.{mc.method_name}(...)` inside driven `{self.name}` is not "
+                f"yet supported (design 74 A5-rest, shape 1: method sub-frame "
+                f"embedding). Drive the method directly with "
+                f"`__drive(recv.{mc.method_name}(...))`, or wrap the call in a "
+                f"nested free function and call that.",
+                mc.line, mc.column, source_file=self.src_file)
 
     def _reject_buried_suspend_call(self, stmt):
         """A suspending call in a non-top-level position (inside a larger
@@ -1893,6 +1933,22 @@ def transform_program(program, typechecker):
         for ext in program.extensions:
             for m in ext.methods:
                 m.body = _rewrite_spawn_sites(m.body)
+
+    # design 74 (A5-rest, shape 1): the set of (struct, method) whose body suspends
+    # — used to detect a BURIED suspending method call in a driven body and reject
+    # it cleanly (a user-anchored message naming the workaround) instead of letting
+    # it lower in place and trip a confusing sync-violation on the synthesized
+    # resume. Full method sub-frame embedding (the Part-0b method twin) is the
+    # eventual lift; until then this is the honest rejection.
+    _nodes_for_methods = getattr(typechecker, "_suspend_nodes", {})
+    suspending_methods = set()
+    for ext in program.extensions:
+        sname = getattr(ext, 'struct_name', None)
+        for m in ext.methods:
+            node = _nodes_for_methods.get(id(m))
+            if node is not None and node.suspends:
+                suspending_methods.add((sname, m.name))
+    typechecker._suspending_methods_set = suspending_methods
 
     new_structs = []
     new_enums = []

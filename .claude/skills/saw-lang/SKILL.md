@@ -149,13 +149,17 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
 - `func f(...) sync -> T` promises no suspension (checked).
 - Thread engine (`spawn`/`Task`/`Channel.recv`) is separate from the
   cooperative TaskGroup engine — don't mix per task.
-- Generic suspending functions/methods work (design 70): effect is
+- Generic suspending functions/methods work (design 70 + 74): effect is
   re-inferred PER instantiation, so `f<A>` may suspend while `f<B>` is
-  sync. You can `__drive` / `group.spawn` a generic instantiation and drive
-  a generic `&var self` method. Still unsupported (clean compile error): a
-  buried suspending method call on a `T`-typed value inside a driven body
-  (drive the method directly, or make the call a nested free function),
-  and driven methods on generic STRUCTS.
+  sync. You can `__drive` / `group.spawn` a generic instantiation, drive a
+  generic `&var self` method, drive a suspending method on a generic STRUCT
+  (`Holder<Int>`, design 74 shape 2), and make NESTED suspending generic
+  calls from a driven body (design 74 shape 3). Still unsupported (clean,
+  user-anchored compile error): a buried suspending METHOD call on a value
+  inside a driven body — drive the method directly, or wrap it in a nested
+  free function (shape 1); a nested suspending generic call to a template in
+  ANOTHER module (shape 4); and a method that is BOTH struct-generic and
+  method-generic.
 
 ## Modules & packages
 ```saw
