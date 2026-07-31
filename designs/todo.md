@@ -153,6 +153,17 @@ In progress (interruption-safe: one DF per commit). Progress log (newest last):
   needs its own investigation (a monomorphization name-collision / element-type
   tracking bug, distinct from the DF12 corruption). Suite 769 -> 770 (test only;
   no compiler edit for DF6).
+- **DF11 LANDED (fixed by DF12).** `manifest_deps_hash` returned "0" in the FULL
+  build flow because the second cross-module `Manifest.dependencies()` call
+  (after `resolve` already made one) intermittently took the Err branch — that
+  was the DF12 owning-copy heap corruption, not a distinct bug. With DF12 fixed,
+  `blade build` now writes a STABLE, non-zero `manifest_hash` (verified identical
+  — `1317565583076547404` — across 5 consecutive fresh builds), so drift
+  detection is no longer degraded. Regenerated the committed `blade/Saw.lock`
+  (`manifest_hash "0"` -> the real hash). The existing `blade/tests/lock_drift.saw`
+  already asserts non-zero + stable + drift-detected (it passed pre-fix because the
+  small single-purpose test binary didn't allocate enough to corrupt); no new test
+  needed. No compiler edit.
 
 ## Design 64 — Blade for real (deps/semver/lock/git/incremental/self-host)
 
