@@ -1,0 +1,28 @@
+// design 76 (A4) + design 75 (A2): the IO reactor under a MULTI-THREADED
+// TaskGroup. Each worker task parks on write-readiness of its socket (io_wait);
+// an idle worker polls the reactor (bounded timeout) and wakes the io-parked
+// frames. Only `Int` fds cross the suspension, so the Send-on-frames gate is
+// satisfied (a raw read buffer is non-Send and cannot cross into a worker — that
+// is why this MT test parks on write-readiness rather than reading into a
+// buffer). Deterministic on the summed result, time-bounded. Loopback only.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+
+func waiter(fd: Int) -> Int {
+    io_wait(fd, 1)      // register for write, park; the socket is writable -> wake
+    return 1
+}
+
+func main() {
+    let p1 = tcp_socketpair()
+    let p2 = tcp_socketpair()
+    var group = TaskGroup(threads: 2)
+    let h1 = group.spawn(waiter(p1.0))
+    let h2 = group.spawn(waiter(p2.0))
+    print(h1.join() + h2.join())    // 2 (both io-parked frames woke)
+    tcp_close(p1.0)
+    tcp_close(p1.1)
+    tcp_close(p2.0)
+    tcp_close(p2.1)
+}

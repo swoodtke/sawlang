@@ -64,9 +64,24 @@ items need a probe before being treated as real work.
     Same liveness class as the design's "join on a task that never observes
     cancellation blocks"; the landed model observes cancel at the check BEFORE
     parking. [18, 76]
-  - **MT (design 75) reactor integration: NOT YET.** `__tg_worker` doesn't poll the
-    reactor; a `TaskGroup(threads: N)` doing io is unsupported (next commit). ST
-    groups + entry executor + suspending main are done.
+- **Commit 2 (MT reactor integration + std.net named constants):** the design-75
+  multi-threaded worker (`__tg_worker`) gained the io phase. CHOICE (reported):
+  **poll on an idle worker with a BOUNDED timeout** (earliest sleep deadline, else
+  a 50 ms cap) — bounded because with EV_ONESHOT + concurrent pollers only one
+  worker receives each event, so a worker that missed it must retry rather than
+  block forever (no lost-wakeup hang). The scan tracks io-parked (`remaining < 0`)
+  separately from sleepers; when nothing is runnable and no peer is resuming, an
+  idle worker polls the reactor OUTSIDE the lock, then (idempotently) wakes ALL
+  io-parked tasks and advances sleepers only if the poll timed out. Redundant
+  concurrent polls are harmless (wake-all is idempotent); a dedicated single poller
+  thread is a future refinement. NOTE: the Send-on-frames gate poisons
+  `UnsafePointer`, so an MT-spawned frame cannot hold a read buffer across a
+  suspension — MT io parks on write-readiness (Int-only frame). std.net magic
+  numbers are now named module statics (`AF_INET`/`SOCK_STREAM`/`WOULD_BLOCK`/
+  `LOOPBACK_BE`/...); std-module statics are NOT visible cross-module (a known
+  export gap), so the `io_wait` direction stays a literal 0/1 in user code. Test:
+  `net_threads_io` (`TaskGroup(threads: 2)`, two io-parked frames woken; stable
+  25x). Suite 824, bootstrap 17+17, libs 4+4.
 
 ## Design 75 — A2: multi-threaded work-stealing executor + Send-on-frames (LANDED)
 - **Commit 1 (surface + Send-on-frames gate; execution still single-threaded):**

@@ -58,10 +58,18 @@ extern "C" {
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
 }
 
-// AF_INET = 2, SOCK_STREAM = 1, AF_UNIX = 1 on both macOS and Linux.
-//
-// Reactor interest directions for `io_wait(fd, dir)`: 0 = read, 1 = write.
-//
+// Named socket constants (same values on macOS + Linux). Reactor interest
+// directions for `io_wait(fd, dir)`: 0 = read, 1 = write.
+static AF_INET: Int32 = 2
+static AF_UNIX: Int32 = 1
+static SOCK_STREAM: Int32 = 1
+static PROTO_DEFAULT: Int32 = 0
+static LISTEN_BACKLOG: Int32 = 16
+static SOCKADDR_IN_LEN: Int32 = 16
+static WOULD_BLOCK: Int = -2         // the `tcp_try_*` would-block sentinel
+static NET_ERROR: Int = -1           // the `tcp_*` error sentinel
+static LOOPBACK_BE: UInt32 = 0x0100007f   // 127.0.0.1, network byte order (LE)
+
 // `SockAddrIn` is a typed stack stand-in for `struct sockaddr_in`
 // (declaration-order natural-ABI layout, design 58: 16 bytes, align 8 from the
 // UInt64 — exceeds sockaddr_in's real requirement of 4). Its address is passed to
@@ -81,12 +89,6 @@ struct FdPair {
     b: Int32
 }
 
-// 127.0.0.1 as a native little-endian UInt32 whose in-memory bytes are the
-// network order 7f 00 00 01.
-func net_loopback_addr() -> UInt32 {
-    0x0100007f as UInt32
-}
-
 // host-order port -> network byte order (htons) as a native UInt16 whose bytes
 // are [hi, lo]. Targets are little-endian (x86-64 / aarch64).
 func htons(port: Int) -> UInt16 {
@@ -101,14 +103,14 @@ func ntohs(net: UInt16) -> Int {
 
 // A stack `SockAddrIn` for 127.0.0.1:port with the OS-correct family prefix.
 func net_sockaddr(port: Int) -> SockAddrIn {
-    var sa = SockAddrIn(family: 0 as UInt16, port: htons(port), addr: net_loopback_addr(), zero: 0 as UInt64)
+    var sa = SockAddrIn(family: 0 as UInt16, port: htons(port), addr: LOOPBACK_BE, zero: 0 as UInt64)
     saw_sin_set_family((&sa) as UnsafePointer<Int8>)
     sa
 }
 
-// The would-block sentinel returned by the `tcp_try_*` primitives.
+// True for the would-block sentinel returned by the `tcp_try_*` primitives.
 func net_would_block(r: Int) -> Bool {
-    r == (0 - 2)
+    r == WOULD_BLOCK
 }
 
 // A heap read buffer, allocated ONCE per stream and reused across reads (freed
@@ -134,20 +136,20 @@ func net_bytes_to_string(buf: UnsafePointer<Int8>, len: Int) -> String {
 // requests an ephemeral port (read it back with `tcp_local_port`). Returns the
 // listen fd (>= 0) or -1.
 func tcp_listen(port: Int) -> Int {
-    let fd = socket(2 as Int32, 1 as Int32, 0 as Int32)
+    let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
     if fd < (0 as Int32) {
-        return 0 - 1
+        return NET_ERROR
     }
     let _ = saw_set_nonblocking(fd as Int)
     var sa = net_sockaddr(port)
     let ap = (&sa) as UnsafePointer<Int8>
-    if bind(fd, ap, 16 as Int32) != (0 as Int32) {
+    if bind(fd, ap, SOCKADDR_IN_LEN) != (0 as Int32) {
         let _ = close(fd)
-        return 0 - 1
+        return NET_ERROR
     }
-    if listen(fd, 16 as Int32) != (0 as Int32) {
+    if listen(fd, LISTEN_BACKLOG) != (0 as Int32) {
         let _ = close(fd)
-        return 0 - 1
+        return NET_ERROR
     }
     fd as Int
 }
@@ -156,7 +158,7 @@ func tcp_listen(port: Int) -> Int {
 func tcp_local_port(fd: Int) -> Int {
     var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
     let ap = (&sa) as UnsafePointer<Int8>
-    var len: Int32 = 16
+    var len: Int32 = SOCKADDR_IN_LEN
     let lp = (&len) as UnsafePointer<Int32>
     let _ = getsockname(fd as Int32, ap, lp)
     ntohs(sa.port)
@@ -168,7 +170,7 @@ func tcp_local_port(fd: Int) -> Int {
 func tcp_try_accept(listen_fd: Int) -> Int {
     var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
     let ap = (&sa) as UnsafePointer<Int8>
-    var len: Int32 = 16
+    var len: Int32 = SOCKADDR_IN_LEN
     let lp = (&len) as UnsafePointer<Int32>
     let c = accept(listen_fd as Int32, ap, lp)
     if c >= (0 as Int32) {
@@ -176,22 +178,22 @@ func tcp_try_accept(listen_fd: Int) -> Int {
         return c as Int
     }
     if saw_errno_would_block() == 1 {
-        return 0 - 2
+        return WOULD_BLOCK
     }
-    0 - 1
+    NET_ERROR
 }
 
 // Start a nonblocking connect to 127.0.0.1:port. Returns a connecting fd (>= 0)
 // or -1. Then `io_wait(fd, 1)` until writable and `tcp_connect_check(fd)`.
 func tcp_connect_start(port: Int) -> Int {
-    let fd = socket(2 as Int32, 1 as Int32, 0 as Int32)
+    let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
     if fd < (0 as Int32) {
-        return 0 - 1
+        return NET_ERROR
     }
     let _ = saw_set_nonblocking(fd as Int)
     var sa = net_sockaddr(port)
     let ap = (&sa) as UnsafePointer<Int8>
-    let r = connect(fd, ap, 16 as Int32)
+    let r = connect(fd, ap, SOCKADDR_IN_LEN)
     if r == (0 as Int32) {
         return fd as Int              // connected immediately (common on loopback)
     }
@@ -199,7 +201,7 @@ func tcp_connect_start(port: Int) -> Int {
         return fd as Int              // EINPROGRESS: wait for writability
     }
     let _ = close(fd)
-    0 - 1
+    NET_ERROR
 }
 
 // After a connecting fd becomes writable: 0 = connected, -2 = still in progress,
@@ -210,29 +212,29 @@ func tcp_connect_check(fd: Int) -> Int {
 }
 
 // Nonblocking read: byte count (0 = peer closed / EOF), the would-block sentinel
-// (-2), or -1 on error. Pair with `io_wait(fd, NET_READ)` on a would-block.
+// (-2), or -1 on error. Pair with `io_wait(fd, 0)` on a would-block.
 func tcp_try_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
     let n = read(fd as Int32, buf, len)
     if n >= 0 {
         return n
     }
     if saw_errno_would_block() == 1 {
-        return 0 - 2
+        return WOULD_BLOCK
     }
-    0 - 1
+    NET_ERROR
 }
 
 // Nonblocking write: bytes written (may be < len), the would-block sentinel (-2),
-// or -1 on error. Pair with `io_wait(fd, NET_WRITE)` on a would-block.
+// or -1 on error. Pair with `io_wait(fd, 1)` on a would-block.
 func tcp_try_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
     let n = write(fd as Int32, buf, len)
     if n >= 0 {
         return n
     }
     if saw_errno_would_block() == 1 {
-        return 0 - 2
+        return WOULD_BLOCK
     }
-    0 - 1
+    NET_ERROR
 }
 
 // Close a socket fd.
@@ -245,12 +247,12 @@ func tcp_close(fd: Int) {
 func tcp_socketpair() -> (Int, Int) {
     var fds = FdPair(a: 0 as Int32, b: 0 as Int32)
     let fp = (&fds) as UnsafePointer<Int32>
-    if socketpair(1 as Int32, 1 as Int32, 0 as Int32, fp) == (0 as Int32) {
+    if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, fp) == (0 as Int32) {
         let a = fp[0]
         let b = fp[1]
         let _ = saw_set_nonblocking(a as Int)
         let _ = saw_set_nonblocking(b as Int)
         return (a as Int, b as Int)
     }
-    (0 - 1, 0 - 1)
+    (NET_ERROR, NET_ERROR)
 }
