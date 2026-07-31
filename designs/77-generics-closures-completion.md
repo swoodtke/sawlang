@@ -33,7 +33,17 @@ escape hatch (land honest subsets; re-ledger precisely).
 6. **A5-rest shape 4 — cross-module generic driven templates:**
    pristine-template capture includes imported modules; mangled keys
    agree cross-module (design-68 canonicalization discipline). [74]
-7. Docs: spec limits lists updated; saw-lang skill limits updated;
+7. **RIDER (user, Jul 31): rename `Global` → `GlobalAllocator`.**
+   TRUE rename, not an alias (`type` makes distinct types — an alias
+   would shatter allocator identity). Sweep: std (alloc.saw + every
+   `= Global` default and `Global()` construction), the compiler's
+   default-param fill + mangling keyed on the literal name (the
+   `$Global` mangling component — keep mangled names CONSISTENT, a
+   wholesale mangled-name change is fine since nothing external links
+   against them, but registration/lookup must agree), tests, spec,
+   saw-lang skill, CLAUDE.md digest. `Global` must no longer resolve
+   (clean unknown-type error). Suite is the oracle.
+8. Docs: spec limits lists updated; saw-lang skill limits updated;
    tracker (each item closed or re-ledgered; design 77 landed).
 
 Bars: full suite (baseline = post-76) + blade/libs + bootstrap green
