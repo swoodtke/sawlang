@@ -522,6 +522,54 @@ class EffectsMixin:
         del self.reporter.warnings[saved_warnings:]
         return True
 
+    def _splice_fn_mono(self, module_ast, template_name, resolved_args, mangled):
+        """design 74 (A5-rest, shape 3): splice a concrete instantiation of a
+        generic free function into the AST + namespace and re-check it (so its body
+        carries the resolved types the coroutine frame builder consumes), returning
+        True on a fresh splice. Unlike `_build_fn_mono`, this runs AFTER the effect
+        fixpoint (from the coroutine transform) to promote a NESTED suspending
+        generic call to a real concrete callee that gets its own frame. Idempotent
+        by namespace presence; the effect node may already exist (built effect-only
+        during checking) — re-checking just re-stamps types and re-adds edges
+        (harmless post-fixpoint). Returns False if the template isn't in this module
+        (cross-module is shape 4) or the symbol is already present."""
+        import copy
+        if self.namespace.has_function(mangled):
+            return False
+        pristine = self._pristine_generics.get(template_name)
+        if pristine is None:
+            return False
+        clone = copy.deepcopy(pristine)
+        type_map = {tp.name: arg
+                    for tp, arg in zip(pristine.type_params, resolved_args)}
+        substitute_ast_types(clone, type_map)
+        clone.name = mangled
+        clone.type_params = []
+        clone.mangled_symbol = None
+        clone.is_mono_instance = True
+        # Restore the entry module's symbol scope for registration + re-check (the
+        # namespace was reset after check_module returned; a fresh check under the
+        # wrong scope would silently fail to resolve types and leave locals
+        # untyped, which the frame builder needs).
+        saved_ns = self.namespace
+        saved_path = getattr(self, 'current_module_path', None)
+        entry_ns = getattr(self, '_entry_module_ns', None)
+        if entry_ns is not None:
+            self.namespace = entry_ns
+            self.current_module_path = getattr(self, '_entry_module_path', saved_path)
+        saved_errors = len(self.reporter.errors)
+        saved_warnings = len(self.reporter.warnings)
+        try:
+            self._register_function(clone)
+            module_ast.functions.append(clone)
+            self._check_function(clone)
+        finally:
+            del self.reporter.errors[saved_errors:]
+            del self.reporter.warnings[saved_warnings:]
+            self.namespace = saved_ns
+            self.current_module_path = saved_path
+        return clone
+
     def _build_method_mono(self, struct_name, method_name, resolved_args, mono_name):
         """Clone + substitute + splice + re-check one method-generic instantiation
         (design 70). The concrete method is appended to the owning extension so the

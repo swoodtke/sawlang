@@ -836,6 +836,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # the coroutine transform and codegen then treat as ordinary functions.
         if is_entry:
             self._process_effect_monos(module_ast)
+            # design 74 (A5-rest, shape 3): stash the entry module namespace so the
+            # coroutine transform can splice + re-check a nested-generic
+            # instantiation post-fixpoint with the SAME symbol scope the body checks
+            # used (the namespace is restored below before the transform runs).
+            self._entry_module_ns = ns
+            self._entry_module_path = self.current_module_path
 
         # design 53: walk top-level static_assert conditions so their annotations
         # (Int.max limit tag, sizeof type args) are stamped for codegen.

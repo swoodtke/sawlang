@@ -1,0 +1,37 @@
+// design 74 (A5-rest, shape 3): nested suspending generic calls TWO deep — a
+// driven root drives a generic instantiation whose body itself makes a nested
+// suspending generic call to a DIFFERENT instantiation. The promotion recurses:
+// `middle<Slow>` is spliced, its body scanned, and `inner<Fast>` promoted +
+// embedded as a sub-frame in turn. Each level has its own suspension.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 116
+
+trait Seed { func seed(&self) -> Int }
+struct Slow { n: Int }
+extension Slow: Seed { func seed(&self) -> Int { self.n } }
+struct Fast { m: Int }
+extension Fast: Seed { func seed(&self) -> Int { self.m } }
+
+func inner<T: Seed>(w: T) -> Int {
+    let v = w.seed()
+    __suspend()
+    v + 1
+}
+
+func middle<T: Seed>(w: T) -> Int {
+    let base = w.seed()
+    let a = inner<Fast>(Fast(m: base))   // nested generic call inside a generic instantiation
+    __suspend()
+    a + 10
+}
+
+func top(x: Int) -> Int {
+    let r = middle<Slow>(Slow(n: x))     // top -> middle<Slow> -> inner<Fast>
+    r + 100
+}
+
+func main() {
+    // inner<Fast>(5)=6, middle<Slow>: 6+10=16, top: 16+100=116
+    print(__drive(top(5)))
+}

@@ -1759,6 +1759,118 @@ def _find_method(program, struct_name, method_name):
     return None, None
 
 
+def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecker):
+    """design 74 (A5-rest, shape 3). Walk every driven body (and, transitively, the
+    bodies of the concrete instantiations it pulls in) for a NESTED suspending
+    generic call in a drivable position — a top-level or control-flow-body
+    `let x = g<Args>(...)` / bare `g<Args>(...)`. For each whose instantiation
+    suspends, splice the concrete instantiation into the AST (so it becomes an
+    ordinary concrete callee with its own frame) and rewrite the call site to the
+    mangled symbol with no type args. The existing Part-0b sub-frame embedding then
+    handles it exactly like a nested non-generic suspending call.
+
+    Only suspending instantiations are promoted; a non-suspending generic call is
+    left for codegen's normal monomorphization. Idempotent per mangled symbol."""
+    from codegen.mangle import mangle_function
+    nodes = getattr(typechecker, "_suspend_nodes", {})
+    splice = getattr(typechecker, "_splice_fn_mono", None)
+    resolve = getattr(typechecker, "_resolve_type", None)
+    if splice is None:
+        return set()
+    # Resolve type args + splice under the entry module's symbol scope (the
+    # namespace was reset after check_module returned).
+    entry_ns = getattr(typechecker, "_entry_module_ns", None)
+    saved_ns = getattr(typechecker, "namespace", None)
+    if entry_ns is not None:
+        typechecker.namespace = entry_ns
+
+    def instantiation_suspends(mangled):
+        node = nodes.get(("fn", mangled))
+        return node is not None and node.suspends
+
+    def maybe_promote(fc):
+        """If `fc` is a suspending generic free-function call, splice + rewrite it.
+        Returns the mangled name of a newly-reachable callee body to scan, or None."""
+        if not isinstance(fc, FunctionCall) or not getattr(fc, 'type_args', None):
+            return None
+        args = fc.type_args
+        if resolve is not None:
+            args = [resolve(a) for a in args]
+        mangled = mangle_function(fc.name, args)
+        if not instantiation_suspends(mangled):
+            return None
+        # Splice the concrete instantiation (idempotent by namespace presence).
+        if mangled not in funcs_by_name:
+            clone = splice(program, fc.name, list(args), mangled)
+            if not clone:
+                # Template not in this module (cross-module = shape 4) — leave the
+                # rejection to `_classify_call`, which names the workaround.
+                return None
+            funcs_by_name[mangled] = clone
+        fc.name = mangled
+        fc.type_args = None
+        return mangled
+
+    def scan_call_stmt(s):
+        """A drivable nested-call position mirrors `_classify_call`: a top-level
+        `let x = g(...)` or bare `g(...)`."""
+        fc = None
+        if isinstance(s, LetStatement) and isinstance(s.value, FunctionCall):
+            fc = s.value
+        elif (isinstance(s, ExpressionStatement)
+              and isinstance(s.expression, FunctionCall)):
+            fc = s.expression
+        if fc is not None:
+            return maybe_promote(fc)
+        return None
+
+    def scan_block(block, out):
+        for s in block.statements:
+            promoted = scan_call_stmt(s)
+            if promoted is not None:
+                out.append(promoted)
+                continue
+            ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+            if isinstance(ctrl, IfExpr):
+                scan_block(ctrl.then_branch, out)
+                if ctrl.else_branch is not None:
+                    scan_block(ctrl.else_branch, out)
+            elif isinstance(ctrl, IfLetExpr):
+                scan_block(ctrl.then_branch, out)
+                if ctrl.else_branch is not None:
+                    scan_block(ctrl.else_branch, out)
+            elif isinstance(ctrl, WhileExpr):
+                scan_block(ctrl.body, out)
+            elif isinstance(ctrl, MatchExpr):
+                for arm in ctrl.arms:
+                    if isinstance(arm.body, Block):
+                        scan_block(arm.body, out)
+            elif isinstance(s, ForLoop):
+                scan_block(s.body, out)
+            elif isinstance(s, GuardLetStatement):
+                scan_block(s.else_branch, out)
+
+    worklist = list(seed_names)
+    scanned = set()
+    promoted_all = set()
+    while worklist:
+        name = worklist.pop()
+        if name in scanned:
+            continue
+        scanned.add(name)
+        func = funcs_by_name.get(name)
+        if func is None or getattr(func, 'body', None) is None:
+            continue
+        newly = []
+        scan_block(func.body, newly)
+        for m in newly:
+            promoted_all.add(m)
+        worklist.extend(newly)
+    if entry_ns is not None:
+        typechecker.namespace = saved_ns
+    return promoted_all
+
+
 def transform_program(program, typechecker):
     roots = dict(getattr(typechecker, "_driven_roots", {}) or {})
     method_roots = dict(getattr(typechecker, "_driven_method_roots", {}) or {})
@@ -1793,16 +1905,29 @@ def transform_program(program, typechecker):
     # name `__Poll` and frames can conform to it for the erased run queue.
     nodes = getattr(typechecker, "_suspend_nodes", {})
 
+    # design 74 (A5-rest, shape 3): promote NESTED suspending generic calls inside
+    # driven bodies to concrete spliced callees BEFORE the closure walk, rewriting
+    # each `g<Args>(...)` call site to its mangled instantiation. Runs after the
+    # effect fixpoint (we can consult per-instantiation `.suspends`), so a
+    # suspending instantiation becomes an ordinary concrete callee the existing
+    # Part-0b sub-frame embedding handles. Non-suspending generic calls are left
+    # untouched (codegen monomorphizes them normally).
+    seed_names = list(roots.keys()) + list(spawn_roots.keys())
+    if main_suspends:
+        seed_names.append("main")
+    promoted = _promote_nested_generic_calls(
+        program, funcs_by_name, seed_names, typechecker)
+
     # The driven closure: every suspending entry-module free function reachable
     # from a driven root through suspending-call edges. Each becomes a frame +
     # resume method; a nested suspending call embeds the callee's frame by value
     # and drives it (Part 0b). Only the roots themselves also get __drive_*
-    # drivers.
+    # drivers. Promoted nested-generic instantiations (shape 3) are seeded
+    # directly — the effect edges reference the TEMPLATE, so the walk alone would
+    # not reach them.
     closure = []
     seen = set()
-    work = list(roots.keys()) + list(spawn_roots.keys())
-    if main_suspends:
-        work.append("main")
+    work = list(seed_names) + list(promoted)
     while work:
         n = work.pop()
         if n in seen:
@@ -1814,17 +1939,14 @@ def transform_program(program, typechecker):
                 f"coroutine transform: suspending function `{n}` not found in the "
                 f"entry module (driving supports entry-module free functions only)")
         if func.type_params:
-            # design 70 (A5): a GENERIC template is never a driven ROOT — the
-            # typechecker monomorphizes each driven/spawned instantiation into a
-            # concrete function (mangled symbol) and records THAT. Reaching a
-            # template here means it was pulled into the closure as a NESTED
-            # suspending generic call from another driven body — which would need
-            # its instantiation embedded as a sub-frame. Still A5-rest.
-            raise CoroTransformError(
-                f"coroutine transform: a nested suspending call to a generic "
-                f"function `{n}` from a driven body is not yet supported "
-                f"(design 70 A5-rest); make it a top-level driven root or "
-                f"non-generic", func.line, func.column)
+            # design 74 (A5-rest, shape 3): a GENERIC template reached via an effect
+            # edge (the edge references the template, not the instantiation). Its
+            # SUSPENDING instantiations were promoted to concrete spliced callees and
+            # seeded directly, so the template itself needs no frame — skip it. A
+            # nested generic call the promotion could NOT handle (e.g. cross-module,
+            # shape 4) keeps its generic AST call and is rejected — with a workaround
+            # and a user-anchored line — by `_classify_call` when its caller lowers.
+            continue
         closure.append(n)
         node = nodes.get(("fn", n))
         if node is not None:

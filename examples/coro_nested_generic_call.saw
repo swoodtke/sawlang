@@ -1,0 +1,37 @@
+// design 74 (A5-rest, shape 3): a driven body makes NESTED suspending generic
+// calls. Each suspending instantiation is promoted to a concrete spliced callee
+// and embedded as a sub-frame by value (the design-44 0b machinery, keyed by the
+// mangled instantiation) — two distinct instantiations of the same generic
+// coexist. A nested NON-suspending generic call is left for codegen's normal
+// monomorphization (not promoted).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 217
+
+trait Seed { func seed(&self) -> Int }
+struct Slow { n: Int }
+extension Slow: Seed { func seed(&self) -> Int { self.n } }
+struct Fast { m: Int }
+extension Fast: Seed { func seed(&self) -> Int { self.m } }
+
+func leaf<T: Seed>(w: T) -> Int {   // suspending generic
+    let b = w.seed()
+    __suspend()
+    b + 100
+}
+
+func plain<T: Seed>(w: T) -> Int {  // NON-suspending generic (not promoted)
+    w.seed() * 2
+}
+
+func outer(x: Int) -> Int {
+    let a = leaf<Slow>(Slow(n: x))       // nested suspending generic call #1
+    let p = plain<Fast>(Fast(m: 3))      // nested NON-suspending generic call
+    let c = leaf<Fast>(Fast(m: x + 1))   // nested suspending generic call #2 (other instantiation)
+    a + c + p
+}
+
+func main() {
+    // leaf<Slow>(5)=105, plain<Fast>(3)=6, leaf<Fast>(6)=106 => 217
+    print(__drive(outer(5)))
+}

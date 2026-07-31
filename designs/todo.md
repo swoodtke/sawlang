@@ -39,6 +39,31 @@ items need a probe before being treated as real work.
   Tests: `coro_generic_struct_method` (both instantiations),
   `errors/coro_generic_struct_and_method_generic_unsupported`. Suite 809,
   bootstrap 17+17, libs 4+4. [74, 70]
+- **Commit 3 (shape 3 — nested suspending generic calls):** A driven body can now
+  make NESTED suspending generic calls (`let a = leaf<Slow>(...)`). A new
+  transform pre-pass `_promote_nested_generic_calls` runs after the effect fixpoint
+  (so per-instantiation `.suspends` is known): it walks each driven body (and,
+  transitively, spliced instantiation bodies) for a drivable-position generic call
+  whose instantiation suspends, splices the concrete instantiation via a new
+  typechecker helper `_splice_fn_mono` (clone+substitute+register+re-check under
+  the stashed entry-module namespace `_entry_module_ns`, so locals get resolved
+  types), rewrites the call site to the mangled symbol, and seeds it into the
+  driven closure. The existing Part-0b sub-frame embedding then handles it. The
+  closure walk now SKIPS a template reached via an effect edge (its suspending
+  instantiations were promoted + seeded); an un-promotable nested generic call
+  (cross-module = shape 4) keeps its generic call and is rejected — with a
+  workaround + user-anchored line — by `_classify_call`. Multiple instantiations of
+  one generic coexist; non-suspending nested generic calls are left for codegen.
+  Tests: `coro_nested_generic_call` (two instantiations + a non-suspending generic
+  left alone), `coro_nested_generic_deep` (two-deep nesting). Suite 810,
+  bootstrap 17+17, libs 4+4. [74, 44]
+- **DISCOVERED (pre-existing, NOT shape 3): generic-bound propagation gap.** A
+  generic fn forwarding its own type param to another generic (`func middle<T:
+  Seed>(w: T) { inner<T>(w) }`) errors "type `T` does not implement trait `Seed`"
+  even though the bound is declared — reproduces with NO driving (orthogonal to
+  coroutines; a typechecker generics issue). Nested shape-3 tests use concrete type
+  args at each level to avoid it. Fix is disproportionate to design 74 — flagged
+  for a generics brief. [74]
 
 ## Design 72 — Small fixes: L12/M1, L9, erased-error downcasting (LANDED)
 - **Commit 1 (L12/M1 — fixed-array builtins):** Fixed arrays `[T; N]` gained two
