@@ -87,15 +87,21 @@ items need a probe before being treated as real work.
 - ISR conventions; riscv32 target completion (i32 word landed, 47).
 - **F5.** `Once`/`Lazy<T>`, `PerCpu<T>`, UnsafeCell-equivalent story.
 - **F6.** dtoa/Float printing under freestanding. [20]
-- **T1f.** Debug info (line tables → backtraces). [tier-1]
+- ~~**T1f.** Debug info (line tables → backtraces).~~ DONE (design 69):
+  DWARF line tables on by default; lldb breakpoints + `file:line`
+  backtraces; panics/asserts name their source location. [tier-1]
 - `AllocatedBy<Slab>` sugar. [19, 42]
 
 ## Testing & infra
 - **M2.** Unit tests for lexer/parser/typechecker internals; fuzz/
   differential testing; property tests over copy/move rules. [critique]
-- CI: GitHub Actions workflow for suite + bootstrap (salvaged from old
-  root todo.md).
-- Runtime error messages with source locations (subsumed by T1f).
+- ~~CI: GitHub Actions workflow for suite + bootstrap.~~ DONE (design 69):
+  `.github/workflows/ci.yml` (ubuntu + macos) runs the compiler suite,
+  the debug-info test, the blade bootstrap, and semver/toml lib tests;
+  README badge. Linux is a new target — first CI run may surface small
+  follow-ups (PIC-reloc + sys.executable portability fixes landed).
+- ~~Runtime error messages with source locations (subsumed by T1f).~~
+  DONE (design 69): panics carry `FILE:LINE`.
 
 ## Research tier (post-both-apps)
 Const generics; const fn; macros; compile-time reflection (PMP

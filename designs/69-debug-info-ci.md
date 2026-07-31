@@ -59,3 +59,21 @@ saw-lang skill unchanged (not a language feature).
   `tools/test_debug_info.py` (--emit-ir !DILocation/DISubprogram at
   O0+O1). macOS caveat: source-level `run`/backtrace needs the .o kept
   (debug map) or a .dSYM; Linux embeds DWARF in the executable directly.
+
+- **Part 2 (CI) — LANDED.** `.github/workflows/ci.yml`: ubuntu-latest +
+  macos-latest matrix (fail-fast off), Python 3.12 (llvmlite 0.48 wheels
+  on both; 3.14 has no manylinux wheel yet), `pip install -r
+  sawc/requirements.txt`, clang installed on Linux. Steps: test_runner.py,
+  tools/test_debug_info.py, tools/blade_bootstrap.py (blade build + blade
+  tests), then semver/toml lib `blade test`. README CI badge added. Linux
+  portability fixes surfaced by analysis (Linux is a new target; can't run
+  it from the macOS dev box): (1) **PIC reloc** — hosted `_make_target_machine`
+  now requests `reloc='pic'` so `clang obj.o -o exe` links as PIE on modern
+  Linux (LLVM's x86_64-linux default reloc is non-PIC → PIE link error);
+  macOS is always PIC so this is a no-op, freestanding keeps the default.
+  (2) **blade_bootstrap** used a hardcoded `.venv/bin/python`; now
+  `sys.executable` so it runs in CI (no virtualenv). Both jobs are required
+  (no allow-failure); the workflow is unverified from macOS locally, so a
+  first CI run may surface small follow-ups. Codegen was already
+  Linux-aware (`_is_apple_triple` gates stdout symbol + CLOCK_MONOTONIC id;
+  pthread wrappers resolve on glibc). design 69 landed.

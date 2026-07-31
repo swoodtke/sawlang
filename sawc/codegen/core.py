@@ -2157,9 +2157,19 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         Used by both IR optimization and object emission so `--target` flows
         through to the emitted object and the optimization pipeline.
+
+        Hosted builds request the PIC relocation model: modern Linux toolchains
+        (ubuntu-latest) link PIE by default, and LLVM's default reloc for
+        x86_64-linux is non-PIC — a bare `clang obj.o -o exe` then fails with
+        "relocation R_X86_64_32 against ... can not be used when making a PIE
+        object". PIC links cleanly as PIE, and macOS is always PIC so this is a
+        no-op there. Freestanding/embedded keeps the LLVM default (bare-metal
+        links its own way via a linker script; PIC is usually wrong there).
         """
         target = binding.Target.from_triple(self.triple)
-        return target.create_target_machine()
+        if self.freestanding:
+            return target.create_target_machine()
+        return target.create_target_machine(reloc='pic')
 
     def emit_ir(self, optimize: bool = True) -> str:
         """Return the module's LLVM IR as text.

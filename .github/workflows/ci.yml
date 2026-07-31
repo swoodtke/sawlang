@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # 3.12 has llvmlite 0.48 wheels on both Linux and macOS. The compiler
+          # itself runs on 3.14 locally, but the pinned llvmlite has no 3.14
+          # manylinux wheel yet — 3.12 keeps CI wheel-only (no source builds).
+          python-version: '3.12'
+
+      # sawc links objects with `clang`; the Linux runner needs it on PATH
+      # (macOS ships clang with Xcode).
+      - name: Install clang (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Install llvmlite
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r sawc/requirements.txt
+
+      - name: Compiler test suite (test_runner.py)
+        run: python test_runner.py
+
+      - name: Debug-info line tables (design 69)
+        run: python tools/test_debug_info.py
+
+      - name: Blade self-hosting bootstrap (builds + tests Blade)
+        run: python tools/blade_bootstrap.py
+
+      - name: Library package tests (semver, toml)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .build
+          python sawc/sawc.py blade/src/main.saw -o .build/blade_ci \
+            --module-path toml=libs/toml/src \
+            --module-path semver=libs/semver/src
+          export SAWC="python $(pwd)/sawc/sawc.py"
+          BLADE="$(pwd)/.build/blade_ci"
+          (cd libs/semver && "$BLADE" test)
+          (cd libs/toml && "$BLADE" test)

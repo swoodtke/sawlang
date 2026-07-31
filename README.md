@@ -1,5 +1,7 @@
 # Saw
 
+[![CI](https://github.com/swoodtke/claudes-lang/actions/workflows/ci.yml/badge.svg)](https://github.com/swoodtke/claudes-lang/actions/workflows/ci.yml)
+
 A modern systems programming language combining the safety of Rust with the elegance of Swift.
 
 ## Why Saw?

@@ -20,7 +20,11 @@ import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PY = os.path.join(REPO, ".venv", "bin", "python")
+# The interpreter running this script — locally that IS `.venv/bin/python`
+# (llvmlite installed), and on CI it is the setup-python interpreter with
+# llvmlite pip-installed. Using sys.executable instead of a hardcoded `.venv`
+# path is what lets the bootstrap run in CI, which has no virtualenv.
+PY = sys.executable
 SAWC = os.path.join(REPO, "sawc", "sawc.py")
 BLADE_DIR = os.path.join(REPO, "blade")
 TOML_SRC = os.path.join(REPO, "libs", "toml", "src")
