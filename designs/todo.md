@@ -164,6 +164,34 @@ In progress (interruption-safe: one DF per commit). Progress log (newest last):
   already asserts non-zero + stable + drift-detected (it passed pre-fix because the
   small single-purpose test binary didn't allocate enough to corrupt); no new test
   needed. No compiler edit.
+- **Follow-up: re-import libs/semver into blade — STILL BLOCKED, re-ledgered.**
+  Probed (added `import semver` + a real `semver.parse_version(...)` use to the
+  resolver, built blade with `--module-path semver=libs/semver/src`): ICEs
+  `Undefined method: Version.version` — DF9 symptom (c), a `.version()` call
+  mis-dispatched onto semver's `Version` (receiver-type confusion). Same
+  cross-module type-confusion family as the still-open DF6(b). Reverted; the
+  resolver keeps its self-contained matcher. Blocked until the multi-module
+  monomorphization/receiver-tracking bug (DF6(b)/DF9(c)) is root-caused.
+- **Follow-up: strict lock-honoring + `blade update` (B4) — LANDED.**
+  `Builder.resolve_deps` now HONORS a current `Saw.lock` (resolves to reconstruct
+  on-disk paths but does NOT rewrite the committed lock) and REFUSES to silently
+  re-resolve on drift — a stale/mismatched `manifest_hash` errors "Saw.lock is out
+  of date … run `blade update`". New `Builder.update` (+ `BladeCommand.Update`, CLI
+  `update`, main dispatch, help text) re-resolves fresh and rewrites the lock. All
+  three verified (build honors + no lock churn; drift -> error; update -> rewrite).
+  New `blade/tests/lock_honor.saw` (17 blade tests, bootstrap green). Known limit:
+  a git dep's locked REV isn't pinned without re-resolution (build-from-lock path
+  reconstruction from the portable declared path is future work) — path deps are
+  deterministic so an honored re-resolve equals the lock.
+
+**Design 67 CLOSED:** DF12/DF10/DF8/DF7 fixed with regression tests; DF11 fixed by
+DF12 (lock hash stable); DF6(a) fixed + tested, DF6(b) re-ledgered (open); B4
+lock-honoring + `blade update` landed; semver re-import re-ledgered (blocked by
+DF6(b)/DF9(c)). Compiler suite 765 -> 770 (0 xfails); blade tests 16 -> 17;
+bootstrap green with the DF12 workaround removed. Open, re-ledgered: **DF6(b)/
+DF9(c)** — a multi-module `Vector<user-struct>` element-type / method-receiver
+confusion that only manifests in blade's full type population (not reproducible in
+isolation); it blocks both the columnar un-work-around and the semver re-import.
 
 ## Design 64 — Blade for real (deps/semver/lock/git/incremental/self-host)
 

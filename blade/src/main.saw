@@ -22,7 +22,8 @@ func print_help() {
     print("Usage: blade <command> [options]")
     print("")
     print("Commands:")
-    print("  build       Compile the current project")
+    print("  build       Compile the current project (honors Saw.lock)")
+    print("  update      Re-resolve dependencies and rewrite Saw.lock")
     print("  run         Build and run the project")
     print("  test        Compile and run the project's tests/")
     print("  tree        Print the resolved dependency graph")
@@ -104,6 +105,18 @@ func main() {
                         case Ok(m) -> {
                             let b = builder.Builder(m: m)
                             match b.build(force) {
+                                case Ok(_) -> {},
+                                case Err(e) -> print("error: {e.message}")
+                            }
+                        },
+                        case Err(e) -> print("error: {e}")
+                    }
+                },
+                case Update -> {
+                    match manifest.Manifest.load() {
+                        case Ok(m) -> {
+                            let b = builder.Builder(m: m)
+                            match b.update() {
                                 case Ok(_) -> {},
                                 case Err(e) -> print("error: {e.message}")
                             }

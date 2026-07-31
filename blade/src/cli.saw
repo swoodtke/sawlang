@@ -7,6 +7,7 @@
 
 public enum BladeCommand {
     case Build(force: Bool),
+    case Update,
     case Run(args: Vector<String>),
     case Test,
     case New(name: String),
@@ -60,6 +61,8 @@ public extension Cli {
                 i = i + 1
             }
             Cli(command: BladeCommand.Build(force: force))
+        } else if cmd.equals("update") {
+            Cli(command: BladeCommand.Update)
         } else if cmd.equals("run") {
             // Collect remaining args after "run"
             var run_args = Vector<String>()

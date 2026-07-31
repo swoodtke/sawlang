@@ -1,0 +1,40 @@
+// B4 lock honoring + `blade update` (design 67 follow-up): `blade build` uses a
+// current Saw.lock (no rewrite) and REFUSES to silently re-resolve on drift
+// (errors toward `blade update`); `blade update` re-resolves and rewrites. The
+// build/update decision is `lock_is_current` over the lock's manifest_hash — this
+// exercises it end-to-end through the real resolve -> serialize -> parse_lock
+// round-trip that `blade build` and `blade update` use.
+import src.lock.*
+import src.manifest.*
+import src.resolver.*
+
+func main() {
+    match Manifest.load_from(Path(s: "tests/fixtures/simple/app")) {
+        case Ok(m) -> {
+            match resolve(m) {
+                case Ok(res) -> {
+                    let h = manifest_deps_hash(m)
+                    assert(not h.equals("0"), "a real manifest-deps hash was computed")
+
+                    // Round-trip the lock exactly as `blade update` writes it.
+                    let text = serialize(&res, h)
+                    guard let lock = parse_lock(text) else {
+                        panic("parse_lock failed on freshly serialized lock")
+                    }
+                    // A freshly written lock is current -> `blade build` HONORS it.
+                    assert(lock_is_current(&lock, m), "fresh lock is current (build honors it)")
+
+                    // A lock whose hash predates a Saw.toml deps edit is drift ->
+                    // `blade build` ERRORS toward `blade update`.
+                    var stale = LockData()
+                    stale.manifest_hash = "stale-hash"
+                    assert(not lock_is_current(&stale, m), "stale lock -> drift (build rejects)")
+
+                    print("lock_honor: ok")
+                },
+                case Err(e) -> panic("resolve failed: {e.text()}")
+            }
+        },
+        case Err(_) -> panic("could not load simple/app manifest")
+    }
+}

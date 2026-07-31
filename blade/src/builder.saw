@@ -134,13 +134,55 @@ public extension Builder {
         hash_string(b.build())
     }
 
-    // Resolve dependencies (writing Saw.lock) and return the resolution.
+    // Resolve dependencies for a BUILD, honoring Saw.lock (design 64 B4).
+    //
+    // - No lock (or an unparseable one): resolve fresh and WRITE the lock.
+    // - Lock present + current (its manifest-deps hash still matches Saw.toml):
+    //   HONOR it — resolve to reconstruct the on-disk paths but do NOT rewrite the
+    //   committed lock.
+    // - Lock present + DRIFTED (deps edited in Saw.toml): refuse to silently
+    //   re-resolve; error toward `blade update`.
+    //
+    // (Path deps have exactly one candidate — the depended-on package's own
+    // manifest version — so an honored re-resolve is deterministic and equals the
+    // lock. Pinning a git dep to its locked rev without re-resolution is future
+    // work: build-from-lock needs the resolver's path reconstruction.)
     func resolve_deps(&self) -> Result<Resolution, BuildError> {
+        let lock_content = read_file("Saw.lock")
+        var honor = false
+        if not lock_content.is_empty() {
+            guard let lock = parse_lock(lock_content) else {
+                return BuildError(msg: "Saw.lock is malformed; run `blade update` to regenerate it")
+            }
+            if not lock_is_current(&lock, self.manifest) {
+                return BuildError(msg: "Saw.lock is out of date (Saw.toml dependencies changed); run `blade update` to re-resolve")
+            }
+            honor = true
+        }
+        match resolve(self.manifest) {
+            case Ok(res) -> {
+                if not honor {
+                    let mhash = manifest_deps_hash(self.manifest)
+                    let _ = write_lock(&res, mhash, Path(s: "Saw.lock"))
+                }
+                move res
+            },
+            case Err(e) -> BuildError(msg: "dependency resolution failed: {e.text()}")
+        }
+    }
+
+    // `blade update`: re-resolve fresh and rewrite Saw.lock, whatever its current
+    // state (design 64 B4). This is the sanctioned way to change the lock after
+    // editing Saw.toml's dependencies.
+    func update(&self) -> Result<Int, BuildError> {
         match resolve(self.manifest) {
             case Ok(res) -> {
                 let mhash = manifest_deps_hash(self.manifest)
-                let _ = write_lock(&res, mhash, Path(s: "Saw.lock"))
-                move res
+                if not write_lock(&res, mhash, Path(s: "Saw.lock")) {
+                    return BuildError(msg: "could not write Saw.lock")
+                }
+                print("    Updated Saw.lock ({res.len()} dependency package(s))")
+                0
             },
             case Err(e) -> BuildError(msg: "dependency resolution failed: {e.text()}")
         }
