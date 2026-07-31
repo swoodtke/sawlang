@@ -1659,6 +1659,14 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
                 _check(callee)
 
     _check(fb)
+    # The ROOT's result travels worker -> main across the `join()` barrier, so it
+    # too must be Send (a callee sub-frame's result stays on one thread — not checked).
+    if not fb.is_void and not ns.is_send(fb.ret):
+        raise CoroTransformError(
+            f"cannot spawn `{fb.func.name}` into a multi-threaded "
+            f"`TaskGroup(threads: ...)`: its result type `{fb.ret}` is not `Send`, so "
+            f"the value cannot travel back from the worker thread to `join()`.",
+            fb.func.line, fb.func.column, source_file=fb.src_file)
 
 
 def _make_spawn_helper(fb: _FrameBuilder, fbs):

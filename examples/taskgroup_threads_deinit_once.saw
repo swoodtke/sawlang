@@ -1,0 +1,56 @@
+// design 75 (A2): frame result dropped EXACTLY ONCE under multi-threaded stealing
+// — the double-free / leak oracle. Each task returns a NoCopy `Res` (Send: its one
+// field is an `Int`) whose Deinit bumps a static atomic. Six tasks run on a 3-worker
+// group; three handles are joined (their results move out to the caller and drop
+// there), three are left unjoined (dropped at group teardown). Every result is
+// produced on some worker and dropped once on the main thread across the join
+// barrier — total drops = 6, regardless of the (nondeterministic) schedule.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+
+static DROPS: Atomic<Int> = Atomic(0)
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) {
+        DROPS.fetch_add(1)
+    }
+}
+extension Res: NoCopy {}
+
+func makeRes(id: Int) -> Res {
+    yield_now()
+    return Res(id: id)
+}
+
+// The group lives (and tears down) inside this helper, so `main` can read the
+// final drop count AFTER structured join has dropped every unjoined result.
+func run() {
+    var group = TaskGroup(threads: 3)
+    var i = 0
+    var joined = 0
+    var handles = Vector<TaskHandle<Res>>()
+    while i < 6 {
+        let h = group.spawn(makeRes(i))
+        handles.push(move h)
+        i = i + 1
+    }
+    // Join the first three (results drop at the caller); leave three unjoined
+    // (dropped at group teardown).
+    while handles.len() > 0 {
+        if let hh = handles.pop() {
+            var h = move hh
+            if joined < 3 {
+                let _ = h.join()
+                joined = joined + 1
+            }
+        }
+    }
+    // group.deinit here: drains, then drops the three unconsumed results once each.
+}
+
+func main() {
+    run()
+    print(DROPS.load())   // 6 — every result dropped exactly once
+}

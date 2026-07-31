@@ -1,0 +1,38 @@
+// design 75 (A2): cancellation from ANOTHER task, on a multi-threaded group. A
+// `TaskHandle` is NoCopy + holds raw pointers (not Send), so it cannot be moved
+// into a task — but its cancel-word ADDRESS (a Send `Int`, via `cancel_addr()`)
+// can. The canceller task sets the victim's `__cancel` word from a worker thread;
+// the victim observes it via `cancelled()` and returns a sentinel through normal
+// control flow (NO forced destroy). Deterministic oracle: the victim's RESULT is
+// the cancelled sentinel (it exits ONLY via cancellation) — the iteration count is
+// nondeterministic and NOT asserted. Time-bounded (victim yields, canceller fires).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 77
+
+func victim() -> Int {
+    var spins = 0
+    while not cancelled() {
+        yield_now()
+        spins = spins + 1
+    }
+    return 77            // the cancelled sentinel
+}
+
+func canceller(target: Int) -> Int {
+    yield_now()
+    // Write through the cast inline: a `let flag = ...` pointer local would be
+    // frame-resident (spans the yield) and non-Send, tripping the gate. `target`
+    // (a plain Int) is the only value the frame carries across the suspension.
+    (target as UnsafePointer<Bool>)[0] = true
+    return 0
+}
+
+func main() {
+    var group = TaskGroup(threads: 2)
+    let hv = group.spawn(victim())
+    let addr = hv.cancel_addr()
+    let hc = group.spawn(canceller(addr))
+    let _ = hc.join()
+    print(hv.join())     // 77 — victim returned via cancellation
+}

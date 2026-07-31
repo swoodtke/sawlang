@@ -32,6 +32,37 @@ items need a probe before being treated as real work.
   lift). Tests: `taskgroup_threads_send_accept` (Int/String/Channel accepted, sum
   oracle), `errors/taskgroup_threads_nonsend_reject` (Vector param named). Suite
   813, bootstrap 17+17, libs 4+4.
+- **Commit 2 (the multi-threaded fork-join executor):** `TaskGroup(threads: N)`
+  with N>=2 now really runs on N OS threads. CHOICE (reported): the sanctioned
+  simpler shape — ONE mutex-protected SHARED run queue (injector) drained by N
+  workers, NOT per-worker lock-free deques (simplicity/soundness over throughput
+  v1). Model = FORK-JOIN: a drain is triggered lazily by `join()`/Deinit (via
+  `__run_all` -> `__drain_mt` when workers>=2 && lock present), spawns N `Task<Int>`
+  workers through the 21b engine (each running the free fn `__tg_worker(addr: Int)`;
+  the group's own address crosses the `spawn` boundary as a Send `Int`), then joins
+  them all — pthread_join is a full barrier making every `__result` visible before
+  `join()` force-unwraps. Each worker LOCKS, claims the first runnable (not-done,
+  not-active, remaining==0) frame by setting an `active[i]` flag, UNLOCKS, calls
+  `resume()` outside the lock, then re-locks to record Pending(remaining=wake) /
+  Done. D6 confinement holds: `active[i]` guarantees one worker per frame; `tasks`
+  is read-only during a drain (enqueue is main-thread-only, main is blocked joining
+  workers, so the queue never resizes) — only done/remaining/active are mutated,
+  always under the lock; frames live at stable heap addresses inside their boxes.
+  Sleep: when no frame is runnable and none active, ONE worker advances the clock by
+  the earliest deadline UNDER the lock and subtracts it from all sleepers (shared
+  timer, no per-worker wheel); when a peer is mid-resume, free workers spin+nap 1ms
+  (no cond var -> no lost-wakeup class). Cancellation across tasks:
+  `TaskHandle.cancel_addr() -> Int` hands the `__cancel` word's address (Send) to a
+  canceller task, which sets it; the victim observes via `cancelled()` (set-once
+  monotonic byte -> race-free, eventually consistent). The default `TaskGroup()` and
+  `threads: 1` still route to `__run_all_st` (the byte-identical pre-75 loop, no
+  threads/lock). Send gate extended to the spawn root's RETURN type (it crosses
+  worker->main via join). Battery (all deterministic on counts/sums, time-bounded,
+  each verified stable 30-50x): `taskgroup_threads_parallel_sum` (100 tasks/4
+  workers, sum 4950 — stress), `_producer_consumer` (channel receive across
+  workers), `_sleep` (cross-worker earliest-deadline), `_cancel` (cancel from
+  another task), `_deinit_once` (result dropped exactly once under stealing, static
+  atomic count = 6). Suite 818, bootstrap 17+17, libs 4+4, -O0 spot-checked.
 - **FOUND (pre-existing, flagged): `spawn { void_body }` ICEs.** A 21b `spawn { }`
   whose closure returns `Void` builds a task control block `{i8*, i8*, void}` — an
   invalid LLVM struct ("void type only allowed for function results"). Worked

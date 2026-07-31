@@ -1,0 +1,23 @@
+// design 75 (A2): cooperative sleep coordinated across workers. Each task sleeps a
+// different amount, then returns a value. The shared timer advances by the earliest
+// deadline under the queue lock (no per-worker timer wheel, v1). Deterministic
+// oracle: the SUM of results (completion ORDER is not asserted). Time-bounded
+// (max sleep ~15ms).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+
+func napper(ms: Int, val: Int) -> Int {
+    sleep(ms)
+    yield_now()
+    sleep(ms)
+    val
+}
+
+func main() {
+    var group = TaskGroup(threads: 3)
+    let a = group.spawn(napper(5, 1))
+    let b = group.spawn(napper(10, 2))
+    let c = group.spawn(napper(15, 3))
+    print(a.join() + b.join() + c.join())   // 1 + 2 + 3 = 6
+}

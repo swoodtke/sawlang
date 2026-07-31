@@ -1,0 +1,38 @@
+// design 75 (A2): producer/consumer across worker threads. The channel is Send +
+// Sync, so cooperative `receive()` works from any worker: when the queue is empty
+// the consumer TASK suspends (yield) and the executor reschedules it on some
+// worker. Deterministic oracle: the consumer's SUM (never the interleaving).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 55
+
+func producer(ch: Channel<Int>, count: Int) -> Int {
+    var i = 1
+    while i <= count {
+        ch.send(i)
+        yield_now()
+        i = i + 1
+    }
+    return count
+}
+
+func consumer(ch: Channel<Int>, count: Int) -> Int {
+    var sum = 0
+    var got = 0
+    while got < count {
+        let v = ch.receive()
+        sum = sum + v
+        got = got + 1
+    }
+    return sum
+}
+
+func main() {
+    var group = TaskGroup(threads: 3)
+    let ch = Channel<Int>()
+    let hp = group.spawn(producer(ch.copy(), 10))
+    let hc = group.spawn(consumer(ch.copy(), 10))
+    print(hp.join())   // 10 (produced count)
+    print(hc.join())   // 1 + 2 + ... + 10 = 55
+}

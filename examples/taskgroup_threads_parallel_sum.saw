@@ -1,0 +1,34 @@
+// design 75 (A2): the stress test — 100 tiny tasks on a 4-worker group, each
+// yielding twice then returning its index. Exercises the shared-queue lock's
+// claim / resume-outside-lock / re-enqueue path under real parallelism. The
+// oracle is the SUM of joined results (never an ordering); handles are joined in
+// reverse spawn order to show join is position-independent. Time-bounded (tiny
+// tasks, no sleeps).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4950
+
+func tiny(n: Int) -> Int {
+    yield_now()
+    yield_now()
+    n
+}
+
+func main() {
+    var group = TaskGroup(threads: 4)
+    var handles = Vector<TaskHandle<Int>>()
+    var i = 0
+    while i < 100 {
+        let h = group.spawn(tiny(i))
+        handles.push(move h)
+        i = i + 1
+    }
+    var joinsum = 0
+    while handles.len() > 0 {
+        if let hh = handles.pop() {
+            var h = move hh
+            joinsum = joinsum + h.join()
+        }
+    }
+    print(joinsum)                 // sum 0..99 = 4950
+}

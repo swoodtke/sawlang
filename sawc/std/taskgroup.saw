@@ -16,20 +16,52 @@
 //                   channel-retry), >0 = sleeping. Earliest-deadline scheduling
 //                   over relative sleeps (no wall clock needed).
 //
-// COEXISTENCE (design 21b): this is the COOPERATIVE single-threaded engine —
-// tasks are stackless coroutine frames driven on the current thread. The 21b
-// `spawn { ... } -> Task<T>` engine (one OS thread per task) is untouched and
-// orthogonal; the two do not share a scheduler. Cross-task sharing in both is
-// `Arc`/`Mutex`/`Channel` only (references never cross a spawn — paper 18).
+// COEXISTENCE (design 21b): the DEFAULT `TaskGroup()` is the COOPERATIVE
+// single-threaded engine — tasks are stackless coroutine frames driven on the
+// current thread. The 21b `spawn { ... } -> Task<T>` engine (one OS thread per
+// task) is untouched and orthogonal; the two do not share a scheduler. Cross-task
+// sharing in both is `Arc`/`Mutex`/`Channel` only (references never cross a spawn —
+// paper 18).
+//
+// MULTI-THREADED MODE (design 75 A2): `TaskGroup(threads: N)` (N>=2) runs a
+// fork-join drain — a mutex-protected SHARED run queue (the sanctioned "one
+// injector + N workers", simplicity over per-worker lock-free deques v1) drained
+// by N OS worker threads. A drain is triggered lazily by `join()` / Deinit; it
+// spawns N `Task<Int>` workers (via the 21b engine), each of which claims a
+// runnable frame under the lock, resumes it OUTSIDE the lock, and records the
+// outcome — then the drain joins all workers (a full barrier making every
+// `__result` visible). Frames move between threads only BETWEEN suspensions (a
+// claimed frame is owned by exactly one worker while it runs — paper 18's D6
+// confinement); the `active` flag enforces one-worker-per-frame. Enqueue is
+// main-thread-only (no worker is alive outside a drain), so the run queue never
+// resizes during a drain — `tasks` is read-only (only `ref_at`) while workers run,
+// and only the bookkeeping vectors are mutated, always under the lock.
+
+extern "C" {
+    // pthread mutex seam (resolves from libSystem/libc; init wrapper in codegen).
+    // Same symbols std/channel.saw + std/mutex.saw use — one shared libc binding.
+    func __saw_pthread_mutex_init_default(m: UnsafePointer<Int8>)
+    func pthread_mutex_lock(m: UnsafePointer<Int8>) -> Int
+    func pthread_mutex_unlock(m: UnsafePointer<Int8>) -> Int
+    func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int
+}
 
 struct TaskGroup {
     tasks: Vector<Box<any Resumable>>
     done: Vector<Bool>
     remaining: Vector<Int>
+    // design 75 (A2): per-task "a worker is resuming this frame right now" flag,
+    // so no two workers ever resume the same frame (D6 one-thread-at-a-time). Set
+    // under the lock at claim, cleared under the lock at the resume's outcome.
+    active: Vector<Bool>
     // design 75 (A2): requested worker count. 0/1 => the single-threaded engine
     // (byte-identical to the pre-75 group); >=2 => the multi-threaded fork-join
     // drain (a mutex-protected shared queue drained by `workers` OS threads).
     workers: Int
+    // design 75 (A2): the run-queue mutex (a 64-byte pthread_mutex_t slot; see
+    // std/mutex.saw for the conservative-size rationale). `None` for the
+    // single-threaded engine — no lock is ever taken there.
+    lock: UnsafePointer<Int8>?
 }
 
 extension TaskGroup {
@@ -37,23 +69,33 @@ extension TaskGroup {
         let t = Vector<Box<any Resumable>>()
         let d = Vector<Bool>()
         let r = Vector<Int>()
-        TaskGroup(tasks: move t, done: move d, remaining: move r, workers: 1)
+        let a = Vector<Bool>()
+        TaskGroup(tasks: move t, done: move d, remaining: move r, active: move a, workers: 1, lock: None)
     }
 
     // design 75 (A2): opt in to multi-threaded execution with `n` worker threads.
     // `TaskGroup(threads: 1)` and the default `TaskGroup()` both run the proven
-    // single-threaded engine (no OS threads spawned); `n >= 2` spawns a worker
-    // pool. Spawning into a group built this way turns on the Send-on-frames gate
-    // (a frame that crosses to another worker must be Send).
+    // single-threaded engine (no OS threads spawned, no lock); `n >= 2` allocates
+    // the run-queue mutex and, at drain time, spawns a worker pool. Spawning into a
+    // group built this way turns on the Send-on-frames gate (a frame that crosses
+    // to another worker must be Send).
     init(threads: Int) -> TaskGroup {
         let t = Vector<Box<any Resumable>>()
         let d = Vector<Bool>()
         let r = Vector<Int>()
+        let a = Vector<Bool>()
         var w = threads
         if w < 1 {
             w = 1
         }
-        TaskGroup(tasks: move t, done: move d, remaining: move r, workers: w)
+        var lk: UnsafePointer<Int8>? = None
+        if w >= 2 {
+            if let block = Global().alloc(64, 16) {
+                __saw_pthread_mutex_init_default(block)
+                lk = block
+            }
+        }
+        TaskGroup(tasks: move t, done: move d, remaining: move r, active: move a, workers: w, lock: lk)
     }
 
     // The number of children spawned into this group (design 52b).
@@ -67,13 +109,28 @@ extension TaskGroup {
         self.tasks.push(move task)
         self.done.push(false)
         self.remaining.push(0)
+        self.active.push(false)
     }
 
-    // The executor: round-robin drive to completion of ALL children, honoring
-    // wake reasons. `sync` by construction (`resume` is the anti-suspension
-    // boundary), so the group's Deinit — a sync context — may call it. Idempotent:
-    // a fully-drained group is a no-op, so join() and Deinit can both call it.
+    // The executor: drive to completion of ALL children, honoring wake reasons.
+    // `sync` by construction (`resume` is the anti-suspension boundary), so the
+    // group's Deinit — a sync context — may call it. Idempotent: a fully-drained
+    // group is a no-op, so join() and Deinit can both call it. Multi-threaded
+    // groups (workers >= 2) route to the fork-join drain; the default routes to the
+    // proven single-threaded loop (byte-identical to the pre-75 engine).
     func __run_all(&var self) {
+        if self.workers >= 2 {
+            if let _lk = self.lock {
+                self.__drain_mt()
+                return
+            }
+        }
+        self.__run_all_st()
+    }
+
+    // The pre-75 single-threaded cooperative executor: round-robin over ready
+    // tasks, earliest-deadline relative-sleep advance. Deterministic interleaving.
+    func __run_all_st(&var self) {
         // Count only not-yet-done tasks: a re-entrant call on an already-drained
         // group (join after Deinit, or two joins) must be a clean no-op, never
         // count a Done task as live (which would spin the outer loop forever).
@@ -139,6 +196,141 @@ extension TaskGroup {
             }
         }
     }
+
+    // design 75 (A2): the multi-threaded fork-join drain. Spawn `workers` OS
+    // threads (via the 21b engine), each running `__tg_worker` over this group's
+    // SHARED run queue, then join them all — the join is a full barrier, so every
+    // frame's `__result` is visible to the caller afterward. Idempotent: a group
+    // with no live tasks spawns nothing (so a second `join()` or Deinit after a
+    // full drain is a clean no-op). No task is pushed during a drain (enqueue is
+    // main-thread-only and the main thread is blocked here), so the run queue is
+    // size-stable and `tasks` is read-only while the workers run.
+    func __drain_mt(&var self) {
+        var live = 0
+        var c = 0
+        while c < self.tasks.len() {
+            if not self.done.get(c)! {
+                live = live + 1
+            }
+            c = c + 1
+        }
+        if live == 0 {
+            return
+        }
+        let addr = (&self) as UnsafePointer<TaskGroup> as Int
+        var handles = Vector<Task<Int>>()
+        var i = 0
+        while i < self.workers {
+            var t = spawn { __tg_worker(addr) }
+            handles.push(move t)
+            i = i + 1
+        }
+        while handles.len() > 0 {
+            if let ht = handles.pop() {
+                var h = move ht
+                let _ = h.join()
+            }
+        }
+    }
+}
+
+// design 75 (A2): one worker thread's body. Reconstruct the group pointer from the
+// address (Send-safe: an Int crosses the `spawn` boundary), then loop claiming and
+// resuming runnable frames until no live task remains. The mutex serializes queue
+// bookkeeping (done/remaining/active); `resume()` runs OUTSIDE the lock, so
+// distinct frames run in parallel while a claimed frame is owned by exactly one
+// worker (D6). Returns a dummy `Int` (a `Void` spawn body currently ICEs).
+func __tg_worker(addr: Int) -> Int {
+    let g = addr as UnsafePointer<TaskGroup>
+    if let lk = g[0].lock {
+        var running = true
+        while running {
+            pthread_mutex_lock(lk)
+            let n = g[0].tasks.len()
+            var live = 0
+            var idx = 0 - 1
+            var anyactive = false
+            var minrem = 0 - 1
+            var i = 0
+            while i < n {
+                if not g[0].done.get(i)! {
+                    live = live + 1
+                    if g[0].active.get(i)! {
+                        anyactive = true
+                    } else {
+                        let rem = g[0].remaining.get(i)!
+                        if rem == 0 {
+                            if idx < 0 {
+                                idx = i
+                            }
+                        } else {
+                            if minrem < 0 || rem < minrem {
+                                minrem = rem
+                            }
+                        }
+                    }
+                }
+                i = i + 1
+            }
+            if live == 0 {
+                pthread_mutex_unlock(lk)
+                running = false
+            } else {
+                if idx >= 0 {
+                    // Claim frame `idx` (one worker owns it), resume OUTSIDE the lock.
+                    g[0].active.set(idx, true)
+                    let _ = pthread_mutex_unlock(lk)
+                    match g[0].tasks.ref_at(idx)[0].resume() {
+                        case Pending -> {
+                            let wk = g[0].tasks.ref_at(idx)[0].__wake_reason()
+                            pthread_mutex_lock(lk)
+                            g[0].active.set(idx, false)
+                            g[0].remaining.set(idx, wk)
+                            let _ = pthread_mutex_unlock(lk)
+                        },
+                        case Done -> {
+                            pthread_mutex_lock(lk)
+                            g[0].active.set(idx, false)
+                            g[0].done.set(idx, true)
+                            let _ = pthread_mutex_unlock(lk)
+                        }
+                    }
+                } else {
+                    if anyactive {
+                        // Nothing runnable, but a peer is mid-resume — it may make
+                        // a task ready. Back off briefly and re-scan (no cond var —
+                        // spin+nap keeps the executor free of lost-wakeup bugs).
+                        let _ = pthread_mutex_unlock(lk)
+                        __exec_sleep(1)
+                    } else {
+                        // Every live task is sleeping and none is in flight: advance
+                        // the clock by the earliest deadline UNDER the lock (no worker
+                        // can claim while we hold it, and none is running), then
+                        // subtract it from all sleepers so the shortest wakes first.
+                        if minrem > 0 {
+                            __exec_sleep(minrem)
+                        }
+                        var j = 0
+                        while j < n {
+                            if not g[0].done.get(j)! {
+                                let r2 = g[0].remaining.get(j)!
+                                if r2 > 0 {
+                                    var nr = r2 - minrem
+                                    if nr < 0 {
+                                        nr = 0
+                                    }
+                                    g[0].remaining.set(j, nr)
+                                }
+                            }
+                            j = j + 1
+                        }
+                        let _ = pthread_mutex_unlock(lk)
+                    }
+                }
+            }
+        }
+    }
+    0
 }
 
 // Deinit runs the executor to completion of every child (structured join at
@@ -158,6 +350,11 @@ extension TaskGroup: Deinit {
         while self.tasks.len() > 0 {
             if let b = self.tasks.pop() {
             }
+        }
+        // design 75 (A2): release the run-queue mutex (multi-threaded groups only).
+        if let lk = self.lock {
+            pthread_mutex_destroy(lk)
+            Global().dealloc(lk, 64, 16)
         }
     }
 }
@@ -195,6 +392,17 @@ extension TaskHandle<T> {
     // a cancellation-aware wait, and returns through normal control flow.
     func cancel(&self) {
         self.cancel_ptr[0] = true
+    }
+
+    // design 75 (A2): the cancel word's ADDRESS as a Send `Int`. A `TaskHandle` is
+    // NoCopy and holds raw pointers (not Send), so it cannot be moved into another
+    // task — but its cancel-word address can. A canceller task receives this Int and
+    // sets the flag (`(addr as UnsafePointer<Bool>)[0] = true`) to cancel the target
+    // from a worker thread; the target observes it via `cancelled()` on its next
+    // check (the `__cancel` byte is set-once monotonic — race-free, eventually
+    // consistent, cooperative-cancellation semantics).
+    func cancel_addr(&self) -> Int {
+        self.cancel_ptr as Int
     }
 }
 
