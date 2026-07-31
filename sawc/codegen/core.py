@@ -1115,6 +1115,241 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.call(pjoin, [tid_val, null])
         b.ret_void()
 
+    def _declare_io_runtime(self):
+        """Emit the design-76 IO reactor + nonblocking-socket helper seams.
+
+        The reactor is a process-global kqueue (macOS) / epoll (Linux) fd, created
+        lazily and race-safely (an atomic cmpxchg publishes the fd; a loser closes
+        its spare). `saw_reactor_register(fd, write)` arms one-shot readiness
+        interest; `saw_reactor_poll(timeout_ms)` blocks in kevent/epoll_wait up to
+        `timeout_ms` (<0 = forever) and returns the ready-event count — the
+        executor then wakes ALL io-parked tasks (coarse level-triggered retry: a
+        woken task that is still not ready simply re-registers and re-parks). The
+        kernel owns the interest set, so register/poll are each a single syscall
+        with no user-space fd array to manage — this is why kqueue/epoll fits a
+        global reactor better than poll(2).
+
+        The remaining shims keep the OS-divergent socket bits (O_NONBLOCK, the
+        EAGAIN/EINPROGRESS errno values, the `struct sockaddr_in` family/len
+        layout) INSIDE the compiler — exactly the std.time precedent — so
+        std/net.saw can call plain libc `socket`/`bind`/`listen`/`accept`/
+        `connect`/`read`/`write`/`close` directly and stay pure Saw.
+
+        Hosted-only: freestanding declares them external (net.saw is never loaded
+        freestanding — a kernel supplies its own reactor via interrupts/WFI).
+        """
+        i8 = ir.IntType(8)
+        i8ptr = i8.as_pointer()
+        i16 = ir.IntType(16)
+        i32 = ir.IntType(32)
+        i64 = ir.IntType(64)
+        void = ir.VoidType()
+        apple = self._is_apple_triple()
+
+        reg = ir.Function(self.module, ir.FunctionType(void, [i64, i64]),
+                          name="saw_reactor_register")
+        poll = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+                           name="saw_reactor_poll")
+        setnb = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+                            name="saw_set_nonblocking")
+        ewb = ir.Function(self.module, ir.FunctionType(i64, []),
+                          name="saw_errno_would_block")
+        setfam = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
+                             name="saw_sin_set_family")
+        io_fns = (reg, poll, setnb, ewb, setfam)
+        for fn in io_fns:
+            self.functions[fn.name] = fn
+
+        if self.freestanding:
+            for fn in io_fns:
+                fn.linkage = "external"
+            return
+        for fn in io_fns:
+            fn.linkage = "weak"
+
+        # ---- the process-global reactor fd + lazy race-safe init --------------
+        rfd_g = ir.GlobalVariable(self.module, i64, name="__saw_reactor_fd")
+        rfd_g.linkage = "internal"
+        rfd_g.initializer = ir.Constant(i64, -1)
+
+        ensure = ir.Function(self.module, ir.FunctionType(i64, []),
+                             name="__saw_reactor_ensure")
+        ensure.linkage = "internal"
+        close_fn = self._libc_func("close", i32, [i32])
+        if apple:
+            kqueue_fn = self._libc_func("kqueue", i32, [])
+        else:
+            epoll_create1_fn = self._libc_func("epoll_create1", i32, [i32])
+        b = ir.IRBuilder(ensure.append_basic_block("entry"))
+        loop_bb = ensure.append_basic_block("loop")
+        make_bb = ensure.append_basic_block("make")
+        pub_bb = ensure.append_basic_block("publish")
+        won_bb = ensure.append_basic_block("won")
+        lost_bb = ensure.append_basic_block("lost")
+        b.branch(loop_bb)
+        b = ir.IRBuilder(loop_bb)
+        cur = b.load(rfd_g, name="cur")
+        cur.ordering = "monotonic"; cur.align = 8
+        have = b.icmp_signed(">=", cur, ir.Constant(i64, 0))
+        ret_have_bb = ensure.append_basic_block("ret_have")
+        b.cbranch(have, ret_have_bb, make_bb)
+        b = ir.IRBuilder(ret_have_bb)
+        b.ret(cur)
+        b = ir.IRBuilder(make_bb)
+        if apple:
+            newfd = b.call(kqueue_fn, [])
+        else:
+            newfd = b.call(epoll_create1_fn, [ir.Constant(i32, 0)])
+        newfd64 = b.sext(newfd, i64)
+        b.branch(pub_bb)
+        b = ir.IRBuilder(pub_bb)
+        # cmpxchg __saw_reactor_fd : -1 -> newfd (publish); on failure someone else won.
+        cx = b.cmpxchg(rfd_g, ir.Constant(i64, -1), newfd64, "seq_cst", "monotonic")
+        old = b.extract_value(cx, 0, name="cx_old")
+        ok = b.extract_value(cx, 1, name="cx_ok")
+        b.cbranch(ok, won_bb, lost_bb)
+        b = ir.IRBuilder(won_bb)
+        b.ret(newfd64)
+        b = ir.IRBuilder(lost_bb)
+        b.call(close_fn, [newfd])          # discard our spare; use the winner's
+        b.ret(old)
+
+        # ---- saw_reactor_register(fd, write) ---------------------------------
+        b = ir.IRBuilder(reg.append_basic_block("entry"))
+        rfd = b.trunc(b.call(ensure, []), i32)
+        fd_i32 = b.trunc(reg.args[0], i32)
+        is_write = b.icmp_signed("!=", reg.args[1], ir.Constant(i64, 0))
+        if apple:
+            # struct kevent { uintptr ident; i16 filter; u16 flags; u32 fflags;
+            #                 intptr data; void* udata; } = 32 bytes.
+            kev_ty = ir.LiteralStructType([i64, i16, i16, i32, i64, i8ptr])
+            kev = b.alloca(kev_ty, name="kev")
+            b.store(reg.args[0], b.gep(kev, [ir.Constant(i32, 0), ir.Constant(i32, 0)]))
+            filt = b.select(is_write, ir.Constant(i16, -2), ir.Constant(i16, -1))  # WRITE/-READ
+            b.store(filt, b.gep(kev, [ir.Constant(i32, 0), ir.Constant(i32, 1)]))
+            b.store(ir.Constant(i16, 0x0011),  # EV_ADD | EV_ONESHOT
+                    b.gep(kev, [ir.Constant(i32, 0), ir.Constant(i32, 2)]))
+            b.store(ir.Constant(i32, 0), b.gep(kev, [ir.Constant(i32, 0), ir.Constant(i32, 3)]))
+            b.store(ir.Constant(i64, 0), b.gep(kev, [ir.Constant(i32, 0), ir.Constant(i32, 4)]))
+            b.store(ir.Constant(i8ptr, None), b.gep(kev, [ir.Constant(i32, 0), ir.Constant(i32, 5)]))
+            kevent_fn = self._libc_func(
+                "kevent", i32, [i32, kev_ty.as_pointer(), i32,
+                                kev_ty.as_pointer(), i32, i8ptr])
+            b.call(kevent_fn, [rfd, kev, ir.Constant(i32, 1),
+                               ir.Constant(kev_ty.as_pointer(), None),
+                               ir.Constant(i32, 0), ir.Constant(i8ptr, None)])
+            b.ret_void()
+        else:
+            # struct epoll_event { u32 events; u64 data; } __attribute__((packed))
+            # = 12 bytes; build it as a byte array with explicit offsets.
+            ev_ty = ir.ArrayType(i8, 12)
+            ev = b.alloca(ev_ty, name="epev")
+            ev_i8 = b.bitcast(ev, i8ptr)
+            EPOLLIN, EPOLLOUT, EPOLLONESHOT = 0x001, 0x004, 0x40000000
+            events = b.select(is_write, ir.Constant(i32, EPOLLOUT | EPOLLONESHOT),
+                              ir.Constant(i32, EPOLLIN | EPOLLONESHOT))
+            b.store(events, b.bitcast(ev_i8, i32.as_pointer()))
+            data_ptr = b.gep(ev_i8, [ir.Constant(i32, 4)])
+            b.store(reg.args[0], b.bitcast(data_ptr, i64.as_pointer()))
+            epoll_ctl_fn = self._libc_func(
+                "epoll_ctl", i32, [i32, i32, i32, ev_ty.as_pointer()])
+            # EPOLL_CTL_ADD=1; on EEXIST (already known) re-arm with EPOLL_CTL_MOD=3.
+            r = b.call(epoll_ctl_fn, [rfd, ir.Constant(i32, 1), fd_i32, ev])
+            add_ok = b.icmp_signed("==", r, ir.Constant(i32, 0))
+            mod_bb = reg.append_basic_block("mod")
+            done_bb = reg.append_basic_block("done")
+            b.cbranch(add_ok, done_bb, mod_bb)
+            b = ir.IRBuilder(mod_bb)
+            b.call(epoll_ctl_fn, [rfd, ir.Constant(i32, 3), fd_i32, ev])
+            b.branch(done_bb)
+            b = ir.IRBuilder(done_bb)
+            b.ret_void()
+
+        # ---- saw_reactor_poll(timeout_ms) -> ready count ---------------------
+        b = ir.IRBuilder(poll.append_basic_block("entry"))
+        rfd = b.trunc(b.call(ensure, []), i32)
+        tmo = poll.args[0]
+        neg = b.icmp_signed("<", tmo, ir.Constant(i64, 0))
+        if apple:
+            kev_ty = ir.LiteralStructType([i64, i16, i16, i32, i64, i8ptr])
+            evbuf = b.alloca(ir.ArrayType(kev_ty, 64), name="kevs")
+            evbuf0 = b.gep(evbuf, [ir.Constant(i32, 0), ir.Constant(i32, 0)])
+            ts_ty = ir.LiteralStructType([i64, i64])   # struct timespec
+            ts = b.alloca(ts_ty, name="ts")
+            secs = b.sdiv(tmo, ir.Constant(i64, 1000))
+            nsecs = b.mul(b.srem(tmo, ir.Constant(i64, 1000)), ir.Constant(i64, 1000000))
+            b.store(secs, b.gep(ts, [ir.Constant(i32, 0), ir.Constant(i32, 0)]))
+            b.store(nsecs, b.gep(ts, [ir.Constant(i32, 0), ir.Constant(i32, 1)]))
+            ts_i8 = b.bitcast(ts, i8ptr)
+            tsptr = b.select(neg, ir.Constant(i8ptr, None), ts_i8)
+            kevent_fn = self.functions["kevent"] if "kevent" in self.functions else \
+                self._libc_func("kevent", i32,
+                                [i32, kev_ty.as_pointer(), i32,
+                                 kev_ty.as_pointer(), i32, i8ptr])
+            n = b.call(kevent_fn, [rfd, ir.Constant(kev_ty.as_pointer(), None),
+                                   ir.Constant(i32, 0), evbuf0, ir.Constant(i32, 64),
+                                   tsptr])
+            b.ret(b.sext(n, i64))
+        else:
+            ev_ty = ir.ArrayType(i8, 12)
+            evbuf = b.alloca(ir.ArrayType(ev_ty, 64), name="epevs")
+            evbuf0 = b.gep(evbuf, [ir.Constant(i32, 0), ir.Constant(i32, 0)])
+            to = b.select(neg, ir.Constant(i32, -1), b.trunc(tmo, i32))
+            epoll_wait_fn = self._libc_func(
+                "epoll_wait", i32, [i32, ev_ty.as_pointer(), i32, i32])
+            n = b.call(epoll_wait_fn, [rfd, evbuf0, ir.Constant(i32, 64), to])
+            b.ret(b.sext(n, i64))
+
+        # ---- saw_set_nonblocking(fd) -> 0/-1 ---------------------------------
+        # fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK). O_NONBLOCK is
+        # 0x0004 on macOS, 0x0800 on Linux; F_GETFL=3 / F_SETFL=4 on both.
+        o_nonblock = 0x0004 if apple else 0x0800
+        fcntl_fn = self._libc_func("fcntl", i32, [i32, i32, i32])
+        b = ir.IRBuilder(setnb.append_basic_block("entry"))
+        fdi = b.trunc(setnb.args[0], i32)
+        flags = b.call(fcntl_fn, [fdi, ir.Constant(i32, 3), ir.Constant(i32, 0)])
+        bad = b.icmp_signed("<", flags, ir.Constant(i32, 0))
+        err_bb = setnb.append_basic_block("err")
+        ok_bb = setnb.append_basic_block("ok")
+        b.cbranch(bad, err_bb, ok_bb)
+        b = ir.IRBuilder(err_bb)
+        b.ret(ir.Constant(i64, -1))
+        b = ir.IRBuilder(ok_bb)
+        newflags = b.or_(flags, ir.Constant(i32, o_nonblock))
+        b.call(fcntl_fn, [fdi, ir.Constant(i32, 4), newflags])
+        b.ret(ir.Constant(i64, 0))
+
+        # ---- saw_errno_would_block() -> 1/0 ----------------------------------
+        # errno lives behind __error() (macOS) / __errno_location() (Linux).
+        eagain = 35 if apple else 11           # EAGAIN == EWOULDBLOCK on both
+        einprogress = 36 if apple else 115
+        errloc_name = "__error" if apple else "__errno_location"
+        errloc_fn = self._libc_func(errloc_name, i32.as_pointer(), [])
+        b = ir.IRBuilder(ewb.append_basic_block("entry"))
+        e = b.load(b.call(errloc_fn, []), name="errno")
+        w1 = b.icmp_signed("==", e, ir.Constant(i32, eagain))
+        w2 = b.icmp_signed("==", e, ir.Constant(i32, einprogress))
+        b.ret(b.zext(b.or_(w1, w2), i64))
+
+        # ---- saw_sin_set_family(buf) — the OS-divergent sockaddr_in prefix ----
+        # The ONLY part of `struct sockaddr_in` whose layout differs by OS: macOS
+        # is { u8 sin_len; u8 sin_family; ... } (family at byte 1), Linux is
+        # { u16 sin_family; ... } (family at bytes 0-1). Everything else (port,
+        # addr) is uniform network-order data the Saw `SockAddrIn` struct fills
+        # directly. AF_INET == 2 on both.
+        b = ir.IRBuilder(setfam.append_basic_block("entry"))
+        buf = setfam.args[0]
+
+        def _store_byte(off, val_i8):
+            b.store(val_i8, b.gep(buf, [ir.Constant(i32, off)]))
+        if apple:
+            _store_byte(0, ir.Constant(i8, 16))   # sin_len
+            _store_byte(1, ir.Constant(i8, 2))    # sin_family = AF_INET
+        else:
+            _store_byte(0, ir.Constant(i8, 2))    # sin_family (u16 LE) = AF_INET
+            _store_byte(1, ir.Constant(i8, 0))
+        b.ret_void()
+
     def _create_string_literal_global(self, value: str) -> ir.GlobalVariable:
         """Create (or reuse) an immortal Saw String literal block.
 
@@ -1184,6 +1419,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self._declare_print_runtime()
         self._declare_atomic_runtime()
         self._declare_pthread_runtime()
+        self._declare_io_runtime()
 
         # Store generic and specialized extensions FIRST
         # This must happen before struct registration since structs with generic

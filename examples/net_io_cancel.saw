@@ -1,0 +1,58 @@
+// design 76 (A3): cancellation observed at the IO suspension point. The reader
+// drains the bytes already in the socket, then — finding it would-block AND
+// cancelled — returns through normal control flow (NO forced destroy), with
+// deinit-oracle cleanup. This is the cooperative cancellation contract: a task
+// checks `cancelled()` before it would park (io_wait), exactly like the channel
+// cancellation-aware receive idiom.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 55
+
+struct Res { id: Int }
+extension Res: Deinit { func deinit(&var self) { print(self.id) } }
+extension Res: NoCopy {}
+
+func reader(fd: Int) -> Int {
+    let held = Res(id: 55)      // deinit oracle
+    let buf = net_buffer(16)
+    var total = 0
+    var going = true
+    while going {
+        let r = tcp_try_read(fd, buf, 16)
+        if net_would_block(r) {
+            if cancelled() {
+                going = false           // empty + cancelled -> cooperative exit
+            } else {
+                io_wait(fd, 0)
+            }
+        } else if r == 0 {
+            going = false               // EOF
+        } else {
+            total = total + r
+        }
+    }
+    net_free_buffer(buf, 16)
+    return total
+}
+
+func main() {
+    let pair = tcp_socketpair()
+    let a = pair.0
+    let b = pair.1
+    // Pre-load 3 bytes; the reader drains them, then exits on empty + cancelled.
+    let msg = net_buffer(3)
+    msg[0] = 1 as Int8
+    msg[1] = 2 as Int8
+    msg[2] = 3 as Int8
+    let _ = tcp_try_write(a, msg, 3)
+    net_free_buffer(msg, 3)
+
+    var group = TaskGroup()
+    let h = group.spawn(reader(b))
+    h.cancel()          // reader drains 3 bytes, then exits on empty + cancelled
+    print(h.join())     // 3
+    tcp_close(a)
+    tcp_close(b)
+    // group teardown: reader's held Res(55) drops exactly once
+}

@@ -1,0 +1,65 @@
+// design 76 (A4): the never-block invariant. A reader task parks on an idle
+// socket while a writer task sleeps; the executor polls the reactor with the
+// earliest sleep deadline as the timeout, so the sleeper wakes ON TIME even
+// though an fd is idle (the poll is NOT an unbounded block while a timer is
+// pending), then its write wakes the io-parked reader. Deterministic on the
+// byte-counts. Loopback only.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 5
+
+func reader(fd: Int) -> Int {
+    let buf = net_buffer(16)
+    var n = 0
+    var going = true
+    while going {
+        let r = tcp_try_read(fd, buf, 16)
+        if net_would_block(r) {
+            io_wait(fd, 0)          // park on the idle socket
+        } else {
+            n = r
+            going = false
+        }
+    }
+    net_free_buffer(buf, 16)
+    return n
+}
+
+func writer(fd: Int) -> Int {
+    sleep(10)                       // the reactor poll must honour this deadline
+    let msg = net_buffer(5)
+    msg[0] = 104 as Int8
+    msg[1] = 101 as Int8
+    msg[2] = 108 as Int8
+    msg[3] = 108 as Int8
+    msg[4] = 111 as Int8
+    var off = 0
+    var going = true
+    while going {
+        let w = tcp_try_write(fd, msg + off, 5 - off)
+        if net_would_block(w) {
+            io_wait(fd, 1)
+        } else {
+            off = off + w
+            if off >= 5 {
+                going = false
+            }
+        }
+    }
+    net_free_buffer(msg, 5)
+    return off
+}
+
+func main() {
+    let pair = tcp_socketpair()
+    let a = pair.0
+    let b = pair.1
+    var group = TaskGroup()
+    let hr = group.spawn(reader(b))
+    let hw = group.spawn(writer(a))
+    print(hr.join())    // 5 (read after the sleeper woke and wrote)
+    print(hw.join())    // 5
+    tcp_close(a)
+    tcp_close(b)
+}

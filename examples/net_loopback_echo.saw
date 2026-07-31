@@ -1,0 +1,105 @@
+// design 76 (A4): TCP echo over the loopback interface (127.0.0.1, ephemeral
+// port) inside a TaskGroup — the full listen/accept/connect/read/write surface.
+// The server accepts a connection (parking until one arrives), reads, and echoes;
+// the client connects (parking until writable), sends "hey", and reads it back.
+// Deterministic on byte-count + content. Loopback only — no external network.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 1
+
+func server(lfd: Int) -> Int {
+    var cfd = 0 - 1
+    var going = true
+    while going {
+        let c = tcp_try_accept(lfd)
+        if net_would_block(c) {
+            io_wait(lfd, 0)
+        } else {
+            cfd = c
+            going = false
+        }
+    }
+    let buf = net_buffer(16)
+    var n = 0
+    going = true
+    while going {
+        let r = tcp_try_read(cfd, buf, 16)
+        if net_would_block(r) {
+            io_wait(cfd, 0)
+        } else {
+            n = r
+            going = false
+        }
+    }
+    var off = 0
+    going = true
+    while going {
+        let w = tcp_try_write(cfd, buf + off, n - off)
+        if net_would_block(w) {
+            io_wait(cfd, 1)
+        } else {
+            off = off + w
+            if off >= n {
+                going = false
+            }
+        }
+    }
+    net_free_buffer(buf, 16)
+    tcp_close(cfd)
+    return n
+}
+
+func client(port: Int) -> Int {
+    let fd = tcp_connect_start(port)
+    if fd < 0 {
+        return 0 - 1
+    }
+    io_wait(fd, 1)                  // park until the connection is writable
+    let _ = tcp_connect_check(fd)
+    let msg = net_buffer(3)
+    msg[0] = 104 as Int8    // 'h'
+    msg[1] = 101 as Int8    // 'e'
+    msg[2] = 121 as Int8    // 'y'
+    var off = 0
+    var going = true
+    while going {
+        let w = tcp_try_write(fd, msg + off, 3 - off)
+        if net_would_block(w) {
+            io_wait(fd, 1)
+        } else {
+            off = off + w
+            if off >= 3 {
+                going = false
+            }
+        }
+    }
+    let buf = net_buffer(16)
+    var n = 0
+    going = true
+    while going {
+        let r = tcp_try_read(fd, buf, 16)
+        if net_would_block(r) {
+            io_wait(fd, 0)
+        } else {
+            n = r
+            going = false
+        }
+    }
+    let matched = if net_bytes_to_string(buf, n) == "hey" { 1 } else { 0 }
+    net_free_buffer(buf, 16)
+    net_free_buffer(msg, 3)
+    tcp_close(fd)
+    return matched
+}
+
+func main() {
+    let lfd = tcp_listen(0)
+    let port = tcp_local_port(lfd)
+    var group = TaskGroup()
+    let hs = group.spawn(server(lfd))
+    let hc = group.spawn(client(port))
+    print(hs.join())    // 3 bytes echoed
+    print(hc.join())    // 1 = content round-tripped
+    tcp_close(lfd)
+}

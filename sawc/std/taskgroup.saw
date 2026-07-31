@@ -44,6 +44,11 @@ extern "C" {
     func pthread_mutex_lock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_unlock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int
+
+    // design 76 (A4): the IO reactor's poll seam (kqueue/epoll, compiler-defined
+    // in codegen/core.py). Blocks up to `timeout_ms` (< 0 = forever) and returns
+    // the ready-event count; the executor then wakes all io-parked tasks.
+    func saw_reactor_poll(timeout_ms: Int) -> Int
 }
 
 struct TaskGroup {
@@ -168,30 +173,65 @@ extension TaskGroup {
                     i = i + 1
                 }
             }
-            // Phase 2: every live task is sleeping (remaining > 0). Advance to the
-            // nearest deadline — park the minimum remaining, subtract it from all
-            // sleepers — so the shortest sleeper wakes first (time-ordered).
+            // Phase 2: nothing is ready. Live tasks are sleeping (remaining > 0)
+            // and/or IO-parked (remaining < 0, the design-76 sentinel). Find the
+            // earliest sleep deadline among the sleepers, and whether any task is
+            // parked on IO.
             if live > 0 {
-                var m = 0 - 1
+                var deadline = 0 - 1     // min positive remaining; -1 = no sleeper
+                var io = false
                 var j = 0
                 while j < self.tasks.len() {
                     if not self.done.get(j)! {
                         let r = self.remaining.get(j)!
-                        if m < 0 || r < m {
-                            m = r
+                        if r < 0 {
+                            io = true
+                        } else if r > 0 {
+                            if deadline < 0 || r < deadline {
+                                deadline = r
+                            }
                         }
                     }
                     j = j + 1
                 }
-                if m > 0 {
-                    __exec_sleep(m)
-                }
-                var k = 0
-                while k < self.tasks.len() {
-                    if not self.done.get(k)! {
-                        self.remaining.set(k, self.remaining.get(k)! - m)
+                if io {
+                    // design 76 (A4): park in the reactor until an fd is ready or
+                    // the earliest sleep deadline elapses — NEVER busy-wait, NEVER
+                    // block while a task is runnable. timeout -1 (no sleeper) =
+                    // block until an fd is ready. A return of 0 = the timeout
+                    // expired, so advance sleepers by the full deadline; any ready
+                    // fd wakes ALL io-parked tasks (coarse level-triggered retry:
+                    // a still-not-ready task re-registers and re-parks).
+                    let events = saw_reactor_poll(deadline)
+                    var k = 0
+                    while k < self.tasks.len() {
+                        if not self.done.get(k)! {
+                            let r = self.remaining.get(k)!
+                            if r < 0 {
+                                self.remaining.set(k, 0)
+                            } else if r > 0 && events == 0 && deadline > 0 {
+                                var nr = r - deadline
+                                if nr < 0 {
+                                    nr = 0
+                                }
+                                self.remaining.set(k, nr)
+                            }
+                        }
+                        k = k + 1
                     }
-                    k = k + 1
+                } else {
+                    // Pure sleep: park the nearest deadline, subtract from all
+                    // sleepers, so the shortest sleeper wakes first (time-ordered).
+                    if deadline > 0 {
+                        __exec_sleep(deadline)
+                    }
+                    var k = 0
+                    while k < self.tasks.len() {
+                        if not self.done.get(k)! {
+                            self.remaining.set(k, self.remaining.get(k)! - deadline)
+                        }
+                        k = k + 1
+                    }
                 }
             }
         }

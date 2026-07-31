@@ -1,0 +1,88 @@
+// design 76 (A4): a bidirectional echo over a local socketpair inside a
+// TaskGroup, exercising the cooperative IO reactor. The server parks on an empty
+// socket (io_wait) until the client writes; the client sends "hi", parks until
+// the server echoes it back, then verifies the content. Deterministic on
+// byte-counts + content (never on interleaving). Loopback only — no network.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 1
+
+func server(fd: Int) -> Int {
+    let buf = net_buffer(16)
+    var n = 0
+    var going = true
+    while going {
+        let r = tcp_try_read(fd, buf, 16)
+        if net_would_block(r) {
+            io_wait(fd, 0)          // park until the client sends
+        } else {
+            n = r
+            going = false
+        }
+    }
+    // echo the bytes back
+    var off = 0
+    going = true
+    while going {
+        let w = tcp_try_write(fd, buf + off, n - off)
+        if net_would_block(w) {
+            io_wait(fd, 1)
+        } else {
+            off = off + w
+            if off >= n {
+                going = false
+            }
+        }
+    }
+    net_free_buffer(buf, 16)
+    return n
+}
+
+func client(fd: Int) -> Int {
+    let msg = net_buffer(2)
+    msg[0] = 104 as Int8    // 'h'
+    msg[1] = 105 as Int8    // 'i'
+    var off = 0
+    var going = true
+    while going {
+        let w = tcp_try_write(fd, msg + off, 2 - off)
+        if net_would_block(w) {
+            io_wait(fd, 1)
+        } else {
+            off = off + w
+            if off >= 2 {
+                going = false
+            }
+        }
+    }
+    let buf = net_buffer(16)
+    var n = 0
+    going = true
+    while going {
+        let r = tcp_try_read(fd, buf, 16)
+        if net_would_block(r) {
+            io_wait(fd, 0)          // park until the echo arrives
+        } else {
+            n = r
+            going = false
+        }
+    }
+    let matched = if net_bytes_to_string(buf, n) == "hi" { 1 } else { 0 }
+    net_free_buffer(buf, 16)
+    net_free_buffer(msg, 2)
+    return matched
+}
+
+func main() {
+    let pair = tcp_socketpair()
+    let a = pair.0
+    let b = pair.1
+    var group = TaskGroup()
+    let hs = group.spawn(server(b))
+    let hc = group.spawn(client(a))
+    print(hs.join())    // 2 bytes echoed
+    print(hc.join())    // 1 = content round-tripped
+    tcp_close(a)
+    tcp_close(b)
+}

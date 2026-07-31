@@ -192,7 +192,19 @@ class CallsMixin:
         # boundaries). `yield_now()` is then a no-op; `sleep(ms)` still parks the
         # thread for real via the timer seam, so a hosted script's `sleep` is
         # honoured even without an executor.
-        if expr.name == "yield_now":
+        if expr.name in ("yield_now", "__io_park"):
+            return None
+        # design 76 (A4): `io_wait(fd, dir)` reached OUTSIDE a coroutine frame (the
+        # transform rewrites it to register+park inside a driven/spawned body).
+        # With no executor to hand back to, register the fd and block the thread in
+        # the reactor until it is ready — correct blocking semantics for a
+        # non-cooperative caller.
+        if expr.name == "io_wait":
+            fd = self._generate_expression(expr.arguments[0].value)
+            direction = self._generate_expression(expr.arguments[1].value)
+            self.builder.call(self.functions["saw_reactor_register"], [fd, direction])
+            self.builder.call(self.functions["saw_reactor_poll"],
+                              [ir.Constant(self.int_type, -1)])
             return None
         # `__exec_sleep(ms)` is the executor's OWN (non-suspending) timer call,
         # generated into the entry executor to honour a task's sleep wake reason.

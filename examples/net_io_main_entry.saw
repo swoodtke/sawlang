@@ -1,0 +1,27 @@
+// design 76 (A4): a suspending `main` that does IO directly is wrapped in the
+// entry executor, which parks in the reactor on an io_wait and resumes when the
+// fd is ready. A socket is immediately writable, so `io_wait(fd, 1)` registers,
+// parks, the entry executor polls the reactor (single-frame poll), and wakes at
+// once — exercising the entry-executor reactor path deterministically. Loopback
+// only. (The fd is obtained via a non-suspending helper so only an `Int` — not a
+// tuple — lives across the suspension.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+
+// One end of a local socketpair (the other is closed); a fresh stream socket is
+// immediately writable.
+func writable_fd() -> Int {
+    let pair = tcp_socketpair()
+    tcp_close(pair.1)
+    pair.0
+}
+
+func main() {
+    let fd = writable_fd()
+    print(1)
+    io_wait(fd, 1)      // register `fd` for write, park; it is writable -> wake
+    print(2)
+    tcp_close(fd)
+}

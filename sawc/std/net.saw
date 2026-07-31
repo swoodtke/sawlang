@@ -1,0 +1,256 @@
+// std.net — minimal nonblocking TCP over the design-76 cooperative IO reactor.
+//
+// HOSTED-ONLY: links libc socket syscalls plus the compiler reactor seams
+// (codegen/core.py); never loaded in the freestanding profile (a kernel supplies
+// its own reactor via interrupts/WFI — see HOSTED_STD_MODULES in sawc.py).
+//
+// SURFACE SHAPE (reported): the cooperative-IO surface follows the SAME idiom the
+// language already ships for channels — a NON-blocking `try_*` primitive plus a
+// suspension point written in the caller's own task body:
+//
+//     while going {
+//         let r = tcp_try_read(fd, buf, 64)
+//         if net_would_block(r) {
+//             io_wait(fd, 0)            // register (0=read) + park the TASK
+//         } else {
+//             n = r; going = false
+//         }
+//     }
+//
+// `io_wait(fd, write)` is a COMPILER INTRINSIC (like `yield_now`): it registers
+// the fd with the reactor for read (write==0) or write (write==1) interest and
+// suspends the task with an IO-ready wake reason. The executor polls the reactor
+// when nothing is runnable (poll timeout = earliest sleep deadline) and wakes the
+// task on readiness — so a blocked socket op never stalls a runnable peer and
+// never busy-waits. This idiom lives in the user body because the coroutine
+// transform is entry-module-only (a suspending std free function cannot embed as
+// a sub-frame — the same reason `Channel.receive()` is inline-lowered). A
+// first-class inline-lowered `tcp_read`/`tcp_accept`/`tcp_write` (receive()-style)
+// is the ergonomic follow-up.
+
+extern "C" {
+    // POSIX socket calls (identical prototypes on macOS + Linux; the OS-divergent
+    // bits — O_NONBLOCK, the EAGAIN/EINPROGRESS errno values, the sockaddr_in
+    // family/len layout — live in the saw_* shims below).
+    func socket(domain: Int32, ty: Int32, protocol: Int32) -> Int32
+    func bind(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
+    func listen(fd: Int32, backlog: Int32) -> Int32
+    func accept(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
+    func connect(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
+    func getsockname(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
+    func socketpair(domain: Int32, ty: Int32, protocol: Int32, fds: UnsafePointer<Int32>) -> Int32
+
+    // OS-divergent socket helpers + the reactor register seam (compiler-defined,
+    // codegen/core.py). `saw_reactor_register` is emitted by the `io_wait`
+    // intrinsic lowering, so it must be a namespace-visible symbol.
+    func saw_reactor_register(fd: Int, write: Int)
+    func saw_set_nonblocking(fd: Int) -> Int
+    func saw_errno_would_block() -> Int
+    // The ONLY OS-divergent piece of sockaddr_in: the sin_len/sin_family prefix
+    // (macOS byte layout differs from Linux). Everything else is uniform
+    // network-order data filled by `SockAddrIn` below.
+    func saw_sin_set_family(buf: UnsafePointer<Int8>)
+
+    // Bytes -> owned refcounted String (compiler runtime; see codegen/core.py).
+    func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
+}
+
+// AF_INET = 2, SOCK_STREAM = 1, AF_UNIX = 1 on both macOS and Linux.
+//
+// Reactor interest directions for `io_wait(fd, dir)`: 0 = read, 1 = write.
+//
+// `SockAddrIn` is a typed stack stand-in for `struct sockaddr_in`
+// (declaration-order natural-ABI layout, design 58: 16 bytes, align 8 from the
+// UInt64 — exceeds sockaddr_in's real requirement of 4). Its address is passed to
+// bind/accept/connect/getsockname via the design-42 reference->pointer cast, so
+// the socket paths allocate NOTHING per call. `port`/`addr` are stored in NETWORK
+// byte order directly in Saw (see `htons`); the OS-divergent `family` prefix is
+// stamped by `saw_sin_set_family`. FdPair is the 8-byte `int[2]` for socketpair.
+struct SockAddrIn {
+    family: UInt16    // OS-divergent prefix, stamped by saw_sin_set_family
+    port: UInt16      // network byte order
+    addr: UInt32      // network byte order (127.0.0.1 = 0x0100007F on LE)
+    zero: UInt64      // padding
+}
+
+struct FdPair {
+    a: Int32
+    b: Int32
+}
+
+// 127.0.0.1 as a native little-endian UInt32 whose in-memory bytes are the
+// network order 7f 00 00 01.
+func net_loopback_addr() -> UInt32 {
+    0x0100007f as UInt32
+}
+
+// host-order port -> network byte order (htons) as a native UInt16 whose bytes
+// are [hi, lo]. Targets are little-endian (x86-64 / aarch64).
+func htons(port: Int) -> UInt16 {
+    (((port & 0xff) << 8) | ((port >> 8) & 0xff)) as UInt16
+}
+
+// network byte order UInt16 -> host-order port (ntohs).
+func ntohs(net: UInt16) -> Int {
+    let v = net as Int
+    ((v & 0xff) << 8) | ((v >> 8) & 0xff)
+}
+
+// A stack `SockAddrIn` for 127.0.0.1:port with the OS-correct family prefix.
+func net_sockaddr(port: Int) -> SockAddrIn {
+    var sa = SockAddrIn(family: 0 as UInt16, port: htons(port), addr: net_loopback_addr(), zero: 0 as UInt64)
+    saw_sin_set_family((&sa) as UnsafePointer<Int8>)
+    sa
+}
+
+// The would-block sentinel returned by the `tcp_try_*` primitives.
+func net_would_block(r: Int) -> Bool {
+    r == (0 - 2)
+}
+
+// A heap read buffer, allocated ONCE per stream and reused across reads (freed
+// with `net_free_buffer`). NOT per-call: the socket read/write paths themselves
+// (`tcp_try_read`/`tcp_try_write`) allocate nothing — they take this pointer.
+func net_buffer(size: Int) -> UnsafePointer<Int8> {
+    if let p = Global().alloc(size, 1) {
+        return p
+    }
+    panic("net_buffer: out of memory")
+}
+
+func net_free_buffer(buf: UnsafePointer<Int8>, size: Int) {
+    Global().dealloc(buf, size, 1)
+}
+
+// Bytes -> owned String (convenience for tests / text protocols).
+func net_bytes_to_string(buf: UnsafePointer<Int8>, len: Int) -> String {
+    __saw_string_from_bytes(buf, len)
+}
+
+// Open a nonblocking listening TCP socket bound to 127.0.0.1:port. `port == 0`
+// requests an ephemeral port (read it back with `tcp_local_port`). Returns the
+// listen fd (>= 0) or -1.
+func tcp_listen(port: Int) -> Int {
+    let fd = socket(2 as Int32, 1 as Int32, 0 as Int32)
+    if fd < (0 as Int32) {
+        return 0 - 1
+    }
+    let _ = saw_set_nonblocking(fd as Int)
+    var sa = net_sockaddr(port)
+    let ap = (&sa) as UnsafePointer<Int8>
+    if bind(fd, ap, 16 as Int32) != (0 as Int32) {
+        let _ = close(fd)
+        return 0 - 1
+    }
+    if listen(fd, 16 as Int32) != (0 as Int32) {
+        let _ = close(fd)
+        return 0 - 1
+    }
+    fd as Int
+}
+
+// The actual local port a (possibly ephemeral) listen fd is bound to. -1 on error.
+func tcp_local_port(fd: Int) -> Int {
+    var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
+    let ap = (&sa) as UnsafePointer<Int8>
+    var len: Int32 = 16
+    let lp = (&len) as UnsafePointer<Int32>
+    let _ = getsockname(fd as Int32, ap, lp)
+    ntohs(sa.port)
+}
+
+// Nonblocking accept: a nonblocking connection fd (>= 0), the would-block
+// sentinel (-2) when no client is waiting, or -1 on error. Pair with
+// `io_wait(listen_fd, 0)` on a would-block.
+func tcp_try_accept(listen_fd: Int) -> Int {
+    var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
+    let ap = (&sa) as UnsafePointer<Int8>
+    var len: Int32 = 16
+    let lp = (&len) as UnsafePointer<Int32>
+    let c = accept(listen_fd as Int32, ap, lp)
+    if c >= (0 as Int32) {
+        let _ = saw_set_nonblocking(c as Int)
+        return c as Int
+    }
+    if saw_errno_would_block() == 1 {
+        return 0 - 2
+    }
+    0 - 1
+}
+
+// Start a nonblocking connect to 127.0.0.1:port. Returns a connecting fd (>= 0)
+// or -1. Then `io_wait(fd, 1)` until writable and `tcp_connect_check(fd)`.
+func tcp_connect_start(port: Int) -> Int {
+    let fd = socket(2 as Int32, 1 as Int32, 0 as Int32)
+    if fd < (0 as Int32) {
+        return 0 - 1
+    }
+    let _ = saw_set_nonblocking(fd as Int)
+    var sa = net_sockaddr(port)
+    let ap = (&sa) as UnsafePointer<Int8>
+    let r = connect(fd, ap, 16 as Int32)
+    if r == (0 as Int32) {
+        return fd as Int              // connected immediately (common on loopback)
+    }
+    if saw_errno_would_block() == 1 {
+        return fd as Int              // EINPROGRESS: wait for writability
+    }
+    let _ = close(fd)
+    0 - 1
+}
+
+// After a connecting fd becomes writable: 0 = connected, -2 = still in progress,
+// -1 = failed. (Loopback v1 treats writability as success; a getsockopt(SO_ERROR)
+// check is a future refinement.)
+func tcp_connect_check(fd: Int) -> Int {
+    0
+}
+
+// Nonblocking read: byte count (0 = peer closed / EOF), the would-block sentinel
+// (-2), or -1 on error. Pair with `io_wait(fd, NET_READ)` on a would-block.
+func tcp_try_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
+    let n = read(fd as Int32, buf, len)
+    if n >= 0 {
+        return n
+    }
+    if saw_errno_would_block() == 1 {
+        return 0 - 2
+    }
+    0 - 1
+}
+
+// Nonblocking write: bytes written (may be < len), the would-block sentinel (-2),
+// or -1 on error. Pair with `io_wait(fd, NET_WRITE)` on a would-block.
+func tcp_try_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
+    let n = write(fd as Int32, buf, len)
+    if n >= 0 {
+        return n
+    }
+    if saw_errno_would_block() == 1 {
+        return 0 - 2
+    }
+    0 - 1
+}
+
+// Close a socket fd.
+func tcp_close(fd: Int) {
+    let _ = close(fd)
+}
+
+// A connected, nonblocking AF_UNIX stream pair for tests (no external network).
+// Returns (a, b); (-1, -1) on failure.
+func tcp_socketpair() -> (Int, Int) {
+    var fds = FdPair(a: 0 as Int32, b: 0 as Int32)
+    let fp = (&fds) as UnsafePointer<Int32>
+    if socketpair(1 as Int32, 1 as Int32, 0 as Int32, fp) == (0 as Int32) {
+        let a = fp[0]
+        let b = fp[1]
+        let _ = saw_set_nonblocking(a as Int)
+        let _ = saw_set_nonblocking(b as Int)
+        return (a as Int, b as Int)
+    }
+    (0 - 1, 0 - 1)
+}

@@ -641,10 +641,15 @@ class EffectsMixin:
         # `suspends` bit: the conservative "call through a non-`sync` function
         # value" source (any closure call) and the test-only `__suspend` (used
         # only with explicit `__drive`) must NOT auto-wrap main.
-        real_labels = ("yield_now", "sleep")
+        # design 76: `__io_park` (IO reactor) and blocking-extern offload are also
+        # REAL suspensions that must wrap `main` in the entry executor.
+        real_labels = ("yield_now", "sleep", "__io_park", "io_wait")
+
+        def _is_real(s):
+            return s.label in real_labels or s.label.startswith("blocking extern")
         really = {}
         for key, node in nodes.items():
-            really[key] = any(s.label in real_labels for s in node.direct)
+            really[key] = any(_is_real(s) for s in node.direct)
         changed = True
         while changed:
             changed = False

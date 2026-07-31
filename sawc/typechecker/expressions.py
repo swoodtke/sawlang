@@ -1421,6 +1421,42 @@ class ExpressionsMixin:
                     f"were given", expr.line, expr.column)
             self._effect_direct_source("yield_now", expr.line)
             return SawType(TypeKind.VOID)
+        if expr.name == "__io_park":
+            # design 76 (A4): the IO reactor's suspension boundary. Like
+            # `yield_now`, a suspension point + transform state boundary, but it
+            # carries an IO-PARK wake reason (a negative sentinel): the executor
+            # parks in the reactor (kqueue/epoll) until an fd is ready rather than
+            # busy-requeuing. Emitted only inside std/net.saw's would-block loops;
+            # reached as a plain call (no executor) it is a no-op. No arguments.
+            if len(expr.arguments) != 0:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`__io_park` takes no arguments, but {len(expr.arguments)} "
+                    f"were given", expr.line, expr.column)
+            self._effect_direct_source("__io_park", expr.line)
+            return SawType(TypeKind.VOID)
+        if expr.name == "io_wait":
+            # design 76 (A4): the user-facing IO suspension point. `io_wait(fd,
+            # write)` registers `fd` with the reactor for read (write==0) or write
+            # (write==1) interest and parks the task until the fd is ready. A real
+            # suspension source (so callers suspend and a suspending `main` gets the
+            # entry executor). Two Int args; returns Void.
+            if len(expr.arguments) != 2:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`io_wait` takes exactly two positional Int arguments "
+                    f"(fd, write), but {len(expr.arguments)} were given",
+                    expr.line, expr.column)
+            else:
+                for a in expr.arguments:
+                    at = self._check_expression(a.value)
+                    if at is not None and self._get_underlying_type(at).kind != TypeKind.INT:
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"`io_wait` expects Int arguments, got `{at}`",
+                            expr.line, expr.column)
+            self._effect_direct_source("io_wait", expr.line)
+            return SawType(TypeKind.VOID)
         if expr.name == "sleep":
             # design 45 item 4: cooperative timed wait — a suspension point that
             # carries a "sleep for N ms" wake reason. The executor sleeps that long

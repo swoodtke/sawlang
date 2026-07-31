@@ -11,6 +11,63 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 76 — A4 IO reactor + A6 extern-blocking + A3 remainder (IN PROGRESS)
+- **Commit 1 (A4 reactor + std.net + A3 io-cancel; ST + entry executor):** A
+  process-global **kqueue (macOS) / epoll (Linux)** reactor (compiler seams in
+  codegen/core.py, `_declare_io_runtime`): a single lazily-created, race-safe
+  (atomic cmpxchg) reactor fd; `saw_reactor_register(fd, write)` arms ONE-SHOT
+  read/write interest; `saw_reactor_poll(timeout_ms)` blocks in kevent/epoll_wait
+  (< 0 = forever) and returns the ready count — the kernel owns the interest set,
+  so register/poll are each ONE syscall (why kqueue/epoll beats poll(2) for a
+  global reactor). OS-divergent socket bits stay in shims (`saw_set_nonblocking`,
+  `saw_errno_would_block`, `saw_sin_set_family`); hosted-only (freestanding: extern
+  decls, net never loaded). **`io_wait(fd, write)`** is a new suspend INTRINSIC
+  (like `yield_now`): the coro transform lowers it to `saw_reactor_register` +
+  suspend with a NEGATIVE (io-park) wake reason; codegen fallback (outside a frame)
+  is register + blocking poll. The ST group executor (`__run_all_st`) + the entry
+  executor gained an io phase: when nothing is runnable, poll the reactor with the
+  earliest sleep deadline as the timeout (never busy-wait, never block while a
+  frame is runnable), wake ALL io-parked tasks on return (coarse level-triggered
+  retry — a still-not-ready task re-registers via oneshot), advance sleepers only
+  when the poll TIMED OUT (events==0). **std/net.saw**: minimal nonblocking TCP as
+  the channel-style idiom (NON-suspending `tcp_try_read`/`tcp_try_write`/
+  `tcp_try_accept` + `io_wait` in the caller task body — a suspending std free fn
+  CANNOT embed as a sub-frame since the transform is entry-module-only, same reason
+  `Channel.receive()` is inline-lowered); `tcp_listen`/`tcp_local_port`/
+  `tcp_connect_start`/`tcp_connect_check`/`tcp_socketpair`/`tcp_close`/
+  `net_buffer`/`net_bytes_to_string`. Zero per-call heap in the socket paths: a
+  typed `SockAddrIn` stack struct (design-58 natural layout) + `(&sa) as
+  UnsafePointer` (design-42), htons/ntohs in Saw. A3: cancellation observed at the
+  io suspension point via the cancel-check-before-`io_wait` idiom (mirrors the
+  channel cancellation-aware receive). Tests (loopback/socketpair only,
+  deterministic on counts/contents, time-bounded): `net_socketpair_echo`,
+  `net_loopback_echo` (listen/accept/connect/read/write), `net_io_sleep_interleave`
+  (never-block: sleeper honored while an fd is idle + io wake), `net_io_main_entry`
+  (entry-executor reactor path), `net_io_cancel` (A3 + deinit oracle). Suite 823,
+  bootstrap 17+17, libs 4+4.
+  - **FOUND (pre-existing, flagged): a TUPLE local held across a suspend ICEs**
+    ("cannot store {i64,i64} to {i1,{i64,i64}}*") — the coro frame opt-encodes the
+    tuple slot but the store site doesn't wrap it; reproduces with plain
+    `yield_now` (NO io). `let (a,b) = f()` DESTRUCTURING across a suspend also
+    drops bindings. Orthogonal to design 76 (frame opt-encoding of non-POD-but-
+    cleanup-free locals). Worked around in tests (keep only `Int` across the
+    suspend; confine tuples to non-suspending helpers). Fix belongs with the coro
+    frame-encoding work. [44, 76]
+  - **DEFERRED (A4 remainder, re-ledgered): first-class inline-lowered
+    `tcp_read`/`tcp_accept`/`tcp_write`/`tcp_connect`** (receive()-style, so the
+    park loop is not hand-written in the task body). The transform being
+    entry-module-only forces the channel-idiom shape today; the ergonomic lift is a
+    `recv_by_id`-style recognition + `_emit_io_call` inline lowering. [62, 76]
+  - **DEFERRED (A3 remainder): waking an ALREADY-io-parked task on cancel.** A task
+    parked in `io_wait` on a permanently-idle fd, cancelled by a peer, won't observe
+    `cancelled()` until the reactor poll returns (needs a self-pipe/eventfd wake).
+    Same liveness class as the design's "join on a task that never observes
+    cancellation blocks"; the landed model observes cancel at the check BEFORE
+    parking. [18, 76]
+  - **MT (design 75) reactor integration: NOT YET.** `__tg_worker` doesn't poll the
+    reactor; a `TaskGroup(threads: N)` doing io is unsupported (next commit). ST
+    groups + entry executor + suspending main are done.
+
 ## Design 75 — A2: multi-threaded work-stealing executor + Send-on-frames (LANDED)
 - **Commit 1 (surface + Send-on-frames gate; execution still single-threaded):**
   `TaskGroup(threads: N)` labeled init landed (a second `init(threads: Int)`; the
@@ -376,12 +433,22 @@ items need a probe before being treated as real work.
   confinement preserved (one worker per frame; frames move only between
   suspensions). Cross-task cancel via `TaskHandle.cancel_addr()`. [18, 52b, 75]
 - **A3.** Explicit-only cancellation points (`Task.cancelled()`, select).
-- **A4.** IO reactor (poller-only v1, kqueue/epoll, never-block).
-- **A6.** `extern blocking` offload pool. **A7.** Separate-compilation
-  interface format w/ suspends bit. ~~**A8.** Suspension-path diagnostic
-  anchors.~~ DONE (design 74): coroutine-transform rejections + sync violations
-  anchor at the user's file:line:col with a source snippet, naming the
-  instantiation + suspension path. **A9.** Actor sugar. [18, 74]
+  MOSTLY DONE (design 76): cancellation observed at the io suspension point via the
+  cancel-check-before-`io_wait` idiom (+ the existing channel/yield checks).
+  Remainder: waking an ALREADY-io-parked task on cancel (self-pipe) — re-ledgered
+  under design 76.
+- ~~**A4.** IO reactor (poller-only v1, kqueue/epoll, never-block).~~ MOSTLY DONE
+  (design 76): global kqueue/epoll reactor + `io_wait` intrinsic + std.net
+  nonblocking TCP; ST group + entry executor never-block poll. Remainders
+  re-ledgered under design 76 (MT integration, first-class inline-lowered
+  read/accept/write). [18, 76]
+- **A6.** `extern blocking` offload pool (front-end parse/effect/sync already
+  wired; runtime offload pool + coro lowering pending — design 76). **A7.**
+  Separate-compilation interface format w/ suspends bit. ~~**A8.** Suspension-path
+  diagnostic anchors.~~ DONE (design 74): coroutine-transform rejections + sync
+  violations anchor at the user's file:line:col with a source snippet, naming the
+  instantiation + suspension path. ~~**A9.** Actor sugar.~~ DROPPED from the
+  roadmap (user, Jul 31). [18, 74, 76]
 - Two runtimes coexist (thread-engine spawn/Task vs cooperative
   TaskGroup) — unification unscheduled. [21b, 52b]
 

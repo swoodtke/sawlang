@@ -87,7 +87,12 @@ def _poll(variant):
 
 # The suspension-boundary intrinsics: `__suspend` (test-only synthetic), and the
 # real primitives `yield_now()` (immediately re-ready) and `sleep(ms)` (timed).
-_SUSPEND_CALLS = ("__suspend", "yield_now", "sleep")
+_SUSPEND_CALLS = ("__suspend", "yield_now", "sleep", "__io_park", "io_wait")
+
+# design 76 (A4): the IO-park wake reason. A negative sentinel distinct from the
+# `sleep(ms)` (>0) and yield/channel-retry (0) reasons: the executor parks in the
+# reactor (kqueue/epoll) rather than sleeping or busy-requeuing.
+IO_PARK_WAKE = -1
 
 
 def _suspend_call_name(stmt):
@@ -111,6 +116,8 @@ def _wake_expr(stmt):
     fc = stmt.expression
     if fc.name == "sleep":
         return fc.arguments[0].value
+    if fc.name == "__io_park":
+        return _int(IO_PARK_WAKE)
     return _int(0)
 
 
@@ -959,10 +966,26 @@ class _FrameBuilder:
     def _lower_stmt(self, s, loop_ctx):
         # A suspension primitive: terminate this block, resume at a fresh one.
         if _is_suspend_stmt(s):
+            forgets = []
+            fc = s.expression
+            # design 76 (A4): `io_wait(fd, dir)` is register-then-park sugar. Emit
+            # the (non-suspending) reactor registration IN PLACE with `fd`/`dir`
+            # rewritten to frame fields, then suspend with the IO-PARK wake reason.
+            if fc.name == "io_wait":
+                fd_a = self._rewrite_expr(fc.arguments[0].value, forgets)
+                dir_a = self._rewrite_expr(fc.arguments[1].value, forgets)
+                self._emit(self._forgets(forgets))
+                self._emit([ExpressionStatement(expression=FunctionCall(
+                    name="saw_reactor_register",
+                    arguments=[Argument(name=None, value=fd_a),
+                               Argument(name=None, value=dir_a)]))])
+                nxt = self._new_block()
+                self._suspend_to(_int(IO_PARK_WAKE), nxt)
+                self.cur = nxt
+                return
             # The wake expression (e.g. `sleep(ms)`'s `ms`) is ordinary body code:
             # rewrite its identifiers to frame fields, so a NON-literal argument
             # (`sleep(delay)` where `delay` is a param/local) reads `self.delay`.
-            forgets = []
             wake = self._rewrite_expr(_wake_expr(s), forgets)
             nxt = self._new_block()
             self._emit(self._forgets(forgets))
@@ -1519,13 +1542,25 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
     resume_call = MethodCall(object=Identifier(name="__f"), method_name="resume",
                              arguments=[])
     wake = MemberAccess(object=Identifier(name="__f"), member="__wake")
+    # design 76 (A4): a single-frame entry executor. wake > 0 => sleep; wake < 0
+    # (IO-park) => block in the reactor until an fd is ready (there is no other
+    # task or timer to honour, so the poll timeout is infinite / -1); wake == 0
+    # (yield) => resume at once.
+    io_poll = Block(statements=[ExpressionStatement(expression=IfExpr(
+        condition=BinaryOp(op="<", left=MemberAccess(
+            object=Identifier(name="__f"), member="__wake"), right=_int(0)),
+        then_branch=Block(statements=[ExpressionStatement(expression=FunctionCall(
+            name="saw_reactor_poll",
+            arguments=[Argument(name=None, value=_int(-1))]))],
+            final_expr=None)))], final_expr=None)
     pending_body = Block(statements=[ExpressionStatement(expression=IfExpr(
         condition=BinaryOp(op=">", left=wake, right=_int(0)),
         then_branch=Block(statements=[ExpressionStatement(expression=FunctionCall(
             name="__exec_sleep",
             arguments=[Argument(name=None, value=MemberAccess(
                 object=Identifier(name="__f"), member="__wake"))]))],
-            final_expr=None)))], final_expr=None)
+            final_expr=None),
+        else_branch=io_poll))], final_expr=None)
     done_body = Block(statements=[AssignStatement(
         target=Identifier(name="__done"), value=BoolLiteral(value=True))],
         final_expr=None)
