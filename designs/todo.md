@@ -54,6 +54,19 @@ items need a probe before being treated as real work.
   std/net.saw (`fd < 0`, `!= 0`, `>= 0`, `== 0`). Tests
   `comparison_literal_coercion`, `errors/comparison_literal_out_of_range`. Suite
   841, bootstrap 17+17, libs 4+4. [65, 76]
+- **Item 10 RIDER (tuple / destructuring across a suspend) — LANDED.** Two frame
+  opt-encoding gaps from design 76: (a) a TUPLE local held across a suspend ICE'd
+  ("cannot store {i64,i64} to {i1,{i64,i64}}*") — already fixed incidentally by
+  item 4's `_is_optional_type` optional-wrap change (a tuple is a
+  LiteralStructType the old "not a struct" guard skipped); locked by
+  `coro_tuple_across_suspend`. (b) `let (a,b) = f()` destructuring across a
+  suspend DROPPED the bindings ("undefined variable a") — the transform's
+  `_collect_frame_locals` only saw plain `let name`, not `DestructuringLet`.
+  Now each tuple-pattern leaf is collected as a frame local (typed from the
+  source tuple's position) and `let (a,b)=v` lowers to a fresh temp +
+  `self.a = __t.0; self.b = __t.1` (auto-wrapping opt-encoded fields). Wildcards,
+  nested patterns, and direct-tuple sources all work. Test
+  `coro_destructure_across_suspend`. Suite 843, bootstrap 17+17, libs 4+4. [44, 62, 76]
 - **Item 5 (A5-rest shape 1: buried suspending method sub-frame) — RE-LEDGERED
   (per the brief's escape hatch; rejection stays clean + anchored).** The FEATURE
   (embed a nested suspending METHOD call `let r = c.step()` as a sub-frame — the

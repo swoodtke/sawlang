@@ -1,0 +1,20 @@
+// A tuple LOCAL held across a suspension in a driven frame (design 77 item 10).
+// The frame opt-encodes the tuple slot as `(Int, Int)?`; the store used to ICE
+// ("cannot store {i64,i64} to {i1,{i64,i64}}*") because the optional-wrap guard
+// skipped struct-typed inners. Now the tuple survives the suspend and its
+// components read correctly after resume.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 30
+// 1
+
+func work() -> Int {
+    let pair = (10, 20)     // tuple frame-local, lives across the suspend
+    __suspend()
+    pair.0 + pair.1         // 30 (pair survived)
+}
+
+func main() {
+    print(__drive(work()))        // 30
+    print(__drive_steps(work()))  // 1 suspension
+}

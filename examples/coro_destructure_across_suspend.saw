@@ -1,0 +1,39 @@
+// `let (a, b) = f()` destructuring across a suspension (design 77 item 10). The
+// destructured bindings used to be DROPPED (the transform's frame-local
+// collection only saw plain `let name = ...`, not the tuple-pattern bindings —
+// "undefined variable a" after the suspend). Now each leaf binding is
+// frame-resident and survives the suspend; wildcards, nested patterns, and a
+// direct tuple source all work.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// 304
+// 6
+
+func mk2() -> (Int, Int) { (7, 13) }
+func mk3() -> (Int, Int, Int) { (1, 2, 3) }
+
+func simple() -> Int {
+    let (a, b) = mk2()
+    __suspend()
+    a + b                       // 20
+}
+
+func wild_and_direct() -> Int {
+    let (a, _, c) = mk3()       // wildcard middle
+    let (x, y) = (100, 200)     // direct tuple source
+    __suspend()
+    a + c + x + y               // 1 + 3 + 100 + 200 = 304
+}
+
+func nested() -> Int {
+    let ((a, b), c) = ((1, 2), 3)
+    __suspend()
+    a + b + c                   // 6
+}
+
+func main() {
+    print(__drive(simple()))
+    print(__drive(wild_and_direct()))
+    print(__drive(nested()))
+}

@@ -40,6 +40,7 @@ from ast_nodes import (
     GuardLetStatement,
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
     Parameter, SawType, TypeKind, Visibility, ClosureExpr, CaptureSpec,
+    DestructuringLet, TuplePattern, BindingPattern, WildcardPattern, TupleIndex,
 )
 
 
@@ -510,6 +511,15 @@ class _FrameBuilder:
                     t = s.type_annotation or getattr(s.value, 'resolved_type', None)
                     add(s.name, t, s.line, s.column)
                 return
+            if isinstance(s, DestructuringLet):
+                # `let (a, b) = expr` across a suspension (design 77 item 10):
+                # each destructured binding is frame-resident. Its type comes from
+                # the matching position of the source tuple's resolved type.
+                if scope_spans:
+                    src_t = getattr(s.value, 'resolved_type', None)
+                    for name, bt in self._destructure_leaf_types(s.pattern, src_t):
+                        add(name, bt, s.line, s.column)
+                return
             ctrl = s.expression if isinstance(s, ExpressionStatement) else s
             if isinstance(ctrl, IfExpr):
                 walk_block(ctrl.then_branch)
@@ -532,6 +542,55 @@ class _FrameBuilder:
 
         walk_block(self.func.body)
         return locals_
+
+    def _destructure_leaf_types(self, pattern, src_type):
+        """Yield (binding_name, type) for each BindingPattern leaf of an
+        irrefutable tuple pattern, pairing it with the matching position of the
+        source tuple's type (design 77 item 10). Wildcards bind nothing.
+        Positions with no known type (src_type missing/short) raise, mirroring
+        the untyped-local guard."""
+        out = []
+
+        def walk(pat, t):
+            if isinstance(pat, WildcardPattern):
+                return
+            if isinstance(pat, BindingPattern):
+                if t is None:
+                    raise CoroTransformError(
+                        f"coroutine transform: destructured binding `{pat.name}` in "
+                        f"driven `{self.name}` has no resolved type",
+                        getattr(pat, 'line', self.func.line), 0)
+                out.append((pat.name, t))
+                return
+            if isinstance(pat, TuplePattern):
+                elems = t.element_types if (t is not None and t.kind == TypeKind.TUPLE
+                                            and t.element_types) else None
+                for i, sub in enumerate(pat.elements):
+                    walk(sub, elems[i] if (elems is not None and i < len(elems)) else None)
+                return
+            raise CoroTransformError(
+                f"coroutine transform: unsupported destructuring pattern in driven "
+                f"`{self.name}` across a suspension", self.func.line, 0)
+
+        walk(pattern, src_type)
+        return out
+
+    def _destructure_assigns(self, pattern, base_expr, out, line, col):
+        """Append `self.<leaf> = <base>.<i>...` assignments for each binding leaf
+        of a tuple pattern (design 77 item 10). `base_expr` indexes into the
+        source temp; nested tuple patterns recurse through `TupleIndex`."""
+        if isinstance(pattern, TuplePattern):
+            for i, sub in enumerate(pattern.elements):
+                idx = TupleIndex(tuple_expr=base_expr, index=i, line=line, column=col)
+                self._destructure_assigns(sub, idx, out, line, col)
+            return
+        if isinstance(pattern, BindingPattern):
+            out.append(AssignStatement(
+                target=_self_field(pattern.name, line, col),
+                value=base_expr, line=line, column=col))
+            return
+        # WildcardPattern: bind nothing (the component is dropped; POD tuples in
+        # v1 need no explicit drop).
 
     # ------------------------------------------------------------------ #
     # suspension analysis over the body (CFG split decisions, design 52)
@@ -889,6 +948,8 @@ class _FrameBuilder:
         # design 77 item 4: the current statement's closure-capture materialization
         # `let`s (None outside a straight-line statement that can host them).
         self._cap_lets = None
+        # design 77 item 10: fresh-temp counter for destructuring lowering.
+        self._destr_ctr = 0
         self.cur = 0
 
         self._lower_stmts(func.body.statements, loop_ctx=None)
@@ -1545,6 +1606,21 @@ class _FrameBuilder:
             value = (self._rewrite_expr(s.value, forgets)
                      if s.value is not None else None)
             return self._done_seq(value, forgets)
+
+        if isinstance(s, DestructuringLet):
+            # `let (a, b) = value` across a suspension (design 77 item 10): bind
+            # the source tuple to a fresh straight-line temp, then assign each
+            # frame-resident leaf `self.<name> = __t.<i>` (the assignment
+            # auto-wraps an opt-encoded field to Some). Wildcards bind nothing.
+            forgets = []
+            value = self._rewrite_expr(s.value, forgets)
+            tmp = f"__destr{self._destr_ctr}"
+            self._destr_ctr += 1
+            out = [LetStatement(name=tmp, type_annotation=None, value=value,
+                                mutable=False, line=s.line, column=s.column)]
+            base = Identifier(name=tmp, line=s.line, column=s.column)
+            self._destructure_assigns(s.pattern, base, out, s.line, s.column)
+            return out + self._forgets(forgets)
 
         if isinstance(s, LetStatement):
             forgets = []
