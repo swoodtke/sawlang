@@ -64,6 +64,37 @@ items need a probe before being treated as real work.
   the design-65 aggregate copy-with-retain; a bare Identifier closure
   (move/borrow-lend) is untouched. Verified deterministic-clean under
   libgmalloc + MallocScribble (20x). Suite 831, bootstrap 17+17, libs 4+4. [73]
+- **Item 4 (DF-C1: closures in coroutine frames) — LANDED.** A closure created in
+  a driven body is now supported: (1) closure-typed frame field via a new
+  `opt_closure` encoding (Optional-wrapped, drop-flag = None/Some, forced `sync`
+  since a stored closure cannot be driven; frame re-registration no longer trips
+  "redundant escaping" — `_clear_escaping` clears the bit on the field type so
+  re-stamping is clean); (2) a CALL `f(args)` on a frame closure local rewrites to
+  an indirect field call `self.f(args)` (typechecker force-unwraps the opt field
+  on a `__Frame_*` struct; codegen extracts the inner closure); (3) captured frame
+  locals are MATERIALIZED as real locals before the closure (`let x = self.x!.copy()`
+  + a `move` capture) so the closure captures by value — crucially `move`, not a
+  persistent function-local, because a resume state machine would re-drop an owning
+  local on every re-entry. Codegen `MemberAccess`-to-optional wrap now uses
+  `_is_optional_type` so a struct/closure inner wraps to Some. Tests
+  `coro_closure_local_call`, `coro_closure_deinit_once` (exact deinit-once,
+  gmalloc-clean), `coro_closure_taskgroup` (spawned frames own closures). All 3
+  verified clean under libgmalloc. Suite 834, bootstrap 17+17, libs 4+4. [73, 74, 44, 52b]
+  - **FOUND (pre-existing, FLAGGED): `__drive(f(move owning_arc))` double-frees the
+    moved param.** A driven function taking an owning ImplicitCopy value (Arc) as a
+    param, moved in at the drive site, DOUBLE-DROPS it: the synthesized
+    `__drive_<f>` wrapper builds the frame from the param `Identifier` WITHOUT
+    retaining into the opt-encoded field (`_needs_copy_for_struct_init` sees the
+    field type `Arc?` = Optional -> `_get_cleanup_behavior` = "none", so no retain),
+    yet the param binding keeps its drop flag AND the frame drops its field. Benign
+    under the normal/scribble allocator (the 2nd Arc deinit reads a freed-but-mapped
+    strong word and no-ops), but a real read-after-free (deterministic SIGSEGV under
+    libgmalloc). Repro: `func run(a: Arc<Res>){...__suspend()...}; __drive(run(move a))`
+    — NO closure needed. Reproduces at HEAD (pre-item-77-4). An owning value created
+    as a frame LOCAL (not a moved param) is clean. Fix belongs with the frame-init
+    retain path (opt-encoded ImplicitCopy field construction must retain, or the
+    driver must move-clear the param). Deferred from item 4 (orthogonal to closures;
+    the deinit-once test uses a frame-local Arc to stay clean). [44, 52b]
 
 ## Design 76 — A4 IO reactor + A6 extern-blocking + A3 remainder (IN PROGRESS)
 - **Commit 1 (A4 reactor + std.net + A3 io-cancel; ST + entry executor):** A

@@ -371,12 +371,15 @@ class StatementsMixin:
             if field_saw is not None and isinstance(stmt.value, Identifier):
                 value = self._generate_copy(value, field_saw)
 
-            # Check if we need to wrap in optional (non-optional value for optional field)
+            # Check if we need to wrap in optional (non-optional value for optional
+            # field). Use `_is_optional_type` (a 2-element {i1, T}) rather than a
+            # bare "not a struct" test, so a struct-typed inner also wraps — e.g. an
+            # opt-encoded coroutine closure frame field `f: (()->Int)?` whose value
+            # is the 3-word closure struct (design 77 item 4).
             expected_field_type = field_ptr.type.pointee
-            if isinstance(expected_field_type, ir.LiteralStructType) and len(expected_field_type.elements) == 2:
-                # Expected is optional {i1, T}, check if value needs wrapping
-                if not isinstance(value.type, ir.LiteralStructType):
-                    value = self._wrap_in_optional(value)
+            if (self._is_optional_type(expected_field_type)
+                    and not self._is_optional_type(value.type)):
+                value = self._wrap_in_optional(value)
 
             # Store value to field
             self.builder.store(value, field_ptr)

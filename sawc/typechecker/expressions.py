@@ -4577,6 +4577,17 @@ class ExpressionsMixin:
                     field_type = field_type.substitute(type_subst)
                 if field_type.kind == TypeKind.FUNCTION:
                     return self._check_field_call(expr, field_type)
+                # design 77 item 4: an opt-encoded closure frame field
+                # (`f: (()->Int)?` on a synthesized `__Frame_*` struct) is called
+                # through `self.f` — force-unwrap to the closure and dispatch as an
+                # indirect field call. Restricted to frame structs so a user's
+                # optional-closure field keeps its current (non-callable) meaning.
+                if (field_type.kind == TypeKind.OPTIONAL
+                        and field_type.inner_type is not None
+                        and field_type.inner_type.kind == TypeKind.FUNCTION
+                        and struct_name.startswith("__Frame_")):
+                    expr.field_call_unwrap = True
+                    return self._check_field_call(expr, field_type.inner_type)
             # Collect available methods from both generic and specialized
             available = list(struct_info.methods.keys())
             if obj_type.type_args:

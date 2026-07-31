@@ -1,0 +1,29 @@
+// DF-C1 (design 77 item 4): a closure local, created in a driven body and CALLED
+// after a suspension. The closure becomes an opt-encoded frame field; its
+// captured frame locals are materialized as real locals before it (so it
+// captures by value, not through `self`), and the call `f()` is rewritten to an
+// indirect field call on `self.f!`. Previously two clean errors ("redundant
+// escaping" on the frame field + "undefined function f" at the call).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 66
+
+func run(base: Int) -> Int {
+    let f: () -> Int = { base + 1 }   // captures `base` (a frame-resident param)
+    __suspend()
+    f()                                // called in a later state
+}
+
+func two(base: Int) -> Int {
+    let f: () -> Int = { base * 2 }
+    __suspend()
+    let g: () -> Int = { base + 6 }   // a second closure, after the suspend
+    __suspend()
+    f() + g()                          // 40 + 26 = 66 for base = 20
+}
+
+func main() {
+    print(__drive(run(10)))            // 11
+    print(__drive(two(20)))            // 66
+}

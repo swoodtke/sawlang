@@ -39,7 +39,7 @@ from ast_nodes import (
     ExpressionStatement, LetStatement, AssignStatement, WhileExpr,
     GuardLetStatement,
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
-    Parameter, SawType, TypeKind, Visibility,
+    Parameter, SawType, TypeKind, Visibility, ClosureExpr, CaptureSpec,
 )
 
 
@@ -145,6 +145,61 @@ def _opt(saw_type):
     return SawType(TypeKind.OPTIONAL, inner_type=saw_type)
 
 
+def _clear_escaping(t):
+    """Return a copy of `t` normalized for use as a coroutine frame field type
+    (design 77 item 4): `func_is_escaping` cleared and `func_is_sync` forced on
+    every function type it contains.
+
+    - escaping: a closure-typed frame field carries the ORIGINAL local's
+      already-stamped escaping bit. The synthesized frame struct is re-registered
+      through the normal front half, which re-stamps struct fields as escaping and
+      reports "redundant `escaping`" when the marker is already present. Clearing
+      the bit lets re-stamping set it cleanly (a frame field is a non-parameter,
+      always-escaping position).
+    - sync: a stored closure cannot itself be driven/suspend in this model
+      (`yield_now` inside an un-driven closure body is a codegen no-op), so an
+      indirect call to a frame closure field is sync-safe. Forcing the field type
+      `sync` keeps the synthesized `sync resume` from tripping the effect
+      checker's "call through a non-`sync` function value" rule.
+
+    Fresh SawType, no shared mutation.
+    """
+    if t is None or not _contains_function(t):
+        return t
+    if t.kind == TypeKind.FUNCTION:
+        return SawType(TypeKind.FUNCTION,
+                       param_types=[_clear_escaping(p) for p in (t.param_types or [])],
+                       func_return_type=_clear_escaping(t.func_return_type),
+                       func_is_sync=True,
+                       func_is_escaping=False)
+    if t.kind == TypeKind.OPTIONAL and t.inner_type is not None:
+        return SawType(TypeKind.OPTIONAL, inner_type=_clear_escaping(t.inner_type))
+    if t.kind == TypeKind.ARRAY and t.array_element_type is not None:
+        return SawType(TypeKind.ARRAY,
+                       array_element_type=_clear_escaping(t.array_element_type),
+                       array_size=t.array_size)
+    if t.kind == TypeKind.TUPLE and t.element_types:
+        return SawType(TypeKind.TUPLE,
+                       element_types=[_clear_escaping(e) for e in t.element_types])
+    return t
+
+
+def _contains_function(t):
+    """Whether `t` contains a function type (directly or nested in an
+    Optional/array/tuple). Used to leave non-closure frame field types untouched."""
+    if t is None:
+        return False
+    if t.kind == TypeKind.FUNCTION:
+        return True
+    if t.kind == TypeKind.OPTIONAL:
+        return _contains_function(t.inner_type)
+    if t.kind == TypeKind.ARRAY:
+        return _contains_function(t.array_element_type)
+    if t.kind == TypeKind.TUPLE:
+        return any(_contains_function(e) for e in (t.element_types or []))
+    return False
+
+
 # Frame-field encodings (design 44 + 62):
 #   "plain"    — POD field; field type == declared type; read `self.name`; zero-init.
 #   "opt"      — cleanup-needing non-optional type `T`, encoded as `T?`; the
@@ -160,6 +215,13 @@ def _is_taskgroup(saw_type):
 def _enc_of(saw_type):
     if _is_pod(saw_type):
         return "plain"
+    # design 77 item 4: a closure frame field. Cleanup-needing like "opt" (the
+    # None/Some tag is the drop flag; the env is released exactly once at frame
+    # death), but a CALL to it (`f(args)`) is rewritten to an indirect field
+    # call on `self.f!`, and a bare read to `self.f!` — the extra encoding tag
+    # tells `_rewrite_expr` to do the call rewrite.
+    if saw_type is not None and saw_type.kind == TypeKind.FUNCTION:
+        return "opt_closure"
     if saw_type is not None and saw_type.kind == TypeKind.OPTIONAL:
         return "self_opt"
     # design 62 G1: a frame-resident `TaskGroup` is "plain"-encoded so `&group`
@@ -175,17 +237,17 @@ def _enc_of(saw_type):
 
 
 def _field_type(saw_type, enc):
-    return _opt(saw_type) if enc == "opt" else saw_type
+    return _opt(saw_type) if enc in ("opt", "opt_closure") else saw_type
 
 
 def _enc_unwraps(enc):
-    return enc == "opt"
+    return enc in ("opt", "opt_closure")
 
 
 def _enc_cleanup(enc):
     """True for an encoding whose field carries a drop flag (None/Some): a move
     out must `__forget` it, and its initial (not-yet-live) value is `None`."""
-    return enc in ("opt", "self_opt")
+    return enc in ("opt", "self_opt", "opt_closure")
 
 
 # --------------------------------------------------------------------------- #
@@ -202,7 +264,7 @@ def _enc_cleanup(enc):
 
 def _read_field(name, encoding, line=0, column=0):
     acc = _self_field(name, line, column)
-    if encoding == "opt":
+    if encoding in ("opt", "opt_closure"):
         return ForceUnwrap(expr=acc, line=line, column=column)
     return acc
 
@@ -640,10 +702,10 @@ class _FrameBuilder:
             fields.append(StructField(name="__recv", type=self.recv_type))
         for p in self.params:
             fields.append(StructField(name=p.name,
-                                      type=_field_type(p.type, encmap[p.name])))
+                                      type=_clear_escaping(_field_type(p.type, encmap[p.name]))))
         for lname, lt in self.frame_locals:
             fields.append(StructField(name=lname,
-                                      type=_field_type(lt, encmap[lname])))
+                                      type=_clear_escaping(_field_type(lt, encmap[lname]))))
         for c in self.calls:
             fields.append(StructField(
                 name=c['sub'],
@@ -824,6 +886,9 @@ class _FrameBuilder:
         self._blocks = [[]]      # block 0 is the entry
         self._term = set()       # ids of blocks already terminated
         self._done_lits = []     # IntLiterals for the __state=<done> marker
+        # design 77 item 4: the current statement's closure-capture materialization
+        # `let`s (None outside a straight-line statement that can host them).
+        self._cap_lets = None
         self.cur = 0
 
         self._lower_stmts(func.body.statements, loop_ctx=None)
@@ -1313,6 +1378,29 @@ class _FrameBuilder:
                 and not node.arguments):
             return _self_field("__cancel", getattr(node, 'line', 0),
                                getattr(node, 'column', 0))
+        # design 77 item 4: a CALL to a frame-resident closure local `f(args)` ->
+        # an indirect field call `self.f(args)` (codegen force-unwraps the
+        # opt-encoded field). The closure name lives in `FunctionCall.name` (a
+        # plain string, invisible to the identifier rewrite), so intercept it
+        # here. Arguments are rewritten normally.
+        if (isinstance(node, FunctionCall)
+                and self.encmap.get(node.name) == "opt_closure"):
+            mc = MethodCall(
+                object=SelfExpr(line=node.line, column=node.column),
+                method_name=node.name,
+                arguments=self._rewrite_expr_val(node.arguments, forgets),
+                line=node.line, column=node.column)
+            return mc
+        # design 77 item 4: a CLOSURE created in the driven body may capture frame
+        # locals (params / across-suspend locals). Its body runs as a SEPARATE
+        # function with no `self`, so rewriting the captures to `self.<field>`
+        # inside it is wrong. Instead materialize each captured frame local as a
+        # real local (`let base = self.base!`) right before the closure and leave
+        # the closure body untouched — codegen then captures the local by value
+        # (retain for ImplicitCopy) exactly as for ordinary code.
+        if isinstance(node, ClosureExpr):
+            self._materialize_closure_captures(node)
+            return node
         if self.is_method and isinstance(node, SelfExpr):
             # The method's `self` -> the receiver through the frame pointer:
             # `self.__recv[0]` (here `self` is the frame — resume's receiver).
@@ -1346,6 +1434,97 @@ class _FrameBuilder:
             return self._rewrite_expr(val, forgets)
         return val
 
+    def _closure_frame_free_names(self, cexpr):
+        """Frame-resident names (in `encmap`) referenced by a closure — the
+        captures that must be materialized as real locals before it (design 77
+        item 4). Collects every `Identifier` in the closure subtree that is a
+        frame local, minus the closure's own parameter names, plus any explicit
+        `[move x]`/`[&var x]` capture-spec names."""
+        params = {p.name for p in (cexpr.parameters or [])}
+        found = []
+        seen = set()
+
+        def add(name):
+            if name in self.encmap and name not in params and name not in seen:
+                seen.add(name)
+                found.append(name)
+
+        def walk(n):
+            if isinstance(n, Identifier):
+                add(n.name)
+                return
+            if isinstance(n, list):
+                for e in n:
+                    walk(e)
+                return
+            if isinstance(n, tuple):
+                for e in n:
+                    walk(e)
+                return
+            if isinstance(n, Argument):
+                walk(n.value)
+                return
+            if isinstance(n, ASTNode):
+                for f in dataclasses.fields(n):
+                    walk(getattr(n, f.name))
+
+        walk(cexpr.body)
+        # Explicit capture-spec names ([move x] / [&var x]) reference frame locals
+        # by name too.
+        for spec in (cexpr.capture_specs or []):
+            nm = getattr(spec, 'name', None)
+            if nm is not None:
+                add(nm)
+        return found
+
+    def _materialize_closure_captures(self, cexpr):
+        """Append `let <name> = <frame read>` bindings for the closure's captured
+        frame locals to the current statement's capture-let accumulator, so the
+        closure captures a real local by value. Rejected (clean, anchored) if a
+        closure with frame captures appears in a position with no accumulator
+        (e.g. a suspension-spanning condition)."""
+        names = self._closure_frame_free_names(cexpr)
+        if not names:
+            return
+        if self._cap_lets is None:
+            raise CoroTransformError(
+                f"coroutine transform: a closure capturing a frame-resident local "
+                f"in this position of driven `{self.name}` is not supported; bind "
+                f"the closure to a `let` in straight-line body code",
+                getattr(cexpr, 'line', self.func.line),
+                getattr(cexpr, 'column', 0))
+        already = {ls.name for ls in self._cap_lets}
+        line = getattr(cexpr, 'line', 0)
+        col = getattr(cexpr, 'column', 0)
+        spec_names = {s.name for s in (cexpr.capture_specs or [])}
+        for name in names:
+            # The closure takes ownership of the materialized copy via a `move`
+            # capture (design 77 item 4). Crucial for a state-machine `resume`:
+            # a persistent function-local holding an owning value (Arc/String)
+            # would be dropped on EVERY resume re-entry — a double-free across
+            # suspensions. `move` consumes the materialized local so it is NOT
+            # scope-cleaned; the env owns the sole copy and releases it once at
+            # frame death.
+            if name not in spec_names:
+                cexpr.capture_specs = list(cexpr.capture_specs or []) + [
+                    CaptureSpec(name=name, mode="move", line=line, column=col)]
+            if name in already:
+                continue
+            # `.copy()` makes the materialized local an INDEPENDENT owner: the
+            # frame still owns its field, so reading it out for the closure to
+            # capture must not steal the frame's reference (that would double-free
+            # at teardown). `.copy()` retains an ImplicitCopy (Arc / String /
+            # closure env), duplicates an ExplicitCopy, and is a bitwise copy for
+            # a trivial type — the same read-out-of-storage discipline as
+            # `Vector.get`. The `move` capture above then transfers this owned copy
+            # into the env.
+            read = MethodCall(
+                object=_read_field(name, self.encmap[name], line, col),
+                method_name="copy", arguments=[], line=line, column=col)
+            self._cap_lets.append(LetStatement(
+                name=name, type_annotation=None, value=read,
+                mutable=False, line=line, column=col))
+
     def _lower_stmt_list(self, stmts):
         out = []
         for s in stmts:
@@ -1369,7 +1548,9 @@ class _FrameBuilder:
 
         if isinstance(s, LetStatement):
             forgets = []
+            saved_cap, self._cap_lets = self._cap_lets, []
             value = self._rewrite_expr(s.value, forgets)
+            cap_lets, self._cap_lets = self._cap_lets, saved_cap
             if s.name in self.encmap:
                 new = AssignStatement(
                     target=_self_field(s.name, s.line, s.column),
@@ -1377,13 +1558,15 @@ class _FrameBuilder:
             else:
                 s.value = value
                 new = s
-            return [new] + self._forgets(forgets)
+            return cap_lets + [new] + self._forgets(forgets)
 
         if isinstance(s, AssignStatement):
             forgets = []
+            saved_cap, self._cap_lets = self._cap_lets, []
             s.target = self._rewrite_expr(s.target, forgets)
             s.value = self._rewrite_expr(s.value, forgets)
-            return [s] + self._forgets(forgets)
+            cap_lets, self._cap_lets = self._cap_lets, saved_cap
+            return cap_lets + [s] + self._forgets(forgets)
 
         # A control-flow expression may appear as a bare statement (a user
         # `while`/`if`/`match`) or wrapped in an ExpressionStatement (driver-
@@ -1444,8 +1627,10 @@ class _FrameBuilder:
         # Fallback: a plain expression statement (`foo()`), a break/continue with
         # a value, etc. — rewrite in place, hosting any drop-flag clears after.
         forgets = []
+        saved_cap, self._cap_lets = self._cap_lets, []
         ns = self._rewrite_expr(s, forgets)
-        return [ns] + self._forgets(forgets)
+        cap_lets, self._cap_lets = self._cap_lets, saved_cap
+        return cap_lets + [ns] + self._forgets(forgets)
 
     def _lower_block_in_place(self, block):
         block.statements = self._lower_stmt_list(block.statements)

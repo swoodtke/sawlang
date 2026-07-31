@@ -1381,6 +1381,12 @@ class CallsMixin:
             object=expr.object, member=expr.method_name,
             line=expr.line, column=expr.column)
         closure_val = self._generate_expression(member)
+        # design 77 item 4: an opt-encoded closure frame field is stored as
+        # `{ i1 is_some, closure }`; the closure is at element 1. (No None check —
+        # a live coroutine state always assigned it before calling, mirroring the
+        # `self.f!` force-unwrap the typechecker resolved.)
+        if getattr(expr, 'field_call_unwrap', False):
+            closure_val = self.builder.extract_value(closure_val, 1, name="field_closure_opt")
         fn_ptr = self.builder.extract_value(closure_val, 0, name="field_fn_ptr")
         env_ptr = self.builder.extract_value(closure_val, 1, name="field_env_ptr")
         arg_vals = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
