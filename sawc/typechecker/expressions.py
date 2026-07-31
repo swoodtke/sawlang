@@ -5621,9 +5621,12 @@ class ExpressionsMixin:
                 hint="call the function that takes it inline, e.g. `m.lock { &var x in ... }`"
             )
         result_type = SawType(TypeKind.FUNCTION, param_types=param_types,
-                              func_return_type=return_type)
+                              func_return_type=return_type,
+                              func_is_escaping=expr.escapes)
         # Record the resolved signature so codegen lowers parameter/return types
-        # (including reference params) accurately rather than guessing.
+        # (including reference params) accurately rather than guessing. The
+        # escaping bit rides along so codegen treats an escaping closure binding as
+        # an owning value with drop glue (design 71).
         expr.resolved_type = result_type
         self._effect_exit()
         return result_type

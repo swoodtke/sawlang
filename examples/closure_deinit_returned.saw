@@ -1,0 +1,27 @@
+// An owning closure RETURNED from a function drops at the caller's binding
+// (design 71). `make` move-captures `r` into the returned closure; the creating
+// frame does NOT release it early — ownership travels out with the value, and
+// the caller's `f` drops it exactly once at main's scope exit.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// made
+// got: 3
+// deinit 3
+
+struct Res { v: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.v}") }
+}
+
+func make() -> () -> Int {
+    let r = Res(v: 3)
+    let f = { [move r] in r.v }
+    print("made")
+    return move f
+}
+
+func main() {
+    let f = make()
+    print("got: {f()}")
+    // f drops here -> "deinit 3"
+}

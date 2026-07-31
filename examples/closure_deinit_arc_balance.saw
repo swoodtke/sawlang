@@ -1,0 +1,25 @@
+// An escaping closure that plain-captures an Arc retains it into the heap env
+// (strong++). The closure's drop (design 71) releases that retained copy exactly
+// once, so the refcount stays balanced and the payload deinits exactly once when
+// the LAST owner drops. Here the closure `f` and the local `a` each hold a strong
+// ref; while both live strong_count == 2. `f` drops first (LIFO, declared last),
+// dropping to 1; then `a` drops, running the payload deinit once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// deinit 5
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func main() {
+    let a = Arc<Res>(value: Res(id: 5))
+    print(a.strong_count())        // 1
+    let f = { a.strong_count() }   // plain capture retains -> strong 2
+    print(f())                     // 2
+    // LIFO: f drops (release retained copy -> strong 1), then a drops
+    //       (release last -> payload "deinit 5").
+}

@@ -262,8 +262,17 @@ class ClosuresMixin:
                 cap_saw = cap_saw_types.get(cap_name)
                 if mode == 'move':
                     # Ownership transfers into the env; the source is moved-from,
-                    # so no retain and the frame will not drop it.
-                    pass
+                    # so no retain — and the CREATING frame must NOT drop it (design
+                    # 71: the closure's own drop, via the env destructor, releases
+                    # it exactly once). Clear the source binding's drop flag (or mark
+                    # it statically moved) so the frame's scope-exit cleanup skips it.
+                    # Without this the source is released early at frame exit AND, on
+                    # the spawn path, again by the trampoline's dtor — a double free.
+                    if escapes:
+                        src_flag = self.drop_flags.get(cap_name)
+                        if src_flag is not None:
+                            self.builder.store(ir.Constant(ir.IntType(1), 0), src_flag)
+                        self.moved_variables.add(cap_name)
                 elif mode == 'copy' and cap_saw is not None:
                     # Explicit deep copy (ExplicitCopy `.copy()` / ImplicitCopy retain).
                     cap_value = self._emit_copy_value(cap_value, cap_saw)
@@ -279,11 +288,21 @@ class ClosuresMixin:
         else:
             env_ptr_val = ir.Constant(env_ptr_type, None)
 
-        # Create closure struct: { fn_ptr, env_ptr }
-        closure_type = ir.LiteralStructType([ir.PointerType(fn_type), env_ptr_type])
+        # dtor_ptr: the env destructor for an escaping closure that owns a heap env
+        # (design 71). Null for a stack/no env — dropping such a closure is a no-op.
+        # The value carries its own destructor so it can be dropped wherever it
+        # flows (bound / struct field / Vector / returned).
+        dtor_ptr_type = ir.PointerType(ir.FunctionType(ir.VoidType(), [env_ptr_type]))
+        dtor_val = (expr.codegen_env_dtor if expr.codegen_env_dtor is not None
+                    else ir.Constant(dtor_ptr_type, None))
+
+        # Create closure struct: { fn_ptr, env_ptr, dtor_ptr }
+        closure_type = ir.LiteralStructType(
+            [ir.PointerType(fn_type), env_ptr_type, dtor_ptr_type])
         closure_val = ir.Constant(closure_type, ir.Undefined)
         closure_val = self.builder.insert_value(closure_val, closure_fn, 0, name="closure_fn")
         closure_val = self.builder.insert_value(closure_val, env_ptr_val, 1, name="closure_env")
+        closure_val = self.builder.insert_value(closure_val, dtor_val, 2, name="closure_dtor")
 
         # Expose the generated function and env pointer to `spawn` codegen, which
         # calls the closure body directly from a trampoline and needs the env's

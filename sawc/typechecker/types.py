@@ -805,6 +805,19 @@ class TypeUtilsMixin:
         if saw_type is None:
             return False
 
+        # An escaping closure value (design 71) is move-only: it may own a heap
+        # environment (the captures it took ownership of), and a bitwise copy would
+        # alias that env — a double free when both copies drop. So an escaping
+        # function VALUE read from an existing binding must be `move`d, exactly like
+        # any NoCopy resource. A non-escaping closure borrows the frame and owns
+        # nothing, so it stays freely forwardable. (A capture-less escaping closure
+        # is technically copyable, but the type cannot distinguish it from an owning
+        # one; move-only is the sound conservative choice. Closure struct FIELDS are
+        # excluded from the NoCopy CONTAINMENT check so capture-less-closure structs
+        # stay copyable — see `_check_no_copy_containment`.)
+        if saw_type.kind == TypeKind.FUNCTION:
+            return bool(getattr(saw_type, 'func_is_escaping', False))
+
         # A fixed array `[T; N]` inherits T's copy class (design 33): it is
         # NoCopy iff its element type is.
         if saw_type.kind == TypeKind.ARRAY:
@@ -1070,6 +1083,19 @@ class TypeUtilsMixin:
 
         src_type = getattr(expr, 'resolved_type', None) or target_type
         if src_type is None:
+            return
+
+        # An escaping closure forwarded into a NON-escaping (borrowing) slot is a
+        # LEND, not an ownership transfer (design 71 / design 16/29 variance): the
+        # callee promises not to store it, so the caller keeps ownership and drops
+        # it once. No `move` required — the closure's move-only discipline applies
+        # only when it flows into an OWNING (escaping) slot (binding / field /
+        # return / escaping param / container element).
+        if (src_type.kind == TypeKind.FUNCTION
+                and getattr(src_type, 'func_is_escaping', False)
+                and target_type is not None
+                and target_type.kind == TypeKind.FUNCTION
+                and not getattr(target_type, 'func_is_escaping', False)):
             return
 
         if self._is_no_copy_type(src_type):
@@ -1431,6 +1457,13 @@ class TypeUtilsMixin:
 
             # Check each field
             for field_name, field_type in struct_info.fields.items():
+                # A closure FIELD does not force the struct NoCopy (design 71): a
+                # capture-less closure is genuinely copyable, and its declared field
+                # type cannot say whether a stored value owns an env. (An owning
+                # closure stored in a copyable struct that is THEN copied is a
+                # documented residual gap — it needs value-flow, not type, analysis.)
+                if field_type is not None and field_type.kind == TypeKind.FUNCTION:
+                    continue
                 if self._is_no_copy_type(field_type):
                     self._error(
                         ErrorKind.CANNOT_COPY,

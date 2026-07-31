@@ -1,0 +1,24 @@
+// An escaping closure that move-captures an owned (NoCopy) value is an OWNING
+// value (design 71): the capture is released at the CLOSURE's own drop, exactly
+// once, in LIFO position — NOT early at the creating frame's exit. Here `f`
+// (declared between `b` and `a`) owns `a`'s env; LIFO teardown drops `b` first,
+// then `f` (which runs the env destructor -> "deinit 1"), then `a` (moved into
+// f, so its own slot is skipped — no double free).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// live
+// deinit 2
+// deinit 1
+
+struct Res { v: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.v}") }
+}
+
+func main() {
+    let a = Res(v: 1)
+    let f = { [move a] in a.v }
+    let b = Res(v: 2)
+    print("live")
+    // LIFO: b -> f(env: a) -> a(moved, skipped)
+}

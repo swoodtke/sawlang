@@ -166,6 +166,13 @@ class ResourcesMixin:
                                type_args=saw_type.type_args, symbol=saw_type.symbol)
         if self._get_cleanup_behavior(saw_type) != "none":
             return True
+        # An escaping closure value (design 71) is an OWNING value: it may carry a
+        # heap environment whose destructor releases owned captures and frees the
+        # block. Its drop glue null-checks the value's carried dtor pointer, so a
+        # non-owning closure (no captures / borrow-only) is a safe no-op. A
+        # non-escaping closure borrows the enclosing frame and owns nothing.
+        if saw_type.kind == TypeKind.FUNCTION:
+            return bool(getattr(saw_type, 'func_is_escaping', False))
         if saw_type.kind == TypeKind.ENUM:
             return self._enum_needs_variant_cleanup(saw_type)
         if saw_type.kind == TypeKind.OPTIONAL:
@@ -340,6 +347,9 @@ class ResourcesMixin:
             if fn is not None:
                 self.builder.call(fn, [ptr])
                 return
+        if saw_type.kind == TypeKind.FUNCTION:
+            self._emit_closure_drop_at(ptr, saw_type)
+            return
         if saw_type.kind == TypeKind.ENUM:
             self._emit_enum_cleanup_at(ptr, saw_type)
             return
@@ -350,6 +360,36 @@ class ResourcesMixin:
             self._emit_array_cleanup_at(ptr, saw_type)
             return
         self._emit_field_cleanup_at(ptr, saw_type)
+
+    def _emit_closure_drop_at(self, ptr, saw_type: SawType):
+        """Drop the closure value stored at `ptr` (design 71).
+
+        A closure value is `{ fn_ptr, env_ptr, dtor_ptr }`. Dropping it runs its
+        carried env destructor (which releases owned captures exactly once and
+        frees the heap env block) when the dtor pointer is non-null; a non-owning
+        closure (no captures / borrow-only / non-escaping) carries a null dtor and
+        drops as a no-op. This is the single drop site for a closure wherever it
+        flows — bound to a `let`/`var`, a struct field, a Vector element, or a
+        returned value — so it composes with the LIFO/drop-flag machinery like any
+        other owning value.
+        """
+        closure_val = self.builder.load(ptr, name="closure_drop")
+        if (not isinstance(closure_val.type, ir.LiteralStructType)
+                or len(closure_val.type.elements) != 3):
+            return
+        env_ptr = self.builder.extract_value(closure_val, 1, name="drop_env")
+        dtor_ptr = self.builder.extract_value(closure_val, 2, name="drop_dtor")
+        null_dtor = ir.Constant(dtor_ptr.type, None)
+        has_dtor = self.builder.icmp_unsigned("!=", dtor_ptr, null_dtor,
+                                              name="closure_has_dtor")
+        run_bb = self.builder.function.append_basic_block(name="closure_dtor.run")
+        cont_bb = self.builder.function.append_basic_block(name="closure_dtor.cont")
+        self.builder.cbranch(has_dtor, run_bb, cont_bb)
+        self.builder.position_at_start(run_bb)
+        self.builder.call(dtor_ptr, [env_ptr])
+        if not self.builder.block.is_terminated:
+            self.builder.branch(cont_bb)
+        self.builder.position_at_start(cont_bb)
 
     def _emit_array_cleanup_at(self, array_ptr, saw_type: SawType):
         """Release every element of the fixed array at `array_ptr`, in REVERSE

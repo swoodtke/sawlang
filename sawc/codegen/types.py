@@ -192,7 +192,14 @@ class TypesMixin:
             elem_type = self._get_llvm_type(saw_type.array_element_type)
             return ir.ArrayType(elem_type, saw_type.array_size)
         elif saw_type.kind == TypeKind.FUNCTION:
-            # Closures are { fn_ptr, env_ptr } where fn_ptr takes (env_ptr, params...) -> ret
+            # Closures are { fn_ptr, env_ptr, dtor_ptr } (design 71). fn_ptr takes
+            # (env_ptr, params...) -> ret. dtor_ptr is `void (i8*)` — the env
+            # destructor for an escaping closure that owns captures, or null for a
+            # non-owning closure (no captures / borrow-only / non-escaping). The
+            # closure value carries its own destructor so it can be dropped
+            # correctly wherever it flows (bound, struct field, Vector, returned):
+            # dropping = `if dtor: dtor(env)` (releases owned captures + frees the
+            # heap env exactly once).
             param_types = [self._get_llvm_type(t) for t in (saw_type.param_types or [])]
             if saw_type.func_return_type and saw_type.func_return_type.kind != TypeKind.VOID:
                 ret_type = self._get_llvm_type(saw_type.func_return_type)
@@ -202,8 +209,9 @@ class TypesMixin:
             env_ptr_type = ir.PointerType(ir.IntType(8))
             fn_type = ir.FunctionType(ret_type, [env_ptr_type] + param_types)
             fn_ptr_type = ir.PointerType(fn_type)
-            # Closure struct: { fn_ptr, env_ptr }
-            return ir.LiteralStructType([fn_ptr_type, env_ptr_type])
+            dtor_ptr_type = ir.PointerType(ir.FunctionType(ir.VoidType(), [env_ptr_type]))
+            # Closure struct: { fn_ptr, env_ptr, dtor_ptr }
+            return ir.LiteralStructType([fn_ptr_type, env_ptr_type, dtor_ptr_type])
         elif saw_type.kind == TypeKind.SELF:
             # Self type - resolve to current struct context
             if self.self_type_context is None:

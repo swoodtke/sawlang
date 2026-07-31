@@ -1,0 +1,23 @@
+// Owning closures stored in a Vector drop when the Vector drops (design 71):
+// each element carries its own env destructor, released exactly once at Vector
+// teardown (in the container's element order).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// pushed
+// deinit 2
+// deinit 1
+
+struct Res { v: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.v}") }
+}
+
+func main() {
+    let a = Res(v: 1)
+    let b = Res(v: 2)
+    var fs: Vector<() -> Int> = []
+    fs.push({ [move a] in a.v })
+    fs.push({ [move b] in b.v })
+    print("pushed")
+    // fs drops -> each closure element's env destructor runs once
+}

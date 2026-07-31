@@ -1,0 +1,18 @@
+// An owning closure that is NEVER called still releases its captures exactly
+// once when it drops (design 71) — ownership is in the value, not the call.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// live
+// deinit 7
+
+struct Res { v: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.v}") }
+}
+
+func main() {
+    let r = Res(v: 7)
+    let f = { [move r] in r.v }
+    print("live")
+    // f never called; it drops at scope exit -> "deinit 7"
+}

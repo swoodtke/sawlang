@@ -11,6 +11,26 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 71 — Closure Deinit (in flight)
+- **Commit 1 (core):** Closures now carry their own env destructor
+  (`{fn_ptr, env_ptr, dtor_ptr}`, design 71). An escaping closure binding is an
+  OWNING value: `_needs_cleanup(FUNCTION-escaping)` + `_emit_closure_drop_at`
+  (null-dtor no-op) run the env destructor at the closure's own drop (LIFO +
+  drop flags), releasing owned captures exactly once and freeing the heap env.
+  Removed the creating-frame EARLY RELEASE: a `move` capture now clears the
+  source binding's drop flag (this ALSO fixed a latent thread-`spawn`
+  double-free of a move-captured NoCopy — deinit ran at frame exit AND in the
+  trampoline). Copy class: escaping closures are NoCopy (move-only) — a bitwise
+  copy aliased the heap env (double free, exit 133); forwarding an escaping
+  closure into a NON-escaping/borrowing slot stays a lend (no move). Closure
+  FIELDS excluded from NoCopy CONTAINMENT so capture-less-closure structs stay
+  copyable. Exact-count battery: `closure_deinit_{drop_order,arc_balance,
+  struct_field,vector,returned,dropped_uncalled,called_then_dropped,
+  conditional_move}` + `closure_copy_requires_move_error`. Suite 789, bootstrap
+  17+17, libs 4+4 green. RESIDUAL GAP (documented, needs value-flow not type
+  analysis): an owning closure stored in a COPYABLE struct that is then copied
+  still double-frees — the type can't say a field value owns an env. [71]
+
 ## Decisions needed (user input required)
 - **D10.** Cortex-M0-class atomics (ARMv6-M has no CAS) — decide with
   the first such port. [19, 20]

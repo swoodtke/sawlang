@@ -249,8 +249,8 @@ class CallsMixin:
         if expr.name in self.variables:
             closure_ptr = self.variables[expr.name]
             closure_val = self.builder.load(closure_ptr, name="closure")
-            # Check if it's a closure struct (has fn_ptr and env_ptr fields)
-            if isinstance(closure_val.type, ir.LiteralStructType) and len(closure_val.type.elements) == 2:
+            # Check if it's a closure struct { fn_ptr, env_ptr, dtor_ptr } (design 71)
+            if isinstance(closure_val.type, ir.LiteralStructType) and len(closure_val.type.elements) == 3:
                 # Call the closure
                 fn_ptr = self.builder.extract_value(closure_val, 0, name="fn_ptr")
                 env_ptr = self.builder.extract_value(closure_val, 1, name="env_ptr")
