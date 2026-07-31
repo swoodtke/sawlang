@@ -1,0 +1,22 @@
+// The bounds-environment lookup (design 77 item 2) is SOUND: forwarding a type
+// param to a callee whose bound the caller does NOT declare is still a clean,
+// anchored error. `middle<T>` (no bound) forwards `T` to `inner<T: Seed>`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type parameter `T` does not satisfy the `Seed` bound
+// EXPECT-ERROR-CONTAINS: generic_bound_propagation_unmet.saw:17:5
+
+trait Seed {
+    func grow(&self) -> Int
+}
+
+func inner<T: Seed>(w: T) -> Int {
+    w.grow()
+}
+
+func middle<T>(w: T) -> Int {
+    inner<T>(w)
+}
+
+func main() {
+    print(0)
+}

@@ -20,6 +20,21 @@ items need a probe before being treated as real work.
   paths (result cast/load/dealloc-size) monomorphize cleanly. Both explicit-join
   and drop-joins-it exercised. Test `spawn_void_body`. Suite 826, bootstrap 17+17,
   libs 4+4. [75]
+- **Item 2 (generic-bound propagation) — LANDED.** A generic forwarding its own
+  bounded type param to another generic's bound (`inner<T>(w)` inside
+  `middle<T: Seed>`) errored "type `T` does not implement trait `Seed`". Fix:
+  the general-trait bound check in `_check_generic_call` now routes an ABSTRACT
+  type-param argument through `_bound_satisfied` (bounds-environment lookup —
+  satisfied iff the enclosing signature declares the bound), matching the
+  existing Send/Sync/Equatable handling. Codegen twin: a generic call inside a
+  generic body substitutes its type args through the monomorphization context
+  before instantiating (else it recursed over the abstract `T`). Negative case
+  (forward without declaring the bound) still a clean anchored error. Tests
+  `generic_bound_propagation`, `errors/generic_bound_propagation_unmet`. Note:
+  un-dodging design-74 shape-3 tests to forward a type param into the coro
+  promotion path is left to items 5/6 (that combines with the promotion surface,
+  not the standalone bound check fixed here). Suite 828, bootstrap 17+17, libs
+  4+4. [74]
 
 ## Design 76 — A4 IO reactor + A6 extern-blocking + A3 remainder (IN PROGRESS)
 - **Commit 1 (A4 reactor + std.net + A3 io-cancel; ST + entry executor):** A

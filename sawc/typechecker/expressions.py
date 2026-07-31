@@ -1893,6 +1893,23 @@ class ExpressionsMixin:
                                 hint=f"add `extension {concrete_type_name}: Equatable {{}}`"
                                      if concrete_type_name else None
                             )
+                    elif (resolved_arg.kind == TypeKind.STRUCT
+                          and resolved_arg.struct_name
+                          in getattr(self, 'current_type_params', {})):
+                        # The callee's bound is applied to an ABSTRACT type
+                        # parameter of the enclosing generic (`inner<T>(w)` inside
+                        # `middle<T: Seed>`). It is satisfied exactly when the
+                        # caller's own declared bounds carry it — a bounds-
+                        # environment lookup; we cannot resolve `T` structurally
+                        # here (design 77 item 2).
+                        if not self._bound_satisfied(resolved_arg, bound):
+                            self._error(
+                                ErrorKind.TYPE_MISMATCH,
+                                f"type parameter `{resolved_arg}` does not satisfy the `{bound}` bound",
+                                expr.line, expr.column,
+                                hint=f"add the bound to the enclosing signature: "
+                                     f"`<{resolved_arg.struct_name}: {bound}>`"
+                            )
                     elif concrete_type_name:
                         conformances = self.namespace.get_conformances(concrete_type_name)
                         if bound not in conformances:

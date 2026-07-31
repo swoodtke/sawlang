@@ -317,8 +317,17 @@ class CallsMixin:
                     f"Generic function {expr.name} requires type arguments. "
                     f"Use {expr.name}<Type>(...)"
                 )
-            # Instantiate the generic function
-            mangled_name = self._instantiate_generic_function(expr.name, expr.type_args)
+            # Instantiate the generic function. Inside an enclosing generic body
+            # the type args may be the enclosing template's own params (design 77
+            # item 2: `inner<T>(w)` in `middle<T: Seed>`), so substitute them
+            # through this monomorphization's context (T -> Acorn) before
+            # mangling — otherwise we'd try to instantiate over the abstract `T`
+            # and recurse without ever resolving it.
+            call_type_args = [
+                self._substitute_saw_type(ta, self.type_param_context)
+                for ta in expr.type_args
+            ]
+            mangled_name = self._instantiate_generic_function(expr.name, call_type_args)
             func = self.functions[mangled_name]
         else:
             # Look up regular user-defined function
