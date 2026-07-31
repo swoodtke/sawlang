@@ -1,0 +1,13 @@
+// A bare literal compared against a fixed-width operand is range-checked
+// (design 77 item 9): `x < 200` for `x: Int8` is a clean error, not a silent
+// comparison against the wrapped value -56.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 200 does not fit in `Int8`
+
+func f(x: Int8) -> Bool {
+    x < 200
+}
+
+func main() {
+    print(f(5i8))
+}

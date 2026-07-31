@@ -603,6 +603,19 @@ class ExpressionsMixin:
                     expr.line, expr.column
                 )
                 return SawType(TypeKind.BOOL)
+            # design 77 item 9: a bare integer literal compared against a
+            # fixed-width operand adopts that operand's type (codegen already
+            # coerces it), so range-check it here — otherwise `fd < 200` for
+            # `fd: Int8` silently compared against the wrapped value -56. Extends
+            # the design-65 fixed-width-literal range check to comparison
+            # operands; a no-op unless one side is a bare literal and the other a
+            # fixed-width integer.
+            self._check_fixed_width_literal(expr.right, left_type,
+                                            getattr(expr.right, 'line', expr.line),
+                                            getattr(expr.right, 'column', expr.column))
+            self._check_fixed_width_literal(expr.left, right_type,
+                                            getattr(expr.left, 'line', expr.line),
+                                            getattr(expr.left, 'column', expr.column))
             # Equatable gating (design 32): `==`/`!=` require the operand type to
             # conform to Equatable. Primitives and String conform builtin;
             # trivial (POD) structs and payload-free enums auto-conform;

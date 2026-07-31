@@ -44,6 +44,16 @@ items need a probe before being treated as real work.
     ARE i32 and negate/overflow correctly. Broader than negation (affects all
     fixed-width let bindings); belongs with a fixed-width-narrowing pass. [53, 65]
   Suite 839, bootstrap 17+17, libs 4+4. [59, 76, 53]
+- **Item 9 RIDER (comparison-position literal coercion) — LANDED.** Codegen
+  already coerced a bare literal to the other comparison operand's fixed-width
+  type, but WITHOUT a range check — `fd < 200` for `fd: Int8` silently compared
+  against the wrapped value -56. The comparison typecheck now runs the design-65
+  `_check_fixed_width_literal` range check on both operands (a no-op unless one
+  side is a bare literal and the other a fixed-width int), so an out-of-range
+  literal is a clean error. Un-dodged the seven `(0 as Int32)` comparison casts in
+  std/net.saw (`fd < 0`, `!= 0`, `>= 0`, `== 0`). Tests
+  `comparison_literal_coercion`, `errors/comparison_literal_out_of_range`. Suite
+  841, bootstrap 17+17, libs 4+4. [65, 76]
 - **Item 5 (A5-rest shape 1: buried suspending method sub-frame) — RE-LEDGERED
   (per the brief's escape hatch; rejection stays clean + anchored).** The FEATURE
   (embed a nested suspending METHOD call `let r = c.step()` as a sub-frame — the

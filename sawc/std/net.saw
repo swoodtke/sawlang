@@ -137,17 +137,17 @@ func net_bytes_to_string(buf: UnsafePointer<Int8>, len: Int) -> String {
 // listen fd (>= 0) or -1.
 func tcp_listen(port: Int) -> Int {
     let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
-    if fd < (0 as Int32) {
+    if fd < 0 {
         return NET_ERROR
     }
     let _ = saw_set_nonblocking(fd as Int)
     var sa = net_sockaddr(port)
     let ap = (&sa) as UnsafePointer<Int8>
-    if bind(fd, ap, SOCKADDR_IN_LEN) != (0 as Int32) {
+    if bind(fd, ap, SOCKADDR_IN_LEN) != 0 {
         let _ = close(fd)
         return NET_ERROR
     }
-    if listen(fd, LISTEN_BACKLOG) != (0 as Int32) {
+    if listen(fd, LISTEN_BACKLOG) != 0 {
         let _ = close(fd)
         return NET_ERROR
     }
@@ -173,7 +173,7 @@ func tcp_try_accept(listen_fd: Int) -> Int {
     var len: Int32 = SOCKADDR_IN_LEN
     let lp = (&len) as UnsafePointer<Int32>
     let c = accept(listen_fd as Int32, ap, lp)
-    if c >= (0 as Int32) {
+    if c >= 0 {
         let _ = saw_set_nonblocking(c as Int)
         return c as Int
     }
@@ -187,14 +187,14 @@ func tcp_try_accept(listen_fd: Int) -> Int {
 // or -1. Then `io_wait(fd, 1)` until writable and `tcp_connect_check(fd)`.
 func tcp_connect_start(port: Int) -> Int {
     let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
-    if fd < (0 as Int32) {
+    if fd < 0 {
         return NET_ERROR
     }
     let _ = saw_set_nonblocking(fd as Int)
     var sa = net_sockaddr(port)
     let ap = (&sa) as UnsafePointer<Int8>
     let r = connect(fd, ap, SOCKADDR_IN_LEN)
-    if r == (0 as Int32) {
+    if r == 0 {
         return fd as Int              // connected immediately (common on loopback)
     }
     if saw_errno_would_block() == 1 {
@@ -247,7 +247,7 @@ func tcp_close(fd: Int) {
 func tcp_socketpair() -> (Int, Int) {
     var fds = FdPair(a: 0 as Int32, b: 0 as Int32)
     let fp = (&fds) as UnsafePointer<Int32>
-    if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, fp) == (0 as Int32) {
+    if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, fp) == 0 {
         let a = fp[0]
         let b = fp[1]
         let _ = saw_set_nonblocking(a as Int)
