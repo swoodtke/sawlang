@@ -661,6 +661,78 @@ class _FrameBuilder:
                     out[bname] = ptype
         return out
 
+    def _normalize_suspending_tails(self):
+        """design 83: normalize suspension-spanning trailing expressions.
+
+        The parser lifts a block's last bare expression into `final_expr`. When
+        that expression contains a suspension point (a `yield_now`/`sleep` or a
+        call to a suspending function), it must go through the CFG walk — but the
+        nested-call scan and lowering both key on STATEMENTS. Rewrite such a tail
+        into a statement: one whose value is the function result becomes
+        `return <expr>` (recursing through a tail `if`/`match` so every leaf
+        returns); a discarded tail (loop body, mid-body block) becomes a bare
+        expression statement. A non-suspending tail is left as `final_expr` for
+        the existing `_rewrite_expr`/`_done` (function tail) or `_lower_block`
+        discard (nested) fast path."""
+        self._norm_block(self.func.body, tail=True)
+
+    def _norm_block(self, block, tail, force=False):
+        # Recurse into suspension-spanning control flow that appears as a
+        # STATEMENT (its value is discarded → its inner blocks are non-tail).
+        for s in block.statements:
+            ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+            if isinstance(ctrl, (IfExpr, WhileExpr, MatchExpr, ForLoop)) \
+                    and self._spans_suspension(ctrl):
+                self._norm_ctrl(ctrl, tail=False)
+        fe = block.final_expr
+        if fe is None:
+            return
+        spanning = self._spans_suspension(fe)
+        if tail:
+            # `force` propagates result-flow into EVERY branch of a spanning tail
+            # `if`/`match` — a non-spanning sibling branch (`else { 0 }`) must
+            # still `return` its value, else `_lower_block` would discard it.
+            if not spanning and not force:
+                return
+            if isinstance(fe, IfExpr) and fe.else_branch is not None:
+                block.final_expr = None
+                self._norm_block(fe.then_branch, tail=True, force=True)
+                self._norm_block(fe.else_branch, tail=True, force=True)
+                block.statements.append(ExpressionStatement(expression=fe))
+            elif isinstance(fe, MatchExpr) and all(
+                    isinstance(a.body, Block) for a in fe.arms):
+                block.final_expr = None
+                for arm in fe.arms:
+                    self._norm_block(arm.body, tail=True, force=True)
+                block.statements.append(ExpressionStatement(expression=fe))
+            else:
+                block.final_expr = None
+                block.statements.append(ReturnStatement(
+                    value=fe, line=getattr(fe, 'line', block.line),
+                    column=getattr(fe, 'column', block.column)))
+        else:
+            if not spanning:
+                return
+            block.final_expr = None
+            block.statements.append(ExpressionStatement(expression=fe))
+            if isinstance(fe, (IfExpr, WhileExpr, MatchExpr, ForLoop)):
+                self._norm_ctrl(fe, tail=False)
+
+    def _norm_ctrl(self, node, tail):
+        """Recurse into a control-flow expression's constituent blocks."""
+        if isinstance(node, IfExpr):
+            self._norm_block(node.then_branch, tail)
+            if node.else_branch is not None:
+                self._norm_block(node.else_branch, tail)
+        elif isinstance(node, WhileExpr):
+            self._norm_block(node.body, tail=False)
+        elif isinstance(node, ForLoop):
+            self._norm_block(node.body, tail=False)
+        elif isinstance(node, MatchExpr):
+            for arm in node.arms:
+                if isinstance(arm.body, Block):
+                    self._norm_block(arm.body, tail)
+
     def _collect_calls(self):
         """Walk the whole body for nested suspending call sites (top-level OR
         inside control-flow bodies). Each embeds a callee frame by value; `sub`
@@ -731,6 +803,14 @@ class _FrameBuilder:
         # the temp is then an ordinary nested-suspending-call-in-let and the
         # binding is over a non-spanning optional. Runs after `_suspends` is set.
         self._hoist_suspending_conditions()
+        # design 83: lift a suspension-spanning TRAILING expression (a block's
+        # `final_expr`, where the parser parks the last bare expression) into an
+        # explicit statement, so the nested-call scan and CFG walk both see it. A
+        # value flowing to the function result becomes `return <expr>` (recursing
+        # through a tail `if`/`match` so each leaf returns); a discarded tail (a
+        # loop body, a mid-body block) becomes a bare expression statement.
+        # Non-suspending tails keep the existing `final_expr` fast path untouched.
+        self._normalize_suspending_tails()
         # A method's `self` receiver is held as the `__recv` pointer, not a normal
         # param — drop it if the parser placed it in `parameters`.
         self.params = [p for p in func.parameters
@@ -798,18 +878,29 @@ class _FrameBuilder:
 
     def _classify_call(self, stmt):
         """If `stmt` is a top-level nested SUSPENDING call boundary, return
-        {callee, args, target}; else None. Supported forms: `let x = g(args)` and
-        a bare `g(args)` where `g` is a suspending free function in the driven
-        closure."""
+        {callee, args, target, ret}; else None. Supported forms: `let x = g(args)`
+        (result → local `x`), a bare `g(args)` or `let _ = g(args)` (result
+        discarded), and — after design-83 tail normalization — `return g(args)`
+        (result → this frame's `__result`), where `g` is a suspending free
+        function in the driven closure."""
         if _is_suspend_stmt(stmt):
             return None
         fc = None
         target = None
+        is_ret = False
         if isinstance(stmt, LetStatement) and isinstance(stmt.value, FunctionCall):
-            fc, target = stmt.value, stmt.name
+            fc = stmt.value
+            # `let _ = g()` is a discard (design 53): there is no `_` frame field
+            # to store into, so thread nothing (the sub-frame owns+drops its own
+            # result exactly once at teardown).
+            target = stmt.name if stmt.name != "_" else None
         elif (isinstance(stmt, ExpressionStatement)
               and isinstance(stmt.expression, FunctionCall)):
             fc = stmt.expression
+        elif (isinstance(stmt, ReturnStatement)
+              and isinstance(stmt.value, FunctionCall)):
+            fc = stmt.value
+            is_ret = True
         if fc is None or fc.name not in self._suspends:
             return None
         if getattr(fc, 'type_args', None):
@@ -821,7 +912,8 @@ class _FrameBuilder:
                 f"coroutine transform: a nested suspending call to a generic "
                 f"function `{fc.name}` inside `{self.name}` is not yet supported "
                 f"(design 70 A5-rest)", fc.line, fc.column)
-        return {'callee': fc.name, 'args': list(fc.arguments), 'target': target}
+        return {'callee': fc.name, 'args': list(fc.arguments), 'target': target,
+                'ret': is_ret}
 
     def _classify_recv(self, stmt):
         """design 62 G3: if `stmt` is a top-level cooperative `ch.receive()`
@@ -1359,24 +1451,48 @@ class _FrameBuilder:
         callee_fb = fbs[info['callee']]
         sub = info['sub']
         target = info['target']
+        is_ret = info.get('ret', False)
         self._emit(self._build_sub_frame(info, fbs))
         drive = self._new_block()
         self._goto(drive)
-        after = self._new_block()
+        # A `return g(...)` tail (design 83) threads the callee's result into THIS
+        # frame's `__result` and ends the coroutine; a `let x`/bare/discard call
+        # stores (or drops) the result and re-dispatches past the call.
+        after = None if is_ret else self._new_block()
         done_body = []
-        if target is not None and not callee_fb.is_void:
-            res = MemberAccess(object=_self_field(sub), member="__result")
-            if _enc_unwraps(callee_fb.result_enc):
-                res = ForceUnwrap(expr=res)
+        if is_ret:
+            if not callee_fb.is_void and not self.is_void:
+                res = MemberAccess(object=_self_field(sub), member="__result")
+                if _enc_unwraps(callee_fb.result_enc):
+                    res = ForceUnwrap(expr=res)
+                # Store first (loads the value), THEN clear the sub-frame's drop
+                # flag so its teardown won't double-drop the moved-out result.
+                done_body.append(AssignStatement(
+                    target=_self_field("__result"), value=res))
+                if _enc_cleanup(callee_fb.result_enc):
+                    done_body.append(ExpressionStatement(expression=FunctionCall(
+                        name="__forget", arguments=[Argument(name=None,
+                            value=MemberAccess(object=_self_field(sub),
+                                               member="__result"))])))
+            done_lit = _int(0)  # patched to the done-state marker after assembly
+            self._done_lits.append(done_lit)
             done_body.append(AssignStatement(
-                target=_self_field(target), value=res))
-            if _enc_cleanup(callee_fb.result_enc):
-                done_body.append(ExpressionStatement(expression=FunctionCall(
-                    name="__forget", arguments=[Argument(name=None,
-                        value=MemberAccess(object=_self_field(sub),
-                                           member="__result"))])))
-        done_body.append(AssignStatement(
-            target=_self_field("__state"), value=_int(after)))
+                target=_self_field("__state"), value=done_lit))
+            done_body.append(ReturnStatement(value=_poll("Done")))
+        else:
+            if target is not None and not callee_fb.is_void:
+                res = MemberAccess(object=_self_field(sub), member="__result")
+                if _enc_unwraps(callee_fb.result_enc):
+                    res = ForceUnwrap(expr=res)
+                done_body.append(AssignStatement(
+                    target=_self_field(target), value=res))
+                if _enc_cleanup(callee_fb.result_enc):
+                    done_body.append(ExpressionStatement(expression=FunctionCall(
+                        name="__forget", arguments=[Argument(name=None,
+                            value=MemberAccess(object=_self_field(sub),
+                                               member="__result"))])))
+            done_body.append(AssignStatement(
+                target=_self_field("__state"), value=_int(after)))
         pending_body = [
             AssignStatement(target=_self_field("__wake"),
                             value=MemberAccess(object=_self_field(sub),
@@ -1392,9 +1508,15 @@ class _FrameBuilder:
                 statements=done_body, final_expr=None)),
         ])
         self._blocks[drive].append(ExpressionStatement(expression=match))
-        self._blocks[drive].append(ContinueStatement())
-        self._term.add(drive)
-        self.cur = after
+        if is_ret:
+            # Both arms terminate (Pending returns, Done returns) — no fall-through
+            # re-dispatch and no `after` block; the drive block IS the tail state.
+            self._term.add(drive)
+            self.cur = drive
+        else:
+            self._blocks[drive].append(ContinueStatement())
+            self._term.add(drive)
+            self.cur = after
 
     def _build_sub_frame(self, info, fbs):
         """Construct the embedded callee frame from the call's arguments (the

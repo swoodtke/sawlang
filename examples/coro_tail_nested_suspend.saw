@@ -1,0 +1,39 @@
+// design 83: a nested suspending call in TAIL / bare-statement position
+// (not just let-bound) must be embedded as a sub-frame. `handle` is a
+// Void-returning suspending call made as a bare statement inside a spawned
+// worker's loop (the reduced httpd shape); `serve` is a suspending tail call.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 3
+
+func serve(n: Int) -> Int {
+    yield_now()
+    n + 1              // tail expression is the result
+}
+
+func step(n: Int) -> Int {
+    yield_now()
+    serve(n)           // nested suspending call in TAIL position
+}
+
+func handle(n: Int) {
+    yield_now()
+    let r = serve(n)   // Void body making a suspending call as a statement
+    print(r)
+}
+
+func worker() -> Int {
+    var i = 0
+    while i < 1 {
+        handle(6)      // Void suspending call as a bare statement
+        i = i + 1
+    }
+    step(2)            // tail nested suspending call, value result
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker())
+    print(h.join())    // handle prints 7, worker returns step(2)=3
+}
