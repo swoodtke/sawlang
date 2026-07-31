@@ -1,0 +1,20 @@
+// design 70 (A5-rest): driving a suspending method on a GENERIC STRUCT is not
+// yet supported — the driven-method frame holds a `__recv` pointer into the
+// receiver's storage, which needs a concrete receiver layout. Rejected cleanly
+// (never miscompiled).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: generic struct
+// EXPECT-ERROR-CONTAINS: A5-rest
+
+struct Holder<T> { value: T }
+extension Holder<T> {
+    func run(&var self) -> Int {
+        __suspend()
+        1
+    }
+}
+
+func main() {
+    var b = Holder<Int>(value: 5)
+    print(__drive(b.run()))
+}

@@ -1,0 +1,26 @@
+// design 70 (A5-rest): a driven body that makes a NESTED suspending call to a
+// generic function is not yet supported — the callee instantiation would have to
+// be embedded as a sub-frame. Rejected cleanly (a top-level driven generic root,
+// by contrast, DOES work — see coro_generic_driven_both).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: nested suspending call to a generic function
+// EXPECT-ERROR-CONTAINS: A5-rest
+
+trait Seed { func seed(&self) -> Int }
+struct Slow { n: Int }
+extension Slow: Seed { func seed(&self) -> Int { self.n } }
+
+func leaf<T: Seed>(w: T) -> Int {
+    let b = w.seed()
+    __suspend()
+    b
+}
+
+func outer(x: Int) -> Int {
+    let r = leaf<Slow>(Slow(n: x))
+    r + 1
+}
+
+func main() {
+    print(__drive(outer(5)))
+}

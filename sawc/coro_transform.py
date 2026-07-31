@@ -668,10 +668,14 @@ class _FrameBuilder:
         if fc is None or fc.name not in self._suspends:
             return None
         if getattr(fc, 'type_args', None):
+            # design 70 (A5): a TOP driven/spawned generic is monomorphized before
+            # the transform, but a generic call NESTED inside another driven body
+            # is not (it would need its instantiation embedded as a sub-frame).
+            # A5-rest: hoist it to a top-level driven root, or make it non-generic.
             raise CoroTransformError(
-                f"coroutine transform: nested suspending call to generic "
-                f"`{fc.name}` from `{self.name}` is not supported "
-                f"(effect-polymorphism, design 18 A5)", fc.line, fc.column)
+                f"coroutine transform: a nested suspending call to a generic "
+                f"function `{fc.name}` inside `{self.name}` is not yet supported "
+                f"(design 70 A5-rest)", fc.line, fc.column)
         return {'callee': fc.name, 'args': list(fc.arguments), 'target': target}
 
     def _classify_recv(self, stmt):
@@ -1792,14 +1796,17 @@ def transform_program(program, typechecker):
                 f"coroutine transform: suspending function `{n}` not found in the "
                 f"entry module (driving supports entry-module free functions only)")
         if func.type_params:
-            # design 70 (A5): a GENERIC template is never a driven root — the
+            # design 70 (A5): a GENERIC template is never a driven ROOT — the
             # typechecker monomorphizes each driven/spawned instantiation into a
-            # concrete function (name = mangled symbol) and records THAT. Reaching
-            # a template here means the instantiation was not materialized.
+            # concrete function (mangled symbol) and records THAT. Reaching a
+            # template here means it was pulled into the closure as a NESTED
+            # suspending generic call from another driven body — which would need
+            # its instantiation embedded as a sub-frame. Still A5-rest.
             raise CoroTransformError(
-                f"coroutine transform: transforming generic suspending function "
-                f"`{n}` is not supported (effect-polymorphism, design 18 A5)",
-                func.line, func.column)
+                f"coroutine transform: a nested suspending call to a generic "
+                f"function `{n}` from a driven body is not yet supported "
+                f"(design 70 A5-rest); make it a top-level driven root or "
+                f"non-generic", func.line, func.column)
         closure.append(n)
         node = nodes.get(("fn", n))
         if node is not None:
@@ -1851,10 +1858,15 @@ def transform_program(program, typechecker):
                 f"coroutine transform: driven method `{struct_name}.{method_name}` "
                 f"not found in the entry module")
         if method_ast.type_params or getattr(ext, 'type_params', None):
+            # design 70 (A5): a method-level generic method is monomorphized by the
+            # typechecker to a concrete method before it reaches here, so a template
+            # surviving to this point is a method on a GENERIC STRUCT
+            # (`extension Holder<T>`) — its receiver has no concrete layout, which
+            # the driven-method frame's `__recv` pointer requires. Still A5-rest.
             raise CoroTransformError(
-                f"coroutine transform: driving generic method "
-                f"`{struct_name}.{method_name}` is not supported "
-                f"(effect-polymorphism, design 18 A5)",
+                f"coroutine transform: driving a suspending method on a generic "
+                f"struct (`{struct_name}.{method_name}`) is not yet supported "
+                f"(design 70 A5-rest); monomorphize the receiver at the drive site",
                 method_ast.line, method_ast.column)
         mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker)
         new_structs.append(mfb.prepare(suspends_set))
