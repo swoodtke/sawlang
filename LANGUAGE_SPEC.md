@@ -568,6 +568,17 @@ let fixed: [Int; 5] = [1, 2, 3, 4, 5]
 // `.copy()` to duplicate per element); an array of `NoCopy` elements is
 // move-only. Owned elements are destroyed in reverse index order at scope death.
 
+// Fixed arrays carry two builtin members (design 72) — and only these two;
+// user extensions on array types are not supported:
+//   `.len()`        -> the compile-time constant length N (an `Int`)
+//   `.swap(i, j)`   -> swap two elements in place (bounds-checked; the receiver
+//                      must be a `var`). The dynamic-index escape hatch, mirroring
+//                      `Vector.swap`: it lets a dynamic-index exclusivity conflict
+//                      be sidestepped without copying elements.
+print(fixed.len())            // 5
+var reversible = [10, 20, 30]
+reversible.swap(0, 2)         // -> [30, 20, 10]
+
 // Slices (view into contiguous memory)  (illustrative — slices are planned)
 let slice: [Int] = &fixed[1..4]
 
@@ -1743,12 +1754,13 @@ match read_file("data.txt") {
 ### Panic for Unrecoverable Errors
 
 Panics halt execution (unrecoverable). The compiler emits them for `try!`/
-force-unwrap failures and division by zero (see Runtime Semantics). The example
-below is *(illustrative)* — an explicit `panic(...)` builtin and `.len()` on a
-fixed array are illustrative of intent.
+force-unwrap failures and division by zero (see Runtime Semantics). The
+`panic(...)` builtin (design 49) and `.len()` on a fixed array (design 72) are
+implemented; the `[Int]` slice parameter below is still *(illustrative)* — on a
+fixed array `[Int; N]` the same code type-checks and runs today.
 
 ```saw
-func get_index(arr: [Int], i: Int) -> Int {
+func get_index(arr: [Int], i: Int) -> Int {   // [Int] slice: illustrative
     if i >= arr.len() {
         panic("Index {i} out of bounds")
     }

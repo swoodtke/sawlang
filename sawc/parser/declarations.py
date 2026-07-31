@@ -364,6 +364,12 @@ class DeclarationsMixin:
         if self.match(TokenType.IDENT):
             name_token = self.advance()
             struct_name = name_token.value
+        elif self.match(TokenType.LBRACKET):
+            # design 72 L12: extensions on fixed-array types (`extension [Int; 8]`)
+            # are not supported. The builtin members `.len()` and `.swap(i, j)`
+            # are the whole array surface; user methods on arrays are out of scope.
+            self.error("extension methods on array types are not supported; "
+                       "fixed arrays have the builtin `.len()` and `.swap(i, j)` only")
         else:
             self.error("Expected type name after 'extension'")
 

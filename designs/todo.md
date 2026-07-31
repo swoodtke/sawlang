@@ -11,6 +11,26 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 72 — Small fixes: L12/M1, L9, erased-error downcasting (LANDING)
+- **Commit 1 (L12/M1 — fixed-array builtins):** Fixed arrays `[T; N]` gained two
+  builtin members and only these two: `.len()` (folds to the compile-time
+  constant N as `Int`) and `.swap(i, j)` (the M1 escape hatch — bounds-checked
+  in-place element swap, mirroring `Vector.swap`; requires a `var` receiver). The
+  typechecker intercepts array-typed method calls (`_check_array_method`) before
+  the old "non-struct type" error: `len`/`swap` typed + tagged, anything else a
+  clean "fixed array has no method X; only .len()/.swap are available, user
+  extensions on array types are not supported" error. Constant `swap` index OOB is
+  a compile error (mirrors `a[const]`); dynamic index gets the always-on runtime
+  bounds check. Parser: `extension [Int; N]` now emits "extension methods on array
+  types are not supported" instead of the generic "Expected type name". Codegen
+  `_generate_array_builtin`: `len` -> const; `swap` addresses the array in place
+  via `_get_lvalue_pointer` + GEP, loads/stores the two slots (no element copy).
+  Spec fixed-array section updated; `.len()` de-illustrativized. Tests:
+  `array_len_builtin`, `array_swap_builtin`, `array_swap_immutable_error`,
+  `array_no_extension_error`, `array_unknown_method_error`,
+  `array_swap_const_oob_error`, `array_swap_dynamic_oob_panic`. Suite 796,
+  bootstrap 17+17, libs 4+4. [72]
+
 ## Design 71 — Closure Deinit (LANDED)
 - **Commit 1 (core):** Closures now carry their own env destructor
   (`{fn_ptr, env_ptr, dtor_ptr}`, design 71). An escaping closure binding is an
@@ -60,8 +80,10 @@ items need a probe before being treated as real work.
   returns in generic bodies — documented deferred looseness. [02, 24]
 - **L9.** `==` over Optional-/array-bearing members: deliberate clean
   error; extend the equals derivation when needed. [32]
-- **L12.** Fixed arrays can't take extension methods (parse error);
-  also blocks fixed-array `.len()` (spec-illustrative). [40]
+- ~~**L12.** Fixed arrays can't take extension methods (parse error);
+  also blocks fixed-array `.len()` (spec-illustrative).~~ CLOSED (design 72):
+  fixed arrays get builtin `.len()` + `.swap(i, j)` (M1 escape hatch); user
+  extensions on array types stay rejected with a clear diagnostic. [40, 72]
 
 ## Deferred features (decided or triaged, not scheduled)
 - Erased-error DOWNCASTING (needs a type-id design; catch-all boxes are

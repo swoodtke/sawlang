@@ -1,0 +1,10 @@
+// Design 72 M1: a dynamic `swap` index out of range panics at runtime (the same
+// always-on bounds check as `a[i]`).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: index out of range
+func main() {
+    var a = [1, 2, 3]
+    var k = 9
+    a.swap(0, k)
+    print(a[0])
+}

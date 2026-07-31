@@ -4002,6 +4002,77 @@ class ExpressionsMixin:
         arg.value.erase_concrete = conc
         return True
 
+    def _check_array_method(self, expr: MethodCall, arr_type: SawType) -> Optional[SawType]:
+        """Builtin members on a fixed array `[T; N]` (design 72 L12/M1).
+
+        `.len()` — the compile-time constant length N as an `Int` (no arguments).
+        `.swap(i, j)` — the M1 escape hatch: a bounds-checked in-place swap of two
+        elements (mirrors `Vector.swap`), so a dynamic-index exclusivity conflict
+        can be sidestepped without copying elements. `swap` mutates, so the
+        receiver must be a mutable binding. No other methods exist on array types
+        (user extensions on array types are a parse-level rejection)."""
+        if expr.method_name == "len":
+            if len(expr.arguments) != 0:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    "`len` takes no arguments",
+                    expr.line, expr.column)
+            expr.array_builtin = "len"
+            result = SawType(TypeKind.INT)
+            expr.resolved_type = result
+            return result
+        if expr.method_name == "swap":
+            # `swap` mutates in place — reject an immutable-array receiver.
+            recv = expr.object
+            if isinstance(recv, Identifier):
+                info = self.current_scope.lookup(recv.name)
+                is_var_ref = (info is not None and info.type is not None
+                              and info.type.kind == TypeKind.REFERENCE
+                              and info.type.reference_mutable)
+                if info is not None and not info.mutable and not is_var_ref:
+                    self._error(
+                        ErrorKind.IMMUTABLE_ASSIGNMENT,
+                        f"cannot call `swap` on immutable array `{recv.name}`",
+                        expr.line, expr.column,
+                        hint="consider using `var` instead of `let` to make it mutable")
+            if len(expr.arguments) != 2:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`swap` takes two index arguments, got {len(expr.arguments)}",
+                    expr.line, expr.column)
+                result = SawType(TypeKind.VOID)
+                expr.resolved_type = result
+                return result
+            for arg in expr.arguments:
+                at = self._check_expression(arg.value)
+                if at is not None and at.kind != TypeKind.INT:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`swap` index must be `Int`, got `{at}`",
+                        expr.line, expr.column)
+                # Reject out-of-range compile-time constant indices, mirroring
+                # `a[const]`. Dynamic indices get a runtime bounds check in codegen.
+                if (isinstance(arg.value, IntLiteral)
+                        and arr_type.array_size is not None
+                        and (arg.value.value < 0
+                             or arg.value.value >= arr_type.array_size)):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`swap` index {arg.value.value} out of range for array "
+                        f"with {arr_type.array_size} elements",
+                        expr.line, expr.column)
+            expr.array_builtin = "swap"
+            result = SawType(TypeKind.VOID)
+            expr.resolved_type = result
+            return result
+        self._error(
+            ErrorKind.UNDEFINED_FUNCTION,
+            f"fixed array `{arr_type}` has no method `{expr.method_name}`",
+            expr.line, expr.column,
+            hint="only `.len()` and `.swap(i, j)` are available on arrays; "
+                 "user extensions on array types are not supported")
+        return None
+
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
         """Check a method call, static method call, enum initialization, or module function call."""
         # design 51: erased-direct `Box<any Trait>.make(v)` — intercept before the
@@ -4222,6 +4293,13 @@ class ExpressionsMixin:
         if obj_type.kind == TypeKind.STRUCT and obj_type.struct_name in type_params:
             return self._check_type_param_method_call(
                 expr, obj_type, type_params[obj_type.struct_name])
+
+        # Builtin members on a fixed array `[T; N]` (design 72 L12/M1). User
+        # extensions on array types are unsupported (a parse-level rejection);
+        # the whole surface is `.len()` and `.swap(i, j)`. `.copy()` was already
+        # routed above through the Copy machinery.
+        if obj_type.kind == TypeKind.ARRAY:
+            return self._check_array_method(expr, obj_type)
 
         _prim_ext_name = {
             TypeKind.STRING: "String",

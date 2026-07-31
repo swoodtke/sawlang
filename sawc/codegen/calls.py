@@ -601,6 +601,10 @@ class CallsMixin:
         if getattr(expr, 'existential_dispatch', None) is not None:
             return self._generate_existential_method_call(expr, expr.existential_dispatch)
 
+        # Fixed-array builtins (design 72 L12/M1): the typechecker tagged the node.
+        if getattr(expr, 'array_builtin', None) is not None:
+            return self._generate_array_builtin(expr)
+
         # Arc payload-method forwarding (design 21b E2): the typechecker resolved
         # this as an immutable `&self` method on Arc's payload; forward through a
         # borrow of the control block's payload slot.
@@ -1473,6 +1477,35 @@ class CallsMixin:
         base_ptr = self._entry_alloca(base_val.type, name="lvalue_temp")
         self.builder.store(base_val, base_ptr)
         return base_ptr
+
+    def _generate_array_builtin(self, expr: MethodCall):
+        """Lower a fixed-array builtin (design 72 L12/M1).
+
+        `.len()` folds to the compile-time constant length N (an `Int`). `.swap(i,
+        j)` addresses the array in place through `_get_lvalue_pointer`, bounds-
+        checks both dynamic indices, and swaps the two element slots by value
+        (mirrors the byte-level movement of `Vector.swap`, no element copy)."""
+        kind = expr.array_builtin
+        if kind == "len":
+            arr_type = self._expr_type(expr.object)
+            n = arr_type.array_size
+            return ir.Constant(self.int_type, n)
+        # swap(i, j): in-place, bounds-checked.
+        arr_ptr = self._get_lvalue_pointer(expr.object)
+        pointee = arr_ptr.type.pointee
+        count = pointee.count
+        i_val = self._generate_expression(expr.arguments[0].value)
+        j_val = self._generate_expression(expr.arguments[1].value)
+        self._emit_array_bounds_check(i_val, count, expr.arguments[0].value)
+        self._emit_array_bounds_check(j_val, count, expr.arguments[1].value)
+        zero = ir.Constant(ir.IntType(64), 0)
+        i_ptr = self.builder.gep(arr_ptr, [zero, i_val], name="swap_i")
+        j_ptr = self.builder.gep(arr_ptr, [zero, j_val], name="swap_j")
+        i_elem = self.builder.load(i_ptr, name="swap_i_val")
+        j_elem = self.builder.load(j_ptr, name="swap_j_val")
+        self.builder.store(j_elem, i_ptr)
+        self.builder.store(i_elem, j_ptr)
+        return None
 
     def _get_element_pointer(self, expr: ArrayIndex):
         """Return a pointer to the `arr[i]` element slot as an lvalue.

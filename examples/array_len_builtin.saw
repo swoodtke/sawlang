@@ -1,0 +1,22 @@
+// Design 72 L12: `.len()` on a fixed array is the compile-time constant length.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 3
+// 15
+func main() {
+    let a = [1, 2, 3, 4, 5]
+    print(a.len())          // 5
+
+    let b = [10, 20, 30]
+    print(b.len())          // 3
+
+    // usable as a value in expressions / loop bounds
+    var sum = 0
+    var i = 0
+    while i < a.len() {
+        sum = sum + a[i]
+        i = i + 1
+    }
+    print(sum)              // 15
+}
