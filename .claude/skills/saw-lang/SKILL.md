@@ -159,17 +159,30 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   `handle.cancel_addr() -> Int` (a Send address a canceller task sets).
 - Thread engine (`spawn`/`Task`/`Channel.recv`) is separate from the
   cooperative TaskGroup engine — don't mix per task.
-- Cooperative IO (design 76, std.net, hosted-only): a global kqueue/epoll reactor;
-  the executor polls it when nothing runs (timeout = earliest sleep deadline,
-  never busy-waits). Idiom = non-blocking `try_*` + `io_wait(fd, dir)` in the TASK
-  body (`dir` 0=read, 1=write), a suspension point that registers+parks until the
-  fd is ready: `while going { let r = tcp_try_read(fd,buf,n); if net_would_block(r)
-  { io_wait(fd,0) } else { ...; going=false } }`. Setup: `tcp_listen`/
-  `tcp_local_port`/`tcp_connect_start`+`tcp_connect_check`/`tcp_socketpair`/
-  `tcp_close`/`net_buffer`. Cancellation-aware: check `cancelled()` BEFORE
-  `io_wait`. MT groups: a frame can't hold a non-Send read buffer across a
-  suspend, so MT io parks on write-readiness only. First-class suspending
-  `tcp_read`/`accept`/`write` (no hand-written loop) is a future lift.
+- Cooperative net (design 84, std.net, hosted-only): use the SAFE OWNING TYPES —
+  `TcpListener` and `TcpStream` (both NoCopy, `Deinit` closes the fd exactly once).
+  NO raw fds, NO pointers, NO `io_wait` in your code — suspension is hidden INSIDE
+  the methods (each parks on the global kqueue/epoll reactor internally):
+  ```saw
+  let listener = TcpListener.listen(0)!        // Result<TcpListener, IoError>
+  let port = listener.local_port()
+  let stream = listener.accept()               // suspends until a client connects
+  let chunk = stream.read()                    // suspends; -> Data, empty = peer closed
+  stream.write_all_str("hi")                   // suspends until all bytes sent
+  stream.write_all(move data)                  // Data by value
+  let (a, b) = TcpStream.pair()                // connected pair, tests/IPC (no port)
+  let s = TcpStream.connect("127.0.0.1", port)!  // suspends until connected
+  ```
+  `IoError: Error` (errno-shaped) — interpolate it (`"{e}"`). accept/read/connect
+  are cancellation-observing at their internal park. The design-76 raw `tcp_*`/
+  `net_*`/`io_wait` free functions are now PRIVATE std internals — do not use them.
+- ⚠ Known runtime limit (pre-existing coroutine bug, design 84 tracker): a
+  driven/SPAWNED worker that makes a SECOND suspending call AFTER the FIRST one
+  PARKS on the reactor hangs (e.g. a worker that does `read()` then `write_all()`,
+  or an accept-then-serve loop). Reproduces with plain suspending free functions —
+  NOT net-specific. Until fixed, keep each spawned worker to a single parking net
+  call (one direction), or drive sequentially. A single-nested-call-per-worker
+  round-trip works reliably.
 - `extern "C" { blocking func f(...) -> T }` marks an unbounded FFI call: it
   SUSPENDS (offloads to a hosted pool), is illegal in a `sync` context, and is
   rejected in the freestanding profile. An unannotated extern promises promptness.

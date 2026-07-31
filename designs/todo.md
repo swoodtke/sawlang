@@ -64,8 +64,23 @@ items need a probe before being treated as real work.
   (server: read→write) and the httpd worker (read_request→write) hang at RUNTIME; the
   deterministic suite test is therefore a single-nested-call-per-worker send+verify
   round-trip (reliable). Needs a dedicated fix pass.
-- TODO: httpd migration (compile/codegen acceptance); more tests
-  (peer-close→read 0, connect-fail→IoError, fd-leak); docs (spec/skill/CLAUDE).
+- **httpd migrated (commit 3):** `.build/scratch/httpd_sw.saw` rewritten to the
+  owning API — accept-and-`group.spawn`-per-connection, handler reads the request +
+  writes the response over `TcpStream` methods. Compiles + reaches codegen with ZERO
+  `unsafe`, ZERO raw fds, ZERO pointers (acceptance met). Kept in scratch (not
+  examples/): it is an infinite accept-loop server AND its handler hits the
+  read→write two-nested-call runtime bug, so it is not a suite smoke.
+- **Tests landed:** `examples/net_owning_echo.saw` (single-nested-call send+verify
+  round-trip in a TaskGroup, reliable) + `examples/net_fd_leak.saw` (Deinit-closes-
+  exactly-once probe: 600 open+drop with no fd exhaustion). Suite 870.
+- Deferred tests (blocked by structure / the pre-existing bug): peer-close→read 0
+  (a completed child's fd only closes at group teardown, so a parked reader can't
+  observe EOF in-flight); connect-failure→IoError (design-76 `tcp_connect_check` is
+  a v1 stub that never reports failure); full echo (read→write = the two-nested-call
+  bug). IoError:Error is exercised by the httpd's `{e}` interpolation (compiles).
+- Docs: LANGUAGE_SPEC net section rewritten to the owning API (raw layer = private);
+  saw-lang skill net section rewritten (+ the runtime-limit warning). CLAUDE.md not
+  touched (it never documented std.net).
 
 ## Design 81 — Unsafe surface (`unsafe` marker + escape rules + with_ref) (IN PROGRESS)
 - **String-escape rider (silent backslash-drop) — LANDED.** `"\r\n"` mis-lexed as

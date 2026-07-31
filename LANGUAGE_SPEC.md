@@ -2506,32 +2506,35 @@ no task is runnable the executor blocks in the poller with a timeout equal to th
 earliest sleep deadline (never busy-waiting, never blocking while a task is
 runnable), and wakes tasks whose fds are ready.
 
-The surface mirrors the channel idiom: a **non-blocking `try_*` primitive** plus
-`io_wait(fd, dir)` in the caller's task body (`dir`: `0` = read, `1` = write).
-`io_wait` is a suspension point (like `yield_now`): it registers the fd with the
-reactor and parks the task until the fd is ready.
+**std.net — the safe owning API (design 84).** Application code uses owning socket
+TYPES, never a raw fd or pointer. `TcpListener` and `TcpStream` are `NoCopy`; each
+one's `Deinit` closes its fd exactly once (the move checkpoint prevents
+use-after-close, `NoCopy` prevents double-close). Suspension is hidden INSIDE the
+methods — `accept` / `read` / `connect` register the fd with the reactor and park
+the task internally, so the caller writes an ordinary method call with no `io_wait`
+in sight. Errors are `IoError` (conforms to `Error`, errno-shaped).
 
 ```saw
-// std.net: nonblocking TCP over the reactor (loopback echo server task).
-func echo(fd: Int) -> Int {
-    let buf = net_buffer(64)
-    var n = 0
-    var going = true
-    while going {
-        let r = tcp_try_read(fd, buf, 64)     // non-blocking: bytes, or the
-        if net_would_block(r) {               //   would-block sentinel
-            io_wait(fd, 0)                     // park the TASK until readable
-        } else {
-            n = r; going = false
-        }
-    }
-    // ... echo the bytes back with tcp_try_write + io_wait(fd, 1) ...
-    net_free_buffer(buf, 64)
-    return n
+// A cooperative echo, entirely over the safe owning API.
+func serve(stream: TcpStream) -> Int {
+    let chunk = stream.read()             // suspends until bytes arrive; empty = EOF
+    let n = chunk.len()
+    stream.write_all(move chunk)          // suspends until every byte is sent
+    return n                              // stream.Deinit closes the fd here
 }
-// Setup: tcp_listen / tcp_local_port / tcp_connect_start+tcp_connect_check /
-// tcp_socketpair / tcp_close. Cancellation: check cancelled() BEFORE io_wait.
+
+func main() {
+    let listener = TcpListener.listen(0)!             // Result<TcpListener, IoError>
+    let stream = TcpStream.connect("127.0.0.1", listener.local_port())!
+    // ... spawn workers over accept()/read()/write_all_str() in a TaskGroup ...
+}
+// TcpStream.pair() gives a connected pair for tests/IPC with no bound port.
 ```
+
+The design-76 raw layer (`tcp_*` / `net_*` free functions + `io_wait(fd, dir)`, a
+`yield_now`-like suspension point that registers+parks on the reactor) still exists
+as the PRIVATE implementation std.net's methods drive — it is not part of the public
+surface.
 
 Bounded local IO stays synchronous (regular-file read/write) — the never-block
 invariant is about latency-UNBOUNDED waits, not IO in general.

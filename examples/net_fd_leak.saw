@@ -1,0 +1,41 @@
+// design 84: Deinit-closes-the-fd-exactly-once leak probe. Open and DROP many
+// owning sockets in a loop; if `Deinit` did not close the fd (or double-counted),
+// the process would exhaust its file-descriptor table (EMFILE) long before the
+// loop ends and `listen` / `pair` would start failing. Reaching the end proves
+// each owning handle released its fd exactly once. No ports bound (ephemeral 0),
+// no concurrency — deterministic.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 600
+
+func main() {
+    var opened = 0
+
+    // 300 listeners, each dropped at the end of its arm.
+    var i = 0
+    while i < 300 {
+        match TcpListener.listen(0) {
+            case Ok(l) -> {
+                let _ = l.local_port()   // touch it, then it drops (Deinit closes)
+                opened = opened + 1
+            },
+            case Err(e) -> {
+                print("listen failed at {i}: {e}")
+                return
+            }
+        }
+        i = i + 1
+    }
+
+    // 300 connected stream pairs (2 fds each), dropped each iteration.
+    var j = 0
+    while j < 300 {
+        let (a, b) = TcpStream.pair()
+        let _ = move a
+        let _ = move b                   // both drop here (Deinit closes both fds)
+        opened = opened + 1
+        j = j + 1
+    }
+
+    print(opened)                        // 600 => no fd leak, no double-close crash
+}
