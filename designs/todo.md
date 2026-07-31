@@ -89,13 +89,16 @@ zero xfails throughout.
   `0 - 1` sites (map/taskgroup) and `0.0 - mantissa` (string) to `-1`/`-mantissa`.
   Tests: `unary_minus_fixed_width`, `unary_minus_int8_min_panics`,
   `errors/unary_minus_unsigned`, `errors/unary_minus_literal_out_of_range`.
-  - **FLAGGED (pre-existing, orthogonal): a fixed-width int LOCAL from a BARE
-    literal is stored at platform width.** `let a: Int32 = 5` allocas `i64`, not
-    `i32` — the design-65 literal coercion range-checks but does not NARROW the
-    binding's storage. So `-a` there negates at i64 (no i32 overflow check);
-    genuine fixed-width values (cast- or suffix-derived, `5i32` / `(5 as Int32)`)
-    ARE i32 and negate/overflow correctly. Broader than negation (affects all
-    fixed-width let bindings); belongs with a fixed-width-narrowing pass. [53, 65]
+  - **FIXED (design 80 run, rider):** a fixed-width int LOCAL from a BARE literal
+    is now NARROWED to its annotated storage width. `_generate_let_statement`
+    coerces the RHS int value to the annotation's LLVM width before the alloca
+    (trunc/sext/zext by signedness); the typechecker already range-checked the
+    literal, so it is value-preserving. `-a` on a bare-literal Int32.min local now
+    overflow-panics at i32; a wire-format struct built from narrowed locals
+    round-trips. Tests fixed_width_let_narrow, fixed_width_let_negate_panic. STILL
+    FLAGGED (separate pre-existing): arithmetic mixing a fixed-width local with a
+    bare literal (`b + 0` for `b: Int32`) ICEs "i32 != i64" — reproduces with a
+    suffix local too; belongs with a fixed-width arithmetic-coercion pass. [53, 65, 80]
   Suite 839, bootstrap 17+17, libs 4+4. [59, 76, 53]
 - **Item 9 RIDER (comparison-position literal coercion) — LANDED.** Codegen
   already coerced a bare literal to the other comparison operand's fixed-width
@@ -218,6 +221,12 @@ zero xfails throughout.
   `coro_closure_local_call`, `coro_closure_deinit_once` (exact deinit-once,
   gmalloc-clean), `coro_closure_taskgroup` (spawned frames own closures). All 3
   verified clean under libgmalloc. Suite 834, bootstrap 17+17, libs 4+4. [73, 74, 44, 52b]
+  - **FIXED (design 80 run, rider): `__drive(f(move owning_arc))` no longer
+    double-frees the moved param.** The `__drive_<f>`/`__spawn_<f>` wrapper now
+    `move`s each non-reference param into the frame (`_frame_param_arg`), so the
+    frame is the sole owner (dropped once at teardown) and the wrapper param's drop
+    flag is cleared. Exact-count lock coro_moved_arc_param_deinit_once (3 refs, no
+    UB); single-ref case verified clean under libgmalloc. Original note follows.
   - **FOUND (pre-existing, FLAGGED): `__drive(f(move owning_arc))` double-frees the
     moved param.** A driven function taking an owning ImplicitCopy value (Arc) as a
     param, moved in at the drive site, DOUBLE-DROPS it: the synthesized
