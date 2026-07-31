@@ -52,7 +52,17 @@ escape hatch (land honest subsets; re-ledger precisely).
    are writable (closes design 53's noted `Int8.min`-unwritable gap).
    Un-dodge the `0 - 2` sites your sweep finds. Tests: negation each
    width, -128i8 literal, -Int8.min panics, unsigned negation error.
-9. Docs: spec limits lists updated; saw-lang skill limits updated;
+9. **RIDER: bare-literal coercion in COMPARISON position** — `fd < 0`
+   with fd: Int32 currently needs `(0 as Int32)` (net.saw is full of
+   it); extend the design-65 literal-coercion positions to comparison
+   operands (range-checked, same shape). Un-dodge net.saw's casts.
+10. **RIDER (user-facing frame bugs found by design 76):** a tuple
+   local held across a suspend ICEs ("cannot store {i64,i64} to
+   {i1,{i64,i64}}*") and `let (a,b) = f()` destructuring across a
+   suspend DROPS bindings — frame opt-encoding gaps for tuple-typed
+   and destructured locals (same family as design 62's self_opt fix).
+   Fix both; exact tests with values checked after resume.
+11. Docs: spec limits lists updated; saw-lang skill limits updated;
    tracker (each item closed or re-ledgered; design 77 landed).
 
 Bars: full suite (baseline = post-76) + blade/libs + bootstrap green
