@@ -11,7 +11,18 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
-## Design 77 — Generics & closures completion + accumulated riders (IN PROGRESS)
+## Design 77 — Generics & closures completion + accumulated riders (LANDED, subset)
+**Status:** items 1 (spawn-Void), 2 (generic-bound propagation), 3 (DF-C2 closures
+satisfy Copy) + its get-UAF follow-up, 4 (DF-C1 closures in frames), 7 (Global
+rename), 8 (unary minus fixed-width), 9 (comparison literal coercion), 10 (tuple/
+destructure across suspend) — **LANDED**. Items 5 (buried suspending method
+sub-frame) and 6 (cross-module generic driven) — **RE-LEDGERED** (central
+transform surgery, budget spent on item 4; rejections stay clean + anchored).
+Item 11 (docs) — spec + skill limits updated below. Two pre-existing bugs FLAGGED
+(not regressions): `__drive(f(move owning_arc))` double-frees the moved param
+(gmalloc-only; item 4 note); a bare-literal fixed-width LOCAL stores at platform
+width (item 8 note). Suite 843 (from 825 baseline), bootstrap 17+17, libs 4+4,
+zero xfails throughout.
 - **Item 7 RIDER (rename `Global` -> `GlobalAllocator`) — LANDED.** TRUE rename
   (not a `type` alias — that would shatter allocator identity). Swept all `.saw`
   (std alloc.saw struct + `Allocator` conformance, every `= GlobalAllocator`

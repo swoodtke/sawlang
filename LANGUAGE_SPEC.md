@@ -2129,6 +2129,10 @@ multi-task `TaskGroup` — designs 44/45/52/52b, below).
   closed design 71's residual gap: an owning closure in a copyable struct that is
   then copied now retains the shared env and tears it down once at the last
   owner.)*
+- **A closure satisfies the generic `Copy` bound** (design 77 DF-C2). Because an
+  escaping closure is `ImplicitCopy`, a container element type of closures is
+  copyable: `Vector<() -> Int>` is `ExplicitCopy`, and `.copy()`/`.get()` each
+  retain the element env exactly once (balanced deinit through copy-and-read).
 - **`Arc<T>` payload method forwarding** — an immutable `&self` method on the
   payload `T` is callable through the `Arc` (`arc.method(...)`): the call borrows
   the control block's payload slot. Sound because a live strong reference pins
@@ -2250,6 +2254,12 @@ Observable rules:
   over the struct's type params so the frame's receiver pointer gets a concrete
   layout, and a nested suspending generic call is promoted to a concrete spliced
   callee embedded as a sub-frame by value (keyed by its mangled instantiation).
+  A **closure** created in a driven body is supported (design 77 DF-C1): it is a
+  frame field, an indirect call `f(args)` is rewritten to a call through that
+  field, and captured frame locals are moved into the closure by value so its
+  refcounted env deinits exactly once at frame death. A **tuple** local and a
+  `let (a, b) = f()` **destructuring** also survive a suspension — their bindings
+  are frame-resident (design 77).
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
   line, not miscompiled): a *buried* suspending METHOD call on a value inside a
   driven body (drive the method directly, or route the suspension through a nested

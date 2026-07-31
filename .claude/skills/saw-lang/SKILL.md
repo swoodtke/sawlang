@@ -184,6 +184,11 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   free function (shape 1); a nested suspending generic call to a template in
   ANOTHER module (shape 4); and a method that is BOTH struct-generic and
   method-generic.
+- A CLOSURE created in a driven body works (design 77 DF-C1): call it after a
+  suspend, hold it across one (its env deinits exactly once at frame death), or
+  own it in a spawned TaskGroup frame — captured frame locals are moved into the
+  closure by value. A tuple local and `let (a, b) = f()` destructuring also
+  survive a suspension (design 77): their bindings are frame-resident.
 
 ## Modules & packages
 ```saw
