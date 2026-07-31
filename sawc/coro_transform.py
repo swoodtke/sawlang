@@ -616,6 +616,13 @@ class _FrameBuilder:
             if isinstance(n, MethodCall) and getattr(n, 'is_chan_recv', False):
                 found[0] = True
                 return
+            # design 84: a nested suspending METHOD call is a suspension point (its
+            # frame is embedded + driven), so a control-flow construct containing one
+            # must be CFG-split into states — otherwise it lowers in place and the
+            # stripped method body is missing at codegen.
+            if isinstance(n, MethodCall) and self._method_call_suspends(n):
+                found[0] = True
+                return
             if isinstance(n, ASTNode):
                 for f in dataclasses.fields(n):
                     scan_val(getattr(n, f.name))
@@ -901,7 +908,13 @@ class _FrameBuilder:
               and isinstance(stmt.value, FunctionCall)):
             fc = stmt.value
             is_ret = True
-        if fc is None or fc.name not in self._suspends:
+        if fc is None:
+            # design 84: a nested suspending METHOD call (`let s = recv.accept()`,
+            # bare `recv.write_all(...)`, or a tail `return recv.m(...)`). The callee
+            # frame is a method frame (`__recv` points at the receiver's storage);
+            # its key is `{struct}_{method}`, matching `_FrameBuilder.name`.
+            return self._classify_method_call(stmt, target, is_ret)
+        if fc.name not in self._suspends:
             return None
         if getattr(fc, 'type_args', None):
             # design 70 (A5): a TOP driven/spawned generic is monomorphized before
@@ -914,6 +927,41 @@ class _FrameBuilder:
                 f"(design 70 A5-rest)", fc.line, fc.column)
         return {'callee': fc.name, 'args': list(fc.arguments), 'target': target,
                 'ret': is_ret}
+
+    def _classify_method_call(self, stmt, target, is_ret):
+        """design 84: classify a nested suspending METHOD call boundary. Returns
+        {callee: `{struct}_{method}`, args, target, ret, recv, recv_struct,
+        recv_type_args, is_method} or None. Supported forms mirror the free-function
+        ones (let-bound / bare-discard / tail-return); the RECEIVER must be a plain
+        struct (a generic-struct receiver is left for `_reject_suspending_method_call`
+        to reject cleanly — the frame's `__recv` pointee would need the instantiation)."""
+        mc = None
+        if isinstance(stmt, LetStatement) and isinstance(stmt.value, MethodCall):
+            mc = stmt.value
+            # `let x = recv.m()` threads the result into `x`; `let _ = recv.m()` is a
+            # discard (no frame field to store into — the sub-frame drops its own
+            # result once at teardown).
+            target = stmt.name if stmt.name != "_" else None
+        elif (isinstance(stmt, ExpressionStatement)
+              and isinstance(stmt.expression, MethodCall)):
+            mc = stmt.expression
+        elif isinstance(stmt, ReturnStatement) and isinstance(stmt.value, MethodCall):
+            mc = stmt.value
+        if mc is None or getattr(mc, 'is_chan_recv', False):
+            return None
+        susp = getattr(self._tc, '_suspending_methods_set', None) if self._tc else None
+        if not susp:
+            return None
+        recv_type = getattr(mc.object, 'resolved_type', None)
+        sname = getattr(recv_type, 'struct_name', None) if recv_type else None
+        if sname is None or (sname, mc.method_name) not in susp:
+            return None
+        if getattr(recv_type, 'type_args', None):
+            # A generic-struct receiver — not embedded here (rejected downstream).
+            return None
+        return {'callee': f"{sname}_{mc.method_name}",
+                'args': list(mc.arguments), 'target': target, 'ret': is_ret,
+                'recv': mc.object, 'recv_struct': sname, 'is_method': True}
 
     def _classify_recv(self, stmt):
         """design 62 G3: if `stmt` is a top-level cooperative `ch.receive()`
@@ -935,6 +983,19 @@ class _FrameBuilder:
                 f"coroutine transform: `receive()` in `{self.name}` has no "
                 f"resolved element type", mc.line, mc.column)
         return {'receiver': mc.object, 'target': target, 'elem_type': elem_type}
+
+    def _method_call_suspends(self, mc):
+        """design 84: True if `mc` is a call to a suspending method on a concrete
+        (non-generic) struct receiver — the shape embedded as a nested method
+        sub-frame."""
+        if getattr(mc, 'is_chan_recv', False):
+            return False
+        susp = getattr(self._tc, '_suspending_methods_set', None) if self._tc else None
+        if not susp:
+            return False
+        recv_type = getattr(mc.object, 'resolved_type', None)
+        sname = getattr(recv_type, 'struct_name', None) if recv_type else None
+        return sname is not None and (sname, mc.method_name) in susp
 
     def _suspending_method_call(self, stmt):
         """If `stmt` is a top-level `let x = recv.m(args)` / bare `recv.m(args)`
@@ -1527,7 +1588,20 @@ class _FrameBuilder:
         arg_vals = []
         for i, a in enumerate(info['args']):
             arg_vals.append(self._rewrite_expr(a.value, forgets))
-        init = _build_frame_init(callee_fb, arg_vals, fbs)
+        recv_value = None
+        if info.get('is_method'):
+            # design 84: the method frame's `__recv` is a pointer into the
+            # receiver's storage. The receiver is a caller-frame local/param — after
+            # rewrite it is `self.<field>` (POD) or `self.<field>!` (opt-encoded
+            # owning value); `&(...)` is addressable in both (opt payload address).
+            # The method BORROWS through the pointer (no ownership move): accept /
+            # read / write_all take `&self`, so the caller frame stays the sole owner
+            # and drops the value exactly once at frame death.
+            recv_rewritten = self._rewrite_expr(info['recv'], [])
+            recv_value = CastExpr(
+                expr=ReferenceExpr(expr=recv_rewritten, mutable=False),
+                target_type=callee_fb.recv_type)
+        init = _build_frame_init(callee_fb, arg_vals, fbs, recv_value=recv_value)
         out = [AssignStatement(target=_self_field(info['sub']), value=init)]
         out.extend(self._forgets(forgets))
         return out
@@ -1915,7 +1989,13 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):
     for c in fb.calls:
         sub_fb = fbs[c['callee']]
         zvals = [_zeroed_value(sub_fb.encmap[p.name], p.type) for p in sub_fb.params]
-        field_inits.append((c['sub'], _build_frame_init(sub_fb, zvals, fbs)))
+        # design 84: a method sub-frame's `__recv` in the DEAD (zero-init) state is a
+        # null pointer — the frame is rebuilt with the real receiver address when its
+        # call site is reached, so this placeholder is never dereferenced.
+        zrecv = (CastExpr(expr=_int(0), target_type=sub_fb.recv_type)
+                 if sub_fb.is_method else None)
+        field_inits.append((c['sub'],
+                            _build_frame_init(sub_fb, zvals, fbs, recv_value=zrecv)))
     for rc in getattr(fb, 'recv_calls', []):
         field_inits.append((f"__have{rc['idx']}", BoolLiteral(value=False)))
         if rc['target'] is None:
@@ -2480,37 +2560,70 @@ def transform_program(program, typechecker):
     # drivers. Promoted nested-generic instantiations (shape 3) are seeded
     # directly — the effect edges reference the TEMPLATE, so the walk alone would
     # not reach them.
+    # design 84: a nested suspending METHOD call embeds the callee METHOD's frame
+    # (with a `__recv` pointer into the receiver's caller-frame storage). Effect
+    # edges to a method are keyed by `id(Method)`, so map every method AST to its
+    # (struct, method, extension) to follow those edges and build the frames.
+    methods_by_id = {}
+    for ext in program.extensions:
+        sname = getattr(ext, 'struct_name', None)
+        for m in ext.methods:
+            methods_by_id[id(m)] = (sname, m, ext)
+    method_root_keys = {f"{s}_{mn}" for (s, mn) in method_roots}
+
     closure = []
+    method_closure = {}   # id(method) -> (struct_name, method_ast, extension)
     seen = set()
-    work = list(seed_names) + list(promoted)
+    work = [("fn", n) for n in (list(seed_names) + list(promoted))]
     while work:
-        n = work.pop()
-        if n in seen:
+        kind, key = work.pop()
+        if (kind, key) in seen:
             continue
-        seen.add(n)
-        func = funcs_by_name.get(n)
-        if func is None:
-            raise CoroTransformError(
-                f"coroutine transform: suspending function `{n}` not found in the "
-                f"entry module (driving supports entry-module free functions only)")
-        if func.type_params:
-            # design 74 (A5-rest, shape 3): a GENERIC template reached via an effect
-            # edge (the edge references the template, not the instantiation). Its
-            # SUSPENDING instantiations were promoted to concrete spliced callees and
-            # seeded directly, so the template itself needs no frame — skip it. A
-            # nested generic call the promotion could NOT handle (e.g. cross-module,
-            # shape 4) keeps its generic AST call and is rejected — with a workaround
-            # and a user-anchored line — by `_classify_call` when its caller lowers.
-            continue
-        closure.append(n)
-        node = nodes.get(("fn", n))
+        seen.add((kind, key))
+        if kind == "fn":
+            func = funcs_by_name.get(key)
+            if func is None:
+                raise CoroTransformError(
+                    f"coroutine transform: suspending function `{key}` not found in "
+                    f"the entry module (driving supports entry-module free functions "
+                    f"only)")
+            if func.type_params:
+                # design 74 (A5-rest, shape 3): a GENERIC template reached via an
+                # effect edge (the edge references the template, not the
+                # instantiation). Its SUSPENDING instantiations were promoted to
+                # concrete spliced callees and seeded directly, so the template
+                # itself needs no frame — skip it. A nested generic call the
+                # promotion could NOT handle (e.g. cross-module, shape 4) keeps its
+                # generic AST call and is rejected — with a workaround and a
+                # user-anchored line — by `_classify_call` when its caller lowers.
+                continue
+            closure.append(key)
+            node = nodes.get(("fn", key))
+        else:  # a nested suspending method callee
+            entry = methods_by_id.get(key)
+            if entry is None:
+                continue
+            sname, mast, ext = entry
+            fbkey = f"{sname}_{mast.name}"
+            # A method-level or generic-struct generic, or one already driven
+            # directly (a method root), is not embedded here — the call site is
+            # rejected cleanly by `_reject_suspending_method_call`.
+            if (getattr(mast, 'type_params', None)
+                    or getattr(ext, 'type_params', None)
+                    or fbkey in method_root_keys):
+                continue
+            method_closure[key] = (sname, mast, ext)
+            node = nodes.get(id(mast))
         if node is not None:
             for e in node.edges:
                 t = nodes.get(e.target)
-                if (t is not None and t.suspends
-                        and isinstance(e.target, tuple) and e.target[0] == "fn"
+                if t is None or not t.suspends:
+                    continue
+                if (isinstance(e.target, tuple) and e.target[0] == "fn"
                         and e.target[1] in funcs_by_name):
-                    work.append(e.target[1])
+                    work.append(("fn", e.target[1]))
+                elif isinstance(e.target, int) and e.target in methods_by_id:
+                    work.append(("method", e.target))
 
     for root_name in roots:
         _analyze_nesting(root_name, funcs_by_name[root_name], nodes)
@@ -2521,10 +2634,27 @@ def transform_program(program, typechecker):
     fbs = {n: _FrameBuilder(funcs_by_name[n], tc=typechecker,
                             force_opt_result=(n in spawn_roots))
            for n in closure}
+    # design 84: frame builders for nested suspending method callees, keyed
+    # `{struct}_{method}` (matching `_FrameBuilder.name`) so a nested method-call
+    # site resolves `fbs[callee]` and embeds `__Frame_{struct}_{method}`.
+    nested_method_fbs = []   # (key, extension, method_ast)
+    for mid, (sname, mast, ext) in method_closure.items():
+        fbkey = f"{sname}_{mast.name}"
+        if fbkey in fbs:
+            continue
+        fbs[fbkey] = _FrameBuilder(mast, struct_name=sname, tc=typechecker)
+        nested_method_fbs.append((fbkey, ext, mast))
+    # Prepare ALL layouts (fn + method) before generating any resume, so a caller
+    # (fn or method) can embed a fully-known callee frame by value.
     for n in closure:
         new_structs.append(fbs[n].prepare(suspends_set))
+    for fbkey, _ext, _mast in nested_method_fbs:
+        new_structs.append(fbs[fbkey].prepare(suspends_set))
     for n in closure:
         _, resume_ext = fbs[n].build_resume(fbs)
+        new_extensions.append(resume_ext)
+    for fbkey, _ext, _mast in nested_method_fbs:
+        _, resume_ext = fbs[fbkey].build_resume(fbs)
         new_extensions.append(resume_ext)
     for root_name, modes in roots.items():
         for mode in modes:
@@ -2550,6 +2680,11 @@ def transform_program(program, typechecker):
     # `__recv` pointer into the receiver's storage; the method body's `self` is
     # rewritten to `self.__recv[0]`. Driven directly (no method embedding yet).
     removed_methods = []  # (extension, method) to strip after generation
+    # design 84: a nested-embedded suspending method's original body is replaced by
+    # its frame + resume — strip it (it holds suspension points that only make sense
+    # inside a resume state machine).
+    for _fbkey, ext, mast in nested_method_fbs:
+        removed_methods.append((ext, mast))
     gsm = getattr(typechecker, "_driven_generic_struct_methods", {}) or {}
     for (struct_name, method_name), modes in method_roots.items():
         # design 74 (A5-rest, shape 2): a driven method on a GENERIC struct is

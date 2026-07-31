@@ -11,6 +11,33 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 84 — Safe net API: TcpListener/TcpStream owning types (IN PROGRESS)
+- **Coro lift landed (commit 1):** nested suspending METHOD call embedded
+  as a sub-frame in a driven/spawned body (`let s = recv.m()`, bare
+  `recv.m(...)`, tail `return recv.m(...)`), driven across the caller's
+  resumes exactly like a nested free-function call. Method frame keyed
+  `{struct}_{method}`, `__recv` points at the receiver's caller-frame
+  storage; `&self`/`&var self` both work; result threading + Deinit-once
+  verified. CLOSES design 74 A5-rest shape 1 (the old `examples/errors/
+  coro_buried_suspending_method.saw` rejection became the positive
+  `examples/coro_nested_suspend_method.saw`, value 1012). Enabler: `&(opt!)`
+  is now an addressable lvalue (address of the optional payload, None-checked)
+  — a general language addition (typechecker `_is_lvalue` + codegen
+  `_generate_reference_expr`) that lets an opt-encoded owning receiver in a
+  frame be addressed.
+- **DEVIATION from the pinned read/write signatures (flag):** `read`/`write_all`
+  are planned VALUE-based (`read(&self) -> Data` [empty = peer closed],
+  `write_all(&self, bytes: Data)` by move + `write_all_str(&self, s: String)`)
+  rather than the brief's `read(&self, into: &var Data) -> Int` /
+  `write_all(&self, bytes: &Data)`. Reason: a `&var`/`&`-reference PARAM cannot
+  yet live in a coroutine frame (references are opt-encoded wrongly → a struct
+  field of reference type, which the re-typecheck rejects). Reference-params-
+  across-suspend is a separate, larger coro lift (pointer representation +
+  deref rewrite); deferred. The value API meets the design GOAL (zero fds/
+  pointers, suspension hidden). [design 84]
+- TODO: std.net owning types + IoError:Error; httpd migration; socketpair
+  echo test + peer-close/connect-fail/fd-leak/worker-drive tests; docs.
+
 ## Design 81 — Unsafe surface (`unsafe` marker + escape rules + with_ref) (IN PROGRESS)
 - **String-escape rider (silent backslash-drop) — LANDED.** `"\r\n"` mis-lexed as
   `"r\n"` (len 2, bytes 114/10): the lexer dropped the backslash on any UNKNOWN

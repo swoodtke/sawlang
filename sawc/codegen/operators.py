@@ -10,7 +10,7 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, TypeKind, Identifier, MemberAccess, ArrayIndex, SelfExpr, SawType, IntLiteral
+from ast_nodes import BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, TypeKind, Identifier, MemberAccess, ArrayIndex, SelfExpr, SawType, IntLiteral, ForceUnwrap
 from .mangle import mangle_named
 
 # Unsigned integer kinds: everything else that is an integer is treated as
@@ -1163,6 +1163,31 @@ class OperatorsMixin:
         elif isinstance(inner_expr, ArrayIndex):
             # Reference to array/pointer element - get a stable GEP pointer
             return self._get_array_element_pointer(inner_expr)
+        elif isinstance(inner_expr, ForceUnwrap):
+            # `&(opt!)` — a pointer into the optional's payload slot (guarded by a
+            # None-check, matching force-unwrap read semantics). Optionals lower to
+            # `{ i1 is_some, T payload }`; address the underlying optional lvalue and
+            # GEP to field 1. Used to address an opt-encoded coroutine-frame method
+            # receiver (design 84) and any `&` into an optional's contents.
+            opt_ptr = self._generate_reference_expr(
+                ReferenceExpr(expr=inner_expr.expr, mutable=expr.mutable))
+            is_some = self.builder.load(
+                self.builder.gep(opt_ptr,
+                                 [ir.Constant(ir.IntType(32), 0),
+                                  ir.Constant(ir.IntType(32), 0)], name="is_some_ptr"),
+                name="is_some")
+            func = self.builder.function
+            ok_bb = func.append_basic_block(name="unwrap_ref.ok")
+            panic_bb = func.append_basic_block(name="unwrap_ref.panic")
+            self.builder.cbranch(is_some, ok_bb, panic_bb)
+            self.builder.position_at_end(panic_bb)
+            self._emit_panic(
+                f"panic: force unwrap of None at line {getattr(inner_expr, 'line', 0)}")
+            self.builder.position_at_end(ok_bb)
+            return self.builder.gep(opt_ptr,
+                                    [ir.Constant(ir.IntType(32), 0),
+                                     ir.Constant(ir.IntType(32), 1)],
+                                    name="unwrap_payload_ptr")
         else:
             # For other expressions, evaluate and store in a temporary
             value = self._generate_expression(inner_expr)

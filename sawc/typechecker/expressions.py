@@ -458,6 +458,14 @@ class ExpressionsMixin:
 
     def _is_lvalue(self, expr: Expression) -> bool:
         """Check if an expression is an lvalue (can have its address taken)."""
+        # The payload of a force-unwrapped optional lvalue is itself an lvalue: its
+        # address is the optional's payload slot (`&(opt!)` -> a pointer into the
+        # stored value, guarded by a None-check). This lets a borrowed method
+        # receiver held in an opt-encoded coroutine frame field be addressed
+        # (design 84 nested suspending method embedding), and is a natural general
+        # extension for taking a reference into an optional's contents.
+        if isinstance(expr, ForceUnwrap):
+            return self._is_lvalue(expr.expr)
         return isinstance(expr, (Identifier, MemberAccess, ArrayIndex, SelfExpr))
 
     def _check_cast_expr(self, expr: CastExpr) -> Optional[SawType]:

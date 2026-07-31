@@ -1,0 +1,29 @@
+// design 84: a nested suspending METHOD call inside a driven body — `let r =
+// c.step()` where `Counter.step` (a `&var self` method) suspends — is embedded as
+// a method sub-frame (the Part-0b method twin) and driven across the caller's own
+// resumes. The receiver lives in the driven frame (opt-encoded owning value); its
+// storage is addressed through the frame (`&(self.c!)`) so the method mutates the
+// caller's value across the suspension. This CLOSES design 74 A5-rest shape 1.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1012
+
+struct Counter { value: Int }
+extension Counter {
+    func step(&var self) -> Int {
+        self.value = self.value + 1
+        __suspend()
+        self.value = self.value + 1
+        self.value
+    }
+}
+
+func outer(start: Int) -> Int {
+    var c = Counter(value: start)
+    let r = c.step()      // nested suspending method call, driven as a sub-frame
+    r + 1000
+}
+
+func main() {
+    print(__drive(outer(10)))   // 10 -> 11 -> (suspend) -> 12; 12 + 1000 = 1012
+}
