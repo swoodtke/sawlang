@@ -1,14 +1,16 @@
 // An escaping closure that move-captures an owned (NoCopy) value is an OWNING
 // value (design 71): the capture is released at the CLOSURE's own drop, exactly
-// once, in LIFO position — NOT early at the creating frame's exit. Here `f`
-// (declared between `b` and `a`) owns `a`'s env; LIFO teardown drops `b` first,
-// then `f` (which runs the env destructor -> "deinit 1"), then `a` (moved into
-// f, so its own slot is skipped — no double free).
+// once, in LIFO position — NOT early at the creating frame's exit. `m` is
+// declared BETWEEN the capture `a` and the closure `f`, so the drop point is
+// observable: LIFO teardown drops `f` first (its env destructor -> "deinit 1"),
+// THEN `m` ("deinit 5"), then `a` (moved into f, so its slot is skipped). The
+// old early-release behavior would drop `a` at ITS slot (last) — printing 5
+// before 1; releasing at the closure's slot prints 1 before 5.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // live
-// deinit 2
 // deinit 1
+// deinit 5
 
 struct Res { v: Int }
 extension Res: NoCopy {
@@ -16,9 +18,9 @@ extension Res: NoCopy {
 }
 
 func main() {
-    let a = Res(v: 1)
-    let f = { [move a] in a.v }
-    let b = Res(v: 2)
+    let a = Res(v: 1)                 // captured value (declared first)
+    let m = Res(v: 5)                 // middle binding
+    let f = { [move a] in a.v }       // closure owns a's env (declared last)
     print("live")
-    // LIFO: b -> f(env: a) -> a(moved, skipped)
+    // LIFO: f(env: a -> "deinit 1") -> m("deinit 5") -> a(moved, skipped)
 }
