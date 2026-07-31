@@ -13,17 +13,17 @@
 
 import src.manifest.*
 import src.git.*
+import semver.{Version, VersionReq, parse_version, parse_req}
 
-// NOTE (dogfood DF9): this resolver was written to `import semver` (the
-// libs/semver package, via a --module-path mapping) and use its
-// Version/VersionReq. That combination currently ICEs the compiler in several
-// ways — a cross-module erased-`try` re-box, an erased-error `{e}`
-// interpolation, and receiver-type confusion (a `Manifest` read back as
-// `semver.Version`). Blade importing an external generic/error-heavy package is
-// not yet viable, which BLOCKS the B8 "blade depends on semver by path" plan as
-// written. Until a compiler fix lands, version matching is done by a small
-// SELF-CONTAINED matcher below (same logic as libs/semver, kept minimal); the
-// libs/semver package remains a standalone, tested design-48 dogfood.
+// Version parsing / requirement matching is delegated to the libs/semver
+// package (design 64 B2), imported by path — the B8 "blade depends on semver"
+// dogfood. This was blocked until design 68 root-caused the cross-module
+// erased-box mangling divergence (DF9(c)): `import semver` + a
+// `parse_version(...)` whose `Result<Version, SemverError>` flowed
+// through blade's full type population mangle-missed its registered enum and
+// mis-dispatched (a `Manifest.version()` read back as `Version`). With
+// that fixed, the self-contained matcher is gone; `req_ok` below is a thin
+// adapter over `parse_req`/`VersionReq.matches`.
 
 // =============================================================================
 // Errors
@@ -175,18 +175,6 @@ func git_url(source: DepSource) -> String {
     }
 }
 
-// Is `v` strictly greater than (major, minor, patch)? Avoids re-parsing while
-// scanning candidate tags for the highest satisfying one.
-func ver_gt_parts(v: Ver, ma: Int, mi: Int, pa: Int) -> Bool {
-    if v.major != ma {
-        return v.major > ma
-    }
-    if v.minor != mi {
-        return v.minor > mi
-    }
-    v.patch > pa
-}
-
 // Create `.blade/` (self-gitignoring) and `.blade/deps/` for git checkouts.
 func ensure_deps_dir() {
     let _ = Directory.create(Path(s: ".blade"))
@@ -258,90 +246,17 @@ func normalize_path(s: String) -> String {
     b.build()
 }
 
-// Minimal self-contained semver (see the DF9 note above). `Ver` is a trivial
-// value type; matching returns None only for a MALFORMED constraint.
-struct Ver {
-    major: Int
-    minor: Int
-    patch: Int
-}
-
-func parse_ver(s: String) -> Ver? {
-    if s.contains("-") || s.contains("+") {
-        return None
-    }
-    let parts = s.split(".")
-    if parts.len() != 3 {
-        return None
-    }
-    guard let a = (parts.get(0) ?? "").to_int() else { return None }
-    guard let b = (parts.get(1) ?? "").to_int() else { return None }
-    guard let c = (parts.get(2) ?? "").to_int() else { return None }
-    if a < 0 || b < 0 || c < 0 {
-        return None
-    }
-    Ver(major: a, minor: b, patch: c)
-}
-
-func ver_ge(a: Ver, b: Ver) -> Bool {
-    if a.major != b.major {
-        return a.major > b.major
-    }
-    if a.minor != b.minor {
-        return a.minor > b.minor
-    }
-    a.patch >= b.patch
-}
-
-func ver_eq(a: Ver, b: Ver) -> Bool {
-    a.major == b.major && a.minor == b.minor && a.patch == b.patch
-}
-
 // Does `v` satisfy `constraint`? None => the constraint string is malformed.
-// Empty constraint => no constraint (matches).
-func req_matches(constraint: String, v: Ver) -> Bool? {
+// Empty constraint => no constraint (matches). Thin adapter over libs/semver.
+func req_ok(constraint: String, v: Version) -> Bool? {
     let t = constraint.trim()
     if t.is_empty() {
         return true
     }
-
-    var op = "="
-    var rest = t
-    if t.starts_with(">=") {
-        op = ">="
-        rest = t.substring(2, t.len()).trim()
-    } else if t.starts_with("^") {
-        op = "^"
-        rest = t.substring(1, t.len()).trim()
-    } else if t.starts_with("~") {
-        op = "~"
-        rest = t.substring(1, t.len()).trim()
-    }
-
-    guard let r = parse_ver(rest) else {
+    guard let req = try? parse_req(t) else {
         return None
     }
-
-    if op.equals("=") {
-        return ver_eq(v, r)
-    }
-    if op.equals(">=") {
-        return ver_ge(v, r)
-    }
-    if op.equals("~") {
-        return ver_ge(v, r) && v.major == r.major && v.minor == r.minor
-    }
-    // caret
-    if not ver_ge(v, r) {
-        return false
-    }
-    if r.major > 0 {
-        return v.major == r.major
-    }
-    if r.minor > 0 {
-        return v.major == 0 && v.minor == r.minor
-    }
-    v.major == 0 && v.minor == 0 && v.patch == r.patch
+    req.matches(v)
 }
 
 // =============================================================================
@@ -408,22 +323,19 @@ func visit(dep_name: String, source: DepSource, constraint: String, requirer: St
         }
         // Pick the highest tag version satisfying the requirement.
         var best = -1
-        var bma = 0
-        var bmi = 0
-        var bpa = 0
+        var best_ver: Version? = None
         var k = 0
         while k < cands.len() {
-            guard let cv = parse_ver(cands.version(k)) else {
+            guard let cv = try? parse_version(cands.version(k)) else {
                 k = k + 1
                 continue
             }
-            let matched = req_matches(constraint, cv) ?? false
+            let matched = req_ok(constraint, cv) ?? false
             if matched {
-                if best < 0 || ver_gt_parts(cv, bma, bmi, bpa) {
+                let is_better = if let bv = best_ver { cv > bv } else { true }
+                if is_better {
                     best = k
-                    bma = cv.major
-                    bmi = cv.minor
-                    bpa = cv.patch
+                    best_ver = cv
                 }
             }
             k = k + 1
@@ -483,7 +395,7 @@ func validate(resolution: &Resolution, reqs: &ReqList) -> Result<Bool, ResolveEr
         let name = resolution.name(i)
         let ver_str = resolution.version(i)
 
-        guard let ver = parse_ver(ver_str) else {
+        guard let ver = try? parse_version(ver_str) else {
             return ResolveError(msg: "package `{name}` has an unparseable version `{ver_str}`")
         }
 
@@ -494,7 +406,7 @@ func validate(resolution: &Resolution, reqs: &ReqList) -> Result<Bool, ResolveEr
             if reqs.name(k).equals(name) {
                 let cons = reqs.constraint(k)
                 if not cons.is_empty() {
-                    guard let ok = req_matches(cons, ver) else {
+                    guard let ok = req_ok(cons, ver) else {
                         return ResolveError(msg: "invalid version requirement `{cons}` on `{name}`")
                     }
                     if not ok {

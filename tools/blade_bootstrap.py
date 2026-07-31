@@ -24,6 +24,7 @@ PY = os.path.join(REPO, ".venv", "bin", "python")
 SAWC = os.path.join(REPO, "sawc", "sawc.py")
 BLADE_DIR = os.path.join(REPO, "blade")
 TOML_SRC = os.path.join(REPO, "libs", "toml", "src")
+SEMVER_SRC = os.path.join(REPO, "libs", "semver", "src")
 STAGE0 = os.path.join(REPO, ".build", "blade0")
 STAGE_BIN = os.path.join(BLADE_DIR, "blade")   # blade's self-built binary
 
@@ -54,10 +55,11 @@ def main():
               os.path.join(BLADE_DIR, "blade.ll")]:
         subprocess.run(["rm", "-rf", p])
 
-    # stage0: sawc builds blade directly (with the toml dependency mapped).
+    # stage0: sawc builds blade directly (with the toml + semver deps mapped).
     print("== stage0: sawc builds blade ==")
     r = run([PY, SAWC, os.path.join(BLADE_DIR, "src", "main.saw"),
-             "-o", STAGE0, "--module-path", f"toml={TOML_SRC}"])
+             "-o", STAGE0, "--module-path", f"toml={TOML_SRC}",
+             "--module-path", f"semver={SEMVER_SRC}"])
     if r.returncode != 0:
         fail("stage0 build", r.stdout + r.stderr)
 

@@ -1,5 +1,11 @@
 [lock]
-manifest_hash = "1317565583076547404"
+manifest_hash = "8781881352557053695"
+
+[pkg.semver]
+version = "0.1.0"
+source = "path"
+loc = "../libs/semver"
+rev = ""
 
 [pkg.toml]
 version = "0.1.0"

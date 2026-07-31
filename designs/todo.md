@@ -30,13 +30,28 @@ items need a probe before being treated as real work.
   so registration and lookup never diverge. (b) un-worked-around: DepList
   is `Vector<Dependency>` again; 770 suite + 17 blade + libs + bootstrap
   green.
-
-## Open bugs / ledger
-- **DF9(c)/semver re-import — IN PROGRESS (design 68).**
-  Re-import libs/semver into blade's resolver (delete the self-contained
-  matcher, add the path dep, regenerate lock). Same erased-box family as
-  (b); verifying the fix covers the `Version.version` receiver confusion.
-  [64, 67, 68]
+- DF9(c) CLOSED — SAME family. Re-imported libs/semver into blade's
+  resolver: deleted the self-contained matcher (`Ver`/`parse_ver`/
+  `req_matches`/...), `import semver.{Version, VersionReq, parse_version,
+  parse_req}`, added the `semver = { path = "../libs/semver" }` dep to
+  blade's Saw.toml, regenerated Saw.lock (2 deps). The DF9(c) symptom
+  ("Undefined method: Version.version" — a `Manifest.version()` read back
+  as semver's Version) is gone with the erased-box mangling fix; blade
+  self-hosts with semver by path (bootstrap green, 17 blade tests, both
+  libs green).
+- FLAGGED (new, minor): a module-qualified type ANNOTATION `mod.Type`
+  (e.g. `v: semver.Version`) ICEs codegen "Undefined struct: semver.Version"
+  — the typechecker strips the qualifier but the raw annotation reaches
+  codegen unresolved. Blade never hit it before (toml was only used in
+  expressions). Worked around with a selective import (`import
+  semver.{Version, ...}`, bare names), the idiomatic form. See "L18" below.
+- **L18 — module-qualified type annotations.** `func f(v: mod.Type)` /
+  `let x: mod.Type` reach codegen with the dotted `struct_name` and ICE
+  "Undefined struct: mod.Type"; the typechecker resolves the dot for
+  checking but does not rewrite the AST annotation codegen reads. Fix:
+  resolve/strip module qualifiers on declared param/let annotations (or
+  strip in codegen `_get_llvm_type`). Selective import is the workaround.
+  [68]
 - **DF4 (meta).** Blade bit-rots as the compiler tightens — re-validate
   periodically (the bootstrap target is the canary). [49]
 - **DF5.** Keywords (`extension` etc.) can't be identifiers — fine, but
