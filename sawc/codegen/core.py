@@ -52,6 +52,7 @@ from .structs import StructsMixin
 from .match import MatchMixin
 from .results import ResultsMixin
 from .existentials import ExistentialsMixin
+from .debuginfo import DebugInfoMixin
 import copy
 
 
@@ -95,9 +96,9 @@ def _install_volatile_ir_support():
 _install_volatile_ir_support()
 
 
-class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, ExistentialsMixin, TypesMixin, ResourcesMixin):
+class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, ExistentialsMixin, TypesMixin, ResourcesMixin, DebugInfoMixin):
     def __init__(self, namespace: Namespace, target_triple: Optional[str] = None,
-                 freestanding: bool = False):
+                 freestanding: bool = False, source_path: Optional[str] = None):
         # Unified namespace from type checker (Phase 0 of module system)
         self.namespace = namespace
 
@@ -278,6 +279,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Current return type (for implicit optional wrapping)
         self.current_return_type: Optional[SawType] = None
+
+        # design 69: DWARF debug-info (line tables). Initialize state now; the
+        # module-level metadata (flags + compile unit) is emitted in generate().
+        self._di_init(source_path)
 
         # Declare external functions (printf for print)
         self._declare_external_functions()
@@ -1156,6 +1161,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def generate(self, program: Program) -> str:
         # Type aliases are already in namespace from typechecker
+
+        # design 69: emit debug-info module flags + compile unit before any
+        # function subprogram references them.
+        self._di_setup_module()
 
         # Register built-in generic enums (like Result<T, E>)
         self._register_builtin_enums()

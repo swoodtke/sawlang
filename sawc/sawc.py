@@ -636,7 +636,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
 
     if verbose:
         print("  Building code generator...")
-    codegen = CodeGenerator(typechecker.namespace, target_triple=target_triple, freestanding=freestanding)
+    codegen = CodeGenerator(typechecker.namespace, target_triple=target_triple,
+                            freestanding=freestanding, source_path=source_path)
     return codegen, merged_ast
 
 

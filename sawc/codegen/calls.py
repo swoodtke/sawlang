@@ -149,7 +149,7 @@ class CallsMixin:
         # saw_panic seam. Both terminate their block (panic unconditionally;
         # assert on the false branch) with `unreachable`.
         if expr.name == "panic":
-            return self._generate_panic(expr.arguments)
+            return self._generate_panic(expr)
         if expr.name == "assert":
             return self._generate_assert(expr)
 
@@ -490,27 +490,46 @@ class CallsMixin:
         self.builder.call(self.functions["saw_panic"], [buf, total])
         self.builder.unreachable()
 
-    def _generate_panic(self, arguments: List[Argument]):
+    def _panic_location_prefix(self, line: int) -> str:
+        """The unified `panic at FILE:LINE: ` message prefix (design 69).
+
+        FILE is the current function's source basename (from debug-info state);
+        LINE is the call-site line (a compile-time constant). Both panic() and
+        assert() share this so a runtime abort names its source location even
+        without a debugger attached. Falls back to `panic: ` when no source is
+        known (e.g. a synthesized call site)."""
+        base = self._di_current_basename()
+        if base and line:
+            return f"panic at {base}:{line}: "
+        if line:
+            return f"panic at line {line}: "
+        return "panic: "
+
+    def _generate_panic(self, expr: FunctionCall):
         """panic(message: String) -> Never (design 49 item 1).
 
-        Emits the runtime String message followed by a newline through the
-        saw_panic seam, then terminates the block. Returns None (the value is
-        NEVER; nothing consumes it).
+        Emits `panic at FILE:LINE: {message}\\n` through the saw_panic seam
+        (design 69 unified format), then terminates the block. Returns None
+        (the value is NEVER; nothing consumes it).
         """
-        msg_val = self._generate_expression(arguments[0].value)
+        msg_val = self._generate_expression(expr.arguments[0].value)
         msg_len = self.builder.call(self.functions["__saw_string_len"], [msg_val],
                                     name="panic_msg_len")
+        prefix_ptr, prefix_len = self._raw_bytes_ptr(
+            self._panic_location_prefix(getattr(expr, 'line', 0)))
         nl_ptr, nl_len = self._raw_bytes_ptr("\n")
-        self._emit_runtime_panic([(msg_val, msg_len), (nl_ptr, nl_len)])
+        self._emit_runtime_panic([(prefix_ptr, prefix_len),
+                                  (msg_val, msg_len),
+                                  (nl_ptr, nl_len)])
         return None
 
     def _generate_assert(self, expr: FunctionCall):
         """assert(cond: Bool, message: String) (design 49 item 2).
 
-        A no-op when `cond` is true. On false it panics with
-        "assertion failed: {message} (line N)\\n" — the call-site line N is a
-        compile-time constant, baked into the suffix. The message is evaluated
-        only on the failing branch.
+        A no-op when `cond` is true. On false it panics with the design-69
+        unified format "panic at FILE:LINE: assertion failed: {message}\\n" —
+        the call-site FILE:LINE is a compile-time constant. The message is
+        evaluated only on the failing branch.
         """
         cond = self._generate_expression(expr.arguments[0].value)
         func = self.builder.function
@@ -522,8 +541,9 @@ class CallsMixin:
         msg_val = self._generate_expression(expr.arguments[1].value)
         msg_len = self.builder.call(self.functions["__saw_string_len"], [msg_val],
                                     name="assert_msg_len")
-        prefix_ptr, prefix_len = self._raw_bytes_ptr("assertion failed: ")
-        suffix_ptr, suffix_len = self._raw_bytes_ptr(f" (line {expr.line})\n")
+        prefix_ptr, prefix_len = self._raw_bytes_ptr(
+            self._panic_location_prefix(getattr(expr, 'line', 0)) + "assertion failed: ")
+        suffix_ptr, suffix_len = self._raw_bytes_ptr("\n")
         self._emit_runtime_panic([(prefix_ptr, prefix_len),
                                   (msg_val, msg_len),
                                   (suffix_ptr, suffix_len)])

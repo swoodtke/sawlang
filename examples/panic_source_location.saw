@@ -1,0 +1,9 @@
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at panic_source_location.saw:8: boom
+
+// design 69: a runtime `panic` names its source location — "panic at FILE:LINE:
+// {message}" — threaded through the saw_panic seam. The FILE is the calling
+// function's source basename and LINE is the panic call-site line (here 8).
+func main() {
+    panic("boom")
+}

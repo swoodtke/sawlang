@@ -270,13 +270,25 @@ A handful of functions are compiler-known (no import needed):
 - `print(value?)` — write a value (Int family, `Bool`, `String`, `Float`, or a
   string interpolation) plus a newline; no argument prints a bare newline.
 - `panic(message: String) -> Never` — abort with `message` (design 49). It
-  routes through the freestanding-safe `saw_panic` runtime seam (message +
-  newline) and **diverges**: its type is `Never`, so a function ending in
-  `panic(...)` needs no return value, and `guard let x = … else { panic(…) }` is
-  a valid diverging exit.
+  routes through the freestanding-safe `saw_panic` runtime seam and **diverges**:
+  its type is `Never`, so a function ending in `panic(...)` needs no return
+  value, and `guard let x = … else { panic(…) }` is a valid diverging exit. The
+  abort message carries the source location — `panic at FILE:LINE: {message}`
+  (design 69).
 - `assert(cond: Bool, message: String)` — a no-op when `cond` is true; when
-  false it panics with `assertion failed: {message} (line N)` (the call-site line
-  is included). `debug_assert` is deferred until a build-profile split exists.
+  false it panics with the same unified location format,
+  `panic at FILE:LINE: assertion failed: {message}` (design 69). `debug_assert`
+  is deferred until a build-profile split exists.
+
+**Debug info (design 69):** the compiler emits DWARF line tables by default (on
+every build, no flag) via llvmlite debug metadata — a DICompileUnit, a
+DISubprogram per function (with its Saw name), and a DILocation per statement.
+A debugger (lldb/gdb) can therefore set line breakpoints and show `file:line`
+backtraces, including for panics. Scope is line tables only in v1 (no
+variable/type info yet). On macOS, source-level stepping needs the intermediate
+`.o` kept (compile with `-c`, then link) or a generated `.dSYM`, because the
+linker leaves DWARF in the object and references it through a debug map; Linux
+embeds DWARF in the executable directly.
 - `sizeof<T>()` / `alignof<T>()` — the size / alignment of `T` in bytes.
 
 ```saw

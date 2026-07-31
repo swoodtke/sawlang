@@ -1,7 +1,8 @@
 // EXPECT: panic
 // EXPECT-PANIC-CONTAINS: assertion failed: x must equal 42
 
-// A false `assert` panics with "assertion failed: {message} (line N)".
+// A false `assert` panics with "panic at FILE:LINE: assertion failed: {message}"
+// (design 69 unified panic-location format).
 func main() {
     let x = 41
     print("checking")

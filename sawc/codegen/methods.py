@@ -64,6 +64,11 @@ class MethodsMixin:
         block = llvm_func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
 
+        # design 69: attach the DISubprogram + prime the line location.
+        self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
+                                getattr(method, 'source_file', ''),
+                                getattr(method, 'line', 0))
+
         # Clear variables and cleanup stack for this method
         self.variables = {}
         self.variable_types = {}
@@ -269,6 +274,11 @@ class MethodsMixin:
         block = llvm_func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
 
+        # design 69: attach the DISubprogram + prime the line location.
+        self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
+                                getattr(method, 'source_file', ''),
+                                getattr(method, 'line', 0))
+
         # Clear variables and cleanup stack for this method
         self.variables = {}
         self.variable_types = {}
@@ -318,6 +328,11 @@ class MethodsMixin:
         # Create entry block
         block = llvm_func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
+
+        # design 69: attach the DISubprogram + prime the line location.
+        self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
+                                getattr(method, 'source_file', ''),
+                                getattr(method, 'line', 0))
 
         # Clear variables and cleanup stack for this method
         self.variables = {}
@@ -374,6 +389,11 @@ class MethodsMixin:
         # Create entry block
         block = llvm_func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
+
+        # design 69: attach the DISubprogram + prime the line location.
+        self._di_begin_function(llvm_func, func.name,
+                                getattr(func, 'source_file', ''),
+                                getattr(func, 'line', 0))
 
         # Clear variables and cleanup stack for this function
         self.variables = {}
@@ -472,6 +492,11 @@ class MethodsMixin:
                 return None
 
         if block.final_expr is not None:
+            # design 69: point the line table at the tail expression (an
+            # expression-oriented block's value — e.g. a bare `panic(...)` — is a
+            # final_expr, not a statement, so it needs its own location set here).
+            self._di_set_line(getattr(block.final_expr, 'line', 0),
+                              getattr(block.final_expr, 'column', 0))
             # Honor an ImplicitCopy `needs_copy` annotation on a tail-return final
             # expression (only the function/method body's final_expr is marked
             # by the value-transfer checkpoint, so other blocks are unaffected).

@@ -699,6 +699,12 @@ class GenericsMixin:
         block = llvm_func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
 
+        # design 69: attach the DISubprogram + prime the line location (mono body
+        # maps to the ORIGINAL method's source lines).
+        self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
+                                getattr(method, 'source_file', ''),
+                                getattr(method, 'line', 0))
+
         # Clear variables for this method. Isolate the cleanup state too:
         # drop-flag allocas (design 42) belong to THIS llvm function and must not
         # leak into another; save/restore so the caller's scopes are untouched.
@@ -809,6 +815,11 @@ class GenericsMixin:
         # Create entry block
         block = llvm_func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
+
+        # design 69: attach the DISubprogram + prime the line location.
+        self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
+                                getattr(method, 'source_file', ''),
+                                getattr(method, 'line', 0))
 
         # Clear variables for this method
         self.variables = {}

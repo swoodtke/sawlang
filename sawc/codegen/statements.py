@@ -39,6 +39,10 @@ class StatementsMixin:
         registered here and released LIFO once the statement finishes. Loops
         manage their own per-iteration scopes, so they keep the outer context.
         """
+        # design 69: point the DWARF line table at this statement's source line
+        # before lowering it (a line-0 synthesized node inherits the prior line).
+        self._di_set_line(getattr(stmt, 'line', 0), getattr(stmt, 'column', 0))
+
         # Handle dual-purpose nodes (Expressions used as Statements)
         if isinstance(stmt, WhileExpr):
             self._generate_while_expr(stmt)
