@@ -52,6 +52,18 @@ items need a probe before being treated as real work.
   Arc-capture probe: deinit runs exactly ONCE through copy+get. Tests
   `closure_vector_copy_get`, `closure_vector_deinit_once`,
   `closure_satisfies_copy_bound`. Suite 831, bootstrap 17+17, libs 4+4. [73, 54]
+- **Item 3 follow-up (get use-after-free) — LANDED.** The item-3 commit had a
+  latent flake: `Vector<() -> Int>.get` returned a closure element WITHOUT
+  retaining its env, because `_transfer_needs_copy`'s copy-with-retain branch
+  only covered ImplicitCopy STRUCT/ENUM/OPTIONAL — a closure (no conformance
+  name, so `_get_cleanup_behavior` = "none") fell through to bitwise. The
+  read-out copy's teardown released an env it never retained: a use-after-free
+  that intermittently crashed (exit 133 under load; deterministic under
+  libgmalloc). Fix: `_transfer_needs_copy` retains an escaping-closure element
+  read out of a container slot (ArrayIndex/MemberAccess/TupleIndex), mirroring
+  the design-65 aggregate copy-with-retain; a bare Identifier closure
+  (move/borrow-lend) is untouched. Verified deterministic-clean under
+  libgmalloc + MallocScribble (20x). Suite 831, bootstrap 17+17, libs 4+4. [73]
 
 ## Design 76 — A4 IO reactor + A6 extern-blocking + A3 remainder (IN PROGRESS)
 - **Commit 1 (A4 reactor + std.net + A3 io-cancel; ST + entry executor):** A

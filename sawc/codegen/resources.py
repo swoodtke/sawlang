@@ -891,7 +891,9 @@ class ResourcesMixin:
         # An escaping closure is ImplicitCopy (design 73): copying it bumps the
         # shared heap env's refcount and returns the same (aliased) value. A
         # null-env / non-owning closure retains as a no-op. Non-escaping closures
-        # are borrows — bitwise, no retain.
+        # are borrows — bitwise, no retain. (The escaping bit is reliable here:
+        # `saw_type` was already substituted through the monomorphization context
+        # above, so a container element type carries it.)
         if (saw_type.kind == TypeKind.FUNCTION
                 and getattr(saw_type, 'func_is_escaping', False)):
             if (isinstance(value.type, ir.LiteralStructType)
@@ -1078,6 +1080,17 @@ class ResourcesMixin:
                     and self._needs_cleanup(t)
                     and t.kind in (TypeKind.STRUCT, TypeKind.ENUM,
                                    TypeKind.OPTIONAL)):
+                return True
+            # An escaping closure read out of a container slot (`buf[i]` inside
+            # `Vector<() -> Int>.get`, a closure struct FIELD) is ImplicitCopy —
+            # its env must be retained so the read-out copy's later drop is
+            # balanced. Without this the shared env was freed twice (design 77
+            # item 3 follow-up: a use-after-free at teardown). A bare Identifier
+            # closure (a whole-binding move or a borrow-LEND) is NOT here — those
+            # keep their existing move/lend handling.
+            if (isinstance(value_expr, (ArrayIndex, MemberAccess, TupleIndex))
+                    and t.kind == TypeKind.FUNCTION
+                    and getattr(t, 'func_is_escaping', False)):
                 return True
             return False
         return False
