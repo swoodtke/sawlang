@@ -1,0 +1,47 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 1
+// 42
+// [world]
+
+// C6 (design 40 item 9, verified in design 68): method-level generic type
+// parameters on a NON-generic-type extension. `func f<R>(...)` on the builtin
+// `String` and on a plain user struct — the method introduces its own type
+// param beyond the (absent) struct params, specialized per call-site `<R>` and
+// dispatched through `plain_generic_methods`. Covers a primitive R (Int/Bool),
+// an owning R (String), and an extra non-closure parameter.
+
+extension String {
+    func mapTo<R>(&self, f: (String) -> R) -> R {
+        f(self)
+    }
+
+    func pick<R>(&self, cond: Bool, f: (String) -> R) -> R {
+        f(self)
+    }
+}
+
+struct Wrapper {
+    value: Int
+}
+
+extension Wrapper {
+    func transform<R>(&self, f: (Int) -> R) -> R {
+        f(self.value)
+    }
+}
+
+func main() {
+    let s = "hello"
+    print(s.mapTo<Int> { str in str.len() })            // 5
+
+    let b = s.mapTo<Bool> { str in str.len() > 3 }
+    if b { print(1) } else { print(0) }                  // 1
+
+    let w = Wrapper(value: 21)
+    print(w.transform<Int> { v in v * 2 })               // 42
+
+    let w2 = "world"
+    print(w2.pick<String>(true) { str in "[{str}]" })    // [world]
+}

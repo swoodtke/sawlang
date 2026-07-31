@@ -17,41 +17,6 @@ items need a probe before being treated as real work.
 - **SOS**: boot protocol + syscall ABI (sos/spec.md §5) — the next
   design session.
 
-## Design 68 progress (cross-module mono/receiver confusion)
-- ROOT CAUSE (DF6(b)): erased-box default-type-arg mangling divergence.
-  The typechecker canonicalizes `Box<any Trait>` to arity-2
-  `Box<any Trait, Global>`; codegen registers composite types embedding
-  it (the err arm of `Result<T, Box<any Error>>`) from the RAW arity-1
-  method annotation. A `match`/`try` then mangle-missed the registered
-  enum and the LLVM-type fallback silently picked a same-sized WRONG
-  monomorphization (payload read as the wrong type). Fix: normalize the
-  erased box to ONE canonical arity-1 in codegen `_canonicalize_type_kind`
-  and route the match / `_get_result_enum_name` (try) lookups through it,
-  so registration and lookup never diverge. (b) un-worked-around: DepList
-  is `Vector<Dependency>` again; 770 suite + 17 blade + libs + bootstrap
-  green.
-- DF9(c) CLOSED — SAME family. Re-imported libs/semver into blade's
-  resolver: deleted the self-contained matcher (`Ver`/`parse_ver`/
-  `req_matches`/...), `import semver.{Version, VersionReq, parse_version,
-  parse_req}`, added the `semver = { path = "../libs/semver" }` dep to
-  blade's Saw.toml, regenerated Saw.lock (2 deps). The DF9(c) symptom
-  ("Undefined method: Version.version" — a `Manifest.version()` read back
-  as semver's Version) is gone with the erased-box mangling fix; blade
-  self-hosts with semver by path (bootstrap green, 17 blade tests, both
-  libs green).
-- FLAGGED (new, minor): a module-qualified type ANNOTATION `mod.Type`
-  (e.g. `v: semver.Version`) ICEs codegen "Undefined struct: semver.Version"
-  — the typechecker strips the qualifier but the raw annotation reaches
-  codegen unresolved. Blade never hit it before (toml was only used in
-  expressions). Worked around with a selective import (`import
-  semver.{Version, ...}`, bare names), the idiomatic form. See "L18" below.
-- **L18 — module-qualified type annotations.** `func f(v: mod.Type)` /
-  `let x: mod.Type` reach codegen with the dotted `struct_name` and ICE
-  "Undefined struct: mod.Type"; the typechecker resolves the dot for
-  checking but does not rewrite the AST annotation codegen reads. Fix:
-  resolve/strip module qualifiers on declared param/let annotations (or
-  strip in codegen `_get_llvm_type`). Selective import is the workaround.
-  [68]
 - **DF4 (meta).** Blade bit-rots as the compiler tightens — re-validate
   periodically (the bootstrap target is the canary). [49]
 - **DF5.** Keywords (`extension` etc.) can't be identifiers — fine, but
@@ -59,11 +24,13 @@ items need a probe before being treated as real work.
 - **B4 limit.** A git dep's locked REV isn't pinned without
   re-resolution (build-from-lock path reconstruction is future work);
   path deps unaffected. [64, 67]
-- **C6 — VERIFY (conflicting records).** Method-level generic type
-  params on non-generic-type extensions (`extension String { func
-  f<R> }`): the brief-40 sweep note says fixed (value-returning
-  `withCString<R>`), a later entry says open. Probe, then close or fix.
-  [38, 40]
+- **L18 — module-qualified type annotations (found in design 68).**
+  `func f(v: mod.Type)` / `let x: mod.Type` reach codegen with the dotted
+  `struct_name` and ICE "Undefined struct: mod.Type"; the typechecker
+  resolves the dot for checking but does not rewrite the AST annotation
+  codegen reads. Fix: resolve/strip module qualifiers on declared
+  param/let annotations (or strip in codegen `_get_llvm_type`). Selective
+  import (`import mod.{Type}`, bare names) is the idiomatic workaround. [68]
 - **L2.** Return-type reconciliation for type-param/associated-type
   returns in generic bodies — documented deferred looseness. [02, 24]
 - **L9.** `==` over Optional-/array-bearing members: deliberate clean
