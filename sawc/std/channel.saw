@@ -51,14 +51,14 @@ struct Channel<T: Send> {
 extension Channel<T: Send> {
     // Create a fresh empty channel (refcount = 1, count = 0).
     public init() -> Channel<T> {
-        if let block = GlobalAllocator().alloc(160, 16) {
+        if let block = unsafe GlobalAllocator().alloc(160, 16) {
             __saw_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
             __saw_pthread_cond_init_default(cond)
             let refcount = (block + 128) as UnsafePointer<Int>
-            refcount[0] = 1
+            unsafe refcount[0] = 1
             let count = (block + 136) as UnsafePointer<Int>
-            count[0] = 0
+            unsafe count[0] = 0
             Channel<T>(block: block)
         } else {
             Channel<T>(block: None)

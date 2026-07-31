@@ -49,27 +49,28 @@ extension Directory {
     // Returns a Vector of Paths, or None if directory cannot be opened
     public func list(path: Path) -> Vector<Path>? {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
-        if let dir = opendir(path_ptr) {
+        if let dir = unsafe opendir(path_ptr) {
             var result = Vector<Path>()
 
             // Read entries until we get None
             var done = false
             while not done {
-                if let entry = readdir(dir) {
+                if let entry = unsafe readdir(dir) {
                     // On macOS, d_name starts at offset 21 in struct dirent
-                    let name_ptr = entry + 21
+                    let name_ptr = unsafe entry + 21
                     // Copy the entry's C string into an owned String (the dirent
                     // buffer has no String header and is reused by readdir).
                     let name = __saw_string_from_bytes(name_ptr, strlen(name_ptr))
 
                     // Skip . and ..
-                    let first_char = name_ptr[0]
+                    let first_char = unsafe name_ptr[0]
                     if first_char == (46 as Int8) {  // '.'
-                        let second_char = name_ptr[1]
+                        let second_char = unsafe name_ptr[1]
                         if second_char == (0 as Int8) {  // "."
                             continue
                         }
-                        if second_char == (46 as Int8) && name_ptr[2] == (0 as Int8) {  // ".."
+                        let third_char = unsafe name_ptr[2]
+                        if second_char == (46 as Int8) && third_char == (0 as Int8) {  // ".."
                             continue
                         }
                     }
@@ -120,8 +121,8 @@ extension Directory {
 
     // Get the current working directory
     public func current() -> Path? {
-        if let buf = malloc(1024) {
-            if let result = getcwd(buf, 1024) {
+        if let buf = unsafe malloc(1024) {
+            if let result = unsafe getcwd(buf, 1024) {
                 // Copy into an owned String, then free the scratch buffer.
                 let s = __saw_string_from_bytes(result, strlen(result))
                 free(buf)

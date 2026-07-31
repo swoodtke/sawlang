@@ -248,8 +248,8 @@ func tcp_socketpair() -> (Int, Int) {
     var fds = FdPair(a: 0 as Int32, b: 0 as Int32)
     let fp = (&fds) as UnsafePointer<Int32>
     if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, fp) == 0 {
-        let a = fp[0]
-        let b = fp[1]
+        let a = unsafe fp[0]
+        let b = unsafe fp[1]
         let _ = saw_set_nonblocking(a as Int)
         let _ = saw_set_nonblocking(b as Int)
         return (a as Int, b as Int)

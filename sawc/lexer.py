@@ -84,6 +84,7 @@ class TokenType(Enum):
     WRAP_MUL = auto()       # &* wrapping (two's-complement) multiplication
     NOT = auto()            # 'not' keyword for logical not
     MOVE = auto()           # 'move' keyword for ownership transfer
+    UNSAFE = auto()         # 'unsafe' expression-prefix marker (design 81)
     ASSIGN = auto()
     PLUS_ASSIGN = auto()    # += compound assignment
     MINUS_ASSIGN = auto()   # -= compound assignment
@@ -166,6 +167,7 @@ KEYWORDS = {
     'extern': TokenType.EXTERN,
     'not': TokenType.NOT,
     'move': TokenType.MOVE,
+    'unsafe': TokenType.UNSAFE,
     'as': TokenType.AS,
     'try': TokenType.TRY,
     'catch': TokenType.CATCH,

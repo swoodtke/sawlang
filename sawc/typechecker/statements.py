@@ -207,6 +207,24 @@ class StatementsMixin:
         if method.is_init:
             expected_return = self_type
 
+        # design 81: is this method in the unsafe domain? Two ways in:
+        #  (1) its own signature carries a raw pointer (param/return), OR
+        #  (2) it is a `self`-RECEIVER method of a struct that declares a raw-
+        #      pointer field — the field decl is that field's visible marker, so
+        #      operations on the struct's own pointer field are already visible
+        #      (this is what keeps container ACCESS methods — Vector.get/push,
+        #      Arc.copy/deinit — marker-free). A no-`self` FACTORY (init/static,
+        #      e.g. `Box.make`) is NOT in the domain: it mints a fresh pointer via
+        #      `alloc`, so its binding must show the `unsafe` marker.
+        saved_unsafe_domain = self._current_fn_unsafe_domain
+        has_self = any(p.name == "self" or p.type.kind == TypeKind.SELF
+                       for p in method.parameters)
+        self._current_fn_unsafe_domain = self._signature_unsafe_domain(
+            [self._resolve_type(p.type) for p in method.parameters
+             if p.name != "self" and p.type.kind != TypeKind.SELF],
+            self._resolve_type(expected_return)) or (
+            has_self and self._struct_has_pointer_field(struct_name))
+
         # design 54: collection/array literal in return position.
         if expected_return is not None:
             resolved_ret = self._resolve_type(expected_return)
@@ -308,6 +326,7 @@ class StatementsMixin:
         self.current_method = None
         self.moved_bindings = saved_moves
         self.current_type_params = prev_method_type_params
+        self._current_fn_unsafe_domain = saved_unsafe_domain
 
     def _erased_err_target(self, result_type):
         """If `result_type` is `Result<T, Box<any Trait>>` (an erased Result,
@@ -628,6 +647,12 @@ class StatementsMixin:
         # Resolve return type first (needed for None propagation)
         resolved_return_type = self._resolve_type(func.return_type)
 
+        # design 81: is this function's OWN signature in the unsafe domain?
+        saved_unsafe_domain = self._current_fn_unsafe_domain
+        self._current_fn_unsafe_domain = self._signature_unsafe_domain(
+            [self._resolve_type(p.type) for p in func.parameters],
+            resolved_return_type)
+
         # design 54: a collection/array literal in return position (tail or a
         # top-level `return`) gets the return type as its expected type.
         self._stamp_return_literal_types(func.body, resolved_return_type)
@@ -655,6 +680,7 @@ class StatementsMixin:
             self._effect_exit()
             self.current_function = None
             self.moved_bindings = saved_moves
+            self._current_fn_unsafe_domain = saved_unsafe_domain
             return
 
         # Propagate expected type to body for None annotation
@@ -676,6 +702,7 @@ class StatementsMixin:
         self._effect_exit()
         self.current_function = None
         self.moved_bindings = saved_moves
+        self._current_fn_unsafe_domain = saved_unsafe_domain
 
     def _check_block(self, block: Block) -> Optional[SawType]:
         """Check a block and return its type (from final expression)."""
@@ -792,10 +819,30 @@ class StatementsMixin:
                 self._define_irrefutable_bindings(sub, t, mutable)
 
     def visit_AssignStatement(self, stmt: AssignStatement):
-        self._check_assign_statement(stmt)
+        self._check_store_stmt(stmt, self._check_assign_statement)
 
     def visit_CompoundAssignStatement(self, stmt: CompoundAssignStatement):
-        self._check_compound_assign_statement(stmt)
+        self._check_store_stmt(stmt, self._check_compound_assign_statement)
+
+    def _check_store_stmt(self, stmt, check):
+        """Run an assignment/compound-assignment check, honoring an `unsafe`
+        marker lifted onto the store (design 81): `unsafe p[0] = v`. Inside the
+        marker a raw-pointer write is free; a marker covering no unsafe op is the
+        "nothing unsafe here" error."""
+        if not getattr(stmt, 'is_unsafe', False):
+            check(stmt)
+            return
+        before = self._unsafe_ops_seen
+        self._unsafe_marker_depth += 1
+        check(stmt)
+        self._unsafe_marker_depth -= 1
+        if self._unsafe_ops_seen == before:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "`unsafe` marks a store with no unsafe operation",
+                stmt.line, stmt.column,
+                hint="the `unsafe` marker is only for a raw-pointer write "
+                     "(`unsafe ptr[i] = v`); remove it here")
 
     def visit_ReturnStatement(self, stmt: ReturnStatement):
         self._check_return_statement(stmt)
@@ -1267,6 +1314,9 @@ class StatementsMixin:
                         stmt.line, stmt.column
                     )
                     return
+                # design 81: writing through a raw pointer requires the `unsafe`
+                # marker (`unsafe ptr[i] = v`).
+                self._note_unsafe_op(stmt.target, "writing through a raw pointer")
                 element_type = container_type.inner_type
             else:
                 self._error(

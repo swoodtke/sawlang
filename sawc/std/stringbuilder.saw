@@ -36,7 +36,7 @@ extension StringBuilder {
         if capacity <= 0 {
             StringBuilder(buffer: None, length: 0, capacity: 0)
         } else {
-            if let ptr = GlobalAllocator().alloc(capacity, 1) {
+            if let ptr = unsafe GlobalAllocator().alloc(capacity, 1) {
                 StringBuilder(buffer: ptr, length: 0, capacity: capacity)
             } else {
                 StringBuilder(buffer: None, length: 0, capacity: 0)

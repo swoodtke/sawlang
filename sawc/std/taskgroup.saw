@@ -34,7 +34,7 @@
 // claimed frame is owned by exactly one worker while it runs — paper 18's D6
 // confinement); the `active` flag enforces one-worker-per-frame. Enqueue is
 // main-thread-only (no worker is alive outside a drain), so the run queue never
-// resizes during a drain — `tasks` is read-only (only `ref_at`) while workers run,
+// resizes during a drain — `tasks` is read-only (only `with_var_ref`) while workers run,
 // and only the bookkeeping vectors are mutated, always under the lock.
 
 extern "C" {
@@ -69,6 +69,17 @@ struct TaskGroup {
     lock: UnsafePointer<Int8>?
 }
 
+// The result of resuming one frame, carried OUT of a `with_var_ref` borrow
+// (design 81). `with_var_ref<R>` needs an explicit result type (method-generic
+// inference is future work) and the frame's `__Poll` is not user-nameable, so
+// the executor's scoped borrow returns this trivial (Copy) struct instead of
+// matching `__Poll` inside the closure. `done` = the frame finished; otherwise
+// `wake` is its `__wake_reason` (0 = ready, >0 = sleep ms, <0 = io-parked).
+struct __ResumeOutcome {
+    done: Bool
+    wake: Int
+}
+
 extension TaskGroup {
     public init() -> TaskGroup {
         let t = Vector<Box<any Resumable>>()
@@ -95,7 +106,7 @@ extension TaskGroup {
         }
         var lk: UnsafePointer<Int8>? = None
         if w >= 2 {
-            if let block = GlobalAllocator().alloc(64, 16) {
+            if let block = unsafe GlobalAllocator().alloc(64, 16) {
                 __saw_pthread_mutex_init_default(block)
                 lk = block
             }
@@ -156,17 +167,19 @@ extension TaskGroup {
                 var i = 0
                 while i < self.tasks.len() {
                     if (not self.done.get(i)!) && self.remaining.get(i)! == 0 {
-                        match self.tasks.ref_at(i)[0].resume() {
-                            case Pending -> {
-                                let w = self.tasks.ref_at(i)[0].__wake_reason()
-                                self.remaining.set(i, w)
-                                if w == 0 {
-                                    progressed = true
-                                }
-                            },
-                            case Done -> {
-                                self.done.set(i, true)
-                                live = live - 1
+                        let oc = self.tasks.with_var_ref<__ResumeOutcome>(i, { f in
+                            match f.resume() {
+                                case Pending -> __ResumeOutcome(done: false, wake: f.__wake_reason()),
+                                case Done -> __ResumeOutcome(done: true, wake: 0)
+                            }
+                        })
+                        if oc.done {
+                            self.done.set(i, true)
+                            live = live - 1
+                        } else {
+                            self.remaining.set(i, oc.wake)
+                            if oc.wake == 0 {
+                                progressed = true
                             }
                         }
                     }
@@ -282,11 +295,16 @@ extension TaskGroup {
 // worker (D6). Returns a dummy `Int` (a `Void` spawn body currently ICEs).
 func __tg_worker(addr: Int) -> Int {
     let g = addr as UnsafePointer<TaskGroup>
-    if let lk = g[0].lock {
+    // `g[0]` derefs the shared group through a raw pointer (this free function
+    // gets the group's ADDRESS across the `spawn` boundary as a Send `Int`); each
+    // access is marked `unsafe` (design 81). A deref buried in an `if`/`not`
+    // condition is hoisted to a marked `let` first (the marker prefixes an
+    // expression, so it cannot sit under `not`).
+    if let lk = unsafe g[0].lock {
         var running = true
         while running {
             pthread_mutex_lock(lk)
-            let n = g[0].tasks.len()
+            let n = unsafe g[0].tasks.len()
             var live = 0
             var idx = -1
             var anyactive = false
@@ -294,12 +312,14 @@ func __tg_worker(addr: Int) -> Int {
             var minrem = -1
             var i = 0
             while i < n {
-                if not g[0].done.get(i)! {
+                let done_i = unsafe g[0].done.get(i)!
+                if not done_i {
                     live = live + 1
-                    if g[0].active.get(i)! {
+                    let active_i = unsafe g[0].active.get(i)!
+                    if active_i {
                         anyactive = true
                     } else {
-                        let rem = g[0].remaining.get(i)!
+                        let rem = unsafe g[0].remaining.get(i)!
                         if rem == 0 {
                             if idx < 0 {
                                 idx = i
@@ -321,22 +341,24 @@ func __tg_worker(addr: Int) -> Int {
             } else {
                 if idx >= 0 {
                     // Claim frame `idx` (one worker owns it), resume OUTSIDE the lock.
-                    g[0].active.set(idx, true)
+                    unsafe g[0].active.set(idx, true)
                     let _ = pthread_mutex_unlock(lk)
-                    match g[0].tasks.ref_at(idx)[0].resume() {
-                        case Pending -> {
-                            let wk = g[0].tasks.ref_at(idx)[0].__wake_reason()
-                            pthread_mutex_lock(lk)
-                            g[0].active.set(idx, false)
-                            g[0].remaining.set(idx, wk)
-                            let _ = pthread_mutex_unlock(lk)
-                        },
-                        case Done -> {
-                            pthread_mutex_lock(lk)
-                            g[0].active.set(idx, false)
-                            g[0].done.set(idx, true)
-                            let _ = pthread_mutex_unlock(lk)
+                    let oc = unsafe g[0].tasks.with_var_ref<__ResumeOutcome>(idx, { f in
+                        match f.resume() {
+                            case Pending -> __ResumeOutcome(done: false, wake: f.__wake_reason()),
+                            case Done -> __ResumeOutcome(done: true, wake: 0)
                         }
+                    })
+                    if oc.done {
+                        pthread_mutex_lock(lk)
+                        unsafe g[0].active.set(idx, false)
+                        unsafe g[0].done.set(idx, true)
+                        let _ = pthread_mutex_unlock(lk)
+                    } else {
+                        pthread_mutex_lock(lk)
+                        unsafe g[0].active.set(idx, false)
+                        unsafe g[0].remaining.set(idx, oc.wake)
+                        let _ = pthread_mutex_unlock(lk)
                     }
                 } else {
                     if anyactive {
@@ -364,16 +386,17 @@ func __tg_worker(addr: Int) -> Int {
                         pthread_mutex_lock(lk)
                         var k = 0
                         while k < n {
-                            if not g[0].done.get(k)! {
-                                let rk = g[0].remaining.get(k)!
+                            let done_k = unsafe g[0].done.get(k)!
+                            if not done_k {
+                                let rk = unsafe g[0].remaining.get(k)!
                                 if rk < 0 {
-                                    g[0].remaining.set(k, 0)
+                                    unsafe g[0].remaining.set(k, 0)
                                 } else if rk > 0 && events == 0 && minrem > 0 {
                                     var nr = rk - minrem
                                     if nr < 0 {
                                         nr = 0
                                     }
-                                    g[0].remaining.set(k, nr)
+                                    unsafe g[0].remaining.set(k, nr)
                                 }
                             }
                             k = k + 1
@@ -389,14 +412,15 @@ func __tg_worker(addr: Int) -> Int {
                         }
                         var j = 0
                         while j < n {
-                            if not g[0].done.get(j)! {
-                                let r2 = g[0].remaining.get(j)!
+                            let done_j = unsafe g[0].done.get(j)!
+                            if not done_j {
+                                let r2 = unsafe g[0].remaining.get(j)!
                                 if r2 > 0 {
                                     var nr = r2 - minrem
                                     if nr < 0 {
                                         nr = 0
                                     }
-                                    g[0].remaining.set(j, nr)
+                                    unsafe g[0].remaining.set(j, nr)
                                 }
                             }
                             j = j + 1

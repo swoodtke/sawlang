@@ -30,7 +30,7 @@ func main() {
         UART1.intclr.write(1)
 
         // Bootstrap regions: stack top and early-heap handoff.
-        let sp = BOOT_STACK.end()
+        let sp = unsafe BOOT_STACK.end()
         print((sp as Int))
         print(EARLY_HEAP.len())
     }

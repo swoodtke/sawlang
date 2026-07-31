@@ -31,13 +31,13 @@ extension Arc<T> {
     // Construct a fresh Arc owning `value` (strong = 1, weak = 1).
     public init(value: T) -> Arc<T> {
         let size = 16 + sizeof<T>()
-        if let block = GlobalAllocator().alloc(size, 16) {
+        if let block = unsafe GlobalAllocator().alloc(size, 16) {
             let strong_ptr = block as UnsafePointer<Int>
-            strong_ptr[0] = 1
+            unsafe strong_ptr[0] = 1
             let weak_ptr = (block + 8) as UnsafePointer<Int>
-            weak_ptr[0] = 1
+            unsafe weak_ptr[0] = 1
             let payload_ptr = (block + 16) as UnsafePointer<T>
-            payload_ptr[0] = value
+            unsafe payload_ptr[0] = value
             Arc<T>(ptr: block)
         } else {
             Arc<T>(ptr: None)

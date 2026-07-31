@@ -20,7 +20,7 @@ from ast_nodes import (
     Expression, Block, Statement,
     LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation, Identifier,
-    BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
+    BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, UnsafeExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MapLiteral, SetLiteral,
     MemberAccess, StructInit,
@@ -39,6 +39,19 @@ class ExpressionsMixin:
     """Mixin providing expression parsing methods for Parser."""
 
     def parse_expression(self) -> Expression:
+        return self.parse_unsafe()
+
+    def parse_unsafe(self) -> Expression:
+        """Parse the `unsafe <expr>` marker (design 81). It sits just below
+        assignment and looser than every operator, so `unsafe ptr + n` and
+        `unsafe A().alloc(s, a)` mark the WHOLE producing expression, while
+        `unsafe p[0] = 5` marks only the lvalue here — the statement parser then
+        lifts the marker onto the whole store (see
+        `parse_assignment_or_expression_statement`)."""
+        if self.match(TokenType.UNSAFE):
+            tok = self.advance()
+            operand = self.parse_unsafe()
+            return UnsafeExpr(expression=operand, line=tok.line, column=tok.column)
         return self.parse_nil_coalesce()
 
     def parse_nil_coalesce(self) -> Expression:

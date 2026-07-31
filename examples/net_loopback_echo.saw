@@ -20,7 +20,7 @@ func server(lfd: Int) -> Int {
             going = false
         }
     }
-    let buf = net_buffer(16)
+    let buf = unsafe net_buffer(16)
     var n = 0
     going = true
     while going {
@@ -35,7 +35,7 @@ func server(lfd: Int) -> Int {
     var off = 0
     going = true
     while going {
-        let w = tcp_try_write(cfd, buf + off, n - off)
+        let w = tcp_try_write(cfd, unsafe buf + off, n - off)
         if net_would_block(w) {
             io_wait(cfd, 1)
         } else {
@@ -57,14 +57,14 @@ func client(port: Int) -> Int {
     }
     io_wait(fd, 1)                  // park until the connection is writable
     let _ = tcp_connect_check(fd)
-    let msg = net_buffer(3)
-    msg[0] = 104 as Int8    // 'h'
-    msg[1] = 101 as Int8    // 'e'
-    msg[2] = 121 as Int8    // 'y'
+    let msg = unsafe net_buffer(3)
+    unsafe msg[0] = 104 as Int8    // 'h'
+    unsafe msg[1] = 101 as Int8    // 'e'
+    unsafe msg[2] = 121 as Int8    // 'y'
     var off = 0
     var going = true
     while going {
-        let w = tcp_try_write(fd, msg + off, 3 - off)
+        let w = tcp_try_write(fd, unsafe msg + off, 3 - off)
         if net_would_block(w) {
             io_wait(fd, 1)
         } else {
@@ -74,7 +74,7 @@ func client(port: Int) -> Int {
             }
         }
     }
-    let buf = net_buffer(16)
+    let buf = unsafe net_buffer(16)
     var n = 0
     going = true
     while going {

@@ -23,22 +23,24 @@ func ok(p: UnsafePointer<Int8>?) -> Int {
 }
 
 func main() {
-    // Hand out all 4 chunks (64 bytes each).
-    let a = slab_alloc(region_ptr(), 4, 64, &HEAD)
-    let b = slab_alloc(region_ptr(), 4, 64, &HEAD)
-    let c = slab_alloc(region_ptr(), 4, 64, &HEAD)
-    let d = slab_alloc(region_ptr(), 4, 64, &HEAD)
+    // Hand out all 4 chunks (64 bytes each). `slab_alloc` and `region_ptr` both
+    // return raw pointers, so each binding is marked `unsafe` (design 81); the
+    // one marker covers the nested `region_ptr()` producer too.
+    let a = unsafe slab_alloc(region_ptr(), 4, 64, &HEAD)
+    let b = unsafe slab_alloc(region_ptr(), 4, 64, &HEAD)
+    let c = unsafe slab_alloc(region_ptr(), 4, 64, &HEAD)
+    let d = unsafe slab_alloc(region_ptr(), 4, 64, &HEAD)
     print(ok(a))   // 1
     print(ok(d))   // 1
 
     // Exhausted: the 5th request is None.
-    print(ok(slab_alloc(region_ptr(), 4, 64, &HEAD)))   // 0
+    print(ok(unsafe slab_alloc(region_ptr(), 4, 64, &HEAD)))   // 0
 
     // Free one chunk, re-allocate: succeeds, and LIFO hands back that same chunk.
     if let p = b {
         slab_dealloc(p, &HEAD)
     }
-    let e = slab_alloc(region_ptr(), 4, 64, &HEAD)
+    let e = unsafe slab_alloc(region_ptr(), 4, 64, &HEAD)
     print(ok(e))   // 1
 
     // c and a are two chunks apart -> 128 bytes.

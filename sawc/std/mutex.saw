@@ -31,10 +31,10 @@ extension Mutex<T> {
     // Take ownership of `value` and wrap it behind a fresh mutex.
     public init(value: T) -> Mutex<T> {
         let size = 64 + sizeof<T>()
-        if let block = GlobalAllocator().alloc(size, 16) {
+        if let block = unsafe GlobalAllocator().alloc(size, 16) {
             __saw_pthread_mutex_init_default(block)
             let payload_ptr = (block + 64) as UnsafePointer<T>
-            payload_ptr[0] = value
+            unsafe payload_ptr[0] = value
             Mutex<T>(block: block)
         } else {
             Mutex<T>(block: None)

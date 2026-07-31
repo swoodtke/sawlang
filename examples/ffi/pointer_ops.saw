@@ -11,17 +11,19 @@ extern "C" {
 }
 
 func main() {
-    // Allocate memory
-    if let ptr = malloc(100) {
+    // Allocate memory. `main`'s signature carries no `Unsafe*` type, so every
+    // raw-pointer operation is marked `unsafe` (design 81): the binding of the
+    // malloc'd pointer, and each deref read/write.
+    if let ptr = unsafe malloc(100) {
         // Write values using pointer indexing
-        ptr[0] = 65  // 'A'
-        ptr[1] = 66  // 'B'
-        ptr[2] = 67  // 'C'
+        unsafe ptr[0] = 65  // 'A'
+        unsafe ptr[1] = 66  // 'B'
+        unsafe ptr[2] = 67  // 'C'
 
         // Read values back
-        print(ptr[0])
-        print(ptr[1])
-        print(ptr[2])
+        print(unsafe ptr[0])
+        print(unsafe ptr[1])
+        print(unsafe ptr[2])
 
         // Free memory
         free(ptr)

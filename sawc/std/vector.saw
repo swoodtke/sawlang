@@ -44,7 +44,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
             Vector<T, A>(buffer: None, length: 0, capacity: 0)
         } else {
             let byte_size = capacity * sizeof<T>()
-            if let raw_ptr = A().alloc(byte_size, alignof<T>()) {
+            if let raw_ptr = unsafe A().alloc(byte_size, alignof<T>()) {
                 let typed_ptr = raw_ptr as UnsafePointer<T>
                 Vector<T, A>(buffer: typed_ptr, length: 0, capacity: capacity)
             } else {
@@ -67,7 +67,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
             return Vector<T, A>()
         }
         let byte_size = n * sizeof<T>()
-        if let raw_ptr = A().alloc(byte_size, alignof<T>()) {
+        if let raw_ptr = unsafe A().alloc(byte_size, alignof<T>()) {
             let typed_ptr = raw_ptr as UnsafePointer<T>
             return Vector<T, A>(buffer: typed_ptr, length: 0, capacity: n)
         }
@@ -98,17 +98,35 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Raw pointer to element `index` — the in-place, no-copy access the erased
-    // task executor needs (design 52b): a `Vector<Box<any Resumable>>` element is
-    // NoCopy, so `get` (which returns a copy) cannot reach it; `ref_at(i)[0]` is
-    // a mutable place through which `resume(&var self)` dispatches. Unchecked: the
-    // caller guarantees `0 <= index < len` (an inert/None buffer force-unwrap
-    // panics deterministically, matching the other OOM-inert paths).
-    public func ref_at(&self, index: Int) -> UnsafePointer<T> {
+    // Scoped, no-copy access to element `index` (design 81) — THE
+    // container borrow-projection API (it replaced the raw `ref_at`). `body`
+    // receives a NON-ESCAPING `&T`/`&var T` borrow of the element in place, so a
+    // NoCopy element (`Vector<Box<any Resumable>>`, design 52b) is reached
+    // without a copy: `v.with_var_ref(i) { frame in frame.resume() }`. The `&var
+    // self` / `&self` receiver holds the whole vector borrowed for the duration
+    // of the call, so the buffer cannot be reallocated (grow) or the element
+    // invalidated while the borrow is live — iterator-invalidation-proof. The
+    // borrow is a LEND: nothing is retained. `R` (method-level generic, like
+    // `withCString`) is the body's result, chosen at the call site; it flows
+    // straight out. Unchecked index: the caller guarantees `0 <= index < len`
+    // (an inert/None buffer force-unwrap panics deterministically).
+    // `body` is `sync`: the borrow must not be held across a suspension (and it
+    // keeps `with_var_ref` sync-usable, e.g. the executor drains it from the
+    // group's `sync` Deinit).
+    public func with_var_ref<R>(&var self, index: Int, body: (&var T) sync -> R) -> R {
         if let buf = self.buffer {
-            (&buf[index]) as UnsafePointer<T>
+            body(&var buf[index])
         } else {
-            panic("Vector.ref_at: buffer is empty")
+            panic("Vector.with_var_ref: buffer is empty")
+        }
+    }
+
+    // Immutable twin of `with_var_ref`: an in-place `&T` borrow of the element.
+    public func with_ref<R>(&self, index: Int, body: (&T) sync -> R) -> R {
+        if let buf = self.buffer {
+            body(&buf[index])
+        } else {
+            panic("Vector.with_ref: buffer is empty")
         }
     }
 

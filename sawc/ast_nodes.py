@@ -537,6 +537,22 @@ class CastExpr(Expression):
 
 
 @dataclass
+class UnsafeExpr(Expression):
+    """`unsafe <expr>` — the visibility marker for a raw-pointer operation
+    (design 81). The typechecker requires it wherever a pointer flows INVISIBLY
+    (a deref/index/write, pointer arithmetic, or binding a pointer produced by a
+    call) inside a function whose own signature carries no `Unsafe*` type. A cast
+    that names `UnsafePointer<T>` in source is already visible and needs no
+    marker. `unsafe` on an expression with no such operation is a "nothing unsafe
+    here" error, keeping markers honest. Precedence: looser than any operator,
+    tighter than assignment (`unsafe p[0] = 5` marks the whole store — the parser
+    lifts the marker off the lvalue onto the assignment)."""
+    expression: Expression
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
 class FunctionCall(Expression):
     """Function call: name(args) or name<T>(args). Arguments can be positional or named."""
     name: str
@@ -1047,6 +1063,9 @@ class AssignStatement(Statement):
     value: Expression
     line: int = 0
     column: int = 0
+    # design 81: `unsafe p[0] = v` — the marker was lifted off the lvalue onto
+    # the whole store, satisfying the pointer-write marker requirement.
+    is_unsafe: bool = False
 
 
 @dataclass
@@ -1057,6 +1076,8 @@ class CompoundAssignStatement(Statement):
     value: Expression
     line: int = 0
     column: int = 0
+    # design 81: `unsafe p[0] += v` marks the whole read-modify-write.
+    is_unsafe: bool = False
 
 
 @dataclass

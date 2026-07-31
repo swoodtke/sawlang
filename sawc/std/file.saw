@@ -106,7 +106,7 @@ extension File {
         }
 
         // Allocate buffer and read
-        if let buf = malloc(bytes_to_read) {
+        if let buf = unsafe malloc(bytes_to_read) {
             let bytes_read = read(self.fd, buf, bytes_to_read)
             if bytes_read < 0 {
                 free(buf)
@@ -117,7 +117,7 @@ extension File {
             var data = Data(capacity: bytes_read)
             var i = 0
             while i < bytes_read {
-                data.push(buf[i] as UInt8)
+                data.push(unsafe buf[i] as UInt8)
                 i = i + 1
             }
             free(buf)
@@ -138,12 +138,12 @@ extension File {
         }
 
         // Allocate temporary buffer for write
-        if let buf = malloc(data.len()) {
+        if let buf = unsafe malloc(data.len()) {
             // Copy data bytes to buffer
             var i = 0
             while i < data.len() {
                 if let b = data.get(i) {
-                    buf[i] = b as Int8
+                    unsafe buf[i] = b as Int8
                 }
                 i = i + 1
             }

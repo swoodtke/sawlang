@@ -10,7 +10,7 @@
 // 5
 
 func reader(fd: Int) -> Int {
-    let buf = net_buffer(16)
+    let buf = unsafe net_buffer(16)
     var n = 0
     var going = true
     while going {
@@ -28,16 +28,16 @@ func reader(fd: Int) -> Int {
 
 func writer(fd: Int) -> Int {
     sleep(10)                       // the reactor poll must honour this deadline
-    let msg = net_buffer(5)
-    msg[0] = 104 as Int8
-    msg[1] = 101 as Int8
-    msg[2] = 108 as Int8
-    msg[3] = 108 as Int8
-    msg[4] = 111 as Int8
+    let msg = unsafe net_buffer(5)
+    unsafe msg[0] = 104 as Int8
+    unsafe msg[1] = 101 as Int8
+    unsafe msg[2] = 108 as Int8
+    unsafe msg[3] = 108 as Int8
+    unsafe msg[4] = 111 as Int8
     var off = 0
     var going = true
     while going {
-        let w = tcp_try_write(fd, msg + off, 5 - off)
+        let w = tcp_try_write(fd, unsafe msg + off, 5 - off)
         if net_would_block(w) {
             io_wait(fd, 1)
         } else {

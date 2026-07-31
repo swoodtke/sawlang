@@ -16,7 +16,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
     GuardLetStatement, DestructuringLet,
     WhileExpr, ForLoop, BreakStatement, ContinueStatement,
-    Identifier, MemberAccess, ArrayIndex
+    Identifier, MemberAccess, ArrayIndex, UnsafeExpr
 )
 
 # Compound assignment token to operator mapping
@@ -181,6 +181,17 @@ class StatementsMixin:
         start_pos = self.pos
         target_expr = self.parse_expression()
 
+        # `unsafe p[0] = 5` / `unsafe p[0] += 1` (design 81): the `unsafe` marker
+        # parsed onto the lvalue is LIFTED onto the whole store so it marks the
+        # write (and any producing sub-expression on either side). A bare
+        # `unsafe expr` with no following `=`/compound-op stays an UnsafeExpr
+        # (a marked read/discard).
+        target_is_unsafe = isinstance(target_expr, UnsafeExpr)
+        is_store = (self.match(TokenType.ASSIGN)
+                    or self.current().type in COMPOUND_ASSIGN_OPS)
+        if target_is_unsafe and is_store:
+            target_expr = target_expr.expression
+
         # Check if this is a regular assignment
         if self.match(TokenType.ASSIGN):
             self.advance()  # consume '='
@@ -194,7 +205,8 @@ class StatementsMixin:
                 target=target_expr,
                 value=value_expr,
                 line=target_expr.line,
-                column=target_expr.column
+                column=target_expr.column,
+                is_unsafe=target_is_unsafe,
             )
 
         # Check if this is a compound assignment (+=, -=, *=, /=, %=)
@@ -213,7 +225,8 @@ class StatementsMixin:
                 op=op,
                 value=value_expr,
                 line=target_expr.line,
-                column=target_expr.column
+                column=target_expr.column,
+                is_unsafe=target_is_unsafe,
             )
 
         # It's just an expression statement
