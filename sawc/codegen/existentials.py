@@ -28,6 +28,10 @@ from codegen.mangle import mangle_type, mangle_method
 class ExistentialsMixin:
     """Mixed into CodeGenerator; owns `any Trait` lowering, vtables, dispatch."""
 
+    # The vtable header is `{ dtor*, isize size, isize align, isize type_id }`;
+    # method thunks follow, so the first method thunk is at this slot index.
+    _VTABLE_METHOD_BASE = 4
+
     # ------------------------------------------------------------------ state
     def _existential_init(self):
         # (concrete_mangle, trait_name) -> vtable GlobalVariable
@@ -38,6 +42,24 @@ class ExistentialsMixin:
         self._vtable_thunks = {}
         # queued (concrete_saw, trait_name, global, vtable_llvm_type) to fill/drain
         self._pending_vtables = []
+        # concrete_mangle -> stable per-concrete-type id (design 72 downcasting).
+        # Keyed by the mangled name so the id the vtable BAKES IN matches the one
+        # `is<T>()`/`take<T>()` COMPUTE for the same concrete type in this module;
+        # a monotonic counter is the simplest stable scheme (0 is reserved unused).
+        self._type_ids = {}
+        self._next_type_id = 1
+
+    def _type_id_for(self, concrete_saw):
+        """The stable integer type-id for a concrete type (design 72). Assigned on
+        first request and memoized by mangled name, so the vtable slot and every
+        downcast site agree within a compilation."""
+        cm = mangle_type(concrete_saw)
+        tid = self._type_ids.get(cm)
+        if tid is None:
+            tid = self._next_type_id
+            self._type_ids[cm] = tid
+            self._next_type_id += 1
+        return tid
 
     # ----------------------------------------------------------- llvm helpers
     def _i8ptr(self):
@@ -74,9 +96,10 @@ class ExistentialsMixin:
         return ir.FunctionType(ret_llvm, [self._i8ptr()] + arg_llvm)
 
     def _vtable_llvm_type(self, trait_name):
-        """`{ dtor*, isize, isize, method0*, method1*, ... }` for a trait."""
+        """`{ dtor*, isize size, isize align, isize type_id, method0*, ... }` for a
+        trait. The `type_id` header slot (design 72) backs erased downcasting."""
         fields = [ir.PointerType(ir.FunctionType(ir.VoidType(), [self._i8ptr()])),
-                  self.int_type, self.int_type]
+                  self.int_type, self.int_type, self.int_type]
         for _name, tmethod in self._trait_dispatch_methods(trait_name):
             fields.append(ir.PointerType(self._trait_slot_fn_type(tmethod)))
         return ir.LiteralStructType(fields)
@@ -117,8 +140,10 @@ class ExistentialsMixin:
             size = concrete_llvm.get_abi_size(self.target_data)
             align = concrete_llvm.get_abi_alignment(self.target_data)
             dtor = self._get_vtable_dtor(concrete_saw)
+            type_id = self._type_id_for(concrete_saw)
             elems = [dtor, ir.Constant(self.int_type, size),
-                     ir.Constant(self.int_type, align)]
+                     ir.Constant(self.int_type, align),
+                     ir.Constant(self.int_type, type_id)]
             for mname, tmethod in self._trait_dispatch_methods(trait_name):
                 elems.append(self._get_vtable_thunk(
                     concrete_saw, trait_name, mname, tmethod))
@@ -229,7 +254,7 @@ class ExistentialsMixin:
         tmethod = None
         for idx, (mname, tm) in enumerate(methods):
             if mname == expr.method_name:
-                slot = 3 + idx  # after dtor, size, align
+                slot = self._VTABLE_METHOD_BASE + idx  # after dtor,size,align,type_id
                 tmethod = tm
                 break
         if slot is None:
@@ -313,31 +338,24 @@ class ExistentialsMixin:
         self.builder.position_at_end(cont_block)
         return self.builder.load(result_slot)
 
-    # -------------------------------------------------- teardown (5)
-    def _emit_erased_box_drop(self, box_ptr, box_saw):
-        """Drop a `Box<any Trait, A>` at `box_ptr` (a pointer to the fat value):
-        run the payload's destructor (from the vtable) in place, then dealloc the
-        chunk through `A` with the vtable's size/align. Exactly-once — the fat
-        pointer owns one live payload."""
+    def _box_allocator_saw(self, box_saw):
+        """The allocator type arg of a `Box<any Trait, A>` (Global by default)."""
         trait_args = box_saw.type_args or []
-        alloc_saw = trait_args[1] if len(trait_args) > 1 else SawType(
+        return trait_args[1] if len(trait_args) > 1 else SawType(
             TypeKind.STRUCT, struct_name="Global")
-        trait_name = trait_args[0].existential_trait
 
-        i8 = self._i8ptr()
-        fat = self.builder.load(box_ptr)
-        data = self.builder.extract_value(fat, 0)
-        vtable_i8 = self.builder.extract_value(fat, 1)
-        vt_ty = self._vtable_llvm_type(trait_name)
-        vtable_ptr = self.builder.bitcast(vtable_i8, vt_ty.as_pointer())
+    def _erased_run_dtor(self, data, vtable_ptr):
+        """Slot 0: run the payload's drop glue in place (from the vtable)."""
         zero = ir.Constant(self.int_type, 0)
-
-        # Slot 0: destructor -> run the payload's drop glue in place.
         dtor_gep = self.builder.gep(vtable_ptr, [zero, ir.Constant(ir.IntType(32), 0)])
         dtor = self.builder.load(dtor_gep)
         self.builder.call(dtor, [data])
 
-        # Slots 1/2: size/align -> dealloc the chunk through A.
+    def _erased_dealloc_shell(self, data, vtable_ptr, alloc_saw):
+        """Slots 1/2: read size/align from the vtable and free the chunk through
+        `A`. Does NOT run the payload destructor — the caller either ran it (drop)
+        or moved the payload out (take-on-hit)."""
+        zero = ir.Constant(self.int_type, 0)
         size_gep = self.builder.gep(vtable_ptr, [zero, ir.Constant(ir.IntType(32), 1)])
         align_gep = self.builder.gep(vtable_ptr, [zero, ir.Constant(ir.IntType(32), 2)])
         size = self.builder.load(size_gep)
@@ -345,3 +363,88 @@ class ExistentialsMixin:
         dealloc_fn = self.functions[mangle_method(mangle_type(alloc_saw), "dealloc")]
         a_self = ir.Constant(self._get_llvm_type(alloc_saw), ir.Undefined)
         self.builder.call(dealloc_fn, [a_self, data, size, align])
+
+    # -------------------------------------------------- teardown (5)
+    def _emit_erased_box_drop(self, box_ptr, box_saw):
+        """Drop a `Box<any Trait, A>` at `box_ptr` (a pointer to the fat value):
+        run the payload's destructor (from the vtable) in place, then dealloc the
+        chunk through `A` with the vtable's size/align. Exactly-once — the fat
+        pointer owns one live payload."""
+        alloc_saw = self._box_allocator_saw(box_saw)
+        trait_name = (box_saw.type_args or [])[0].existential_trait
+        fat = self.builder.load(box_ptr)
+        data = self.builder.extract_value(fat, 0)
+        vtable_i8 = self.builder.extract_value(fat, 1)
+        vt_ty = self._vtable_llvm_type(trait_name)
+        vtable_ptr = self.builder.bitcast(vtable_i8, vt_ty.as_pointer())
+        self._erased_run_dtor(data, vtable_ptr)
+        self._erased_dealloc_shell(data, vtable_ptr, alloc_saw)
+
+    # -------------------------------------------------- downcasting (design 72)
+    def _generate_erased_downcast(self, expr):
+        """`b.is<T>()` / `b.take<T>()` on a `Box<any Trait, A>` (design 72).
+
+        `is` LOADS the box's vtable type-id and compares it to the compile-time
+        id for the concrete `T`, yielding `Bool` (a borrow — the box stays live).
+
+        `take` CONSUMES the box (the typechecker marked the receiver moved and
+        codegen clears its drop flag). On an id HIT it moves the payload out of
+        the chunk (loads the concrete `T`), frees the shell WITHOUT running the
+        payload destructor (ownership transferred), and yields `Some(T)`. On a
+        MISS it runs the full box drop (dtor + dealloc) and yields `None` — the
+        box is consumed either way (`is<T>()` first lets callers branch without
+        consuming). Returns a `T?` optional."""
+        info = expr.erased_downcast
+        op = info['op']
+        target_saw = info['target']
+        box_saw = info['box_type']
+        trait_name = info['trait']
+        alloc_saw = self._box_allocator_saw(box_saw)
+
+        recv = self._generate_expression(expr.object)  # fat pointer value
+        data = self.builder.extract_value(recv, 0)
+        vtable_i8 = self.builder.extract_value(recv, 1)
+        vt_ty = self._vtable_llvm_type(trait_name)
+        vtable_ptr = self.builder.bitcast(vtable_i8, vt_ty.as_pointer())
+        zero = ir.Constant(self.int_type, 0)
+        tid_gep = self.builder.gep(
+            vtable_ptr, [zero, ir.Constant(ir.IntType(32), 3)])  # type_id slot
+        actual_id = self.builder.load(tid_gep, name="box_type_id")
+        want_id = ir.Constant(self.int_type, self._type_id_for(target_saw))
+        matches = self.builder.icmp_signed('==', actual_id, want_id, name="is_match")
+
+        if op == "is":
+            return self.builder.zext(matches, ir.IntType(1)) if matches.type != ir.IntType(1) else matches
+
+        # take: build a `T?` result across a hit/miss branch.
+        target_llvm = self._get_llvm_type(target_saw)
+        opt_ty = ir.LiteralStructType([ir.IntType(1), target_llvm])
+        result_slot = self.builder.alloca(opt_ty, name="take_result")
+
+        hit_bb = self.builder.append_basic_block("take_hit")
+        miss_bb = self.builder.append_basic_block("take_miss")
+        cont_bb = self.builder.append_basic_block("take_cont")
+        self.builder.cbranch(matches, hit_bb, miss_bb)
+
+        # Hit: move the payload out, free the shell (no dtor), Some(value).
+        self.builder.position_at_end(hit_bb)
+        typed = self.builder.bitcast(data, target_llvm.as_pointer())
+        value = self.builder.load(typed, name="take_value")
+        self._erased_dealloc_shell(data, vtable_ptr, alloc_saw)
+        some = ir.Constant(opt_ty, ir.Undefined)
+        some = self.builder.insert_value(some, ir.Constant(ir.IntType(1), 1), 0)
+        some = self.builder.insert_value(some, value, 1)
+        self.builder.store(some, result_slot)
+        self.builder.branch(cont_bb)
+
+        # Miss: drop the whole box (dtor + dealloc), None.
+        self.builder.position_at_end(miss_bb)
+        self._erased_run_dtor(data, vtable_ptr)
+        self._erased_dealloc_shell(data, vtable_ptr, alloc_saw)
+        none = ir.Constant(opt_ty, ir.Undefined)
+        none = self.builder.insert_value(none, ir.Constant(ir.IntType(1), 0), 0)
+        self.builder.store(none, result_slot)
+        self.builder.branch(cont_bb)
+
+        self.builder.position_at_end(cont_bb)
+        return self.builder.load(result_slot, name="take_opt")

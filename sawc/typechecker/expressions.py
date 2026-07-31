@@ -3809,6 +3809,14 @@ class ExpressionsMixin:
         method against the trait signature, check arguments, and propagate the
         trait method's declared effect (a non-`sync` method suspends, like an
         indirect call; a `sync` method stays sync-callable through `any`)."""
+        # Erased-box downcasting (design 72): `b.is<T>()` / `b.take<T>()` on an
+        # owned `Box<any Trait>`, disambiguated by the explicit type argument.
+        if (expr.method_name in ("is", "take")
+                and getattr(expr, 'type_args', None)
+                and obj_type.kind == TypeKind.STRUCT
+                and obj_type.struct_name == "Box"):
+            return self._check_erased_downcast(expr, obj_type, trait_name)
+
         trait = self.get_trait_info(trait_name)
         if trait is None:
             self._error(ErrorKind.UNKNOWN_TYPE,
@@ -3847,6 +3855,68 @@ class ExpressionsMixin:
                 f"a call through `any {trait_name}` dispatch", expr.line)
         expr.existential_dispatch = trait_name
         return tmethod.return_type
+
+    def _check_erased_downcast(self, expr, box_type, trait_name):
+        """Type-check erased-box downcasting (design 72 v1).
+
+        `b.is<T>()` -> `Bool` (a borrow: the box stays live). `b.take<T>()` -> `T?`
+        and CONSUMES the box (the receiver binding is marked moved; on a runtime
+        id miss the box drops and the result is `None`; `is<T>()` first lets a
+        caller branch without consuming). `T` is given explicitly (no inference)
+        and must be a concrete type conforming to the erased trait. Catch-side
+        match-on-concrete sugar is out of scope (future)."""
+        op = expr.method_name
+        result_ty = (SawType(TypeKind.BOOL) if op == "is" else None)
+        type_args = expr.type_args or []
+        if len(type_args) != 1:
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"`{op}<T>()` requires exactly one explicit type argument",
+                expr.line, expr.column)
+            return result_ty
+        if len(expr.arguments) != 0:
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"`{op}<T>()` takes no value arguments",
+                expr.line, expr.column)
+        target = self._resolve_type(type_args[0])
+        conc_name = None
+        if target.kind == TypeKind.STRUCT:
+            conc_name = target.struct_name
+        elif target.kind == TypeKind.STRING:
+            conc_name = "String"
+        if conc_name is None or not self.namespace.type_conforms_to(conc_name, trait_name):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{target}` is not a concrete type conforming to `{trait_name}`, "
+                f"so it cannot be a downcast target for `{op}<T>()`",
+                expr.line, expr.column,
+                hint="the type argument must be a concrete conforming type")
+            return SawType(TypeKind.OPTIONAL, inner_type=target) if op == "take" else result_ty
+        expr.erased_downcast = {
+            'op': op,
+            'target': target,
+            'box_type': box_type,
+            'trait': trait_name,
+        }
+        if op == "is":
+            return SawType(TypeKind.BOOL)
+        # `take` consumes the box — mark the receiver binding moved (like a move),
+        # so a later use is a use-after-move error and scope teardown skips it.
+        if isinstance(expr.object, Identifier):
+            var_info = self.current_scope.lookup(expr.object.name)
+            if var_info is not None:
+                if self._binding_move_info(var_info) is not None:
+                    _, move_line, _ = self._binding_move_info(var_info)
+                    self._error(
+                        ErrorKind.USE_AFTER_MOVE,
+                        f"use of moved variable `{expr.object.name}`",
+                        expr.line, expr.column,
+                        hint=f"value was already moved at line {move_line}")
+                else:
+                    self._mark_binding_moved(var_info, expr.object.name,
+                                             expr.line, expr.column)
+        return SawType(TypeKind.OPTIONAL, inner_type=target)
 
     def _check_erased_box_make(self, expr, existential_type):
         """`Box<any Trait>.make(v)` built erased-directly (design 51): the concrete

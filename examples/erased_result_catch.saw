@@ -1,7 +1,7 @@
 // design 56 (N3): a `try { } catch` whose tried call returns an erased Result
 // binds `error` as `Box<any Error>`; `"{error}"` interpolates via the vtable.
-// (Downcasting to a concrete case on an erased box is deferred — needs a
-// type-id design.)
+// (Narrowing an erased box to a concrete type — `error.is<T>()`/`take<T>()` —
+// landed in design 72; see examples/erased_downcast_*.saw.)
 // EXPECT: success
 // EXPECT-OUTPUT:
 // caught: io#8

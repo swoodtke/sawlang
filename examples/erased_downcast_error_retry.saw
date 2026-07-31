@@ -1,0 +1,42 @@
+// Design 72: the motivated case — recover a concrete error after erasure into
+// `Box<any Error>` (retry-on-IoError). A `try`/catch or match binds the erased
+// box; `is`/`take` narrow it back to the concrete type to branch on.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// retry io 1
+// give up on parse 2
+struct IoErr { n: Int }
+struct ParseErr { n: Int }
+extension IoErr: Error {
+    func format(&self, into: &var StringBuilder) { into.append("io") }
+}
+extension ParseErr: Error {
+    func format(&self, into: &var StringBuilder) { into.append("parse") }
+}
+
+func step(kind: Int) -> Result<Int, Box<any Error>> {
+    if kind == 1 { return IoErr(n: kind) }
+    return ParseErr(n: kind)
+}
+
+func handle(kind: Int) {
+    match step(kind) {
+        case Ok(v) -> print(v),
+        case Err(e) -> {
+            if e.is<IoErr>() {
+                if let io = e.take<IoErr>() {
+                    print("retry io {io.n}")
+                }
+            } else {
+                if let p = e.take<ParseErr>() {
+                    print("give up on parse {p.n}")
+                }
+            }
+        }
+    }
+}
+
+func main() {
+    handle(1)       // IoErr -> retry io 1
+    handle(2)       // ParseErr -> give up on parse 2
+}

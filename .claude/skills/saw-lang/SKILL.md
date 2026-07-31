@@ -103,10 +103,14 @@ try { let a = try f(); let b = try g() } catch {
 func load() -> Result<Cfg, Box<any Error>> {   // erased: any error type
     let t = try read()      // concrete errors auto-box at the boundary
     ...
-}   // catch binds the box; "{error}" prints via vtable; NO downcasting yet
+}   // catch binds the box; "{error}" prints via vtable
+if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
 ```
 - `trait Error: Printable {}` — conform via `extension E: Error {
   func format(&self, into: &var StringBuilder) {...} }`.
+- Downcast an owned `Box<any Trait>` with `b.is<T>() -> Bool` (borrow) and
+  `b.take<T>() -> T?` (CONSUMES the box — moves the payload out on a hit, drops
+  it on a miss; use `is<T>()` first to branch). Explicit `T`, must conform.
 - Optionals: `T?`, `None`, force `!` (panics), `??`, `?.`, and
   call-site auto-wrap (`f(5)` matches `f(x: Int?)`).
 - `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift

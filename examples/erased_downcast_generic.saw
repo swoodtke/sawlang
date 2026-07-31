@@ -1,0 +1,26 @@
+// Design 72: erased-box downcasting works inside a generic body (the type-id is
+// the concrete target's, independent of the surrounding type parameter). The box
+// param is consumed by `take` in the monomorphized function.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 9
+// -1
+trait Shape { func area(&self) -> Int }
+struct Circle { r: Int }
+struct Square { s: Int }
+extension Circle: Shape { func area(&self) -> Int { self.r } }
+extension Square: Shape { func area(&self) -> Int { self.s } }
+
+func circle_area<T>(tag: T, b: Box<any Shape>) -> Int {
+    if b.is<Circle>() {
+        if let c = b.take<Circle>() {
+            return c.area()
+        }
+    }
+    return -1
+}
+
+func main() {
+    print(circle_area<Int>(0, Box<any Shape>.make(Circle(r: 9))))   // 9
+    print(circle_area<Int>(0, Box<any Shape>.make(Square(s: 5))))   // -1 (miss)
+}

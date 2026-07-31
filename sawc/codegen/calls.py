@@ -605,6 +605,19 @@ class CallsMixin:
         if getattr(expr, 'array_builtin', None) is not None:
             return self._generate_array_builtin(expr)
 
+        # Erased-box downcasting `b.is<T>()` / `b.take<T>()` (design 72). `take`
+        # consumes the box: clear the receiver binding's drop flag (like a move)
+        # so scope-exit teardown does not double-free the shell take already freed.
+        if getattr(expr, 'erased_downcast', None) is not None:
+            if (expr.erased_downcast['op'] == "take"
+                    and isinstance(expr.object, Identifier)):
+                name = expr.object.name
+                flag = self.drop_flags.get(name)
+                if flag is not None:
+                    self.builder.store(ir.Constant(ir.IntType(1), 0), flag)
+                self.moved_variables.add(name)
+            return self._generate_erased_downcast(expr)
+
         # Arc payload-method forwarding (design 21b E2): the typechecker resolved
         # this as an immutable `&self` method on Arc's payload; forward through a
         # borrow of the control block's payload slot.

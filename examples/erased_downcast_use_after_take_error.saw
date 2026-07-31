@@ -1,0 +1,15 @@
+// Design 72: `take<T>()` consumes the box unconditionally, so using the box
+// after a take is a use-after-move error (use `is<T>()` to branch without
+// consuming).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable `b`
+trait Shape { func area(&self) -> Int }
+struct Circle { r: Int }
+extension Circle: Shape { func area(&self) -> Int { self.r } }
+
+func main() {
+    let b = Box<any Shape>.make(Circle(r: 1))
+    let first = b.take<Circle>()
+    let second = b.take<Circle>()   // b already consumed
+    print(1)
+}

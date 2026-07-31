@@ -1,0 +1,35 @@
+// Design 72: erased-box downcasting. `b.is<T>()` reads the vtable type-id and
+// compares (a borrow); `b.take<T>()` consumes the box, returning `Some(T)` on a
+// hit (payload moved out, shell freed) or `None` on a miss (box dropped).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 7
+// 3
+trait Shape { func area(&self) -> Int }
+struct Circle { r: Int }
+struct Square { s: Int }
+extension Circle: Shape { func area(&self) -> Int { self.r } }
+extension Square: Shape { func area(&self) -> Int { self.s } }
+
+func main() {
+    let b = Box<any Shape>.make(Circle(r: 7))
+    if b.is<Circle>() { print(1) }          // 1 — id hit
+    if not b.is<Square>() { print(2) }      // 2 — id miss (borrow, box still live)
+
+    // take on a hit: moves the Circle out
+    if let c = b.take<Circle>() {
+        print(c.area())                     // 7
+    } else {
+        print(999)
+    }
+
+    // take on a miss: box dropped, None
+    let b2 = Box<any Shape>.make(Square(s: 5))
+    if let _ = b2.take<Circle>() {
+        print(888)
+    } else {
+        print(3)                            // 3 — miss -> None
+    }
+}

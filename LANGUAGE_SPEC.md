@@ -848,14 +848,45 @@ func total_area() -> Int {
 
 **Representation.** An erased value is a two-word *fat pointer* `(data, vtable)`.
 The vtable is a per-`(concrete type, trait)` constant (rodata; freestanding-fine)
-laid out `[destructor, size, align, methods…]` with the methods in trait
+laid out `[destructor, size, align, type_id, methods…]` with the methods in trait
 declaration order. `Box<any Trait, A>` teardown takes the destructor, size, and
 align from the vtable (never a static `sizeof<T>`, since the payload is erased)
-and routes the dealloc to `A`.
+and routes the dealloc to `A`. The `type_id` header slot is a stable
+per-concrete-type constant that backs downcasting (below).
 
 **Effects** follow the *trait* signature: a `sync` trait method stays
 sync-callable through `any`; an unmarked one conservatively suspends, like any
 call through a function value.
+
+**Downcasting (v1).** An owned `Box<any Trait>` can be narrowed back to a
+concrete conforming type through two builtins with an **explicit** type argument
+(no inference):
+
+- `b.is<T>() -> Bool` — compares the box's vtable `type_id` to `T`'s. A borrow:
+  the box stays live, so a caller can branch before deciding to consume.
+- `b.take<T>() -> T?` — **consumes** the box. On a match it moves the payload out
+  (freeing the shell *without* running the destructor, since ownership transfers)
+  and yields `Some(T)`; on a mismatch it drops the box (destructor + dealloc) and
+  yields `None`. It consumes the box **either way** (a mismatch is not left
+  intact — `is<T>()` first is how you branch without consuming), so a use after
+  `take` is a use-after-move error.
+
+`T` must be a concrete type conforming to the trait. This is what lets an erased
+`Box<any Error>` be recovered to its concrete error for retry logic. Catch-side
+`match`-on-concrete sugar over an erased box is not yet provided.
+
+```saw
+match step() {
+    case Ok(v)  -> use(v),
+    case Err(e) -> {                 // e: Box<any Error>
+        if e.is<IoErr>() {
+            if let io = e.take<IoErr>() { retry(io) }
+        } else {
+            report(e)                // still an erased Box<any Error>
+        }
+    }
+}
+```
 
 **Object safety (v1).** A trait is erasable only if every method is
 dispatchable. These are rejected with a diagnostic naming the reason:
@@ -946,8 +977,9 @@ format(...) {...} }` (format is inherited from `Printable`), or a split
   `Result<U, E>`, the `E` is erased into a fresh box at the propagation edge.
 - Matching `Err(e)` (or a `catch` whose tried calls include an erased box) binds
   `e` as `Box<any Error>`; `"{e}"` / `e.to_string()` render it through the
-  vtable. Downcasting an erased error to a concrete case is **deferred** (it
-  needs a type-id design).
+  vtable. To recover a concrete error (e.g. retry only on `IoErr`), narrow the
+  box with `e.is<IoErr>()` / `e.take<IoErr>()` (see Downcasting above). Catch-side
+  `match`-on-concrete sugar over the erased box is still deferred.
 
 ```saw
 struct ParseErr { code: Int }

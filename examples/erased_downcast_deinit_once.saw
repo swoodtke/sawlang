@@ -1,0 +1,37 @@
+// Design 72: `take<T>()` deinit balance. On a HIT the payload is moved OUT of the
+// box (the shell is freed WITHOUT running the destructor), so its `deinit` runs
+// exactly once — at the moved-out value's own scope end. On a MISS the box is
+// dropped inside `take`, so the payload's `deinit` runs exactly once there. No
+// path double-frees or leaks.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// got 1
+// gone 1
+// after hit
+// gone 2
+// miss
+// after miss
+trait Shape { func area(&self) -> Int }
+struct Res { id: Int }
+struct Other { v: Int }
+extension Res: Shape { func area(&self) -> Int { self.id } }
+extension Other: Shape { func area(&self) -> Int { self.v } }
+extension Res: Deinit { func deinit(&var self) { print("gone {self.id}") } }
+
+func main() {
+    // HIT: payload moved out; deinit fires once when `r` leaves scope.
+    let b = Box<any Shape>.make(Res(id: 1))
+    if let r = b.take<Res>() {
+        print("got {r.area()}")             // got 1
+    }                                       // r drops -> gone 1
+    print("after hit")
+
+    // MISS: box dropped inside take() -> gone 2 prints before the else arm.
+    let b2 = Box<any Shape>.make(Res(id: 2))
+    if let x = b2.take<Other>() {
+        print("unexpected {x.area()}")
+    } else {
+        print("miss")                       // miss
+    }
+    print("after miss")
+}

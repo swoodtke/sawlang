@@ -11,7 +11,7 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
-## Design 72 — Small fixes: L12/M1, L9, erased-error downcasting (LANDING)
+## Design 72 — Small fixes: L12/M1, L9, erased-error downcasting (LANDED)
 - **Commit 1 (L12/M1 — fixed-array builtins):** Fixed arrays `[T; N]` gained two
   builtin members and only these two: `.len()` (folds to the compile-time
   constant N as `Int`) and `.swap(i, j)` (the M1 escape hatch — bounds-checked
@@ -39,6 +39,26 @@ items need a probe before being treated as real work.
   the remaining brief case — an enum whose payload is an Optional — with
   `equatable_enum_optional_payload` (`Filled(value: Int?)`: Some==Some,
   Some!=Some-diff, None==None, None vs Some). Suite 797. [72]
+- **Commit 3 (erased-error downcasting via type-ids):** Every vtable gains a
+  `type_id` HEADER slot (layout now `[dtor, size, align, type_id, methods…]`;
+  dispatch base 3->4). Type-id scheme: a monotonic counter memoized by MANGLED
+  NAME (`_type_id_for`), so the id the vtable bakes in matches the id `is`/`take`
+  compute for the same concrete type in this module (simplest stable scheme; no
+  reflection surface). Builtins on `Box<any Trait>` (explicit type arg, no
+  inference): `b.is<T>() -> Bool` (loads/compares the vtable type-id; a borrow)
+  and `b.take<T>() -> T?` — CONSUMES the box: on an id hit it moves the payload
+  out and frees the shell WITHOUT the dtor, `Some(T)`; on a miss it runs the full
+  box drop, `None`. take-on-miss CHOICE: consumes UNCONDITIONALLY (leave-intact
+  fights the move checkpoint), so `is<T>()` first is the branch-without-consume
+  path — the typechecker marks the receiver moved, codegen clears its drop flag.
+  Deinit is exactly-once on both paths (hit: at the moved-out value's scope; miss:
+  in take). T must be a concrete conforming type (clean error otherwise). Codegen
+  drop refactored into `_erased_run_dtor` + `_erased_dealloc_shell`. Catch-side
+  match-on-concrete sugar OUT (future). Tests: erased_downcast_is_take,
+  _deinit_once (hit+miss balance), _error_retry (Box<any Error> from an erased
+  Result — the motivated case), _generic (downcast in a monomorphized body),
+  _nonconforming_error, _use_after_take_error. Spec existentials + error sections
+  + saw-lang skill updated. Suite 803, bootstrap 17+17, libs 4+4. [72, 51, 56]
 
 ## Design 71 — Closure Deinit (LANDED)
 - **Commit 1 (core):** Closures now carry their own env destructor
@@ -97,8 +117,10 @@ items need a probe before being treated as real work.
   extensions on array types stay rejected with a clear diagnostic. [40, 72]
 
 ## Deferred features (decided or triaged, not scheduled)
-- Erased-error DOWNCASTING (needs a type-id design; catch-all boxes are
-  opaque until then). [56]
+- ~~Erased-error DOWNCASTING (needs a type-id design; catch-all boxes are
+  opaque until then).~~ CLOSED (design 72): vtable `type_id` slot + `Box<any
+  Trait>.is<T>()`/`take<T>()`. Catch-side match-on-concrete sugar still deferred
+  (future). [56, 72]
 - Debug trait (synthesized structural formatting) — own design. [56]
 - Enum-direct Printable (enum method dispatch is a general gap). [56]
 - Named tuple PATTERN form `(x: a, y: b)`. [63]
