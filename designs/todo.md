@@ -21,6 +21,24 @@ items need a probe before being treated as real work.
   single-file program). Locked by `examples/errors/coro_reject_anchored.saw`
   (asserts the `file:line:col` anchor on a buried-suspend rejection). Suite 808,
   bootstrap 17+17, libs 4+4. [74, 69]
+- **Commit 2 (shape 2 — driven method on a GENERIC struct):** `__drive(b.run())`
+  for `b: Holder<Int>` now works. The typechecker monomorphizes the method over
+  the STRUCT's type params (T->Int): pristine generic-struct-extension methods are
+  snapshotted (`_pristine_generic_struct_methods`), the drive site queues a
+  clone+substitute+re-check (deferred to `_process_effect_monos` so it never
+  clobbers the mid-body scope), and records the concrete driven method carrying
+  the concrete receiver SawType (`Holder<Int>`). The coro transform reads that
+  table, builds the frame with `__recv: UnsafePointer<Holder<Int>>` (new
+  `recv_saw_type` param on `_FrameBuilder`), and `_rewrite_drive_sites` casts to
+  the type-arg-preserving pointer. Two instantiations coexist (Int + Bool). A
+  general fix fell out: member access on a concrete instantiation of a generic
+  struct whose `struct_info` is the generic symbol now substitutes the field type
+  by the receiver's type args (`self.value: T` -> `Int`) — normal instantiations
+  keep their monomorphized symbol and skip it. Combined struct-generic AND
+  method-generic driven methods stay a clean, anchored rejection (still A5-rest).
+  Tests: `coro_generic_struct_method` (both instantiations),
+  `errors/coro_generic_struct_and_method_generic_unsupported`. Suite 809,
+  bootstrap 17+17, libs 4+4. [74, 70]
 
 ## Design 72 — Small fixes: L12/M1, L9, erased-error downcasting (LANDED)
 - **Commit 1 (L12/M1 — fixed-array builtins):** Fixed arrays `[T; N]` gained two

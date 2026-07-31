@@ -294,7 +294,8 @@ def _analyze_nesting(root_name, root_func, nodes):
 # --------------------------------------------------------------------------- #
 
 class _FrameBuilder:
-    def __init__(self, func, struct_name=None, tc=None, force_opt_result=False):
+    def __init__(self, func, struct_name=None, tc=None, force_opt_result=False,
+                 recv_saw_type=None):
         # design 52b item 2: a spawn-root frame forces its `__result` opt-encoded
         # even for a POD return, so `TaskHandle<T>` uniformly holds a
         # `UnsafePointer<T?>` and `join` takes the value with the same
@@ -316,9 +317,13 @@ class _FrameBuilder:
         self.struct_name = struct_name
         if self.is_method:
             self.name = f"{struct_name}_{func.name}"
-            self.recv_type = SawType(TypeKind.POINTER,
-                                     inner_type=SawType(TypeKind.STRUCT,
-                                                        struct_name=struct_name))
+            # design 74 (A5-rest, shape 2): a method on a GENERIC struct is driven
+            # for a concrete receiver (`Holder<Int>`) — `recv_saw_type` carries the
+            # instantiation so `__recv` points at the monomorphized struct codegen
+            # produces. A plain method's receiver has no type args.
+            pointee = recv_saw_type if recv_saw_type is not None else \
+                SawType(TypeKind.STRUCT, struct_name=struct_name)
+            self.recv_type = SawType(TypeKind.POINTER, inner_type=pointee)
         else:
             self.name = func.name
         self.frame_name = f"__Frame_{self.name}"
@@ -1703,9 +1708,14 @@ def _rewrite_drive_sites(node, roots):
             # frame mutates the caller's value through it (D6).
             recv_type = getattr(inner.object, 'resolved_type', None)
             struct_name = getattr(recv_type, 'struct_name', None)
+            # design 74 (A5-rest, shape 2): preserve the receiver's type args so a
+            # generic-struct receiver (`Holder<Int>`) casts to
+            # `UnsafePointer<Holder<Int>>` — matching the frame's `__recv` pointee.
+            recv_args = getattr(recv_type, 'type_args', None)
             ptr_type = SawType(TypeKind.POINTER,
                                inner_type=SawType(TypeKind.STRUCT,
-                                                  struct_name=struct_name))
+                                                  struct_name=struct_name,
+                                                  type_args=recv_args))
             recv_ptr = CastExpr(
                 expr=ReferenceExpr(expr=inner.object, mutable=False),
                 target_type=ptr_type)
@@ -1859,23 +1869,45 @@ def transform_program(program, typechecker):
     # `__recv` pointer into the receiver's storage; the method body's `self` is
     # rewritten to `self.__recv[0]`. Driven directly (no method embedding yet).
     removed_methods = []  # (extension, method) to strip after generation
+    gsm = getattr(typechecker, "_driven_generic_struct_methods", {}) or {}
     for (struct_name, method_name), modes in method_roots.items():
+        # design 74 (A5-rest, shape 2): a driven method on a GENERIC struct is
+        # monomorphized by the typechecker into a concrete clone (keyed by a
+        # per-instantiation name) carrying the concrete receiver type. Use it
+        # directly — it is NOT spliced onto an extension (its `self` is
+        # `Holder<Int>`, unexpressible on a plain extension), so `_find_method`
+        # won't see it. The frame's `__recv` points at `Holder<Int>`.
+        gsm_entry = gsm.get((struct_name, method_name))
+        if gsm_entry is not None:
+            recv_saw_type, method_ast = gsm_entry
+            if method_ast is None:
+                raise CoroTransformError(
+                    f"coroutine transform: driven generic-struct method "
+                    f"`{struct_name}.{method_name}` was not monomorphized")
+            mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker,
+                                recv_saw_type=recv_saw_type)
+            new_structs.append(mfb.prepare(suspends_set))
+            _, resume_ext = mfb.build_resume(fbs)
+            new_extensions.append(resume_ext)
+            for mode in modes:
+                new_functions.append(_make_driver(mfb, mode, fbs))
+            continue
         method_ast, ext = _find_method(program, struct_name, method_name)
         if method_ast is None:
             raise CoroTransformError(
                 f"coroutine transform: driven method `{struct_name}.{method_name}` "
                 f"not found in the entry module")
         if method_ast.type_params or getattr(ext, 'type_params', None):
-            # design 70 (A5): a method-level generic method is monomorphized by the
-            # typechecker to a concrete method before it reaches here, so a template
-            # surviving to this point is a method on a GENERIC STRUCT
-            # (`extension Holder<T>`) — its receiver has no concrete layout, which
-            # the driven-method frame's `__recv` pointer requires. Still A5-rest.
+            # A method-level generic method is monomorphized by the typechecker to a
+            # concrete method before it reaches here, and a generic-struct method is
+            # handled by the `gsm` table above. A template surviving to this point is
+            # an unexpected shape — reject cleanly rather than miscompile.
             raise CoroTransformError(
                 f"coroutine transform: driving a suspending method on a generic "
                 f"struct (`{struct_name}.{method_name}`) is not yet supported "
-                f"(design 70 A5-rest); monomorphize the receiver at the drive site",
-                method_ast.line, method_ast.column)
+                f"(design 74 A5-rest); monomorphize the receiver at the drive site",
+                method_ast.line, method_ast.column,
+                source_file=getattr(method_ast, 'source_file', None))
         mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker)
         new_structs.append(mfb.prepare(suspends_set))
         _, resume_ext = mfb.build_resume(fbs)

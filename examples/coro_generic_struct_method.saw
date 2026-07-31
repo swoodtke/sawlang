@@ -1,0 +1,35 @@
+// design 74 (A5-rest, shape 2): a suspending method on a GENERIC struct
+// (`extension Slot<T>`) driven via `&var self` across a suspension, at TWO
+// instantiations. Each concrete receiver (`Slot<Int>`, `Slot<Bool>`) is
+// monomorphized over the struct's type param, so the coroutine frame's `__recv`
+// pointer gets a concrete layout and `self.value` reads the concrete field type.
+// The mutation to `self.ticks` is observed through the caller's value.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 2
+// 1
+// 12
+
+struct Slot<T> { value: T, ticks: Int }
+extension Slot<T> {
+    func settle(&var self) -> T {
+        let snapshot = self.value      // T (concrete per instantiation), lives across the suspend
+        self.ticks = self.ticks + 1
+        __suspend()
+        self.ticks = self.ticks + 1
+        snapshot
+    }
+}
+
+func main() {
+    var a = Slot<Int>(value: 42, ticks: 0)
+    let ra = __drive(a.settle())
+    print(ra)          // 42
+    print(a.ticks)     // 2 — state survived the suspend, mutation observed
+
+    var b = Slot<Bool>(value: true, ticks: 10)
+    let rb = __drive(b.settle())
+    if rb { print(1) } else { print(0) }   // 1
+    print(b.ticks)     // 12
+}

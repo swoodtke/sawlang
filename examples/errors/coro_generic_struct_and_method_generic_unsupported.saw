@@ -1,0 +1,21 @@
+// design 74 (A5-rest, shape 2): driving a suspending method that is BOTH
+// struct-generic (`Dual<T>`) AND method-generic (`mix<U>`) is not yet supported
+// — a plain struct-generic OR a plain method-generic driven method DOES work, but
+// the combined shape has no monomorphizable template here. Rejected cleanly,
+// anchored at the user's call site (design 74 A8).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Dual.mix
+// EXPECT-ERROR-CONTAINS: not supported
+
+struct Dual<T> { value: T }
+extension Dual<T> {
+    func mix<U>(&var self, other: U) -> Int {
+        __suspend()
+        1
+    }
+}
+
+func main() {
+    var d = Dual<Int>(value: 5)
+    print(__drive(d.mix<Bool>(true)))
+}

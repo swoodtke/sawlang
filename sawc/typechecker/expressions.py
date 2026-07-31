@@ -728,6 +728,55 @@ class ExpressionsMixin:
         inner.method_name = mono_name
         inner.type_args = None
 
+    def _drive_generic_struct_method(self, inner, struct_name, recv_type, mode, expr):
+        """design 74 (A5-rest, shape 2): drive a suspending method on a GENERIC
+        struct for a concrete receiver (`__drive(b.run())`, `b: Holder<Int>`).
+        Monomorphize the method over the struct's type params (T->Int), queue the
+        clone+re-check for effect harvest, record the concrete driven-method root,
+        and rewrite the call so the coroutine transform's Part-0c method driving
+        sees an ordinary non-generic method (keyed by a per-instantiation name)."""
+        struct_sym = self.namespace.lookup_struct(struct_name)
+        tps = struct_sym.type_params or []
+        resolved_args = [self._resolve_type(a) for a in (recv_type.type_args or [])]
+        if len(resolved_args) != len(tps) or not all(
+                self._is_concrete_type(a) for a in resolved_args):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{expr.name}(...)` of a method on generic struct `{struct_name}` "
+                f"requires a fully concrete receiver", inner.line, inner.column)
+            return
+        entry = self._pristine_generic_struct_methods.get(
+            (struct_name, inner.method_name))
+        if entry is None:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"driving suspending method `{struct_name}.{inner.method_name}` on a "
+                f"generic struct is not supported (its template could not be found "
+                f"for monomorphization; design 74 A5-rest)",
+                inner.line, inner.column)
+            return
+        pristine, _ext = entry
+        if getattr(pristine, 'type_params', None):
+            # Combined struct-generic AND method-generic — still A5-rest.
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"driving a method that is BOTH struct-generic and method-generic "
+                f"(`{struct_name}.{inner.method_name}`) is not yet supported "
+                f"(design 74 A5-rest); drop one level of genericity",
+                inner.line, inner.column)
+            return
+        from codegen.mangle import mangle_named
+        mono_name = mangle_named(inner.method_name, resolved_args)
+        # Carry the concrete receiver type (`Holder<Int>`) so the frame's `__recv`
+        # points at the monomorphized struct codegen produces for it.
+        concrete_recv = SawType(TypeKind.STRUCT, struct_name=struct_name,
+                                type_args=resolved_args)
+        self._effect_queue_generic_struct_method_mono(
+            struct_name, inner.method_name, resolved_args, mono_name, concrete_recv)
+        self._effect_record_driven_method(struct_name, mono_name, mode)
+        inner.method_name = mono_name
+        inner.type_args = None
+
     def _check_spawn(self, expr: FunctionCall) -> Optional[SawType]:
         """Type-check the `spawn { ... }` intrinsic (design 21 item 5).
 
@@ -1467,8 +1516,19 @@ class ExpressionsMixin:
                     return inner_type if inner_type is not None else SawType(TypeKind.VOID)
                 # design 70 (A5): a generic method (its own type params) is
                 # monomorphized to a concrete method before frame synthesis.
+                # design 74 (A5-rest, shape 2): a method on a GENERIC struct
+                # (`Holder<T>`) driven for a concrete receiver `Holder<Int>` is
+                # monomorphized over the STRUCT's type params so the frame's
+                # `__recv` gets a concrete layout.
+                struct_sym = self.namespace.lookup_struct(struct_name)
+                struct_is_generic = (
+                    struct_sym is not None and bool(struct_sym.type_params)
+                    and bool(getattr(recv_type, 'type_args', None)))
                 if getattr(inner, 'type_args', None):
                     self._drive_generic_method(inner, struct_name, mode, expr)
+                elif struct_is_generic:
+                    self._drive_generic_struct_method(
+                        inner, struct_name, recv_type, mode, expr)
                 else:
                     self._effect_record_driven_method(struct_name, inner.method_name, mode)
             else:
@@ -2935,8 +2995,20 @@ class ExpressionsMixin:
                 hint=f"available fields: {', '.join(struct_info.field_order)}"
             )
             return None
-        # Resolve the field type (e.g., convert STRUCT to ENUM if needed)
-        return self._resolve_type(struct_info.fields[expr.member])
+        # Resolve the field type (e.g., convert STRUCT to ENUM if needed).
+        field_type = struct_info.fields[expr.member]
+        # design 74 (A5-rest, shape 2): if the receiver is a concrete instantiation
+        # of a GENERIC struct but `struct_info` is the generic symbol (its fields
+        # carry the abstract `T`), substitute the struct's type params with the
+        # receiver's type args so `self.value` on a `Holder<Int>` resolves to `Int`.
+        # Normal instantiations carry a monomorphized symbol (concrete fields, no
+        # type_params) and skip this.
+        tps = getattr(struct_info, 'type_params', None)
+        if tps and getattr(obj_type, 'type_args', None):
+            type_map = {tp.name: arg for tp, arg in zip(tps, obj_type.type_args)}
+            if type_map:
+                field_type = field_type.substitute(type_map)
+        return self._resolve_type(field_type)
 
     def _check_init_field_value(self, value, expected_type: Optional[SawType]) -> Optional[SawType]:
         """Type-check a struct-init field/init-argument value.
