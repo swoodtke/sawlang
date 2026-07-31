@@ -4095,6 +4095,13 @@ class ExpressionsMixin:
             inner.name = spawn_name
             inner.type_args = None
         self._effect_record_spawn(spawn_name, result_type)
+        # design 75 (A2): if the receiver group was built multi-threaded
+        # (`TaskGroup(threads: N)`), record this spawn root so the coroutine
+        # transform gates its frame on `Send` (it may cross to a worker thread).
+        if isinstance(expr.object, Identifier):
+            recv_info = self.current_scope.lookup(expr.object.name)
+            if recv_info is not None and getattr(recv_info, 'is_mt_group', False):
+                self._mt_spawn_roots.add(spawn_name)
         expr.spawn_root = spawn_name
         handle_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle",
                               type_args=[result_type])

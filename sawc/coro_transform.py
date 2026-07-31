@@ -1612,6 +1612,55 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
 # spawn lowering (design 52b item 2)
 # --------------------------------------------------------------------------- #
 
+def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
+    """Send-on-frames gate (design 75 A2). A frame spawned into a multi-threaded
+    `TaskGroup(threads: N)` is stolen between suspensions by different worker
+    threads, so every value it carries across a suspension — its parameters and
+    its across-suspend locals, plus those of every embedded callee sub-frame — must
+    be `Send`. Reject the FIRST non-Send value, naming it and its type, anchored at
+    the spawned function (design 74 A8). D6 confinement still holds (a frame runs on
+    one thread at a time); Send is what makes the between-suspension hand-off safe.
+
+    Uses the same structural `is_send` predicate as the 21b `spawn { }` capture
+    audit — `UnsafePointer` (and anything containing one, e.g. a bare `Vector`)
+    poisons; `Int`/`Bool`/`Float`/`String`/`Arc`/`Mutex`/`Channel` pass."""
+    ns = (getattr(typechecker, "_entry_module_ns", None)
+          or getattr(typechecker, "namespace", None))
+    if ns is None:
+        return
+    seen = set()
+
+    def _check(fbx):
+        if fbx.name in seen:
+            return
+        seen.add(fbx.name)
+        for p in fbx.params:
+            if not ns.is_send(p.type):
+                raise CoroTransformError(
+                    f"cannot spawn `{fbx.func.name}` into a multi-threaded "
+                    f"`TaskGroup(threads: ...)`: parameter `{p.name}` of type "
+                    f"`{p.type}` is not `Send`, so the task frame cannot cross to a "
+                    f"worker thread. Share thread-safe state via `Arc` (and `Mutex` "
+                    f"for mutation) or a `Channel` instead of moving it in.",
+                    getattr(p, 'line', 0) or fbx.func.line,
+                    getattr(p, 'column', 0) or fbx.func.column,
+                    source_file=fbx.src_file)
+        for (lname, lt) in fbx.frame_locals:
+            if not ns.is_send(lt):
+                raise CoroTransformError(
+                    f"cannot spawn `{fbx.func.name}` into a multi-threaded "
+                    f"`TaskGroup(threads: ...)`: local `{lname}` of type `{lt}` is "
+                    f"held across a suspension but is not `Send`, so the task frame "
+                    f"cannot cross to a worker thread.",
+                    fbx.func.line, fbx.func.column, source_file=fbx.src_file)
+        for c in fbx.calls:
+            callee = fbs.get(c['callee'])
+            if callee is not None:
+                _check(callee)
+
+    _check(fb)
+
+
 def _make_spawn_helper(fb: _FrameBuilder, fbs):
     """Synthesize `__spawn_<f>(__group, <params>) -> TaskHandle<T>`.
 
@@ -1915,6 +1964,7 @@ def transform_program(program, typechecker):
     roots = dict(getattr(typechecker, "_driven_roots", {}) or {})
     method_roots = dict(getattr(typechecker, "_driven_method_roots", {}) or {})
     spawn_roots = dict(getattr(typechecker, "_spawn_roots", {}) or {})
+    mt_spawn_roots = set(getattr(typechecker, "_mt_spawn_roots", set()) or set())
     funcs_by_name = {f.name: f for f in program.functions}
     # design 45 item 1: a suspending `main` is auto-wrapped in an entry executor.
     main_suspends = (getattr(typechecker, "_main_suspends", False)
@@ -2034,6 +2084,10 @@ def transform_program(program, typechecker):
     # design 52b item 2: each spawn root gets a `__spawn_<f>` helper that boxes
     # its frame, enqueues it on the group, and returns the typed handle.
     for root_name in spawn_roots:
+        # design 75 (A2): a frame spawned into a multi-threaded group crosses OS
+        # threads between suspensions — gate every across-suspend live value on Send.
+        if root_name in mt_spawn_roots:
+            _check_spawn_frame_send(fbs[root_name], fbs, typechecker)
         new_functions.append(_make_spawn_helper(fbs[root_name], fbs))
         removed.add(root_name)
     removed.update(closure)

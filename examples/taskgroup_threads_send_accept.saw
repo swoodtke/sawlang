@@ -1,0 +1,34 @@
+// design 75 (A2): `TaskGroup(threads: N)` opts into the multi-threaded executor.
+// Frames spawned into it must be Send; Int / String / Channel<Int> params all are,
+// so the spawns are accepted. Deterministic assertion: the final SUM, never an
+// ordering (workers may interleave). join() returns each task's typed result.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 60
+
+func square(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+func drain(ch: Channel<Int>, count: Int) -> Int {
+    var sum = 0
+    var got = 0
+    while got < count {
+        let v = ch.receive()
+        sum = sum + v
+        got = got + 1
+    }
+    return sum
+}
+
+func main() {
+    var group = TaskGroup(threads: 4)
+    let a = group.spawn(square(3))   // 9
+    let b = group.spawn(square(5))   // 25
+    let ch = Channel<Int>()
+    ch.send(10)
+    ch.send(16)
+    let c = group.spawn(drain(ch.copy(), 2))   // 26
+    print(a.join() + b.join() + c.join())      // 9 + 25 + 26 = 60
+}

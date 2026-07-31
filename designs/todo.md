@@ -11,6 +11,33 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 75 — A2: multi-threaded work-stealing executor + Send-on-frames (IN PROGRESS)
+- **Commit 1 (surface + Send-on-frames gate; execution still single-threaded):**
+  `TaskGroup(threads: N)` labeled init landed (a second `init(threads: Int)`; the
+  default `TaskGroup()` and `threads: 1` stay the byte-identical single-threaded
+  engine — `workers` field clamps to >=1). The Send-on-frames gate: a `let/var
+  group = TaskGroup(threads: ...)` binding is flagged `is_mt_group` in the
+  typechecker (`_check_let_statement` via `_is_multithreaded_taskgroup_init`,
+  handles the `StructInit [resolved: init(threads)]` form); `group.spawn(f(...))`
+  into such a binding records `f` in `typechecker._mt_spawn_roots`; the coroutine
+  transform (`_check_spawn_frame_send`) then walks the spawn root frame's params +
+  across-suspend locals + embedded callee sub-frames and rejects the FIRST non-Send
+  value, naming it + its type, anchored at the function (design 74 A8). Reuses the
+  same structural `namespace.is_send` as the 21b `spawn { }` capture audit
+  (`UnsafePointer`/bare `Vector` poison; Int/Bool/Float/String/Arc/Mutex/Channel
+  pass). Single-threaded groups skip the gate entirely. DEVIATION (documented):
+  mt-ness is tracked on the group's local binding, so a `TaskGroup(threads:)`
+  spawned into DIRECTLY is gated; passing the group through an opaque helper before
+  spawning is not yet traced (spawn directly for the gate — future interprocedural
+  lift). Tests: `taskgroup_threads_send_accept` (Int/String/Channel accepted, sum
+  oracle), `errors/taskgroup_threads_nonsend_reject` (Vector param named). Suite
+  813, bootstrap 17+17, libs 4+4.
+- **FOUND (pre-existing, flagged): `spawn { void_body }` ICEs.** A 21b `spawn { }`
+  whose closure returns `Void` builds a task control block `{i8*, i8*, void}` — an
+  invalid LLVM struct ("void type only allowed for function results"). Worked
+  around in the executor (worker bodies return `Int`); a proper fix is to omit the
+  result slot for a Void spawn body. [21b, 75]
+
 ## Design 74 — A5-rest: finish effect-polymorphism shapes + A8 anchors (IN PROGRESS)
 - **Commit 1 (A8 — diagnostic anchoring):** A coroutine-transform rejection
   (`CoroTransformError`) now anchors at the user's `file:line:col` with a source

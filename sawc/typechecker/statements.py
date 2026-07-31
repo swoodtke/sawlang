@@ -16,6 +16,7 @@ from ast_nodes import (
     BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, RangeExpr,
     Identifier, MemberAccess, ArrayIndex, TupleIndex, MoveExpr, IntLiteral,
+    FunctionCall, StructInit,
     SawType, TypeKind,
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     WildcardPattern, BindingPattern, TuplePattern,
@@ -918,7 +919,24 @@ class StatementsMixin:
         # Add to scope
         if var_type:
             info = VariableInfo(var_type, stmt.mutable, stmt.line, stmt.column)
+            # design 75 (A2): flag a binding initialized as a MULTI-THREADED group
+            # (`TaskGroup(threads: N)`), so a later `group.spawn(...)` into it can
+            # turn on the Send-on-frames gate. The default `TaskGroup()` (and any
+            # other construction) is single-threaded — gate skipped, byte-identical.
+            if self._is_multithreaded_taskgroup_init(stmt.value):
+                info.is_mt_group = True
             self.current_scope.define(stmt.name, info)
+
+    def _is_multithreaded_taskgroup_init(self, value) -> bool:
+        """True if `value` is a `TaskGroup(threads: ...)` construction (design 75).
+        The `threads:` label is the opt-in to multi-threaded execution. A custom
+        init call resolves to a `StructInit` (`[resolved: init(threads)]`); a raw
+        `FunctionCall` form is handled too for robustness."""
+        if isinstance(value, StructInit) and value.struct_name == "TaskGroup":
+            return any(fi[0] == "threads" for fi in (value.field_inits or []))
+        if isinstance(value, FunctionCall) and value.name == "TaskGroup":
+            return any(a.name == "threads" for a in value.arguments)
+        return False
 
     def _check_guard_let_statement(self, stmt: GuardLetStatement):
         """Check a guard let/var statement for optional binding."""

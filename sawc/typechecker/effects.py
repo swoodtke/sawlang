@@ -126,6 +126,10 @@ class EffectsMixin:
         # `__spawn_<f>` helper (boxes the frame, enqueues it, returns
         # `TaskHandle<T>`) — but no `__drive_*` driver.
         self._spawn_roots: Dict[str, Any] = {}
+        # design 75 (A2): spawn roots spawned into a MULTI-THREADED group
+        # (`TaskGroup(threads: N)`). Their frames cross OS-thread boundaries, so the
+        # coroutine transform gates every across-suspend live value on `Send`.
+        self._mt_spawn_roots: set = set()
         # design 70 (A5): effect polymorphism via monomorphization-time
         # re-inference. Pristine (pre-body-check) copies of every generic function
         # template, keyed by name, so an instantiation can be cloned + substituted

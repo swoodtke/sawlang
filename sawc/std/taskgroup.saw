@@ -26,6 +26,10 @@ struct TaskGroup {
     tasks: Vector<Box<any Resumable>>
     done: Vector<Bool>
     remaining: Vector<Int>
+    // design 75 (A2): requested worker count. 0/1 => the single-threaded engine
+    // (byte-identical to the pre-75 group); >=2 => the multi-threaded fork-join
+    // drain (a mutex-protected shared queue drained by `workers` OS threads).
+    workers: Int
 }
 
 extension TaskGroup {
@@ -33,7 +37,23 @@ extension TaskGroup {
         let t = Vector<Box<any Resumable>>()
         let d = Vector<Bool>()
         let r = Vector<Int>()
-        TaskGroup(tasks: move t, done: move d, remaining: move r)
+        TaskGroup(tasks: move t, done: move d, remaining: move r, workers: 1)
+    }
+
+    // design 75 (A2): opt in to multi-threaded execution with `n` worker threads.
+    // `TaskGroup(threads: 1)` and the default `TaskGroup()` both run the proven
+    // single-threaded engine (no OS threads spawned); `n >= 2` spawns a worker
+    // pool. Spawning into a group built this way turns on the Send-on-frames gate
+    // (a frame that crosses to another worker must be Send).
+    init(threads: Int) -> TaskGroup {
+        let t = Vector<Box<any Resumable>>()
+        let d = Vector<Bool>()
+        let r = Vector<Int>()
+        var w = threads
+        if w < 1 {
+            w = 1
+        }
+        TaskGroup(tasks: move t, done: move d, remaining: move r, workers: w)
     }
 
     // The number of children spawned into this group (design 52b).
