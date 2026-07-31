@@ -43,7 +43,16 @@ escape hatch (land honest subsets; re-ledger precisely).
    against them, but registration/lookup must agree), tests, spec,
    saw-lang skill, CLAUDE.md digest. `Global` must no longer resolve
    (clean unknown-type error). Suite is the oracle.
-8. Docs: spec limits lists updated; saw-lang skill limits updated;
+8. **RIDER (user, Jul 31): unary minus on fixed-width integers.**
+   `-x` and `-2` work for platform Int but NOT fixed-width types
+   (design 59's FNV workaround; design 76's `0 - 2` errno dodge).
+   Extend unary negation to Int8..Int64 (checked overflow like Int;
+   unsigned negation stays an error), and fold `-` into a literal's
+   fixed-width range check so `-128i8` / `return -2` (Int32 target)
+   are writable (closes design 53's noted `Int8.min`-unwritable gap).
+   Un-dodge the `0 - 2` sites your sweep finds. Tests: negation each
+   width, -128i8 literal, -Int8.min panics, unsigned negation error.
+9. Docs: spec limits lists updated; saw-lang skill limits updated;
    tracker (each item closed or re-ledgered; design 77 landed).
 
 Bars: full suite (baseline = post-76) + blade/libs + bootstrap green
