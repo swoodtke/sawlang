@@ -1,5 +1,29 @@
 # Design 75 — A2: multi-threaded work-stealing executor + Send-on-frames (queued Jul 31)
 
+**Status (Jul 31): LANDED.** `TaskGroup(threads: N)` (N>=2) runs N OS worker
+threads over a SINGLE mutex-protected shared run queue (the sanctioned "one
+injector + N workers" — deliberately NOT per-worker lock-free deques; simplicity
+and soundness over throughput v1). Model = fork-join: a drain is triggered lazily
+by `join()`/`Deinit`, spawns N workers (via the 21b engine, passing the group's
+address as a `Send` `Int`), each of which claims a runnable frame under the lock,
+`resume()`s it OUTSIDE the lock, and records the outcome; the drain joins all
+workers (a full barrier making every `__result` visible). D6 confinement holds via
+a per-task `active` flag (one worker per frame) and a size-stable queue during a
+drain (enqueue is main-thread-only). The Send-on-frames gate rejects the first
+non-Send value a spawned frame carries across a suspension (params + across-suspend
+locals + embedded callee sub-frames + the result type), anchored + named; the
+default `TaskGroup()`/`threads: 1` skip the gate and stay byte-identical. Shared
+earliest-deadline timer under the lock; cross-task cancellation via
+`TaskHandle.cancel_addr() -> Int`. Constrained/deviations (documented): mt-ness is
+tracked on the group's binding (spawn into it directly for the gate); a `spawn { }`
+with a Void body ICEs pre-existing (workers return a dummy Int); no per-worker
+deques or work-stealing-proper (single injector). Battery of 7 deterministic,
+time-bounded tests (`taskgroup_threads_*`, each verified stable 30-50x). Suite 818,
+bootstrap 17+17, libs 4+4.
+
+---
+
+
 Stage 3 of the async plan (paper 18 — read it first; the model there
 is decided). The cooperative TaskGroup gains an OPT-IN multi-threaded
 mode; the single-threaded default stays exactly as-is.

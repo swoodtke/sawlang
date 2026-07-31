@@ -11,7 +11,7 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
-## Design 75 — A2: multi-threaded work-stealing executor + Send-on-frames (IN PROGRESS)
+## Design 75 — A2: multi-threaded work-stealing executor + Send-on-frames (LANDED)
 - **Commit 1 (surface + Send-on-frames gate; execution still single-threaded):**
   `TaskGroup(threads: N)` labeled init landed (a second `init(threads: Int)`; the
   default `TaskGroup()` and `threads: 1` stay the byte-identical single-threaded
@@ -368,7 +368,13 @@ items need a probe before being treated as real work.
     under the design-74 section with analysis): buried suspending METHOD-call
     embedding (shape 1, the Part-0b method twin); cross-module generic driven
     templates (shape 4, design 68 territory). [70, 74]
-- **A2.** Multi-threaded work-stealing executor + Send-on-frames check.
+- ~~**A2.** Multi-threaded work-stealing executor + Send-on-frames check.~~ DONE
+  (design 75): `TaskGroup(threads: N)` runs N OS workers over a single
+  mutex-protected shared queue (fork-join drain; per-worker lock-free deques
+  deferred as documented — the sanctioned simpler shape). Send-on-frames gate on
+  spawn into a multi-threaded group (params + across-suspend locals + result). D6
+  confinement preserved (one worker per frame; frames move only between
+  suspensions). Cross-task cancel via `TaskHandle.cancel_addr()`. [18, 52b, 75]
 - **A3.** Explicit-only cancellation points (`Task.cancelled()`, select).
 - **A4.** IO reactor (poller-only v1, kqueue/epoll, never-block).
 - **A6.** `extern blocking` offload pool. **A7.** Separate-compilation

@@ -147,6 +147,14 @@ ch.receive()                // cooperative channel receive (blocking twin: recv)
 handle.cancel(); if cancelled() { ... }   // cooperative cancellation
 ```
 - `func f(...) sync -> T` promises no suspension (checked).
+- `TaskGroup(threads: N)` (design 75) opts into MULTI-THREADED execution (N OS
+  workers drain a shared queue). `TaskGroup()` / `threads: 1` stay single-threaded
+  (byte-identical, deterministic interleaving). Into a multi-threaded group,
+  every value a spawned frame carries across a suspension — params, across-suspend
+  locals, AND the result type — must be `Send` (else a clean compile error naming
+  it; share via `Arc`/`Mutex`/`Channel`, not by moving a `Vector` etc. in). Test MT
+  code on counts/sums, NEVER on interleaving. Cross-task cancel:
+  `handle.cancel_addr() -> Int` (a Send address a canceller task sets).
 - Thread engine (`spawn`/`Task`/`Channel.recv`) is separate from the
   cooperative TaskGroup engine — don't mix per task.
 - Generic suspending functions/methods work (design 70 + 74): effect is

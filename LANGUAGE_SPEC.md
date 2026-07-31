@@ -2161,7 +2161,9 @@ compile error. Task bodies may suspend under that engine, so a `spawn` closure i
 **Status: tasks, channels, Mutex, Send/Sync — implemented (stage 1,
 thread-per-task engine). Cooperative engine — implemented: the coroutine
 transform, suspending `main`, and multi-task `TaskGroup` (spawn / join / cancel /
-suspending channel) all ship (designs 44/45/52/52b).**
+suspending channel) all ship (designs 44/45/52/52b), including OPT-IN
+multi-threaded execution `TaskGroup(threads: N)` with a Send-on-frames gate
+(design 75).**
 There is NO `async`/`await` keyword and there never will be: Saw is
 COLORLESS (designs/18 Axis B′). Any call may suspend (once the
 cooperative engine lands); the marked side is the rare one — `sync`
@@ -2314,6 +2316,39 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   cannot distinguish the two). A `receive()` buried in an expression position (not
   a top-level `let v = ...` / bare statement) is rejected cleanly.
 
+**Multi-threaded execution — `TaskGroup(threads: N)` (design 75 A2).** By default a
+`TaskGroup()` runs its children on ONE thread (deterministic interleaving, above).
+`TaskGroup(threads: N)` (`N >= 2`) opts a group into a MULTI-THREADED executor: N OS
+worker threads drain a single mutex-protected SHARED run queue (the sanctioned
+"one injector + N workers" — simplicity over per-worker lock-free deques, v1).
+`TaskGroup()` and `TaskGroup(threads: 1)` stay byte-identical to the single-threaded
+engine (no threads, no lock).
+- **The drain is fork-join.** A drain is triggered lazily by `join()` / `Deinit`; it
+  spawns N workers, each of which repeatedly LOCKS the queue, claims the first
+  runnable frame (marking it active so no two workers touch one frame), UNLOCKS,
+  `resume()`s it OUTSIDE the lock, then re-locks to record the outcome. The drain
+  then joins all workers — an OS-level barrier that makes every frame's `__result`
+  visible before `join()` reads it. `join()` and `Deinit` remain exactly-once and
+  idempotent (a fully-drained group spawns nothing).
+- **Send-on-frames gate.** A frame spawned into a multi-threaded group is handed
+  between workers, so every value it carries across a suspension — the spawned
+  function's parameters, its across-suspension locals (and those of embedded callee
+  sub-frames), and its RESULT type (it travels worker→`join()`) — must be `Send`.
+  The compiler rejects the first non-`Send` value at the spawned function, naming
+  it and its type. Single-threaded groups skip the gate entirely. (A multi-threaded
+  group must be spawned into *directly* for the gate to key on it — `threads:` is
+  tracked on the group's binding, not yet through an opaque helper it is passed to.)
+- **D6 task confinement (paper 18).** A frame runs on ONE thread at a time; stealing
+  moves frames between workers only BETWEEN suspensions. There are no migration
+  guarantees beyond Send-correctness; `&var self` driven methods stay task-confined.
+- **Shared timer / cancellation.** Sleeps advance by the earliest deadline under the
+  queue lock (a shared timer, no per-worker wheel). Cross-task cancellation:
+  `TaskHandle.cancel_addr() -> Int` yields the `__cancel` word's address (a `Send`
+  `Int`) so a canceller task can set it from a worker thread; the target observes it
+  via `cancelled()` (the `__cancel` byte is set-once monotonic — race-free,
+  eventually consistent, cooperative). The 21b thread-per-task `spawn`/`Task`/`Channel`
+  engine is separate and untouched — the two engines coexist.
+
 Now-closed gaps (design 62), each landed with tests:
 - **`if let` / `guard let` over a suspending call (G2).** `if let x = f() { ... }`
   / `guard let x = f() else { ... }` whose condition is a plain suspending call is
@@ -2406,6 +2441,20 @@ func orchestrate(base: Int) -> Int {
     sleep(1)                              // the parent may suspend between spawn
     return h1.join() + h2.join()          // and join; the group drains at teardown
 }
+
+// OPT-IN multi-threaded execution (design 75 A2): N OS worker threads drain a
+// shared queue. Every value a spawned frame carries across a suspension must be
+// Send (params, across-suspend locals, and the result). Assert on counts/sums,
+// never on the (nondeterministic) interleaving.
+func square(n: Int) -> Int { yield_now(); n * n }
+func parallel() -> Int {
+    var group = TaskGroup(threads: 4)     // 4 workers; `TaskGroup(threads: 1)` and
+    let a = group.spawn(square(3))        //   `TaskGroup()` stay single-threaded
+    let b = group.spawn(square(5))
+    return a.join() + b.join()            // 9 + 25 = 34 (order not observable)
+}
+//   group.spawn(needsVector(move v))    // COMPILE ERROR: `Vector<Int>` is not Send
+//                                        // (share via Arc/Mutex/Channel instead)
 
 // if-let / guard-let over a suspending call (design 62 G2):
 func maybe_step(n: Int) -> Int? {
