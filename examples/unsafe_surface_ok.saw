@@ -1,0 +1,36 @@
+// Design 81: the ALLOWED forms of the unsafe surface, all in one program.
+//   - binding a pointer produced by a call needs the marker (`unsafe malloc`);
+//   - a deref read/write needs the marker (`unsafe base[0]`);
+//   - a cast that NAMES `UnsafePointer` makes its operand visible — the arith
+//     inside needs no marker;
+//   - passing a pointer through a call is free (`fill(base)`);
+//   - a function whose signature carries a raw pointer is the MARKED DOMAIN —
+//     its body's pointer ops are free (no markers in `fill`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 65
+// 66
+
+extern "C" {
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
+}
+
+// Marked domain: the `UnsafePointer` parameter is the visible marker, so every
+// raw-pointer operation in this body is free.
+func fill(p: UnsafePointer<Int8>) {
+    p[0] = 65
+    p[1] = p[0]
+}
+
+func main() {
+    if let base = unsafe malloc(16) {   // binding a produced pointer: marker
+        fill(base)                      // passing a pointer through: free
+        // The cast names `UnsafePointer`, so `base + 1` is visible — no marker.
+        let second = (base + 1) as UnsafePointer<Int8>
+        unsafe second[0] = 66           // deref write: marker
+        print(unsafe base[0] as Int)    // 65 — deref read: marker
+        print(unsafe base[1] as Int)    // 66
+        free(base)
+    }
+}

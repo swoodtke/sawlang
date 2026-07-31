@@ -1,0 +1,9 @@
+// Design 81: `unsafe` on an expression with no unsafe operation is a clean
+// error — markers must stay honest.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `unsafe` marks an expression with no unsafe operation
+
+func main() {
+    let x = unsafe 1 + 1
+    print(x)
+}

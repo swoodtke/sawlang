@@ -1,0 +1,10 @@
+// Design 81: `Vector.ref_at` was REMOVED — `with_ref`/`with_var_ref` (the
+// scoped, invalidation-proof borrow) are the projection API now.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type `Vector` has no method `ref_at`
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    let p = v.ref_at(0)
+    print(p[0])
+}

@@ -1,0 +1,15 @@
+// Design 81: binding a pointer produced by a call requires the `unsafe` marker
+// — the pointer flows out with no `UnsafePointer` type visible at the call.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: binding a raw pointer produced by a call requires the `unsafe` marker
+
+extern "C" {
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
+}
+
+func main() {
+    if let p = malloc(4) {
+        free(p)
+    }
+}

@@ -1,0 +1,12 @@
+// Design 81: `with_var_ref` is invalidation-proof — the `&var self` receiver
+// holds the WHOLE vector borrowed for the body, so an attempt to mutate the
+// vector (here `push`, which could reallocate the buffer and dangle the element
+// borrow) while the borrow is live is a clean exclusivity error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    v.with_var_ref<Void>(0, { [&var v] e in v.push(9) })
+    print(v.len())
+}

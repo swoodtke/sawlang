@@ -1,0 +1,14 @@
+// Design 81: dereferencing a raw pointer in an unmarked function requires the
+// `unsafe` marker.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: dereferencing a raw pointer requires the `unsafe` marker
+
+extern "C" {
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+}
+
+func main() {
+    if let p = unsafe malloc(4) {
+        print(p[0] as Int)
+    }
+}
