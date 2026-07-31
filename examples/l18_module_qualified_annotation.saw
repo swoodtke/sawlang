@@ -1,0 +1,31 @@
+// design 68/69 rider L18: a module-qualified TYPE ANNOTATION (`v: l18_shapes.Point`,
+// `let x: l18_shapes.Point`, `-> l18_shapes.Point`, a method param) must reach
+// codegen as the resolved simple name — before the fix the typechecker resolved
+// the dot only for checking and left the dotted `struct_name` on the AST, so
+// codegen ICE'd "Undefined struct: l18_shapes.Point".
+// EXPECT: success
+// EXPECT-OUTPUT: 24
+import modules.l18_shapes
+
+struct Adder {
+    base: Int
+}
+
+extension Adder {
+    // method param uses a module-qualified annotation
+    func add(&self, p: l18_shapes.Point) -> Int {
+        self.base + p.x + p.y
+    }
+}
+
+// free-function param + module-qualified return annotation
+func shift(p: l18_shapes.Point) -> l18_shapes.Point {
+    l18_shapes.Point(x: p.x + 1, y: p.y + 1)
+}
+
+func main() {
+    let pt: l18_shapes.Point = l18_shapes.origin()   // let annotation
+    let q = shift(pt)                                // -> qualified return
+    let a = Adder(base: 20)
+    print(a.add(q) + q.x + q.y)   // 20 + 1 + 1 + 1 + 1 = 24
+}

@@ -1,0 +1,11 @@
+// Library fixture for l18_module_qualified_annotation.saw (design 68/69 rider
+// L18): exports a public struct + a factory, exercised through module-qualified
+// TYPE ANNOTATIONS (`shapes.Point`) on a param, a let binding, and a method.
+public struct Point {
+    x: Int
+    y: Int
+}
+
+public func origin() -> Point {
+    Point(x: 0, y: 0)
+}

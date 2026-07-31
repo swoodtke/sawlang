@@ -24,13 +24,18 @@ items need a probe before being treated as real work.
 - **B4 limit.** A git dep's locked REV isn't pinned without
   re-resolution (build-from-lock path reconstruction is future work);
   path deps unaffected. [64, 67]
-- **L18 — module-qualified type annotations (found in design 68).**
-  `func f(v: mod.Type)` / `let x: mod.Type` reach codegen with the dotted
-  `struct_name` and ICE "Undefined struct: mod.Type"; the typechecker
-  resolves the dot for checking but does not rewrite the AST annotation
-  codegen reads. Fix: resolve/strip module qualifiers on declared
-  param/let annotations (or strip in codegen `_get_llvm_type`). Selective
-  import (`import mod.{Type}`, bare names) is the idiomatic workaround. [68]
+- ~~**L18 — module-qualified type annotations (found in design 68).**~~
+  FIXED (design 69). The typechecker resolved a dotted annotation
+  (`v: mod.Type` / `let x: mod.Type` / `-> mod.Type`) for checking but
+  left the dotted `struct_name` on the AST, so codegen ICE'd "Undefined
+  struct: mod.Type". Fix at the source: write the resolved (qualifier-
+  stripped) type back onto the AST — free-function params (registration),
+  let annotations + method params/return (a guarded `_resolve_type` when
+  `_annotation_has_module_qualifier` holds, so generic/Self are untouched).
+  A related typechecker gap fell out (a method with a qualified param
+  errored "body has no value" because the param scope kept the dotted
+  type) — fixed by the same write-back. Locked by
+  `examples/l18_module_qualified_annotation.saw`. [68, 69]
 - **L2.** Return-type reconciliation for type-param/associated-type
   returns in generic bodies — documented deferred looseness. [02, 24]
 - **L9.** `==` over Optional-/array-bearing members: deliberate clean

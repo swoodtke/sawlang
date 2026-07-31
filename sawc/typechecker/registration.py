@@ -413,8 +413,15 @@ class RegistrationMixin:
                                            report_at=(func.line, func.column))
             self._stamp_escaping_roles(return_type, is_param=False,
                                        report_at=(func.line, func.column))
-            # Update AST with resolved type for codegen
+            # Update AST with resolved types for codegen. Both the return type AND
+            # each parameter annotation are written back so a module-qualified
+            # annotation (`p: shapes.Point`) reaches codegen as the resolved simple
+            # name instead of the dotted `struct_name` codegen cannot look up (L18,
+            # design 68). Without the param write-back only the FunctionSymbol saw
+            # the resolved types; `_get_llvm_type(param.type)` still ICE'd.
             func.return_type = return_type
+            for _param, _rt in zip(func.parameters, param_types):
+                _param.type = _rt
 
         # Declaration-site overload check (design 55 + design 53): reject a new
         # declaration that no tie-break rule could separate from an existing one.

@@ -81,6 +81,30 @@ class StatementsMixin:
         finally:
             self.current_type_params = prev_type_params
 
+    def _annotation_has_module_qualifier(self, t: SawType) -> bool:
+        """Whether `t` (recursively) names a module-qualified type — a STRUCT/
+        ENUM whose name contains a `.` (e.g. `shapes.Point`, `Vector<a.B>`).
+
+        Used to gate the L18 resolve+write-back: a dotted name is always a real
+        module qualification (an abstract type param / Self never contains a dot),
+        so this can't disturb generic-abstract or Self annotations."""
+        if t is None:
+            return False
+        if t.kind == TypeKind.STRUCT and t.struct_name and '.' in t.struct_name:
+            return True
+        if t.kind == TypeKind.ENUM and t.enum_name and '.' in t.enum_name:
+            return True
+        for sub in (t.type_args or []):
+            if self._annotation_has_module_qualifier(sub):
+                return True
+        if getattr(t, 'inner_type', None) is not None and \
+                self._annotation_has_module_qualifier(t.inner_type):
+            return True
+        for sub in (getattr(t, 'element_types', None) or []):
+            if self._annotation_has_module_qualifier(sub):
+                return True
+        return False
+
     def _check_method(self, struct_name: str, method: Method, type_subst: Dict[str, SawType] = None):
         """Type check a method body.
 
@@ -151,6 +175,14 @@ class StatementsMixin:
             # 'self' parameter has VOID as placeholder - replace with actual Self type
             if param.name == "self" or param_type.kind == TypeKind.SELF:
                 param_type = self_type
+            # L18 (design 68): a module-qualified annotation (`p: shapes.Point`)
+            # must be resolved to its simple name — otherwise the binding carries
+            # the dotted `struct_name`, member access on it fails to resolve, and
+            # codegen later ICEs. Resolve+write-back only when a qualifier is
+            # actually present so generic/abstract param types are untouched.
+            elif self._annotation_has_module_qualifier(param_type):
+                param_type = self._resolve_type(param_type)
+                param.type = param_type
             info = VariableInfo(param_type, mutable=False, line=method.line, column=method.column)
             self.current_scope.define(param.name, info)
 
@@ -160,6 +192,11 @@ class StatementsMixin:
         # (`T`-typed) parameter, so a generic extension checked abstractly is safe.
         self._check_parameter_defaults(
             method.parameters, bool(method.type_params), self_type)
+
+        # L18: strip a module qualifier from the return annotation too, writing it
+        # back so codegen reads the simple name (e.g. `-> shapes.Point`).
+        if self._annotation_has_module_qualifier(method.return_type):
+            method.return_type = self._resolve_type(method.return_type)
 
         # Determine expected return type first (needed for None propagation)
         expected_return = method.return_type
@@ -831,6 +868,12 @@ class StatementsMixin:
         if stmt.type_annotation:
             # Resolve type aliases in the annotation
             resolved_type = self._resolve_type(stmt.type_annotation)
+            # Write the resolved (module-qualifier-stripped) type back onto the AST
+            # so codegen reads `Point`, not the dotted `shapes.Point` it cannot
+            # look up — the binding's cleanup/copy classification uses this
+            # annotation, so a qualified owning type would otherwise miss its
+            # deinit (L18, design 68).
+            stmt.type_annotation = resolved_type
             # A binding annotation is a non-parameter role (design 16/29): a
             # closure type there is escaping; the `escaping` marker is redundant.
             self._stamp_escaping_roles(resolved_type, is_param=False,
