@@ -1757,6 +1757,24 @@ def _zeroed_value(enc, saw_type):
     return _zero_of(saw_type)
 
 
+def _frame_param_arg(p):
+    """The expression that seeds a driver/spawn param into the frame field.
+
+    Rider (design 77 item 4 note): a driven/spawned function taking an OWNING
+    value param (e.g. `Arc<T>`), moved in at the drive/spawn site, must transfer
+    that ownership INTO the frame — otherwise the wrapper's param keeps its drop
+    flag AND the frame drops its field, double-dropping the value (a real
+    use-after-free on a refcounted payload). Passing the param as a `move`
+    clears the wrapper param's drop responsibility so the frame is the sole
+    owner (dropped exactly once at frame teardown). Reference params never own,
+    so they stay a plain borrow-forward.
+    """
+    from ast_nodes import MoveExpr as _Move
+    if getattr(p.type, 'kind', None) == TypeKind.REFERENCE:
+        return Identifier(name=p.name)
+    return _Move(variable=p.name, path=None)
+
+
 def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):
     """A `StructInit` for `fb`'s frame: param fields from `param_values` (an
     opt-encoded param auto-wraps T -> Some), every local empty, every embedded
@@ -1852,7 +1870,7 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
     # (design 42's `&T`->pointer bridge is what the drive site supplies).
     recv_value = Identifier(name="__recv") if fb.is_method else None
     frame_init = _build_frame_init(
-        fb, [Identifier(name=p.name) for p in params], fbs, recv_value=recv_value)
+        fb, [_frame_param_arg(p) for p in params], fbs, recv_value=recv_value)
 
     stmts = [LetStatement(name="__f", type_annotation=None, value=frame_init,
                           mutable=True)]
@@ -1993,7 +2011,7 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
     from ast_nodes import StructInit
     T = fb.ret
     params = fb.params
-    frame_init = _build_frame_init(fb, [Identifier(name=p.name) for p in params], fbs)
+    frame_init = _build_frame_init(fb, [_frame_param_arg(p) for p in params], fbs)
 
     box_ty = SawType(TypeKind.EXISTENTIAL, existential_trait="Resumable")
     box_make = MethodCall(

@@ -1,0 +1,40 @@
+// Rider (design 77 item 4 note, flagged pre-existing): `__drive(f(move arc))`
+// DOUBLE-FREED the moved owning param — the synthesized `__drive_<f>` wrapper
+// built the frame from the param without transferring ownership, so the wrapper
+// param kept its drop flag AND the frame dropped its field (a use-after-free on
+// the refcounted payload; deterministic SIGSEGV under libgmalloc). Fix: the
+// wrapper now `move`s the param into the frame, so the frame is the sole owner.
+//
+// Exact-count lock (no UB even against the buggy path): three Arc references are
+// live, so the strong count never reaches zero during the drive — the bug would
+// merely under-count. Correct: the frame owns ONE reference and drops it once
+// (3 -> 2). The stray extra drop of the moved param would show 1 here.
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: deinit 7
+// EXPECT-OUTPUT: 999
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func run(a: Arc<Res>) -> Int {
+    __suspend()
+    a.strong_count()          // 3 (a's moved-in ref + k1 + k2)
+}
+
+func build() {
+    let a = Arc<Res>(value: Res(id: 7))   // strong = 1
+    let k1 = a.copy()                      // strong = 2
+    let k2 = a.copy()                      // strong = 3
+    let r = __drive(run(move a))           // frame owns the moved ref, drops it: 3 -> 2
+    print(r)                               // 3
+    print(k1.strong_count())               // 2 (correct); 1 if the moved param double-drops
+}                                          // k1, k2 drop here -> Res deinits exactly once
+
+func main() {
+    build()
+    print(999)
+}
