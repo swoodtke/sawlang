@@ -272,6 +272,23 @@ class OperatorsMixin:
         left = self._generate_expression(expr.left)
         right = self._generate_expression(expr.right)
 
+        # design 81 rider: a bare integer literal mixed with a fixed-width integer
+        # operand adopts that operand's width (the typechecker already
+        # range-checked it and typed the result as the fixed-width type). Without
+        # this the checked-arith intrinsic sees `i32` vs the platform-width `i64`
+        # literal and ICEs "arg mismatch". Both operand orders; only when both are
+        # integers of different widths and the wide side is a bare literal.
+        if (isinstance(left.type, ir.IntType) and isinstance(right.type, ir.IntType)
+                and left.type.width != right.type.width):
+            r_lit = (isinstance(expr.right, IntLiteral)
+                     and getattr(expr.right, 'suffix', None) is None)
+            l_lit = (isinstance(expr.left, IntLiteral)
+                     and getattr(expr.left, 'suffix', None) is None)
+            if r_lit:
+                right = self._reconcile_int_width(self.builder, right, left.type)
+            elif l_lit:
+                left = self._reconcile_int_width(self.builder, left, right.type)
+
         # Check if we're dealing with floats
         is_float = isinstance(left.type, ir.DoubleType)
 

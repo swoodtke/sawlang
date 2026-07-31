@@ -586,6 +586,9 @@ class ExpressionsMixin:
                     )
                     return None
             elif left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
+                fw = self._fixed_width_binop_type(expr, left_type, right_type)
+                if fw is not None:
+                    return fw
                 if left_underlying.kind == right_underlying.kind:
                     return left_type
                 return left_type
@@ -601,6 +604,9 @@ class ExpressionsMixin:
                 return None
         elif expr.op == '%':
             if left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
+                fw = self._fixed_width_binop_type(expr, left_type, right_type)
+                if fw is not None:
+                    return fw
                 return left_type
             else:
                 self._error(
@@ -3284,6 +3290,38 @@ class ExpressionsMixin:
         TypeKind.UINT32: (0, (1 << 32) - 1),
         TypeKind.UINT64: (0, (1 << 64) - 1),
     }
+
+    def _fixed_width_binop_type(self, expr, left_type, right_type):
+        """Arithmetic (`+ - * / %`) mixing a BARE integer literal with a
+        fixed-width integer operand: the literal adopts the fixed-width type, so
+        the result is that type (not platform `Int`) and codegen materializes the
+        literal at that width (design 77 item 9 extended from comparison to
+        arithmetic position; the design-81-run rider). Range-checks the literal
+        (`b + 999` for `b: Int32` past the width is a clean error). Both operand
+        orders. Returns the fixed-width type, or None when the rule does not apply
+        (e.g. Int/Int, or two fixed-width operands — those keep the existing
+        behavior)."""
+        lu = self._get_underlying_type(left_type)
+        ru = self._get_underlying_type(right_type)
+        left_lit = (isinstance(expr.left, IntLiteral)
+                    and getattr(expr.left, 'suffix', None) is None)
+        right_lit = (isinstance(expr.right, IntLiteral)
+                     and getattr(expr.right, 'suffix', None) is None)
+        # A bare literal + a fixed-width operand -> the fixed-width type. If BOTH
+        # are bare literals neither is fixed-width, so this never fires there.
+        if right_lit and lu.kind in self._FIXED_INT_RANGES:
+            self._check_fixed_width_literal(
+                expr.right, left_type,
+                getattr(expr.right, 'line', expr.line),
+                getattr(expr.right, 'column', expr.column))
+            return left_type
+        if left_lit and ru.kind in self._FIXED_INT_RANGES:
+            self._check_fixed_width_literal(
+                expr.left, right_type,
+                getattr(expr.left, 'line', expr.line),
+                getattr(expr.left, 'column', expr.column))
+            return right_type
+        return None
 
     def _check_fixed_width_literal(self, value_expr, expected_type, line, column):
         """Reject a bare integer literal that does not fit a fixed-width integer

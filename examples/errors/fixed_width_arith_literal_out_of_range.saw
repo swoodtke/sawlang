@@ -1,0 +1,10 @@
+// A bare integer literal in fixed-width ARITHMETIC position is range-checked
+// against the operand's width (design-81-run rider): `b + 999` for `b: Int8`
+// is a clean error, not a silent wrap or a codegen ICE.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 999 does not fit in `Int8`
+
+func main() {
+    let b: Int8 = 5
+    print((b + 999) as Int)
+}

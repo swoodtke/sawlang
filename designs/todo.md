@@ -22,6 +22,18 @@ items need a probe before being treated as real work.
   verified (a real-CRLF .saw compiles + runs). Tests: `string_escapes` (\r\n =
   13/10, \0 counted, \t = 9), `errors/string_unknown_escape`. Docs: spec string
   section + saw-lang skill escape list. Suite 856, bootstrap 17+17, libs 4+4. [81, 07]
+- **Fixed-width arithmetic literal-coercion rider — LANDED.** Arithmetic mixing a
+  fixed-width local with a bare int literal (`b + 0` for `b: Int32`; suffix locals
+  too) ICE'd "i32 != i64" (the checked-arith intrinsic saw i32 vs the platform i64
+  literal). Design-77 item 9 covered COMPARISON position only; now extended to
+  general ARITHMETIC (`+ - * / %`, both operand orders, all fixed-width kinds): the
+  literal adopts the fixed-width operand's type (typechecker `_fixed_width_binop_type`
+  range-checks it + types the result as the fixed-width type; codegen reconciles the
+  literal's width via the existing `_reconcile_int_width`). Out-of-range literal =
+  clean error; Int/Int mixing unchanged. Tests: `fixed_width_arith_literal` (5 ops,
+  both orders, suffix local, Int/Int untouched), `errors/fixed_width_arith_literal_
+  out_of_range`. Un-flags the design-77 item-8 note. Suite 858, bootstrap 17+17,
+  libs 4+4. [77, 65, 53, 81]
 - **CORE (marker + escape rules + with_ref) + std/example sweep — LANDED** (commit
   da64eb0). `unsafe <expr>` marks a raw-pointer op whose pointer flows INVISIBLY
   (deref/index/write, pointer arith, binding a pointer produced by a call) in a
