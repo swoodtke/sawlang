@@ -22,7 +22,7 @@ from ast_nodes import (
     ExternFunction, ExternBlock,
     SawType, TypeKind, Parameter, Argument, TypeParameter,
     ClosureExpr, ClosureParam,
-    ImportDecl
+    ImportDecl, Visibility
 )
 from errors import ErrorReporter, ErrorKind
 from namespace import (
@@ -148,6 +148,75 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         if self.current_function and hasattr(self.current_function, 'source_file'):
             return self.current_function.source_file or None
         return None
+
+    # ------------------------------------------------------------------ #
+    # Member visibility (design 80) — module identity for the field/method gate.
+    #
+    # std/builtin declarations are merged into ONE AST for codegen (the prelude
+    # "bypass"), so their registration module_path is `()` — indistinguishable
+    # from user code. For the ACCESS gate we key each declaration's defining
+    # module on its SOURCE FILE: std/builtin form the single distinguished module
+    # `("<std>",)`; user code keeps its real module_path. This kills the prelude
+    # bypass for visibility only (codegen's compiler-known-ness is untouched) and
+    # enforces the security-relevant boundary: user code cannot reach a private
+    # std member (e.g. `Vector.length`), while std's own files freely cross-
+    # reference each other (one std module — the standard library is one unit).
+    # ------------------------------------------------------------------ #
+    def _vis_module_for_source(self, source_file: Optional[str]) -> Tuple[str, ...]:
+        import os
+        if not source_file:
+            return self.current_module_path
+        try:
+            norm = os.path.abspath(source_file)
+        except Exception:
+            return self.current_module_path
+        std_prefix = getattr(self, '_std_dir_prefix', None)
+        if std_prefix is None:
+            sawc_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            std_prefix = os.path.join(sawc_dir, 'std') + os.sep
+            self._std_dir_prefix = std_prefix
+        base = os.path.basename(norm)
+        if norm.startswith(std_prefix) or base == 'builtin.saw':
+            return ("<std>",)
+        return self.current_module_path
+
+    def _accessor_vis_module(self) -> Tuple[str, ...]:
+        """The defining module of the code currently being type-checked (the
+        accessor), for the member-visibility gate."""
+        return self._vis_module_for_source(self._get_current_source_file())
+
+    def _in_synthesized_context(self) -> bool:
+        """Whether the code currently being checked is compiler-synthesized
+        (coroutine-transform output). Such code accesses std/frame internals by
+        construction and is EXEMPT from the member-visibility gate (design 80) —
+        the gate enforces source-level access only. Provenance-based, not by name."""
+        if self.current_method is not None and getattr(
+                self.current_method, 'is_synthesized', False):
+            return True
+        if self.current_function is not None and getattr(
+                self.current_function, 'is_synthesized', False):
+            return True
+        return False
+
+    def _member_gate_allows(self, def_module: Tuple[str, ...],
+                            visibility: Visibility) -> bool:
+        """Whether the code currently being checked may reach a member with the
+        given defining module + visibility (design 80). Same-module access is
+        always allowed; cross-module follows the top-level visibility rules."""
+        accessor = self._accessor_vis_module()
+        if def_module == accessor:
+            return True
+        return self.namespace.check_visibility(
+            visibility, symbol_module=def_module, accessor_module=accessor,
+            package_root=getattr(self.namespace, 'package_root', ()))
+
+    def _vis_word(self, visibility: Visibility) -> str:
+        return {
+            Visibility.PUBLIC: "public",
+            Visibility.PACKAGE: "public(package)",
+            Visibility.PARENT: "public(parent)",
+            Visibility.PRIVATE: "private",
+        }.get(visibility, "private")
 
     def _error(self, kind: ErrorKind, message: str, line: int, column: int,
                hint: Optional[str] = None, source_file: Optional[str] = None):

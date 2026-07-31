@@ -992,6 +992,7 @@ class _FrameBuilder:
             return_type=SawType(TypeKind.ENUM, enum_name="__Poll"),
             body=Block(statements=[loop], final_expr=None),
             self_mutable=True, self_is_reference=True, is_sync=True,
+            is_synthesized=True,
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
         # The `__wake read surface` of the Resumable protocol (design 52b item 1):
@@ -1004,6 +1005,7 @@ class _FrameBuilder:
             return_type=SawType(TypeKind.INT),
             body=Block(statements=[], final_expr=_self_field("__wake")),
             self_mutable=False, self_is_reference=True, is_sync=True,
+            is_synthesized=True,
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
         # Every frame conforms to the builtin `Resumable` trait (design 52b item
@@ -1835,6 +1837,7 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
     stmts.append(ExpressionStatement(expression=loop))
     return Function(name="main", parameters=[], return_type=SawType(TypeKind.VOID),
                     body=Block(statements=stmts, final_expr=None),
+                    is_synthesized=True,
                     source_file=getattr(fb.func, 'source_file', ""))
 
 
@@ -1901,6 +1904,7 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
         driver_params = [Parameter(name="__recv", type=fb.recv_type)] + driver_params
     return Function(name=driver_name, parameters=driver_params, return_type=ret,
                     body=Block(statements=stmts, final_expr=final),
+                    is_synthesized=True,
                     source_file=getattr(fb.func, 'source_file', ""))
 
 
@@ -2041,6 +2045,7 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
     return Function(name=f"__spawn_{fb.name}", parameters=helper_params,
                     return_type=ret_type,
                     body=Block(statements=stmts, final_expr=handle),
+                    is_synthesized=True,
                     source_file=getattr(fb.func, 'source_file', ""))
 
 

@@ -50,7 +50,7 @@ struct Channel<T: Send> {
 
 extension Channel<T: Send> {
     // Create a fresh empty channel (refcount = 1, count = 0).
-    init() -> Channel<T> {
+    public init() -> Channel<T> {
         if let block = GlobalAllocator().alloc(160, 16) {
             __saw_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
@@ -66,7 +66,7 @@ extension Channel<T: Send> {
     }
 
     // Enqueue a value (ownership transferred in). Wakes one blocked receiver.
-    func send(&self, v: T) {
+    public func send(&self, v: T) {
         if let block = self.block {
             pthread_mutex_lock(block)
             // Allocate and fill a node { next, value }.
@@ -103,7 +103,7 @@ extension Channel<T: Send> {
     // suspension). The cancellation-aware form adds `if cancelled() { ... }` to the
     // loop, returning through normal control flow (NO forced destroy). The 21b
     // thread engine's blocking `recv` (below) is untouched and coexists.
-    func try_receive(&self) -> T? {
+    public func try_receive(&self) -> T? {
         if let block = self.block {
             pthread_mutex_lock(block)
             let count = (block + 136) as UnsafePointer<Int>
@@ -138,7 +138,7 @@ extension Channel<T: Send> {
     // against the caller's own frame; this body is the reference semantics and the
     // effect-inference source (it reaches `yield_now`, so it — and any caller —
     // suspends), and is never itself monomorphized (every call site is rewritten).
-    func receive(&self) -> T {
+    public func receive(&self) -> T {
         var __got: T? = None
         var __done = false
         while not __done {
@@ -152,7 +152,7 @@ extension Channel<T: Send> {
 
     // Dequeue a value, blocking the CALLING THREAD while the queue is empty (the
     // design-21b thread-per-task engine; untouched by the cooperative engine).
-    func recv(&self) -> T {
+    public func recv(&self) -> T {
         if let block = self.block {
             pthread_mutex_lock(block)
             let count = (block + 136) as UnsafePointer<Int>
@@ -183,7 +183,7 @@ extension Channel<T: Send> {
 // Deinit is registered before ImplicitCopy so the `ImplicitCopy: Deinit`
 // supertrait requirement is already satisfied when ImplicitCopy is checked.
 extension Channel<T: Send>: Deinit {
-    func deinit(&var self) {
+    public func deinit(&var self) {
         if let block = self.block {
             let refcount = (block + 128) as UnsafePointer<Int>
             let old = __saw_atomic_sub_i64_release(refcount, 1)
@@ -216,7 +216,7 @@ extension Channel<T: Send>: Deinit {
 
 extension Channel<T: Send>: ImplicitCopy {
     // Retain: a live handle keeps the queue alive, so monotonic is enough.
-    func copy(&self) -> Channel<T> {
+    public func copy(&self) -> Channel<T> {
         if let block = self.block {
             let refcount = (block + 128) as UnsafePointer<Int>
             __saw_atomic_add_i64(refcount, 1)

@@ -14,12 +14,12 @@ extension Bag: NoCopy {
 }
 
 public extension Bag {
-    init() -> Bag {
+    public init() -> Bag {
         let v = Vector<Int>()
         Bag(items: move v)
     }
 
-    func total(&self) -> Int {
+    public func total(&self) -> Int {
         var s = 0
         var i = 0
         while i < self.items.len() {

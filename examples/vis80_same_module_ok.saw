@@ -1,0 +1,24 @@
+// Design 80: WITHIN the defining module, member access is unrestricted — a
+// single-file program freely reads/writes private fields and calls private
+// methods/statics of its own types (no `public` needed).
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 43
+// EXPECT-OUTPUT: 7
+
+struct Gizmo {
+    hidden: Int
+}
+
+extension Gizmo {
+    func peek(&self) -> Int { self.hidden }
+    func make(v: Int) -> Gizmo { Gizmo(hidden: v) }
+}
+
+func main() {
+    var g = Gizmo(hidden: 42)   // memberwise literal, same module
+    print(g.peek())             // 42  (private method)
+    g.hidden = 43               // private field write
+    print(g.hidden)             // 43  (private field read)
+    print(Gizmo.make(7).hidden) // 7   (private static)
+}

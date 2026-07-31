@@ -15,16 +15,16 @@ import src.lock.*
 // =============================================================================
 
 public struct BuildError {
-    message: String
-    exit_code: Int32
+    public message: String
+    public exit_code: Int32
 }
 
 public extension BuildError {
-    init(msg: String) -> BuildError {
+    public init(msg: String) -> BuildError {
         BuildError(message: msg, exit_code: 1 as Int32)
     }
 
-    init(msg: String, code: Int32) -> BuildError {
+    public init(msg: String, code: Int32) -> BuildError {
         BuildError(message: msg, exit_code: code)
     }
 }
@@ -76,13 +76,13 @@ public struct Builder {
 }
 
 public extension Builder {
-    init(m: Manifest) -> Builder {
+    public init(m: Manifest) -> Builder {
         Builder(manifest: m)
     }
 
     // The compiler command. Honours a `SAWC` override so an in-tree compiler can
     // drive the build (matches the tester).
-    func compiler(&self) -> String {
+    public func compiler(&self) -> String {
         if let c = Env.get("SAWC") {
             c
         } else {
@@ -91,7 +91,7 @@ public extension Builder {
     }
 
     // Find the main source file
-    func find_source_file(&self) -> String? {
+    public func find_source_file(&self) -> String? {
         let src_main = Path(s: "src/main.saw")
         if File.exists(src_main) {
             return "src/main.saw"
@@ -109,7 +109,7 @@ public extension Builder {
 
     // The local directory a resolved dependency lives in: the path dir itself,
     // or the git checkout under .blade/deps/.
-    func dep_dir(&self, res: &Resolution, i: Int) -> String {
+    public func dep_dir(&self, res: &Resolution, i: Int) -> String {
         if res.kind(i).equals("git") {
             ".blade/deps/{res.name(i)}-{res.version(i)}"
         } else {
@@ -120,7 +120,7 @@ public extension Builder {
     // Content hash of everything the build reads: Saw.toml, Saw.lock, and every
     // reachable `*.saw` source (root + each dependency checkout), plus a compiler
     // marker. Hashes CONTENT, not mtimes.
-    func build_hash(&self, res: &Resolution) -> String {
+    public func build_hash(&self, res: &Resolution) -> String {
         var b = StringBuilder()
         b.append("sawc-1;")
         b.append(read_file("Saw.toml"))
@@ -147,7 +147,7 @@ public extension Builder {
     // manifest version — so an honored re-resolve is deterministic and equals the
     // lock. Pinning a git dep to its locked rev without re-resolution is future
     // work: build-from-lock needs the resolver's path reconstruction.)
-    func resolve_deps(&self) -> Result<Resolution, BuildError> {
+    public func resolve_deps(&self) -> Result<Resolution, BuildError> {
         let lock_content = read_file("Saw.lock")
         var honor = false
         if not lock_content.is_empty() {
@@ -174,7 +174,7 @@ public extension Builder {
     // `blade update`: re-resolve fresh and rewrite Saw.lock, whatever its current
     // state (design 64 B4). This is the sanctioned way to change the lock after
     // editing Saw.toml's dependencies.
-    func update(&self) -> Result<Int, BuildError> {
+    public func update(&self) -> Result<Int, BuildError> {
         match resolve(self.manifest) {
             case Ok(res) -> {
                 let mhash = manifest_deps_hash(self.manifest)
@@ -189,7 +189,7 @@ public extension Builder {
     }
 
     // Compile the project. `force` bypasses build avoidance.
-    func build(&self, force: Bool) -> Result<Int, BuildError> {
+    public func build(&self, force: Bool) -> Result<Int, BuildError> {
         guard let source_file = self.find_source_file() else {
             return BuildError(msg: "No main.saw or lib.saw found")
         }
@@ -240,7 +240,7 @@ public extension Builder {
     }
 
     // Print the resolved dependency graph (design 64 B7).
-    func tree(&self) {
+    public func tree(&self) {
         print("{self.manifest.name()} v{self.manifest.version()}")
         match resolve(self.manifest) {
             case Ok(res) -> {
@@ -258,7 +258,7 @@ public extension Builder {
     }
 
     // Append a dependency to Saw.toml and re-resolve/lock (design 64 B7).
-    func add_dep(&self, name: String, kind: String, loc: String, version: String) -> Result<Int, BuildError> {
+    public func add_dep(&self, name: String, kind: String, loc: String, version: String) -> Result<Int, BuildError> {
         let content = read_file("Saw.toml")
         if content.is_empty() {
             return BuildError(msg: "Saw.toml not found")
@@ -305,7 +305,7 @@ public extension Builder {
     }
 
     // Build (never avoided) then run the resulting binary.
-    func run(&self, args: Vector<String>) -> Result<Int, BuildError> {
+    public func run(&self, args: Vector<String>) -> Result<Int, BuildError> {
         match self.build(true) {
             case Ok(_) -> {},
             case Err(e) -> { return e }

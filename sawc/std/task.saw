@@ -35,7 +35,7 @@ struct Task<T> {
 extension Task<T> {
     // Block until the task finishes and take its result. Joining a Task twice is
     // a program bug; the `joined` flag guards against a double-join/free.
-    func join(&var self) -> T {
+    public func join(&var self) -> T {
         if self.joined {
             // Already joined (or inert): no result to hand back. Misuse —
             // panic deterministically (design 49).
@@ -58,7 +58,7 @@ extension Task<T> {
 // Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
 // requirement is already satisfied.
 extension Task<T>: Deinit {
-    func deinit(&var self) {
+    public func deinit(&var self) {
         // An unjoined task is joined at scope exit (structured concurrency), its
         // unclaimed result dropped, and the control block freed.
         if not self.joined {

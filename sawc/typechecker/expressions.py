@@ -2873,6 +2873,50 @@ class ExpressionsMixin:
             hint="Device: `read()`/`write(v)`; Normal: also `ptr()`/`len()`/`end()`")
         return None
 
+    def _check_field_visible(self, struct_info, field_name: str,
+                             type_name: str, expr) -> None:
+        """Member visibility gate (design 80): a struct field is private-by-default
+        outside its defining module. Compiler-synthesized access (flagged nodes
+        or a synthesized enclosing function) is exempt by provenance — the gate
+        enforces SOURCE-level access only."""
+        if getattr(expr, 'synthesized_access', False) or self._in_synthesized_context():
+            return
+        def_module = getattr(struct_info, 'def_module', ())
+        fv = getattr(struct_info, 'field_visibility', None) or {}
+        vis = fv.get(field_name, Visibility.PRIVATE)
+        if not self._member_gate_allows(def_module, vis):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"field `{field_name}` of struct `{type_name}` is {self._vis_word(vis)} "
+                f"and not accessible from this module",
+                expr.line, expr.column,
+                hint=f"mark it `public` in the declaration of `{type_name}` to expose it")
+
+    def _check_method_visible(self, struct_name: str, method_name: str,
+                              method_info, expr) -> None:
+        """Member visibility gate (design 80) for an extension method / init /
+        static. Private-by-default outside the defining module; a method that
+        satisfies a conformed trait's requirement is always callable (trait
+        dispatch). Synthesized call nodes are exempt by provenance."""
+        if method_info is None:
+            return
+        if getattr(expr, 'synthesized_access', False) or self._in_synthesized_context():
+            return
+        if getattr(method_info, 'satisfies_trait', False):
+            return
+        def_module = getattr(method_info, 'def_module', ())
+        vis = getattr(method_info, 'visibility', Visibility.PRIVATE)
+        if not self._member_gate_allows(def_module, vis):
+            kind = "initializer" if getattr(method_info, 'is_init', False) else \
+                   ("static method" if getattr(method_info, 'is_static', False)
+                    else "method")
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"{kind} `{method_name}` of `{struct_name}` is {self._vis_word(vis)} "
+                f"and not accessible from this module",
+                expr.line, expr.column,
+                hint=f"mark it `public` in the extension of `{struct_name}` to expose it")
+
     def _check_member_access(self, expr: MemberAccess) -> Optional[SawType]:
         """Check member access for struct fields, enum variants, or module symbols."""
         if isinstance(expr.object, MemberAccess):
@@ -3093,6 +3137,8 @@ class ExpressionsMixin:
                 hint=f"available fields: {', '.join(struct_info.field_order)}"
             )
             return None
+        self._check_field_visible(struct_info, expr.member,
+                                  obj_type.struct_name, expr)
         # Resolve the field type (e.g., convert STRUCT to ENUM if needed).
         field_type = struct_info.fields[expr.member]
         # design 74 (A5-rest, shape 2): if the receiver is a concrete instantiation
@@ -3338,6 +3384,15 @@ class ExpressionsMixin:
             )
             return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args, symbol=struct_info)
         if matches_fields:
+            # Member visibility (design 80): memberwise struct-literal construction
+            # cross-module requires ALL fields visible (else use a visible init).
+            # Runs after the design-66 function-call reinterpretation above, so it
+            # only fires for a genuine struct literal. Synthesized literal lowerings
+            # (flagged) are exempt by provenance.
+            if not getattr(expr, 'synthesized_access', False):
+                for _fname in struct_info.field_order:
+                    self._check_field_visible(struct_info, _fname,
+                                              expr.struct_name, expr)
             expr.resolved_init_params = None
             for field_name, field_value in expr.field_inits:
                 declared_type = struct_info.fields[field_name]
@@ -3361,6 +3416,8 @@ class ExpressionsMixin:
                                            field_value.line, field_value.column)
         else:
             method_info = matching_inits[0]
+            # Member visibility (design 80): gate a custom initializer cross-module.
+            self._check_method_visible(expr.struct_name, "init", method_info, expr)
             # Design 53: fill omitted init parameters from their defaults by
             # appending them as named arguments, so the argument loop and codegen
             # see a complete set (evaluated per call, like an explicit argument).
@@ -4576,6 +4633,11 @@ class ExpressionsMixin:
 
         # Look up method - first check specialized extensions, then generic
         method_info = self._lookup_method(struct_info, expr.method_name, obj_type.type_args)
+        # Member visibility (design 80): gate a directly-resolved instance method
+        # (before the Arc/Box payload-forward fallbacks, which are a separate
+        # mechanism keyed on the payload type's own access).
+        if method_info is not None:
+            self._check_method_visible(struct_name, expr.method_name, method_info, expr)
         # Overloading (design 55): a method name with 2+ overloads on this struct
         # resolves through the exact-match resolver (before effect edges are
         # recorded), then feeds the shared downstream machinery.
@@ -4961,6 +5023,10 @@ class ExpressionsMixin:
             return SawType(TypeKind.STRUCT, struct_name=struct_name, symbol=struct_sym)
 
         if matches_fields:
+            # Member visibility (design 80): cross-module memberwise construction
+            # of a module-qualified struct requires all fields visible.
+            for _fname in struct_sym.field_order:
+                self._check_field_visible(struct_sym, _fname, struct_name, expr)
             # Field initialization
             # design 27 item 3: record "field init, no custom init" so codegen
             # builds the struct memberwise rather than dispatching to an init.
@@ -4979,6 +5045,8 @@ class ExpressionsMixin:
         else:
             # Custom init method
             method_info = matching_inits[0]
+            # Member visibility (design 80): gate a module-qualified custom init.
+            self._check_method_visible(struct_name, "init", method_info, expr)
             # design 27 item 3: record which init matched so codegen dispatches to
             # the custom initializer (the module path previously left this unset,
             # so a module-qualified custom init silently fell through to a zeroed
@@ -5010,6 +5078,8 @@ class ExpressionsMixin:
     def _check_static_method_call(self, expr: MethodCall, struct_name: str,
                                    struct_info, method_info) -> Optional[SawType]:
         """Check a static method call: StructName.method(args)"""
+        # Member visibility (design 80): gate the static method cross-module.
+        self._check_method_visible(struct_name, expr.method_name, method_info, expr)
         # design 24 item 3: record the suspend-graph edge to the static method.
         self._effect_call_method(
             method_info, f"`{struct_name}.{expr.method_name}`", expr.line)

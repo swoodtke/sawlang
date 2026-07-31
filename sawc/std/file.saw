@@ -40,7 +40,7 @@ extension File {
     // =========================================================================
 
     // Open a file for reading
-    func open(path: Path) -> File? {
+    public func open(path: Path) -> File? {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         let fd = open(path_ptr, 0 as Int32, 0 as Int32)  // O_RDONLY
 
@@ -52,7 +52,7 @@ extension File {
     }
 
     // Create a file for writing (truncates if exists)
-    func create(path: Path) -> File? {
+    public func create(path: Path) -> File? {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         // O_WRONLY | O_CREAT | O_TRUNC = 1 | 64 | 512 = 577
         let fd = open(path_ptr, 577 as Int32, 420)  // 0644
@@ -65,7 +65,7 @@ extension File {
     }
 
     // Open a file for appending
-    func open_append(path: Path) -> File? {
+    public func open_append(path: Path) -> File? {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         // O_WRONLY | O_CREAT | O_APPEND = 1 | 64 | 1024 = 1089
         let fd = open(path_ptr, 1089 as Int32, 420)
@@ -83,7 +83,7 @@ extension File {
 
     // Read bytes from the file
     // If size <= 0, reads the entire file; otherwise reads up to size bytes
-    func read(&var self, size: Int = 0) -> Data? {
+    public func read(&var self, size: Int = 0) -> Data? {
         var bytes_to_read = size
 
         // If size <= 0, determine file size
@@ -132,7 +132,7 @@ extension File {
     // =========================================================================
 
     // Write Data to the file
-    func write(&self, data: Data) -> Int? {
+    public func write(&self, data: Data) -> Int? {
         if data.len() == 0 {
             return 0
         }
@@ -165,22 +165,22 @@ extension File {
     // Seeking
     // =========================================================================
 
-    func seek_start(&self, offset: Int) -> Int? {
+    public func seek_start(&self, offset: Int) -> Int? {
         let result = lseek(self.fd, offset as Int64, 0 as Int32)
         if result < (0 as Int64) { None } else { result as Int }
     }
 
-    func seek_current(&self, offset: Int) -> Int? {
+    public func seek_current(&self, offset: Int) -> Int? {
         let result = lseek(self.fd, offset as Int64, 1 as Int32)
         if result < (0 as Int64) { None } else { result as Int }
     }
 
-    func seek_end(&self, offset: Int) -> Int? {
+    public func seek_end(&self, offset: Int) -> Int? {
         let result = lseek(self.fd, offset as Int64, 2 as Int32)
         if result < (0 as Int64) { None } else { result as Int }
     }
 
-    func position(&self) -> Int? {
+    public func position(&self) -> Int? {
         let result = lseek(self.fd, 0 as Int64, 1 as Int32)
         if result < (0 as Int64) { None } else { result as Int }
     }
@@ -189,17 +189,17 @@ extension File {
     // Static utility methods
     // =========================================================================
 
-    func exists(path: Path) -> Bool {
+    public func exists(path: Path) -> Bool {
         let ptr = path.as_str() as UnsafePointer<Int8>
         access(ptr, 0 as Int32) == (0 as Int32)
     }
 
-    func remove(path: Path) -> Bool {
+    public func remove(path: Path) -> Bool {
         let ptr = path.as_str() as UnsafePointer<Int8>
         unlink(ptr) == (0 as Int32)
     }
 
-    func rename(from_path: Path, to_path: Path) -> Bool {
+    public func rename(from_path: Path, to_path: Path) -> Bool {
         let from_ptr = from_path.as_str() as UnsafePointer<Int8>
         let to_ptr = to_path.as_str() as UnsafePointer<Int8>
         rename(from_ptr, to_ptr) == (0 as Int32)
@@ -207,7 +207,7 @@ extension File {
 }
 
 extension File: NoCopy {
-    func deinit(&var self) {
+    public func deinit(&var self) {
         if self.fd >= (0 as Int32) {
             close(self.fd)
         }

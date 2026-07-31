@@ -251,11 +251,19 @@ class RegistrationMixin:
                 fields[field.name] = field.type
                 field_order.append(field.name)
 
+        # Member visibility (design 80): per-field visibility + the struct's
+        # defining module (keyed on source file so std files each form their own
+        # module even under the merged prelude).
+        field_visibility = {f.name: getattr(f, 'visibility', Visibility.PRIVATE)
+                            for f in struct.fields}
+        def_module = self._vis_module_for_source(getattr(struct, 'source_file', None))
         self.namespace.register_struct(struct.name, StructSymbol(
             fields=fields,
             field_order=field_order,
             type_params=struct.type_params,
             visibility=getattr(struct, 'visibility', Visibility.PRIVATE),
+            field_visibility=field_visibility,
+            def_module=def_module,
             line=struct.line,
             column=struct.column,
             ast_node=struct if struct.type_params else None
@@ -1109,6 +1117,20 @@ class RegistrationMixin:
         extension_bounds = {tp.name: list(tp.bounds)
                             for tp in extension.type_params if tp.bounds}
 
+        # Member visibility (design 80): the extension's defining module, and the
+        # set of method names required by the traits this extension conforms to.
+        # A method satisfying a trait requirement is callable wherever the
+        # conformance is visible, so it is exempt from the private-by-default
+        # method gate (regardless of an explicit `public` marker).
+        ext_def_module = self._vis_module_for_source(
+            getattr(extension, 'source_file', None))
+        trait_method_names: set = set()
+        for _tn in extension.conformances:
+            _simple = _tn.rsplit('.', 1)[-1]
+            _tinfo = self.get_trait_info(_simple)
+            if _tinfo is not None:
+                trait_method_names.update(_tinfo.methods.keys())
+
         # Get the target method dict for duplicate checking (from namespace StructSymbol)
         if is_specialized:
             target_methods = struct_info.specialized_methods.get(specialization_key, {})
@@ -1284,6 +1306,13 @@ class RegistrationMixin:
                 self_mutable=self_mutable,
                 self_is_reference=method.self_is_reference,
                 extension_bounds=extension_bounds,
+                visibility=getattr(method, 'visibility', Visibility.PRIVATE),
+                def_module=ext_def_module,
+                satisfies_trait=(method.name in trait_method_names
+                                 or getattr(method, 'is_derived_copy', False)
+                                 or getattr(method, 'is_derived_equals', False)
+                                 or getattr(method, 'is_derived_compare', False)
+                                 or getattr(method, 'is_derived_hash', False)),
                 ast_node=method,
                 decl_node=method
             )

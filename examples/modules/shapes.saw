@@ -2,11 +2,11 @@
 // module-qualified custom-init flow. Not compiled standalone.
 
 public struct Square {
-    side: Int
+    public side: Int
 }
 
 public extension Square {
-    init(magnitude: Int) -> Square {
+    public init(magnitude: Int) -> Square {
         Square(side: magnitude)
     }
 }

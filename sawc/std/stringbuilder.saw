@@ -27,12 +27,12 @@ struct StringBuilder {
 
 extension StringBuilder {
     // Create an empty string builder
-    init() -> StringBuilder {
+    public init() -> StringBuilder {
         StringBuilder(buffer: None, length: 0, capacity: 0)
     }
 
     // Create with initial capacity
-    init(capacity: Int) -> StringBuilder {
+    public init(capacity: Int) -> StringBuilder {
         if capacity <= 0 {
             StringBuilder(buffer: None, length: 0, capacity: 0)
         } else {
@@ -45,18 +45,18 @@ extension StringBuilder {
     }
 
     // Get current length
-    func len(&self) -> Int {
+    public func len(&self) -> Int {
         self.length
     }
 
     // Check if empty
-    func is_empty(&self) -> Bool {
+    public func is_empty(&self) -> Bool {
         self.length == 0
     }
 
     // Append a string. Length comes from the O(1) header (`s.len()`), not a
     // strlen scan, so interior NUL bytes are preserved and no libc call is made.
-    func append(&var self, s: String) {
+    public func append(&var self, s: String) {
         let s_len = s.len()
 
         if s_len == 0 {
@@ -86,12 +86,12 @@ extension StringBuilder {
     // `sb.append(42)` and `sb.append("s")` share one name, resolved by argument
     // type. Reuses the interpolation -> String path (which formats the integer)
     // rather than re-implementing itoa here. (Replaces the old `append_int`.)
-    func append(&var self, value: Int) {
+    public func append(&var self, value: Int) {
         self.append("{value}")
     }
 
     // Append a single character (as Int8)
-    func append_char(&var self, c: Int8) {
+    public func append_char(&var self, c: Int8) {
         let needed = self.length + 2  // +1 for char, +1 for null
         if needed > self.capacity {
             self.grow(needed)
@@ -105,7 +105,7 @@ extension StringBuilder {
     }
 
     // Clear the buffer (keep capacity)
-    func clear(&var self) {
+    public func clear(&var self) {
         self.length = 0
         if let buf = self.buffer {
             buf[0] = 0
@@ -118,7 +118,7 @@ extension StringBuilder {
     // (and may keep appending), and the returned String is freed on its own
     // schedule (no leak, no double-free). Returning `buf as String` would instead
     // hand back a header-less pointer that corrupts on len()/release.
-    func build(&self) -> String {
+    public func build(&self) -> String {
         if let buf = self.buffer {
             __saw_string_from_bytes(buf, self.length)
         } else {
@@ -127,12 +127,12 @@ extension StringBuilder {
     }
 
     // Backwards-compatible alias for `build()`.
-    func as_str(&self) -> String {
+    public func as_str(&self) -> String {
         self.build()
     }
 
     // Internal: grow buffer to at least min_capacity
-    func grow(&var self, min_capacity: Int) {
+    public func grow(&var self, min_capacity: Int) {
         var new_capacity = if self.capacity == 0 { 16 } else { self.capacity * 2 }
         while new_capacity < min_capacity {
             new_capacity = new_capacity * 2
@@ -159,7 +159,7 @@ extension StringBuilder {
 
 // StringBuilder is NoCopy
 extension StringBuilder: NoCopy {
-    func deinit(&var self) {
+    public func deinit(&var self) {
         if let buf = self.buffer {
             GlobalAllocator().dealloc(buf, self.capacity, 1)
         }

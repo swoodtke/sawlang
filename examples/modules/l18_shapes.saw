@@ -2,8 +2,8 @@
 // L18): exports a public struct + a factory, exercised through module-qualified
 // TYPE ANNOTATIONS (`shapes.Point`) on a param, a let binding, and a method.
 public struct Point {
-    x: Int
-    y: Int
+    public x: Int
+    public y: Int
 }
 
 public func origin() -> Point {

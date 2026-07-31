@@ -143,10 +143,17 @@ class DeclarationsMixin:
 
         fields = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
+            # Member visibility (design 80): an optional `public` /
+            # `public(package)` / `public(parent)` modifier precedes the field
+            # name; omitted means private-by-default outside the defining module.
+            field_visibility = self._parse_visibility()
             field_name_token = self.expect(TokenType.IDENT, "Expected field name")
             self.expect(TokenType.COLON, "Expected ':' after field name")
             field_type = self.parse_type()
-            fields.append(StructField(name=field_name_token.value, type=field_type))
+            fields.append(StructField(name=field_name_token.value, type=field_type,
+                                      visibility=field_visibility,
+                                      line=field_name_token.line,
+                                      column=field_name_token.column))
 
             self.skip_newlines()
             # Allow optional comma
@@ -408,6 +415,16 @@ class DeclarationsMixin:
                 # Parse type assignment: type Item = Int
                 type_assign = self.parse_type_assignment()
                 type_assignments.append(type_assign)
+            elif self.match(TokenType.PUBLIC):
+                # Member visibility (design 80): a `public` / `public(package)` /
+                # `public(parent)` modifier on an extension method (incl. init +
+                # static). Must be followed by `func` or `init`.
+                method_visibility = self._parse_visibility()
+                if not self.match(TokenType.FUNC, TokenType.INIT):
+                    self.error("Expected 'func' or 'init' after visibility modifier "
+                               "in extension")
+                method = self.parse_method(method_visibility)
+                methods.append(method)
             elif self.match(TokenType.FUNC, TokenType.INIT):
                 method = self.parse_method()
                 methods.append(method)
@@ -573,7 +590,7 @@ class DeclarationsMixin:
             column=start.column
         )
 
-    def parse_method(self) -> Method:
+    def parse_method(self, visibility: Visibility = Visibility.PRIVATE) -> Method:
         """Parse method definition: func name(&self, ...) -> Type { ... }
            or init method: init(...) { ... }"""
         start = self.current()
@@ -633,6 +650,7 @@ class DeclarationsMixin:
             is_static=is_static,
             is_sync=is_sync,
             type_params=type_params,
+            visibility=visibility,
             line=start.line,
             column=start.column,
             source_file=self.source_file

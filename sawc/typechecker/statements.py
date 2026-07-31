@@ -1211,6 +1211,12 @@ class StatementsMixin:
                 )
                 return
 
+            # Member visibility (design 80): a field WRITE goes through the same
+            # gate as a read — this is the headline case (corrupting a private std
+            # invariant like `Vector.length` from user code is now rejected).
+            self._check_field_visible(struct_info, stmt.target.member,
+                                      obj_type.struct_name, stmt.target)
+
             field_type = struct_info.fields[stmt.target.member]
 
             # Check value type

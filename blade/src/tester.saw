@@ -23,14 +23,14 @@ public struct Tester {
 }
 
 public extension Tester {
-    init(m: Manifest) -> Tester {
+    public init(m: Manifest) -> Tester {
         Tester(manifest: m)
     }
 
     // The compiler command. `blade build` shells out to `sawc`; the tester does
     // the same, but honours a `SAWC` override so a not-yet-installed compiler
     // (e.g. the in-tree `./.venv/bin/python sawc/sawc.py`) can drive the loop.
-    func compiler(&self) -> String {
+    public func compiler(&self) -> String {
         if let c = Env.get("SAWC") {
             c
         } else {
@@ -41,7 +41,7 @@ public extension Tester {
     // Run `cmd` through the shell with output suppressed (so the report stays
     // clean — a test's own stdout/stderr is not what we judge, only its status).
     // Passes iff the raw wait status is exactly 0.
-    func shell_ok(&self, cmd: String) -> Bool {
+    public func shell_ok(&self, cmd: String) -> Bool {
         let quiet = "{cmd} > /dev/null 2>&1"
         let ptr = quiet as UnsafePointer<Int8>
         system(ptr) == (0 as Int32)
@@ -51,7 +51,7 @@ public extension Tester {
     // `blade build` uses, so a test sees the project's dependencies (design 64
     // B6). Empty string when there are no deps (or resolution fails; a test that
     // needs a missing dep then fails to compile, surfacing it).
-    func dep_flags(&self) -> String {
+    public func dep_flags(&self) -> String {
         match resolve(self.manifest) {
             case Ok(res) -> {
                 var b = StringBuilder()
@@ -75,7 +75,7 @@ public extension Tester {
 
     // Compile `source` to `bin` (with dependency flags), then run it. Passes iff
     // both succeed.
-    func run_one(&self, source: Path, bin: Path, flags: String) -> Bool {
+    public func run_one(&self, source: Path, bin: Path, flags: String) -> Bool {
         let compile_cmd = "{self.compiler()} {source.as_str()} -o {bin.as_str()}{flags}"
         if not self.shell_ok(compile_cmd) {
             return false
@@ -85,7 +85,7 @@ public extension Tester {
 
     // Discover tests/*.saw, run each, report. Returns the process exit code:
     // 0 when every test passed, 1 when any failed (so CI fails the build).
-    func run_all(&self) -> Int {
+    public func run_all(&self) -> Int {
         let tests_dir = Path(s: "tests")
 
         guard let entries = Directory.list(tests_dir) else {

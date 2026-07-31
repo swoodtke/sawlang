@@ -1,0 +1,24 @@
+// Design 80: public members ARE accessible cross-module — public field read,
+// public method, public static factory, public init, and a trait-conformance
+// method callable through the visible conformance (no explicit `public` on it).
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: 9
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 3
+import modules.members80
+
+func main() {
+    let g = members80.Gadget(seed: 7)   // public init
+    print(g.label)          // 7  (public field)
+    print(members80.Gadget.make(5).label)  // 5  (public static + public field)
+    let h = members80.Gadget.make(9)
+    print(h.reveal())       // 9  (public method reading its own private field)
+
+    let c = members80.Gadget.make(3)
+    print(c.count())        // 3  (trait-conformance method, no `public` needed)
+
+    let b = members80.PkgBox(n: 3)   // public(package) — same package here
+    print(b.peek())         // 3
+}

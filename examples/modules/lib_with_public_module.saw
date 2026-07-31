@@ -8,7 +8,7 @@ public module submod {
     }
 
     public struct SubStruct {
-        value: Int
+        public value: Int
     }
 }
 

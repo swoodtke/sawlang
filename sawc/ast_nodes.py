@@ -1130,6 +1130,11 @@ class StructField:
     """A field in a struct declaration."""
     name: str
     type: SawType
+    # Member visibility (design 80): private-by-default outside the defining
+    # module. `public` / `public(package)` / `public(parent)` per field.
+    visibility: 'Visibility' = Visibility.PRIVATE
+    line: int = 0
+    column: int = 0
 
 
 @dataclass
@@ -1252,6 +1257,13 @@ class Method(ASTNode):
     # Method-level generic type params (brief 36): the `U` in `func map<U>(...)`,
     # distinct from and in addition to the enclosing extension's own type params.
     type_params: List['TypeParameter'] = field(default_factory=list)
+    # Member visibility (design 80): private-by-default outside the defining
+    # module, for extension methods (incl. init + static). A method satisfying a
+    # trait requirement is callable wherever the conformance is visible regardless.
+    visibility: 'Visibility' = Visibility.PRIVATE
+    # Compiler-synthesized (design 80): coroutine-transform-generated methods
+    # (frame `resume`/`__wake_reason`) are exempt from the member-visibility gate.
+    is_synthesized: bool = False
     line: int = 0
     column: int = 0
     source_file: str = ""
@@ -1317,6 +1329,11 @@ class Function(ASTNode):
     is_sync: bool = False
     # Declaration attributes (design 58): `@export` / `@section(...)` lines.
     attributes: List['Attribute'] = field(default_factory=list)
+    # Compiler-synthesized (design 80): coroutine-transform-generated functions
+    # (spawn/drive wrappers, synthesized main) access std internals by
+    # construction, so their member access is EXEMPT from the visibility gate —
+    # the gate enforces source-level access only.
+    is_synthesized: bool = False
     line: int = 0
     column: int = 0
     source_file: str = ""

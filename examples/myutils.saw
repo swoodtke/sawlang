@@ -7,15 +7,15 @@ public func quadruple(n: Int) -> Int {
 }
 
 public struct Counter {
-    count: Int
+    public count: Int
 }
 
 public extension Counter {
-    func next(&var self) {
+    public func next(&var self) {
         self.count = self.count + 1
     }
 
-    func value(&self) -> Int {
+    public func value(&self) -> Int {
         self.count
     }
 }

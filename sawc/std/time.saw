@@ -32,28 +32,28 @@ struct Duration {
 
 extension Duration {
     // Construct from whole milliseconds / seconds.
-    func from_millis(ms: Int64) -> Duration {
+    public func from_millis(ms: Int64) -> Duration {
         Duration(nanos: ms * (1000000 as Int64))
     }
 
-    func from_secs(s: Int64) -> Duration {
+    public func from_secs(s: Int64) -> Duration {
         Duration(nanos: s * (1000000000 as Int64))
     }
 
     // Whole-unit accessors (truncating toward zero).
-    func secs(&self) -> Int64 {
+    public func secs(&self) -> Int64 {
         self.nanos / (1000000000 as Int64)
     }
 
-    func millis(&self) -> Int64 {
+    public func millis(&self) -> Int64 {
         self.nanos / (1000000 as Int64)
     }
 
-    func micros(&self) -> Int64 {
+    public func micros(&self) -> Int64 {
         self.nanos / (1000 as Int64)
     }
 
-    func nanos(&self) -> Int64 {
+    public func nanos(&self) -> Int64 {
         self.nanos
     }
 }
@@ -68,7 +68,7 @@ extension Duration: Comparable {
 // below the magnitude. Seconds get two fractional digits ("1.42s"); smaller
 // units render whole ("230ms", "5us", "42ns").
 extension Duration: Printable {
-    func format(&self, into: &var StringBuilder) {
+    public func format(&self, into: &var StringBuilder) {
         let ns = self.nanos
         let sec = 1000000000 as Int64
         let milli = 1000000 as Int64
@@ -112,17 +112,17 @@ struct Instant {
 
 extension Instant {
     // The current monotonic instant. Static: `Instant.now()`.
-    func now() -> Instant {
+    public func now() -> Instant {
         Instant(nanos: saw_clock_monotonic_nanos())
     }
 
     // Time elapsed since this instant (now - self).
-    func elapsed(&self) -> Duration {
+    public func elapsed(&self) -> Duration {
         Duration(nanos: saw_clock_monotonic_nanos() - self.nanos)
     }
 
     // Duration from an earlier instant to this one (self - earlier).
-    func duration_since(&self, earlier: Instant) -> Duration {
+    public func duration_since(&self, earlier: Instant) -> Duration {
         Duration(nanos: self.nanos - earlier.nanos)
     }
 }

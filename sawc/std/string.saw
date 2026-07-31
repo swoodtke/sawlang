@@ -26,23 +26,23 @@ extern "C" {
 
 extension String {
     // Get the length of the string in bytes (O(1): reads the header `len` field)
-    func len(&self) -> Int {
+    public func len(&self) -> Int {
         __saw_string_len(self as UnsafePointer<Int8>)
     }
 
     // Check if the string is empty
-    func is_empty(&self) -> Bool {
+    public func is_empty(&self) -> Bool {
         self.len() == 0
     }
 
     // Get the byte at a given index (no bounds checking)
-    func byte_at(&self, index: Int) -> Int8 {
+    public func byte_at(&self, index: Int) -> Int8 {
         let ptr = self as UnsafePointer<Int8>
         ptr[index]
     }
 
     // Check if the string starts with the given prefix
-    func starts_with(&self, prefix: String) -> Bool {
+    public func starts_with(&self, prefix: String) -> Bool {
         let self_len = self.len()
         let prefix_len = prefix.len()
 
@@ -62,7 +62,7 @@ extension String {
     }
 
     // Check if the string ends with the given suffix
-    func ends_with(&self, suffix: String) -> Bool {
+    public func ends_with(&self, suffix: String) -> Bool {
         let self_len = self.len()
         let suffix_len = suffix.len()
 
@@ -83,7 +83,7 @@ extension String {
     }
 
     // Check if the string contains the given substring
-    func contains(&self, needle: String) -> Bool {
+    public func contains(&self, needle: String) -> Bool {
         let self_len = self.len()
         let needle_len = needle.len()
 
@@ -118,7 +118,7 @@ extension String {
     }
 
     // Trim whitespace from the start of the string
-    func trim_start(&self) -> String {
+    public func trim_start(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
@@ -138,7 +138,7 @@ extension String {
     }
 
     // Trim whitespace from the end of the string
-    func trim_end(&self) -> String {
+    public func trim_end(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
@@ -158,7 +158,7 @@ extension String {
     }
 
     // Trim whitespace from both ends
-    func trim(&self) -> String {
+    public func trim(&self) -> String {
         self.trim_start().trim_end()
     }
 
@@ -182,7 +182,7 @@ extension String {
     }
 
     // Convert to uppercase (ASCII only)
-    func to_uppercase(&self) -> String {
+    public func to_uppercase(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
@@ -208,7 +208,7 @@ extension String {
     }
 
     // Convert to lowercase (ASCII only)
-    func to_lowercase(&self) -> String {
+    public func to_lowercase(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
@@ -234,7 +234,7 @@ extension String {
     }
 
     // Replace all occurrences of old with new
-    func replace(&self, old: String, new: String) -> String {
+    public func replace(&self, old: String, new: String) -> String {
         let self_len = self.len()
         let old_len = old.len()
         let new_len = new.len()
@@ -312,7 +312,7 @@ extension String {
     }
 
     // Compare two strings for equality
-    func equals(&self, other: String) -> Bool {
+    public func equals(&self, other: String) -> Bool {
         let self_len = self.len()
         let other_len = other.len()
 
@@ -335,7 +335,7 @@ extension String {
     // conformance. Bytes are compared as UNSIGNED (0..255), so this is
     // code-point order for ASCII / UTF-8 — a shorter string that is a prefix of
     // a longer one is Less. `< <= > >=` on String lower to this.
-    func compare(&self, other: String) -> Ordering {
+    public func compare(&self, other: String) -> Ordering {
         let self_len = self.len()
         let other_len = other.len()
         let min_len = if self_len < other_len { self_len } else { other_len }
@@ -356,7 +356,7 @@ extension String {
     // Streams each byte (as an unsigned 0..255 Int) into the Hasher, so equal
     // string content hashes identically — upholding the hash/== contract with
     // `equals` (which also compares byte content).
-    func hash(&self, h: &var Hasher) {
+    public func hash(&self, h: &var Hasher) {
         let n = self.len()
         var i = 0
         while i < n {
@@ -368,7 +368,7 @@ extension String {
 
     // Extract a substring from start index to end index (exclusive)
     // Returns empty string if indices are invalid
-    func substring(&self, start: Int, end: Int) -> String {
+    public func substring(&self, start: Int, end: Int) -> String {
         let len = self.len()
 
         // Clamp indices
@@ -383,7 +383,7 @@ extension String {
 
     // Find the first occurrence of a character (byte)
     // Returns None if not found
-    func index_of_char(&self, c: Int8) -> Int? {
+    public func index_of_char(&self, c: Int8) -> Int? {
         let len = self.len()
         var i = 0
         while i < len {
@@ -397,7 +397,7 @@ extension String {
 
     // Find the last occurrence of a character (byte)
     // Returns None if not found
-    func last_index_of_char(&self, c: Int8) -> Int? {
+    public func last_index_of_char(&self, c: Int8) -> Int? {
         let len = self.len()
         var i = len - 1
         while i >= 0 {
@@ -410,7 +410,7 @@ extension String {
     }
 
     // Split the string by a separator, returning a Vector of substrings
-    func split(&self, separator: String) -> Vector<String> {
+    public func split(&self, separator: String) -> Vector<String> {
         var result = Vector<String>()
         let self_len = self.len()
         let sep_len = separator.len()
@@ -454,7 +454,7 @@ extension String {
     }
 
     // Convert String bytes to Data
-    func to_data(&self) -> Data {
+    public func to_data(&self) -> Data {
         var data = Data()
         var i = 0
         while i < self.len() {
@@ -540,13 +540,13 @@ extension String {
     }
 
     // Parse the whole string as a base-10 signed integer, or None.
-    func to_int(&self) -> Int? {
+    public func to_int(&self) -> Int? {
         self._parse_int(10)
     }
 
     // Parse the whole string in an explicit radix (2..=36), or None (design 55
     // overload of `to_int`). No `0x`/`0b` prefix handling — the caller strips it.
-    func to_int(&self, radix: Int) -> Int? {
+    public func to_int(&self, radix: Int) -> Int? {
         if radix < 2 || radix > 36 {
             return None
         }
@@ -574,7 +574,7 @@ extension String {
     // correctly-rounded strtod — the last ULP may differ for long/extreme
     // inputs. Panic-free: mantissa uses IEEE Float arithmetic (overflows to inf,
     // never traps) and the exponent accumulator is clamped so it cannot overflow.
-    func to_float(&self) -> Float? {
+    public func to_float(&self) -> Float? {
         let len = self.len()
         if len == 0 {
             return None
@@ -767,7 +767,7 @@ extension String {
     // malformed sequence it returns `Err(Utf8Error)` carrying that byte offset
     // and the candidate is released (no leak). Static: call as
     // `String.fromBytes(&data)`.
-    func fromBytes(data: &Data) -> Result<String, Utf8Error> {
+    public func fromBytes(data: &Data) -> Result<String, Utf8Error> {
         let n = data.len()
         if n == 0 {
             return ""                       // trivially-valid empty string (Ok)
@@ -808,7 +808,7 @@ extension String {
     // iterator holds its OWN retain on the String (the `s` field is an
     // ImplicitCopy capture), so `for b in makeString().bytes()` keeps the bytes
     // alive for the whole loop even though the temporary receiver is gone.
-    func bytes(&self) -> StringBytes {
+    public func bytes(&self) -> StringBytes {
         StringBytes(s: self, index: 0, length: self.len())
     }
 
@@ -818,7 +818,7 @@ extension String {
     // valid UTF-8 (literals are source-encoded; `fromBytes` validates), so a
     // decode error is unreachable; should unsafe code ever corrupt a buffer, the
     // iterator stops (defined behavior — see `StringChars.next`).
-    func chars(&self) -> StringChars {
+    public func chars(&self) -> StringChars {
         StringChars(s: self, index: 0, length: self.len())
     }
 
@@ -835,7 +835,7 @@ extension String {
     // borrow's result type, chosen at the call site (`s.withCString<Int> { ... }`).
     // The value flows straight out — `s.withCString<Int> { ptr in strlen(ptr) }`
     // — so a scoped C-borrow no longer needs the capture-and-write workaround.
-    func withCString<R>(&self, body: (UnsafePointer<Int8>) -> R) -> R {
+    public func withCString<R>(&self, body: (UnsafePointer<Int8>) -> R) -> R {
         body(self as UnsafePointer<Int8>)
     }
 }
@@ -846,7 +846,7 @@ extension String {
 
 extension Vector<String> {
     // Join all strings in the vector with a separator
-    func join(&self, separator: String) -> String {
+    public func join(&self, separator: String) -> String {
         let count = self.len()
 
         if count == 0 {
@@ -916,7 +916,7 @@ extension Vector<String> {
 // the byte index at which the first malformed sequence begins (the bytes before
 // it decode cleanly — Rust's `Utf8Error::valid_up_to()` semantics).
 struct Utf8Error {
-    offset: Int
+    public offset: Int
 }
 
 // =============================================================================
@@ -939,7 +939,7 @@ struct StringBytes {
 extension StringBytes: Iterator {
     type Item = Int8
 
-    func next(&var self) -> Int8? {
+    public func next(&var self) -> Int8? {
         if self.index < self.length {
             let b = self.s.byte_at(self.index)
             self.index = self.index + 1
@@ -959,7 +959,7 @@ struct StringChars {
 extension StringChars: Iterator {
     type Item = Int
 
-    func next(&var self) -> Int? {
+    public func next(&var self) -> Int? {
         if self.index >= self.length {
             return None
         }

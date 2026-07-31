@@ -33,7 +33,7 @@ extension Box<T, A: Allocator = GlobalAllocator> {
     // `A`, placement-moves `value` into it, and wraps it. On allocator failure it
     // PANICS (design 19 three-tier model, infallible tier): a kernel's `saw_panic`
     // handler decides the policy (oops / kill-task / reboot).
-    func make(value: T) -> Box<T, A> {
+    public func make(value: T) -> Box<T, A> {
         let size = sizeof<T>()
         let align = alignof<T>()
         if let raw = A().alloc(size, align) {
@@ -58,7 +58,7 @@ extension Box<T, A: Allocator = GlobalAllocator> {
     // of panicking. Because `value` is NOT moved on the failure path, it stays a
     // live local and its `deinit` runs at scope exit — the value is cleanly
     // destroyed, never leaked (design 42's "value cleanly deinit'd on failure").
-    func make_or(value: T) -> Result<Box<T, A>, AllocError> {
+    public func make_or(value: T) -> Result<Box<T, A>, AllocError> {
         let size = sizeof<T>()
         let align = alignof<T>()
         if let raw = A().alloc(size, align) {
@@ -74,7 +74,7 @@ extension Box<T, A: Allocator = GlobalAllocator> {
 // Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
 // requirement is already satisfied when NoCopy is checked (mirrors Task/Arc).
 extension Box<T, A: Allocator = GlobalAllocator>: Deinit {
-    func deinit(&var self) {
+    public func deinit(&var self) {
         // Release the LIVE payload in place (its own drop glue), THEN free the
         // chunk through THIS box's own allocator `A` — a Box<T, TaskSlab> frees
         // through the slab, never GlobalAllocator. Exactly one release of the payload.
@@ -93,7 +93,7 @@ extension Box<T, A: Allocator = GlobalAllocator>: NoCopy {
 // intact. A NoCopy payload has no `.copy()`, so `value()` is simply unavailable
 // there — reach such a payload through method forwarding (below) instead.
 extension Box<T: Copy, A: Allocator = GlobalAllocator> {
-    func value(&self) -> T {
+    public func value(&self) -> T {
         self.ptr[0].copy()
     }
 }

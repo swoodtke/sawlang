@@ -1,0 +1,11 @@
+// Design 80 HEADLINE: the memory-safety hole is closed. A user cannot write
+// Vector's internal `length` invariant (which, before, let a bounds-checked
+// get() read out of bounds through safe code). `length` is a private std field.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: field `length` of struct `Vector` is private
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    v.length = 1000        // corrupting the invariant — now rejected
+    print(v.len())
+}

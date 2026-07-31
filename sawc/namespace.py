@@ -49,6 +49,16 @@ class FunctionSymbol:
     is_sync: bool = False
     is_blocking: bool = False
     visibility: Visibility = Visibility.PRIVATE
+    # Member visibility (design 80): the module that DEFINES this method, for the
+    # cross-module member-access gate. For std/builtin declarations this is a
+    # synthetic per-file id (the prelude is merged into one AST for codegen, so
+    # module_path alone cannot distinguish std from user code). Empty tuple = the
+    # entry/user module in the non-module compilation path.
+    def_module: Tuple[str, ...] = ()
+    # True when this method satisfies a trait requirement of a conformed trait
+    # (design 80): such a method is callable wherever the conformance is visible,
+    # so it is exempt from the private-by-default method gate.
+    satisfies_trait: bool = False
     # Type-param bounds from the enclosing extension, keyed by the extension's
     # type-param name (e.g. {"T": ["Copy"]} for `extension Vector<T: Copy>`).
     # A method with unmet bounds for a given instantiation does not exist there
@@ -79,6 +89,11 @@ class StructSymbol:
     init_methods: List[FunctionSymbol] = field(default_factory=list)
     conformances: List[str] = field(default_factory=list)
     visibility: Visibility = Visibility.PRIVATE
+    # Member visibility (design 80): per-field visibility (name -> Visibility) and
+    # the module that DEFINES this struct (for the cross-module field-access gate).
+    # See FunctionSymbol.def_module for the std-synthetic-id rationale.
+    field_visibility: Dict[str, Visibility] = field(default_factory=dict)
+    def_module: Tuple[str, ...] = ()
     line: int = 0
     column: int = 0
     ast_node: Optional[Struct] = None

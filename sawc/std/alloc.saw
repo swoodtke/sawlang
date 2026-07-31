@@ -50,11 +50,11 @@ trait Allocator {
 struct GlobalAllocator {}
 
 extension GlobalAllocator: Allocator {
-    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+    public func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
         saw_alloc(size, align)
     }
 
-    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+    public func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
         saw_dealloc(ptr, size, align)
     }
 }
@@ -69,6 +69,6 @@ extension GlobalAllocator: Allocator {
 // allocator type parameter arrives in stage 4, an allocator identity/tag can
 // join these fields.)
 struct AllocError {
-    size: Int
-    align: Int
+    public size: Int
+    public align: Int
 }

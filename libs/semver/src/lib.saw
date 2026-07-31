@@ -18,13 +18,13 @@ public struct SemverError {
 }
 
 public extension SemverError {
-    init(msg: String) -> SemverError {
+    public init(msg: String) -> SemverError {
         SemverError(message: msg)
     }
 }
 
 public extension SemverError: Error {
-    func format(&self, into: &var StringBuilder) {
+    public func format(&self, into: &var StringBuilder) {
         into.append("semver error: ")
         into.append(self.message)
     }
@@ -35,9 +35,9 @@ public extension SemverError: Error {
 // =============================================================================
 
 public struct Version {
-    major: Int
-    minor: Int
-    patch: Int
+    public major: Int
+    public minor: Int
+    public patch: Int
 }
 
 // Trivial (POD) struct: auto-Equatable. Comparable is opt-in; the empty body
@@ -46,7 +46,7 @@ public struct Version {
 public extension Version: Comparable {}
 
 public extension Version: Printable {
-    func format(&self, into: &var StringBuilder) {
+    public func format(&self, into: &var StringBuilder) {
         into.append(self.major)
         into.append(".")
         into.append(self.minor)
@@ -131,7 +131,7 @@ public func parse_req(s: String) -> Result<VersionReq, SemverError> {
 
 public extension VersionReq {
     // Does version `v` satisfy this requirement?
-    func matches(&self, v: Version) -> Bool {
+    public func matches(&self, v: Version) -> Bool {
         match self.kind {
             case Exact -> v == self.version,
             case AtLeast -> v >= self.version,
@@ -157,7 +157,7 @@ public extension VersionReq {
 }
 
 public extension VersionReq: Printable {
-    func format(&self, into: &var StringBuilder) {
+    public func format(&self, into: &var StringBuilder) {
         match self.kind {
             case Exact -> {},
             case Caret -> into.append("^"),

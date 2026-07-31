@@ -3,5 +3,5 @@
 // struct-init path (design 27 item 2). Library module; not compiled standalone.
 
 public struct Handler {
-    fn: (Int) -> Int
+    public fn: (Int) -> Int
 }

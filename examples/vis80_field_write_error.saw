@@ -1,0 +1,10 @@
+// Design 80: a PRIVATE field is not writable from another module (a write goes
+// through the same member-access gate as a read).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: field `secret` of struct `Gadget` is private
+import modules.members80
+
+func main() {
+    var g = members80.Gadget.make(5)
+    g.secret = 99   // private field — rejected
+}

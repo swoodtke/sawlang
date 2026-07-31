@@ -1,4 +1,4 @@
 // Library fixture for l3_struct_ambiguity.saw (design 40 item 1): exports `Shape`.
 public struct Shape {
-    sides: Int
+    public sides: Int
 }

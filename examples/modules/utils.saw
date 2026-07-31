@@ -4,16 +4,16 @@
 
 // PUBLIC SYMBOLS - accessible from other modules
 public struct Point {
-    x: Int
-    y: Int
+    public x: Int
+    public y: Int
 }
 
 public extension Point {
-    func add(&self, other: Point) -> Point {
+    public func add(&self, other: Point) -> Point {
         Point(x: self.x + other.x, y: self.y + other.y)
     }
 
-    func magnitude(&self) -> Int {
+    public func magnitude(&self) -> Int {
         self.x + self.y
     }
 }

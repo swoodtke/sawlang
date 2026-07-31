@@ -15,23 +15,23 @@ public struct GitTags {
 }
 
 extension GitTags: NoCopy {
-    func deinit(var self) {}
+    public func deinit(var self) {}
 }
 
 public extension GitTags {
-    init() -> GitTags {
+    public init() -> GitTags {
         let a = Vector<String>()
         let b = Vector<String>()
         let c = Vector<String>()
         GitTags(versions: move a, tags: move b, revs: move c)
     }
 
-    func len(&self) -> Int { self.versions.len() }
-    func version(&self, i: Int) -> String { self.versions.get(i) ?? "" }
-    func tag(&self, i: Int) -> String { self.tags.get(i) ?? "" }
-    func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
+    public func len(&self) -> Int { self.versions.len() }
+    public func version(&self, i: Int) -> String { self.versions.get(i) ?? "" }
+    public func tag(&self, i: Int) -> String { self.tags.get(i) ?? "" }
+    public func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
 
-    func index_of(&self, version: String) -> Int {
+    public func index_of(&self, version: String) -> Int {
         var i = 0
         while i < self.versions.len() {
             if (self.versions.get(i) ?? "").equals(version) {
@@ -44,7 +44,7 @@ public extension GitTags {
 
     // Record `version -> (tag, rev)`, overwriting an existing rev (so a peeled
     // `^{}` commit sha replaces the annotated-tag object sha for one version).
-    func record(&var self, version: String, tag: String, rev: String) {
+    public func record(&var self, version: String, tag: String, rev: String) {
         let i = self.index_of(version)
         if i >= 0 {
             self.revs.set(i, rev)

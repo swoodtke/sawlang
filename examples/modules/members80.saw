@@ -1,0 +1,58 @@
+// Design 80 fixture: a library type with a mix of member visibilities.
+// Consumed by the vis80_* tests. Library module; not compiled standalone.
+
+public struct Gadget {
+    public label: Int     // public field — readable cross-module
+    secret: Int           // private field — NOT accessible cross-module
+}
+
+public extension Gadget {
+    // Public initializer (distinct param name so it doesn't collide with the
+    // memberwise field set — the memberwise literal stays private-gated).
+    public init(seed: Int) -> Gadget {
+        Gadget(label: seed, secret: seed)
+    }
+
+    // Public method that reads the PRIVATE field — legal in the defining module.
+    public func reveal(&self) -> Int {
+        self.secret
+    }
+
+    // Private helper method — NOT callable cross-module.
+    func bump(&self) -> Int {
+        self.secret + 1
+    }
+
+    // Public static factory.
+    public func make(v: Int) -> Gadget {
+        Gadget(label: v, secret: v)
+    }
+
+    // Private static — NOT callable cross-module.
+    func secret_make(v: Int) -> Gadget {
+        Gadget(label: 0, secret: v)
+    }
+}
+
+// public(package) members: visible within the same package.
+public struct PkgBox {
+    public(package) n: Int
+}
+
+public extension PkgBox {
+    public(package) func peek(&self) -> Int {
+        self.n
+    }
+}
+
+// A public trait + a conformance whose method is callable wherever the
+// conformance is visible, even though the method carries no `public` marker.
+public trait Countable {
+    func count(&self) -> Int
+}
+
+extension Gadget: Countable {
+    func count(&self) -> Int {
+        self.label
+    }
+}

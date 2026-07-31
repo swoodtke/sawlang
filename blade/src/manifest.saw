@@ -12,7 +12,7 @@ public struct ManifestError {
 }
 
 public extension ManifestError {
-    init(msg: String) -> ManifestError {
+    public init(msg: String) -> ManifestError {
         ManifestError(message: msg)
     }
 }
@@ -21,7 +21,7 @@ public extension ManifestError {
 // `Result<Manifest, Box<any Error>>`, so a ManifestError is auto-erased into the
 // box at the return boundary and a TomlError is re-boxed by `try` (below).
 public extension ManifestError: Error {
-    func format(&self, into: &var StringBuilder) {
+    public func format(&self, into: &var StringBuilder) {
         into.append(self.message)
     }
 }
@@ -45,13 +45,13 @@ public enum DepSource {
 // requirement string (e.g. "1.2.0", "^1.0.0", or "" when unspecified — a path
 // dep takes its version from the depended-on package's own manifest).
 public struct Dependency {
-    name: String
-    source: DepSource
-    version: String
+    public name: String
+    public source: DepSource
+    public version: String
 }
 
 public extension Dependency {
-    func is_path(&self) -> Bool {
+    public func is_path(&self) -> Bool {
         match self.source {
             case PathDep(_) -> true,
             case GitDep(_) -> false
@@ -74,18 +74,18 @@ public struct DepList {
 }
 
 extension DepList: NoCopy {
-    func deinit(var self) {
+    public func deinit(var self) {
         // Vector handles its own cleanup
     }
 }
 
 public extension DepList {
-    init() -> DepList {
+    public init() -> DepList {
         let d = Vector<Dependency>()
         DepList(deps: move d)
     }
 
-    func add(&var self, name: String, kind: String, loc: String, version: String) {
+    public func add(&var self, name: String, kind: String, loc: String, version: String) {
         let src = if kind.equals("git") {
             DepSource.GitDep(url: loc)
         } else {
@@ -94,11 +94,11 @@ public extension DepList {
         self.deps.push(Dependency(name: name, source: src, version: version))
     }
 
-    func len(&self) -> Int {
+    public func len(&self) -> Int {
         self.deps.len()
     }
 
-    func get(&self, i: Int) -> Dependency? {
+    public func get(&self, i: Int) -> Dependency? {
         self.deps.get(i)
     }
 }
@@ -110,7 +110,7 @@ public struct Package {
 
 public struct Manifest {
     package: Package
-    root_dir: Path
+    public root_dir: Path
 }
 
 public extension Manifest {
@@ -122,7 +122,7 @@ public extension Manifest {
     // box at the propagation edge. Two distinct error types flow through one
     // return type without a hand-written union, and callers render either with
     // `{error}` via the Printable vtable.
-    func load() -> Result<Manifest, Box<any Error>> {
+    public func load() -> Result<Manifest, Box<any Error>> {
         let manifest_path = Path(s: "Saw.toml")
 
         if not File.exists(manifest_path) {
@@ -161,7 +161,7 @@ public extension Manifest {
     }
 
     // Load manifest from a specific directory (erased Result, as `load`).
-    func load_from(dir: Path) -> Result<Manifest, Box<any Error>> {
+    public func load_from(dir: Path) -> Result<Manifest, Box<any Error>> {
         let manifest_path = dir.join("Saw.toml")
 
         if not File.exists(manifest_path) {
@@ -195,7 +195,7 @@ public extension Manifest {
     // cheap copyable value. Returns an empty list when there is no
     // [dependencies] section. Errors (erased): a bare version with no source
     // ("no registry yet"), a dep with both path and git, or a dep with neither.
-    func dependencies(&self) -> Result<DepList, Box<any Error>> {
+    public func dependencies(&self) -> Result<DepList, Box<any Error>> {
         let manifest_path = self.root_dir.join("Saw.toml")
 
         guard var file = File.open(manifest_path) else {
@@ -245,12 +245,12 @@ public extension Manifest {
     }
 
     // Get the package name
-    func name(&self) -> String {
+    public func name(&self) -> String {
         self.package.name
     }
 
     // Get the package version
-    func version(&self) -> String {
+    public func version(&self) -> String {
         self.package.version
     }
 }

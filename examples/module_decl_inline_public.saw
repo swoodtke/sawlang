@@ -11,11 +11,11 @@ public module api {
     }
 
     public struct Config {
-        value: Int
+        public value: Int
     }
 
     public extension Config {
-        func doubled(&self) -> Int {
+        public func doubled(&self) -> Int {
             self.value * 2
         }
     }

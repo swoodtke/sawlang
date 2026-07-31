@@ -29,7 +29,7 @@ struct Arc<T> {
 
 extension Arc<T> {
     // Construct a fresh Arc owning `value` (strong = 1, weak = 1).
-    init(value: T) -> Arc<T> {
+    public init(value: T) -> Arc<T> {
         let size = 16 + sizeof<T>()
         if let block = GlobalAllocator().alloc(size, 16) {
             let strong_ptr = block as UnsafePointer<Int>
@@ -45,7 +45,7 @@ extension Arc<T> {
     }
 
     // Number of strong owners (for tests/diagnostics; a racy snapshot).
-    func strong_count(&self) -> Int {
+    public func strong_count(&self) -> Int {
         if let block = self.ptr {
             let strong_ptr = block as UnsafePointer<Int>
             strong_ptr[0]
@@ -58,7 +58,7 @@ extension Arc<T> {
 // Deinit is registered before ImplicitCopy so the `ImplicitCopy: Deinit`
 // supertrait requirement is already satisfied when ImplicitCopy is checked.
 extension Arc<T>: Deinit {
-    func deinit(&var self) {
+    public func deinit(&var self) {
         if let block = self.ptr {
             let strong_ptr = block as UnsafePointer<Int>
             let old = __saw_atomic_sub_i64_release(strong_ptr, 1)
@@ -82,7 +82,7 @@ extension Arc<T>: Deinit {
 
 extension Arc<T>: ImplicitCopy {
     // Retain: a live reference keeps the block alive, so monotonic is enough.
-    func copy(&self) -> Arc<T> {
+    public func copy(&self) -> Arc<T> {
         if let block = self.ptr {
             let strong_ptr = block as UnsafePointer<Int>
             __saw_atomic_add_i64(strong_ptr, 1)

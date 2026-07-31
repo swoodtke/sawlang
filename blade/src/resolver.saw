@@ -34,17 +34,17 @@ public struct ResolveError {
 }
 
 public extension ResolveError {
-    init(msg: String) -> ResolveError {
+    public init(msg: String) -> ResolveError {
         ResolveError(message: msg)
     }
 
-    func text(&self) -> String {
+    public func text(&self) -> String {
         self.message
     }
 }
 
 public extension ResolveError: Error {
-    func format(&self, into: &var StringBuilder) {
+    public func format(&self, into: &var StringBuilder) {
         into.append(self.message)
     }
 }
@@ -65,11 +65,11 @@ public struct Resolution {
 }
 
 extension Resolution: NoCopy {
-    func deinit(var self) {}
+    public func deinit(var self) {}
 }
 
 public extension Resolution {
-    init() -> Resolution {
+    public init() -> Resolution {
         let a = Vector<String>()
         let b = Vector<String>()
         let c = Vector<String>()
@@ -79,12 +79,12 @@ public extension Resolution {
         Resolution(names: move a, versions: move b, kinds: move c, locs: move d, declareds: move f, revs: move e)
     }
 
-    func len(&self) -> Int {
+    public func len(&self) -> Int {
         self.names.len()
     }
 
     // Index of `name` in the table, or -1 if absent.
-    func index_of(&self, name: String) -> Int {
+    public func index_of(&self, name: String) -> Int {
         var i = 0
         while i < self.names.len() {
             if (self.names.get(i) ?? "").equals(name) {
@@ -95,14 +95,14 @@ public extension Resolution {
         -1
     }
 
-    func name(&self, i: Int) -> String { self.names.get(i) ?? "" }
-    func version(&self, i: Int) -> String { self.versions.get(i) ?? "" }
-    func kind(&self, i: Int) -> String { self.kinds.get(i) ?? "" }
-    func loc(&self, i: Int) -> String { self.locs.get(i) ?? "" }
-    func declared(&self, i: Int) -> String { self.declareds.get(i) ?? "" }
-    func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
+    public func name(&self, i: Int) -> String { self.names.get(i) ?? "" }
+    public func version(&self, i: Int) -> String { self.versions.get(i) ?? "" }
+    public func kind(&self, i: Int) -> String { self.kinds.get(i) ?? "" }
+    public func loc(&self, i: Int) -> String { self.locs.get(i) ?? "" }
+    public func declared(&self, i: Int) -> String { self.declareds.get(i) ?? "" }
+    public func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
 
-    func add(&var self, name: String, version: String, kind: String, loc: String, declared: String, rev: String) {
+    public func add(&var self, name: String, version: String, kind: String, loc: String, declared: String, rev: String) {
         self.names.push(name)
         self.versions.push(version)
         self.kinds.push(kind)
@@ -123,23 +123,23 @@ struct ReqList {
 }
 
 extension ReqList: NoCopy {
-    func deinit(var self) {}
+    public func deinit(var self) {}
 }
 
 extension ReqList {
-    init() -> ReqList {
+    public init() -> ReqList {
         let a = Vector<String>()
         let b = Vector<String>()
         let c = Vector<String>()
         ReqList(names: move a, constraints: move b, requirers: move c)
     }
 
-    func len(&self) -> Int { self.names.len() }
-    func name(&self, i: Int) -> String { self.names.get(i) ?? "" }
-    func constraint(&self, i: Int) -> String { self.constraints.get(i) ?? "" }
-    func requirer(&self, i: Int) -> String { self.requirers.get(i) ?? "" }
+    public func len(&self) -> Int { self.names.len() }
+    public func name(&self, i: Int) -> String { self.names.get(i) ?? "" }
+    public func constraint(&self, i: Int) -> String { self.constraints.get(i) ?? "" }
+    public func requirer(&self, i: Int) -> String { self.requirers.get(i) ?? "" }
 
-    func add(&var self, name: String, constraint: String, requirer: String) {
+    public func add(&var self, name: String, constraint: String, requirer: String) {
         self.names.push(name)
         self.constraints.push(constraint)
         self.requirers.push(requirer)

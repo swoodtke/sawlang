@@ -47,7 +47,7 @@ extension Directory {
 
     // List files in a directory (not including . and ..)
     // Returns a Vector of Paths, or None if directory cannot be opened
-    func list(path: Path) -> Vector<Path>? {
+    public func list(path: Path) -> Vector<Path>? {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         if let dir = opendir(path_ptr) {
             var result = Vector<Path>()
@@ -95,21 +95,21 @@ extension Directory {
 
     // Create a directory with default permissions (0755)
     // Returns true if successful
-    func create(path: Path) -> Bool {
+    public func create(path: Path) -> Bool {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         mkdir(path_ptr, 493) == (0 as Int32)  // 0755 = 493 decimal
     }
 
     // Remove an empty directory
     // Returns true if successful
-    func remove(path: Path) -> Bool {
+    public func remove(path: Path) -> Bool {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         rmdir(path_ptr) == (0 as Int32)
     }
 
     // Check if a path exists (works for both files and directories)
     // Note: Uses access() from file.saw
-    func exists(path: Path) -> Bool {
+    public func exists(path: Path) -> Bool {
         let ptr = path.as_str() as UnsafePointer<Int8>
         access(ptr, 0 as Int32) == (0 as Int32)
     }
@@ -119,7 +119,7 @@ extension Directory {
     // =========================================================================
 
     // Get the current working directory
-    func current() -> Path? {
+    public func current() -> Path? {
         if let buf = malloc(1024) {
             if let result = getcwd(buf, 1024) {
                 // Copy into an owned String, then free the scratch buffer.
@@ -137,7 +137,7 @@ extension Directory {
 
     // Change the current working directory
     // Returns true if successful
-    func set_current(path: Path) -> Bool {
+    public func set_current(path: Path) -> Bool {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         chdir(path_ptr) == (0 as Int32)
     }

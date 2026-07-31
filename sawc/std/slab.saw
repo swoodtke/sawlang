@@ -40,8 +40,8 @@
 // Both fields are `Atomic<Int>`, so `SlabHead` is Sync and const-initializable
 // as a static (`SlabHead(bump: Atomic(0), free: Atomic(0))`).
 struct SlabHead {
-    bump: Atomic<Int>
-    free: Atomic<Int>
+    public bump: Atomic<Int>
+    public free: Atomic<Int>
 }
 
 // Hand out one uninitialized chunk, or `None` when the slab is exhausted.

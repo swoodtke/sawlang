@@ -29,7 +29,7 @@ struct Mutex<T> {
 
 extension Mutex<T> {
     // Take ownership of `value` and wrap it behind a fresh mutex.
-    init(value: T) -> Mutex<T> {
+    public init(value: T) -> Mutex<T> {
         let size = 64 + sizeof<T>()
         if let block = GlobalAllocator().alloc(size, 16) {
             __saw_pthread_mutex_init_default(block)
@@ -49,7 +49,7 @@ extension Mutex<T> {
     // checked suspension-free effect context. Suspending while holding the lock
     // (the async-mutex deadlock class) is therefore a COMPILE ERROR, and because
     // `body` is sync, calling it below does not make `lock` itself suspend.
-    func lock(&self, body: (&var T) sync -> Bool) -> Bool {
+    public func lock(&self, body: (&var T) sync -> Bool) -> Bool {
         if let block = self.block {
             pthread_mutex_lock(block)
             let payload_ptr = (block + 64) as UnsafePointer<T>
@@ -65,7 +65,7 @@ extension Mutex<T> {
 // Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
 // requirement is already satisfied.
 extension Mutex<T>: Deinit {
-    func deinit(&var self) {
+    public func deinit(&var self) {
         if let block = self.block {
             let payload_ptr = (block + 64) as UnsafePointer<T>
             __deinit_in_place(payload_ptr)
@@ -81,7 +81,7 @@ extension Mutex<T>: NoCopy {
 // Snapshot the payload under the lock. Requires `T: Copy` so the read
 // duplicates rather than moves the guarded value out.
 extension Mutex<T: Copy> {
-    func get(&self) -> T? {
+    public func get(&self) -> T? {
         if let block = self.block {
             pthread_mutex_lock(block)
             let payload_ptr = (block + 64) as UnsafePointer<T>

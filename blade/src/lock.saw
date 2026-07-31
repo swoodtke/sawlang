@@ -25,7 +25,7 @@ import src.resolver.*
 // =============================================================================
 
 public struct LockData {
-    manifest_hash: String
+    public manifest_hash: String
     names: Vector<String>
     versions: Vector<String>
     sources: Vector<String>
@@ -34,11 +34,11 @@ public struct LockData {
 }
 
 extension LockData: NoCopy {
-    func deinit(var self) {}
+    public func deinit(var self) {}
 }
 
 public extension LockData {
-    init() -> LockData {
+    public init() -> LockData {
         let a = Vector<String>()
         let b = Vector<String>()
         let c = Vector<String>()
@@ -47,14 +47,14 @@ public extension LockData {
         LockData(manifest_hash: "", names: move a, versions: move b, sources: move c, locs: move d, revs: move e)
     }
 
-    func len(&self) -> Int { self.names.len() }
-    func name(&self, i: Int) -> String { self.names.get(i) ?? "" }
-    func version(&self, i: Int) -> String { self.versions.get(i) ?? "" }
-    func source(&self, i: Int) -> String { self.sources.get(i) ?? "" }
-    func loc(&self, i: Int) -> String { self.locs.get(i) ?? "" }
-    func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
+    public func len(&self) -> Int { self.names.len() }
+    public func name(&self, i: Int) -> String { self.names.get(i) ?? "" }
+    public func version(&self, i: Int) -> String { self.versions.get(i) ?? "" }
+    public func source(&self, i: Int) -> String { self.sources.get(i) ?? "" }
+    public func loc(&self, i: Int) -> String { self.locs.get(i) ?? "" }
+    public func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
 
-    func index_of(&self, name: String) -> Int {
+    public func index_of(&self, name: String) -> Int {
         var i = 0
         while i < self.names.len() {
             if (self.names.get(i) ?? "").equals(name) {

@@ -110,21 +110,21 @@ struct Hasher {
 }
 
 extension Hasher {
-    init() -> Hasher {
+    public init() -> Hasher {
         Hasher(state: 14695981039346656037i64)
     }
 
     // FNV-1a step over one Int of input. Uses wrapping multiply (`&*`) because
     // the FNV prime overflows 64 bits by construction and the wrap is intended.
     // `n` is a platform `Int`, widened to the 64-bit hash state.
-    func write_int(&var self, n: Int) {
+    public func write_int(&var self, n: Int) {
         self.state = (self.state ^ (n as Int64)) &* 1099511628211i64
     }
 
     // The finished 64-bit digest, with a final xor-shift avalanche so the low
     // bits (used by a power-of-two bucket mask) depend on the whole state, then
     // narrowed to the platform `Int` the map indexes with.
-    func finish(&self) -> Int {
+    public func finish(&self) -> Int {
         let h = self.state
         (h ^ (h >> 32i64)) as Int
     }
@@ -227,14 +227,14 @@ struct Atomic<T> {
 
 extension Atomic<T> {
     // Atomic load (seq_cst). Returns the current value.
-    func load(&self) -> T { self.value }
+    public func load(&self) -> T { self.value }
     // Atomic store (seq_cst) of `v`.
-    func store(&self, v: T) { }
+    public func store(&self, v: T) { }
     // Atomic read-modify-write add (seq_cst). Returns the PREVIOUS value.
-    func fetch_add(&self, v: T) -> T { self.value }
+    public func fetch_add(&self, v: T) -> T { self.value }
     // Atomic compare-and-swap (seq_cst). Sets value to `desired` iff it currently
     // equals `expected`; returns whether the swap happened.
-    func compare_exchange(&self, expected: T, desired: T) -> Bool { true }
+    public func compare_exchange(&self, expected: T, desired: T) -> Bool { true }
 }
 
 // =============================================================================
@@ -322,14 +322,14 @@ trait Iterator {
 
 // Range struct for range expressions (start..end)
 struct Range {
-    current: Int
-    end: Int
+    public current: Int
+    public end: Int
 }
 
 extension Range: Iterator {
     type Item = Int
 
-    func next(&var self) -> Int? {
+    public func next(&var self) -> Int? {
         if self.current < self.end {
             let result = self.current
             self.current = self.current + 1
@@ -345,15 +345,15 @@ extension Range: Iterator {
 // desugar — so `0..=Int.max` yields Int.max and then stops without ever
 // incrementing past it (no phantom overflow panic). Empty when start > end.
 struct RangeInclusive {
-    current: Int
-    last: Int
-    done: Bool
+    public current: Int
+    public last: Int
+    public done: Bool
 }
 
 extension RangeInclusive: Iterator {
     type Item = Int
 
-    func next(&var self) -> Int? {
+    public func next(&var self) -> Int? {
         if self.done {
             None
         } else if self.current < self.last {

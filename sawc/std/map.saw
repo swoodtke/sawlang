@@ -44,16 +44,16 @@ struct Map<K, V, A: Allocator = GlobalAllocator> {
 // struct, ...) satisfies both.
 extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     // Create an empty map (no allocation until the first insert).
-    init() -> Map<K, V, A> {
+    public init() -> Map<K, V, A> {
         Map<K, V, A>(slots: Vector<MapSlot<K, V>, A>(), count: 0, cap: 0)
     }
 
     // Number of live entries.
-    func len(&self) -> Int {
+    public func len(&self) -> Int {
         self.count
     }
 
-    func is_empty(&self) -> Bool {
+    public func is_empty(&self) -> Bool {
         self.count == 0
     }
 
@@ -189,7 +189,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     // ---- public API -------------------------------------------------------
 
     // Insert or update. Returns the previous value if the key existed, else None.
-    func insert(&var self, key: K, value: V) -> V? {
+    public func insert(&var self, key: K, value: V) -> V? {
         // Grow before inserting if empty or the load factor would exceed 3/4.
         if self.cap == 0 || (self.count + 1) * 4 > self.cap * 3 {
             self._grow()
@@ -227,7 +227,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     }
 
     // Look up a key. Returns the value (a copy) if present, else None.
-    func get(&self, key: K) -> V? {
+    public func get(&self, key: K) -> V? {
         if self.cap == 0 {
             return None
         }
@@ -249,7 +249,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     }
 
     // Whether the map contains `key`.
-    func contains_key(&self, key: K) -> Bool {
+    public func contains_key(&self, key: K) -> Bool {
         if self.cap == 0 {
             return false
         }
@@ -272,7 +272,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
 
     // Remove a key, returning its value if it was present. The slot becomes a
     // tombstone so probing past it still reaches later entries.
-    func remove(&var self, key: K) -> V? {
+    public func remove(&var self, key: K) -> V? {
         if self.cap == 0 {
             return None
         }
@@ -342,7 +342,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
 
     // Visit each live entry, passing (key, value) copies to `body`. Order is
     // unspecified (table order). `body` is non-escaping.
-    func each(&self, body: (K, V) -> Void) {
+    public func each(&self, body: (K, V) -> Void) {
         var i = 0
         while i < self.cap {
             if self._slot_state(i) == 1 {
@@ -357,7 +357,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     }
 
     // Visit each live key (a copy) in table order. `body` is non-escaping.
-    func each_key(&self, body: (K) -> Void) {
+    public func each_key(&self, body: (K) -> Void) {
         var i = 0
         while i < self.cap {
             if let k = self._key_at(i) {
@@ -368,7 +368,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     }
 
     // Visit each live value (a copy) in table order. `body` is non-escaping.
-    func each_value(&self, body: (V) -> Void) {
+    public func each_value(&self, body: (V) -> Void) {
         var i = 0
         while i < self.cap {
             if let v = self._get_value(i) {
@@ -388,7 +388,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
 // visitors already cover) — deferred.
 extension Map<K: Hashable + Equatable + Copy, V, A: Allocator = GlobalAllocator> {
     // A fresh Vector of all live keys (copies), in unspecified (table) order.
-    func keys(&self) -> Vector<K, A> {
+    public func keys(&self) -> Vector<K, A> {
         var out = Vector<K, A>(capacity: self.count)
         self.each_key({ [&var out] k in out.push(move k) })
         move out
@@ -397,7 +397,7 @@ extension Map<K: Hashable + Equatable + Copy, V, A: Allocator = GlobalAllocator>
 
 extension Map<K: Hashable + Equatable, V: Copy, A: Allocator = GlobalAllocator> {
     // A fresh Vector of all live values (copies), in unspecified (table) order.
-    func values(&self) -> Vector<V, A> {
+    public func values(&self) -> Vector<V, A> {
         var out = Vector<V, A>(capacity: self.count)
         self.each_value({ [&var out] v in out.push(move v) })
         move out
@@ -414,7 +414,7 @@ extension Map<K: Hashable + Equatable, V: Copy, A: Allocator = GlobalAllocator> 
 // slots Vector's own deinit drops every occupied slot's key/value and frees the
 // buffer.
 extension Map<K, V, A: Allocator = GlobalAllocator>: Deinit {
-    func deinit(&var self) {
+    public func deinit(&var self) {
     }
 }
 

@@ -1,0 +1,9 @@
+// Design 80: a PRIVATE static method is not callable from another module.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static method `secret_make` of `Gadget` is private
+import modules.members80
+
+func main() {
+    let g = members80.Gadget.secret_make(5)   // private static — rejected
+    print(g.label)
+}

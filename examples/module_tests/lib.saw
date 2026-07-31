@@ -3,16 +3,16 @@
 
 // Public struct
 public struct Point {
-    x: Int
-    y: Int
+    public x: Int
+    public y: Int
 }
 
 public extension Point {
-    func sum(&self) -> Int {
+    public func sum(&self) -> Int {
         self.x + self.y
     }
 
-    func create(val: Int) -> Point {
+    public func create(val: Int) -> Point {
         Point(x: val, y: val)
     }
 }

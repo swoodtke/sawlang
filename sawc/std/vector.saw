@@ -34,12 +34,12 @@ struct Vector<T, A: Allocator = GlobalAllocator> {
 
 extension Vector<T, A: Allocator = GlobalAllocator> {
     // Create an empty vector
-    init() -> Vector<T, A> {
+    public init() -> Vector<T, A> {
         Vector<T, A>(buffer: None, length: 0, capacity: 0)
     }
 
     // Create a vector with pre-allocated capacity
-    init(capacity: Int) -> Vector<T, A> {
+    public init(capacity: Int) -> Vector<T, A> {
         if capacity <= 0 {
             Vector<T, A>(buffer: None, length: 0, capacity: 0)
         } else {
@@ -62,7 +62,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // context) instead of proceeding with a smaller-than-asked buffer. The
     // success path is identical to `init(capacity:)`. A non-positive request
     // needs no allocation and trivially succeeds with an empty vector.
-    func try_with_capacity(n: Int) -> Result<Vector<T, A>, AllocError> {
+    public func try_with_capacity(n: Int) -> Result<Vector<T, A>, AllocError> {
         if n <= 0 {
             return Vector<T, A>()
         }
@@ -76,17 +76,17 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 
     // Get the number of elements
-    func len(&self) -> Int {
+    public func len(&self) -> Int {
         self.length
     }
 
     // Check if the vector is empty
-    func is_empty(&self) -> Bool {
+    public func is_empty(&self) -> Bool {
         self.length == 0
     }
 
     // Get element at index (returns None if out of bounds)
-    func get(&self, index: Int) -> T? {
+    public func get(&self, index: Int) -> T? {
         if index < 0 || index >= self.length {
             None
         } else {
@@ -104,7 +104,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // a mutable place through which `resume(&var self)` dispatches. Unchecked: the
     // caller guarantees `0 <= index < len` (an inert/None buffer force-unwrap
     // panics deterministically, matching the other OOM-inert paths).
-    func ref_at(&self, index: Int) -> UnsafePointer<T> {
+    public func ref_at(&self, index: Int) -> UnsafePointer<T> {
         if let buf = self.buffer {
             (&buf[index]) as UnsafePointer<T>
         } else {
@@ -113,7 +113,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 
     // Set element at index (no-op if out of bounds)
-    func set(&var self, index: Int, value: T) {
+    public func set(&var self, index: Int, value: T) {
         if index >= 0 && index < self.length {
             if let buf = self.buffer {
                 buf[index] = value
@@ -122,7 +122,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 
     // Add an element to the end
-    func push(&var self, value: T) {
+    public func push(&var self, value: T) {
         // Grow if needed
         if self.length >= self.capacity {
             self.grow()
@@ -142,7 +142,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 
     // Remove and return the last element
-    func pop(&var self) -> T? {
+    public func pop(&var self) -> T? {
         if self.length == 0 {
             None
         } else {
@@ -156,7 +156,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 
     // Remove all elements (keeps capacity)
-    func clear(&var self) {
+    public func clear(&var self) {
         self.length = 0
     }
 
@@ -176,7 +176,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // neither retained nor dropped; the two live values just change slots. A
     // T-level `move buf[i]` cannot express this (partial moves are forbidden,
     // design 35), hence the byte loop. No `T: Copy` bound is needed.
-    func swap(&var self, i: Int, j: Int) {
+    public func swap(&var self, i: Int, j: Int) {
         // No-op on identical indices — swapping a slot with itself is pointless
         // and the byte loop would still be a correct identity, but short-circuit.
         if i == j {
@@ -207,7 +207,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // prior occupant was moved out first, so nothing is dropped on the floor).
     // The returned value is owned by the caller. Requires `0 <= index < length`;
     // an empty/inert buffer panics deterministically.
-    func swap_out(&var self, index: Int, value: T) -> T {
+    public func swap_out(&var self, index: Int, value: T) -> T {
         if let buf = self.buffer {
             let old = buf[index]
             buf[index] = value
@@ -218,7 +218,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 
     // Internal: grow the buffer capacity
-    func grow(&var self) {
+    public func grow(&var self) {
         let new_capacity = if self.capacity == 0 { 4 } else { self.capacity * 2 }
         let new_byte_size = new_capacity * sizeof<T>()
 
@@ -243,7 +243,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 
     // Create an iterator for this vector
-    func iter(&self) -> VectorIterator<T> {
+    public func iter(&self) -> VectorIterator<T> {
         VectorIterator<T>(buffer: self.buffer, length: self.length, index: 0)
     }
 }
@@ -260,7 +260,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 // body). Elements popped/moved out first decrement `length`, so the loop below
 // never touches them and cannot double-free.
 extension Vector<T, A: Allocator = GlobalAllocator>: Deinit {
-    func deinit(&var self) {
+    public func deinit(&var self) {
         if let buf = self.buffer {
             var i = 0
             while i < self.length {
@@ -287,7 +287,7 @@ extension Vector<T, A: Allocator = GlobalAllocator>: Deinit {
 extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
     // Deep copy: allocate a fresh buffer (through the SAME allocator `A`) and
     // copy each element. The copy of a `Vector<T, A>` is a `Vector<T, A>`.
-    func copy(&self) -> Vector<T, A> {
+    public func copy(&self) -> Vector<T, A> {
         var result = Vector<T, A>(capacity: self.capacity)
         var i = 0
         while i < self.length {
@@ -321,7 +321,7 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
 // (`(&T)`) overload would lift that, but is out of scope here.
 extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // Visit each element in order, passing it to `body`.
-    func each(&self, body: (T) -> Void) {
+    public func each(&self, body: (T) -> Void) {
         var i = 0
         while i < self.length {
             if let elem = self.get(i) {
@@ -341,7 +341,7 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // extension for the same reason `each` needs it: an element is handed to the
     // closure BY VALUE, which is a copy at the source (see the COPY-FAMILY note
     // above).
-    func map<U>(&self, transform: (T) -> U) -> Vector<U, A> {
+    public func map<U>(&self, transform: (T) -> U) -> Vector<U, A> {
         var result = Vector<U, A>()
         var i = 0
         while i < self.length {
@@ -361,7 +361,7 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // (e.g. `Int`) moves bitwise. `T: Copy` is again inherited for by-value
     // element access. (The accumulator param is named `Acc`, not `A`, because
     // `A` is now the extension's allocator type parameter — brief 37.)
-    func fold<Acc>(&self, initial: Acc, combine: (Acc, T) -> Acc) -> Acc {
+    public func fold<Acc>(&self, initial: Acc, combine: (Acc, T) -> Acc) -> Acc {
         var acc = move initial
         var i = 0
         while i < self.length {
@@ -376,7 +376,7 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // Visit each element with its index, passing `(index, element)` to `body`
     // (design 53). The closure twin of `enumerated()`: same non-escaping
     // discipline and same by-value / `T: Copy` element rule as `each`.
-    func each_indexed(&self, body: (Int, T) -> Void) {
+    public func each_indexed(&self, body: (Int, T) -> Void) {
         var i = 0
         while i < self.length {
             if let elem = self.get(i) {
@@ -389,7 +389,7 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // A concrete iterator yielding `(index, element)` pairs for `for` loops
     // (design 53). Mirrors `iter()`/VectorIterator's bounds; `T: Copy` because
     // each element is produced by value.
-    func enumerated(&self) -> EnumeratedIterator<T> {
+    public func enumerated(&self) -> EnumeratedIterator<T> {
         EnumeratedIterator<T>(buffer: self.buffer, length: self.length, index: 0)
     }
 }
@@ -413,7 +413,7 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
 // requires `T: Comparable` for the `<`/`>` ordering.
 extension Vector<T: Comparable + Copy, A: Allocator = GlobalAllocator> {
     // Sort ascending by the element type's Comparable order. Stable.
-    func sort(&var self) {
+    public func sort(&var self) {
         var i = 1
         while i < self.length {
             var j = i
@@ -445,7 +445,7 @@ extension Vector<T: Comparable + Copy, A: Allocator = GlobalAllocator> {
 // borrow-capture enclosing locals. Same stability and movement discipline as
 // `sort` (byte-level swap; equal-or-less elements are left in place).
 extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
-    func sort_by(&var self, compare: (T, T) -> Ordering) {
+    public func sort_by(&var self, compare: (T, T) -> Ordering) {
         var i = 1
         while i < self.length {
             var j = i
@@ -483,7 +483,7 @@ struct VectorIterator<T> {
 extension VectorIterator<T>: Iterator {
     type Item = T
 
-    func next(&var self) -> T? {
+    public func next(&var self) -> T? {
         if self.index < self.length {
             let idx = self.index
             self.index = self.index + 1
@@ -511,7 +511,7 @@ struct EnumeratedIterator<T> {
 extension EnumeratedIterator<T>: Iterator {
     type Item = (Int, T)
 
-    func next(&var self) -> (Int, T)? {
+    public func next(&var self) -> (Int, T)? {
         if self.index < self.length {
             let idx = self.index
             self.index = self.index + 1

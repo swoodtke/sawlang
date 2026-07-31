@@ -15,12 +15,12 @@ module math {
     }
 
     public struct Point {
-        x: Int
-        y: Int
+        public x: Int
+        public y: Int
     }
 
     public extension Point {
-        func sum(&self) -> Int {
+        public func sum(&self) -> Int {
             self.x + self.y
         }
     }

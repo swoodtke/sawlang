@@ -10,16 +10,16 @@
 // =============================================================================
 
 public struct TomlError {
-    message: String
-    line: Int
+    public message: String
+    public line: Int
 }
 
 public extension TomlError {
-    init(msg: String) -> TomlError {
+    public init(msg: String) -> TomlError {
         TomlError(message: msg, line: 0)
     }
 
-    init(msg: String, at_line: Int) -> TomlError {
+    public init(msg: String, at_line: Int) -> TomlError {
         TomlError(message: msg, line: at_line)
     }
 }
@@ -27,7 +27,7 @@ public extension TomlError {
 // A TOML error is a Printable error (design 56): it renders itself, so it can be
 // erased into a `Box<any Error>` and propagated with `try` across error kinds.
 public extension TomlError: Error {
-    func format(&self, into: &var StringBuilder) {
+    public func format(&self, into: &var StringBuilder) {
         into.append("TOML parse error: ")
         into.append(self.message)
         if self.line > 0 {
@@ -50,7 +50,7 @@ public struct TomlValue {
 public extension TomlValue {
     // Typed access (design 57 dogfood): parse the stored string as an integer.
     // Returns None when the value is not a whole-string base-10 integer.
-    func int_value(&self) -> Int? {
+    public func int_value(&self) -> Int? {
         self.value.to_int()
     }
 }
@@ -64,19 +64,19 @@ public struct TomlTable {
 }
 
 extension TomlTable: NoCopy {
-    func deinit(var self) {
+    public func deinit(var self) {
         // Vector handles its own cleanup
     }
 }
 
 public extension TomlTable {
-    init(k: String) -> TomlTable {
+    public init(k: String) -> TomlTable {
         let v = Vector<TomlValue>()
         TomlTable(key: k, values: move v)
     }
 
     // Get an inner value by subkey.
-    func get(&self, subkey: String) -> String? {
+    public func get(&self, subkey: String) -> String? {
         var i = 0
         while i < self.values.len() {
             if let val = self.values.get(i) {
@@ -90,7 +90,7 @@ public extension TomlTable {
     }
 
     // Add an inner scalar pair.
-    func add(&var self, k: String, v: String) {
+    public func add(&var self, k: String, v: String) {
         self.values.push(TomlValue(key: k, value: v))
     }
 }
@@ -102,20 +102,20 @@ public struct TomlSection {
 }
 
 extension TomlSection: NoCopy {
-    func deinit(var self) {
+    public func deinit(var self) {
         // Vector handles its own cleanup
     }
 }
 
 public extension TomlSection {
-    init(section_name: String) -> TomlSection {
+    public init(section_name: String) -> TomlSection {
         let v = Vector<TomlValue>()
         let t = Vector<TomlTable>()
         TomlSection(name: section_name, values: move v, tables: move t)
     }
 
     // Get a scalar value by key
-    func get(&self, key: String) -> String? {
+    public func get(&self, key: String) -> String? {
         var i = 0
         while i < self.values.len() {
             if let val = self.values.get(i) {
@@ -129,17 +129,17 @@ public extension TomlSection {
     }
 
     // Add a scalar value to this section
-    func add(&var self, key: String, value: String) {
+    public func add(&var self, key: String, value: String) {
         self.values.push(TomlValue(key: key, value: value))
     }
 
     // Add an inline-table value to this section.
-    func add_table(&var self, table: TomlTable) {
+    public func add_table(&var self, table: TomlTable) {
         self.tables.push(move table)
     }
 
     // True if `key` names an inline table in this section.
-    func is_table(&self, key: String) -> Bool {
+    public func is_table(&self, key: String) -> Bool {
         var i = 0
         while i < self.tables.len() {
             if let t = self.tables.get(i) {
@@ -153,7 +153,7 @@ public extension TomlSection {
     }
 
     // Look up `subkey` inside the inline table named `key`.
-    func table_value(&self, key: String, subkey: String) -> String? {
+    public func table_value(&self, key: String, subkey: String) -> String? {
         var i = 0
         while i < self.tables.len() {
             if let t = self.tables.get(i) {
@@ -168,7 +168,7 @@ public extension TomlSection {
 
     // All entry names in this section, scalars first then inline tables, in the
     // order they appear. Lets a caller enumerate e.g. every [dependencies] entry.
-    func names(&self) -> Vector<String> {
+    public func names(&self) -> Vector<String> {
         var out = Vector<String>()
         var i = 0
         while i < self.values.len() {
@@ -189,7 +189,7 @@ public extension TomlSection {
 
     // Typed lookup (design 57 dogfood): a value parsed as an integer, or None if
     // absent or not an integer. Built on String.to_int.
-    func get_int(&self, key: String) -> Int? {
+    public func get_int(&self, key: String) -> Int? {
         if let s = self.get(key) {
             return s.to_int()
         }
@@ -232,19 +232,19 @@ public struct TomlDoc {
 }
 
 extension TomlDoc: NoCopy {
-    func deinit(var self) {
+    public func deinit(var self) {
         // Vector handles its own cleanup
     }
 }
 
 public extension TomlDoc {
-    init() -> TomlDoc {
+    public init() -> TomlDoc {
     	let v = Vector<TomlSection>()
         TomlDoc(sections: move v)
     }
 
     // Parse TOML from a string
-    func parse(content: String) -> Result<TomlDoc, TomlError> {
+    public func parse(content: String) -> Result<TomlDoc, TomlError> {
         var doc = TomlDoc()
         var current_section = TomlSection(section_name: "")
 
@@ -307,7 +307,7 @@ public extension TomlDoc {
 
     // All section names, in document order (lets a caller enumerate e.g. every
     // [pkg.*] section of a lock file).
-    func section_names(&self) -> Vector<String> {
+    public func section_names(&self) -> Vector<String> {
         var out = Vector<String>()
         var i = 0
         while i < self.sections.len() {
@@ -320,7 +320,7 @@ public extension TomlDoc {
     }
 
     // Get a section by name
-    func get_section(&self, name: String) -> TomlSection? {
+    public func get_section(&self, name: String) -> TomlSection? {
         var i = 0
         while i < self.sections.len() {
             if let section = self.sections.get(i) {

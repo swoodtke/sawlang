@@ -68,13 +68,13 @@ func decode_wait_status(status: Int32) -> Int32 {
 // =============================================================================
 
 struct CommandOutput {
-    stdout: String
-    exit_code: Int32
+    public stdout: String
+    public exit_code: Int32
 }
 
 extension CommandOutput {
     // Check if the command succeeded (exit code 0)
-    func success(&self) -> Bool {
+    public func success(&self) -> Bool {
         self.exit_code == (0 as Int32)
     }
 }
@@ -92,17 +92,17 @@ struct Command {
 
 extension Command {
     // Create a new Command for the given program
-    init(program: String) -> Command {
+    public init(program: String) -> Command {
         Command(program: program, args_buffer: None, args_len: 0, args_cap: 0)
     }
 
     // Add a single argument
-    func arg(&var self, argument: String) {
+    public func arg(&var self, argument: String) {
         self.append_arg(argument)
     }
 
     // Internal: append an argument to the buffer
-    func append_arg(&var self, argument: String) {
+    public func append_arg(&var self, argument: String) {
         let arg_ptr = argument as UnsafePointer<Int8>
         let arg_len = strlen(arg_ptr)
 
@@ -150,7 +150,7 @@ extension Command {
     }
 
     // Build the full command string
-    func build_command(&self) -> String {
+    public func build_command(&self) -> String {
         // Calculate total length: program + space + args + null
         let prog_ptr = self.program as UnsafePointer<Int8>
         let prog_len = strlen(prog_ptr)
@@ -185,7 +185,7 @@ extension Command {
 
     // Run the command, inheriting stdin/stdout/stderr
     // Returns the exit code
-    func run(&self) -> Int32 {
+    public func run(&self) -> Int32 {
         let cmd = self.build_command()
         let cmd_ptr = cmd as UnsafePointer<Int8>
         let result = system(cmd_ptr)
@@ -196,7 +196,7 @@ extension Command {
 
     // Run the command and capture its output
     // Returns CommandOutput with stdout and exit code
-    func output(&self) -> CommandOutput? {
+    public func output(&self) -> CommandOutput? {
         let cmd = self.build_command()
         let cmd_ptr = cmd as UnsafePointer<Int8>
         let mode = "r" as UnsafePointer<Int8>
@@ -280,7 +280,7 @@ extension Command {
 
 // Command needs cleanup for the args buffer
 extension Command: NoCopy {
-    func deinit(&var self) {
+    public func deinit(&var self) {
         if let buf = self.args_buffer {
             free(buf)
         }
