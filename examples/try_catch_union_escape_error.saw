@@ -4,19 +4,19 @@
 // because no written return type is compatible with the (unwritable) union.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: expected return type `ParseError`
-// EXPECT-ERROR-CONTAINS: <error union: ParseError | IoError>
+// EXPECT-ERROR-CONTAINS: <error union: ParseError | FileError>
 
 struct ParseError { code: Int }
-struct IoError { status: Int }
+struct FileError { status: Int }
 
 func parseNumber(valid: Bool) -> Result<Int, ParseError> {
     if valid { return 42 }
     return ParseError(code: 1)
 }
 
-func readFile(exists: Bool) -> Result<Int, IoError> {
+func readFile(exists: Bool) -> Result<Int, FileError> {
     if exists { return 100 }
-    return IoError(status: 404)
+    return FileError(status: 404)
 }
 
 // Adversarial: try to smuggle the union out through a written return type.

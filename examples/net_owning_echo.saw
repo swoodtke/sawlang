@@ -1,0 +1,37 @@
+// design 84: a TaskGroup round-trip through the SAFE owning net API —
+// TcpStream.pair() + write_all_str + read — with ZERO raw fds, ZERO pointers, and
+// suspension hidden INSIDE the methods (read parks on io_wait internally). The
+// worker bodies are just `stream.write_all_str(...)` / `stream.read()` — the
+// load-bearing "suspending method called from a spawned worker" shape (design 45
+// 0c + design 83 + design 84 method embedding). The receiver reads a chunk
+// (parking until it arrives), verifies the content, and returns its length; the
+// sender writes it. Each owning stream's Deinit closes its fd exactly once at
+// frame teardown. Deterministic on byte-count + content. Socketpair only — no
+// bound port.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 5
+
+func sender(stream: TcpStream) -> Int {
+    stream.write_all_str("hello")
+    return 5
+}
+
+func receiver(stream: TcpStream) -> Int {
+    let chunk = stream.read()          // suspending method, parks internally
+    if chunk.to_string() == "hello" {
+        chunk.len()
+    } else {
+        0
+    }
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hs = group.spawn(sender(move a))
+    let hr = group.spawn(receiver(move b))
+    print(hs.join())     // 5 bytes sent
+    print(hr.join())     // 5 = content round-tripped
+}

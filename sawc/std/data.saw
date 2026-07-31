@@ -189,6 +189,33 @@ extension Data {
         }
     }
 
+    // Append `len` raw bytes from `src` to the end (grows as needed). The
+    // pointer-typed signature is the design-81 visible marker: callers in the
+    // marked domain (std.net's socket read path) fill a Data from a stack buffer
+    // with no per-byte overhead. `src`/`len` must describe `len` valid bytes.
+    public func append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) {
+        if len <= 0 {
+            return
+        }
+        self.ensure_unique_capacity(self.length + len)
+        if let inner = self.inner {
+            let dest = inner[0].buffer as UnsafePointer<Int8>
+            memcpy(dest + self.offset + self.length, src, len)
+            self.length = self.length + len
+        }
+    }
+
+    // A pointer to this Data's first live byte (offset applied). The pointer-typed
+    // signature is the design-81 visible marker; std.net's write path uses it to
+    // stream bytes to a socket without copying. Empty Data yields a null pointer.
+    public func byte_ptr(&self) -> UnsafePointer<Int8> {
+        if let inner = self.inner {
+            (inner[0].buffer as UnsafePointer<Int8>) + self.offset
+        } else {
+            0 as UnsafePointer<Int8>
+        }
+    }
+
     // =========================================================================
     // Slicing
     // =========================================================================

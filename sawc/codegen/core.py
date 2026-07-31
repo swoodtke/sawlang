@@ -1192,9 +1192,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                             name="saw_set_nonblocking")
         ewb = ir.Function(self.module, ir.FunctionType(i64, []),
                           name="saw_errno_would_block")
+        errno_fn = ir.Function(self.module, ir.FunctionType(i64, []),
+                               name="saw_errno")
         setfam = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
                              name="saw_sin_set_family")
-        io_fns = (reg, poll, setnb, ewb, setfam)
+        io_fns = (reg, poll, setnb, ewb, errno_fn, setfam)
         for fn in io_fns:
             self.functions[fn.name] = fn
 
@@ -1368,6 +1370,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         w1 = b.icmp_signed("==", e, ir.Constant(i32, eagain))
         w2 = b.icmp_signed("==", e, ir.Constant(i32, einprogress))
         b.ret(b.zext(b.or_(w1, w2), i64))
+
+        # ---- saw_errno() -> Int ----------------------------------------------
+        # The current thread's errno (behind __error()/__errno_location()), for
+        # IoError to carry the failing syscall's error code (design 84).
+        b = ir.IRBuilder(errno_fn.append_basic_block("entry"))
+        ev = b.load(b.call(errloc_fn, []), name="errno_val")
+        b.ret(b.sext(ev, i64))
 
         # ---- saw_sin_set_family(buf) — the OS-divergent sockaddr_in prefix ----
         # The ONLY part of `struct sockaddr_in` whose layout differs by OS: macOS

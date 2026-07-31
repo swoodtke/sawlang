@@ -11,7 +11,7 @@
 // 7
 
 struct ParseError { code: Int }
-struct IoError { status: Int }
+struct FileError { status: Int }
 
 func parseA(valid: Bool) -> Result<Int, ParseError> {
     if valid { return 42 }
@@ -23,9 +23,9 @@ func parseB(valid: Bool) -> Result<Int, ParseError> {
     return ParseError(code: 8)
 }
 
-func readFile(exists: Bool) -> Result<Int, IoError> {
+func readFile(exists: Bool) -> Result<Int, FileError> {
     if exists { return 100 }
-    return IoError(status: 404)
+    return FileError(status: 404)
 }
 
 func main() {
@@ -39,7 +39,7 @@ func main() {
         print(error.code)          // 7
     }
 
-    // Union: local binding + catch-all reached (IoError via `_`).
+    // Union: local binding + catch-all reached (FileError via `_`).
     try {
         let n = try parseA(true)
         let m = try readFile(false)
@@ -60,7 +60,7 @@ func main() {
     } catch {
         match error {
             case ParseError(p) -> print(p.code),   // 7 (parseA(false) -> code 7)
-            case IoError(io) -> print(io.status)
+            case FileError(io) -> print(io.status)
         }
     }
 }

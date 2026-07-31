@@ -2366,6 +2366,27 @@ def _rewrite_drive_fields(val, roots):
 # entry point
 # --------------------------------------------------------------------------- #
 
+def _iter_method_calls(node):
+    """Yield every MethodCall node in an AST subtree (used to structurally discover
+    nested suspending method callees whose effect node the main typechecker lacks —
+    design 84 cross-module std methods)."""
+    if isinstance(node, MethodCall):
+        yield node
+    if isinstance(node, ASTNode):
+        for f in dataclasses.fields(node):
+            v = getattr(node, f.name)
+            if isinstance(v, (list, tuple)):
+                for x in v:
+                    if isinstance(x, Argument):
+                        yield from _iter_method_calls(x.value)
+                    elif isinstance(x, ASTNode):
+                        yield from _iter_method_calls(x)
+            elif isinstance(v, Argument):
+                yield from _iter_method_calls(v.value)
+            elif isinstance(v, ASTNode):
+                yield from _iter_method_calls(v)
+
+
 def _find_method(program, struct_name, method_name):
     """Locate a driven method's AST and the extension that owns it."""
     for ext in program.extensions:
@@ -2489,12 +2510,25 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
     return promoted_all
 
 
-def transform_program(program, typechecker):
+def transform_program(program, typechecker, imported_ast=None):
     roots = dict(getattr(typechecker, "_driven_roots", {}) or {})
     method_roots = dict(getattr(typechecker, "_driven_method_roots", {}) or {})
     spawn_roots = dict(getattr(typechecker, "_spawn_roots", {}) or {})
     mt_spawn_roots = set(getattr(typechecker, "_mt_spawn_roots", set()) or set())
     funcs_by_name = {f.name: f for f in program.functions}
+    # design 84: a nested suspending method may be defined in an IMPORTED module
+    # (std.net's TcpStream.read / TcpListener.accept), not the entry module. The
+    # transform is otherwise entry-module-only, but a NON-generic method frame is
+    # self-contained (its resume is a fresh state machine on the frame struct,
+    # spliced into the entry AST), so it can be embedded cross-module. `merge_programs`
+    # shares method AST objects (list concat), so `id(method)` still matches the
+    # effect nodes. The ORIGINAL method stays in its module as harmless dead code
+    # (its calls were all rewritten to the embedded drive). Generic-struct / method-
+    # generic methods stay unsupported (rejected at the call site).
+    _entry_ext_ids = {id(e) for e in program.extensions}
+    _imported_exts = ([e for e in getattr(imported_ast, 'extensions', [])
+                       if id(e) not in _entry_ext_ids] if imported_ast is not None else [])
+    _all_exts = list(program.extensions) + _imported_exts
     # design 45 item 1: a suspending `main` is auto-wrapped in an entry executor.
     main_suspends = (getattr(typechecker, "_main_suspends", False)
                      and "main" in funcs_by_name)
@@ -2520,8 +2554,8 @@ def transform_program(program, typechecker):
     # resume. Full method sub-frame embedding (the Part-0b method twin) is the
     # eventual lift; until then this is the honest rejection.
     _nodes_for_methods = getattr(typechecker, "_suspend_nodes", {})
-    suspending_methods = set()
-    for ext in program.extensions:
+    suspending_methods = set(getattr(typechecker, "_std_suspending_methods", set()))
+    for ext in _all_exts:
         sname = getattr(ext, 'struct_name', None)
         for m in ext.methods:
             node = _nodes_for_methods.get(id(m))
@@ -2565,11 +2599,32 @@ def transform_program(program, typechecker):
     # edges to a method are keyed by `id(Method)`, so map every method AST to its
     # (struct, method, extension) to follow those edges and build the frames.
     methods_by_id = {}
-    for ext in program.extensions:
+    methods_by_key = {}   # (struct, method_name) -> id(method) — for the body scan
+    for ext in _all_exts:
         sname = getattr(ext, 'struct_name', None)
         for m in ext.methods:
             methods_by_id[id(m)] = (sname, m, ext)
+            methods_by_key[(sname, m.name)] = id(m)
     method_root_keys = {f"{s}_{mn}" for (s, mn) in method_roots}
+    _susp_methods_set = typechecker._suspending_methods_set
+
+    def _scan_method_callees(body):
+        """Enqueue every nested suspending METHOD call in `body` (a std method's
+        effect node does not exist in the main typechecker, so the edge walk cannot
+        reach it — discover it structurally instead). Returns (method-id) work items."""
+        out = []
+        for mc in _iter_method_calls(body):
+            if getattr(mc, 'is_chan_recv', False):
+                continue
+            rt = getattr(mc.object, 'resolved_type', None)
+            sn = getattr(rt, 'struct_name', None) if rt else None
+            if sn is None or getattr(rt, 'type_args', None):
+                continue
+            if (sn, mc.method_name) in _susp_methods_set:
+                mid = methods_by_key.get((sn, mc.method_name))
+                if mid is not None:
+                    out.append(("method", mid))
+        return out
 
     closure = []
     method_closure = {}   # id(method) -> (struct_name, method_ast, extension)
@@ -2598,6 +2653,7 @@ def transform_program(program, typechecker):
                 # user-anchored line — by `_classify_call` when its caller lowers.
                 continue
             closure.append(key)
+            work.extend(_scan_method_callees(func.body))
             node = nodes.get(("fn", key))
         else:  # a nested suspending method callee
             entry = methods_by_id.get(key)
@@ -2613,6 +2669,8 @@ def transform_program(program, typechecker):
                     or fbkey in method_root_keys):
                 continue
             method_closure[key] = (sname, mast, ext)
+            if getattr(mast, 'body', None) is not None:
+                work.extend(_scan_method_callees(mast.body))
             node = nodes.get(id(mast))
         if node is not None:
             for e in node.edges:
@@ -2680,11 +2738,14 @@ def transform_program(program, typechecker):
     # `__recv` pointer into the receiver's storage; the method body's `self` is
     # rewritten to `self.__recv[0]`. Driven directly (no method embedding yet).
     removed_methods = []  # (extension, method) to strip after generation
-    # design 84: a nested-embedded suspending method's original body is replaced by
-    # its frame + resume — strip it (it holds suspension points that only make sense
-    # inside a resume state machine).
+    # design 84: an ENTRY-MODULE nested-embedded suspending method's original body
+    # is replaced by its frame + resume — strip it. An IMPORTED (std) method stays
+    # in its module as dead code (its call sites were rewritten to the embedded
+    # drive; it re-parses fresh on the recursive pass anyway, so stripping the shared
+    # object would not persist).
     for _fbkey, ext, mast in nested_method_fbs:
-        removed_methods.append((ext, mast))
+        if id(ext) in _entry_ext_ids:
+            removed_methods.append((ext, mast))
     gsm = getattr(typechecker, "_driven_generic_struct_methods", {}) or {}
     for (struct_name, method_name), modes in method_roots.items():
         # design 74 (A5-rest, shape 2): a driven method on a GENERIC struct is

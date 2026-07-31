@@ -3,19 +3,19 @@
 // only one of the two propagated types is a compile error.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: match is not exhaustive
-// EXPECT-ERROR-CONTAINS: IoError
+// EXPECT-ERROR-CONTAINS: FileError
 
 struct ParseError { code: Int }
-struct IoError { status: Int }
+struct FileError { status: Int }
 
 func parseNumber(valid: Bool) -> Result<Int, ParseError> {
     if valid { return 42 }
     return ParseError(code: 1)
 }
 
-func readFile(exists: Bool) -> Result<Int, IoError> {
+func readFile(exists: Bool) -> Result<Int, FileError> {
     if exists { return 100 }
-    return IoError(status: 404)
+    return FileError(status: 404)
 }
 
 func main() {

@@ -25,18 +25,47 @@ items need a probe before being treated as real work.
   — a general language addition (typechecker `_is_lvalue` + codegen
   `_generate_reference_expr`) that lets an opt-encoded owning receiver in a
   frame be addressed.
-- **DEVIATION from the pinned read/write signatures (flag):** `read`/`write_all`
-  are planned VALUE-based (`read(&self) -> Data` [empty = peer closed],
-  `write_all(&self, bytes: Data)` by move + `write_all_str(&self, s: String)`)
-  rather than the brief's `read(&self, into: &var Data) -> Int` /
-  `write_all(&self, bytes: &Data)`. Reason: a `&var`/`&`-reference PARAM cannot
-  yet live in a coroutine frame (references are opt-encoded wrongly → a struct
-  field of reference type, which the re-typecheck rejects). Reference-params-
-  across-suspend is a separate, larger coro lift (pointer representation +
-  deref rewrite); deferred. The value API meets the design GOAL (zero fds/
-  pointers, suspension hidden). [design 84]
-- TODO: std.net owning types + IoError:Error; httpd migration; socketpair
-  echo test + peer-close/connect-fail/fd-leak/worker-drive tests; docs.
+- **Cross-module std method embedding landed (commit 2):** `TcpStream.read` /
+  `TcpListener.accept` etc. live in std.net (imported), which is checked under a
+  SEPARATE builtin typechecker — so the main one cannot infer their suspendability
+  or reach their effect nodes. Fixes: (a) `build_builtin_namespace` computes the
+  suspending (struct, method) set from the builtin typechecker's finalized graph
+  and carries it forward (`typechecker._std_suspending_methods`); (b) the transform
+  scans the MERGED extensions (not just entry_ast) for method ASTs + a structural
+  body-scan (`_iter_method_calls`) discovers std method callees the edge-walk can't
+  reach; (c) the std method frame + resume splice into entry_ast; the original std
+  method stays as harmless dead code. Verified: a spawned worker's `stream.read()`
+  parks on io_wait internally and wakes via the reactor (single-nested-call
+  round-trip `examples/net_owning_echo.saw` — reliable, 5/5).
+- **std.net owning types landed:** `TcpListener` (listen/local_port/accept) +
+  `TcpStream` (connect/pair/read/write_all/write_all_str), both NoCopy with
+  Deinit-closes-once; `IoError: Error` (errno via a new `saw_errno` seam). fd is a
+  private `Int32`; the public surface has ZERO raw fds/pointers. Raw `tcp_*`/`net_*`
+  layer kept as the private impl. `Data.append_bytes(ptr,len)` + `Data.byte_ptr()`
+  added (pointer-signature = design-81 marked domain) for the socket read/write path.
+- **DEVIATION from the pinned read/write signatures (flag):** `read(&self) -> Data`
+  (empty = peer closed) + `write_all(&self, bytes: Data)` by move +
+  `write_all_str(&self, s: String)`, NOT the brief's `read(&self, into: &var Data)
+  -> Int` / `write_all(&self, bytes: &Data)`. Reason: a `&`/`&var`-reference PARAM
+  cannot yet live in a coroutine frame (references opt-encode to a struct field of
+  reference type, which the re-typecheck rejects). Reference-params-across-suspend
+  is a separate, larger coro lift; deferred. The value API meets the GOAL.
+- **⚠ PRE-EXISTING coroutine bug BLOCKS a true echo / the httpd runtime (FLAG,
+  fix-on-discovery deferred with analysis):** a driven/SPAWNED worker whose body
+  makes a SECOND nested suspending call AFTER the FIRST one PARKS on io_wait hangs
+  at runtime (heisenbug — a `print` in the worker body perturbs it away). CONFIRMED
+  PRE-EXISTING and NOT design-84: it reproduces with plain suspending FREE functions
+  (`.build/scratch/probe_freefn.saw`) and hangs on the tree BEFORE this brief's first
+  commit (checked out HEAD~1). Two nested calls where neither parks work
+  (`probe_two_write`), and TWO nested yield_now calls work (`probe_two_nested`); the
+  failing combination is specifically first-call-parks-then-second-call under the
+  TaskGroup executor + reactor. Almost certainly an uninitialized frame field / run-
+  queue re-entry issue (design 52b/76 territory). Effect: the socketpair ECHO
+  (server: read→write) and the httpd worker (read_request→write) hang at RUNTIME; the
+  deterministic suite test is therefore a single-nested-call-per-worker send+verify
+  round-trip (reliable). Needs a dedicated fix pass.
+- TODO: httpd migration (compile/codegen acceptance); more tests
+  (peer-close→read 0, connect-fail→IoError, fd-leak); docs (spec/skill/CLAUDE).
 
 ## Design 81 — Unsafe surface (`unsafe` marker + escape rules + with_ref) (IN PROGRESS)
 - **String-escape rider (silent backslash-drop) — LANDED.** `"\r\n"` mis-lexed as

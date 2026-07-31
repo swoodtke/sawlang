@@ -237,6 +237,21 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False):
         for name in table:
             builtin_ns.make_accessible(name)
 
+    # design 84: the suspending (struct, method) pairs among the builtins + std
+    # (e.g. `TcpStream.read`, `TcpListener.accept`) — computed under the builtin
+    # typechecker's finalized effect graph. The main compile typechecker never
+    # checks std bodies (they are pre-checked here), so it cannot infer these on
+    # its own; carrying the set lets the coroutine transform embed a nested
+    # suspending std method called from an entry-module driven/spawned body.
+    std_suspending = set()
+    for ext in getattr(builtin_ast, 'extensions', []):
+        sname = getattr(ext, 'struct_name', None)
+        for m in ext.methods:
+            node = builtin_tc._suspend_nodes.get(id(m))
+            if node is not None and node.suspends:
+                std_suspending.add((sname, m.name))
+    builtin_ns._std_suspending_methods = std_suspending
+
     return builtin_ast, builtin_ns
 
 
@@ -500,6 +515,11 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     for mod_path, mod_source in module_sources.items():
         reporter.add_source(mod_path, mod_source)
     typechecker = TypeChecker(reporter, freestanding=freestanding)
+    # design 84: carry the pre-computed suspending std (struct, method) set (std is
+    # checked under a separate builtin typechecker, so the main one cannot infer it)
+    # so the coroutine transform can embed nested suspending std methods.
+    typechecker._std_suspending_methods = getattr(
+        builtin_ns, '_std_suspending_methods', set())
 
     # The builtin namespace was built once by build_builtin_namespace(); all its
     # symbols are already type-checked and marked directly accessible.
@@ -620,7 +640,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     if driven:
         from coro_transform import transform_program, CoroTransformError
         try:
-            changed = transform_program(entry_ast, typechecker)
+            changed = transform_program(entry_ast, typechecker,
+                                        imported_ast=merged_ast)
         except CoroTransformError as e:
             # design 74 (A8): anchor the coroutine-transform rejection at the
             # user's source line (file:line:col + snippet) via the shared error

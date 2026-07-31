@@ -9,7 +9,7 @@ struct ParseError {
     code: Int
 }
 
-struct IoError {
+struct FileError {
     status: Int
 }
 
@@ -20,11 +20,11 @@ func parseNumber(valid: Bool) -> Result<Int, ParseError> {
     return ParseError(code: 1)
 }
 
-func readFile(exists: Bool) -> Result<Int, IoError> {
+func readFile(exists: Bool) -> Result<Int, FileError> {
     if exists {
         return 100
     }
-    return IoError(status: 404)
+    return FileError(status: 404)
 }
 
 func main() {
@@ -36,7 +36,7 @@ func main() {
     } catch {
         match error {
             case ParseError(e) -> print(e.code),
-            case IoError(e) -> print(e.status)
+            case FileError(e) -> print(e.status)
         }
     }
 
@@ -48,7 +48,7 @@ func main() {
     } catch {
         match error {
             case ParseError(e) -> print(e.code),
-            case IoError(e) -> print(e.status)
+            case FileError(e) -> print(e.status)
         }
     }
 }

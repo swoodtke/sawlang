@@ -49,6 +49,7 @@ extern "C" {
     func saw_reactor_register(fd: Int, write: Int)
     func saw_set_nonblocking(fd: Int) -> Int
     func saw_errno_would_block() -> Int
+    func saw_errno() -> Int
     // The ONLY OS-divergent piece of sockaddr_in: the sin_len/sin_family prefix
     // (macOS byte layout differs from Linux). Everything else is uniform
     // network-order data filled by `SockAddrIn` below.
@@ -66,6 +67,7 @@ static SOCK_STREAM: Int32 = 1
 static PROTO_DEFAULT: Int32 = 0
 static LISTEN_BACKLOG: Int32 = 16
 static SOCKADDR_IN_LEN: Int32 = 16
+static READ_CHUNK: Int = 4096        // TcpStream.read stack-buffer chunk size
 static WOULD_BLOCK: Int = -2         // the `tcp_try_*` would-block sentinel
 static NET_ERROR: Int = -1           // the `tcp_*` error sentinel
 static LOOPBACK_BE: UInt32 = 0x0100007f   // 127.0.0.1, network byte order (LE)
@@ -255,4 +257,231 @@ func tcp_socketpair() -> (Int, Int) {
         return (a as Int, b as Int)
     }
     (NET_ERROR, NET_ERROR)
+}
+
+// A sentinel fd for a closed / never-opened socket handle. `tcp_close` on it is a
+// harmless no-op, so it is the safe placeholder inside the owning socket types.
+static INVALID_FD: Int32 = -1
+
+// One nonblocking read of up to READ_CHUNK bytes into a scratch buffer, appended
+// to `into` (grows as needed). Returns the byte count (0 = peer closed / EOF), the
+// would-block sentinel (-2), or -1 on error. The pointer work is confined here
+// (raw layer); TcpStream.read drives it behind an io_wait park.
+func net_read_once(fd: Int, into: &var Data) -> Int {
+    if let ptr = unsafe GlobalAllocator().alloc(READ_CHUNK, 1) {
+        let r = tcp_try_read(fd, ptr, READ_CHUNK)
+        if r > 0 {
+            into.append_bytes(ptr, r)
+        }
+        GlobalAllocator().dealloc(ptr, READ_CHUNK, 1)
+        return r
+    }
+    NET_ERROR
+}
+
+// One nonblocking write of the tail of `s` starting at `off`. Returns bytes
+// written (may be < remaining), the would-block sentinel (-2), or -1 on error.
+func net_write_str_once(fd: Int, s: String, off: Int) -> Int {
+    let ptr = s as UnsafePointer<Int8>
+    tcp_try_write(fd, unsafe ptr + off, s.len() - off)
+}
+
+// One nonblocking write of the tail of `bytes` starting at `off`.
+func net_write_data_once(fd: Int, bytes: &Data, off: Int) -> Int {
+    let ptr = unsafe bytes.byte_ptr()
+    tcp_try_write(fd, unsafe ptr + off, bytes.len() - off)
+}
+
+// =============================================================================
+// IoError — errno-shaped error conforming to `Error` (design 56 / 84)
+// =============================================================================
+
+// Carries the failing syscall name plus its errno; prints via the `Error`
+// (Printable) vtable, e.g. "io error: connect failed (errno 61)".
+public struct IoError {
+    syscall: String
+    code: Int
+}
+
+extension IoError {
+    public func errno(&self) -> Int {
+        self.code
+    }
+}
+
+extension IoError: Error {
+    public func format(&self, into: &var StringBuilder) {
+        into.append("io error: ")
+        into.append(self.syscall)
+        into.append(" failed (errno ")
+        into.append(self.code)
+        into.append(")")
+    }
+}
+
+func io_error(syscall: String) -> IoError {
+    IoError(syscall: syscall, code: saw_errno())
+}
+
+// =============================================================================
+// TcpListener — an owning listening socket (design 84)
+// =============================================================================
+//
+// NoCopy: the listen fd has exactly one owner; `Deinit` closes it exactly once
+// (the move checkpoint prevents use-after-close, NoCopy prevents double-close).
+// The fd is a PRIVATE field — the public surface exposes no raw fds or pointers.
+
+public struct TcpListener {
+    fd: Int32
+}
+
+extension TcpListener {
+    // Bind + listen on 127.0.0.1:port (port 0 = an ephemeral port; read it back
+    // with `local_port`). Returns the owning listener or an IoError.
+    public func listen(port: Int) -> Result<TcpListener, IoError> {
+        let fd = tcp_listen(port)
+        if fd < 0 {
+            return io_error("listen")
+        }
+        return TcpListener(fd: fd as Int32)
+    }
+
+    // The actual bound local port (resolves an ephemeral 0).
+    public func local_port(&self) -> Int {
+        tcp_local_port(self.fd as Int)
+    }
+
+    // Accept the next connection, returning its owning stream. COOPERATIVE: parks
+    // on the listen fd (io_wait, hidden) until a connection arrives — a runnable
+    // peer never stalls. Cancellation-observing at the park (design 76 A3).
+    public func accept(&self) -> TcpStream {
+        var cfd = INVALID_FD as Int
+        var going = true
+        while going {
+            if cancelled() {
+                going = false
+            } else {
+                let c = tcp_try_accept(self.fd as Int)
+                if net_would_block(c) {
+                    io_wait(self.fd as Int, 0)     // park until a client arrives
+                } else if c < 0 {
+                    yield_now()                    // transient error — avoid a spin
+                } else {
+                    cfd = c
+                    going = false
+                }
+            }
+        }
+        TcpStream(fd: cfd as Int32)
+    }
+}
+
+extension TcpListener: NoCopy {
+    public func deinit(&var self) {
+        if (self.fd as Int) >= 0 {
+            tcp_close(self.fd as Int)
+        }
+    }
+}
+
+// =============================================================================
+// TcpStream — an owning connected socket (design 84)
+// =============================================================================
+//
+// NoCopy owning type; `Deinit` closes the conn fd exactly once. read/write park
+// internally on would-block — application code never sees io_wait / a raw fd /
+// a pointer.
+
+public struct TcpStream {
+    fd: Int32
+}
+
+extension TcpStream {
+    // Connect to 127.0.0.1:port. COOPERATIVE: parks until the socket is writable
+    // (connected). Returns the owning stream or an IoError.
+    public func connect(host: String, port: Int) -> Result<TcpStream, IoError> {
+        let fd = tcp_connect_start(port)
+        if fd < 0 {
+            return io_error("connect")
+        }
+        io_wait(fd, 1)                     // park until writable (connected)
+        let check = tcp_connect_check(fd)
+        if check < 0 {
+            tcp_close(fd)
+            return io_error("connect")
+        }
+        return TcpStream(fd: fd as Int32)
+    }
+
+    // A connected, nonblocking stream pair (AF_UNIX socketpair) — for tests and
+    // local IPC, no bound port. Both ends are owning TcpStreams.
+    public func pair() -> (TcpStream, TcpStream) {
+        let p = tcp_socketpair()
+        (TcpStream(fd: p.0 as Int32), TcpStream(fd: p.1 as Int32))
+    }
+
+    // Read the next chunk of bytes, appending to a freshly-returned Data. An EMPTY
+    // result means the peer closed (EOF). COOPERATIVE: parks internally on
+    // would-block until bytes arrive or the peer closes.
+    public func read(&self) -> Data {
+        var out = Data()
+        var going = true
+        while going {
+            let r = net_read_once(self.fd as Int, &var out)
+            if net_would_block(r) {
+                io_wait(self.fd as Int, 0)     // park until readable
+            } else {
+                going = false                  // r >= 0: bytes appended (0 = EOF)
+            }
+        }
+        return move out
+    }
+
+    // Write the WHOLE string, parking on would-block until every byte is sent.
+    public func write_all_str(&self, s: String) {
+        var off = 0
+        let total = s.len()
+        var going = true
+        while going {
+            let w = net_write_str_once(self.fd as Int, s, off)
+            if net_would_block(w) {
+                io_wait(self.fd as Int, 1)     // park until writable
+            } else if w < 0 {
+                going = false                  // error — bail
+            } else {
+                off = off + w
+                if off >= total {
+                    going = false
+                }
+            }
+        }
+    }
+
+    // Write the WHOLE Data buffer, parking on would-block until it is all sent.
+    public func write_all(&self, bytes: Data) {
+        var off = 0
+        let total = bytes.len()
+        var going = true
+        while going {
+            let w = net_write_data_once(self.fd as Int, &bytes, off)
+            if net_would_block(w) {
+                io_wait(self.fd as Int, 1)
+            } else if w < 0 {
+                going = false
+            } else {
+                off = off + w
+                if off >= total {
+                    going = false
+                }
+            }
+        }
+    }
+}
+
+extension TcpStream: NoCopy {
+    public func deinit(&var self) {
+        if (self.fd as Int) >= 0 {
+            tcp_close(self.fd as Int)
+        }
+    }
 }
