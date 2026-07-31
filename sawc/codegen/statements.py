@@ -237,6 +237,32 @@ class StatementsMixin:
 
                     value = new_optional
 
+        # Rider (design 77 item 8 follow-up): NARROW a fixed-width integer LOCAL
+        # to its annotated storage width. A bare-literal RHS (`let a: Int32 = 5`)
+        # is generated at PLATFORM width (i64); without this the binding allocas
+        # i64, so a later `-a` / overflow check runs at the wrong width and a
+        # wire-format struct store reads too many bytes. The typechecker already
+        # range-checked the literal against the annotation (design 65), so the
+        # truncation is value-preserving; a widen is sign/zero-extended by
+        # signedness. Suffixed/cast RHS values already carry the right width
+        # (no-op here). Only same-family integer annotations are coerced.
+        _signed_ints = {TypeKind.INT, TypeKind.INT8, TypeKind.INT16,
+                        TypeKind.INT32, TypeKind.INT64}
+        _unsigned_ints = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16,
+                          TypeKind.UINT32, TypeKind.UINT64}
+        if (resolved_annotation is not None and var_type is not None
+                and var_type.kind in (_signed_ints | _unsigned_ints)
+                and isinstance(value.type, ir.IntType)):
+            target_llvm = self._get_llvm_type(resolved_annotation)
+            if (isinstance(target_llvm, ir.IntType)
+                    and target_llvm.width != value.type.width):
+                if target_llvm.width < value.type.width:
+                    value = self.builder.trunc(value, target_llvm)
+                elif var_type.kind in _unsigned_ints:
+                    value = self.builder.zext(value, target_llvm)
+                else:
+                    value = self.builder.sext(value, target_llvm)
+
         alloca = self._entry_alloca(value.type, name=stmt.name)
         self.builder.store(value, alloca)
         self.variables[stmt.name] = alloca
