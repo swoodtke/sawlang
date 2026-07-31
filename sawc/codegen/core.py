@@ -853,6 +853,44 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.call(self.functions["__saw_string_release"], [sval])
         b.ret_void()
 
+    def _declare_argv_runtime(self):
+        """Command-line argument access, unified across platforms (design 81
+        CI rider). The C entry `main(argc, argv)` stashes its two arguments into
+        private module globals at startup (see the main prologue in methods.py);
+        `Env.argc`/`Env.arg` read them through the accessor seams here on EVERY
+        target. This replaces the Apple-only `_NSGetArgc`/`_NSGetArgv` externs,
+        which failed to link on Linux.
+
+        `__saw_argv` holds `char**` (the argv value main received); `__saw_argc`
+        holds the `i32` count. The accessors are plain loads."""
+        i32 = ir.IntType(32)
+        i8ptr = ir.IntType(8).as_pointer()
+        i8ptrptr = i8ptr.as_pointer()
+
+        argc_g = ir.GlobalVariable(self.module, i32, name="__saw_argc")
+        argc_g.linkage = "internal"
+        argc_g.initializer = ir.Constant(i32, 0)
+        self._argc_global = argc_g
+
+        argv_g = ir.GlobalVariable(self.module, i8ptrptr, name="__saw_argv")
+        argv_g.linkage = "internal"
+        argv_g.initializer = ir.Constant(i8ptrptr, None)
+        self._argv_global = argv_g
+
+        # ---- __saw_get_argc() -> i32 ----------------------------------------
+        fn = ir.Function(self.module, ir.FunctionType(i32, []),
+                         name="__saw_get_argc")
+        self.functions["__saw_get_argc"] = fn
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        b.ret(b.load(argc_g, name="argc"))
+
+        # ---- __saw_get_argv() -> char** -------------------------------------
+        fn = ir.Function(self.module, ir.FunctionType(i8ptrptr, []),
+                         name="__saw_get_argv")
+        self.functions["__saw_get_argv"] = fn
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        b.ret(b.load(argv_g, name="argv"))
+
     def _declare_atomic_runtime(self):
         """Emit the atomic seams the Arc/Channel refcount protocol needs
         (design 21 item 2; ordering per design 07). These are thin wrappers over
@@ -1416,6 +1454,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # declarations resolve to these definitions).
         self._declare_seams()
         self._declare_string_runtime()
+        self._declare_argv_runtime()
         self._declare_print_runtime()
         self._declare_atomic_runtime()
         self._declare_pthread_runtime()
@@ -1838,6 +1877,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         llvm_name = c_symbol if c_symbol else func_name
 
         param_types = [self._get_llvm_type(p.type) for p in func.parameters]
+        # The C entry `main` receives (argc, argv) from the runtime. A Saw `main`
+        # is always declared no-arg, so give the emitted `main` the C entry
+        # signature and stash the two arguments into the argv globals in its
+        # prologue (design 81 CI rider) — the cross-platform argc/argv source.
+        if func_name == "main" and not func.parameters:
+            param_types = [ir.IntType(32), ir.IntType(8).as_pointer().as_pointer()]
         is_never = func.return_type.kind == TypeKind.NEVER
         if is_never:
             # A `-> Never` function diverges: lower to `void` + `noreturn` (the

@@ -415,6 +415,16 @@ class MethodsMixin:
         old_return_type = self.current_return_type
         self.current_return_type = self._substitute_saw_type(func.return_type, self.type_param_context)
 
+        # The C entry `main` was declared `(argc, argv)` (design 81 CI rider):
+        # stash both into the argv globals at the very top so `Env.argc`/`Env.arg`
+        # can read them on every platform. Guarded on the emitted signature so a
+        # user `main()` (no Saw params) is handled without touching its scope.
+        if (func.name == "main" and not func.parameters
+                and len(llvm_func.args) == 2
+                and getattr(self, '_argc_global', None) is not None):
+            self.builder.store(llvm_func.args[0], self._argc_global)
+            self.builder.store(llvm_func.args[1], self._argv_global)
+
         # Create allocas for parameters and track for cleanup
         # Push a scope for function parameters (cleaned up when function returns)
         self.cleanup_stack.append([])

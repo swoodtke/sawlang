@@ -11,6 +11,21 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 81 — Unsafe surface (`unsafe` marker + escape rules + with_ref) (IN PROGRESS)
+- **CI rider (Linux `_NSGetArgc`/`_NSGetArgv` link failure) — LANDED.** The first
+  GitHub Actions run failed on ubuntu: `std/env.saw` used Apple-only crt_externs
+  `_NSGetArgc`/`_NSGetArgv`, so every Linux link died with "undefined reference to
+  `_NSGetArgc`". Fixed by UNIFYING (not forking per-OS): the C entry `main` is now
+  declared `main(i32 argc, i8** argv)` and its codegen prologue stashes both into
+  private module globals `@__saw_argc`/`@__saw_argv` at startup; two seam functions
+  `__saw_get_argc()`/`__saw_get_argv()` (in `_declare_argv_runtime`) read them on
+  EVERY platform. env.saw's `argc`/`arg` read those seams; the `_NSGet*` externs are
+  deleted. Verified: env_simple + an args probe run correctly on macOS (argc/argv +
+  argv[i] strings); `--target x86_64-unknown-linux-gnu --emit-ir` shows ZERO
+  `_NSGet*` references and `main(i32, ptr)` + the argv globals. Suite 854, bootstrap
+  17+17, libs 4+4 green (macOS). Remaining CI verdict awaits the next Actions run
+  (Linux link). [81, 41]
+
 ## Design 80 — Member visibility (fields + methods) + std under the gate (LANDED)
 - **Commit 1 (feature + std/libs/blade sweep + tests) — LANDED.** Struct FIELDS
   and extension METHODS (incl. init/static) are now private-by-default OUTSIDE
