@@ -53,6 +53,14 @@ class MatchMixin:
             # concrete registered name rather than `HashSlot$2$K$V`.
             if self.type_param_context:
                 matched_enum_type = matched_enum_type.substitute(self.type_param_context)
+            # Canonicalize before mangling so the lookup key matches the name the
+            # enum was REGISTERED under (design 68). Codegen normalizes an erased
+            # `Box<any Trait>` to its native arity-1 form and fills other omitted
+            # defaults; the typechecker-stamped `matched_enum_type` uses arity-2
+            # `Box<any Trait, Global>`, so without this a `match` on e.g.
+            # `Result<T, Box<any Error>>` mangle-misses and the LLVM-type fallback
+            # below silently picks a same-sized WRONG monomorphization.
+            matched_enum_type = self._canonicalize_type_kind(matched_enum_type)
             # Canonical mangled name for a (possibly generic) enum, matching the
             # name under which it was registered (see codegen/mangle.py).
             enum_name = mangle_named(matched_enum_type.enum_name, matched_enum_type.type_args)

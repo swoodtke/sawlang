@@ -17,13 +17,26 @@ items need a probe before being treated as real work.
 - **SOS**: boot protocol + syscall ABI (sos/spec.md §5) — the next
   design session.
 
+## Design 68 progress (cross-module mono/receiver confusion)
+- ROOT CAUSE (DF6(b)): erased-box default-type-arg mangling divergence.
+  The typechecker canonicalizes `Box<any Trait>` to arity-2
+  `Box<any Trait, Global>`; codegen registers composite types embedding
+  it (the err arm of `Result<T, Box<any Error>>`) from the RAW arity-1
+  method annotation. A `match`/`try` then mangle-missed the registered
+  enum and the LLVM-type fallback silently picked a same-sized WRONG
+  monomorphization (payload read as the wrong type). Fix: normalize the
+  erased box to ONE canonical arity-1 in codegen `_canonicalize_type_kind`
+  and route the match / `_get_result_enum_name` (try) lookups through it,
+  so registration and lookup never diverge. (b) un-worked-around: DepList
+  is `Vector<Dependency>` again; 770 suite + 17 blade + libs + bootstrap
+  green.
+
 ## Open bugs / ledger
-- **DF6(b)/DF9(c) — cross-module monomorphization/receiver confusion.**
-  A `Vector<user-struct>` element read / method receiver is confused
-  with another monomorphization, ONLY in Blade's full type population
-  (faithful isolated repros all pass — see design 67's ruled-out list).
-  Blocks: blade's columnar `DepList` un-work-around + re-importing
-  libs/semver into blade. Needs its own brief. [64, 67]
+- **DF9(c)/semver re-import — IN PROGRESS (design 68).**
+  Re-import libs/semver into blade's resolver (delete the self-contained
+  matcher, add the path dep, regenerate lock). Same erased-box family as
+  (b); verifying the fix covers the `Version.version` receiver confusion.
+  [64, 67, 68]
 - **DF4 (meta).** Blade bit-rots as the compiler tightens — re-validate
   periodically (the bootstrap target is the canary). [49]
 - **DF5.** Keywords (`extension` etc.) can't be identifiers — fine, but

@@ -59,64 +59,47 @@ public extension Dependency {
     }
 }
 
-// A parsed [dependencies] table.
+// A parsed [dependencies] table — natural rows: a `Vector<Dependency>`.
 //
-// Stored COLUMNAR — four parallel `Vector<String>` — rather than as a single
-// `Vector<Dependency>`. Two current compiler limitations (dogfood DF6) drove
-// this: (a) `Result<Vector<T>, Box<any Error>>` ICEs because the default
-// allocator type param mangles inconsistently between the Result-enum
-// registration and lookup paths, and (b) in the full multi-module build a
-// `Vector<Dependency>` element extraction gets confused with another Vector
-// monomorphization (`Dependency` read back as `TomlValue`). `Vector<String>`
-// is exercised everywhere and mangles consistently, so the columnar form is
-// robust; `get(i)` reconstructs a fresh `Dependency` (no `Vector<Dependency>`
-// anywhere). Both limitations are recorded in the tracker.
+// (This was columnar `Vector<String>` until design 68 root-caused DF6(b): an
+// erased-box default-type-arg mangling divergence made `Result<DepList,
+// Box<any Error>>` register under an arity-1 `Box<any Error>` name while a
+// `match`/`try` looked it up at the typechecker's arity-2 `Box<any Error,
+// Global>`, so the mangle-miss fell back to LLVM-type matching and silently
+// selected a same-sized wrong monomorphization — `deps.get(i)` returned a
+// `TomlValue`/`String`-shaped value. With the erased box normalized to one
+// canonical arity across registration and lookup, natural rows work.)
 public struct DepList {
-    names: Vector<String>
-    kinds: Vector<String>     // "path" or "git"
-    locs: Vector<String>      // path dir, or git url
-    versions: Vector<String>  // version requirement string ("" if unspecified)
+    deps: Vector<Dependency>
 }
 
 extension DepList: NoCopy {
     func deinit(var self) {
-        // Vectors handle their own cleanup
+        // Vector handles its own cleanup
     }
 }
 
 public extension DepList {
     init() -> DepList {
-        let n = Vector<String>()
-        let k = Vector<String>()
-        let l = Vector<String>()
-        let v = Vector<String>()
-        DepList(names: move n, kinds: move k, locs: move l, versions: move v)
+        let d = Vector<Dependency>()
+        DepList(deps: move d)
     }
 
     func add(&var self, name: String, kind: String, loc: String, version: String) {
-        self.names.push(name)
-        self.kinds.push(kind)
-        self.locs.push(loc)
-        self.versions.push(version)
-    }
-
-    func len(&self) -> Int {
-        self.names.len()
-    }
-
-    func get(&self, i: Int) -> Dependency? {
-        guard let n = self.names.get(i) else {
-            return None
-        }
-        let kind = self.kinds.get(i) ?? "path"
-        let loc = self.locs.get(i) ?? ""
-        let ver = self.versions.get(i) ?? ""
         let src = if kind.equals("git") {
             DepSource.GitDep(url: loc)
         } else {
             DepSource.PathDep(dir: loc)
         }
-        Dependency(name: n, source: src, version: ver)
+        self.deps.push(Dependency(name: name, source: src, version: version))
+    }
+
+    func len(&self) -> Int {
+        self.deps.len()
+    }
+
+    func get(&self, i: Int) -> Dependency? {
+        self.deps.get(i)
     }
 }
 

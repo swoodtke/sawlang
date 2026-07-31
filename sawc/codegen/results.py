@@ -516,7 +516,13 @@ class ResultsMixin:
 
         # Build the canonical mangled name. This MUST match the name under which
         # the monomorphized Result enum is registered (via _ensure_monomorphized_enum
-        # -> mangle_named), so producer and consumer never diverge.
+        # -> mangle_named), so producer and consumer never diverge. Canonicalize the
+        # payload types first — filling omitted trailing default type args at every
+        # nesting level, e.g. a raw method-annotation `Box<any Error>` -> arity-2
+        # `Box<any Error, Global>` (design 68) — so the name computed here from a
+        # raw `current_return_type` matches the registration, which canonicalizes.
+        ok_type = self._canonicalize_type_kind(ok_type)
+        err_type = self._canonicalize_type_kind(err_type)
         return mangle_named("Result", [ok_type, err_type])
 
     def _ensure_enum_monomorphized(self, enum_name: str, saw_type: SawType, error_types: list = None):

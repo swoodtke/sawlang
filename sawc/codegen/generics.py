@@ -226,11 +226,29 @@ class GenericsMixin:
         if saw_type is None:
             return saw_type
         kind = saw_type.kind
-        # An erased `Box<any Trait>` (design 51) is special: it never monomorphizes
-        # through box.saw and its identity/layout are handled by the existential
-        # path. Leave it byte-for-byte alone — appending its `Global` default here
-        # would change its mangled identity and desync its erased teardown.
+        # An erased `Box<any Trait>` (design 51) never monomorphizes through
+        # box.saw — its layout is a fat pointer and its teardown is vtable-driven
+        # (arity-agnostic: `_emit_erased_box_drop` defaults a missing allocator to
+        # Global). Codegen's native canonical form is the arity-1 `Box<any Trait>`
+        # (the as-written annotation): every container/enum that embeds it is
+        # registered and torn down through this chokepoint at arity-1, so its
+        # element-drop lookups stay stable. The typechecker, however, canonicalizes
+        # `Box<any Trait>` to arity-2 `Box<any Trait, Global>` on expression types,
+        # so a `match`/`try` that mangles a typechecker-stamped `Result<T,
+        # Box<any Error>>` directly would look up the arity-2 name and mangle-miss
+        # the arity-1-registered enum — then the LLVM-type fallback silently selects
+        # a same-sized WRONG monomorphization (design 68, DF6(b)/DF9(c)). Normalize
+        # every erased box DOWN to the codegen-native arity-1 here (dropping a
+        # redundant trailing `Global`, the only default this wrapper has) so the
+        # match/try lookups — routed through this same canonicalizer — agree with
+        # registration. A non-default allocator arg is preserved.
         if self._is_erased_box(saw_type):
+            targs = saw_type.type_args
+            if (len(targs) == 2 and targs[1].kind == TypeKind.STRUCT
+                    and targs[1].struct_name == "Global"
+                    and not targs[1].type_args):
+                return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name,
+                               type_args=[targs[0]], symbol=saw_type.symbol)
             return saw_type
         if kind == TypeKind.STRUCT and saw_type.struct_name:
             name = saw_type.struct_name
