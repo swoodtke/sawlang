@@ -60,7 +60,7 @@ items need a probe before being treated as real work.
   _nonconforming_error, _use_after_take_error. Spec existentials + error sections
   + saw-lang skill updated. Suite 803, bootstrap 17+17, libs 4+4. [72, 51, 56]
 
-## Design 73 — Closures become ImplicitCopy (refcounted env) (LANDING)
+## Design 73 — Closures become ImplicitCopy (refcounted env) (LANDED)
 - **Commit 1 (core + tests):** An escaping closure's heap env now leads with an
   atomic refcount word (platform-width, String-style monotonic retain / release
   ordering + acquire fence at zero). Closures joined the **ImplicitCopy** family:
@@ -80,6 +80,9 @@ items need a probe before being treated as real work.
   `closure_captureless_copyable`, `closure_borrow_lend_balance`; 71's battery
   updated to refcounted expectations (all exactly-once). Suite 807, bootstrap
   17+17, libs 4+4. [73, 71]
+- **Commit 2 (docs):** spec closures section rewritten (ImplicitCopy, refcounted
+  env, exactly-once teardown, lend, null-env fast path); saw-lang skill Copy-tier
+  table + gotcha updated. [73]
 - **Findings (flagged, NOT fixed — out of design-73 scope):**
   - **DF-C1 (pre-existing coro-transform gap).** A closure LOCAL called inside a
     driven/suspending function (`let f = {...}; ... f()`) errors "undefined

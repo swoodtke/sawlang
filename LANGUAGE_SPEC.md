@@ -2103,27 +2103,32 @@ multi-task `TaskGroup` — designs 44/45/52/52b, below).
   (self-deadlock on re-lock). The pthread opaque buffer is a conservative
   64-byte slot (real sizes: macOS 64, glibc/x86_64 40, glibc/aarch64 48),
   initialized via `pthread_mutex_init` — never a hardcoded platform struct.
-- **Escaping-closure heap environments + closure `Deinit`** (design 71) — a
-  closure used in value position (bound, returned, stored, or passed to `spawn`)
-  outlives its creating frame, so its captured environment is `saw_alloc`'d
-  instead of stack-allocated. Captures transfer in per the value-transfer rules
-  (ImplicitCopy retained, trivial copied bitwise; a `move` capture takes
-  ownership). **An escaping closure is an OWNING value**: it carries its own env
-  destructor (the closure representation is `{ fn_ptr, env_ptr, dtor_ptr }`), and
-  dropping the closure runs that destructor — releasing owned captures exactly
-  once and freeing the heap env block — under the normal LIFO + drop-flag rules,
-  wherever the value lives (a `let`/`var`, a struct field, a `Vector` element, a
-  returned result). The creating frame does **not** release a moved-in capture
-  early; ownership travels with the value. Because a bitwise copy would alias the
-  shared heap env, an escaping closure is **NoCopy (move-only)** — aliasing a
-  closure binding requires `move`; forwarding it into a *non-escaping* (borrowing)
-  parameter is a lend and needs no move. For `spawn` the destructor runs on the
-  task thread after the body returns (the closure is consumed, so it drops exactly
-  once). Non-escaping closures (a direct call argument, e.g. `Mutex.lock`'s body)
-  keep a stack env and own nothing. *Residual gap:* an owning closure stored in a
-  **copyable** struct that is then copied still double-frees — the declared field
-  type cannot say a stored value owns an env; closing it needs value-flow (not
-  type) analysis.
+- **Escaping-closure heap environments — `ImplicitCopy`, refcounted env**
+  (design 71 + 73) — a closure used in value position (bound, returned, stored,
+  or passed to `spawn`) outlives its creating frame, so its captured environment
+  is `saw_alloc`'d instead of stack-allocated. Captures are **moved in at
+  creation** (ImplicitCopy retained, trivial copied bitwise; a `move` capture
+  takes ownership); the creating frame does not release a moved-in capture early.
+  **An escaping closure is an `ImplicitCopy` value** (the family of `String` and
+  `Arc`): its heap env leads with an **atomic refcount word**, the closure
+  representation is `{ fn_ptr, env_ptr, dtor_ptr }`, and the env is immutable and
+  shared. Copying a closure — `let g = f`, a struct/`Vector`/field copy, passing
+  or returning by value — is a **refcount bump**; there is no observable mutation
+  through a shared env, so the sharing is semantically invisible. Dropping a
+  closure **releases** one reference: it decrements the refcount and, only at the
+  last owner, runs the env destructor (releasing owned captures exactly once and
+  freeing the block) under the normal LIFO + drop-flag rules, wherever the value
+  lives (a `let`/`var`, a struct field, a `Vector` element, a returned result).
+  A **capture-less** closure has a null env (no refcount word) and is trivially
+  copyable. Forwarding a closure into a *non-escaping* (borrowing) parameter is a
+  **lend** — no retain, and the caller keeps ownership (drops once). For `spawn`
+  the task frame owns the closure's reference and the trampoline release is THE
+  release — the env is torn down on the task thread exactly once. Non-escaping
+  closures (a direct call argument, e.g. `Mutex.lock`'s body) keep a stack env and
+  own nothing. `[&var x]` reference-captures remain non-escaping-only. *(This
+  closed design 71's residual gap: an owning closure in a copyable struct that is
+  then copied now retains the shared env and tears it down once at the last
+  owner.)*
 - **`Arc<T>` payload method forwarding** — an immutable `&self` method on the
   payload `T` is callable through the `Arc` (`arc.method(...)`): the call borrows
   the control block's payload slot. Sound because a live strong reference pins

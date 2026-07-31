@@ -34,9 +34,9 @@ print("hi {name}: {p}")    // interpolation; user types need Printable
 
 ## Ownership (the part that bites)
 Copy tiers: trivial/POD = implicit bitwise copy; `ImplicitCopy`
-(String, Arc) = free refcount bump; `ExplicitCopy` (Vector, Map, Set)
-= must `move v` or `v.copy()` at every transfer; `NoCopy` (File,
-Mutex, Box) = `move` only.
+(String, Arc, escaping closures) = free refcount bump; `ExplicitCopy`
+(Vector, Map, Set) = must `move v` or `v.copy()` at every transfer;
+`NoCopy` (File, Mutex, Box) = `move` only.
 ```saw
 var w = move v         // v now invalid (use-after-move = compile error)
 var u = w.copy()       // explicit duplicate
@@ -178,13 +178,14 @@ declaration-order natural ABI (documented rule). Unsafety is
 TYPE-carried (Unsafe* prefix), not region-carried — no unsafe blocks.
 
 ## Gotchas
-- An escaping closure (bound/returned/stored/`spawn`) that captures owned
-  values is an OWNING value: it drops its captures when the closure
-  drops, and is **NoCopy** — `let g = f` on a closure binding is an
-  error, use `move f`. Forwarding a closure into a non-escaping
-  (borrowing) param needs no move. Storing an owning closure in a
-  COPYABLE struct and then copying that struct still double-frees
-  (known gap) — put it behind a NoCopy owner if you must copy.
+- An escaping closure (bound/returned/stored/`spawn`) is **ImplicitCopy**
+  over a refcounted heap env (like String/Arc): `let g = f` is a free
+  refcount bump (both valid), and the captures are torn down exactly once
+  when the last owner drops. Copying a struct/`Vector` that holds a
+  closure retains the env; capture-less closures are trivially copyable.
+  `move f` still transfers ownership. Not-yet: closures don't satisfy the
+  generic `Copy` bound, so `Vector<() -> Int>.copy()`/`.get()` are a clean
+  compile error for now.
 - `guard` must exit (return/break/continue/panic).
 - A dependency name mapped via `--module-path` shadowing a local
   module file is an error.
