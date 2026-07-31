@@ -1861,6 +1861,13 @@ func get_index(arr: [Int], i: Int) -> Int {   // [Int] slice: illustrative
   trivially copyable nor accepted as Equatable conformers.
 - Tuples are Equatable iff every element is. A `T: Equatable` generic bound
   grants `==`/`.equals` in a generic body.
+- **Optional and fixed-array members** (design 72 L9): a synthesized `==` lowers
+  an `Optional` member (`None == None`, `Some vs None` unequal, payload compared
+  deep only when both sides are `Some` — a `None` slot's payload is never
+  touched) and a fixed-array member `[T; N]` (element-wise conjunction). So a
+  struct/enum whose fields/payloads are `T?` or `[T; N]` (with `T: Equatable`)
+  conforms; auto-conformance is still trivial-only. A genuinely non-Equatable
+  member remains a clean error at the comparison site.
 - `a == b` on a conforming user type lowers to its `equals`; primitives keep
   direct `icmp`/`fcmp`. `!=` is always the negation of `==`. `String ==` is
   content equality. **Float keeps IEEE semantics** — `NaN != NaN`.

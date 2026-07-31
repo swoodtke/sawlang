@@ -1,0 +1,23 @@
+// Design 40 item 4 / design 72 (L9): a payload-carrying enum whose payload is an
+// Optional opts in with an empty `extension: Equatable {}`. The synthesized
+// payload-deep `==` routes the `Int?` payload through Optional equality
+// (None==None true, None vs Some false, payload-deep only when both Some).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+enum Cell {
+    case Filled(value: Int?),
+    case Blank
+}
+
+extension Cell: Equatable {}
+
+func main() {
+    if Cell.Filled(value: 5) == Cell.Filled(value: 5) { print(1) }   // Some==Some payload
+    if Cell.Filled(value: 5) != Cell.Filled(value: 6) { print(2) }   // Some payloads differ
+    if Cell.Filled(value: None) == Cell.Filled(value: None) { print(3) }  // None==None
+    if Cell.Filled(value: None) != Cell.Filled(value: 5) { print(4) }     // None vs Some
+}

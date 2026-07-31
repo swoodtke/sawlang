@@ -30,6 +30,15 @@ items need a probe before being treated as real work.
   `array_no_extension_error`, `array_unknown_method_error`,
   `array_swap_const_oob_error`, `array_swap_dynamic_oob_panic`. Suite 796,
   bootstrap 17+17, libs 4+4. [72]
+- **Commit 2 (L9 — Equatable over Optional/array members):** The synthesis
+  widening was ALREADY landed (commit e60d189: `is_equatable` holds for `T?` iff
+  `T` is and `[T; N]` iff its element is; codegen `_emit_optional_equals` /
+  `_emit_array_equals` wired into the recursive `_emit_equals`, so struct-field,
+  tuple, and direct comparisons all reach them; tests
+  equatable_optional_field/_direct/_string_synth/_array_field). Design 72 closes
+  the remaining brief case — an enum whose payload is an Optional — with
+  `equatable_enum_optional_payload` (`Filled(value: Int?)`: Some==Some,
+  Some!=Some-diff, None==None, None vs Some). Suite 797. [72]
 
 ## Design 71 — Closure Deinit (LANDED)
 - **Commit 1 (core):** Closures now carry their own env destructor
@@ -78,8 +87,10 @@ items need a probe before being treated as real work.
   `examples/l18_module_qualified_annotation.saw`. [68, 69]
 - **L2.** Return-type reconciliation for type-param/associated-type
   returns in generic bodies — documented deferred looseness. [02, 24]
-- **L9.** `==` over Optional-/array-bearing members: deliberate clean
-  error; extend the equals derivation when needed. [32]
+- ~~**L9.** `==` over Optional-/array-bearing members: deliberate clean
+  error; extend the equals derivation when needed.~~ CLOSED (landed e60d189;
+  enum-Optional-payload case closed under design 72): the Equatable synthesis
+  lowers `T?` (None/Some-aware) and `[T; N]` (element-wise) members. [32, 72]
 - ~~**L12.** Fixed arrays can't take extension methods (parse error);
   also blocks fixed-array `.len()` (spec-illustrative).~~ CLOSED (design 72):
   fixed arrays get builtin `.len()` + `.swap(i, j)` (M1 escape hatch); user
