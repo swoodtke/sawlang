@@ -198,6 +198,17 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
 - Visibility: `public`, `public(package)`, `public(parent)`, private
   default. Package layout: `src/lib.saw` ← `import <pkgname>` (Blade
   `--module-path`); `src/main.saw` for binaries.
+- MEMBER visibility (design 80): struct FIELDS and extension METHODS
+  (incl. `init`/static) are **also private-by-default outside the defining
+  module** — mark your API surface `public` (`public name: String`,
+  `public func get(...)`, `public init(...)`). Same-module access is
+  unrestricted. Gotchas: (1) a cross-module memberwise literal
+  `T(a:, b:)` needs ALL fields visible — expose a `public init` when a
+  field is private; reads AND writes are gated, so another module cannot
+  corrupt a private field. (2) A method satisfying a visible trait's
+  requirement is callable through the conformance with no `public` needed.
+  (3) `public` on a member of a private struct is legal but inert. std is
+  under the gate too — you reach its public API, never its internals.
 
 ## Systems/embedded corner
 `static NAME: T = const_init` (Sync-only, immortal); `Atomic<Int>`;

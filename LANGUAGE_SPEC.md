@@ -2868,6 +2868,47 @@ public(package) func internal_api() { ... }
 public(parent) func parent_visible() { ... }
 ```
 
+#### Member visibility (design 80)
+
+Struct FIELDS and extension METHODS (including `init` and static methods) are
+**private-by-default OUTSIDE the defining module** — the same rule and the same
+modifier family (`public` / `public(package)` / `public(parent)`) as top-level
+declarations. Inside the defining module, member access is unrestricted.
+
+```saw
+public struct Account {
+    public name: String    // readable/writable cross-module
+    balance: Int           // private: only this module can touch it
+}
+
+public extension Account {
+    public init(name: String) -> Account { Account(name: name, balance: 0) }
+    public func balance_of(&self) -> Int { self.balance }  // public accessor
+    func settle(&var self) { ... }                          // private helper
+}
+```
+
+Consequences:
+- A member marked `public` on a member of a non-public struct is legal but
+  inert (like Rust) — the struct itself gates reachability.
+- **Cross-module memberwise construction** (`Account(name:, balance:)`) requires
+  ALL fields visible; if any field is private, use a visible `init` instead. The
+  same rule governs any field access — reads AND writes go through one gate, so a
+  private field cannot be corrupted from another module (this is what closes the
+  `Vector.length`/`capacity` memory-safety hole: those invariants are private,
+  and a bounds-checked `get()` can no longer be tricked into an OOB read).
+- **Trait-conformance methods follow the trait**: a method satisfying a visible
+  trait's requirement is callable wherever the conformance is visible (a
+  `public` marker on it is allowed and redundant); dispatch through `any Trait`
+  and generic bounds is unaffected.
+- Enum variants follow the enum's visibility (per-variant visibility is not in
+  scope). Saw has no struct-destructuring patterns, so pattern matching reaches
+  only enum-variant payloads, gated by the enum.
+- **The standard library is under the gate too**: std types expose their real
+  API `public` and keep their internals private (the `_`-prefix convention is
+  now backed by real privacy). std is treated as one module for its own internal
+  cross-file use; user code is always a separate module from std.
+
 ### Imports
 
 Imports follow Python-style semantics - only the explicitly named symbol is added to the namespace:

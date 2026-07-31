@@ -99,5 +99,7 @@ destructuring) + named tuples, collection literals (Map/Set/Vector),
 colorless concurrency (coroutine transform + TaskGroup + channels),
 allocator type params + Box/slab + statics/Atomic + UnsafeMemory +
 `@export`/`@section` (freestanding-ready), platform-width Int,
-bounds/overflow/shift checks always on. Blade (package manager in Saw)
+bounds/overflow/shift checks always on. Member visibility (design 80):
+struct fields + extension methods are private-by-default outside the
+defining module (std under the gate too). Blade (package manager in Saw)
 is self-hosting. License: Apache-2.0 WITH LLVM-exception.

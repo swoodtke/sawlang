@@ -11,6 +11,48 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 80 — Member visibility (fields + methods) + std under the gate (LANDED)
+- **Commit 1 (feature + std/libs/blade sweep + tests) — LANDED.** Struct FIELDS
+  and extension METHODS (incl. init/static) are now private-by-default OUTSIDE
+  the defining module, same modifier family as top-level (`public`/
+  `public(package)`/`public(parent)` per member); same-module unrestricted.
+  **Probe verdict: the hole was REAL** — on baseline `v.length = 1000` was
+  accepted and a bounds-checked `v.get(500)` read OOB through safe code
+  (returned garbage, exit 0). Now a clean compile error (headline lock
+  `vis80_vector_length_invariant`). Mechanics: parser/AST visibility on
+  StructField + Method; namespace StructSymbol.field_visibility+def_module,
+  FunctionSymbol.def_module+satisfies_trait; typechecker gate at field read
+  (`_check_member_access`), field WRITE (assignment lvalue in statements.py —
+  the headline), memberwise struct literal (after design-66 reinterpretation),
+  and method/static/init calls. Module identity keyed on SOURCE FILE so the
+  merged prelude is distinguishable: std/builtin = one module `("<std>",)`,
+  user code keeps its module_path — kills the prelude bypass for the ACCESS
+  check only (codegen compiler-known-ness untouched). Trait-conformance methods
+  exempt (satisfies_trait). SYNTHESIZED-ACCESS EXEMPTION BY PROVENANCE:
+  coro-transform output (spawn/drive wrappers, synthesized main, frame
+  resume/__wake_reason) carries `is_synthesized`; its member access skips the
+  gate (reaches std/frame internals by construction — this cleared ALL the
+  taskgroup/coro/net breakage: 66× TaskGroup.__enqueue + 66× TaskHandle.result_ptr
+  were the tell). **Bypass audit (worked only via the prelude bypass before):**
+  every std public method (Vector/Map/Set/String/StringBuilder/Data/Path/Arc/
+  Box/Channel/Mutex/Task/TaskGroup/numeric/net/…, 231 methods annotated
+  `public`), plus public error/result FIELDS that user code reads — AllocError
+  (size/align), Utf8Error (offset), CommandOutput (stdout/exit_code), SlabHead
+  (bump/free), Range/RangeInclusive; and cross-module fields in libs+blade —
+  semver Version (major/minor/patch), toml TomlError (message/line), blade
+  Dependency/Manifest.root_dir/Cli/BuildError/ParseError/LockData.manifest_hash.
+  **DEVIATION (documented):** std is ONE module for its internal boundary — the
+  user↔std boundary is what closes the hole; std-internal cross-file access
+  stays unrestricted rather than per-file-gated (per-file surfaced 182 mostly
+  public-API cross-references; the single-module choice is lower churn/risk with
+  the identical security guarantee). NOTE: Saw has no struct-destructuring
+  patterns, so the brief's "pattern" case reduces to enum-variant matching
+  (follows enum visibility, unchanged). Tests: vis80_field_read/write/literal
+  _error, vis80_method/static_private_error, vis80_public_members_ok
+  (public field/method/static/init + public(package) + trait-conformance),
+  vis80_same_module_ok, vis80_vector_length_invariant. Suite 851 (from 843),
+  bootstrap 17+17, libs 4+4. [80, 66, 44, 52b]
+
 ## Design 77 — Generics & closures completion + accumulated riders (LANDED, subset)
 **Status:** items 1 (spawn-Void), 2 (generic-bound propagation), 3 (DF-C2 closures
 satisfy Copy) + its get-UAF follow-up, 4 (DF-C1 closures in frames), 7 (Global
