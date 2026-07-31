@@ -790,6 +790,12 @@ class Namespace:
             return False
         if self.is_trivially_copyable(saw_type):
             return True
+        # Note (design 73): an escaping closure IS ImplicitCopy, but the generic
+        # `Copy`-bound container machinery (`Vector<() -> Int>.copy()`/`.get()`,
+        # Set/Map with closure elements) is not yet wired to route closure element
+        # copies through the refcount retain, so closures deliberately do NOT
+        # satisfy the umbrella `Copy` bound here — a clean compile error rather than
+        # an unbalanced container copy. Deferred; see the tracker.
         # A fixed array `[T; N]` inherits T's copy class (design 33): it
         # satisfies `Copy` iff its element type does.
         if saw_type.kind == TypeKind.ARRAY:

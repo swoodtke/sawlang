@@ -1,0 +1,29 @@
+// Design 73: an owning escaping closure passed by value into a NON-escaping
+// (borrowing) param is a LEND — the callee borrows and never drops it, the
+// caller keeps ownership and drops it exactly once. No retain is taken (the
+// borrow owns nothing). The caller's env is released once at scope exit; the
+// captured Arc's payload deinits exactly once. (This exercises the fix for a
+// pre-existing leak the ImplicitCopy model surfaced: the lend must not clear the
+// caller's drop flag.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 2
+// deinit 5
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func take(f: () -> Int) -> Int {
+    f()                            // borrow: call it, do not store/drop it
+}
+
+func main() {
+    let a = Arc<Res>(value: Res(id: 5))
+    let f = { a.strong_count() }   // env retains a -> strong 2
+    print(take(f))                 // 2 (lent, f still owned by main)
+    print(a.strong_count())        // 2 (f still alive — no ownership transfer)
+    // f drops at scope exit (env -> 0, dtor releases Arc -> strong 1), a -> deinit 5
+}

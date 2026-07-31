@@ -1,0 +1,35 @@
+// Design 73 closes the design-71 RESIDUAL GAP: an owning closure stored in a
+// COPYABLE struct, with the struct then copied N times. Because closures are
+// ImplicitCopy (refcounted env), each struct copy retains the closure's env; the
+// destructor runs exactly once when the LAST struct owner drops. Under design 71
+// (closure = NoCopy, field excluded from containment) this double-freed.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 2
+// 2
+// 2
+// deinit 5
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+// A plain struct (no declared copy policy) holding a closure field: closures are
+// compiler-known ImplicitCopy, like String, so this does NOT force a policy.
+struct Holder { fn: () -> Int }
+
+func main() {
+    let a = Arc<Res>(value: Res(id: 5))
+    print(a.strong_count())              // 1
+    let h = Holder(fn: { a.strong_count() })  // env retains a -> strong 2
+    let h2 = h                           // struct copy: env refcount 2, Arc shared
+    let h3 = h2                          // struct copy: env refcount 3
+    print(h.fn())                        // 2
+    print(h2.fn())                       // 2
+    print(h3.fn())                       // 2
+    print(a.strong_count())              // 2 (all three share one env / one retain)
+    // LIFO: h3, h2, h (env 3->2->1->0, dtor releases Arc -> strong 1), a -> deinit 5
+}

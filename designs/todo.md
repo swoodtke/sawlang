@@ -60,6 +60,39 @@ items need a probe before being treated as real work.
   _nonconforming_error, _use_after_take_error. Spec existentials + error sections
   + saw-lang skill updated. Suite 803, bootstrap 17+17, libs 4+4. [72, 51, 56]
 
+## Design 73 — Closures become ImplicitCopy (refcounted env) (LANDING)
+- **Commit 1 (core + tests):** An escaping closure's heap env now leads with an
+  atomic refcount word (platform-width, String-style monotonic retain / release
+  ordering + acquire fence at zero). Closures joined the **ImplicitCopy** family:
+  `_is_no_copy_type(FUNCTION)` -> False, `_is_implicit_copy_type`/`_check_*_containment`
+  treat an escaping closure like `String`. `let g = f` is legal again (retired
+  71's NoCopy binding rejection + `closure_copy_requires_move_error`). Retain
+  (`_generate_copy`/`_emit_retain_at` FUNCTION) bumps the env refcount; drop
+  (`_emit_closure_drop_at`, now via `_emit_closure_env_release`) decrements and
+  runs the dtor (captures release + free) only at zero; the spawn trampoline uses
+  the SAME release (frame owns +1, exactly-once across the thread boundary). Null
+  env (capture-less) => no refcount word, trivially copyable (retain/drop null-
+  guarded). **RESIDUAL GAP CLOSED:** an owning closure in a copyable struct copied
+  N times -> dtor once at the last owner (positive test). Also fixed a pre-existing
+  leak the model surfaced: an escaping closure LENT into a non-escaping param must
+  not clear the caller's drop flag (`closure_lend` marker). Tests:
+  `closure_copy_binding`, `closure_copyable_struct_copied`, `closure_spawn_arc_balance`,
+  `closure_captureless_copyable`, `closure_borrow_lend_balance`; 71's battery
+  updated to refcounted expectations (all exactly-once). Suite 807, bootstrap
+  17+17, libs 4+4. [73, 71]
+- **Findings (flagged, NOT fixed — out of design-73 scope):**
+  - **DF-C1 (pre-existing coro-transform gap).** A closure LOCAL called inside a
+    driven/suspending function (`let f = {...}; ... f()`) errors "undefined
+    function f"; a closure held across a suspend in a frame errors "redundant
+    `escaping`". Both fail identically on baseline (confirmed via stash) — a
+    coroutine-transform frame-building limitation, unrelated to refcounting. Blocks
+    expressing a TaskGroup frame that OWNS a closure; the thread-`spawn` balance
+    test covers the cross-boundary exactly-once claim instead. [44, 45, 52b, 73]
+  - **DF-C2 (deferred).** Closures deliberately do NOT satisfy the umbrella `Copy`
+    bound yet: `Vector<() -> Int>.copy()`/`.get()`, Set/Map with closure elements
+    need the container element-copy path routed through the refcount retain (a
+    naive enable crashed exit 133). Clean compile error until wired. [54, 73]
+
 ## Design 71 — Closure Deinit (LANDED)
 - **Commit 1 (core):** Closures now carry their own env destructor
   (`{fn_ptr, env_ptr, dtor_ptr}`, design 71). An escaping closure binding is an
@@ -76,9 +109,11 @@ items need a probe before being treated as real work.
   copyable. Exact-count battery: `closure_deinit_{drop_order,arc_balance,
   struct_field,vector,returned,dropped_uncalled,called_then_dropped,
   conditional_move}` + `closure_copy_requires_move_error`. Suite 789, bootstrap
-  17+17, libs 4+4 green. RESIDUAL GAP (documented, needs value-flow not type
-  analysis): an owning closure stored in a COPYABLE struct that is then copied
-  still double-frees — the type can't say a field value owns an env. [71]
+  17+17, libs 4+4 green. RESIDUAL GAP (was: an owning closure in a COPYABLE
+  struct that is then copied double-freed) — **CLOSED by design 73**: closures
+  became ImplicitCopy (refcounted env), so the struct copy retains the env and the
+  dtor runs once at the last owner. The NoCopy binding rejection above was retired
+  in the same move. [71, 73]
 
 ## Decisions needed (user input required)
 - **D10.** Cortex-M0-class atomics (ARMv6-M has no CAS) — decide with

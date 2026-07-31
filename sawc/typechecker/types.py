@@ -805,18 +805,12 @@ class TypeUtilsMixin:
         if saw_type is None:
             return False
 
-        # An escaping closure value (design 71) is move-only: it may own a heap
-        # environment (the captures it took ownership of), and a bitwise copy would
-        # alias that env — a double free when both copies drop. So an escaping
-        # function VALUE read from an existing binding must be `move`d, exactly like
-        # any NoCopy resource. A non-escaping closure borrows the frame and owns
-        # nothing, so it stays freely forwardable. (A capture-less escaping closure
-        # is technically copyable, but the type cannot distinguish it from an owning
-        # one; move-only is the sound conservative choice. Closure struct FIELDS are
-        # excluded from the NoCopy CONTAINMENT check so capture-less-closure structs
-        # stay copyable — see `_check_no_copy_containment`.)
+        # Closures are never NoCopy (design 73): an escaping closure joins the
+        # ImplicitCopy family — its heap env carries an atomic refcount, so a copy
+        # is a refcount bump and the last owner's drop tears it down exactly once.
+        # `let g = f` is legal again; see `_is_implicit_copy_type`.
         if saw_type.kind == TypeKind.FUNCTION:
-            return bool(getattr(saw_type, 'func_is_escaping', False))
+            return False
 
         # A fixed array `[T; N]` inherits T's copy class (design 33): it is
         # NoCopy iff its element type is.
@@ -840,6 +834,13 @@ class TypeUtilsMixin:
         """Check if a type implements ImplicitCopy."""
         if saw_type is None:
             return False
+
+        # An escaping closure is a compiler-known ImplicitCopy value (design 73):
+        # copying it retains a refcounted heap env, the last owner's drop tears it
+        # down exactly once. A non-escaping closure is a borrow (owns nothing) and
+        # is freely forwardable — not an ImplicitCopy transfer.
+        if saw_type.kind == TypeKind.FUNCTION:
+            return bool(getattr(saw_type, 'func_is_escaping', False))
 
         # A fixed array `[T; N]` inherits T's copy class (design 33): it is
         # ImplicitCopy iff its element type is (per-element implicit copy).
@@ -1088,14 +1089,18 @@ class TypeUtilsMixin:
         # An escaping closure forwarded into a NON-escaping (borrowing) slot is a
         # LEND, not an ownership transfer (design 71 / design 16/29 variance): the
         # callee promises not to store it, so the caller keeps ownership and drops
-        # it once. No `move` required — the closure's move-only discipline applies
-        # only when it flows into an OWNING (escaping) slot (binding / field /
-        # return / escaping param / container element).
+        # it once. No retain, no move — the borrowing param owns nothing and never
+        # drops it. Stamp `closure_lend` so codegen does NOT clear the source's
+        # drop flag (the default for a non-copied Identifier transfer); without
+        # this the caller's env would leak (never dropped) — a pre-existing bug the
+        # ImplicitCopy model surfaces (design 73).
         if (src_type.kind == TypeKind.FUNCTION
                 and getattr(src_type, 'func_is_escaping', False)
                 and target_type is not None
                 and target_type.kind == TypeKind.FUNCTION
                 and not getattr(target_type, 'func_is_escaping', False)):
+            if isinstance(expr, (Identifier, MemberAccess, ArrayIndex, TupleIndex)):
+                expr.closure_lend = True
             return
 
         if self._is_no_copy_type(src_type):
@@ -1457,11 +1462,9 @@ class TypeUtilsMixin:
 
             # Check each field
             for field_name, field_type in struct_info.fields.items():
-                # A closure FIELD does not force the struct NoCopy (design 71): a
-                # capture-less closure is genuinely copyable, and its declared field
-                # type cannot say whether a stored value owns an env. (An owning
-                # closure stored in a copyable struct that is THEN copied is a
-                # documented residual gap — it needs value-flow, not type, analysis.)
+                # A closure FIELD never forces the struct NoCopy (design 73):
+                # closures are ImplicitCopy, so a closure-bearing struct copies by
+                # retaining the closure's env (handled like a String field below).
                 if field_type is not None and field_type.kind == TypeKind.FUNCTION:
                     continue
                 if self._is_no_copy_type(field_type):
@@ -1495,6 +1498,13 @@ class TypeUtilsMixin:
                 # retain/release is compiler-handled, so a `[String; N]` field does
                 # not force a policy any more than a scalar `String` field does.
                 if self._array_base_kind(field_type) == TypeKind.STRING:
+                    continue
+                # A closure field is a compiler-known ImplicitCopy value (design
+                # 73), exactly like String: its refcounted-env retain/release is
+                # compiler-handled, so it does not force the struct to opt into a
+                # copy policy. (A struct copy retains the closure env; struct drop
+                # releases it — exactly once at the last owner.)
+                if field_type is not None and field_type.kind == TypeKind.FUNCTION:
                     continue
                 if self._is_implicit_copy_type(field_type):
                     self._error(

@@ -1245,8 +1245,14 @@ class CallsMixin:
         result = b.call(closure_fn, [env], name="body_result")
         b.store(result,
                 b.gep(cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 2)]))
+        # The task frame owns the closure's +1 reference (design 73): releasing it
+        # on the task thread is THE release — atomic decrement of the env refcount,
+        # and at zero the dtor (captures teardown + block free), exactly once. The
+        # spawned closure is never copied, so its refcount is 1 here; the decrement
+        # reaches 0 and frees. (`env_dtor` is None for a capture-less spawn.)
         if env_dtor is not None:
-            b.call(env_dtor, [env])
+            # self.builder is already `b` here; the release helper emits into it.
+            self._emit_closure_env_release(env, env_dtor)
         b.ret(ir.Constant(i8ptr, None))
         self.builder = saved_builder
         return tramp

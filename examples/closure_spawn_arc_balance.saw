@@ -1,0 +1,29 @@
+// Design 73: spawn (thread engine) balance. The task frame owns the closure's
+// +1 reference; the trampoline release IS the release — an atomic decrement of
+// the env refcount, tearing the env down (releasing the retained Arc) exactly
+// once on the task thread. `strong_count` climbs to 2 while the task lives and
+// returns to 1 after it finishes (join waits for the thread), so the payload
+// deinits exactly once at `a`'s scope exit.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 1
+// deinit 7
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func main() {
+    let a = Arc<Res>(value: Res(id: 7))
+    print(a.strong_count())          // 1
+    var t = spawn {
+        a.strong_count()             // env retains a -> strong 2 while the task lives
+    }
+    let r = t.join()
+    print(r)                         // 2 (a + the task env)
+    print(a.strong_count())          // 1 (task env released at the trampoline)
+    // a drops at scope exit -> "deinit 7" exactly once
+}

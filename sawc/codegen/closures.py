@@ -82,6 +82,15 @@ class ClosuresMixin:
         # Create environment struct type for captures
         env_ptr_type = ir.PointerType(ir.IntType(8))
         captures = expr.captures or []
+        # An ESCAPING closure heap-allocates its env and joins the ImplicitCopy
+        # family (design 73): the env carries a leading atomic refcount word so a
+        # copy bumps it and the last owner's drop releases captures + frees the
+        # block, exactly once. The word only exists when there is a heap env
+        # (escaping AND captures). A capture-less closure has a null env — no
+        # refcount, trivially copyable (retain/drop are null-guarded no-ops).
+        escapes = getattr(expr, 'escapes', False)
+        has_heap_env = escapes and bool(captures)
+        cap_off = 1 if has_heap_env else 0   # captures start after the refcount word
         # Per-capture mode (design 16/29): 'ref'/'ref_var' lower to an
         # env-of-references (a pointer INTO the enclosing frame — sound because a
         # non-escaping closure cannot outlive the call); every other mode uses
@@ -100,8 +109,9 @@ class ClosuresMixin:
         cap_saw_types = {name: self.variable_types.get(name) for name in captures}
 
         if captures:
-            # Build environment struct with captured variables
-            env_field_types = []
+            # Build environment struct with captured variables. An escaping
+            # closure's heap env leads with the atomic refcount word (design 73).
+            env_field_types = [self.int_type] if has_heap_env else []
             for cap_name in captures:
                 base = _cap_base_llvm(cap_name)
                 if modes.get(cap_name) in ('ref', 'ref_var'):
@@ -154,7 +164,8 @@ class ClosuresMixin:
             for i, cap_name in enumerate(captures):
                 field_ptr = self.builder.gep(
                     typed_env_ptr,
-                    [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)],
+                    [ir.Constant(ir.IntType(32), 0),
+                     ir.Constant(ir.IntType(32), i + cap_off)],
                     name=f"cap_{cap_name}_ptr"
                 )
                 csaw = cap_saw_types.get(cap_name)
@@ -230,7 +241,6 @@ class ClosuresMixin:
         # captures are copied bitwise. A generated env-destructor runs the
         # captures' drop glue exactly once and frees the block; for spawn the
         # trampoline invokes it on the task thread after the body returns.
-        escapes = getattr(expr, 'escapes', False)
         expr.codegen_env_dtor = None
         if captures and env_struct_type:
             if escapes:
@@ -242,6 +252,14 @@ class ClosuresMixin:
                     name="env_raw")
                 env_alloca = self.builder.bitcast(
                     raw, ir.PointerType(env_struct_type), name="env_heap")
+                # Seed the atomic refcount word (field 0) to 1 — this creation is
+                # the first owner (design 73). Later copies bump it; the last
+                # owner's drop decrements to 0 and runs the dtor.
+                rc_ptr = self.builder.gep(
+                    env_alloca,
+                    [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)],
+                    name="env_refcount")
+                self.builder.store(ir.Constant(self.int_type, 1), rc_ptr)
             else:
                 env_alloca = self._entry_alloca(env_struct_type, name="closure_env")
             for i, cap_name in enumerate(captures):
@@ -249,7 +267,8 @@ class ClosuresMixin:
                     continue
                 field_ptr = self.builder.gep(
                     env_alloca,
-                    [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)],
+                    [ir.Constant(ir.IntType(32), 0),
+                     ir.Constant(ir.IntType(32), i + cap_off)],
                     name=f"env_field_{i}"
                 )
                 mode = modes.get(cap_name, 'plain')
@@ -284,7 +303,8 @@ class ClosuresMixin:
             env_ptr_val = self.builder.bitcast(env_alloca, env_ptr_type, name="env_ptr")
             if escapes:
                 expr.codegen_env_dtor = self._generate_env_dtor(
-                    env_struct_type, captures, closure_name, cap_saw_types, modes)
+                    env_struct_type, captures, closure_name, cap_saw_types, modes,
+                    cap_off)
         else:
             env_ptr_val = ir.Constant(env_ptr_type, None)
 
@@ -313,17 +333,18 @@ class ClosuresMixin:
         return closure_val
 
     def _generate_env_dtor(self, env_struct_type, captures, closure_name,
-                           cap_saw_types=None, modes=None):
-        """Emit the environment destructor for an escaping closure (design 21b E1).
+                           cap_saw_types=None, modes=None, cap_off=0):
+        """Emit the environment destructor for an escaping closure (design 21b E1
+        / design 73).
 
         Signature `void (i8* env)`: runs drop glue for each cleanup-needing
         capture (releasing retained ImplicitCopy captures such as an `Arc`)
-        exactly once, then frees the heap env with `saw_dealloc`. For `spawn`
-        the trampoline calls this on the task thread after the body returns, so a
-        captured value's deinit runs on that thread, exactly once. For other
-        escapes (returned/stored closures) it is generated but currently
-        uninvoked — v1 conservatively leaks the env (documented); wiring general
-        closure Deinit is deferred.
+        exactly once, then frees the heap env with `saw_dealloc`. It is the
+        run-at-refcount-zero teardown: `_emit_closure_drop_at` (and the spawn
+        trampoline) atomically decrement the env's leading refcount word and call
+        this only when the LAST owner drops, so it runs exactly once regardless of
+        how many copies the ImplicitCopy closure spawned. `cap_off` is the field
+        offset the captures start at (1 past the refcount word for a heap env).
         """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
@@ -347,7 +368,8 @@ class ClosuresMixin:
             if cap_saw is not None and self._needs_cleanup(cap_saw):
                 field_ptr = b.gep(
                     env_typed,
-                    [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)],
+                    [ir.Constant(ir.IntType(32), 0),
+                     ir.Constant(ir.IntType(32), i + cap_off)],
                     name=f"env_drop_{i}")
                 self._emit_drop_at(field_ptr, cap_saw)
         b.call(self.functions["saw_dealloc"],

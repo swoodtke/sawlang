@@ -1,0 +1,30 @@
+// Design 73: an escaping closure is ImplicitCopy. Copying a closure binding
+// (`let g = f`, no `move`) is legal again — both bindings stay valid and share
+// one refcounted heap env. The env's captured Arc is retained once (at closure
+// creation); the closure copy only bumps the ENV refcount, not the Arc. LIFO
+// teardown drops g then f: g decrements the env to 1, f decrements to 0 and runs
+// the env destructor (releasing the shared Arc exactly once), then `a` drops and
+// the payload deinits — exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 2
+// 2
+// deinit 5
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func main() {
+    let a = Arc<Res>(value: Res(id: 5))
+    print(a.strong_count())        // 1
+    let f = { a.strong_count() }   // env retains a -> strong 2
+    let g = f                      // ImplicitCopy: env refcount 2, Arc shared
+    print(f())                     // 2
+    print(g())                     // 2 (shares f's env)
+    print(a.strong_count())        // 2 (the closure copy did not re-retain a)
+    // LIFO: g (env 2->1), f (env 1->0, dtor releases Arc -> strong 1), a -> deinit 5
+}

@@ -362,16 +362,18 @@ class ResourcesMixin:
         self._emit_field_cleanup_at(ptr, saw_type)
 
     def _emit_closure_drop_at(self, ptr, saw_type: SawType):
-        """Drop the closure value stored at `ptr` (design 71).
+        """Drop the closure value stored at `ptr` (design 71/73).
 
-        A closure value is `{ fn_ptr, env_ptr, dtor_ptr }`. Dropping it runs its
-        carried env destructor (which releases owned captures exactly once and
-        frees the heap env block) when the dtor pointer is non-null; a non-owning
+        A closure value is `{ fn_ptr, env_ptr, dtor_ptr }`. An escaping closure is
+        ImplicitCopy over a refcounted heap env: dropping RELEASES one reference —
+        it atomically decrements the env's leading refcount word and, only when
+        this was the LAST owner (old count == 1), runs the carried env destructor
+        (which releases owned captures and frees the heap block). A non-owning
         closure (no captures / borrow-only / non-escaping) carries a null dtor and
-        drops as a no-op. This is the single drop site for a closure wherever it
-        flows — bound to a `let`/`var`, a struct field, a Vector element, or a
-        returned value — so it composes with the LIFO/drop-flag machinery like any
-        other owning value.
+        drops as a no-op. This is the single drop/release site for a closure
+        wherever it flows — bound to a `let`/`var`, a struct field, a Vector
+        element, or a returned value — so it composes with the LIFO/drop-flag
+        machinery like any other owning value.
         """
         closure_val = self.builder.load(ptr, name="closure_drop")
         if (not isinstance(closure_val.type, ir.LiteralStructType)
@@ -379,17 +381,30 @@ class ResourcesMixin:
             return
         env_ptr = self.builder.extract_value(closure_val, 1, name="drop_env")
         dtor_ptr = self.builder.extract_value(closure_val, 2, name="drop_dtor")
+        self._emit_closure_env_release(env_ptr, dtor_ptr)
+
+    def _emit_closure_env_release(self, env_ptr, dtor_ptr):
+        """Release one reference to an escaping closure's refcounted heap env
+        (design 73): atomic decrement of the leading refcount word, and at zero an
+        acquire fence + the env destructor (captures release + block free). A null
+        dtor (non-owning / capture-less / non-escaping closure) is a no-op.
+        Shared by closure drop glue and the spawn trampoline."""
+        word = self.int_type
         null_dtor = ir.Constant(dtor_ptr.type, None)
         has_dtor = self.builder.icmp_unsigned("!=", dtor_ptr, null_dtor,
                                               name="closure_has_dtor")
-        run_bb = self.builder.function.append_basic_block(name="closure_dtor.run")
-        cont_bb = self.builder.function.append_basic_block(name="closure_dtor.cont")
-        self.builder.cbranch(has_dtor, run_bb, cont_bb)
-        self.builder.position_at_start(run_bb)
-        self.builder.call(dtor_ptr, [env_ptr])
-        if not self.builder.block.is_terminated:
-            self.builder.branch(cont_bb)
-        self.builder.position_at_start(cont_bb)
+        with self.builder.if_then(has_dtor):
+            rc_ptr = self.builder.bitcast(env_ptr, word.as_pointer(),
+                                          name="env_rc_ptr")
+            # Mirror String's atomic release: decrement with release ordering; the
+            # last owner (old==1) acquires before running teardown + free.
+            old = self.builder.atomic_rmw('sub', rc_ptr, ir.Constant(word, 1),
+                                          ordering='release')
+            is_last = self.builder.icmp_signed("==", old, ir.Constant(word, 1),
+                                               name="env_last_owner")
+            with self.builder.if_then(is_last):
+                self.builder.fence(ordering='acquire')
+                self.builder.call(dtor_ptr, [env_ptr])
 
     def _emit_array_cleanup_at(self, array_ptr, saw_type: SawType):
         """Release every element of the fixed array at `array_ptr`, in REVERSE
@@ -571,6 +586,11 @@ class ResourcesMixin:
                 v2 = self.builder.call(fn, [v], name="retain_bump")
                 self.builder.store(v2, ptr)
                 return
+        if saw_type.kind == TypeKind.FUNCTION:
+            # An escaping closure is ImplicitCopy (design 73): retaining bumps its
+            # heap env's refcount (a null-env/non-owning closure is a no-op).
+            self._emit_closure_retain_at(ptr)
+            return
         if saw_type.kind == TypeKind.ENUM:
             self._emit_enum_retain_at(ptr, saw_type)
             return
@@ -581,6 +601,32 @@ class ResourcesMixin:
             self._emit_array_retain_at(ptr, saw_type)
             return
         self._emit_field_retain_at(ptr, saw_type)
+
+    def _emit_closure_retain_at(self, ptr):
+        """Bump the refcount of the escaping closure stored at `ptr` (design 73).
+        The closure value bytes are unchanged (the shared env pointer is aliased),
+        so no store-back is needed — only the atomic increment."""
+        closure_val = self.builder.load(ptr, name="closure_retain")
+        if (not isinstance(closure_val.type, ir.LiteralStructType)
+                or len(closure_val.type.elements) != 3):
+            return
+        env_ptr = self.builder.extract_value(closure_val, 1, name="retain_env")
+        dtor_ptr = self.builder.extract_value(closure_val, 2, name="retain_dtor")
+        self._emit_closure_env_retain(env_ptr, dtor_ptr)
+
+    def _emit_closure_env_retain(self, env_ptr, dtor_ptr):
+        """Atomic +1 on an escaping closure's env refcount word (design 73),
+        guarded by a non-null dtor (a null-env / non-owning closure retains as a
+        no-op). Mirrors String's monotonic retain."""
+        word = self.int_type
+        null_dtor = ir.Constant(dtor_ptr.type, None)
+        has_dtor = self.builder.icmp_unsigned("!=", dtor_ptr, null_dtor,
+                                              name="closure_has_dtor")
+        with self.builder.if_then(has_dtor):
+            rc_ptr = self.builder.bitcast(env_ptr, word.as_pointer(),
+                                          name="env_rc_ptr")
+            self.builder.atomic_rmw('add', rc_ptr, ir.Constant(word, 1),
+                                    ordering='monotonic')
 
     def _emit_array_retain_at(self, array_ptr, saw_type: SawType):
         elem_type = saw_type.array_element_type
@@ -706,6 +752,11 @@ class ResourcesMixin:
             if self.functions.get(copy_name) is not None:
                 self._emit_drop_at(ptr, saw_type)
                 return
+        if saw_type.kind == TypeKind.FUNCTION:
+            # ImplicitCopy closure: release == drop (refcount decrement, teardown
+            # at zero) — the exact inverse of `_emit_closure_retain_at` (design 73).
+            self._emit_closure_drop_at(ptr, saw_type)
+            return
         if saw_type.kind == TypeKind.ENUM:
             self._emit_enum_release_at(ptr, saw_type)
             return
@@ -837,6 +888,19 @@ class ResourcesMixin:
         if saw_type.kind == TypeKind.ARRAY:
             return self._emit_array_deep_copy(value, saw_type)
 
+        # An escaping closure is ImplicitCopy (design 73): copying it bumps the
+        # shared heap env's refcount and returns the same (aliased) value. A
+        # null-env / non-owning closure retains as a no-op. Non-escaping closures
+        # are borrows — bitwise, no retain.
+        if (saw_type.kind == TypeKind.FUNCTION
+                and getattr(saw_type, 'func_is_escaping', False)):
+            if (isinstance(value.type, ir.LiteralStructType)
+                    and len(value.type.elements) == 3):
+                env_ptr = self.builder.extract_value(value, 1, name="copy_env")
+                dtor_ptr = self.builder.extract_value(value, 2, name="copy_dtor")
+                self._emit_closure_env_retain(env_ptr, dtor_ptr)
+            return value
+
         # A type with its own copy() method (ImplicitCopy String/Arc/user) — call
         # it (a cheap refcount bump for String/Arc).
         type_name = self._type_method_base(saw_type)
@@ -943,6 +1007,12 @@ class ResourcesMixin:
             # DF3 (design 57): a copied/retained value wrapped into an optional
             # parameter — the Some(...) owns the fresh reference.
             return self._maybe_autowrap_optional(value_expr, value)
+        elif getattr(value_expr, 'closure_lend', False):
+            # An escaping closure LENT into a non-escaping (borrowing) slot (design
+            # 73): the callee borrows and never drops it, so the caller KEEPS
+            # ownership — do not clear its drop flag, or the env leaks. Pass the
+            # value by value (a shared env pointer); the caller drops it once.
+            pass
         elif isinstance(value_expr, Identifier):
             # No copy/retain was needed, yet the value is being transferred into a
             # NEW home — for a named owned (ExplicitCopy/NoCopy) binding that means
