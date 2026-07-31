@@ -178,7 +178,7 @@ extension TaskGroup {
             // earliest sleep deadline among the sleepers, and whether any task is
             // parked on IO.
             if live > 0 {
-                var deadline = 0 - 1     // min positive remaining; -1 = no sleeper
+                var deadline = -1        // min positive remaining; -1 = no sleeper
                 var io = false
                 var j = 0
                 while j < self.tasks.len() {
@@ -288,10 +288,10 @@ func __tg_worker(addr: Int) -> Int {
             pthread_mutex_lock(lk)
             let n = g[0].tasks.len()
             var live = 0
-            var idx = 0 - 1
+            var idx = -1
             var anyactive = false
             var anyio = false
-            var minrem = 0 - 1
+            var minrem = -1
             var i = 0
             while i < n {
                 if not g[0].done.get(i)! {

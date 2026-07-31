@@ -663,8 +663,40 @@ class ExpressionsMixin:
             return None
         underlying = self._get_underlying_type(operand_type)
         if expr.op == '-':
-            if underlying.kind in [TypeKind.INT, TypeKind.FLOAT]:
+            # Unary negation (design 77 item 8): signed integers (platform `Int`
+            # + fixed-width `Int8`..`Int64`) and `Float`. Negating a fixed-width
+            # signed int is checked-overflow at codegen exactly like `Int`
+            # (`-Int8.min` panics). Unsigned negation is a type error (there is no
+            # negative unsigned value).
+            signed_kinds = {TypeKind.INT, TypeKind.INT8, TypeKind.INT16,
+                            TypeKind.INT32, TypeKind.INT64}
+            unsigned_kinds = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16,
+                              TypeKind.UINT32, TypeKind.UINT64}
+            if underlying.kind in signed_kinds or underlying.kind == TypeKind.FLOAT:
+                # A negated fixed-width integer LITERAL folds to the negated
+                # constant at codegen (design 77 item 8); range-check that folded
+                # value here so `-128i8` (= Int8.min) is legal but `-200i8` is a
+                # clean error rather than a silent codegen truncation.
+                if (isinstance(expr.operand, IntLiteral)
+                        and underlying.kind in self._FIXED_INT_RANGES):
+                    lo, hi = self._FIXED_INT_RANGES[underlying.kind]
+                    neg = -expr.operand.value
+                    if not (lo <= neg <= hi):
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"integer literal {neg} does not fit in "
+                            f"`{operand_type}` (range {lo}..={hi})",
+                            expr.line, expr.column)
+                        return None
                 return operand_type
+            elif underlying.kind in unsigned_kinds:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"operator `-` cannot be applied to unsigned `{operand_type}` "
+                    f"(an unsigned integer has no negation)",
+                    expr.line, expr.column
+                )
+                return None
             else:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,

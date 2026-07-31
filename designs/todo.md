@@ -25,6 +25,25 @@ items need a probe before being treated as real work.
   does-not-conform error). Spec + saw-lang skill updated (CLAUDE.md on disk
   carries no `Global` mention). Test `errors/global_renamed_unknown`. Suite 835,
   bootstrap 17+17, libs 4+4. Standing policy oracle: whole suite green.
+- **Item 8 RIDER (unary minus on fixed-width ints) — LANDED.** `_check_unary_op`
+  now accepts signed fixed-width `Int8`..`Int64` (was `Int`/`Float` only);
+  unsigned negation is a clean error ("an unsigned integer has no negation").
+  Codegen negates via the existing checked subtract at the operand's WIDTH, so
+  `-Int8.min` panics ("integer overflow") like `Int`. A negated integer LITERAL
+  const-folds to the negated constant at width (`-128i8` = Int8.min directly,
+  not a runtime negation of the bit pattern), and the typechecker range-checks
+  the FOLDED value (`-200i8` is a clean error). Un-dodged the platform-Int
+  `0 - 1` sites (map/taskgroup) and `0.0 - mantissa` (string) to `-1`/`-mantissa`.
+  Tests: `unary_minus_fixed_width`, `unary_minus_int8_min_panics`,
+  `errors/unary_minus_unsigned`, `errors/unary_minus_literal_out_of_range`.
+  - **FLAGGED (pre-existing, orthogonal): a fixed-width int LOCAL from a BARE
+    literal is stored at platform width.** `let a: Int32 = 5` allocas `i64`, not
+    `i32` — the design-65 literal coercion range-checks but does not NARROW the
+    binding's storage. So `-a` there negates at i64 (no i32 overflow check);
+    genuine fixed-width values (cast- or suffix-derived, `5i32` / `(5 as Int32)`)
+    ARE i32 and negate/overflow correctly. Broader than negation (affects all
+    fixed-width let bindings); belongs with a fixed-width-narrowing pass. [53, 65]
+  Suite 839, bootstrap 17+17, libs 4+4. [59, 76, 53]
 - **Item 5 (A5-rest shape 1: buried suspending method sub-frame) — RE-LEDGERED
   (per the brief's escape hatch; rejection stays clean + anchored).** The FEATURE
   (embed a nested suspending METHOD call `let r = c.step()` as a sub-frame — the

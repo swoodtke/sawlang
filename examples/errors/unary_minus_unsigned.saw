@@ -1,0 +1,10 @@
+// Unary minus on an unsigned integer is a clean compile error — an unsigned
+// integer has no negation (design 77 item 8).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: operator `-` cannot be applied to unsigned `UInt8`
+
+func main() {
+    let u: UInt8 = 5
+    let x = -u
+    print(x as Int)
+}

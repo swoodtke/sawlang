@@ -1,0 +1,10 @@
+// Negating Int8.min overflows (its magnitude 128 is unrepresentable in Int8) and
+// panics, exactly like `Int` overflow (design 77 item 8, checked-overflow rule).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: integer overflow
+
+func main() {
+    let m = -128i8   // Int8.min (the -literal folds; the suffix IS Int8)
+    let x = -m       // magnitude 128 is out of Int8 range -> panic
+    print(x as Int)
+}

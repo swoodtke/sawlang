@@ -1063,10 +1063,17 @@ class OperatorsMixin:
         if expr.op == '-':
             if isinstance(operand.type, ir.DoubleType):
                 return self.builder.fneg(operand, name="negtmp")
+            # Negating an integer LITERAL folds to the negated constant at the
+            # operand's width (design 77 item 8): this makes `-128i8` the value
+            # Int8.min directly rather than a runtime negation of the i8 bit
+            # pattern `128` (= -128), which would overflow and panic. The
+            # typechecker range-checked the negated value against the target.
+            if isinstance(expr.operand, IntLiteral) and isinstance(operand.type, ir.IntType):
+                return ir.Constant(operand.type, -expr.operand.value)
             # Integer negation is `0 - x`; negating the signed minimum overflows
             # (its magnitude is unrepresentable) and panics (design 31). Unary `-`
-            # is signed-only (typechecker allows Int/Float), so a signed checked
-            # subtract is exactly right.
+            # is signed-only (typechecker allows signed Int/fixed-width/Float), so
+            # a signed checked subtract is exactly right.
             zero = ir.Constant(operand.type, 0)
             return self._checked_arith('-', zero, operand, True)
 

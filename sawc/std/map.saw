@@ -196,7 +196,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         }
         let mask = self.cap - 1
         var b = self._hash_code(key) & mask
-        var first_tomb = 0 - 1
+        var first_tomb = -1
         var probes = 0
         while probes < self.cap {
             let st = self._slot_state(b)
