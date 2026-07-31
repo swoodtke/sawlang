@@ -1,0 +1,19 @@
+// design 76 (A6): a call to an `extern blocking func` is a suspension point (the
+// call offloads to the hosted pool and suspends the task), so it is illegal in a
+// `sync` context — the effect checker rejects it, anchored, naming the blocking
+// extern and the suspension path.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in
+// EXPECT-ERROR-CONTAINS: blocking extern `slow`
+
+extern "C" {
+    blocking func slow(x: Int) -> Int
+}
+
+func f(x: Int) sync -> Int {
+    slow(x)
+}
+
+func main() {
+    print(f(3))
+}

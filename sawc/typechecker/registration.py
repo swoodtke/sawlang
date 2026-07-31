@@ -613,6 +613,20 @@ class RegistrationMixin:
         param_names = [p.name for p in extern_func.parameters]
         resolved_return_type = self._resolve_type(extern_func.return_type)
 
+        # design 76 (A6): `extern blocking func` needs the hosted offload pool.
+        # The freestanding profile has no threads/pool — reject it cleanly.
+        if getattr(extern_func, 'is_blocking', False) and self.freestanding:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`extern blocking func {extern_func.name}` is not available in the "
+                f"freestanding profile: blocking-call offload needs the hosted "
+                f"thread pool, which the freestanding runtime does not provide",
+                extern_func.line, extern_func.column,
+                hint="drop `blocking` (an unannotated extern promises promptness) "
+                     "or gate this module out of the freestanding build",
+            )
+            return
+
         existing = self.get_function_info(extern_func.name)
         if existing is not None:
             # Allow duplicate extern declarations with the same signature

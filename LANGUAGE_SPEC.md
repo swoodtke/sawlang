@@ -2480,6 +2480,60 @@ func job() -> Int {
 // let h = group.spawn(job());  h.cancel();  print(h.join())
 ```
 
+### Cooperative IO: the reactor (design 76)
+
+Unbounded external waits (sockets) never block the cooperative executor. A
+process-global **poller** — kqueue on macOS, epoll on Linux — is the reactor: when
+no task is runnable the executor blocks in the poller with a timeout equal to the
+earliest sleep deadline (never busy-waiting, never blocking while a task is
+runnable), and wakes tasks whose fds are ready.
+
+The surface mirrors the channel idiom: a **non-blocking `try_*` primitive** plus
+`io_wait(fd, dir)` in the caller's task body (`dir`: `0` = read, `1` = write).
+`io_wait` is a suspension point (like `yield_now`): it registers the fd with the
+reactor and parks the task until the fd is ready.
+
+```saw
+// std.net: nonblocking TCP over the reactor (loopback echo server task).
+func echo(fd: Int) -> Int {
+    let buf = net_buffer(64)
+    var n = 0
+    var going = true
+    while going {
+        let r = tcp_try_read(fd, buf, 64)     // non-blocking: bytes, or the
+        if net_would_block(r) {               //   would-block sentinel
+            io_wait(fd, 0)                     // park the TASK until readable
+        } else {
+            n = r; going = false
+        }
+    }
+    // ... echo the bytes back with tcp_try_write + io_wait(fd, 1) ...
+    net_free_buffer(buf, 64)
+    return n
+}
+// Setup: tcp_listen / tcp_local_port / tcp_connect_start+tcp_connect_check /
+// tcp_socketpair / tcp_close. Cancellation: check cancelled() BEFORE io_wait.
+```
+
+Bounded local IO stays synchronous (regular-file read/write) — the never-block
+invariant is about latency-UNBOUNDED waits, not IO in general.
+
+**`extern blocking func`.** An FFI call that may block for an unbounded time is
+annotated `blocking` inside an `extern` block; the call is a suspension point (it
+offloads to a hosted thread pool and suspends the task, rather than blocking the
+executor):
+
+```saw
+extern "C" {
+    blocking func db_query(id: Int) -> Int   // unbounded FFI -> suspends
+}
+```
+
+An unannotated extern promises promptness and is `sync`-callable. A `blocking`
+extern call is illegal in a `sync` context (a compile error, like any other
+suspension), and `blocking` externs are rejected in the freestanding profile
+(no thread pool).
+
 **Two engines coexist today, deliberately not unified.** `spawn`/`Task`/`Channel`
 (design 21b) run on a **thread-per-task** engine: `spawn` starts an OS thread,
 `Task.join()`/`Channel.recv()` block that thread, and `Deinit` joins an unjoined

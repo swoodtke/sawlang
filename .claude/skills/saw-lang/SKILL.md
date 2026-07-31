@@ -157,6 +157,22 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   `handle.cancel_addr() -> Int` (a Send address a canceller task sets).
 - Thread engine (`spawn`/`Task`/`Channel.recv`) is separate from the
   cooperative TaskGroup engine — don't mix per task.
+- Cooperative IO (design 76, std.net, hosted-only): a global kqueue/epoll reactor;
+  the executor polls it when nothing runs (timeout = earliest sleep deadline,
+  never busy-waits). Idiom = non-blocking `try_*` + `io_wait(fd, dir)` in the TASK
+  body (`dir` 0=read, 1=write), a suspension point that registers+parks until the
+  fd is ready: `while going { let r = tcp_try_read(fd,buf,n); if net_would_block(r)
+  { io_wait(fd,0) } else { ...; going=false } }`. Setup: `tcp_listen`/
+  `tcp_local_port`/`tcp_connect_start`+`tcp_connect_check`/`tcp_socketpair`/
+  `tcp_close`/`net_buffer`. Cancellation-aware: check `cancelled()` BEFORE
+  `io_wait`. MT groups: a frame can't hold a non-Send read buffer across a
+  suspend, so MT io parks on write-readiness only. First-class suspending
+  `tcp_read`/`accept`/`write` (no hand-written loop) is a future lift.
+- `extern "C" { blocking func f(...) -> T }` marks an unbounded FFI call: it
+  SUSPENDS (offloads to a hosted pool), is illegal in a `sync` context, and is
+  rejected in the freestanding profile. An unannotated extern promises promptness.
+  (Runtime offload pool is still pending — a blocking call inside a task body is
+  currently rejected, not yet run.)
 - Generic suspending functions/methods work (design 70 + 74): effect is
   re-inferred PER instantiation, so `f<A>` may suspend while `f<B>` is
   sync. You can `__drive` / `group.spawn` a generic instantiation, drive a
@@ -205,7 +221,21 @@ TYPE-carried (Unsafe* prefix), not region-carried — no unsafe blocks.
   `swap_out(i, v)` to move a slot out; `ref_at` for NoCopy access.
 - String `chars()` yields Int scalars (no Char type).
 - `to_int()`/`to_float()` are whole-string, no trimming → Optional.
-- std.time/std.process/std.file are HOSTED-only (link libc).
+- std.time/std.process/std.file/std.net are HOSTED-only (link libc).
+- `UnsafePointer<T> + n` / `- n` / `[i]` are ELEMENT-STRIDE GEPs (the C
+  convention: `UnsafePointer<Int32> + 1` advances 4 bytes). Use them for typed
+  pointer math. `ptr as Int` (+ int math + `as UnsafePointer<T>`) DESTROYS
+  provenance (blocks alias analysis) — reserve it for genuine address-as-number
+  cases (slab free-list). For byte-granular offsets, cast to `UnsafePointer<Int8>`
+  FIRST, then add.
+- STYLE: no commented magic numbers — name them. Use a module-level `static`
+  (`static AF_INET: Int32 = 2`, then `socket(AF_INET, ...)`) or a payload-free
+  enum for a closed set. Static inits accept only plain literals (no casts/
+  arithmetic); std-module statics are NOT visible cross-module yet.
+- For a KNOWN C struct, declare a typed Saw struct (declaration-order natural ABI,
+  design 58) as a stack local + `(&sa) as UnsafePointer<...>` for the syscall —
+  never a raw byte blob; alignment comes free from the widest field. Only
+  genuinely OS-divergent bytes need a compiler shim.
 - Blade: `blade build/run/test/new/add/tree/update`; Saw.toml
   `[dependencies] name = { path = "..." }` or `{ git = "...",
   version = "1.2.3" }` (bare version = exact pin; no registry yet).

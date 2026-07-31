@@ -64,6 +64,32 @@ items need a probe before being treated as real work.
     Same liveness class as the design's "join on a task that never observes
     cancellation blocks"; the landed model observes cancel at the check BEFORE
     parking. [18, 76]
+- **Commit 3 (A6 honest subset: `extern blocking` sync-reject + freestanding
+  reject):** the A6 FRONT-END was already wired (parse `extern "C" { blocking func
+  ... }`, `is_blocking` on the AST, blocking-extern as an effect suspension
+  source). This commit closes the two type-system halves: (1) a blocking-extern
+  call in a `sync` context is rejected by the effect checker, anchored, naming the
+  extern + suspension path (locked by `errors/blocking_extern_sync_reject`); (2)
+  declaring an `extern blocking func` in the FREESTANDING profile is a clean
+  registration-time error (no hosted pool). Suite 825, bootstrap 17+17, libs 4+4.
+  - **DEFERRED (A6 runtime offload — re-ledgered with the worked-out design):** the
+    hosted pool + coro lowering that makes a blocking call actually RUN in a task.
+    Today a blocking call inside a driven/spawned body is REJECTED (the synthesized
+    `resume` is `sync`, so the blocking suspension source trips the sync check — an
+    honest rejection, not a miscompile, though the message points at
+    `__Frame_*.resume`). Design (reuses ALL the A4 infra): C shims
+    `saw_offload_start(fnptr, arg) -> job` / `saw_offload_done(job)` /
+    `saw_offload_pipe_fd(job)` / `saw_offload_take(job)` — start spawns a
+    thread-per-call that runs the extern, stores the result, and writes a byte to
+    the job's pipe; the call site desugars (BEFORE typecheck, so the frame builder
+    sees the new locals) to `let j = __blk_start(slow(arg)); while __blk_done(j)==0
+    { io_wait(__blk_fd(j), 0) }; let r = __blk_take(j)`. The two frictions that make
+    it non-trivial: (a) function-address is NOT expressible in Saw (`slow as Int`
+    errors), so `__blk_start` must be a CODEGEN intrinsic that resolves the extern's
+    ir.Function and bitcasts it to i64; (b) the desugar must run pre-typecheck (or
+    register `__job` with the frame builder) so the offload locals are
+    frame-resident. v1 restriction: blocking externs typed `(Int) -> Int` (the
+    offload thunk is `i64(*)(i64)`); multi-arg is future. [18, 22, 76]
 - **Commit 2 (MT reactor integration + std.net named constants):** the design-75
   multi-threaded worker (`__tg_worker`) gained the io phase. CHOICE (reported):
   **poll on an idle worker with a BOUNDED timeout** (earliest sleep deadline, else
@@ -457,8 +483,11 @@ items need a probe before being treated as real work.
   nonblocking TCP; ST group + entry executor never-block poll. Remainders
   re-ledgered under design 76 (MT integration, first-class inline-lowered
   read/accept/write). [18, 76]
-- **A6.** `extern blocking` offload pool (front-end parse/effect/sync already
-  wired; runtime offload pool + coro lowering pending — design 76). **A7.**
+- **A6.** `extern blocking` offload pool. PARTLY DONE (design 76): front-end
+  (parse/effect) + the two type-system rejections landed — a blocking call in a
+  `sync` context is rejected (anchored), and a blocking extern in the freestanding
+  profile is rejected at registration. Runtime offload pool + coro lowering
+  DEFERRED with the worked-out design (re-ledgered under design 76). **A7.**
   Separate-compilation interface format w/ suspends bit. ~~**A8.** Suspension-path
   diagnostic anchors.~~ DONE (design 74): coroutine-transform rejections + sync
   violations anchor at the user's file:line:col with a source snippet, naming the
