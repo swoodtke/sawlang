@@ -574,7 +574,10 @@ class CallsMixin:
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name in self.type_param_context:
             saw_type = self.type_param_context[saw_type.struct_name]
         llvm_type = self._get_llvm_type(saw_type)
-        size = llvm_type.get_abi_size(self.target_data)
+        # `sizeof<Void>()` is 0 (Void is the zero-size type; it reaches here via a
+        # Void-result Task control block, design 77 item 1). LLVM has no ABI size
+        # for `void`, so fold it directly.
+        size = 0 if isinstance(llvm_type, ir.VoidType) else llvm_type.get_abi_size(self.target_data)
         return ir.Constant(self.int_type, size)  # sizeof<T>() -> platform Int
 
     def _generate_alignof(self, expr: FunctionCall):
@@ -1186,6 +1189,11 @@ class CallsMixin:
         closure_expr = expr.arguments[0].value
         result_saw = getattr(expr, 'spawn_result_type', None) or SawType(TypeKind.VOID)
         result_llvm = self._get_llvm_type(result_saw)
+        # A Void spawn body has no value to carry back: LLVM forbids a `void`
+        # field in the control-block struct, so the result slot becomes a 1-byte
+        # placeholder (never stored, never read — Task<Void>.join yields Void).
+        result_is_void = isinstance(result_llvm, ir.VoidType)
+        slot_llvm = ir.IntType(8) if result_is_void else result_llvm
 
         # Build the closure: heap env (escapes=True was set by the typechecker),
         # plus the generated body fn and env pointer/destructor.
@@ -1195,7 +1203,7 @@ class CallsMixin:
         env_dtor = getattr(closure_expr, 'codegen_env_dtor', None)
 
         # Control block: { pthread_t tid (i8*), i8* env, T result }.
-        cb_ty = ir.LiteralStructType([i8ptr, i8ptr, result_llvm])
+        cb_ty = ir.LiteralStructType([i8ptr, i8ptr, slot_llvm])
         cb_size = cb_ty.get_abi_size(self.target_data)
         raw = self.builder.call(
             self.functions["saw_alloc"],
@@ -1208,7 +1216,8 @@ class CallsMixin:
         self.builder.store(env_val, env_slot)
 
         # Emit the trampoline and launch the thread.
-        tramp = self._generate_spawn_trampoline(cb_ty, result_llvm, closure_fn, env_dtor)
+        tramp = self._generate_spawn_trampoline(
+            cb_ty, result_llvm, closure_fn, env_dtor, result_is_void)
         tid_slot = self.builder.gep(
             cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)],
             name="task_tid_slot")
@@ -1232,7 +1241,8 @@ class CallsMixin:
             task_val, ir.Constant(ir.IntType(1), 0), 1, name="task_joined")
         return task_val
 
-    def _generate_spawn_trampoline(self, cb_ty, result_llvm, closure_fn, env_dtor):
+    def _generate_spawn_trampoline(self, cb_ty, result_llvm, closure_fn, env_dtor,
+                                   result_is_void=False):
         """Emit the `i8*(i8*)` pthread start routine for one spawn site.
 
         Loads the env from the control block, runs the closure body, stores the
@@ -1254,9 +1264,14 @@ class CallsMixin:
         env = b.load(
             b.gep(cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 1)]),
             name="env")
-        result = b.call(closure_fn, [env], name="body_result")
-        b.store(result,
-                b.gep(cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 2)]))
+        if result_is_void:
+            # Void body: run it for effect, nothing to store (the slot is a
+            # placeholder i8).
+            b.call(closure_fn, [env], name="body_void")
+        else:
+            result = b.call(closure_fn, [env], name="body_result")
+            b.store(result,
+                    b.gep(cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 2)]))
         # The task frame owns the closure's +1 reference (design 73): releasing it
         # on the task thread is THE release — atomic decrement of the env refcount,
         # and at zero the dtor (captures teardown + block free), exactly once. The

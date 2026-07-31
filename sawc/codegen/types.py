@@ -72,6 +72,13 @@ class TypesMixin:
             if saw_type.inner_type is None:
                 raise ValueError("Pointer type missing inner type")
             pointee_type = self._get_llvm_type(saw_type.inner_type)
+            # `UnsafePointer<Void>` behaves like C `void*`: LLVM forbids a
+            # pointer to `void`, so model it as `i8*` (byte-addressed). The
+            # pointee may reach `void` only after type-param substitution
+            # (T -> Void), so check the resolved LLVM type. Arises for a
+            # Void-result Task control block (design 77 item 1).
+            if isinstance(pointee_type, ir.VoidType):
+                return ir.IntType(8).as_pointer()
             return ir.PointerType(pointee_type)
         elif saw_type.kind == TypeKind.EXISTENTIAL:
             # `any Trait` (design 51): a fat pointer { data ptr, vtable ptr }.

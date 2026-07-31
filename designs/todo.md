@@ -11,6 +11,16 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 77 — Generics & closures completion + accumulated riders (IN PROGRESS)
+- **Item 1 (spawn-Void ICE) — LANDED.** `spawn { void_body }` ICE'd building the
+  `{i8*, i8*, void}` control block (a `void` struct field is illegal LLVM). The
+  result slot becomes a 1-byte placeholder for a Void body (never stored/read in
+  the trampoline); `UnsafePointer<Void>` now lowers to `i8*` (C `void*`) and
+  `sizeof<Void>()` folds to 0, so the GENERIC `Task<Void>.join`/`deinit` stdlib
+  paths (result cast/load/dealloc-size) monomorphize cleanly. Both explicit-join
+  and drop-joins-it exercised. Test `spawn_void_body`. Suite 826, bootstrap 17+17,
+  libs 4+4. [75]
+
 ## Design 76 — A4 IO reactor + A6 extern-blocking + A3 remainder (IN PROGRESS)
 - **Commit 1 (A4 reactor + std.net + A3 io-cancel; ST + entry executor):** A
   process-global **kqueue (macOS) / epoll (Linux)** reactor (compiler seams in
