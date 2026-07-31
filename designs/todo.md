@@ -124,6 +124,15 @@ In progress (interruption-safe: one DF per commit). Progress log (newest last):
   original ledger over-narrowed it). Fix: emit `ir.Undefined` of the return type on
   that unreachable path (functions, methods, closures — the three parallel sites).
   Regression: `examples/return_struct_from_branches.saw`. Suite 767 -> 768.
+- **DF7 LANDED** — an `if let` whose branches produce a VOID value (a call to a
+  user function returning Void — which, unlike `print`, yields a NON-None void
+  value) reached the result-capturing path and allocated a Void stack slot,
+  asserting in llvmlite ("not isinstance(pointee, VoidType)"). Precise trigger:
+  a void USER-function-call branch tail (not the ledger's `{ return }`, which
+  terminates the block -> None and was already safe). Fix: normalize a Void
+  branch value to None in `_generate_if_let_expression`, mirroring the Void
+  contract `_generate_if_expression` already enforces. Regression:
+  `examples/if_let_void_branches.saw`. Suite 768 -> 769.
 
 ## Design 64 — Blade for real (deps/semver/lock/git/incremental/self-host)
 

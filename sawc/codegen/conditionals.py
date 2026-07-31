@@ -275,6 +275,17 @@ class ConditionalsMixin:
         else_terminated = self.builder.block.is_terminated
         else_bb_end = self.builder.block
 
+        # A branch that produces only a Void value (e.g. a void call tail like
+        # `foo(x)` in `if let x = opt { foo(x) } else { foo(0) }`) yields no
+        # consumable result — normalize it to None so the result-capturing logic
+        # below never allocas a Void slot (an alloca of a Void type asserts inside
+        # llvmlite: "not isinstance(pointee, VoidType)"). Mirrors the Void contract
+        # `_generate_if_expression` already enforces (DF7).
+        if then_val is not None and isinstance(then_val.type, ir.VoidType):
+            then_val = None
+        if else_val is not None and isinstance(else_val.type, ir.VoidType):
+            else_val = None
+
         # Helper to check if a type is an optional struct
         def is_optional_struct(t):
             return (isinstance(t, ir.LiteralStructType) and
