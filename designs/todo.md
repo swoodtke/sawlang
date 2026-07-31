@@ -12,6 +12,32 @@ items need a probe before being treated as real work.
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
 ## Design 81 — Unsafe surface (`unsafe` marker + escape rules + with_ref) (IN PROGRESS)
+- **String-escape rider (silent backslash-drop) — LANDED.** `"\r\n"` mis-lexed as
+  `"r\n"` (len 2, bytes 114/10): the lexer dropped the backslash on any UNKNOWN
+  escape and kept the raw char. Fixed in `read_string`: added `\r` (CR 13) and
+  `\0` (NUL 0, counted by len — interior NULs are representable), and any OTHER
+  unknown escape is now a clean lex error (``unknown escape `\d` ``) — never a
+  silent drop. Supported set is exactly `\\ \" \n \t \r \0 \u{...}` + `\{ \}`.
+  CRLF-in-SOURCE already lexes cleanly (a `\r` between tokens is skip_whitespace);
+  verified (a real-CRLF .saw compiles + runs). Tests: `string_escapes` (\r\n =
+  13/10, \0 counted, \t = 9), `errors/string_unknown_escape`. Docs: spec string
+  section + saw-lang skill escape list. Suite 856, bootstrap 17+17, libs 4+4. [81, 07]
+- **CORE (marker + escape rules + with_ref) + std/example sweep — LANDED** (commit
+  da64eb0). `unsafe <expr>` marks a raw-pointer op whose pointer flows INVISIBLY
+  (deref/index/write, pointer arith, binding a pointer produced by a call) in a
+  function whose own signature carries no `Unsafe*` type; a cast naming
+  `UnsafePointer<T>` (and any op transitively inside it), a pointer field/param/arg
+  are already VISIBLE (no marker). Marked domain = signature carries a raw pointer
+  OR a `self`-receiver method of a struct with a raw-pointer field (field decl is
+  the marker → container access methods stay marker-free; a no-`self` factory like
+  Box.make shows the marker). `unsafe`-on-nothing = clean error. Grammar: `unsafe`
+  just below assignment, looser than every operator; `unsafe p[0] = 5` marks the
+  whole store (parser lifts off the lvalue). `Vector.with_ref`/`with_var_ref`
+  (generic-R, `sync` body, non-escaping lend) REPLACE the removed `ref_at`;
+  taskgroup executor migrated (returns a `__ResumeOutcome` struct out of the
+  borrow). Synthesized coro code exempt by provenance. Suite 854. STILL TODO:
+  dedicated rule-table tests, fixed-width arithmetic rider, spec/skill/CLAUDE.md
+  docs. [81, 80, 46, 42, 29]
 - **CI rider (Linux `_NSGetArgc`/`_NSGetArgv` link failure) — LANDED.** The first
   GitHub Actions run failed on ubuntu: `std/env.saw` used Apple-only crt_externs
   `_NSGetArgc`/`_NSGetArgv`, so every Linux link died with "undefined reference to

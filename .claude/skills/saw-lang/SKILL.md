@@ -29,7 +29,9 @@ print("hi {name}: {p}")    // interpolation; user types need Printable
 - `for i in 0..5` / `0..=5`; `while cond {}` / infinite `while {}`.
 - Integer literals: `0xFF`, `0b1010`, `1_000_000`, fixed-width
   suffixes `255u8`/`1_000i32` (exact-typed, range-checked).
-- `\u{1F600}` escapes; strings are immutable UTF-8, refcounted.
+- Escapes: exactly `\\ \" \n \t \r \0 \u{1F600}` + `\{ \}` (brace forms);
+  `\0` is an interior NUL that `len()` counts. Any other escape is a lex
+  error (no silent drop). Strings are immutable UTF-8, refcounted.
 - Comments `//`. No semicolons. `not` for logical negation.
 
 ## Ownership (the part that bites)

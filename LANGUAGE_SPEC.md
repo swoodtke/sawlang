@@ -472,11 +472,19 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   construction: concatenation and interpolation build fresh buffers (an
   `s + t` loop is O(n²); the mutable, geometrically-growing `StringBuilder`
   (design 38) is the efficient builder — `append`/`build`).
+- **Escape sequences.** The supported escapes in a string literal are exactly
+  `\\`, `\"`, `\n` (LF, 10), `\t` (tab, 9), `\r` (CR, 13), `\0` (NUL, 0),
+  `\u{...}`, plus the `\{` / `\}` brace forms (a literal brace, distinct from
+  interpolation). `\0` produces an interior NUL that `len()` counts (a `String`
+  is length-prefixed, not NUL-terminated). Any OTHER backslash sequence is a
+  clean **lex error** naming it (``unknown escape `\d` ``) — the backslash is
+  never silently dropped.
 - **`\u{...}` escapes** (design 53). A string literal may contain a Unicode
   scalar escape `\u{1F600}` — 1–6 hex digits — encoded to its UTF-8 bytes in the
   literal. Surrogates (`D800`–`DFFF`) and code points above `0x10FFFF` are
   rejected *at lex time*, so a literal can never hold an invalid scalar. It
-  composes with interpolation: `"{x} \u{2713}"`.
+  composes with interpolation: `"{x} \u{2713}"`. Source files with CRLF
+  (`\r\n`) line endings lex cleanly — a `\r` between tokens is line whitespace.
 - **UTF-8 guarantee.** A `String` always holds valid UTF-8. Two doors admit
   bytes and both enforce it: **string literals** are validated for free — source
   files are decoded as UTF-8 before lexing, and the only escape that introduces

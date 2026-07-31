@@ -268,10 +268,19 @@ class Lexer:
             if self.peek() == '\\':
                 self.advance()
                 ch = self.advance()
+                # The supported escape set is EXACTLY: \\ \" \n \t \r \0 \u{...}
+                # plus the \{ \} brace forms. Any other sequence is a clean lex
+                # error — never a silent backslash-drop (which used to turn
+                # `"\r\n"` into `"r\n"`).
                 if ch == 'n':
                     result.append('\n')
                 elif ch == 't':
                     result.append('\t')
+                elif ch == 'r':
+                    result.append('\r')          # carriage return (13)
+                elif ch == '0':
+                    result.append('\x00')        # NUL (0); interior NULs are
+                                                 # representable (String design)
                 elif ch == '"':
                     result.append('"')
                 elif ch == '\\':
@@ -283,7 +292,8 @@ class Lexer:
                 elif ch == 'u':
                     result.append(self._read_unicode_escape())
                 else:
-                    result.append(ch)
+                    self.error(f"unknown escape `\\{ch}` in a string literal "
+                               f"(supported: \\\\ \\\" \\n \\t \\r \\0 \\u{{...}})")
             elif self.peek() == '{':
                 # Interpolation detected - preserve braces for parser
                 has_interpolation = True
