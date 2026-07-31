@@ -622,7 +622,16 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         try:
             changed = transform_program(entry_ast, typechecker)
         except CoroTransformError as e:
-            print(f"\033[1;31merror\033[0m: {e.message}", file=sys.stderr)
+            # design 74 (A8): anchor the coroutine-transform rejection at the
+            # user's source line (file:line:col + snippet) via the shared error
+            # reporter, exactly like a type error — never a bare message.
+            if getattr(e, "line", 0):
+                reporter.error(
+                    ErrorKind.TYPE_MISMATCH, e.message, e.line,
+                    e.column or 1, source_file=e.source_file)
+                reporter.print_all()
+            else:
+                print(f"\033[1;31merror\033[0m: {e.message}", file=sys.stderr)
             sys.exit(1)
         if changed:
             if verbose:

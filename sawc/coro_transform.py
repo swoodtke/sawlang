@@ -45,12 +45,17 @@ from ast_nodes import (
 
 class CoroTransformError(Exception):
     """A driven construct the v1 transform cannot yet express soundly. Surfaced
-    as a compile error rather than a silent miscompile (hazard discipline)."""
-    def __init__(self, message, line=0, column=0):
+    as a compile error rather than a silent miscompile (hazard discipline).
+
+    design 74 (A8): carries `source_file` so the surfacing site can anchor the
+    diagnostic at the user's `file:line:col` (with a source-context snippet)
+    instead of a bare message pointing nowhere."""
+    def __init__(self, message, line=0, column=0, source_file=None):
         super().__init__(message)
         self.message = message
         self.line = line
         self.column = column
+        self.source_file = source_file
 
 
 # --------------------------------------------------------------------------- #
@@ -304,6 +309,9 @@ class _FrameBuilder:
         # binding types when a suspension splits a `match` across states).
         self.func = func
         self._tc = tc
+        # design 74 (A8): the user file this frame's function came from, so every
+        # rejection this builder raises anchors at the user's source.
+        self.src_file = getattr(func, 'source_file', None)
         self.is_method = struct_name is not None
         self.struct_name = struct_name
         if self.is_method:

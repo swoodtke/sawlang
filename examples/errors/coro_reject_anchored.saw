@@ -1,0 +1,21 @@
+// design 74 (A8): a coroutine-transform rejection anchors at the USER's source
+// line (file:line:col + snippet) via the shared error reporter — not a bare
+// message pointing nowhere. Here a suspending call buried in an expression
+// position is rejected, and the diagnostic points at the exact call site.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: nested/expression position
+// EXPECT-ERROR-CONTAINS: coro_reject_anchored.saw:15:17
+
+func slow(n: Int) -> Int {
+    __suspend()
+    n * 2
+}
+
+func outer(x: Int) -> Int {
+    let r = 1 + slow(x)
+    r
+}
+
+func main() {
+    print(__drive(outer(5)))
+}

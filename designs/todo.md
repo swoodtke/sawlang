@@ -11,6 +11,17 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 74 — A5-rest: finish effect-polymorphism shapes + A8 anchors (IN PROGRESS)
+- **Commit 1 (A8 — diagnostic anchoring):** A coroutine-transform rejection
+  (`CoroTransformError`) now anchors at the user's `file:line:col` with a source
+  snippet through the shared `ErrorReporter`, exactly like a type error — it was
+  a bare message pointing nowhere. `CoroTransformError` carries `source_file`;
+  `_FrameBuilder` stashes `self.src_file` from its function; sawc.py surfaces the
+  rejection via `reporter.error(...)` (falling back to the entry file for a
+  single-file program). Locked by `examples/errors/coro_reject_anchored.saw`
+  (asserts the `file:line:col` anchor on a buried-suspend rejection). Suite 808,
+  bootstrap 17+17, libs 4+4. [74, 69]
+
 ## Design 72 — Small fixes: L12/M1, L9, erased-error downcasting (LANDED)
 - **Commit 1 (L12/M1 — fixed-array builtins):** Fixed arrays `[T; N]` gained two
   builtin members and only these two: `.len()` (folds to the compile-time
