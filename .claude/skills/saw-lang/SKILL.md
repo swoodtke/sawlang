@@ -176,13 +176,18 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   `IoError: Error` (errno-shaped) — interpolate it (`"{e}"`). accept/read/connect
   are cancellation-observing at their internal park. The design-76 raw `tcp_*`/
   `net_*`/`io_wait` free functions are now PRIVATE std internals — do not use them.
-- ⚠ Known runtime limit (pre-existing coroutine bug, design 84 tracker): a
-  driven/SPAWNED worker that makes a SECOND suspending call AFTER the FIRST one
-  PARKS on the reactor hangs (e.g. a worker that does `read()` then `write_all()`,
-  or an accept-then-serve loop). Reproduces with plain suspending free functions —
-  NOT net-specific. Until fixed, keep each spawned worker to a single parking net
-  call (one direction), or drive sequentially. A single-nested-call-per-worker
-  round-trip works reliably.
+- A spawned worker that makes MULTIPLE parking net calls now works — `read()`
+  then `write_all()`, a read/write loop, or accumulating chunks across reads
+  (`req.append(move chunk)`) — as long as the group is DRIVEN (its `TaskHandle`
+  is `join()`ed, or the group tears down). Fixed by design 85 (fcntl variadic
+  ABI) + design 86 (`&var self` mutation on an opt-encoded frame-local across a
+  suspend now writes back to the real frame slot). ⚠ Remaining limit: a worker
+  spawned into a group that is NEVER joined AND never drained while another task
+  parks (an infinite `accept`-then-`spawn` server loop that never joins its
+  handles) does not run its handlers until group teardown — main's `accept`-park
+  entry-executor does not drive a sibling group's queue. Serve request/response
+  via an explicit `group.spawn(...)` + `join()` (structured, drained), which
+  drives the workers to completion.
 - `extern "C" { blocking func f(...) -> T }` marks an unbounded FFI call: it
   SUSPENDS (offloads to a hosted pool), is illegal in a `sync` context, and is
   rejected in the freestanding profile. An unannotated extern promises promptness.

@@ -12,6 +12,42 @@ items need a probe before being treated as real work.
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
 ## Design 86 — httpd-runtime cleanup (IN PROGRESS)
+- **Item 3 (`&var self` mutation on an opt-encoded frame-local across a suspend)
+  — LANDED.** ROOT CAUSE: in `_generate_method_call` (codegen/calls.py), the
+  `is_mutable_self` receiver-addressing chain handled `Identifier`/`SelfExpr`/
+  `MemberAccess`/`ArrayIndex` but NOT `ForceUnwrap`. A `Data`/`StringBuilder`
+  frame-local accumulated across a suspend is opt-encoded (design 62), and the
+  transform rewrites a bare receiver `acc` → `self.acc!` (`_rewrite_node` →
+  `ForceUnwrap`). That `ForceUnwrap` receiver fell through to the `else` branch
+  that STORES a loaded copy into a fresh `self_temp` alloca and mutates the copy —
+  so `acc.push(...)` / `req.append(move chunk)` across a park wrote to a discarded
+  temporary and the real frame slot never changed. Silent in a pure loop (probe
+  printed 0 instead of 3); a HANG in net_http_roundtrip (the empty `req` never
+  matched the request terminator, so the handler re-`read()`s forever while the
+  peer waits for a response → deadlock). FIX: add a `ForceUnwrap` branch that
+  addresses the optional payload IN PLACE via `_generate_reference_expr(Reference
+  Expr(mutable=True))` — the design-84 `&(opt!)` addressing (None-checked GEP to
+  the payload slot) — so the `&var self` mutation lands on the real frame field
+  and survives the suspend. Safe: `ForceUnwrap` is not an owned-temporary, so no
+  stmt-temp double-free. TESTS: `net_accumulate_across_reads` (server appends 5
+  lock-step "abc" chunks into a frame-resident Data across read+ack parks, asserts
+  the FULL "abcabcabcabcabc" buffer + len 15) and the UN-QUARANTINED
+  `net_http_roundtrip` (moved scratch → examples/; a socketpair read→build→write
+  HTTP round-trip, now RUNS 5/1). Suite 876 (from 874), bootstrap 17+17, libs 4+4,
+  zero xfails. [86, 84, 62, 44]
+  - **httpd acceptance = the socketpair-reduced suite test (net_http_roundtrip).**
+    The live `.build/scratch/httpd_sw.saw` now COMPILES + its `handle_connection`
+    (`req.append(move chunk)` across `read()`) is unblocked, but the infinite
+    `accept`-loop server as written does NOT serve a live GET — verified: it binds
+    + prints "Serving …", but a `curl` GET returns empty. FLAG (separate
+    architectural gap, NOT item 3): the loop does `let _ = group.spawn(handle…)`
+    and NEVER `join()`s, so the spawned handlers only run at the group's Deinit
+    (never, the loop is infinite); main's `accept`-park entry-executor does not
+    drive a sibling group's run queue. net_http_roundtrip works because it
+    `join()`s (which drives the group to completion). The fix is executor
+    unification (main's park should drive spawned siblings) — a real concurrency-
+    architecture design, out of scope here; the brief explicitly accepts the
+    socketpair-reduced form as the acceptance. Skill runtime-limit note rewritten. [86]
 - **Item 2 (variadic libc declaration audit) — LANDED (CLEAN, no fix needed).**
   Swept every libc declaration the compiler/std makes: all `_libc_func` call
   sites + all direct `ir.Function` decls in `sawc/codegen/*.py`, and every

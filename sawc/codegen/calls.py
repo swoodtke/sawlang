@@ -14,7 +14,8 @@ from typing import List
 from llvmlite import ir
 from ast_nodes import (
     FunctionCall, StructInit, Argument, SawType, TypeKind,
-    MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit, ArrayIndex
+    MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit, ArrayIndex,
+    ForceUnwrap, ReferenceExpr
 )
 
 
@@ -987,6 +988,20 @@ class CallsMixin:
                 # 52b: `__group[0].__enqueue(...)`). Address the real element slot
                 # so the mutation lands on the pointee, not a materialized copy.
                 self_arg = self._get_element_pointer(expr.object)
+            elif isinstance(expr.object, ForceUnwrap):
+                # A `&var self` method on an opt-encoded lvalue `x!` — most
+                # commonly a coroutine frame-local `self.acc!` (design 62: an
+                # owning across-suspend local is opt-encoded, and `_rewrite_node`
+                # turns a bare `acc` receiver into `self.acc!`). Address the
+                # optional's payload IN PLACE (design 84 `&(opt!)`) so the mutation
+                # lands on the real frame slot and SURVIVES the suspend. Without
+                # this the receiver fell through to the materialize-a-temporary
+                # `else` below, mutating a discarded copy — every `req.append(...)`
+                # / `acc.push(...)` across a park was silently lost (design 86).
+                self_arg = self._generate_reference_expr(
+                    ReferenceExpr(expr=expr.object, mutable=True,
+                                  line=getattr(expr.object, 'line', 0),
+                                  column=getattr(expr.object, 'column', 0)))
             elif receiver_temp_slot is not None:
                 # An owned-temporary receiver already spilled to a slot for
                 # statement-scoped cleanup: mutate through that same slot so the

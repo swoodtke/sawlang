@@ -1,0 +1,47 @@
+// design 86: a `&var self` mutating method (`Data.append(move chunk)`) on an
+// OWNING frame-local ACCUMULATED across N read suspensions must mutate the REAL
+// frame slot — design 62 opt-encodes an across-suspend owning local, and the
+// receiver `acc` rewrites to `self.acc!`, which must be addressed IN PLACE
+// (design 84 `&(opt!)`), not copied to a throwaway temporary. Before the fix the
+// mutation was silently lost (the accumulated buffer stayed empty), which hung
+// net_http_roundtrip. Here the server reads N lock-step chunks, appends each into
+// a frame-resident Data ACROSS both the read park and the ack-write park, and
+// asserts the FULL concatenated buffer (exact content + length); the client sends
+// N distinct chunks lock-step. Deterministic on counts + content. Socketpair only.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+// 1
+
+func server(stream: TcpStream) -> Int {
+    var acc = Data()
+    var i = 0
+    while i < 5 {
+        let chunk = stream.read()          // park; one "abc" per read (lock-step)
+        acc.append(move chunk)             // &var self across the suspend -> frame slot
+        stream.write_all_str("k")          // ack so the client sends the next chunk
+        i = i + 1
+    }
+    let s = acc.to_string()
+    assert(s == "abcabcabcabcabc", "accumulated buffer wrong")
+    return acc.len()                       // 15 = 3 bytes * 5 chunks
+}
+
+func client(stream: TcpStream) -> Int {
+    var i = 0
+    while i < 5 {
+        stream.write_all_str("abc")
+        let ack = stream.read()            // wait for the server's ack before next
+        i = i + 1
+    }
+    1
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hs = group.spawn(server(move a))
+    let hc = group.spawn(client(move b))
+    print(hs.join())     // 15 = full accumulated buffer length
+    print(hc.join())     // 1  = all chunks sent
+}
