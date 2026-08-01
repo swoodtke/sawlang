@@ -12,6 +12,31 @@ items need a probe before being treated as real work.
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
 ## Design 86 — httpd-runtime cleanup (IN PROGRESS)
+- **Item 2 (variadic libc declaration audit) — LANDED (CLEAN, no fix needed).**
+  Swept every libc declaration the compiler/std makes: all `_libc_func` call
+  sites + all direct `ir.Function` decls in `sawc/codegen/*.py`, and every
+  `extern "C"` func across `sawc/std/*.saw`. Cross-referenced each name against
+  its C prototype. The COMPLETE set of variadic-in-C functions the toolchain
+  declares is exactly FOUR — all ALREADY declared variadic:
+  - `printf` — codegen core.py:336, `var_arg=True` ✓ (Float print path; Saw
+    Float is f64 so no float→double promotion gap).
+  - `snprintf` — codegen core.py:348, `var_arg=True` ✓ (int/float→string; ints
+    promoted to i64 for `%lld`/`%llu`).
+  - `fcntl` — codegen core.py:1354, `var_arg=True` ✓ (fixed in design 85 — the
+    bug that motivated this audit).
+  - `open` — std/file.saw:13, declared `func open(path, flags: Int32, ...)` ✓
+    (variadic since introduction f6ebd80; called with the variadic mode arg by
+    File.create/append `open(ptr, 577, 420)`).
+  Every OTHER extern is genuinely fixed-arity in C and correctly declared
+  non-variadic (malloc/free/fwrite/fflush/usleep/clock_gettime/memcpy/pthread_*/
+  close/kqueue/epoll_*/kevent/strlen/strcpy/strcat/abort/socket/bind/listen/
+  accept/connect/read/write/lseek/access/unlink/rename/mkdir/rmdir/opendir/
+  readdir/getenv/setenv/system/popen/fread/strlcpy/strlcat/fabs/… + the saw_*
+  seams). NO mis-declared variadic function remains after the design-85 fcntl
+  fix — nothing to change. Behavioral variadic coverage already in the suite:
+  the design-85 net tests (fcntl→O_NONBLOCK, the load-bearing case),
+  `file_simple` (open-with-mode create→write→reopen→read-back roundtrip), and
+  the float print/format tests (printf/snprintf varargs). Suite 874 unchanged. [86, 85]
 - **Item 1 (test-runner run-phase timeout) — LANDED.** `run_executable` now
   runs each test's binary under a hard, process-GROUP-aware wall-clock cap
   (`RUN_TIMEOUT_SECS = 30`): `subprocess.Popen(..., start_new_session=True)` +
