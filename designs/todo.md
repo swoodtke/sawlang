@@ -37,6 +37,15 @@ items need a probe before being treated as real work.
   of io-parks across multiple accepted fds (incl. fd-number reuse across connection
   turnover) each get their wakeup; the never-block invariant + earliest-deadline
   poll are untouched (no scheduler change).
+- **FLAG (pre-existing, orthogonal — NOT fixed here, API-change scope):**
+  `TcpStream.write_all`/`write_all_str` SILENTLY bail on a hard write error
+  (`w < 0` -> `going = false`, no signal) — this is exactly what MASKED the connect
+  bug (the ENOTCONN write vanished with no error). Their return type is `Void`, so
+  surfacing the error means changing the signature to `Result<Void, IoError>` (a
+  public-API change touching every call site) — deferred as a genuine design
+  decision rather than silently widened here. With connect fixed the socket is
+  connected before any write, so this path no longer fires in practice, but a real
+  broken-pipe mid-stream would still be swallowed. [90, 84]
 - **Result.** `probe_loopdiag` (server serves N=2 + 2 clients, one group) now
   round-trips fully (both connections read+write; result 2,1,1). Tests (all
   deterministic on content, time-bounded — the design-86 runner timeout catches a
