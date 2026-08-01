@@ -1,0 +1,88 @@
+// design 85 hazard: an owning value (Arc<Res>) live across BOTH parks of a
+// read-then-write worker must be dropped EXACTLY ONCE. The worker holds the moved-in
+// Arc across read (park 1) and write (park 2), then reports its strong count; the
+// frame owns one reference and releases it once at frame teardown. A drop-flag bug
+// across the multi-park sequence would either double-drop (Res deinits twice / count
+// off) or leak (never deinits). The single "deinit 7" plus strong_count == 2 is the
+// exactly-once proof. Deterministic; socketpair only.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 1
+// deinit 7
+// 999
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func read_n(fd: Int) -> Int {
+    let buf = unsafe net_buffer(16)
+    var n = 0
+    var going = true
+    while going {
+        let r = tcp_try_read(fd, buf, 16)
+        if net_would_block(r) {
+            io_wait(fd, 0)
+        } else {
+            n = r
+            going = false
+        }
+    }
+    net_free_buffer(buf, 16)
+    return n
+}
+
+func write_hi(fd: Int) -> Int {
+    let buf = unsafe net_buffer(2)
+    unsafe buf[0] = 104 as Int8
+    unsafe buf[1] = 105 as Int8
+    var off = 0
+    var going = true
+    while going {
+        let w = tcp_try_write(fd, unsafe buf + off, 2 - off)
+        if net_would_block(w) {
+            io_wait(fd, 1)
+        } else {
+            off = off + w
+            if off >= 2 {
+                going = false
+            }
+        }
+    }
+    net_free_buffer(buf, 2)
+    return off
+}
+
+// `a` (an Arc<Res>) is live across read (park 1) AND write (park 2).
+func worker(fd: Int, a: Arc<Res>) -> Int {
+    let _ = read_n(fd)                 // park 1
+    let _ = write_hi(fd)               // park 2
+    a.strong_count()                   // 2 = the frame's ref + the caller's k1
+}
+
+func client(fd: Int) -> Int {
+    let _ = write_hi(fd)               // send "hi" so the worker's read completes
+    let n = read_n(fd)                // read the worker's echo
+    if n == 2 { 1 } else { 0 }
+}
+
+func run() {
+    let pair = tcp_socketpair()
+    let a = Arc<Res>(value: Res(id: 7))    // strong = 1
+    let k1 = a.copy()                       // strong = 2
+    var group = TaskGroup()
+    let hs = group.spawn(worker(pair.0, move a))   // frame owns a's ref
+    let hc = group.spawn(client(pair.1))
+    print(hs.join())      // 2 = strong count with the frame still holding its ref
+    print(hc.join())      // 1 = round-trip content ok
+    tcp_close(pair.0)
+    tcp_close(pair.1)
+}   // group teardown drops the worker frame's Arc ref (2 -> 1); then k1 drops
+    // (1 -> 0) -> Res deinits EXACTLY ONCE
+
+func main() {
+    run()
+    print(999)
+}

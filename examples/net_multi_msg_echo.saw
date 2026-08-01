@@ -1,0 +1,47 @@
+// design 85 + 84: a TRUE multi-message echo over the SAFE owning method API. One
+// worker loops N times { read() [park] -> write_all() [park] } — nested suspending
+// METHOD calls, each parking, driven across repeated worker RE-ENTRY inside a loop.
+// The client sends N one-byte messages lock-step (send, wait for echo, repeat) so
+// each read yields exactly one message; it verifies every echo. This is
+// net_owning_echo extended from a single park to an unbounded read-then-write
+// sequence — the capability the design-85 fix unlocks. Deterministic on
+// counts + content. Socketpair only.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4
+// 4
+
+func echo_server(stream: TcpStream) -> Int {
+    var echoed = 0
+    var i = 0
+    while i < 4 {
+        let msg = stream.read()          // nested method call, parks
+        echoed = echoed + msg.len()
+        stream.write_all(move msg)       // nested method call, parks
+        i = i + 1
+    }
+    return echoed                        // total bytes echoed back
+}
+
+func client(stream: TcpStream) -> Int {
+    var matched = 0
+    var i = 0
+    while i < 4 {
+        stream.write_all_str("x")        // send one byte
+        let echo = stream.read()         // read its echo
+        if echo.to_string() == "x" {
+            matched = matched + 1
+        }
+        i = i + 1
+    }
+    return matched
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hs = group.spawn(echo_server(move a))
+    let hc = group.spawn(client(move b))
+    print(hs.join())     // 4 = one byte echoed per message
+    print(hc.join())     // 4 = every echo matched
+}

@@ -1,0 +1,69 @@
+// design 85: THREE nested suspending calls in sequence in one spawned worker, each
+// parking — read (park) -> write (park) -> read (park). Exercises multiple worker
+// RE-ENTRIES: sub-frame 1 parks+completes, sub-frame 2 is entered/parks+completes,
+// sub-frame 3 likewise — an arbitrary-length sequence of possibly-parking nested
+// calls. Lock-step over a socketpair so each read yields exactly one byte;
+// deterministic on the exchanged byte values.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 241
+// 65
+
+func read_one(fd: Int) -> Int {
+    let buf = unsafe net_buffer(1)
+    var v = 0
+    var going = true
+    while going {
+        let r = tcp_try_read(fd, buf, 1)
+        if net_would_block(r) {
+            io_wait(fd, 0)                 // park until a byte arrives
+        } else {
+            v = (unsafe buf[0]) as Int
+            going = false
+        }
+    }
+    net_free_buffer(buf, 1)
+    return v
+}
+
+func write_byte(fd: Int, b: Int) -> Int {
+    let buf = unsafe net_buffer(1)
+    unsafe buf[0] = b as Int8
+    var going = true
+    while going {
+        let w = tcp_try_write(fd, buf, 1)
+        if net_would_block(w) {
+            io_wait(fd, 1)                 // park until writable
+        } else {
+            going = false
+        }
+    }
+    net_free_buffer(buf, 1)
+    return 1
+}
+
+// Three parking nested calls in a row.
+func server(fd: Int) -> Int {
+    let b1 = read_one(fd)                  // park 1: receive 'x' (120)
+    let _ = write_byte(fd, 65)             // park 2: send 'A' (65)
+    let b2 = read_one(fd)                  // park 3: receive 'y' (121)
+    return b1 + b2                         // 120 + 121 = 241
+}
+
+func client(fd: Int) -> Int {
+    let _ = write_byte(fd, 120)            // 'x'
+    let a = read_one(fd)                  // read 'A'
+    let _ = write_byte(fd, 121)            // 'y'
+    return a                               // 65
+}
+
+func main() {
+    let pair = tcp_socketpair()
+    var group = TaskGroup()
+    let hs = group.spawn(server(pair.0))
+    let hc = group.spawn(client(pair.1))
+    print(hs.join())     // 241 = both received bytes summed
+    print(hc.join())     // 65 = the 'A' the server sent back
+    tcp_close(pair.0)
+    tcp_close(pair.1)
+}

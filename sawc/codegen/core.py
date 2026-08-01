@@ -581,6 +581,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         stream = b.load(stdout_g, name="stdout")
         b.call(fwrite_fn, [saw_write.args[0], ir.Constant(i64, 1),
                            saw_write.args[1], stream])
+        b.call(self._libc_func("fflush", ir.IntType(32), [i8ptr]), [stream])
         b.ret_void()
 
         # saw_panic: saw_write(msg, len) then abort(). Marked noreturn.
@@ -1344,7 +1345,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK). O_NONBLOCK is
         # 0x0004 on macOS, 0x0800 on Linux; F_GETFL=3 / F_SETFL=4 on both.
         o_nonblock = 0x0004 if apple else 0x0800
-        fcntl_fn = self._libc_func("fcntl", i32, [i32, i32, i32])
+        # `fcntl` is VARIADIC in C: `int fcntl(int fd, int cmd, ...)`. It MUST be
+        # declared with two fixed params + varargs, else on arm64 (Apple Silicon)
+        # the `...` argument — here the F_SETFL flag word — is passed in a register
+        # the variadic callee reads off the STACK, so it gets garbage and O_NONBLOCK
+        # is only "set" when the stack slot happens to hold it (a code-layout-
+        # sensitive heisenbug: nonblocking sockets that intermittently block).
+        fcntl_fn = self._libc_func("fcntl", i32, [i32, i32], var_arg=True)
         b = ir.IRBuilder(setnb.append_basic_block("entry"))
         fdi = b.trunc(setnb.args[0], i32)
         flags = b.call(fcntl_fn, [fdi, ir.Constant(i32, 3), ir.Constant(i32, 0)])

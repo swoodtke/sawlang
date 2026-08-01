@@ -1,0 +1,75 @@
+// design 85: the reduced repro. A spawned worker makes TWO nested suspending
+// FREE-function calls in sequence — read_n (parks on an empty socket) THEN
+// write_bytes (parks on would-block) — the exact shape that hung before the
+// variadic-`fcntl` fix (a socket whose O_NONBLOCK was set through a mis-passed
+// variadic arg would intermittently BLOCK, wedging the first read). Deterministic
+// byte round-trip over a socketpair: the server reads the client's "hi", echoes
+// "hi" back; the client verifies the echo. Asserts counts + content, never
+// interleaving. Loopback only.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 1
+
+func read_n(fd: Int) -> Int {
+    let buf = unsafe net_buffer(16)
+    var n = 0
+    var going = true
+    while going {
+        let r = tcp_try_read(fd, buf, 16)
+        if net_would_block(r) {
+            io_wait(fd, 0)             // park 1: until the peer sends
+        } else {
+            n = r
+            going = false
+        }
+    }
+    net_free_buffer(buf, 16)
+    return n
+}
+
+func write_hi(fd: Int) -> Int {
+    let buf = unsafe net_buffer(2)
+    unsafe buf[0] = 104 as Int8       // 'h'
+    unsafe buf[1] = 105 as Int8       // 'i'
+    var off = 0
+    var going = true
+    while going {
+        let w = tcp_try_write(fd, unsafe buf + off, 2 - off)
+        if net_would_block(w) {
+            io_wait(fd, 1)             // park 2: until writable
+        } else {
+            off = off + w
+            if off >= 2 {
+                going = false
+            }
+        }
+    }
+    net_free_buffer(buf, 2)
+    return off
+}
+
+// The worker: read (nested, parks) THEN write (nested, parks) — sub-frame 1 drives
+// to completion across a park, sub-frame 2 is entered and driven across its own park.
+func server(fd: Int) -> Int {
+    let n = read_n(fd)                // nested sub-frame 1 (parks, then completes)
+    let _ = write_hi(fd)              // nested sub-frame 2 (entered post-re-entry)
+    return n
+}
+
+func client(fd: Int) -> Int {
+    let _ = write_hi(fd)              // send "hi" (nested, parks)
+    let n = read_n(fd)               // read the echo back (nested, parks)
+    if n == 2 { 1 } else { 0 }
+}
+
+func main() {
+    let pair = tcp_socketpair()
+    var group = TaskGroup()
+    let hs = group.spawn(server(pair.0))
+    let hc = group.spawn(client(pair.1))
+    print(hs.join())     // 2 bytes read by the server
+    print(hc.join())     // 1 = the echo round-tripped
+    tcp_close(pair.0)
+    tcp_close(pair.1)
+}
