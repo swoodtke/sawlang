@@ -104,11 +104,40 @@ constrain + report.)
    queued task; MT group still works (design-75 suite green);
    deinit-exactly-once across the shared queue. The design-45/52b/76
    families are the oracle.
-6. Docs: spec concurrency (the single ambient executor + TaskGroup-as-
-   scope model; the structured-join guarantee; fairness note);
-   saw-lang skill (the server pattern now works — update; remove the
-   design-86 live-httpd limitation note); CLAUDE.md digest; tracker
-   (design 89 landed; executor-unification / live-server gap closed).
+6. **Cooperative budget (LAST commit unit — gated behind items 1-5
+   being green; DEFER to a follow-on brief if the core executor work
+   proves large/risky, re-ledger with analysis).** A per-task work
+   budget bounds how long an I/O task runs between yields, fixing the
+   ready-io-loop starvation caveat without preemption:
+   - Each frame carries a budget word (a frame-resident counter, like
+     the design-52b `__cancel` word), seeded to **128** at
+     (re)schedule.
+   - Every suspending primitive (read/accept/write/receive/etc.) that
+     completes WITHOUT parking decrements the budget; when it reaches
+     0, the NEXT suspending call yields anyway (park-and-immediately-
+     reschedule — a forced cooperative yield) and the budget resets.
+   - A call that ACTUALLY parks resets the budget (it already yielded).
+   - **Operation-count, NOT wall-clock** (decided): no clock read per
+     suspend — kernel-friendly (no cheap wall-clock on App-2 early),
+     cheap, and DETERMINISTIC (tests assert exact interleavings; a
+     time budget would be flaky).
+   - Purely at existing suspension points — still cooperative,
+     colorless, no new yield points / signals / language surface.
+   - Honest limit (document): only helps tasks that make SOME
+     suspending calls; a pure-compute-no-suspend loop still needs
+     `yield_now` or an MT thread (same as every cooperative runtime).
+   - Test (deterministic): two tasks, one doing a long run of
+     ALWAYS-READY reads (socketpair pre-filled) with no yield_now, the
+     other counting — assert the counter task makes progress bounded
+     by the budget (the ready-reader can't monopolize); budget-resets-
+     on-park case; the design-89 core tests unaffected.
+7. Docs: spec concurrency (the single ambient executor + TaskGroup-as-
+   scope model; the structured-join guarantee; implicit-yield +
+   cooperative-budget fairness); saw-lang skill (the server pattern
+   now works — update; remove the design-86 live-httpd limitation
+   note; note the budget so hot-loop authors understand fairness);
+   CLAUDE.md digest; tracker (design 89 landed; executor-unification /
+   live-server gap closed; cooperative budget landed or deferred).
 
 ## Hazards
 - Structured-join correctness: main returning must still drain its
