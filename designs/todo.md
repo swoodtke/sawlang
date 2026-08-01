@@ -11,6 +11,20 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 86 — httpd-runtime cleanup (IN PROGRESS)
+- **Item 1 (test-runner run-phase timeout) — LANDED.** `run_executable` now
+  runs each test's binary under a hard, process-GROUP-aware wall-clock cap
+  (`RUN_TIMEOUT_SECS = 30`): `subprocess.Popen(..., start_new_session=True)` +
+  `communicate(timeout=)`, and on expiry `os.killpg(SIGKILL)` the whole group
+  (not just the child) then reap. This closes the wedge where a hung test that
+  spawned OS threads / a grandchild holding the inherited stdout pipe would
+  block the post-timeout reaper forever — a live hazard for every concurrency
+  brief. A timed-out test is recorded FAILED (timeout), the runner never hangs.
+  Proof: `tools/test_runner_selftest.py` (NOT globbed by the .saw suite) — 4
+  cases incl. the grandchild-inherited-pipe wedge, all return < 10s under a 2s
+  cap; plain hang + nonzero-exit + normal-exit paths covered. Suite 874,
+  bootstrap 17+17, libs 4+4. [86]
+
 ## Design 84 — Safe net API: TcpListener/TcpStream owning types (IN PROGRESS)
 - **Coro lift landed (commit 1):** nested suspending METHOD call embedded
   as a sub-frame in a driven/spawned body (`let s = recv.m()`, bare

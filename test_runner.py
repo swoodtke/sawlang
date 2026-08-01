@@ -23,6 +23,7 @@ Test expectations are specified via comments in the source files:
 
 import os
 import sys
+import signal
 import subprocess
 import tempfile
 from pathlib import Path
@@ -195,24 +196,67 @@ def compile_saw_file(file_path: Path, output_path: Path,
         return False, "", f"Failed to run compiler: {e}"
 
 
-def run_executable(exe_path: Path) -> tuple[bool, str, str]:
+# Hard wall-clock cap on a single test's RUN phase. Generous vs. the
+# ~seconds a real test takes; its whole job is to stop a test that HANGS
+# AT RUNTIME (a live hazard for every concurrency brief) from wedging the
+# whole suite. On expiry the process GROUP is killed and the test is
+# recorded FAILED (timeout) — the runner never hangs.
+RUN_TIMEOUT_SECS = 30
+
+
+def run_executable(exe_path: Path, timeout: float = RUN_TIMEOUT_SECS) -> tuple[bool, str, str]:
     """
-    Run a compiled executable
+    Run a compiled executable under a hard, process-group-aware timeout.
+
+    The child is launched in its OWN process group (start_new_session=True) so
+    that on timeout we can SIGKILL the entire group — not just the direct
+    child. This matters because a hung test may have spawned OS threads or
+    child processes that inherited the stdout/stderr pipes; killing only the
+    parent would leave those holding the pipe open and `communicate()` would
+    block forever, wedging the runner. Killing the group guarantees the pipes
+    close and the runner moves on.
 
     Returns: (success, stdout, stderr)
     """
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             [str(exe_path)],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=30
+            start_new_session=True,  # new process group; enables group kill
         )
-        return result.returncode == 0, result.stdout, result.stderr
-    except subprocess.TimeoutExpired:
-        return False, "", "Execution timed out"
     except Exception as e:
         return False, "", f"Failed to run executable: {e}"
+
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return proc.returncode == 0, stdout, stderr
+    except subprocess.TimeoutExpired:
+        # Hard-kill the whole process group, then reap so no zombie/pipe leaks.
+        _kill_process_group(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = "", ""
+        return False, stdout, (
+            f"Execution timed out after {timeout:.0f}s (killed) — the test HANGS at runtime"
+        )
+    except Exception as e:
+        _kill_process_group(proc)
+        return False, "", f"Failed to run executable: {e}"
+
+
+def _kill_process_group(proc: subprocess.Popen) -> None:
+    """SIGKILL the process group led by `proc` (best-effort), then the proc."""
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        # Group already gone or not a group leader — fall back to the child.
+        try:
+            proc.kill()
+        except OSError:
+            pass
 
 
 def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
