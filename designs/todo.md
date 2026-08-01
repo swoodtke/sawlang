@@ -38,6 +38,28 @@ items need a probe before being treated as real work.
   `array_element/tuple_element/compound_assign/if_arm/default_param/map_literal_key`
   `_..._out_of_range_error` (6 clean range errors). Suite 883 (from 876),
   bootstrap 17+17, libs 4+4. [87, 65, 53, 77, 81, 54, 29]
+- **Item 2 (stable erased-error type-ids) — LANDED.** Replaced design-72's
+  per-compilation MONOTONIC COUNTER (memoized by mangled name, order-dependent)
+  with a deterministic FNV-1a 64-bit hash of the mangled type name (same
+  constants as the runtime Hasher in builtin.saw), masked to the platform word so
+  it fits the vtable's `int_type` type_id slot. The id is now a pure function of
+  the type NAME, so the SAME concrete type gets the SAME id in EVERY compilation —
+  a future separate-compilation boundary would agree on `is<T>()`/`take<T>()`, not
+  just the current whole-program build. `is<T>`/`take<T>` behavior identical (both
+  the vtable bake and the downcast compare call the one `_type_id_for`); existing
+  downcast tests green. COLLISION POSTURE (documented in `_type_id_for`): a 64-bit
+  FNV space over distinct mangled names makes an accidental clash negligible (a
+  birthday clash needs ~2^32 conformers in one program); ids are compared only for
+  EQUALITY (never as a sentinel), so `0` is now a legal id (the old counter
+  reserved it). Test: `tools/test_stable_type_id.py` (IR-level, in the
+  `test_debug_info.py` family) — compiles two programs that conform `Circle: Shape`
+  in DIFFERENT declaration positions among DIFFERENT companion types, extracts the
+  type_id baked into Circle's vtable from `-O0` IR, and asserts (a) the two are
+  IDENTICAL (the old counter would give Circle id 1 vs id 3 → order-dependent, and
+  this test would fail) and (b) it equals FNV-1a("Circle") (pins the scheme).
+  Docs: spec Integer-Types section (a bare literal adopts a fixed-width expected
+  type everywhere) + saw-lang skill literal note. Suite 883, bootstrap 17+17,
+  libs 4+4. [87, 72, 51, 48]
 
 ## Design 86 — httpd-runtime cleanup (IN PROGRESS)
 - **Item 3 (`&var self` mutation on an opt-encoded frame-local across a suspend)

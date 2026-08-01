@@ -43,22 +43,40 @@ class ExistentialsMixin:
         # queued (concrete_saw, trait_name, global, vtable_llvm_type) to fill/drain
         self._pending_vtables = []
         # concrete_mangle -> stable per-concrete-type id (design 72 downcasting).
-        # Keyed by the mangled name so the id the vtable BAKES IN matches the one
-        # `is<T>()`/`take<T>()` COMPUTE for the same concrete type in this module;
-        # a monotonic counter is the simplest stable scheme (0 is reserved unused).
+        # Memoized by mangled name so the id the vtable BAKES IN matches the one
+        # `is<T>()`/`take<T>()` COMPUTE for the same concrete type (design 87 §2).
         self._type_ids = {}
-        self._next_type_id = 1
+
+    # FNV-1a 64-bit (the same constants as the runtime Hasher in builtin.saw).
+    _FNV64_OFFSET_BASIS = 14695981039346656037
+    _FNV64_PRIME = 1099511628211
+    _FNV64_MASK = (1 << 64) - 1
 
     def _type_id_for(self, concrete_saw):
-        """The stable integer type-id for a concrete type (design 72). Assigned on
-        first request and memoized by mangled name, so the vtable slot and every
-        downcast site agree within a compilation."""
+        """A STABLE, deterministic type-id: the FNV-1a hash of the mangled type
+        name (design 87 §2, replacing design-72's per-compilation MONOTONIC
+        COUNTER). Because the id is a pure function of the mangled name, the SAME
+        concrete type hashes to the SAME id in EVERY compilation — so a future
+        separate-compilation unit would agree on `is<T>()`/`take<T>()`, not just
+        the current whole-program build. The vtable slot the id bakes into and
+        the downcast compare against it both call here, so they always agree.
+
+        Masked to the platform word so it fits the vtable's `int_type` type_id
+        slot (i64 hosted, i32 on riscv32). COLLISION POSTURE: distinct mangled
+        names over a 64-bit FNV space make an accidental clash negligible (a
+        birthday clash needs ~2^32 conforming types in one program); ids are only
+        ever compared for EQUALITY, never used as a sentinel, so `0` is a legal id
+        (unlike the old counter, which reserved it). A hypothetical collision
+        would let one type's `is<T>()` spuriously accept another — acceptable for
+        a v1 downcast until a wider/perfect scheme is warranted."""
         cm = mangle_type(concrete_saw)
         tid = self._type_ids.get(cm)
         if tid is None:
-            tid = self._next_type_id
+            h = self._FNV64_OFFSET_BASIS
+            for byte in cm.encode('utf-8'):
+                h = ((h ^ byte) * self._FNV64_PRIME) & self._FNV64_MASK
+            tid = h & ((1 << self.int_width) - 1)
             self._type_ids[cm] = tid
-            self._next_type_id += 1
         return tid
 
     # ----------------------------------------------------------- llvm helpers

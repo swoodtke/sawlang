@@ -28,7 +28,13 @@ print("hi {name}: {p}")    // interpolation; user types need Printable
   `break v` from loops → Optional).
 - `for i in 0..5` / `0..=5`; `while cond {}` / infinite `while {}`.
 - Integer literals: `0xFF`, `0b1010`, `1_000_000`, fixed-width
-  suffixes `255u8`/`1_000i32` (exact-typed, range-checked).
+  suffixes `255u8`/`1_000i32` (exact-typed, range-checked). A bare
+  (unsuffixed) literal adopts a fixed-width EXPECTED type wherever one
+  is in force — annotation, param, field, return, default value,
+  if/match arm, compound-assign RHS, array/tuple/Map/Set element — and
+  is range-checked at the literal (`let b: UInt8 = 256` is a clean
+  error). With no fixed-width expectation it stays platform `Int`
+  (`let x = 5`); in a mixed binop it takes the other operand's width.
 - Escapes: exactly `\\ \" \n \t \r \0 \u{1F600}` + `\{ \}` (brace forms);
   `\0` is an interior NUL that `len()` counts. Any other escape is a lex
   error (no silent drop). Strings are immutable UTF-8, refcounted.

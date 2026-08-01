@@ -451,6 +451,20 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   different fixed-width type (`let x: Int8 = 5u16` is an error); a plain
   (unsuffixed) literal still coerces to any integer type. Float literals take no
   suffix.
+- **A bare (unsuffixed) integer literal adopts a fixed-width EXPECTED type
+  wherever one is in force, and is range-checked *at the literal*** (design 87).
+  This is uniform across every position a value flows into — `let`/`var` with a
+  fixed-width annotation, a function/method parameter, a struct field or `init`
+  argument, a default parameter value, a `return` (and if/match arm results that
+  merge to a fixed-width type), an enum payload, a compound-assign RHS
+  (`x += 1` for `x: Int8`), and the element/key/value positions of array, tuple,
+  `Vector`, `Map`, and `Set` literals. In each the literal takes the slot's exact
+  width, so it stores and overflow-checks at that width, and an out-of-range
+  literal (`let b: UInt8 = 256`) is a clean compile error, never a silent wrap or
+  an ICE. With NO fixed-width expected type a literal stays platform `Int`
+  (`let x = 5`), and `Int`/`Int` arithmetic is unaffected. The one place a
+  literal is typed by a sibling rather than a declared slot is a mixed binop
+  (`b + 0`, `fd < 200`): the literal adopts the other operand's fixed-width type.
 - **Use the fixed-width types (`Int8`…`Int64`, `UInt8`…`UInt64`) for anything
   whose layout must be stable across targets** — wire formats, on-disk
   structures, and device/MMIO register maps. Their widths never change, and D1's
