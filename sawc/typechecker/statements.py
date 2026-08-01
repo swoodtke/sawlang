@@ -238,11 +238,9 @@ class StatementsMixin:
             self._propagate_optional_type(method.body.final_expr, expected_return)
 
         # A bare integer literal in tail-return position adopts a fixed-width
-        # return type — range check it (design 65 followup).
-        if method.body.final_expr is not None:
-            self._check_fixed_width_literal(
-                method.body.final_expr, expected_return,
-                method.body.final_expr.line, method.body.final_expr.column)
+        # return type + range-checks via `_stamp_return_literal_types` (which ran
+        # the central `_apply_literal_expected_type` propagation before the block
+        # check, above) — design 87 subsumes the old per-position range check.
 
         if expected_return.kind != TypeKind.VOID:
             if body_type is None and not self.found_return_with_value:
@@ -373,13 +371,10 @@ class StatementsMixin:
         """
         if resolved_return_type.kind == TypeKind.VOID:
             return
-        # Range-check a bare literal in tail-return position against a fixed-width
-        # return type (design 65 followup).
-        body = getattr(func, 'body', None)
-        if body is not None and getattr(body, 'final_expr', None) is not None:
-            self._check_fixed_width_literal(
-                body.final_expr, resolved_return_type,
-                body.final_expr.line, body.final_expr.column)
+        # A bare literal in tail-return position adopts + range-checks the
+        # fixed-width return type through `_stamp_return_literal_types` (central
+        # design-87 propagation, run before the body check) — the old per-position
+        # range check here is subsumed.
         # Function can return a value via either:
         # 1. An explicit return statement (found_return_with_value)
         # 2. A final expression in the body (body_type)
@@ -574,6 +569,11 @@ class StatementsMixin:
                 if pt is not None and pt.kind == TypeKind.SELF and self_type is not None:
                     pt = self_type
                 expected = self._resolve_type(pt) if pt is not None else None
+                # Design 87: a bare default-value literal adopts the parameter's
+                # fixed-width int type (+ range check) before it is checked, so an
+                # out-of-range default (`x: Int8 = 200`) is a clean error and the
+                # spliced default materializes at the right width at call sites.
+                self._apply_literal_expected_type(p.default_value, expected)
                 at = self._check_expression(p.default_value)
                 if (at is not None and expected is not None
                         and not is_generic and self._is_concrete_type(expected)
@@ -1383,6 +1383,16 @@ class StatementsMixin:
         if target_type is None:
             return
 
+        # Design 87: a bare RHS literal adopts the target's fixed-width int type
+        # (`x += 1` for `x: Int8`) BEFORE it is checked — else the checked-arith
+        # intrinsic sees the i8 target against an i64 literal and ICEs. A `&var
+        # IntN` target unwraps to its inner type first.
+        eff_target = target_type
+        if (eff_target.kind == TypeKind.REFERENCE
+                and eff_target.inner_type is not None):
+            eff_target = eff_target.inner_type
+        self._apply_literal_expected_type(stmt.value, eff_target)
+
         # Get value type
         value_type = self._check_expression(stmt.value)
         if value_type is None:
@@ -1502,10 +1512,10 @@ class StatementsMixin:
                     stmt.line, stmt.column
                 )
         else:
+            # Design 87: a bare literal (or if/match arm result) adopts a
+            # fixed-width return type and is range-checked at the literal.
+            self._apply_literal_expected_type(stmt.value, self._resolve_type(expected))
             value_type = self._check_expression(stmt.value)
-            # Range-check a bare literal against a fixed-width return type
-            # (design 65 followup).
-            self._check_fixed_width_literal(stmt.value, expected, stmt.line, stmt.column)
             if value_type and expected.kind == TypeKind.VOID:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,

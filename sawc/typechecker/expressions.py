@@ -101,6 +101,18 @@ class ExpressionsMixin:
         suffix = getattr(expr, 'suffix', None)
         if suffix is not None:
             return SawType(self._SUFFIX_TYPE_KINDS[suffix])
+        # Design 87: a bare integer literal that flows into a FIXED-WIDTH slot
+        # adopts that type. The expectation (and the range check) is pushed down
+        # by the central `_apply_literal_expected_type` propagation
+        # (let/param/field/return/compound-assign/collection/tuple/if-match-arm),
+        # so this ONE site types the literal uniformly at every position. No
+        # fixed-width expectation ⇒ platform `Int` (the load-bearing invariant:
+        # `let x = 5` and `Int`/`Int` arithmetic are unchanged).
+        expected = getattr(expr, 'expected_type', None)
+        if expected is not None:
+            rt = self._resolve_type(expected)
+            if rt is not None and rt.kind in self._FIXED_INT_RANGES:
+                return SawType(rt.kind)
         return SawType(TypeKind.INT)
 
     def visit_FloatLiteral(self, expr: FloatLiteral) -> Optional[SawType]:
@@ -1278,11 +1290,10 @@ class ExpressionsMixin:
                     f"argument {i + 1} expects `{expected}` but got `{at}`",
                     arg.value.line, arg.value.column
                 )
-            # A bare integer literal adopts a fixed-width parameter's type — range
-            # check it (design 65 followup: out-of-range = clean error, not an ICE
-            # / silent truncation at the call).
-            self._check_fixed_width_literal(arg.value, expected,
-                                            arg.value.line, arg.value.column)
+            # Design 87: a bare literal adopts the resolved param's fixed-width
+            # type (+ range check). Overload args are checked before the winner
+            # is known, so this coerces POST-HOC (restamps the leaf's type).
+            self._apply_literal_expected_type(arg.value, expected)
             self._check_value_transfer(arg.value, expected, "call argument",
                                        arg.value.line, arg.value.column)
 
@@ -1838,8 +1849,9 @@ class ExpressionsMixin:
                         f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
                         arg.value.line, arg.value.column
                     )
-                self._check_fixed_width_literal(arg.value, expected_type,
-                                                arg.value.line, arg.value.column)
+                # Design 87: literal fixed-width adoption + range check ran in the
+                # `_apply_literal_expected_type` propagation above (before the arg
+                # check) — the per-position range check here is subsumed.
                 self._check_value_transfer(arg.value, expected_type, "call argument",
                                            arg.value.line, arg.value.column)
             self._check_call_exclusivity([a.value for a in expr.arguments], param_types)
@@ -2131,8 +2143,8 @@ class ExpressionsMixin:
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
                     arg.value.line, arg.value.column
                 )
-            self._check_fixed_width_literal(arg.value, expected_type,
-                                            arg.value.line, arg.value.column)
+            # Design 87: literal fixed-width adoption + range check ran in the
+            # `_apply_literal_expected_type` propagation above — subsumed here.
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
         # Variadic extra arguments have no declared parameter type to check
@@ -2589,19 +2601,131 @@ class ExpressionsMixin:
         return container
 
     def _apply_literal_expected_type(self, value_expr, expected_type):
-        """Push a resolved expected type down onto a collection/array literal
-        BEFORE it is checked, so it can pick K/V/T, honor a custom allocator, or
-        build a Vector instead of an array (design 54). No-op for anything else.
+        """Central expected-type propagation for literals (designs 54 + 87).
+
+        Pushes a resolved expected type down onto a literal-bearing subexpression
+        BEFORE it is checked. Two jobs, one recursive pass:
+
+        - COLLECTION shaping (design 54): a Map/Set/Vector expectation lets an
+          array/map/set literal pick K/V/T, honor a custom allocator, or build a
+          Vector rather than a fixed array.
+        - FIXED-WIDTH INT adoption (design 87): a bare integer literal flowing
+          into a fixed-width int slot (`Int8`..`UInt64`) adopts that type and is
+          range-checked AT the literal (in `visit_IntLiteral`) — uniformly, at
+          every slot that calls this (let/param/field/return/compound-assign/…),
+          THROUGH the "transparent" constructs that forward a value unchanged:
+          unary minus, if/match/block arm results, and array/tuple/map/set
+          element positions.
+
+        A platform `Int`/`UInt` (or non-integer) expectation leaves a literal at
+        platform width — the load-bearing INVARIANT. No-op for anything else.
         """
         if expected_type is None or value_expr is None:
             return
-        # Only a concrete named-struct expectation is meaningful to a literal
-        # (Map / Set / Vector, or another struct which yields a clean error);
-        # abstract params / optionals / etc. let the literal self-infer.
-        if expected_type.kind != TypeKind.STRUCT:
+        rt = self._resolve_type(expected_type)
+        if rt is None:
             return
-        if isinstance(value_expr, (MapLiteral, SetLiteral, ArrayLiteral)):
-            value_expr.expected_type = expected_type
+
+        # (1) Bare integer literal → adopt a fixed-width expectation, range-check
+        #     it AT the literal, and stamp the fixed-width type. Stamping here (not
+        #     only via visit_IntLiteral) covers the POST-HOC sites — overloaded
+        #     call args are checked before the winning param type is known, then
+        #     coerced through this method — as well as the before-check slots.
+        if isinstance(value_expr, IntLiteral):
+            if (getattr(value_expr, 'suffix', None) is None
+                    and rt.kind in self._FIXED_INT_RANGES):
+                value_expr.expected_type = rt
+                lo, hi = self._FIXED_INT_RANGES[rt.kind]
+                if not (lo <= value_expr.value <= hi):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"integer literal {value_expr.value} does not fit in "
+                        f"`{expected_type}` (range {lo}..={hi})",
+                        getattr(value_expr, 'line', 0),
+                        getattr(value_expr, 'column', 0))
+                value_expr.resolved_type = SawType(rt.kind)
+            return
+
+        # (2) Unary minus of a literal: the fixed-width expectation carries
+        #     through to the operand (`let x: Int8 = -5`). The range check runs on
+        #     the FOLDED (negated) value — a bare magnitude like Int32.min's
+        #     2147483648 is in range only once negated (design 77 item 8) — so it
+        #     is handled here rather than via the plain-literal recursion.
+        if isinstance(value_expr, UnaryOp) and value_expr.op == '-':
+            operand = value_expr.operand
+            if (isinstance(operand, IntLiteral)
+                    and getattr(operand, 'suffix', None) is None
+                    and rt.kind in self._FIXED_INT_RANGES):
+                operand.expected_type = rt
+                lo, hi = self._FIXED_INT_RANGES[rt.kind]
+                if not (lo <= -operand.value <= hi):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"integer literal -{operand.value} does not fit in "
+                        f"`{expected_type}` (range {lo}..={hi})",
+                        getattr(operand, 'line', 0), getattr(operand, 'column', 0))
+                operand.resolved_type = SawType(rt.kind)
+            else:
+                self._apply_literal_expected_type(operand, rt)
+            return
+
+        # (3) if / match / block whose arm results merge to the expected type.
+        if isinstance(value_expr, IfExpr):
+            self._apply_literal_expected_type(
+                getattr(value_expr.then_branch, 'final_expr', None), rt)
+            if value_expr.else_branch is not None:
+                self._apply_literal_expected_type(
+                    getattr(value_expr.else_branch, 'final_expr', None), rt)
+            return
+        if isinstance(value_expr, MatchExpr):
+            for arm in value_expr.arms:
+                self._apply_literal_expected_type(arm.body, rt)
+            return
+        if isinstance(value_expr, Block):
+            self._apply_literal_expected_type(
+                getattr(value_expr, 'final_expr', None), rt)
+            return
+
+        # (4) Tuple literal into a tuple type: element-wise.
+        if isinstance(value_expr, TupleLiteral) and rt.kind == TypeKind.TUPLE:
+            elem_types = rt.element_types or []
+            if len(elem_types) == len(value_expr.elements):
+                for e, et in zip(value_expr.elements, elem_types):
+                    self._apply_literal_expected_type(e, et)
+            return
+
+        # (5) Array literal into `[IntN; M]` or `Vector<IntN, A>`: propagate the
+        #     element type (and, for a Vector, keep the collection expectation).
+        if isinstance(value_expr, ArrayLiteral):
+            elem_t = None
+            if rt.kind == TypeKind.ARRAY:
+                elem_t = rt.array_element_type
+            elif (rt.kind == TypeKind.STRUCT and rt.struct_name == "Vector"
+                    and rt.type_args):
+                value_expr.expected_type = rt
+                elem_t = rt.type_args[0]
+            if elem_t is not None:
+                for e in value_expr.elements:
+                    self._apply_literal_expected_type(e, elem_t)
+            return
+
+        # (6) Map / Set literal: keep the collection expectation (design 54) and
+        #     push K/V/T down to element literals (design 87).
+        if isinstance(value_expr, MapLiteral):
+            if rt.kind == TypeKind.STRUCT:
+                value_expr.expected_type = rt
+                if rt.struct_name == "Map" and len(rt.type_args) >= 2:
+                    for (k_expr, v_expr) in value_expr.entries:
+                        self._apply_literal_expected_type(k_expr, rt.type_args[0])
+                        self._apply_literal_expected_type(v_expr, rt.type_args[1])
+            return
+        if isinstance(value_expr, SetLiteral):
+            if rt.kind == TypeKind.STRUCT:
+                value_expr.expected_type = rt
+                if rt.struct_name == "Set" and rt.type_args:
+                    for e in value_expr.elements:
+                        self._apply_literal_expected_type(e, rt.type_args[0])
+            return
 
     def _key_copyable_reason(self, key_type):
         """Return None if `key_type` may be a Map/Set KEY, else a short reason it
@@ -3502,8 +3626,6 @@ class ExpressionsMixin:
                 if type_mapping:
                     expected_type = expected_type.substitute(type_mapping)
                 actual_type = self._check_init_field_value(field_value, expected_type)
-                self._check_fixed_width_literal(field_value, expected_type,
-                                                field_value.line, field_value.column)
                 if expected_type.kind == TypeKind.OPTIONAL and isinstance(field_value, NoneLiteral):
                     field_value.resolved_type = expected_type
                 allow_wrap = self._df3_allow_wrap(
@@ -3544,8 +3666,6 @@ class ExpressionsMixin:
                 if type_mapping:
                     expected_type = expected_type.substitute(type_mapping)
                 actual_type = self._check_init_field_value(field_value, expected_type)
-                self._check_fixed_width_literal(field_value, expected_type,
-                                                field_value.line, field_value.column)
                 allow_wrap = self._df3_allow_wrap(
                     declared_type, set(type_mapping.keys()) if type_mapping else None)
                 if actual_type and not self._arg_type_ok(field_value, actual_type, expected_type, allow_wrap):
@@ -5353,8 +5473,9 @@ class ExpressionsMixin:
                         f"expected type `{expected_type}` for parameter `{arg.name}`, got `{arg_type}`",
                         arg.value.line, arg.value.column
                     )
-                self._check_fixed_width_literal(arg.value, expected_type,
-                                                arg.value.line, arg.value.column)
+                # Design 87: adopt a fixed-width payload type + range check
+                # (post-hoc: the payload arg is checked before this point).
+                self._apply_literal_expected_type(arg.value, expected_type)
                 self._check_value_transfer(arg.value, expected_type, "enum payload",
                                            arg.value.line, arg.value.column)
             else:
@@ -5368,8 +5489,9 @@ class ExpressionsMixin:
                         f"expected type `{expected_type}` for parameter `{param_name}`, got `{arg_type}`",
                         arg.value.line, arg.value.column
                     )
-                self._check_fixed_width_literal(arg.value, expected_type,
-                                                arg.value.line, arg.value.column)
+                # Design 87: adopt a fixed-width payload type + range check
+                # (post-hoc: the payload arg is checked before this point).
+                self._apply_literal_expected_type(arg.value, expected_type)
                 self._check_value_transfer(arg.value, expected_type, "enum payload",
                                            arg.value.line, arg.value.column)
         return SawType(TypeKind.ENUM, enum_name=expr.enum_name, type_args=expr.type_args, symbol=enum_info)

@@ -1,0 +1,10 @@
+// Design 87: an array-literal element flowing into `[IntN; M]` is range-checked
+// at the literal — 300 does not fit `Int8`. Before 87 this silently stored a
+// platform-width element under an `Int8` array type.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 300 does not fit in `Int8`
+
+func main() {
+    let a: [Int8; 3] = [1, 2, 300]
+    print(a[0])
+}

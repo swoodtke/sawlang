@@ -2114,6 +2114,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             width = {'i8': 8, 'i16': 16, 'i32': 32, 'i64': 64,
                      'u8': 8, 'u16': 16, 'u32': 32, 'u64': 64}[suffix]
             return ir.Constant(ir.IntType(width), expr.value & ((1 << width) - 1))
+        # Design 87: a bare literal that adopted a fixed-width type (the
+        # typechecker stamped `resolved_type` via expected-type propagation, and
+        # already range-checked it) is materialized at that width — so it stores,
+        # compares, and overflow-checks at the slot's width with no downstream
+        # reconcile. A platform-Int literal keeps the target word width below.
+        _FIXED_INT_WIDTHS = {
+            TypeKind.INT8: 8, TypeKind.INT16: 16, TypeKind.INT32: 32,
+            TypeKind.INT64: 64, TypeKind.UINT8: 8, TypeKind.UINT16: 16,
+            TypeKind.UINT32: 32, TypeKind.UINT64: 64,
+        }
+        resolved = getattr(expr, 'resolved_type', None)
+        if resolved is not None and resolved.kind in _FIXED_INT_WIDTHS:
+            fw = _FIXED_INT_WIDTHS[resolved.kind]
+            return ir.Constant(ir.IntType(fw), expr.value & ((1 << fw) - 1))
         w = self.int_width
         if not (-(1 << (w - 1)) <= expr.value < (1 << w)):
             raise ValueError(

@@ -1,0 +1,11 @@
+// Design 87: a default parameter value literal adopts the parameter's fixed-
+// width type and is range-checked — `x: Int8 = 200` is out of range (before 87
+// it silently wrapped to -56).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 200 does not fit in `Int8`
+
+func f(x: Int8 = 200) -> Int8 { x }
+
+func main() {
+    print(f())
+}

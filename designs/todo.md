@@ -11,6 +11,34 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 87 — consolidate literal coercion + stable type-ids (IN PROGRESS)
+- **Item 1 (ONE literal-coercion pass) — LANDED.** Integer-literal fixed-width
+  typing now routes through the EXISTING expected-type propagation
+  (`_apply_literal_expected_type`), which became the single recursive pass that
+  pushes a fixed-width expectation to a bare literal AND through the transparent
+  constructs that forward a value: unary minus (range-checks the FOLDED value so
+  Int32.min's magnitude is admitted), if/match/block arm results, and
+  array/tuple/map/set element positions. `visit_IntLiteral` (typechecker) adopts
+  the expectation; codegen `visit_IntLiteral` materializes at the resolved
+  fixed-width width. AUDIT (all were BROKEN pre-87): array-literal elements into
+  `[IntN;M]` (stored platform-wide, no range check), tuple elements (same),
+  if/match arm results (narrowed but NO range check), compound-assign RHS
+  (`x += 1`, Int8 → i8-vs-i64 ICE), default parameter values (silently wrapped),
+  Map/Set literal keys+values (unchecked) — now all coerce + range-check
+  uniformly. DELETED the per-position `_check_fixed_width_literal` calls the
+  central pass subsumes: method/func tail-return, `return <expr>`, regular +
+  overloaded call args, struct-field + custom-init args, enum payload. KEPT
+  `_check_fixed_width_literal` + `_fixed_width_binop_type` for the two
+  SIBLING-OPERAND positions (comparison `b < 200`, arithmetic `b + 0`) — the
+  expectation there is the other operand's type, discovered only AFTER checking,
+  so it genuinely can't route through a declared-slot expected type. INVARIANT
+  held: no fixed-width expectation ⇒ platform Int (`let x = 5`, Int/Int
+  arithmetic byte-identical); full suite is the oracle. Tests:
+  `literal_coercion_positions` (all positions round-trip) +
+  `array_element/tuple_element/compound_assign/if_arm/default_param/map_literal_key`
+  `_..._out_of_range_error` (6 clean range errors). Suite 883 (from 876),
+  bootstrap 17+17, libs 4+4. [87, 65, 53, 77, 81, 54, 29]
+
 ## Design 86 — httpd-runtime cleanup (IN PROGRESS)
 - **Item 3 (`&var self` mutation on an opt-encoded frame-local across a suspend)
   — LANDED.** ROOT CAUSE: in `_generate_method_call` (codegen/calls.py), the
