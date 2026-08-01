@@ -49,6 +49,10 @@ extern "C" {
     func saw_reactor_register(fd: Int, write: Int)
     func saw_set_nonblocking(fd: Int) -> Int
     func saw_errno_would_block() -> Int
+    // design 90: classify a re-issued nonblocking connect()'s errno —
+    // 0 = connected (EISCONN), 1 = still connecting (EINPROGRESS/EALREADY),
+    // 2 = failed. Lets connect() re-park on a spurious reactor wake.
+    func saw_errno_connect_state() -> Int
     func saw_errno() -> Int
     // The ONLY OS-divergent piece of sockaddr_in: the sin_len/sin_family prefix
     // (macOS byte layout differs from Linux). Everything else is uniform
@@ -206,11 +210,27 @@ func tcp_connect_start(port: Int) -> Int {
     NET_ERROR
 }
 
-// After a connecting fd becomes writable: 0 = connected, -2 = still in progress,
-// -1 = failed. (Loopback v1 treats writability as success; a getsockopt(SO_ERROR)
-// check is a future refinement.)
-func tcp_connect_check(fd: Int) -> Int {
-    0
+// Re-issue the nonblocking connect() to learn the true completion state (the
+// reactor wakes ALL io-parked frames on any event, so a connect park can be woken
+// BEFORE its own socket is writable — design 90). Returns 0 = connected, the
+// would-block sentinel (-2) = still connecting (re-park), or -1 = failed. A
+// re-connect returns EISCONN once the handshake completed, EINPROGRESS/EALREADY
+// while still pending — far more reliable than trusting a single spurious wake.
+func tcp_connect_check(fd: Int, port: Int) -> Int {
+    var sa = net_sockaddr(port)
+    let ap = (&sa) as UnsafePointer<Int8>
+    let r = connect(fd as Int32, ap, SOCKADDR_IN_LEN)
+    if r == 0 {
+        return 0                          // connected on this call
+    }
+    let st = saw_errno_connect_state()
+    if st == 0 {
+        return 0                          // EISCONN — handshake complete
+    }
+    if st == 1 {
+        return WOULD_BLOCK                // EINPROGRESS/EALREADY — keep waiting
+    }
+    NET_ERROR                             // a real connect failure
 }
 
 // Nonblocking read: byte count (0 = peer closed / EOF), the would-block sentinel
@@ -404,11 +424,22 @@ extension TcpStream {
         if fd < 0 {
             return io_error("connect")
         }
-        io_wait(fd, 1)                     // park until writable (connected)
-        let check = tcp_connect_check(fd)
-        if check < 0 {
-            tcp_close(fd)
-            return io_error("connect")
+        // Park until the connect completes, RE-VERIFYING each wake: the reactor's
+        // coarse wake-all can rouse this park before our own socket is writable
+        // (design 90). Loop like read/write/accept — re-check, re-park on
+        // would-block — instead of trusting a single wake (which produced ENOTCONN
+        // on a spurious rouse in a multi-connection workload).
+        var going = true
+        while going {
+            let check = tcp_connect_check(fd, port)
+            if net_would_block(check) {
+                io_wait(fd, 1)             // still connecting — park until writable
+            } else if check < 0 {
+                tcp_close(fd)
+                return io_error("connect")
+            } else {
+                going = false             // connected
+            }
         }
         return TcpStream(fd: fd as Int32)
     }

@@ -1,0 +1,73 @@
+// design 90: fd-number REUSE across connection turnover. One client task makes two
+// STRICTLY SEQUENTIAL connections in a loop — each stream is dropped (its fd closed
+// by Deinit) at the end of its iteration BEFORE the next `connect`, so the second
+// connection reuses the just-freed fd number. The accept-loop server likewise
+// closes each accepted fd before accepting the next, reusing its number too. Both
+// connections must round-trip: the 2nd io-park on a REUSED fd must still get its
+// wakeup (no stale reactor registration colliding on the recycled fd number).
+// Deterministic on content, time-bounded.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 2
+
+func serve(listener: TcpListener, n: Int) -> Int {
+    var served = 0
+    while served < n {
+        let stream = listener.accept()
+        var req = Data()
+        var reading = true
+        while reading {
+            let chunk = stream.read()
+            if chunk.len() == 0 {
+                reading = false
+            } else {
+                req.append(move chunk)
+                if req.to_string().contains("\r\n\r\n") {
+                    reading = false
+                }
+            }
+        }
+        assert(req.to_string().starts_with("GET / HTTP/1.1"), "bad request")
+        stream.write_all_str("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
+        served = served + 1
+    }
+    return served
+}
+
+func client_twice(port: Int) -> Int {
+    var ok = 0
+    var i = 0
+    while i < 2 {
+        let stream = try! TcpStream.connect("127.0.0.1", port)
+        stream.write_all_str("GET / HTTP/1.1\r\n\r\n")
+        var resp = Data()
+        var reading = true
+        while reading {
+            let chunk = stream.read()
+            if chunk.len() == 0 {
+                reading = false
+            } else {
+                resp.append(move chunk)
+                if resp.to_string().contains("hello") {
+                    reading = false
+                }
+            }
+        }
+        if resp.to_string().contains("hello") {
+            ok = ok + 1
+        }
+        i = i + 1
+    }   // `stream` dropped each iteration -> its fd is closed and its number reused
+    return ok
+}
+
+func main() {
+    let listener = try! TcpListener.listen(0)
+    let port = listener.local_port()
+    var group = TaskGroup()
+    let hs = group.spawn(serve(move listener, 2))
+    let hc = group.spawn(client_twice(port))
+    print(hs.join())     // 2 = both sequential connections served
+    print(hc.join())     // 2 = client round-tripped both (2nd on a reused fd)
+}

@@ -55,8 +55,15 @@ func client(port: Int) -> Int {
     if fd < 0 {
         return 0 - 1
     }
-    io_wait(fd, 1)                  // park until the connection is writable
-    let _ = tcp_connect_check(fd)
+    var connecting = true            // re-verify each wake (design 90): the
+    while connecting {               // reactor's wake-all can rouse us early
+        let cs = tcp_connect_check(fd, port)
+        if net_would_block(cs) {
+            io_wait(fd, 1)           // still connecting — park until writable
+        } else {
+            connecting = false
+        }
+    }
     let msg = unsafe net_buffer(3)
     unsafe msg[0] = 104 as Int8    // 'h'
     unsafe msg[1] = 101 as Int8    // 'e'

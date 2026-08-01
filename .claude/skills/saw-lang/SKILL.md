@@ -195,14 +195,16 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   via an explicit `group.spawn(...)` + `join()` (structured, drained), which
   drives the workers to completion. (Executor unification = design 89, in
   progress.)
-- ⚠ A spawned task may now CALL `TcpListener.accept()` (design-89 prep fixed a
-  compile bug where the `accept` body's `INVALID_FD` static lost visibility when
-  embedded). A SINGLE accept + read + write round-trip works
-  (`net_accept_roundtrip`). But a **multi-connection accept-LOOP** (one server
-  task `accept`-looping to serve ≥2 connections sequentially) still HANGS: the
-  read on the 2nd accepted connection never wakes (a design-76 reactor
-  lost-wakeup, tracked under design 89). Until fixed, serve at most one
-  connection per accepting task, or one task per connection.
+- A spawned task may CALL `TcpListener.accept()`, and a **multi-connection
+  accept-LOOP** (one server task `accept`-looping to serve N connections
+  sequentially, with N client tasks in the same joined group) now round-trips —
+  design 90 fixed the reactor lost-wakeup. Each connection's read+write, fd-number
+  reuse across connection turnover, and two readers parked on different fds all
+  wake (`net_serve_two_connections`, `net_serve_three_connections`,
+  `net_fd_reuse_across_connections`, `net_two_concurrent_parked_reads`). The
+  reactor wakes ALL io-parked frames on any readiness event, so every parking op
+  (`accept`/`read`/`write`/`connect`) re-checks its own fd and re-parks on a
+  spurious wake — you never see this, it is internal.
 - `extern "C" { blocking func f(...) -> T }` marks an unbounded FFI call: it
   SUSPENDS (offloads to a hosted pool), is illegal in a `sync` context, and is
   rejected in the freestanding profile. An unannotated extern promises promptness.

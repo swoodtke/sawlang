@@ -11,6 +11,45 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 90 — reactor lost-wakeup on the 2nd sequential connection (LANDED)
+- **Root cause (VERIFIED with an instrumented repro, NOT the brief's guessed
+  suspects).** It was NOT one-shot re-registration, wake-all clearing the wrong
+  frame, an fd-map collision on a reused fd, or a poll/deadline skip. The reactor
+  wakes ALL io-parked frames on ANY readiness event (coarse level-triggered
+  retry), so EVERY parking op must re-verify its OWN fd and re-park on a spurious
+  wake. `read`/`write`/`accept` already loop on would-block; **`TcpStream.connect`
+  did NOT** — it parked ONCE on `io_wait(fd, 1)` then called `tcp_connect_check`,
+  a v1 STUB that unconditionally returned 0 (success). In a multi-connection
+  workload a client's connect-park was spuriously roused by the reactor's wake-all
+  on a DIFFERENT fd's event (the listener becoming readable) BEFORE its own socket
+  was writable; it trusted the wake, wrote on the still-unconnected socket →
+  ENOTCONN (errno 57, confirmed via instrumentation), and `write_all_str` silently
+  bailed on the hard error. The request was never sent, so the accepting server
+  parked forever on the read of that connection. Single-connection round-trips
+  (`net_accept_roundtrip`) work because no other fd triggers an early spurious wake.
+- **Fix.** `connect` now LOOPS like the other ops: after each `io_wait(fd, 1)` it
+  RE-VERIFIES completion by re-issuing the nonblocking `connect()` and classifying
+  the result — connected (`EISCONN`/0), still-connecting (`EINPROGRESS`/`EALREADY`
+  → re-park), or a real failure. Classification lives in a new compiler shim
+  `saw_errno_connect_state()` (OS-divergent errno values stay in the compiler,
+  mirroring `saw_errno_would_block`); `tcp_connect_check(fd, port)` gained the port
+  arg to rebuild the sockaddr for the re-connect. This makes an arbitrary SEQUENCE
+  of io-parks across multiple accepted fds (incl. fd-number reuse across connection
+  turnover) each get their wakeup; the never-block invariant + earliest-deadline
+  poll are untouched (no scheduler change).
+- **Result.** `probe_loopdiag` (server serves N=2 + 2 clients, one group) now
+  round-trips fully (both connections read+write; result 2,1,1). Tests (all
+  deterministic on content, time-bounded — the design-86 runner timeout catches a
+  regression as a FAILURE not a wedge): `net_serve_two_connections` (N=2),
+  `net_serve_three_connections` (N=3), `net_fd_reuse_across_connections` (one
+  client, two strictly-sequential connections reusing the freed fd number on both
+  ends), `net_two_concurrent_parked_reads` (two readers parked on different
+  socketpair fds both wake). Updated `examples/net_loopback_echo.saw` to the new
+  `tcp_connect_check(fd, port)` re-verify loop. Docs: saw-lang skill net note
+  rewritten (multi-connection accept-loop now works; the per-op re-check is
+  internal). Suite 888 (from 884), all net_*/coro_*/taskgroup_* green, bootstrap +
+  libs green. [90, 76, 84, 89]
+
 ## Design 89 — executor unification: one ambient scheduler (IN PROGRESS)
 - **Prep — LANDED (612e53d).** Coro-transform **static-visibility fix**: a
   suspending std method that names a module-private `static` (e.g.
@@ -31,8 +70,9 @@ items need a probe before being treated as real work.
   accepts conn#0, serves it, accepts conn#1, then the **read on the 2nd
   connection never wakes** (hangs at marker 911). A SINGLE accept round-trip
   works. Unifying the executor does NOT fix this — the accept-loop acceptance
-  needs BOTH the unification AND the reactor fix (treat the reactor lost-wakeup
-  as its own item). Why the core is large/risky + the recommended per-commit
+  needs BOTH the unification AND the reactor fix. **The reactor lost-wakeup is
+  now CLOSED (design 90, LANDED — see below); it unblocks the 89-b accept-loop
+  acceptance, which now only needs the executor unification.** Why the core is large/risky + the recommended per-commit
   plan (ambient heap-singleton via a `static Atomic<Int>` addr, per-frame
   group-id membership, active-frame reentrancy skip, deinit-exactly-once box
   hand-off, MT bifurcation, then the reactor fix, then the op-count budget):

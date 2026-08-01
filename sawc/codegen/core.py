@@ -1197,7 +1197,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                                name="saw_errno")
         setfam = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
                              name="saw_sin_set_family")
-        io_fns = (reg, poll, setnb, ewb, errno_fn, setfam)
+        # design 90: classify a nonblocking-connect completion errno (OS-divergent
+        # EISCONN/EINPROGRESS/EALREADY values live here, like saw_errno_would_block).
+        connst = ir.Function(self.module, ir.FunctionType(i64, []),
+                             name="saw_errno_connect_state")
+        io_fns = (reg, poll, setnb, ewb, errno_fn, setfam, connst)
         for fn in io_fns:
             self.functions[fn.name] = fn
 
@@ -1384,6 +1388,35 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b = ir.IRBuilder(errno_fn.append_basic_block("entry"))
         ev = b.load(b.call(errloc_fn, []), name="errno_val")
         b.ret(b.sext(ev, i64))
+
+        # ---- saw_errno_connect_state() -> 0/1/2 ------------------------------
+        # design 90: classify errno after a RE-ISSUED nonblocking connect(), so the
+        # cooperative connect can distinguish "done" from "still connecting" and
+        # re-park on a SPURIOUS wake (the reactor wakes ALL io-parked frames on any
+        # event, so a connect park can be woken before ITS socket is writable —
+        # trusting that wake and writing yielded ENOTCONN, design-90 root cause).
+        #   0 = connected (EISCONN); 1 = still in progress (EINPROGRESS/EALREADY);
+        #   2 = a real failure. OS-divergent errno values stay in the compiler.
+        eisconn = 56 if apple else 106
+        ealready = 37 if apple else 114
+        b = ir.IRBuilder(connst.append_basic_block("entry"))
+        ec = b.load(b.call(errloc_fn, []), name="errno_conn")
+        is_conn = b.icmp_signed("==", ec, ir.Constant(i32, eisconn))
+        conn_bb = connst.append_basic_block("connected")
+        chk_bb = connst.append_basic_block("check_prog")
+        prog_bb = connst.append_basic_block("in_progress")
+        fail_bb = connst.append_basic_block("failed")
+        b.cbranch(is_conn, conn_bb, chk_bb)
+        b = ir.IRBuilder(conn_bb)
+        b.ret(ir.Constant(i64, 0))
+        b = ir.IRBuilder(chk_bb)
+        p1 = b.icmp_signed("==", ec, ir.Constant(i32, einprogress))
+        p2 = b.icmp_signed("==", ec, ir.Constant(i32, ealready))
+        b.cbranch(b.or_(p1, p2), prog_bb, fail_bb)
+        b = ir.IRBuilder(prog_bb)
+        b.ret(ir.Constant(i64, 1))
+        b = ir.IRBuilder(fail_bb)
+        b.ret(ir.Constant(i64, 2))
 
         # ---- saw_sin_set_family(buf) — the OS-divergent sockaddr_in prefix ----
         # The ONLY part of `struct sockaddr_in` whose layout differs by OS: macOS

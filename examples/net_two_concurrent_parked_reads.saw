@@ -1,0 +1,49 @@
+// design 90: two reader tasks parked on reads of DIFFERENT fds must BOTH wake.
+// Each reader parks on an empty socketpair end (no data yet); its writer peer then
+// sends a message. With both readers parked at once, the reactor's poll must wake
+// them both — the coarse wake-all + per-op re-check has to route a readiness event
+// to every parked reader, not just one. Uses AF_UNIX socketpairs (no port, no
+// external network); deterministic on content, time-bounded.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 1
+// 0
+// 0
+
+func reader(stream: TcpStream, want: String) -> Int {
+    var got = Data()
+    var reading = true
+    while reading {
+        let chunk = stream.read()
+        if chunk.len() == 0 {
+            reading = false
+        } else {
+            got.append(move chunk)
+            if got.to_string().contains(want) {
+                reading = false
+            }
+        }
+    }
+    if got.to_string().contains(want) { 1 } else { 0 }
+}
+
+func writer(stream: TcpStream, msg: String) -> Int {
+    stream.write_all_str(msg)
+    0
+}
+
+func main() {
+    let (a0, b0) = TcpStream.pair()
+    let (a1, b1) = TcpStream.pair()
+    var group = TaskGroup()
+    // Spawn both readers first (they park on empty fds), then the writers.
+    let r0 = group.spawn(reader(move b0, "ping0"))
+    let r1 = group.spawn(reader(move b1, "ping1"))
+    let w0 = group.spawn(writer(move a0, "ping0"))
+    let w1 = group.spawn(writer(move a1, "ping1"))
+    print(r0.join())     // 1 = reader 0 woke and got its message
+    print(r1.join())     // 1 = reader 1 woke and got its message
+    print(w0.join())     // 0
+    print(w1.join())     // 0
+}
