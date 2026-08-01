@@ -11,6 +11,35 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 89 — executor unification: one ambient scheduler (IN PROGRESS)
+- **Prep — LANDED (612e53d).** Coro-transform **static-visibility fix**: a
+  suspending std method that names a module-private `static` (e.g.
+  `TcpListener.accept` -> `INVALID_FD`) now compiles when spawned/driven — the
+  const initializer is inlined at the reference site during the transform
+  (`_inline_static_refs`). Before this, `accept()` could not be embedded at all,
+  so NO accept-loop program compiled (`net_fd_leak` never exercised `accept()`,
+  masking it). `read`/`write` reference only free functions, hence unaffected.
+  Test: `net_accept_roundtrip.saw` (spawned server accepts ONE loopback conn +
+  serves a GET; deterministic). Suite 884, bootstrap 17+17, libs 4+4. [89, 84]
+- **Core unification (items 1-6) — DEFERRED to a follow-on (design 89-b),
+  re-ledgered with analysis.** Evidence-based risk call (the brief's "defer if
+  large/risky" escape). PROVEN this session: (1) the gap is real — `probe_gap`:
+  a spawned child runs ONLY at `join`, never while main parks (today's split
+  executors). (2) A SECOND, INDEPENDENT blocker gates the accept-loop
+  acceptance: a **design-76 reactor lost-wakeup** in the multi-connection
+  accept-loop — `probe_loopdiag` (server serves N=2 + 2 clients, ONE group)
+  accepts conn#0, serves it, accepts conn#1, then the **read on the 2nd
+  connection never wakes** (hangs at marker 911). A SINGLE accept round-trip
+  works. Unifying the executor does NOT fix this — the accept-loop acceptance
+  needs BOTH the unification AND the reactor fix (treat the reactor lost-wakeup
+  as its own item). Why the core is large/risky + the recommended per-commit
+  plan (ambient heap-singleton via a `static Atomic<Int>` addr, per-frame
+  group-id membership, active-frame reentrancy skip, deinit-exactly-once box
+  hand-off, MT bifurcation, then the reactor fix, then the op-count budget):
+  see the STATUS section of `designs/89-executor-unification.md`. Repro files
+  under `.build/scratch/` (`probe_gap`, `probe_loopdiag`, `probe_accept*`).
+  [89, 45, 52b, 76, 75, 86]
+
 ## Design 87 — consolidate literal coercion + stable type-ids (IN PROGRESS)
 - **Item 1 (ONE literal-coercion pass) — LANDED.** Integer-literal fixed-width
   typing now routes through the EXISTING expected-type propagation

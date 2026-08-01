@@ -193,7 +193,16 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   handles) does not run its handlers until group teardown — main's `accept`-park
   entry-executor does not drive a sibling group's queue. Serve request/response
   via an explicit `group.spawn(...)` + `join()` (structured, drained), which
-  drives the workers to completion.
+  drives the workers to completion. (Executor unification = design 89, in
+  progress.)
+- ⚠ A spawned task may now CALL `TcpListener.accept()` (design-89 prep fixed a
+  compile bug where the `accept` body's `INVALID_FD` static lost visibility when
+  embedded). A SINGLE accept + read + write round-trip works
+  (`net_accept_roundtrip`). But a **multi-connection accept-LOOP** (one server
+  task `accept`-looping to serve ≥2 connections sequentially) still HANGS: the
+  read on the 2nd accepted connection never wakes (a design-76 reactor
+  lost-wakeup, tracked under design 89). Until fixed, serve at most one
+  connection per accepting task, or one task per connection.
 - `extern "C" { blocking func f(...) -> T }` marks an unbounded FFI call: it
   SUSPENDS (offloads to a hosted pool), is illegal in a `sync` context, and is
   rejected in the freestanding profile. An unannotated extern promises promptness.

@@ -159,3 +159,88 @@ per commit; zero xfails; concurrency tests deterministic (counts/
 contents, never orderings) + time-bounded (the design-86 runner
 timeout now protects hangs). Standing policy; interruption-safe
 commits; saw-lang skill self-review.
+
+---
+
+## STATUS (Aug 1) — prep landed; core unification RE-LEDGERED (deferred)
+
+Landed (green, committed): the coro-transform **static-visibility fix** —
+a suspending std method that names a module-private `static` (e.g.
+`TcpListener.accept` -> `INVALID_FD`) now compiles when spawned/driven
+(the const initializer is inlined at the reference site during the
+transform). Before this, `accept()` could not even be embedded, so no
+accept-loop program could compile. Test: `net_accept_roundtrip.saw` (a
+spawned server task accepts ONE loopback connection + serves a GET;
+deterministic). Suite 884, bootstrap 17+17, libs 4+4.
+
+The **core executor unification (items 1-6) is DEFERRED** to a focused
+follow-on, on an evidence-based risk call (the "defer if large/risky,
+re-ledger with analysis" escape). Two things were PROVEN this session:
+
+1. The core gap is real and reproduces minimally (`probe_gap`: main
+   `spawn`s a child, then runs a `sleep`-loop; the child prints only at
+   the final `join`, never during main's parks — output `0,1,2,100,101,
+   102,7`). Confirms today's split executors: entry-executor drives main's
+   frame ONLY; the group's children run only at `join`/`Deinit`.
+
+2. **A SECOND, INDEPENDENT blocker gates the accept-loop acceptance** — a
+   design-76 REACTOR bug in the multi-connection accept-loop, NOT the
+   executor split. `probe_loopdiag` (server serves N=2 sequentially + 2
+   clients, ONE group — a shape the current per-group executor already
+   co-schedules): it accepts conn#0, serves it fully, accepts conn#1, then
+   the **read on the 2nd connection never wakes** (markers reach 911, never
+   921) and the program hangs. A single accept+read+write round-trip works
+   (`net_accept_roundtrip`); the second sequential connection's read-park
+   is a lost wakeup in the one-shot-register + wake-all-io-parked reactor.
+   **Unifying the executor does NOT fix this** — so the accept-loop
+   acceptance needs BOTH the unification AND this reactor fix. Treat the
+   reactor lost-wakeup as its own item (likely design-76 follow-up).
+
+Why the core is large/risky (the honest assessment):
+- **No small slice.** Making `probe_gap` pass requires the whole ambient
+  machinery at once: a thread-global run queue reachable from any frame
+  (a `static` pointer, since a group buried in main's frame is otherwise
+  unreachable from a deep `spawn`), per-frame **group-id membership**
+  tagging (so a group's `Deinit` can drive-until-ITS-members-done), a
+  **reentrancy guard** (a nested `join`/`Deinit` pump must skip frames
+  active on the C stack — the sound realization of "yield to the one
+  scheduler, don't re-enter a live coroutine"), **deinit-exactly-once**
+  across the shared queue (ownership of the boxes must move from the group
+  to the ambient queue without shifting `TaskHandle` frame pointers or
+  double-dropping an unconsumed `__result`), and an **MT bifurcation**
+  (design-75 `TaskGroup(threads:N)` keeps its own pool — only the ST
+  default routes to the ambient scheduler, so `TaskGroup` must support
+  BOTH a shared-queue ST mode and an own-queue MT mode).
+- **Regression surface.** 884 tests + bootstrap + libs; several concurrency
+  tests print interleaved output — a scheduler change can reorder those
+  even where results are stable. Re-verifying the whole matrix per
+  increment is required and cannot be done piecemeal (the queue swap is
+  global). The existing per-group tests (`taskgroup_nested_groups`,
+  `net_http_roundtrip`, `taskgroup_in_suspending_fn`) explicitly encode
+  the per-group-executor model in their comments and assert results; those
+  RESULTS survive unification but the machinery under them all changes.
+
+Recommended follow-on plan (design 89-b), correctness-first, per-commit:
+  a. Introduce the ambient scheduler as a heap singleton reachable via a
+     `static __saw_exec: Atomic<Int>` (address; 0 = none), reusing the
+     proven `TaskGroup.__run_all_st` round-robin + design-76 reactor
+     integration verbatim as the loop body. Add a per-frame `group` id
+     column and an `active` reentrancy column (the MT `active` flag is the
+     precedent). Parameterize the loop's termination: run-until-all (entry),
+     run-until-frame-done (`join`), run-until-group-members-done (`Deinit`),
+     each SKIPPING active frames.
+  b. Entry executor: create the ambient scheduler, enqueue main's frame as
+     the root member, run-until-all. (Keeps design-45 single-task main a
+     one-member special case — verify byte-identical where no `spawn`.)
+  c. `__spawn_f`: enqueue into the ambient scheduler tagged with the
+     caller group's id; `TaskHandle` frame pointers stay heap-stable (the
+     box's data word never moves). `TaskGroup` becomes a membership id +
+     an own-queue MT fallback; its `Deinit` drives ambient-until-members-
+     done then drops exactly its members' boxes (exactly-once).
+  d. Then, AND SEPARATELY, fix the design-76 multi-connection reactor
+     lost-wakeup so the accept-loop acceptance (server task accept-loops N
+     + N clients, one program) round-trips deterministically.
+  e. Item 6 (cooperative op-count budget, default 128) rides on top once
+     a-d are green — unchanged from the brief.
+Repro files kept under `.build/scratch/` (`probe_gap.saw`,
+`probe_loopdiag.saw`, `probe_accept*.saw`) for the follow-on.
