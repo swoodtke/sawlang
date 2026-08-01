@@ -41,6 +41,33 @@ group. Fix = the ambient-executor model.
   frame-word, observed at suspension points; group cancel sets its
   members' words.
 
+## Nested TaskGroups (single-threaded) — handled by construction
+Because a group is a scope over the ONE shared queue (not its own
+executor), nested groups are natural: an inner group created inside a
+task enqueues its spawns into the SAME ambient queue tagged with the
+inner group's membership; inner-group `Deinit` (LIFO scope exit)
+drives-until-its-members-done, THEN the outer group's does. No
+per-group executor = no executor-nesting problem (this dissolves the
+design-62 G1 TaskGroup-in-a-suspending-fn pain rather than
+special-casing it). REQUIRED tests: a group nested inside a task of an
+outer group (inner children + outer children interleave on the shared
+scheduler; both scopes join correctly, LIFO); a task in an inner group
+that spawns into ITS group while the outer accept-loop keeps running.
+
+## Implicit yield at suspension points (semantics to document)
+A suspending call IS a yield point: when a task's read/accept/sleep/
+channel-receive PARKS (would-block / empty / deadline-not-reached), it
+cedes to the scheduler automatically — a task doing real I/O NEVER
+needs explicit `yield_now`. Precision: it yields ONLY when it actually
+needs to wait — a read() with data already ready returns WITHOUT
+parking (no spurious yield). Therefore `yield_now` is only for a
+CPU-bound loop that makes no suspending calls (or whose calls never
+park) and wants to cede voluntarily. STARVATION caveat (document): a
+task that never parks and never yields monopolizes the single-threaded
+scheduler — inherent to cooperation; `yield_now` is the escape.
+Test: a task whose only suspension is an io read (no explicit
+yield_now) interleaves correctly with a sibling while it parks.
+
 ## MT interaction (design 75)
 `TaskGroup(threads: N)` keeps its own worker pool + queue (a separate
 scheduler) — this brief unifies only the DEFAULT single-threaded
