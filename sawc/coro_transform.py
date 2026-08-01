@@ -2387,6 +2387,33 @@ def _iter_method_calls(node):
                 yield from _iter_method_calls(v)
 
 
+def _inline_static_refs(val, const_statics):
+    """Rewrite bare `Identifier(name)` -> a deep copy of the imported static's
+    const initializer, in place, throughout an AST subtree. Used so an embedded
+    imported (std) method body that names a module-private static (e.g.
+    `INVALID_FD`) resolves after being spliced into the entry module, where the
+    imported static is not visible. `const_statics` maps name -> initializer AST."""
+    import copy as _copy
+
+    def _rw(v):
+        if isinstance(v, Identifier) and v.name in const_statics:
+            return _copy.deepcopy(const_statics[v.name])
+        if isinstance(v, list):
+            return [_rw(x) for x in v]
+        if isinstance(v, tuple):
+            return tuple(_rw(x) for x in v)
+        if isinstance(v, Argument):
+            v.value = _rw(v.value)
+            return v
+        if isinstance(v, ASTNode):
+            for f in dataclasses.fields(v):
+                setattr(v, f.name, _rw(getattr(v, f.name)))
+            return v
+        return v
+
+    _rw(val)
+
+
 def _find_method(program, struct_name, method_name):
     """Locate a driven method's AST and the extension that owns it."""
     for ext in program.extensions:
@@ -2805,6 +2832,25 @@ def transform_program(program, typechecker, imported_ast=None):
     # Strip driven methods from their extensions (replaced by frame + resume).
     for ext, method_ast in removed_methods:
         ext.methods = [m for m in ext.methods if m is not method_ast]
+
+    # design 84/89: an embedded imported (std) method body may reference a
+    # module-level `static` private to its own module (e.g. `TcpListener.accept`
+    # names `INVALID_FD`). The transform splices that method into the ENTRY module,
+    # which is then re-typechecked under the entry namespace — where the imported
+    # static is NOT visible (imported free functions ARE, but statics are not; the
+    # standing cross-module-static limitation). Statics are const-initialized, so
+    # inline the referenced imported static's initializer at the reference sites in
+    # the synthesized declarations. Only imported statics NOT shadowed by an
+    # entry-module static of the same name are inlined, keeping this precise.
+    if imported_ast is not None:
+        entry_static_names = {s.name for s in program.statics}
+        const_statics = {s.name: s.initializer
+                         for s in getattr(imported_ast, 'statics', [])
+                         if s.initializer is not None
+                         and s.name not in entry_static_names}
+        if const_statics:
+            for decl in list(new_extensions) + list(new_functions) + list(new_structs):
+                _inline_static_refs(decl, const_statics)
 
     # Splice: remove driven roots, add synthesized declarations.
     program.functions = [f for f in program.functions if f.name not in removed]

@@ -1,0 +1,60 @@
+// design 89: a SPAWNED task that calls `TcpListener.accept()`. `accept` references
+// the module-private `INVALID_FD` static; before the coro-transform static-inlining
+// fix, embedding `accept` into the entry module (as a spawned/driven sub-frame) lost
+// that static's visibility on re-typecheck and failed to compile. Here a server task
+// accepts ONE connection over a loopback listener, reads the request, and writes a
+// response; a client task connects, sends a GET, and verifies the reply. Deterministic
+// on content, time-bounded (single connection — no multi-accept-loop reactor issue).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 1
+
+func serve(listener: TcpListener) -> Int {
+    let stream = listener.accept()
+    var req = Data()
+    var reading = true
+    while reading {
+        let chunk = stream.read()
+        if chunk.len() == 0 {
+            reading = false
+        } else {
+            req.append(move chunk)
+            if req.to_string().contains("\r\n\r\n") {
+                reading = false
+            }
+        }
+    }
+    stream.write_all_str("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
+    if req.to_string().starts_with("GET / HTTP/1.1") { 1 } else { 0 }
+}
+
+func client(port: Int) -> Int {
+    let stream = try! TcpStream.connect("127.0.0.1", port)
+    stream.write_all_str("GET / HTTP/1.1\r\n\r\n")
+    var resp = Data()
+    var reading = true
+    while reading {
+        let chunk = stream.read()
+        if chunk.len() == 0 {
+            reading = false
+        } else {
+            resp.append(move chunk)
+            if resp.to_string().contains("hello") {
+                reading = false
+            }
+        }
+    }
+    let s = resp.to_string()
+    if s.starts_with("HTTP/1.1 200 OK") && s.contains("hello") { 1 } else { 0 }
+}
+
+func main() {
+    let listener = try! TcpListener.listen(0)
+    let port = listener.local_port()
+    var group = TaskGroup()
+    let hs = group.spawn(serve(move listener))
+    let hc = group.spawn(client(port))
+    print(hs.join())     // 1 = server saw the GET
+    print(hc.join())     // 1 = client got the 200 + body
+}
