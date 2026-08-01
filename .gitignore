@@ -25,3 +25,6 @@ venv/
 .claude/*
 !.claude/settings.json
 !.claude/skills/
+/loop
+/ping
+/pong
