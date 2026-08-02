@@ -1257,6 +1257,16 @@ zero xfails throughout.
   periodically (the bootstrap target is the canary). [49]
 - **DF5.** Keywords (`extension` etc.) can't be identifiers — fine, but
   an eventual contextual-keyword sweep is noted. [49]
+- **DF6 (latent coro-transform bug, found in the post-92 net idiom
+  skim, Aug 2).** A driven suspending method whose loop is the
+  flag-free `while {}` + `break` form MISCOMPILES when the method is
+  RE-ENTERED in a caller's loop (a multi-read worker hangs); the
+  `going`-flag conditional-loop form resumes correctly. `TcpStream.
+  read` retains its `going` flag deliberately (documented in net.saw);
+  accept/connect are entered once per call and use the break form
+  safely. Root-cause candidate for the design-96 agent while
+  instrumenting driven-frame resume — the frame's resume-state for an
+  infinite-loop + break state machine is wrong on repeated entry.
 - **B4 limit.** A git dep's locked REV isn't pinned without
   re-resolution (build-from-lock path reconstruction is future work);
   path deps unaffected. [64, 67]

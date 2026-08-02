@@ -361,7 +361,7 @@ func io_error(syscall: String) -> IoError {
 // The fd is a PRIVATE field — the public surface exposes no raw fds or pointers.
 
 public struct TcpListener {
-    fd: Int32
+    fd: Int
 }
 
 extension TcpListener {
@@ -372,12 +372,12 @@ extension TcpListener {
         if fd < 0 {
             return io_error("listen")
         }
-        return TcpListener(fd: fd as Int32)
+        return TcpListener(fd: fd)
     }
 
     // The actual bound local port (resolves an ephemeral 0).
     public func local_port(&self) -> Int {
-        tcp_local_port(self.fd as Int)
+        tcp_local_port(self.fd)
     }
 
     // Accept the next connection, returning its owning stream or an IoError.
@@ -390,13 +390,13 @@ extension TcpListener {
             if cancelled() {
                 return io_error("accept")          // cancelled before a connection
             }
-            let c = tcp_try_accept(self.fd as Int)
+            let c = tcp_try_accept(self.fd)
             if net_would_block(c) {
-                io_wait(self.fd as Int, 0)         // park until a client arrives
+                io_wait(self.fd, 0)                // park until a client arrives
             } else if c < 0 {
                 return io_error("accept")          // a real accept error
             } else {
-                return TcpStream(fd: c as Int32)   // got a connection
+                return TcpStream(fd: c)            // got a connection
             }
         }
     }
@@ -404,8 +404,8 @@ extension TcpListener {
 
 extension TcpListener: NoCopy {
     public func deinit(&var self) {
-        if (self.fd as Int) >= 0 {
-            tcp_close(self.fd as Int)
+        if self.fd >= 0 {
+            tcp_close(self.fd)
         }
     }
 }
@@ -419,7 +419,7 @@ extension TcpListener: NoCopy {
 // a pointer.
 
 public struct TcpStream {
-    fd: Int32
+    fd: Int
 }
 
 extension TcpStream {
@@ -446,14 +446,14 @@ extension TcpStream {
                 break                         // connected
             }
         }
-        return TcpStream(fd: fd as Int32)
+        return TcpStream(fd: fd)
     }
 
     // A connected, nonblocking stream pair (AF_UNIX socketpair) — for tests and
     // local IPC, no bound port. Both ends are owning TcpStreams.
     public func pair() -> (TcpStream, TcpStream) {
         let p = tcp_socketpair()
-        (TcpStream(fd: p.0 as Int32), TcpStream(fd: p.1 as Int32))
+        (TcpStream(fd: p.0), TcpStream(fd: p.1))
     }
 
     // Read the next chunk of bytes. On success returns the chunk as owned Data —
@@ -477,9 +477,9 @@ extension TcpStream {
         var out = Data()
         var going = true
         while going {
-            let r = net_read_once(self.fd as Int, &var out)
+            let r = net_read_once(self.fd, &var out)
             if net_would_block(r) {
-                io_wait(self.fd as Int, 0)     // park until readable
+                io_wait(self.fd, 0)            // park until readable
             } else if r < 0 {
                 return io_error("read")        // a real read error, not EOF
             } else {
@@ -497,9 +497,9 @@ extension TcpStream {
         var off = 0
         let total = bytes.len()
         while off < total {
-            let w = net_write_data_once(self.fd as Int, &bytes, off)
+            let w = net_write_data_once(self.fd, &bytes, off)
             if net_would_block(w) {
-                io_wait(self.fd as Int, 1)     // park until writable
+                io_wait(self.fd, 1)            // park until writable
             } else if w < 0 {
                 return io_error("write")
             } else {
@@ -518,9 +518,9 @@ extension TcpStream {
         var off = 0
         let total = bytes.len()
         while off < total {
-            let w = net_write_data_once(self.fd as Int, &bytes, off)
+            let w = net_write_data_once(self.fd, &bytes, off)
             if net_would_block(w) {
-                io_wait(self.fd as Int, 1)     // park until writable
+                io_wait(self.fd, 1)            // park until writable
             } else if w < 0 {
                 return io_error("write")
             } else {
@@ -533,8 +533,8 @@ extension TcpStream {
 
 extension TcpStream: NoCopy {
     public func deinit(&var self) {
-        if (self.fd as Int) >= 0 {
-            tcp_close(self.fd as Int)
+        if self.fd >= 0 {
+            tcp_close(self.fd)
         }
     }
 }
