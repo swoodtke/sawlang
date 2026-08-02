@@ -1,0 +1,77 @@
+// design 89-b ACCEPTANCE: a live accept-loop server + N concurrent clients in ONE
+// program. The server task accept-LOOPS (bounded N=3), spawning a handler per
+// connection into its own group; the handlers run EAGERLY on the shared ambient
+// scheduler while the server parks on the next accept, and N client tasks
+// connect/GET/read concurrently. This is the design-89 gap made reachable by the
+// executor unification (this brief) + the design-90 reactor lost-wakeup fix.
+// Deterministic on counts/contents, time-bounded (loopback, bounded loop).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 3
+
+func handler(stream: TcpStream) -> Int {
+    var req = Data()
+    var reading = true
+    while reading {
+        let chunk = stream.read()
+        if chunk.len() == 0 {
+            reading = false
+        } else {
+            req.append(move chunk)
+            if req.to_string().contains("\r\n\r\n") {
+                reading = false
+            }
+        }
+    }
+    stream.write_all_str("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
+    1
+}
+
+func server(listener: TcpListener, n: Int) -> Int {
+    var hg = TaskGroup()
+    var served = 0
+    var i = 0
+    while i < n {
+        let stream = listener.accept()
+        let _h = hg.spawn(handler(move stream))
+        served = served + 1
+        i = i + 1
+    }
+    // hg's Deinit (scope exit) drains any still-running handler — structured join.
+    served
+}
+
+func client(port: Int) -> Int {
+    let stream = try! TcpStream.connect("127.0.0.1", port)
+    stream.write_all_str("GET / HTTP/1.1\r\n\r\n")
+    var resp = Data()
+    var reading = true
+    while reading {
+        let chunk = stream.read()
+        if chunk.len() == 0 {
+            reading = false
+        } else {
+            resp.append(move chunk)
+            if resp.to_string().contains("hello") {
+                reading = false
+            }
+        }
+    }
+    let s = resp.to_string()
+    if s.starts_with("HTTP/1.1 200 OK") && s.contains("hello") { 1 } else { 0 }
+}
+
+func main() {
+    let listener = try! TcpListener.listen(0)
+    let port = listener.local_port()
+    var group = TaskGroup()
+    let hs = group.spawn(server(move listener, 3))
+    let h0 = group.spawn(client(port))
+    let h1 = group.spawn(client(port))
+    let h2 = group.spawn(client(port))
+    let total = h0.join() + h1.join() + h2.join()
+    let served = hs.join()
+    print(served)   // 3 = server accepted all three
+    print(total)    // 3 = every client got the 200 + body
+}

@@ -1,9 +1,10 @@
-// design 62 G1: nested groups. `inner` is a SUSPENDING function owning its own
-// frame-resident group, itself SPAWNED as a task of an OUTER group. Each group's
-// executor drives ONLY its own queue — outer's executor resumes `inner` frames;
-// each `inner` frame's executor drives its own `leaf` tasks. No executor
-// re-entrancy: a child never drives its parent's frame (it falls out of each
-// group owning its queue).
+// design 62 G1 / design 89-b: nested groups. `inner` is a SUSPENDING function
+// owning its own frame-resident group, itself SPAWNED as a task of an OUTER group.
+// Under the design-89 unification every group links into the ONE ambient
+// scheduler; a nested `inner` that joins its `leaf` children drives that shared
+// scheduler REENTRANTLY — the sweep skips frames active on the C stack (it never
+// re-enters a live coroutine), and structured join still falls out LIFO. The
+// result (124) is unchanged; only the machinery beneath it did.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 124

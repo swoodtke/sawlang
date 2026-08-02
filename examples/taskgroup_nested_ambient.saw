@@ -1,0 +1,35 @@
+// design 89-b: nested groups on the ONE ambient scheduler + task-joins-task
+// reentrancy. A task of the OUTER group (`middle`) creates an INNER group and
+// joins its children from WITHIN the task — the join drives the shared scheduler,
+// skipping frames active on the C stack (it never re-enters a live coroutine).
+// Inner and outer children interleave on the single scheduler; both scopes join
+// (LIFO by construction). Deterministic.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 11
+// 20
+// 21
+
+func leaf(id: Int) -> Int {
+    yield_now()
+    print(id)
+    id
+}
+
+func middle() -> Int {
+    var inner = TaskGroup()
+    let a = inner.spawn(leaf(10))
+    let b = inner.spawn(leaf(11))
+    a.join() + b.join()   // a task joining its own child tasks (reentrant drive)
+}
+
+func main() {
+    var outer = TaskGroup()
+    let m = outer.spawn(middle())
+    let x = outer.spawn(leaf(20))
+    let y = outer.spawn(leaf(21))
+    let _ = m.join()
+    let _ = y.join()
+    let _ = x.join()
+}

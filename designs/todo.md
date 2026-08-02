@@ -112,6 +112,24 @@ items need a probe before being treated as real work.
   non-reproducible `dep_build` SIGABRT flake observed under load (that test shells
   out to compile+run subprocesses; its path uses no concurrency, so unrelated to
   this change — baseline + reruns all green). [89, 45, 52b, 76, 75]
+- **Test matrix — LANDED (worktree).** Three NEW tests for behavior the old split
+  executors could not produce (suite 888->891): `net_accept_loop_concurrent`
+  (ACCEPTANCE — a server task accept-loops N=3, SPAWNING a handler per connection
+  into its OWN group that runs eagerly on the shared scheduler while the server
+  parks, + 3 concurrent client tasks; round-trips all N, deterministic 3/3);
+  `taskgroup_spawn_and_loop` (the core gap — main parks in a sleep-loop while its
+  spawned child INTERLEAVES `0,100,101,1,102,2,7`, not the old
+  `0,1,2,100,101,102,7`); `taskgroup_nested_ambient` (nested groups + a task
+  joining its own inner children = the reentrancy hazard, cross-group eager
+  interleave). Existing coverage survives and validates the rest under the ambient
+  scheduler: `taskgroup_sleep_ordering`/`structured_join`/`unjoined_drop`/
+  `two_task_yield`/`cancel_check`, `net_io_sleep_interleave`, `net_serve_two/three_
+  connections`. Updated the now-stale per-group-executor comments in
+  `taskgroup_nested_groups` + `taskgroup_suspending_parent_sleep` (results kept).
+  **DF finding (pre-existing, reproduces on parent):** spawning a function whose
+  param transitively references a std struct (e.g. `f(h: TaskHandle<Int>)`) ICEs
+  "Undefined struct: TaskGroup" during frame layout — unrelated to executor
+  unification; reentrancy is instead tested via nested-group joins. [89, 52b, 76]
 
 ## Design 87 — consolidate literal coercion + stable type-ids (IN PROGRESS)
 - **Item 1 (ONE literal-coercion pass) — LANDED.** Integer-literal fixed-width

@@ -1,9 +1,9 @@
-// design 62 G1: parent AND children sleep. Children sleep inside the group's
-// executor (driven during join); the parent sleeps in the outer driver — the two
-// schedulers are distinct, so there is no re-entrancy. A `Res` oracle in the
-// parent frame proves the frame (and its group) tear down exactly once at scope
-// exit (the 905 is the parent-frame Res(5) deinit, extracted-result-then-teardown
-// ordering puts it before the returned 30 is printed).
+// design 62 G1 / design 89-b: parent AND children sleep. The children link into
+// the ONE ambient scheduler and are join-driven there; the parent's own sleep is
+// stepped by the `__drive` single-frame loop. A `Res` oracle in the parent frame
+// proves the frame (and its group) tear down exactly once at scope exit (the 905
+// is the parent-frame Res(5) deinit, extracted-result-then-teardown ordering puts
+// it before the returned 30 is printed). Unchanged result under the unification.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 905

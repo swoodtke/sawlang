@@ -1,0 +1,36 @@
+// design 89-b core-gap test: main spawns a child, then runs its own sleep-loop.
+// Under the OLD split executors the child ran ONLY at the final join
+// (0,1,2,100,101,102,7); under the unified ambient scheduler the child runs
+// eagerly whenever main parks, so the output INTERLEAVES. Deterministic (the
+// relative-sleep virtual clock + list order fix the interleaving).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 100
+// 101
+// 1
+// 102
+// 2
+// 7
+
+func child() -> Int {
+    var i = 100
+    while i < 103 {
+        print(i)
+        sleep(10)
+        i = i + 1
+    }
+    return 7
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(child())
+    var i = 0
+    while i < 3 {
+        print(i)
+        sleep(10)
+        i = i + 1
+    }
+    print(h.join())
+}
