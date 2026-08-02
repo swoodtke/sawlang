@@ -1,0 +1,24 @@
+// Design 88 (D6): a `&var T` reference PARAMETER held across a suspension is a
+// frame-resident pointer; a mutation after resume writes THROUGH it to the
+// caller's value. Both the returned result and the caller-visible field observe
+// the full sequence across the suspend.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 16
+// 16
+
+struct Rec { n: Int }
+
+func bump(d: &var Rec) -> Int {
+    d.n = d.n + 1        // 5 -> 6 (before suspend)
+    __suspend()
+    d.n = d.n + 10       // 6 -> 16 (after resume, through the same pointer)
+    d.n
+}
+
+func main() {
+    var data = Rec(n: 5)
+    let r = __drive(bump(&var data))
+    print(r)          // 16
+    print(data.n)     // 16 — mutation is visible to the caller
+}

@@ -11,6 +11,31 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 88 — references across suspension points (implement D6) (IN PROGRESS)
+- **Core LANDED (commit 1).** A reference PARAM/LOCAL of a suspending function
+  is now a frame-resident RAW POINTER across suspensions (`_enc_of` REFERENCE ->
+  "ref"; field `UnsafePointer<T>`, pointer mut mirrors the ref; read rewritten to
+  `self.name[0]` — the `__recv[0]` mechanism of 45-0c generalized). Drive site
+  casts `&x`/`&var x` -> `UnsafePointer<T>` (`_ref_arg_to_ptr`), driver param is
+  the pointer, frame seeds it directly. Re-typecheck ACCEPTS it (member access /
+  mutation / method calls flow through the deref lvalue); synthesized resume is
+  exempt from the design-81 `unsafe` marker. Ref field is NON-owning — exempt from
+  drop flags, never dropped (deinit stays exactly-once). Both `&T`/`&var T` and
+  `&var self`. Frame kinds allowing held refs: **DRIVEN-in-place = YES;
+  SPAWNED-cross-task = NO** (`_reject_spawn_frame_refs` — a spawned frame with a
+  ref param/across-suspend ref local is a hard error for BOTH single- and
+  multi-threaded groups, confinement not merely Send). Tests:
+  coro_ref_param_read/_mut/_self_method/_deinit_once + coro_spawn_ref_rejected.
+  Suite 904 (was 899); bootstrap green.
+- **TODO:** item 4 (with_ref/with_var_ref across a suspend — relax design-81
+  sync-only body if sound for driven-in-place, else document); item 5 (net
+  `read_into(&var Data)` capability test + report on offering it); item 7 docs
+  (spec concurrency D6-implemented note; saw-lang skill limitation removal).
+- **FLAG (pre-existing, unrelated):** `libs/semver` + `libs/toml` `blade test`
+  suites fail on a CLEAN tree (module-path: tests `import src.lib.*`; standalone
+  `sawc` compile+run of each test passes). Blade-test-harness issue, orthogonal to
+  design 88 (no coroutines in those libs) — not touched here.
+
 ## Design 94 — enum/Result payload sizing + temp-drop-at-merge (IN PROGRESS)
 - **Codegen chain LANDED (commit 1).** Two frame-layout-sensitive bugs, both
   root-caused with a deterministic `-O0` repro (`blade build --force` 12/12

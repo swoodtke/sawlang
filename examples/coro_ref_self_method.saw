@@ -1,0 +1,24 @@
+// Design 88 (D6, generalizing design 45 0c): a `&var self` method that suspends
+// and holds `self` across the suspend mutates the caller's value through the
+// frame's receiver pointer. Driven directly with `__drive(recv.m())`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 22
+// 22
+
+struct Rec { n: Int }
+
+extension Rec {
+    func grow(&var self) -> Int {
+        self.n = self.n + 1      // 1 -> 2
+        __suspend()
+        self.n = self.n + 20     // 2 -> 22 across the suspend
+        self.n
+    }
+}
+
+func main() {
+    var b = Rec(n: 1)
+    print(__drive(b.grow()))   // 22
+    print(b.n)                 // 22 — caller-visible
+}

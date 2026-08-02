@@ -1,0 +1,26 @@
+// Design 88 (D6): a reference frame field is a NON-owning pointer — it is exempt
+// from frame drop flags and is never dropped at frame teardown. The referent `r`
+// is owned by `main` and deinits exactly ONCE at scope end, after the drive
+// completes — the held reference does not double-free it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 999
+// deinit 42
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func touch(r: &var Res) -> Int {
+    r.id = r.id + 1
+    __suspend()
+    r.id
+}
+
+func main() {
+    var r = Res(id: 41)
+    print(__drive(touch(&var r)))   // 42
+    print(999)
+}                                    // deinit 42 — exactly once

@@ -216,6 +216,18 @@ def _is_taskgroup(saw_type):
 def _enc_of(saw_type):
     if _is_pod(saw_type):
         return "plain"
+    # design 88 (D6): a reference-typed PARAM or LOCAL (`&T` / `&var T`) held
+    # across a suspension becomes a frame-resident RAW POINTER into the referent's
+    # storage — the exact `__recv` mechanism (design 45 0c) generalized from the
+    # method receiver to any reference. The field is `UnsafePointer<T>`, a read of
+    # the reference name is rewritten to a pointer deref `self.name[0]` (an lvalue
+    # of the pointee type, so member access / mutation / method calls all work),
+    # and the pointer never owns — no drop flag, exempt from cleanup. Sound only
+    # for DRIVEN-in-place frames (referent outlives the drive); a SPAWNED frame
+    # keeps rejecting references (confinement — the referent could be a dead
+    # spawner-stack slot), enforced at the spawn lowering site.
+    if saw_type is not None and saw_type.kind == TypeKind.REFERENCE:
+        return "ref"
     # design 77 item 4: a closure frame field. Cleanup-needing like "opt" (the
     # None/Some tag is the drop flag; the env is released exactly once at frame
     # death), but a CALL to it (`f(args)`) is rewritten to an indirect field
@@ -237,7 +249,17 @@ def _enc_of(saw_type):
     return "opt"
 
 
+def _ref_ptr_type(ref_type):
+    """The `UnsafePointer<T>` frame-field type for a reference `&T` / `&var T`
+    (design 88). Pointer mutability mirrors the reference: a `&var T` frame field
+    permits mutation through the deref; a `&T` field is read-only."""
+    return SawType(TypeKind.POINTER, inner_type=ref_type.inner_type,
+                   pointer_mutable=bool(ref_type.reference_mutable))
+
+
 def _field_type(saw_type, enc):
+    if enc == "ref":
+        return _ref_ptr_type(saw_type)
     return _opt(saw_type) if enc in ("opt", "opt_closure") else saw_type
 
 
@@ -267,6 +289,12 @@ def _read_field(name, encoding, line=0, column=0):
     acc = _self_field(name, line, column)
     if encoding in ("opt", "opt_closure"):
         return ForceUnwrap(expr=acc, line=line, column=column)
+    if encoding == "ref":
+        # design 88 (D6): the reference name reads through the frame's pointer
+        # field — `self.name[0]` — yielding an lvalue of the pointee type. Member
+        # access, compound-assignment mutation, and method calls on it all flow
+        # normally (the identical `self.__recv[0]` receiver rewrite of design 45 0c).
+        return ArrayIndex(array_expr=acc, index=_int(0), line=line, column=column)
     return acc
 
 
@@ -2095,6 +2123,11 @@ def _zeroed_value(enc, saw_type):
     cleanup)."""
     if _enc_cleanup(enc):
         return NoneLiteral()
+    # design 88: a reference frame field (raw pointer) in the not-yet-live state
+    # is a null pointer — a dead sub-frame's placeholder, rebuilt with the real
+    # referent address when its call site is reached, so never dereferenced.
+    if enc == "ref":
+        return CastExpr(expr=_int(0), target_type=_ref_ptr_type(saw_type))
     # design 62 G1: a plain-encoded frame-resident TaskGroup placeholder is a real
     # empty group (not a zero word) — always safe to drop, overwritten by the
     # user's `let group = TaskGroup()`.
@@ -2294,7 +2327,13 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
         # in the frame and is dropped once at frame death.
         final = ForceUnwrap(expr=result_acc) if _enc_unwraps(fb.result_enc) else result_acc
 
-    driver_params = [Parameter(name=p.name, type=p.type) for p in params]
+    # design 88: a reference param flows through the driver AS a raw pointer (the
+    # drive site casts `&var x` -> `UnsafePointer<T>`), seeding the frame's pointer
+    # field directly. Its inner type follows the reference (mutability preserved).
+    driver_params = [Parameter(name=p.name,
+                               type=(_ref_ptr_type(p.type)
+                                     if fb.encmap.get(p.name) == "ref" else p.type))
+                     for p in params]
     if fb.is_method:
         driver_params = [Parameter(name="__recv", type=fb.recv_type)] + driver_params
     return Function(name=driver_name, parameters=driver_params, return_type=ret,
@@ -2306,6 +2345,52 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
 # --------------------------------------------------------------------------- #
 # spawn lowering (design 52b item 2)
 # --------------------------------------------------------------------------- #
+
+def _reject_spawn_frame_refs(fb: _FrameBuilder, fbs):
+    """design 88 (D6 confinement crux). A DRIVEN-in-place frame may hold a
+    reference across a suspension: the driver seeds a pointer into a referent on
+    the LIVE caller stack that outlives the whole drive. A SPAWNED frame cannot —
+    it is boxed onto the group's run queue and resumed later (possibly on another
+    thread), by which time a reference into the spawner's stack could dangle. So a
+    reference param or across-suspend reference local in a spawned function is a
+    hard error, for BOTH single- and multi-threaded groups (confinement, not
+    merely Send). Reference args are STRIPPED from spawned frames by construction —
+    there is no seed path for them — this is the honest diagnostic in their place.
+    Checks the root and every embedded callee sub-frame."""
+    seen = set()
+
+    def _check(fbx):
+        if fbx.name in seen:
+            return
+        seen.add(fbx.name)
+        for p in fbx.params:
+            if fbx.encmap.get(p.name) == "ref":
+                raise CoroTransformError(
+                    f"cannot spawn `{fbx.func.name}`: parameter `{p.name}` of type "
+                    f"`{p.type}` is a reference held across a suspension. A spawned "
+                    f"task's frame outlives the call that created it, so a reference "
+                    f"into the spawner's stack could dangle — references are confined "
+                    f"to their own task (D6). Pass an owned value (`move`), or share "
+                    f"via `Arc`/`Mutex`/`Channel`. (Driving the function in place with "
+                    f"`__drive` DOES allow a held reference.)",
+                    getattr(p, 'line', 0) or fbx.func.line,
+                    getattr(p, 'column', 0) or fbx.func.column,
+                    source_file=fbx.src_file)
+        for (lname, lt) in fbx.frame_locals:
+            if fbx.encmap.get(lname) == "ref":
+                raise CoroTransformError(
+                    f"cannot spawn `{fbx.func.name}`: local `{lname}` of type `{lt}` "
+                    f"is a reference held across a suspension. A spawned task's frame "
+                    f"outlives its spawner, so a held reference could dangle — "
+                    f"references are confined to their own task (D6).",
+                    fbx.func.line, fbx.func.column, source_file=fbx.src_file)
+        for c in fbx.calls:
+            callee = fbs.get(c['callee'])
+            if callee is not None:
+                _check(callee)
+
+    _check(fb)
+
 
 def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
     """Send-on-frames gate (design 75 A2). A frame spawned into a multi-threaded
@@ -2490,6 +2575,21 @@ def _rewrite_spawn_val(val):
 # drive-site rewriting
 # --------------------------------------------------------------------------- #
 
+def _ref_arg_to_ptr(arg):
+    """design 88 (D6): a reference argument `&x` / `&var x` at a drive site is
+    passed to the driver AS a raw pointer into the referent's storage (the same
+    &T->pointer bridge the method receiver uses). The driver seeds the frame's
+    `UnsafePointer<T>` field from it, and the frame reads/mutates the caller's
+    value through it across suspensions. A non-reference argument is unchanged."""
+    rt = getattr(arg.value, 'resolved_type', None)
+    if rt is None or rt.kind != TypeKind.REFERENCE:
+        return arg
+    ptr_type = SawType(TypeKind.POINTER, inner_type=rt.inner_type,
+                       pointer_mutable=bool(rt.reference_mutable))
+    return Argument(name=arg.name,
+                    value=CastExpr(expr=arg.value, target_type=ptr_type))
+
+
 def _rewrite_drive_sites(node, roots):
     """Rewrite `__drive(f(args))` -> `__drive_f(args)` and
     `__drive_steps(f(args))` -> `__drive_steps_f(args)` in place, everywhere."""
@@ -2519,10 +2619,11 @@ def _rewrite_drive_sites(node, roots):
             node.name = prefix + _method_frame_key(
                 struct_name, inner.method_name,
                 getattr(inner, 'resolved_symbol', None))
-            node.arguments = [Argument(name=None, value=recv_ptr)] + list(inner.arguments)
+            node.arguments = ([Argument(name=None, value=recv_ptr)]
+                              + [_ref_arg_to_ptr(a) for a in inner.arguments])
             return node
         node.name = prefix + inner.name
-        node.arguments = inner.arguments
+        node.arguments = [_ref_arg_to_ptr(a) for a in inner.arguments]
         return node
     if isinstance(node, ASTNode):
         for f in dataclasses.fields(node):
@@ -2949,6 +3050,12 @@ def transform_program(program, typechecker, imported_ast=None):
     # design 52b item 2: each spawn root gets a `__spawn_<f>` helper that boxes
     # its frame, enqueues it on the group, and returns the typed handle.
     for root_name in spawn_roots:
+        # design 88 (D6 confinement): a spawned frame may NOT hold a reference
+        # across a suspension (the referent could outlive into a dead spawner
+        # stack). Reject any reference param/across-suspend local — both group
+        # kinds — BEFORE the Send gate (Send is the multi-thread hand-off rule;
+        # confinement is the deeper single-thread-too rule).
+        _reject_spawn_frame_refs(fbs[root_name], fbs)
         # design 75 (A2): a frame spawned into a multi-threaded group crosses OS
         # threads between suspensions — gate every across-suspend live value on Send.
         if root_name in mt_spawn_roots:

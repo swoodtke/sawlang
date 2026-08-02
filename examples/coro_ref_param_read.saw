@@ -1,0 +1,17 @@
+// Design 88 (D6): a `&T` immutable reference PARAMETER held across a suspension
+// becomes a frame-resident pointer into the referent's storage. After resume the
+// read `d.n` addresses the SAME caller value — the reference spans the suspend.
+// EXPECT: success
+// EXPECT-OUTPUT: 107
+
+struct Rec { n: Int }
+
+func peek(d: &Rec) -> Int {
+    __suspend()
+    d.n + 100        // reads the caller's value after resuming
+}
+
+func main() {
+    var a = Rec(n: 7)
+    print(__drive(peek(&a)))   // 7 + 100 = 107
+}
