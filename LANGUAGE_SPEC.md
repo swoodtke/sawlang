@@ -2962,33 +2962,55 @@ Consequences:
   only enum-variant payloads, gated by the enum.
 - **The standard library is under the gate too**: std types expose their real
   API `public` and keep their internals private (the `_`-prefix convention is
-  now backed by real privacy). std is treated as one module for its own internal
-  cross-file use; user code is always a separate module from std.
+  now backed by real privacy). std has **no special visibility status** (design
+  82): each std file is its OWN module for the member gate — a private field or
+  method of one std file is invisible to another, exactly like user modules;
+  genuinely-shared std internals are marked `public(package)` (std is the
+  package). User code is always a separate module from std.
+
+### The prelude (design 82)
+
+Not all of std is auto-visible. The **prelude** — the names usable without an
+`import` — is a curated core:
+
+- primitives (`Int`, `UInt`, the fixed-width ints, `Float`, `Bool`, `String`,
+  `Void`, `Never`), core containers (`Vector`, `Map`, `Set`), core wrappers
+  (`Optional`, `Result`, `Box`, `Arc`, `Allocator`, `GlobalAllocator`);
+- core traits (the Copy family, `Deinit`, `Iterator`, `Equatable`, `Comparable`,
+  `Hashable`, `Printable`, `Error`, `Send`, `Sync`);
+- the builtins (`print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`) and
+  the concurrency primitives (`TaskGroup`, `yield_now`, `sleep`, `spawn`,
+  `cancelled`); `StringBuilder` (common enough to stay bare).
+
+Everything else in std is **import-required**: `File`, `Directory`, `Path`,
+`Data`, `Channel`, `Mutex`, `Duration`, `Instant`, `IoError`, `Utf8Error`, the
+whole `net` surface (`TcpListener`/`TcpStream`), and the `process`/`env`/`time`
+contents. These stay compiler-known for codegen but are not injected into a
+user namespace without `import std.<module>`. A bare reference to one is a clean
+error ("`TcpStream` is not in the prelude and must be imported") naming the
+import that supplies it. Because a non-imported std module is not even compiled
+into the program, a user is free to define its OWN `IoError`/`File`/etc. with no
+clash.
 
 ### Imports
 
 Imports follow Python-style semantics - only the explicitly named symbol is added to the namespace:
 
 ```saw
-// Import a module - adds 'io' to namespace
-import std.io
-io.open("file.txt")     // Access via module name
+// Import specific std symbols - adds only those names, usable bare (design 82).
+// A std import re-exposes names already compiled into the builtins; it does NOT
+// create a `mod.Name` alias (the leaf, e.g. `data`/`net`, is a common local).
+import std.net.{TcpListener, TcpStream}
+let l = TcpListener.listen(0)!
 
-// Import specific symbols - adds only those names
-import std.collections.{Map, Set}
-let m = Map()           // Map is directly available
-let s = Set()           // Set is directly available
+// Whole std module - exposes every symbol the module defines, bare.
+import std.file
+let f = File.create("data.txt")
 
-// Import a single symbol
-import std.io.File
-let f = File.open("data.txt")
-
-// Aliasing (implemented, design 53). Module alias (`as`) — only the alias
-// enters the namespace; and per-symbol aliases inside a selective import. Both
-// are purely local renames (mangling and the module graph are unchanged). Two
-// entries of one selective import binding the same local name is an error.
-import std.io as fileio                          // module alias
-import std.collections.{Map as Dict, Set}        // per-symbol alias
+// User-module imports still support qualified access + aliasing (design 53).
+import mypkg.parser.{Parser}
+import mypkg.collections.{Map as Dict}           // per-symbol alias
+import mypkg.io as fileio                          // module alias
 
 // Import from current package
 import package.parser.Parser

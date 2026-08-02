@@ -101,7 +101,13 @@ allocator type params + Box/slab + statics/Atomic + UnsafeMemory +
 `@export`/`@section` (freestanding-ready), platform-width Int,
 bounds/overflow/shift checks always on. Member visibility (design 80):
 struct fields + extension methods are private-by-default outside the
-defining module (std under the gate too). Unsafe surface (design 81):
+defining module (std under the gate too — design 82 makes each std FILE
+its own module). Prelude discipline (design 82): only a curated core is
+auto-visible (primitives, Vector/Map/Set, Optional/Result/Box/Arc/
+Allocator, the trait vocabulary, the builtins + concurrency primitives,
+StringBuilder); File/Data/Channel/Mutex/net/IoError/Utf8Error/process/env/
+time need `import std.<module>` — so a user type named `IoError`/`File`
+no longer collides. Unsafe surface (design 81):
 unsafety is type-carried, plus an `unsafe` expression marker required
 wherever a raw pointer flows invisibly — a deref/index/write, pointer
 arithmetic, or binding a pointer produced by a call — in a function whose

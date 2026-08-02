@@ -267,9 +267,24 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
 
 ## Modules & packages
 ```saw
-import std.io               // adds `io`; import std.io.{Read as R}
+import std.net.{TcpListener, TcpStream}   // non-prelude std: import to use bare
+import std.file                            // whole module (exposes File, ...)
 import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
 ```
+- **Prelude (design 82) — what's bare vs what needs `import std.X`.** Bare
+  (prelude): primitives, `Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/`Arc`/
+  `Allocator`/`GlobalAllocator`, the Copy family + `Deinit`/`Iterator`/
+  `Equatable`/`Comparable`/`Hashable`/`Printable`/`Error`/`Send`/`Sync`,
+  `print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`, `TaskGroup`/
+  `yield_now`/`sleep`/`spawn`/`cancelled`, `StringBuilder`. IMPORT-REQUIRED:
+  `File`/`Directory`/`Path` (std.file/directory/path), `Data` (std.data),
+  `Channel` (std.channel), `Mutex` (std.mutex), `Duration`/`Instant` (std.time),
+  `IoError`/`TcpListener`/`TcpStream` (std.net), `Utf8Error` (std.string),
+  `Command` (std.process), `Env` (std.env). A bare non-prelude name is a clean
+  error ("`X` is not in the prelude and must be imported") — add the import.
+  A std import exposes names BARE (no `mod.Name` qualifier). Because a
+  non-imported std module isn't compiled in, you may define your OWN `IoError`/
+  `File`/etc. with no clash.
 - Visibility: `public`, `public(package)`, `public(parent)`, private
   default. Package layout: `src/lib.saw` ← `import <pkgname>` (Blade
   `--module-path`); `src/main.saw` for binaries.
@@ -283,7 +298,8 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   corrupt a private field. (2) A method satisfying a visible trait's
   requirement is callable through the conformance with no `public` needed.
   (3) `public` on a member of a private struct is legal but inert. std is
-  under the gate too — you reach its public API, never its internals.
+  under the gate too — you reach its public API, never its internals; each std
+  FILE is its own module (design 82), so std internals are private per-file.
 
 ## Systems/embedded corner
 `static NAME: T = const_init` (Sync-only, immortal); `Atomic<Int>`;
