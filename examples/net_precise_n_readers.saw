@@ -1,0 +1,87 @@
+// design 91: N readers parked on N distinct fds, each fd fired INDIVIDUALLY —
+// only the fired one may wake. Three readers park on three socketpairs; then each
+// fd's writer fires in turn (fd0, fd1, fd2), each followed by joining that reader.
+// When fd i fires, readers j != i (still parked, no data) must stay asleep. A
+// shared counter records SPURIOUS wakes (a reader resumed but still would-block);
+// precise routing keeps it 0 across the whole sequence, where the retired wake-all
+// scheme roused every still-parked reader on each event. Spawn-slot order makes all
+// readers park before the first writer runs; join drains fully. Socketpair-only,
+// time-bounded, deterministic on content.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 20
+// 30
+// 0
+
+static SPURIOUS: Atomic<Int> = Atomic(0)
+
+func reader(fd: Int) -> Int {
+    let buf = unsafe net_buffer(1)
+    var v = 0
+    var parked = false
+    var going = true
+    while going {
+        let r = tcp_try_read(fd, buf, 1)
+        if net_would_block(r) {
+            if parked {
+                SPURIOUS.fetch_add(1)
+            }
+            parked = true
+            io_wait(fd, 0)
+        } else {
+            v = (unsafe buf[0]) as Int
+            going = false
+        }
+    }
+    net_free_buffer(buf, 1)
+    return v
+}
+
+func writer(fd: Int, b: Int) -> Int {
+    let buf = unsafe net_buffer(1)
+    unsafe buf[0] = b as Int8
+    var going = true
+    while going {
+        let w = tcp_try_write(fd, buf, 1)
+        if net_would_block(w) {
+            io_wait(fd, 1)
+        } else {
+            going = false
+        }
+    }
+    net_free_buffer(buf, 1)
+    return 1
+}
+
+func main() {
+    let p0 = tcp_socketpair()
+    let p1 = tcp_socketpair()
+    let p2 = tcp_socketpair()
+    var group = TaskGroup()
+    let r0 = group.spawn(reader(p0.0))
+    let r1 = group.spawn(reader(p1.0))
+    let r2 = group.spawn(reader(p2.0))
+    // Fire fd 0 only, drain reader 0: readers 1 and 2 stay parked (precise).
+    let w0 = group.spawn(writer(p0.1, 10))
+    let a = r0.join()
+    // Fire fd 1 only, drain reader 1: reader 2 stays parked.
+    let w1 = group.spawn(writer(p1.1, 20))
+    let b = r1.join()
+    // Fire fd 2 only, drain reader 2.
+    let w2 = group.spawn(writer(p2.1, 30))
+    let c = r2.join()
+    print(a)                  // 10
+    print(b)                  // 20
+    print(c)                  // 30
+    print(SPURIOUS.load())    // 0 — no reader ever woken by another fd's event
+    let _ = w0.join()
+    let _ = w1.join()
+    let _ = w2.join()
+    tcp_close(p0.0)
+    tcp_close(p0.1)
+    tcp_close(p1.0)
+    tcp_close(p1.1)
+    tcp_close(p2.0)
+    tcp_close(p2.1)
+}

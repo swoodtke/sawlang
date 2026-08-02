@@ -2520,6 +2520,20 @@ no task is runnable the executor blocks in the poller with a timeout equal to th
 earliest sleep deadline (never busy-waiting, never blocking while a task is
 runnable), and wakes tasks whose fds are ready.
 
+**Precise wakeup (design 91).** A readiness event wakes EXACTLY the frame(s)
+registered for that `(fd, direction)` — not every io-parked frame. Each park
+registers its fd carrying the parked frame's wake-word ADDRESS as the event's
+user-data (`kevent.udata` / `epoll_event.data`); on a ready event the poller
+latches that word, and the scheduler resumes only the frame whose word changed. The
+latch is a persistent word (not an edge), so a readiness that races the park is
+never lost. The token is per-PARK (the frame's own word), not per-fd-number, and
+one-shot interest plus close both drop a registration — so a reused fd number can
+never route a wake to a stale frame. Level-vs-edge posture: interest is one-shot
+per park (`EV_ONESHOT` / `EPOLLONESHOT`), and each re-park re-registers. Two frames
+waiting DIFFERENT directions on one fd are independent registrations (both woken
+precisely); concurrent SAME-direction waiters on one fd collapse to one kernel
+registration (last-registrant-wins) and are not a supported pattern.
+
 **std.net — the safe owning API (design 84).** Application code uses owning socket
 TYPES, never a raw fd or pointer. `TcpListener` and `TcpStream` are `NoCopy`; each
 one's `Deinit` closes its fd exactly once (the move checkpoint prevents

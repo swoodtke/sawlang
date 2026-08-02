@@ -206,9 +206,12 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   reuse across connection turnover, and two readers parked on different fds all
   wake (`net_serve_two_connections`, `net_serve_three_connections`,
   `net_fd_reuse_across_connections`, `net_two_concurrent_parked_reads`). The
-  reactor wakes ALL io-parked frames on any readiness event, so every parking op
-  (`accept`/`read`/`write`/`connect`) re-checks its own fd and re-parks on a
-  spurious wake — you never see this, it is internal.
+  reactor wakes PRECISELY the frame(s) registered for the `(fd, direction)` that
+  became ready (design 91 — a readiness event carries the parked frame's wake-word
+  as user-data), not the herd; a reader parked on one fd is never roused by
+  another's event (`net_precise_wakeup`, `net_precise_n_readers`). Every parking op
+  still re-checks its own fd and re-parks on a spurious wake, now purely
+  belt-and-suspenders — you never see any of this, it is internal.
 - `extern "C" { blocking func f(...) -> T }` marks an unbounded FFI call: it
   SUSPENDS (offloads to a hosted pool), is illegal in a `sync` context, and is
   rejected in the freestanding profile. An unannotated extern promises promptness.
