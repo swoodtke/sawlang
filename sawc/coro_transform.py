@@ -2061,6 +2061,30 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
                     source_file=getattr(fb.func, 'source_file', ""))
 
 
+def _make_ambient_entry_executor(fb: _FrameBuilder, fbs):
+    """design 89: the entry executor for a suspending `main` in a program that ALSO
+    uses the cooperative scheduler (spawns). Instead of the design-45 single-frame
+    loop (which drives ONLY main's frame — parking the whole thread while a spawned
+    sibling starves), main's frame is boxed erased and handed to the std ambient
+    entry executor `__exec_run_root`, which enqueues it as the root member of the
+    shared scheduler and drives main AND every task it spawns to completion. This is
+    what makes a spawn run eagerly whenever main parks (the core design-89 fix). A
+    suspending main with NO spawn keeps the lighter single-frame executor above."""
+    frame_init = _build_frame_init(fb, [], fbs)
+    box_ty = SawType(TypeKind.EXISTENTIAL, existential_trait="Resumable")
+    box_make = MethodCall(
+        object=Identifier(name="Box", type_args=[box_ty]),
+        method_name="make",
+        arguments=[Argument(name=None, value=frame_init)])
+    call = FunctionCall(name="__exec_run_root",
+                        arguments=[Argument(name=None, value=box_make)])
+    return Function(name="main", parameters=[], return_type=SawType(TypeKind.VOID),
+                    body=Block(statements=[ExpressionStatement(expression=call)],
+                               final_expr=None),
+                    is_synthesized=True,
+                    source_file=getattr(fb.func, 'source_file', ""))
+
+
 def _make_driver(fb: _FrameBuilder, mode, fbs):
     """Synthesize the driver function that steps a frame to completion.
 
@@ -2249,16 +2273,18 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
                          expr=ReferenceExpr(expr=_fp_field("__cancel"), mutable=False),
                          target_type=SawType(TypeKind.POINTER,
                                              inner_type=SawType(TypeKind.BOOL)))),
-        ExpressionStatement(expression=MethodCall(
-            object=ArrayIndex(array_expr=Identifier(name="__group"), index=_int(0)),
-            method_name="__enqueue",
-            arguments=[Argument(name=None, value=MoveExpr(variable="__box", path=None))])),
+        LetStatement(name="__slot", type_annotation=None, mutable=False,
+                     value=MethodCall(
+                         object=ArrayIndex(array_expr=Identifier(name="__group"), index=_int(0)),
+                         method_name="__enqueue",
+                         arguments=[Argument(name=None, value=MoveExpr(variable="__box", path=None))])),
     ]
     handle = StructInit(
         struct_name="TaskHandle", type_args=[T],
         field_inits=[("result_ptr", Identifier(name="__rp")),
                      ("cancel_ptr", Identifier(name="__cp")),
-                     ("group_ptr", Identifier(name="__group"))])
+                     ("group_ptr", Identifier(name="__group")),
+                     ("slot", Identifier(name="__slot"))])
     ret_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle", type_args=[T])
     helper_params = [Parameter(name="__group", type=tg_ptr)] + \
                     [Parameter(name=p.name, type=p.type) for p in params]
@@ -2759,7 +2785,13 @@ def transform_program(program, typechecker, imported_ast=None):
         # `main` keeps its name but becomes the entry executor driving its own
         # frame (not a __drive_* driver). It is in `removed` (the original body is
         # now __Frame_main.resume), so the executor is re-added under `main`.
-        new_functions.append(_make_entry_executor(fbs["main"], fbs))
+        # design 89: if the program ALSO spawns, route through the ambient scheduler
+        # (main becomes the root member) so a spawned sibling runs whenever main
+        # parks; otherwise keep the design-45 single-frame executor.
+        if spawn_roots:
+            new_functions.append(_make_ambient_entry_executor(fbs["main"], fbs))
+        else:
+            new_functions.append(_make_entry_executor(fbs["main"], fbs))
 
     # Part 0c: driven suspending methods. Each becomes a frame that holds a
     # `__recv` pointer into the receiver's storage; the method body's `self` is

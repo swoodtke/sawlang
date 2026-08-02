@@ -89,6 +89,30 @@ items need a probe before being treated as real work.
   under `.build/scratch/` (`probe_gap`, `probe_loopdiag`, `probe_accept*`).
   [89, 45, 52b, 76, 75, 86]
 
+## Design 89-b — executor unification core (WORKTREE, IN PROGRESS)
+- **Steps a+b+c — LANDED (worktree).** The ambient cooperative scheduler:
+  ONE per-thread sweep over an intrusive list of every live single-threaded
+  TaskGroup (`static __saw_exec_head`, threaded through a new group `next`/
+  `registered` field pair). Realized the design-89 "one shared run queue" as a
+  registry-of-group-queues (each group keeps owning its boxes) — this keeps the
+  battle-tested per-group deinit-exactly-once machinery intact and DISSOLVES the
+  flat-queue box-ownership-hand-off hazard the STATUS flagged, while being
+  behaviorally the pinned model (eager spawn, structured join, nested groups,
+  reentrancy). One parameterized sweep `__ambient_run(term_group, term_slot)`
+  reused verbatim at all three drive points: ALL (entry), GROUP (Deinit),
+  FRAME (join); each SKIPS frames `active` on the C stack (reentrancy guard —
+  task-joins-task yields to the one scheduler, never re-enters a live coroutine).
+  A suspending `main` that also spawns is boxed as the ROOT member and driven by
+  the shared sweep (`__exec_run_root`), so a spawned sibling runs whenever main
+  parks (the core gap: `probe_gap` now INTERLEAVES `0,100,101,1,102,2,7` instead
+  of `0,1,2,100,101,102,7`). Design-45 single-task main (no spawn) keeps the
+  lighter single-frame executor; MT groups (workers>=2, design 75) keep their own
+  worker pool + queue and never join the ambient list (bifurcation preserved).
+  Bars green: suite 888, bootstrap 17+17, libs toml 4/4 + semver 4/4. NOTE: one
+  non-reproducible `dep_build` SIGABRT flake observed under load (that test shells
+  out to compile+run subprocesses; its path uses no concurrency, so unrelated to
+  this change — baseline + reruns all green). [89, 45, 52b, 76, 75]
+
 ## Design 87 — consolidate literal coercion + stable type-ids (IN PROGRESS)
 - **Item 1 (ONE literal-coercion pass) — LANDED.** Integer-literal fixed-width
   typing now routes through the EXISTING expected-type propagation
