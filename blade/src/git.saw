@@ -164,7 +164,10 @@ public func clone_tag(url: String, tag: String, dir: String) -> Bool {
     cmd.arg(tag)
     cmd.arg(url)
     cmd.arg(dir)
-    cmd.run() == (0 as Int32)
+    match cmd.run() {
+        case Ok(code) -> code == (0 as Int32),
+        case Err(_) -> false
+    }
 }
 
 // Clone a repo then check out an exact commit (for locked builds). True on
@@ -175,7 +178,11 @@ public func checkout_rev(url: String, rev: String, dir: String) -> Bool {
     clone.arg("clone")
     clone.arg(url)
     clone.arg(dir)
-    if clone.run() != (0 as Int32) {
+    let clone_ok = match clone.run() {
+        case Ok(code) -> code == (0 as Int32),
+        case Err(_) -> false
+    }
+    if not clone_ok {
         return false
     }
     var co = Command(program: "git")
@@ -184,5 +191,8 @@ public func checkout_rev(url: String, rev: String, dir: String) -> Bool {
     co.arg("checkout")
     co.arg("--quiet")
     co.arg(rev)
-    co.run() == (0 as Int32)
+    match co.run() {
+        case Ok(code) -> code == (0 as Int32),
+        case Err(_) -> false
+    }
 }

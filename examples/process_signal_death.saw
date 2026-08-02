@@ -14,16 +14,18 @@
 // success is zero: true
 
 func main() {
+    // Each of these LAUNCHES (the shell runs), so run() yields Ok(code);
+    // `try!` unwraps the exit code (design 92/94: run() -> Result).
     var crash = Command(program: "kill -ABRT $$")
-    let crashed = crash.run()
+    let crashed = try! crash.run()
     let signal_nonzero = crashed != (0 as Int32)
     print("signal death nonzero: {signal_nonzero}")
 
     var three = Command(program: "exit 3")
-    let normal_ok = three.run() == (3 as Int32)
+    let normal_ok = (try! three.run()) == (3 as Int32)
     print("normal exit 3 preserved: {normal_ok}")
 
     var good = Command(program: "true")
-    let zero_ok = good.run() == (0 as Int32)
+    let zero_ok = (try! good.run()) == (0 as Int32)
     print("success is zero: {zero_ok}")
 }

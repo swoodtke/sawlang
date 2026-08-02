@@ -1,0 +1,27 @@
+// Command.run() surfaces a LAUNCH failure as Err(ProcessError), rather than
+// folding it into a bogus exit code (design 92 item 1, re-landed under design
+// 94 once the enum/Result payload codegen bug was fixed). A nonexistent program
+// makes the POSIX shell report exit 127 ("command not found"), which run()
+// classifies as a launch failure -> Err. The error names the program that
+// failed. (The shell's "command not found" message goes to stderr, ignored.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// launched: false
+// error names program: true
+
+func main() {
+    var cmd = Command(program: "this_command_does_not_exist_zzq")
+    match cmd.run() {
+        case Ok(code) -> {
+            // A real launch would print the exit code here; the not-found
+            // program must NOT reach this arm.
+            print("launched: true (code {code})")
+            print("error names program: false")
+        },
+        case Err(e) -> {
+            print("launched: false")
+            let named = e.program_name().equals("this_command_does_not_exist_zzq")
+            print("error names program: {named}")
+        }
+    }
+}

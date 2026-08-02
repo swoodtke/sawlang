@@ -313,6 +313,10 @@ non-escaping `&T`/`&var T` borrow, invalidation-proof) — this REPLACED `ref_at
 - String `chars()` yields Int scalars (no Char type).
 - `to_int()`/`to_float()` are whole-string, no trimming → Optional.
 - std.time/std.process/std.file/std.net are HOSTED-only (link libc).
+  `Command(program:).arg(..).run() -> Result<Int32, ProcessError>`: Ok(code) =
+  launched + exited (signal death = 128+signum, never a bogus 0); Err = could not
+  launch (executable not found / shell exit 127). `ProcessError: Error` names the
+  program. `.output() -> CommandOutput?` still captures stdout.
 - `UnsafePointer<T> + n` / `- n` / `[i]` are ELEMENT-STRIDE GEPs (the C
   convention: `UnsafePointer<Int32> + 1` advances 4 bytes). Use them for typed
   pointer math. `ptr as Int` (+ int math + `as UnsafePointer<T>`) DESTROYS

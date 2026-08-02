@@ -64,6 +64,32 @@ func decode_wait_status(status: Int32) -> Int32 {
 }
 
 // =============================================================================
+// ProcessError - a command that could not be launched (design 92 / 94)
+// =============================================================================
+
+// Returned as the Err of `Command.run()` when the command could not be started
+// (the executable was not found, or a child process could not be created) — as
+// distinct from the command running and exiting nonzero (that is Ok(code)).
+// Conforms to `Error`, so it interpolates and boxes into `Box<any Error>`.
+public struct ProcessError {
+    program: String
+}
+
+extension ProcessError {
+    // The program that failed to launch.
+    public func program_name(&self) -> String {
+        self.program
+    }
+}
+
+extension ProcessError: Error {
+    public func format(&self, into: &var StringBuilder) {
+        into.append("could not launch process: ")
+        into.append(self.program)
+    }
+}
+
+// =============================================================================
 // CommandOutput - Result of running a command with output capture
 // =============================================================================
 
@@ -183,15 +209,28 @@ extension Command {
         }
     }
 
-    // Run the command, inheriting stdin/stdout/stderr
-    // Returns the exit code
-    public func run(&self) -> Int32 {
+    // Run the command, inheriting stdin/stdout/stderr.
+    //
+    // Ok(code)  = the command LAUNCHED and its process exited with `code`
+    //             (a signal death decodes to 128+signum via decode_wait_status,
+    //             so a crashed child is a nonzero code, never a bogus 0 — DF2).
+    // Err(...)  = the command could not be LAUNCHED: `system()` returned -1
+    //             (no child / status unavailable), or the shell reported exit
+    //             127 (POSIX "command not found / could not exec"). This is the
+    //             design-92 distinction — a failed launch is surfaced, not
+    //             folded into a bogus exit code (never hide errors).
+    public func run(&self) -> Result<Int32, ProcessError> {
         let cmd = self.build_command()
         let cmd_ptr = cmd as UnsafePointer<Int8>
-        let result = system(cmd_ptr)
-        // system() returns the full wait status; decode it so a signal death
-        // (failed assert/panic) reports failure, not a bogus exit 0 (DF2).
-        decode_wait_status(result)
+        let raw = system(cmd_ptr)
+        if raw == (-1 as Int32) {
+            return ProcessError(program: self.program)
+        }
+        let code = decode_wait_status(raw)
+        if code == (127 as Int32) {
+            return ProcessError(program: self.program)
+        }
+        code
     }
 
     // Run the command and capture its output

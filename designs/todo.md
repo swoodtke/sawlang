@@ -30,8 +30,20 @@ items need a probe before being treated as real work.
   the statement temps created during its `final_expr` at block end, on the paths
   that create them, before the merge. Suite 897 green; bootstrap green; `blade
   build`/`--force` reliable 15x + under libgmalloc (0 faults, O1 and O0).
-- **TODO:** re-land the process module (`Command.run() -> Result<Int32,
-  ProcessError>` + forced-failure test) as the acceptance; docs.
+- **Process module LANDED (commit 2 — the acceptance).** `Command.run() ->
+  Result<Int32, ProcessError>`: Ok(code)=the command launched and exited with
+  `code` (signal death still decodes to 128+signum via decode_wait_status);
+  Err(ProcessError)=could not launch (`system()` returned -1, or the shell
+  reported 127 "command not found"). `ProcessError` conforms to `Error`
+  (Printable), names the failed program. Callers migrated: blade `builder.build`/
+  `builder.run` (match; a launch failure → BuildError), `git` clone/checkout
+  (Err → false). Forced-failure test `examples/process_error_surfaced.saw`
+  (nonexistent command → Err, error names the program). Suite 898; bootstrap
+  green; blade `build`/`--force` reliable 10x + gmalloc 6x at O1 AND O0, zero
+  faults — that reliability WITH the process module back in build()'s frame (the
+  original design-92 trigger) is the proof the codegen chain is fixed. The
+  design-92 `write(s: String)` overloaded-suspending-method fix stays deferred
+  (design 95).
 
 ## Design 92 — failable calls return Result: no silent swallow (IN PROGRESS)
 - **net module LANDED** (commit 1): `TcpStream.write(bytes: Data)`,

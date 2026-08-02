@@ -224,7 +224,12 @@ public extension Builder {
             i = i + 1
         }
 
-        let exit_code = cmd.run()
+        let exit_code = match cmd.run() {
+            case Ok(code) -> code,
+            case Err(e) -> {
+                return BuildError(msg: "could not launch compiler: {e.program_name()}")
+            }
+        }
         if exit_code == (0 as Int32) {
             // Record the successful build's hash (create .blade first).
             let _ = Directory.create(Path(s: ".blade"))
@@ -322,7 +327,9 @@ public extension Builder {
             }
             i = i + 1
         }
-        let exit_code = cmd.run()
-        exit_code as Int
+        match cmd.run() {
+            case Ok(code) -> code as Int,
+            case Err(e) -> BuildError(msg: "could not launch `{binary_name}`: {e.program_name()}")
+        }
     }
 }
