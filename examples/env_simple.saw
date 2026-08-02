@@ -6,14 +6,14 @@
 
 func main() {
     // Set and read a custom variable (deterministic test)
-    Env.set("SAW_TEST_VAR", "hello from saw")
+    let _ = Env.set("SAW_TEST_VAR", "hello from saw")
     if let value = Env.get("SAW_TEST_VAR") {
         print("SAW_TEST_VAR:")
         print(value)
     }
 
     // Unset it
-    Env.unset("SAW_TEST_VAR")
+    let _ = Env.unset("SAW_TEST_VAR")
     if Env.contains("SAW_TEST_VAR") {
         print("still set")
     } else {

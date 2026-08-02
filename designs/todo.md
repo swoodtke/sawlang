@@ -33,10 +33,16 @@ items need a probe before being treated as real work.
   is the single method (binary-capable; text via `s.to_data()`). Real fix: key
   driven-method frames by resolved signature (stamp the resolved overload on the
   MethodCall in the typechecker, use it throughout the transform).
-- **TODO (later commits):** file (`remove`/`rename`), directory (`create`/
-  `remove`/`set_current`), env (`set`/`unset`/`set_cwd`) → `Result<Void, IoError>`;
-  migrate blade callers; borderline `file.write`/`seek` `Int?`→Result (report);
-  docs (skill + spec + CLAUDE.md digest).
+- **file/directory/env LANDED** (TIER 2, Bool→`Result<Void, IoError>`): `file`
+  {`remove`,`rename`}, `directory` {`create`,`remove`,`set_current`}, `env`
+  {`set`,`unset`,`set_cwd`} now surface the errno; `exists`/`contains` stay
+  genuine boolean questions, `list`/`current`/`get` stay `T?`. Public
+  `IoError.from_errno(syscall)` factory added (net.saw) as the cross-std-module
+  constructor. blade callers migrated (`match`/`let _` on the Result). Forced-
+  failure tests: file/directory/env `_error_surfaced`.
+- **TODO (later commits):** process `Command.run() -> Result<Int32, ProcessError>`
+  (Ok=exited, Err=couldn't launch); borderline `file.write`/`seek` `Int?`→Result
+  (report); docs (skill + spec + CLAUDE.md digest).
 
 ## Design 90 — reactor lost-wakeup on the 2nd sequential connection (LANDED)
 - **Root cause (VERIFIED with an instrumented repro, NOT the brief's guessed

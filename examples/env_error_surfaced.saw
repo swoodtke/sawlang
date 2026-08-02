@@ -1,0 +1,12 @@
+// design 92: env mutation failure SURFACES as Err(IoError). setenv with an empty
+// name is EINVAL — the error is RETURNED, not a bland false that hides the cause.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// set empty name: surfaced
+
+func main() {
+    match Env.set("", "value") {
+        case Ok(_) -> print("set UNEXPECTED ok"),
+        case Err(_) -> print("set empty name: surfaced")
+    }
+}
