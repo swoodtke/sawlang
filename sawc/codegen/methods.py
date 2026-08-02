@@ -491,6 +491,19 @@ class MethodsMixin:
         if manage_cleanup:
             self.cleanup_stack.append([])
 
+        # Design 100: a binding inside this block may SHADOW an enclosing binding
+        # of the same name (the blessed `let data = derive(data)` in a nested
+        # scope). Snapshot the name->storage maps so the shadowed OUTER bindings
+        # are restored when the block ends — otherwise a use of the outer name
+        # after the block would resolve to this block's (already-dropped) inner
+        # storage (a use-after-free). Only for a real block scope (a function body
+        # manages its own frame and keeps its bindings).
+        _shadow_snapshot = None
+        if manage_cleanup:
+            _shadow_snapshot = (dict(self.variables),
+                                dict(self.variable_types),
+                                dict(self.drop_flags))
+
         result = None
 
         # design 94: statement temps created while evaluating this block's
@@ -512,6 +525,7 @@ class MethodsMixin:
                 # Early exit (return/break) already handled cleanup
                 if manage_cleanup:
                     self.cleanup_stack.pop()
+                    self._restore_shadow_snapshot(_shadow_snapshot)
                 return None
 
         if block.final_expr is not None:
@@ -541,5 +555,20 @@ class MethodsMixin:
             scope_vars = self.cleanup_stack.pop()
             if not self.builder.block.is_terminated:
                 self._cleanup_scope(scope_vars)
+            # Restore shadowed enclosing bindings (design 100) after this block's
+            # own cleanup has run against its (inner) storage.
+            self._restore_shadow_snapshot(_shadow_snapshot)
 
         return result
+
+    def _restore_shadow_snapshot(self, snapshot):
+        """Restore the name->storage maps captured at block entry (design 100),
+        re-exposing any enclosing binding that this block's inner binding
+        shadowed. Block-local (non-shadowing) names are left in place — they are
+        out of scope and thus unreferenceable, so they never resolve wrongly."""
+        if snapshot is None:
+            return
+        saved_vars, saved_types, saved_flags = snapshot
+        self.variables.update(saved_vars)
+        self.variable_types.update(saved_types)
+        self.drop_flags.update(saved_flags)

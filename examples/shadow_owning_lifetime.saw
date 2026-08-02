@@ -1,0 +1,32 @@
+// Design 100 codegen: a same-name shadow of an OWNING binding must not corrupt
+// the enclosing binding. Before the fix, deinit resolved storage by NAME, so an
+// inner `let nums = nums.copy()` made the outer scope's cleanup free the inner
+// (already-dropped) Vector — a double-free — and reusing the outer after the
+// block read freed storage. `if let x = x` deleted the outer binding outright.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 3
+// 2
+// 2
+
+func main() {
+    // Derived shadow of an owning Vector in a nested scope, then the OUTER
+    // binding is used again after the block (cleanup + reference must be sound).
+    let nums: Vector<Int> = [10, 20, 30]
+    if true {
+        let nums = nums.copy()
+        print(nums.len())        // 3 (inner)
+    }
+    print(nums.len())            // 3 (outer still valid)
+
+    // `if let x = x` unwrap, then the outer optional is used again.
+    let base: Vector<Int> = [1, 2]
+    let opt: Vector<Int>? = base.copy()
+    if let opt = opt {
+        print(opt.len())         // 2 (inner unwrapped)
+    }
+    if let again = opt {
+        print(again.len())       // 2 (outer optional still bound)
+    }
+}

@@ -1,0 +1,17 @@
+// Design 100: a plain inner `let` that shadows an enclosing binding without
+// mentioning it in its initializer is a compile error. The diagnostic names the
+// shadowed binding's exact declaration site and points at the shadowing let.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `x` shadows the binding declared at shadow_inner_let.saw:12:5
+// EXPECT-ERROR-CONTAINS: derive it from the original
+// EXPECT-ERROR-CONTAINS: shadow_inner_let.saw:14:9
+
+func compute() -> Int { 42 }
+
+func main() {
+    let x = 5
+    if true {
+        let x = compute()   // shadows outer x, never mentions it -> error
+        print(x)
+    }
+}

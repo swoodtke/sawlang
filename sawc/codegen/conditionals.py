@@ -13,6 +13,10 @@ Usage:
 from llvmlite import ir
 from ast_nodes import IfExpr, IfLetExpr, GuardLetStatement, TypeKind
 
+# Sentinel for "this name had no prior binding" when snapshotting/restoring a
+# shadowed enclosing binding across an if-let then-branch (design 100).
+_SHADOW_MISSING = object()
+
 
 class ConditionalsMixin:
     """Mixin providing conditional expression methods for CodeGenerator.
@@ -196,6 +200,22 @@ class ConditionalsMixin:
         inner_saw = (opt_type.inner_type if opt_type and opt_type.kind == TypeKind.OPTIONAL
                      and opt_type.inner_type else None)
 
+        # Design 100: an if-let binding may SHADOW an enclosing binding of the
+        # same name (`if let x = x` is the blessed unwrap). Snapshot the shadowed
+        # entries now so they can be RESTORED (not deleted) at the end of the
+        # then-branch — otherwise the outer binding would vanish from codegen's
+        # flat name maps and a later use of it would ICE ("Undefined variable").
+        if expr.pattern is not None:
+            _shadow_names = self._pattern_binding_names(expr.pattern)
+        else:
+            _shadow_names = [expr.name]
+        _shadow_save = [
+            (nm,
+             self.variables.get(nm, _SHADOW_MISSING),
+             self.variable_types.get(nm, _SHADOW_MISSING),
+             self.drop_flags.get(nm, _SHADOW_MISSING))
+            for nm in _shadow_names]
+
         # Tuple pattern (design 63): destructure the unwrapped tuple into its
         # bindings. Ownership of the components stays with the source optional, so
         # the drop-flag machinery below is skipped (bind by value, no release).
@@ -250,17 +270,22 @@ class ConditionalsMixin:
                 self.builder.branch(cont_bb)
             self.builder.position_at_start(cont_bb)
 
-        # Remove the bound variable(s) from scope after the block
-        if expr.pattern is not None:
-            for nm in pattern_names:
+        # Restore the shadowed enclosing binding(s), or remove the if-let binding
+        # if it shadowed nothing (design 100). This replaces the old unconditional
+        # delete, which dropped an outer binding of the same name.
+        for nm, sv, st, sf in _shadow_save:
+            if sv is _SHADOW_MISSING:
                 self.variables.pop(nm, None)
+            else:
+                self.variables[nm] = sv
+            if st is _SHADOW_MISSING:
                 self.variable_types.pop(nm, None)
-        else:
-            del self.variables[expr.name]
-            if expr.name in self.variable_types:
-                del self.variable_types[expr.name]
-            if drop_flag is not None:
-                self.drop_flags.pop(expr.name, None)
+            else:
+                self.variable_types[nm] = st
+            if sf is _SHADOW_MISSING:
+                self.drop_flags.pop(nm, None)
+            else:
+                self.drop_flags[nm] = sf
 
         # Capture state before adding terminator
         then_terminated = self.builder.block.is_terminated
@@ -496,4 +521,7 @@ class ConditionalsMixin:
                 and self._is_owned_temporary(stmt.optional_expr)
                 and self._needs_cleanup(inner_type)
                 and self.cleanup_stack):
-            self.cleanup_stack[-1].append((stmt.name, inner_type))
+            # Capture the guard binding's storage (design 100); flag is None —
+            # a guard binding uses the static `moved_variables` skip.
+            self.cleanup_stack[-1].append(
+                (stmt.name, inner_type, self.variables.get(stmt.name), None))

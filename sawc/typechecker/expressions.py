@@ -2645,10 +2645,19 @@ class ExpressionsMixin:
         old_scope = self.current_scope
         self.current_scope = Scope(parent=old_scope)
         if expr.pattern is not None:
+            # Design 100: tuple-pattern bindings BIND (no per-binding derive) —
+            # a shadow of an enclosing binding is a flat error.
+            for nm, nl, nc in self._pattern_binding_names(expr.pattern):
+                self._check_shadowing(nm, None, nl, nc, site="pattern")
             # Tuple pattern over an Optional tuple (design 63).
             self._bind_optional_pattern(expr.pattern, inner_type, expr.mutable,
                                         expr.line, expr.column)
         else:
+            # Design 100: `if let x = x` (scrutinee mentions the shadowed
+            # enclosing binding) stays legal by the main rule; a non-deriving
+            # single-name shadow is an error.
+            self._check_shadowing(expr.name, expr.optional_expr,
+                                  expr.line, expr.column, site="binding")
             self.current_scope.define(
                 expr.name,
                 VariableInfo(inner_type, expr.mutable, expr.line, expr.column)
@@ -5917,6 +5926,10 @@ class ExpressionsMixin:
                 # Skip wildcard bindings - they don't create variables
                 if binding_name == '_':
                     continue
+                # Design 100: a variant-pattern binding BINDS (it does not
+                # compare) — shadowing an enclosing binding is a flat error.
+                self._check_shadowing(binding_name, None, arm.line, arm.column,
+                                      site="pattern")
                 var_info = VariableInfo(
                     type=param_type,
                     mutable=False,
@@ -6200,6 +6213,10 @@ class ExpressionsMixin:
         if isinstance(pattern, WildcardPattern):
             return
         if isinstance(pattern, BindingPattern):
+            # Design 100: a pattern binding BINDS (it does not compare) —
+            # shadowing an enclosing binding is a flat error.
+            self._check_shadowing(pattern.name, None, pattern.line,
+                                  pattern.column, site="pattern")
             var_info = VariableInfo(type=expected_type, mutable=False,
                                     line=pattern.line, column=pattern.column)
             if not self.current_scope.define(pattern.name, var_info):
@@ -6444,6 +6461,10 @@ class ExpressionsMixin:
                     param_type = SawType(TypeKind.REFERENCE, inner_type=inner,
                                          reference_mutable=param.reference_mutable)
                     param_types.append(param_type)
+                    # Design 100: a closure parameter shadowing an enclosing
+                    # local (or module static) is a flat error.
+                    self._check_shadowing(param.name, None, param.line,
+                                          param.column, site="param")
                     # The name reads/writes the referent directly; mutable iff &var.
                     self.current_scope.define(param.name, VariableInfo(
                         inner, param.reference_mutable, param.line, param.column))
@@ -6467,6 +6488,10 @@ class ExpressionsMixin:
                     )
                     param_type = SawType(TypeKind.INT)
                 param_types.append(param_type)
+                # Design 100: a closure parameter shadowing an enclosing local
+                # (or module static) is a flat error.
+                self._check_shadowing(param.name, None, param.line,
+                                      param.column, site="param")
                 self.current_scope.define(param.name, VariableInfo(param_type, False, param.line, param.column))
         elif expr.shorthand_param_count > 0:
             for i in range(expr.shorthand_param_count):

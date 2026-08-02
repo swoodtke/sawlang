@@ -1141,12 +1141,18 @@ class ResourcesMixin:
         """
         if not self.cleanup_stack:
             return
-        self.cleanup_stack[-1].append((var_name, saw_type))
         flag = self._entry_alloca(ir.IntType(1), name=f"{var_name}.dropflag")
         self.builder.store(ir.Constant(ir.IntType(1), 1), flag)
         self.drop_flags[var_name] = flag
+        # Capture the binding's storage + drop flag NOW (design 100). A later
+        # inner binding may SHADOW this name in `self.variables`/`self.drop_flags`;
+        # resolving by name at scope-exit would then clean up the WRONG (inner,
+        # already-freed) storage — a double-free. The captured pointers pin this
+        # exact binding regardless of subsequent shadowing.
+        var_ptr = self.variables.get(var_name)
+        self.cleanup_stack[-1].append((var_name, saw_type, var_ptr, flag))
 
-    def _cleanup_scope(self, scope_vars: List[tuple[str, SawType]]):
+    def _cleanup_scope(self, scope_vars):
         """Generate cleanup code for all variables in a scope.
 
         Variables are cleaned up in reverse declaration order to ensure
@@ -1155,11 +1161,19 @@ class ResourcesMixin:
         set — correct under conditional moves. A binding without a flag (e.g. a
         statement-scoped temporary, never a `move` target) uses the static
         `moved_variables` skip.
+
+        Each entry pins the binding's captured storage + flag (design 100), so a
+        shadowing inner binding of the same name can never redirect this cleanup
+        to the wrong storage.
         """
-        for var_name, saw_type in reversed(scope_vars):
-            if var_name not in self.variables:
-                continue
-            flag = self.drop_flags.get(var_name)
+        for entry in reversed(scope_vars):
+            var_name, saw_type, var_ptr, flag = entry
+            if var_ptr is None:
+                # No captured storage (guard-let with no fresh temporary): fall
+                # back to a by-name resolution for compatibility.
+                var_ptr = self.variables.get(var_name)
+                if var_ptr is None:
+                    continue
             if flag is not None:
                 # Guard the drop on the runtime flag: `if flag { deinit }`.
                 needs = self.builder.load(flag, name=f"{var_name}.needsdrop")
@@ -1169,7 +1183,7 @@ class ResourcesMixin:
                     name=f"drop.{var_name}.cont")
                 self.builder.cbranch(needs, drop_bb, cont_bb)
                 self.builder.position_at_start(drop_bb)
-                self._generate_deinit_call(var_name, saw_type)
+                self._emit_drop_at(var_ptr, saw_type)
                 if not self.builder.block.is_terminated:
                     self.builder.branch(cont_bb)
                 self.builder.position_at_start(cont_bb)
@@ -1177,7 +1191,7 @@ class ResourcesMixin:
             # No drop flag: fall back to the static moved-variable skip.
             if var_name in self.moved_variables:
                 continue
-            self._generate_deinit_call(var_name, saw_type)
+            self._emit_drop_at(var_ptr, saw_type)
 
     def _cleanup_all_scopes(self):
         """Generate cleanup code for all scopes (for early return).

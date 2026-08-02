@@ -1,0 +1,15 @@
+// Design 100: a closure parameter that shadows an enclosing local is a flat
+// error. The diagnostic names the enclosing binding's exact declaration site
+// and points at the closure parameter.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `total` shadows the binding declared at shadow_closure_param.saw:12:5
+// EXPECT-ERROR-CONTAINS: rename the parameter
+// EXPECT-ERROR-CONTAINS: shadow_closure_param.saw:13:21
+
+func apply(f: (Int) -> Int, n: Int) -> Int { f(n) }
+
+func main() {
+    let total = 10
+    let r = apply({ total in total * 2 }, 5)
+    print(r)
+}

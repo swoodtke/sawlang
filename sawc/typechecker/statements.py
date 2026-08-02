@@ -192,6 +192,11 @@ class StatementsMixin:
             elif self._annotation_has_module_qualifier(param_type):
                 param_type = self._resolve_type(param_type)
                 param.type = param_type
+            # Design 100: a method parameter shadowing a module-level `static`
+            # is a flat error (`self` never collides with a static).
+            if param.name != "self":
+                self._check_shadowing(param.name, None, method.line,
+                                      method.column, site="param")
             info = VariableInfo(param_type, mutable=False, line=method.line, column=method.column)
             self.current_scope.define(param.name, info)
 
@@ -660,6 +665,10 @@ class StatementsMixin:
         # Add parameters to scope (resolve types first)
         for param in func.parameters:
             resolved_type = self._resolve_type(param.type)
+            # Design 100: a function parameter shadowing a module-level `static`
+            # is a flat error (a bare use would otherwise resolve to the param).
+            self._check_shadowing(param.name, None, func.line, func.column,
+                                  site="param")
             info = VariableInfo(resolved_type, mutable=False, line=func.line, column=func.column)
             self.current_scope.define(param.name, info)
 
@@ -821,7 +830,27 @@ class StatementsMixin:
         # Value-transfer checkpoint: the whole tuple is consumed here.
         self._check_value_transfer(stmt.value, value_type,
                                    "destructuring binding", stmt.line, stmt.column)
+        # Design 100: a destructuring `let`/`var` is still a `let` — each bound
+        # name may shadow only if the RHS mentions it (a visible refinement).
+        for nm, nl, nc in self._pattern_binding_names(stmt.pattern):
+            self._check_shadowing(nm, stmt.value, nl, nc, site="binding")
         self._define_irrefutable_bindings(stmt.pattern, value_type, stmt.mutable)
+
+    def _pattern_binding_names(self, pattern):
+        """Flatten an irrefutable/tuple/enum pattern to its (name, line, column)
+        bindings (design 100). Wildcards bind nothing."""
+        out = []
+        if isinstance(pattern, BindingPattern):
+            out.append((pattern.name, pattern.line, pattern.column))
+        elif isinstance(pattern, TuplePattern):
+            for e in pattern.elements:
+                out.extend(self._pattern_binding_names(e))
+        else:
+            subs = getattr(pattern, 'subpatterns', None)
+            if subs:
+                for e in subs:
+                    out.extend(self._pattern_binding_names(e))
+        return out
 
     def _define_irrefutable_bindings(self, pattern, expected_type, mutable):
         """Define the bindings of an irrefutable pattern in the current scope."""
@@ -894,6 +923,121 @@ class StatementsMixin:
             if isinstance(stmt, ReturnStatement) and stmt.value is not None:
                 self._apply_literal_expected_type(stmt.value, return_type)
 
+    # ------------------------------------------------------------------ #
+    # Design 100 — shadowing is an error unless the new binding derives from
+    # the one it shadows.
+    #
+    # A binding shadows when its name would ALSO resolve to a lexically
+    # enclosing binding (a local/param/capture in a parent scope, or an
+    # accessible module `static`). Such a shadow is legal ONLY when it is a
+    # visible REFINEMENT of the old value:
+    #   * main-rule sites (let/var, single-name if-let/guard-let) carry an
+    #     initializer expression — a shadow is legal exactly when that
+    #     initializer MENTIONS the shadowed name (any use — bare, `move x`,
+    #     `x.copy()`, `f(x)`, nested — is the author's statement of intent).
+    #   * flat sites (match / tuple if-let / guard-let PATTERN bindings,
+    #     function params vs module statics, closure params vs enclosing
+    #     locals) have no initializer to prove intent, so a shadow is always
+    #     an error (patterns BIND, they do not compare — the classic footgun).
+    # Same-scope redefinition stays the pre-existing DUPLICATE_VARIABLE error;
+    # functions/structs/enums/traits and prelude/std names are NOT bindings
+    # for this rule.
+    # ------------------------------------------------------------------ #
+    def _shadowed_binding_pos(self, name: str):
+        """(line, column) of an ENCLOSING binding `name` would resolve to from
+        the current scope's PARENT chain (or an accessible module `static`), or
+        None. The current scope's own locals are excluded — a same-scope clash
+        is the separate DUPLICATE_VARIABLE error, not a shadow."""
+        scope = getattr(self.current_scope, 'parent', None)
+        while scope is not None:
+            vi = scope.lookup_local(name)
+            if vi is not None:
+                return (vi.line, vi.column)
+            scope = scope.parent
+        static_sym = self.namespace.get_static(name)
+        if static_sym is not None and self.namespace.is_accessible(name):
+            return (static_sym.line, static_sym.column)
+        return None
+
+    def _init_mentions_name(self, node, name: str) -> bool:
+        """Does the (already type-checked) initializer expression `node` contain
+        any use of `name` — a bare `Identifier`, `move name`, or the same nested
+        anywhere (`name.copy()`, `f(name)`, interpolation, ...)? Because the
+        initializer is checked BEFORE the shadowing binding is defined, such a
+        use resolves to the shadowed binding, so its presence proves intent."""
+        import dataclasses
+        seen = set()
+        stack = [node]
+        while stack:
+            cur = stack.pop()
+            if cur is None or id(cur) in seen:
+                continue
+            if isinstance(cur, Identifier):
+                if cur.name == name:
+                    return True
+                continue
+            if isinstance(cur, MoveExpr) and cur.variable == name:
+                return True
+            if dataclasses.is_dataclass(cur) and not isinstance(cur, type):
+                seen.add(id(cur))
+                for f in dataclasses.fields(cur):
+                    v = getattr(cur, f.name, None)
+                    if dataclasses.is_dataclass(v) and not isinstance(v, type):
+                        stack.append(v)
+                    elif isinstance(v, (list, tuple)):
+                        for it in v:
+                            if dataclasses.is_dataclass(it) and not isinstance(it, type):
+                                stack.append(it)
+                            elif isinstance(it, (list, tuple)):
+                                for sub in it:
+                                    if (dataclasses.is_dataclass(sub)
+                                            and not isinstance(sub, type)):
+                                        stack.append(sub)
+        return False
+
+    def _binding_decl_location(self, line: int, column: int) -> str:
+        """Render an enclosing binding's declaration site as `FILE:L:C` (the
+        shadowed binding is always in the current source file — an enclosing
+        local/param, or a module static of this module)."""
+        import os
+        sf = self._get_current_source_file()
+        base = os.path.basename(sf) if sf else "<input>"
+        return f"{base}:{line}:{column}"
+
+    def _check_shadowing(self, name: str, init_expr, line: int, column: int,
+                         *, site: str = "binding"):
+        """Design 100 shadow check. Call at a binding-introduction site whose
+        SAME-scope collision has already been ruled out. `site` is one of:
+          * "binding" — a let/var or single-name if-let/guard-let: legal iff
+            `init_expr` MENTIONS the shadowed name (a visible refinement).
+          * "pattern" — a match / tuple if-let/guard-let pattern binding: flat
+            error (patterns bind, they do not compare).
+          * "param"   — a function/closure parameter: flat error (rename only).
+        """
+        if name == "_":
+            return
+        pos = self._shadowed_binding_pos(name)
+        if pos is None:
+            return
+        if site == "binding" and init_expr is not None \
+                and self._init_mentions_name(init_expr, name):
+            return  # a visible refinement — legal
+        where = self._binding_decl_location(pos[0], pos[1])
+        if site == "pattern":
+            hint = (f"patterns bind new variables, they do not compare against "
+                    f"`{name}` — rename the binding")
+        elif site == "param":
+            hint = (f"rename the parameter — a parameter cannot derive from the "
+                    f"binding it would shadow")
+        else:
+            hint = (f"rename it, or derive it from the original (e.g. "
+                    f"`let {name} = parse(move {name})`) to make the "
+                    f"redefinition explicit")
+        self._error(
+            ErrorKind.DUPLICATE_VARIABLE,
+            f"`{name}` shadows the binding declared at {where}",
+            line, column, hint=hint)
+
     def _check_let_statement(self, stmt: LetStatement):
         """Check a let/var statement."""
         from .core import VariableInfo
@@ -935,6 +1079,13 @@ class StatementsMixin:
 
         # Infer or check type
         value_type = self._check_expression(stmt.value)
+
+        # Design 100: a let/var that shadows an enclosing binding is legal only
+        # when its initializer mentions the shadowed name (a visible refinement).
+        # Checked AFTER the initializer so its bare uses resolved to the outer
+        # binding (the new binding is not in scope yet).
+        self._check_shadowing(stmt.name, stmt.value, stmt.line, stmt.column,
+                              site="binding")
 
         if stmt.type_annotation:
             # Resolve type aliases in the annotation
@@ -1076,9 +1227,18 @@ class StatementsMixin:
         # This is the key difference from if-let: the binding is available after
         # the guard on the fall-through path.
         if stmt.pattern is not None:
+            # Design 100: tuple-pattern bindings BIND (no per-binding derive) —
+            # a shadow of an enclosing binding is a flat error.
+            for nm, nl, nc in self._pattern_binding_names(stmt.pattern):
+                self._check_shadowing(nm, None, nl, nc, site="pattern")
             self._bind_optional_pattern(stmt.pattern, inner_type, stmt.mutable,
                                         stmt.line, stmt.column)
         else:
+            # Design 100: `guard let x = x` (scrutinee mentions the shadowed
+            # enclosing binding) stays legal by the main rule; a non-deriving
+            # single-name shadow is an error.
+            self._check_shadowing(stmt.name, stmt.optional_expr,
+                                  stmt.line, stmt.column, site="binding")
             info = VariableInfo(inner_type, stmt.mutable, stmt.line, stmt.column)
             self.current_scope.define(stmt.name, info)
 

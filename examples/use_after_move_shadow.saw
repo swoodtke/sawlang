@@ -1,6 +1,8 @@
-// Shadowing clears moved-state for the new binding (design 15 rule 2). The
-// outer `f` is moved, but an inner scope declares its own `f`; using the inner
-// `f` is fine because it is a distinct binding with fresh (unmoved) state.
+// Move-state is keyed by binding IDENTITY, not name (design 15 rule 2). The
+// outer `f` is moved, but an inner scope declares its own distinct binding;
+// using it is fine because it has fresh (unmoved) state. (Design 100 forbids a
+// non-derived SAME-name shadow, so the inner binding is named distinctly — the
+// move-state-per-identity guarantee is what this exercises.)
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 2
@@ -20,7 +22,7 @@ func main() {
     consume(move f)          // outer f moved-from
     let cond = true
     if cond {
-        let f = FileHandle(fd: 2)   // shadows outer f
-        print(f.fd)                 // uses inner f: OK -> 2
+        let inner = FileHandle(fd: 2)   // distinct binding, fresh move-state
+        print(inner.fd)                 // OK -> 2
     }
 }
