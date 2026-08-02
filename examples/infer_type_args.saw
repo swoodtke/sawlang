@@ -1,0 +1,65 @@
+// Design 93: generic type-argument INFERENCE at call sites. A generic free
+// function or method may omit its `<...>` — the arguments' types (and a
+// closure's inferred RETURN type) determine the type arguments. Explicit args
+// are always allowed and win; a partial explicit prefix pins its parameters and
+// the rest infer; a defaulted trailing type param fills in when unconstrained.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 7
+// 10
+// v=5
+// 9
+// 1
+// x
+// 6
+// n=1
+// 42
+
+import std.vector.{Vector}
+
+struct Crate<T> { value: T }
+
+extension Crate<T: Copy> {
+    func map<U>(&self, f: (T) -> U) -> Crate<U> {
+        Crate<U>(value: f(self.value))
+    }
+}
+
+func wrap<T>(x: T) -> Crate<T> { Crate<T>(value: x) }
+
+func first<A, B>(a: A, b: B) -> A { a }
+
+struct Pair<A, B> { a: A, b: B }
+func mk<A, B>(a: A, b: B) -> Pair<A, B> { Pair<A, B>(a: a, b: b) }
+
+// Trailing type param with a default: A inferred from the arg, B defaults.
+func tagged<A, B = Bool>(a: A) -> A { a }
+
+func main() {
+    // free function, one type param, inferred from the argument
+    print(wrap(5).value)                 // 5
+    // free function, two type params, both inferred
+    print(first(7, "hi"))                // 7
+    // method, closure-RETURN solve: U comes from the closure body
+    let b = Crate<Int>(value: 5)
+    print(b.map({ $0 * 2 }).value)       // 10
+    print(b.map({ "v={$0}" }).value)     // v=5
+    // explicit args still win
+    print(wrap<Int>(9).value)            // 9
+    // mixed explicit + inferred: A pinned, B inferred from the argument
+    let p = mk<Int>(1, "x")
+    print(p.a)                           // 1
+    print(p.b)                           // x
+
+    // Vector.map / Vector.fold without explicit type args
+    var v = Vector<Int>()
+    v.push(1)
+    v.push(2)
+    v.push(3)
+    print(v.fold(0) { $0 + $1 })         // 6
+    print(v.map({ "n={$0}" }).get(0)!)   // n=1
+
+    // defaults + inference interplay: A inferred = Int, B defaults to Bool
+    print(tagged(42))                    // 42
+}

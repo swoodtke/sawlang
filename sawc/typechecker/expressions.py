@@ -10,6 +10,7 @@ Usage:
 """
 
 from typing import Optional, Dict, List
+from types import SimpleNamespace as _SandboxNode
 from ast_nodes import (
     Expression, IntLiteral, FloatLiteral, BoolLiteral, StringLiteral,
     StringInterpolation, Identifier, BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr,
@@ -1318,6 +1319,233 @@ class ExpressionsMixin:
             self._check_value_transfer(arg.value, expected, "call argument",
                                        arg.value.line, arg.value.column)
 
+    # ---------------------------------------------------------------- design 93
+    # Generic type-argument inference. `v.map({ $0.to_string() })` solves the
+    # method's own `<U>` from the closure's inferred return type; a free function
+    # `wrap(x)` solves `<T>` from the argument type. Explicit `<...>` is always
+    # allowed and wins; a partial explicit prefix pins its leading params and the
+    # rest are inferred. Inference NEVER guesses: an underdetermined or
+    # conflicting parameter is a clean error naming the parameter and suggesting
+    # explicit arguments. The solved arguments are stamped back onto the call node
+    # (`expr.type_args`) so codegen + the coroutine transform monomorphize an
+    # inferred call byte-identically to an explicit one.
+    def _infer_tp_name(self, t, names):
+        """If `t` is a bare reference to a type parameter in `names`, its name."""
+        if t is None:
+            return None
+        if t.kind == TypeKind.TYPE_PARAM and t.type_param_name in names:
+            return t.type_param_name
+        if (t.kind == TypeKind.STRUCT and not t.type_args
+                and t.struct_name in names):
+            return t.struct_name
+        return None
+
+    def _infer_types_equal(self, a, b) -> bool:
+        """Structural equality used to detect a conflicting inference for one
+        parameter (two different concrete solutions)."""
+        try:
+            return str(self._resolve_type(a)) == str(self._resolve_type(b))
+        except Exception:
+            return str(a) == str(b)
+
+    def _unify_infer(self, pattern, actual, names, out):
+        """Structurally match abstract `pattern` (which may mention parameter
+        `names`) against concrete `actual`, recording solutions in `out`
+        (name -> SawType). A parameter bound twice to unequal types records a
+        conflict under `out['__conflict__']`. Best-effort: an unconstrained
+        position is simply skipped (never an error here)."""
+        if pattern is None or actual is None:
+            return
+        nm = self._infer_tp_name(pattern, names)
+        if nm is not None:
+            prev = out.get(nm)
+            if prev is None:
+                out[nm] = actual
+            elif not self._infer_types_equal(prev, actual):
+                out.setdefault('__conflict__', {})[nm] = (prev, actual)
+            return
+        pk = pattern.kind
+        if pk == TypeKind.FUNCTION and actual.kind == TypeKind.FUNCTION:
+            for pp, ap in zip(pattern.param_types or [], actual.param_types or []):
+                self._unify_infer(pp, ap, names, out)
+            self._unify_infer(pattern.func_return_type, actual.func_return_type,
+                              names, out)
+            return
+        if pk == TypeKind.OPTIONAL:
+            inner = actual.inner_type if actual.kind == TypeKind.OPTIONAL else None
+            self._unify_infer(pattern.inner_type, inner, names, out)
+            return
+        if pk in (TypeKind.REFERENCE, TypeKind.POINTER):
+            inner = actual.inner_type if actual.kind == pk else None
+            self._unify_infer(pattern.inner_type, inner, names, out)
+            return
+        if pk == TypeKind.ARRAY:
+            inner = (actual.array_element_type
+                     if actual.kind == TypeKind.ARRAY else None)
+            self._unify_infer(pattern.array_element_type, inner, names, out)
+            return
+        if pk == TypeKind.TUPLE and actual.kind == TypeKind.TUPLE:
+            for pe, ae in zip(pattern.element_types or [],
+                              actual.element_types or []):
+                self._unify_infer(pe, ae, names, out)
+            return
+        if pk in (TypeKind.STRUCT, TypeKind.ENUM) and pattern.type_args:
+            a_args = actual.type_args or []
+            for i, pa in enumerate(pattern.type_args):
+                aa = a_args[i] if i < len(a_args) else None
+                self._unify_infer(pa, aa, names, out)
+            return
+
+    def _infer_snapshot(self):
+        """Capture the mutable typechecker state the inference pre-pass touches so
+        its trial argument checks (which discover argument types) can be rolled
+        back — the real argument-checking loop runs downstream. A throwaway
+        suspend node (key=None) catches effect edges recorded at the enclosing
+        node level; per-instantiation queues are truncated on restore."""
+        snap = (dict(self.moved_bindings), self.current_scope,
+                len(self._suspend_stack), len(self._poly_call_edges),
+                len(self._pending_mono), len(self._pending_method_mono),
+                len(self._pending_generic_struct_method_mono),
+                set(self._mono_built))
+        self._suspend_stack.append(_SandboxNode(key=None, edges=[], direct=[]))
+        return snap
+
+    def _infer_restore(self, snap):
+        (moved, scope, stack_n, poly_n, pm_n, pmm_n, pgm_n, mono_built) = snap
+        self.moved_bindings = moved
+        self.current_scope = scope
+        del self._suspend_stack[stack_n:]
+        del self._poly_call_edges[poly_n:]
+        del self._pending_mono[pm_n:]
+        del self._pending_method_mono[pmm_n:]
+        del self._pending_generic_struct_method_mono[pgm_n:]
+        self._mono_built = mono_built
+
+    def _solve_call_type_args(self, type_params, abstract_params, expr, mapping,
+                              base_subst, provided_type_args, what, line, column):
+        """Infer this call's own generic type arguments (design 93).
+
+        `abstract_params` are the callee's LOGICAL parameter types (receiver
+        excluded), which may mention both the enclosing struct's type params
+        (already concrete in `base_subst`) and this call's own `type_params`.
+        Returns a complete substitution map (base_subst ∪ solved own params) or
+        `None` after emitting a diagnostic. Leading `provided_type_args` pin their
+        parameters explicitly (a partial prefix is allowed; explicit wins)."""
+        own = list(type_params)
+        own_names = {tp.name for tp in own}
+        out: Dict[str, SawType] = {}
+        for tp, ta in zip(own, provided_type_args or []):
+            out[tp.name] = self._resolve_type(ta)
+        remaining = own_names - set(out.keys())
+        if not remaining:
+            return {**base_subst, **out}
+
+        snap = self._infer_snapshot()
+        try:
+            # Phase 1: non-closure arguments pin the parameters they mention.
+            for i, arg in enumerate(expr.arguments):
+                if isinstance(arg.value, ClosureExpr):
+                    continue
+                p = mapping[i] if mapping is not None else i
+                if p >= len(abstract_params):
+                    continue
+                at = self._check_expression(arg.value)
+                if at is not None:
+                    self._unify_infer(abstract_params[p].substitute(base_subst),
+                                      at, remaining, out)
+            # Phase 2: closures. Their parameter types are now concrete (from the
+            # struct and from phase-1 solutions); the inferred RETURN type solves
+            # any remaining parameter (`map<U>`'s `U`).
+            for i, arg in enumerate(expr.arguments):
+                if not isinstance(arg.value, ClosureExpr):
+                    continue
+                p = mapping[i] if mapping is not None else i
+                if p >= len(abstract_params):
+                    continue
+                expected = abstract_params[p].substitute({**base_subst, **out})
+                ct = self._check_closure(arg.value, expected, as_call_argument=True)
+                if ct is not None:
+                    self._unify_infer(abstract_params[p].substitute(base_subst),
+                                      ct, remaining, out)
+        finally:
+            self._infer_restore(snap)
+
+        conflict = out.pop('__conflict__', None)
+        if conflict:
+            nm = sorted(conflict.keys())[0]
+            a, b = conflict[nm]
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot infer type argument `{nm}` for {what}: it is required to "
+                f"be both `{a}` and `{b}`",
+                line, column,
+                hint=f"give the type argument(s) explicitly")
+            return None
+        for tp in own:
+            if tp.name in out:
+                continue
+            if tp.default is not None:
+                out[tp.name] = self._resolve_type(tp.default)
+            else:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot infer type argument `{tp.name}` for {what}",
+                    line, column,
+                    hint=f"give the type argument(s) explicitly, "
+                         f"e.g. `{what.split('`')[1] if '`' in what else '...'}"
+                         f"<{tp.name}=...>`")
+                return None
+        return {**base_subst, **out}
+
+    def _check_type_param_bounds(self, type_params, type_map, line, column):
+        """Verify each parameter's concrete binding in `type_map` satisfies the
+        parameter's trait bounds, naming the concrete (possibly inferred) type in
+        the failure. Mirrors the free-function bound checks; used by the generic
+        METHOD path (both explicit and inferred), which previously did none."""
+        for tp in type_params:
+            resolved_arg = type_map.get(tp.name)
+            if resolved_arg is None:
+                continue
+            concrete_name = None
+            if resolved_arg.kind == TypeKind.STRUCT:
+                concrete_name = resolved_arg.struct_name
+            elif resolved_arg.kind == TypeKind.ENUM:
+                concrete_name = resolved_arg.enum_name
+            in_scope_param = (resolved_arg.kind == TypeKind.STRUCT
+                              and resolved_arg.struct_name
+                              in getattr(self, 'current_type_params', {}))
+            for bound in tp.bounds:
+                if bound == "Copy":
+                    ok = self._type_satisfies_copy_bound(resolved_arg)
+                else:
+                    if bound not in ("Send", "Sync") and self.get_trait_info(bound) is None:
+                        self._error(
+                            ErrorKind.UNDEFINED_VARIABLE,
+                            f"unknown trait `{bound}` in type parameter bound",
+                            line, column)
+                        continue
+                    ok = self._bound_satisfied(resolved_arg, bound)
+                if ok:
+                    if concrete_name and not in_scope_param:
+                        for an, at in self.namespace.get_type_assignments(
+                                concrete_name, bound).items():
+                            type_map[an] = at
+                    continue
+                if bound == "Copy":
+                    hint = ("use a trivially-copyable type, or one implementing "
+                            "ImplicitCopy/ExplicitCopy")
+                elif in_scope_param:
+                    hint = (f"add the bound to the enclosing signature: "
+                            f"`<{resolved_arg.struct_name}: {bound}>`")
+                elif concrete_name:
+                    hint = f"add `extension {concrete_name}: {bound} {{ ... }}`"
+                else:
+                    hint = None
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"type `{resolved_arg}` does not satisfy the `{bound}` bound",
+                    line, column, hint=hint)
+
     def _check_overloaded_function_call(self, expr, candidates):
         """Resolve and check a call to an overloaded free function (design 55)."""
         arg_types = self._overload_arg_types(expr)
@@ -1978,14 +2206,17 @@ class ExpressionsMixin:
         # are a direct suspension source; other calls are edges to their node).
         self._effect_call_function(func_info, expr.name, expr.line)
         if func_info.type_params:
-            if not expr.type_args:
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"generic function `{expr.name}` requires type arguments",
-                    expr.line, expr.column,
-                    hint=f"use `{expr.name}<Type>(...)`"
-                )
-                return None
+            # design 93: infer omitted type arguments from the argument types
+            # (a partial explicit prefix pins its parameters, the rest infer).
+            # Explicit-and-complete keeps the exact legacy path below.
+            if len(expr.type_args or []) < len(func_info.type_params):
+                full = self._solve_call_type_args(
+                    func_info.type_params, func_info.param_types, expr, None,
+                    {}, expr.type_args, f"function `{expr.name}`",
+                    expr.line, expr.column)
+                if full is None:
+                    return None
+                expr.type_args = [full[tp.name] for tp in func_info.type_params]
             if len(expr.type_args) != len(func_info.type_params):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -4996,33 +5227,41 @@ class ExpressionsMixin:
                 hint="use a nested scope or `move` to transfer ownership if you need early cleanup"
             )
             return None
-        # Method-level generic type parameters (brief 36): fold the explicit
-        # call-site type arguments (`v.map<Int>(...)`) into the substitution map
-        # alongside the struct's own args, so param/return types mentioning the
-        # method's own params (`(T) -> U`, `-> Vector<U>`) resolve concretely.
-        # Inference is out of scope: a generic method REQUIRES explicit type
-        # args, and a non-generic method REJECTS them.
+        # Method-level generic type parameters (brief 36): fold the call-site type
+        # arguments (`v.map<Int>(...)`) into the substitution map alongside the
+        # struct's own args, so param/return types mentioning the method's own
+        # params (`(T) -> U`, `-> Vector<U>`) resolve concretely. Design 93: an
+        # omitted (or partially-omitted) argument list is INFERRED from the
+        # argument types — a bare `v.map({ $0.to_string() })` solves `U` from the
+        # closure's inferred return. Explicit-and-complete wins unchanged.
         method_type_params = method_info.type_params or []
         provided_type_args = expr.type_args or []
         if method_type_params:
-            if not provided_type_args:
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"generic method `{expr.method_name}` requires explicit type "
-                    f"argument(s) (e.g. `{expr.method_name}<...>`); type inference "
-                    f"is not yet supported",
-                    expr.line, expr.column
-                )
-            elif len(provided_type_args) != len(method_type_params):
+            if len(provided_type_args) > len(method_type_params):
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"method `{expr.method_name}` expects {len(method_type_params)} "
                     f"type argument(s), got {len(provided_type_args)}",
                     expr.line, expr.column
                 )
+            elif len(provided_type_args) < len(method_type_params):
+                off = 1 if not method_info.is_init else 0
+                full = self._solve_call_type_args(
+                    method_type_params, method_info.param_types[off:], expr, None,
+                    type_subst, provided_type_args,
+                    f"method `{expr.method_name}`", expr.line, expr.column)
+                if full is None:
+                    return None
+                expr.type_args = [full[tp.name] for tp in method_type_params]
+                for tp in method_type_params:
+                    type_subst[tp.name] = full[tp.name]
+                self._check_type_param_bounds(
+                    method_type_params, type_subst, expr.line, expr.column)
             else:
                 for tp, ta in zip(method_type_params, provided_type_args):
                     type_subst[tp.name] = self._resolve_type(ta)
+                self._check_type_param_bounds(
+                    method_type_params, type_subst, expr.line, expr.column)
         elif provided_type_args:
             self._error(
                 ErrorKind.TYPE_MISMATCH,

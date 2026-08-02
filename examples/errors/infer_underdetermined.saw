@@ -1,0 +1,12 @@
+// Design 93: inference NEVER guesses. A type parameter that no argument
+// constrains (here `T` appears only in the return) is underdetermined — a clean
+// error naming the parameter and suggesting explicit type arguments.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot infer type argument `T`
+
+func make<T>() -> T { panic("unreachable") }
+
+func main() {
+    let x = make()
+    print(1)
+}

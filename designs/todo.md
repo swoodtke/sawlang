@@ -11,6 +11,47 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 93 — generic type-argument inference (LANDED)
+- **NOTE:** no `designs/93-*.md` brief file exists on disk (the dispatch brief was
+  the authoritative spec; recorded here). Retired the "type inference is not yet
+  supported" rejection for generic free functions AND methods. `v.map({ $0.to_
+  string() })` / `v.fold(0){...}` / `wrap(5)` / `first(7,"hi")` now infer their
+  `<...>` from argument types; a method's own `<U>` is solved from the closure's
+  inferred RETURN type (closure params come from the struct + phase-1 arg
+  solutions). Commit 1 (feature + tests): unify abstract param types against
+  actual arg types (`_unify_infer`, structural over function/optional/ref/ptr/
+  array/tuple/struct-enum-args); a sandboxed pre-pass (`_infer_snapshot`/`_infer_
+  restore` roll back moves + per-instantiation mono queues + `_poly_call_edges`,
+  a throwaway suspend node catches enclosing-node effect edges) discovers arg
+  types, then the SOLVED args are stamped onto `expr.type_args` (default-filled)
+  so the existing explicit-path machinery (bounds, effect-poly recording, codegen
+  monomorphization, coro-transform driven/spawned rewrite) runs BYTE-IDENTICALLY
+  to an explicit call. Explicit `<...>` always allowed + wins; a partial explicit
+  prefix pins its leading params and the rest infer; an unconstrained trailing
+  param with a default type fills from the default. Clean diagnosable failure:
+  underdetermined ("cannot infer type argument `T`" + explicit-args hint) and
+  conflict ("required to be both `Int` and `String`") — never a silent wrong pick.
+  Inferred args are bound-checked naming the inferred type; the generic-METHOD
+  path previously did NO bound checking at all — added `_check_type_param_bounds`
+  (Copy structural + `_bound_satisfied` for the rest), run on BOTH explicit and
+  inferred method calls (fix-on-discovery). Driven (`__drive(run(move s))`) +
+  spawned (`group.spawn(work(x))`) inferred generics monomorphize per INFERRED
+  instantiation identically to explicit (the `__drive`/`spawn` handlers check the
+  inner call first, so inference stamps `inner.type_args` before the mono
+  rewrite). BOUNDARY (for the skill/spec): inference is single-pass left-to-right
+  (non-closure args, then closures) — a param determinable only by a LATER arg
+  than one it gates is not solved (give it explicitly); labeled + out-of-order +
+  inferred is treated positionally (rare; give explicit args if it mis-maps).
+  Overloaded-call generic inference (design-55 `_check_overloaded_*` paths) NOT
+  wired — those still require explicit `<...>` on a generic overload (the design-55
+  concrete-beats-generic model is unchanged; inference there would risk new
+  cross-overload ambiguity — deferred). Retired obsolete
+  `generic_method_requires_explicit_args` test. Tests: `infer_type_args` (free
+  single/multi, method map/fold, mixed explicit+inferred, defaults, explicit-wins),
+  `errors/infer_underdetermined`, `errors/infer_conflict`,
+  `errors/infer_bound_violation`, `infer_generic_driven`, `infer_generic_spawned`.
+  Suite 915 (910 −1 obsolete +6), bootstrap ok. [93, 36, 55, 70, 74, 37]
+
 ## Design 82 — per-file std visibility + prelude discipline (IN PROGRESS)
 - **Part A (per-file std visibility) — LANDED.** Retired design 80's std-as-one-
   module deviation: `_vis_module_for_source` now keys each std/builtin file to its

@@ -1,0 +1,12 @@
+// Design 93: when one type parameter is forced to two different concrete types
+// by a single argument, inference reports a clean conflict rather than picking
+// one — never a silent wrong choice.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: it is required to be both `Int` and `String`
+
+func both<T>(p: (T, T)) -> T { p.0 }
+
+func main() {
+    let x = both((1, "s"))
+    print(1)
+}

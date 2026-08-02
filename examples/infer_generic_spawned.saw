@@ -1,0 +1,25 @@
+// Design 93 x design 70: an INFERRED generic instantiation SPAWNS identically to
+// an explicit one — `group.spawn(work(...))` infers `T` from the argument and the
+// transform builds the frame + `__spawn_<f>` helper for the inferred symbol.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// 40
+
+trait Seed { func seed(&self) -> Int }
+struct Slow { n: Int }
+extension Slow: Seed { func seed(&self) -> Int { self.n } }
+
+func work<T: Seed>(w: T) -> Int {
+    let base = w.seed()
+    yield_now()
+    base * 2
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work(Slow(n: 10)))   // T inferred = Slow
+    let b = group.spawn(work(Slow(n: 20)))
+    print(a.join())   // 20
+    print(b.join())   // 40
+}
