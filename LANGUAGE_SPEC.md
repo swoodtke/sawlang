@@ -2308,7 +2308,13 @@ Observable rules:
   terminates its block, and the counter/binding it carries is frame-resident so
   counted iterations survive across resumes. `break`/`continue` in a
   suspension-spanning loop are supported; a `for` is over a range (a non-range
-  iterable inside a suspending loop is a diagnostic, not a miscompile).
+  iterable inside a suspending loop is a diagnostic, not a miscompile). A nested
+  suspending call — free function OR method (design 84) — embeds as a driven
+  sub-frame in **every** control-flow position: a plain statement, an `if`/`else`
+  branch, a `match` arm (literal/range patterns included), a nested `if`/loop, and a
+  **trailing** (block-final) `if`/`match` where the parser parks the block's last
+  bare expression (design 101). There is no silent third outcome — a suspending
+  call the state split cannot express is a diagnostic, never a plain blocking call.
 - **Suspending recursion is a compile error.** A cycle in the suspending-call
   graph would have no finite frame size (frames embed by value), so it is rejected
   with a diagnostic that names the cycle (e.g. `ping -> pong -> ping`). Ordinary
@@ -2368,11 +2374,13 @@ Observable rules:
   `let (a, b) = f()` **destructuring** also survive a suspension — their bindings
   are frame-resident (design 77).
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
-  line, not miscompiled): a *buried* suspending METHOD call on a value inside a
-  driven body (drive the method directly, or route the suspension through a nested
-  free function); a nested suspending *generic* call to a template in *another
-  module*; a method that is *both* struct-generic and method-generic; a suspension
-  inside a `for` over a non-range iterable; and a value-producing `break` out of a
+  line, not miscompiled): a suspending call buried in a *larger expression* (an
+  argument, a receiver, a `let x = if … { s.read() }` value position); a suspending
+  call in an `if let`/`guard let` **body** (the state split does not CFG-split those
+  branches — restructure to a plain `if`/`else` or `match`, or drive the method
+  directly); a nested suspending *generic* call to a template in *another module*; a
+  method that is *both* struct-generic and method-generic; a suspension inside a
+  `for` over a non-range iterable; and a value-producing `break` out of a
   suspension-spanning loop.
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The

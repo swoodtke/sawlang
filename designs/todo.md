@@ -11,6 +11,47 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 101 — DF7: no silent blocking for suspending method calls in nested/trailing positions (LANDED)
+- **Root cause (precise boundary).** The coro transform's wrapper hoists
+  (`_hoist_suspending_conditions`/`_hoist_suspending_try`/`_hoist_suspending_match`)
+  and the collect/reject walk key on `block.statements` and never look at
+  `block.final_expr`. The parser parks a block's LAST bare expression there, so a
+  suspending METHOD call buried in a TRAILING `if`/`else`/`match`/nested-`if` (the
+  loop body's `final_expr`, e.g. `while going { …; if c { let x = try! s.read() } }`)
+  was never statementized in time for the try/condition/match hoist to see it —
+  it stayed wrapped in a `TryExpr` `_collect_calls` could not classify, slipped past
+  every rejection, and lowered as a PLAIN blocking call (`call @TcpStream_read`), the
+  silent DF7 miscompile (cooperative park a no-op). `_normalize_suspending_tails`
+  (design 83) lifts trailing exprs to statements but ran AFTER two of the three hoists.
+- **Fix (one canonical structural pass).** (1) Run `_normalize_suspending_tails`
+  FIRST in `prepare`, before all three wrapper hoists — every suspending call then
+  sits in statement position within some block, so the hoists + collect/split walk
+  are exhaustive by construction. (2) `_split_match`: preserve the design-63
+  `pattern` + `guard` (and carry pattern-derived binding names via a new
+  `_pattern_binding_names`) — reconstructing arms from `variant_name`/`bindings`
+  alone DROPPED literal/range/tuple patterns, so a suspension-spanning `match` over
+  literal/range arms lost its patterns → spurious "match is not exhaustive" at 0:0.
+  (3) `_reject_buried_suspend_call`: also flag suspending METHOD calls (not only
+  free-fn/`receive()`) — a buried method call in an `if let`/`guard let` body
+  (branches the split does NOT CFG-split) slipped through here and lowered plain;
+  now a clean anchored rejection. Split-capable containers (if/while/for/match)
+  never reach that method, so no over-rejection.
+- **Shape matrix — every position now EMBEDS or ERRORS cleanly; no silent third
+  outcome.** top-level stmt / trailing if / trailing else / trailing match arm
+  (literal+range) / if-in-if depth 2 / if-in-while → EMBED (`net_nested_shape_matrix`,
+  exact per-shape recirc counts). `if let` body / `guard let` body → clean anchored
+  ERROR (`errors/coro_suspending_method_in_{iflet,guardlet}_body`). Closure body
+  capturing a stream → clean NoCopy-capture ERROR. Verified with IR
+  (`@__Frame_TcpStream_read_resume` drive, not `call @TcpStream_read`), not just exit
+  codes.
+- **Acceptance.** `net_budget_fairness` re-simplified from the DF7 workaround
+  (read/write hoisted to the loop top level) back to the natural nested form (under a
+  trailing `if`); still prints 5, still cedes to the sibling on the op-count budget
+  (IR: driven sub-frames — a plain block would hang). Suite 932 (929 + 3); bootstrap
+  ok (blade 17+17, libs toml 4 + semver 4); zero xfails. Docs: saw-lang skill's
+  supported-shape story corrected (nested/trailing control-flow method calls now
+  work; only if-let/guard BODIES reject). [101, 96, 84, 83, 74, 89-c, 92]
+
 ## Design 100 — shadowing: error unless derived from the shadowed binding (LANDED)
 - **Rule.** A `let`/`var`/pattern/param binding that SHADOWS an enclosing binding
   (an outer local/param/capture in a parent scope, or an accessible module
@@ -547,21 +588,16 @@ items need a probe before being treated as real work.
   force-yields every 128 ops, the sibling completes and sets stop, and it prints 5.
   Deterministic (pure op-count) + time-bounded. Verified discriminating: neutering
   the tick makes it hang (SIGKILL 137), the real budget prints 5.
-- **DF7 (pre-existing coro-transform silent miscompile, discovered here — FLAG).** A
-  suspending METHOD call BURIED under a nested `if` inside a `while` in a driven/
-  spawned body is silently compiled as a PLAIN blocking call (not embedded as a
-  driven sub-frame), so its cooperative suspension (`io_wait` park / `yield_now`) is
-  a NO-OP — it blocks the thread instead of cooperating. Repro: `while going { let go
-  = m.lock{…}; if go { let c = s.read(); s.write(move c) } }` emitted `call
-  @TcpStream_read` (plain) for the under-`if` calls while the TOP-LEVEL seed
-  `s.write("seed")` embedded correctly (`call @__Frame_TcpStream_write…_resume`).
-  Unrelated to the budget (the call-site embedding decision is independent of the
-  method body); the budget test works around it by calling read/write DIRECTLY in
-  the loop body (the net_two_concurrent_parked_reads pattern). This is NOT the
-  documented "buried suspending method call" case (that gives a clean compile error);
-  this shape gives NO error — a silent miscompile. Not fixed here (coro-transform
-  nested-embedding is design-96-class scope, high-risk, out of the 89-c budget
-  scope); scheduled as a follow-up. [89-c, 89, 96, 84]
+- ~~**DF7 (pre-existing coro-transform silent miscompile).**~~ CLOSED (design 101). A
+  suspending METHOD call buried under a nested/TRAILING `if`/`else`/`match` in a
+  driven/spawned body lowered as a PLAIN blocking call (cooperative park a no-op).
+  Root cause: the wrapper hoists + collect/reject walk ignored `block.final_expr`
+  and ran before `_normalize_suspending_tails`, so a call in a trailing-expression
+  position was never statementized in time to be hoisted/classified/rejected.
+  Fixed by running tail normalization FIRST; also preserved match `pattern`/`guard`
+  in `_split_match` and taught `_reject_buried_suspend_call` to flag buried
+  suspending METHOD calls (if-let/guard bodies now reject cleanly). See the design
+  101 section above. [101, 96, 84, 83, 74, 89-c]
 - Suite 929 (928 + `net_budget_fairness`); bootstrap ok (blade 17+17, libs toml 4 +
   semver 4); zero xfails. Docs: saw-lang skill concurrency caveat replaced with the
   landed backstop + residual pure-compute limit; LANGUAGE_SPEC concurrency gained an

@@ -283,12 +283,19 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   sync. You can `__drive` / `group.spawn` a generic instantiation, drive a
   generic `&var self` method, drive a suspending method on a generic STRUCT
   (`Holder<Int>`, design 74 shape 2), and make NESTED suspending generic
-  calls from a driven body (design 74 shape 3). Still unsupported (clean,
-  user-anchored compile error): a buried suspending METHOD call on a value
-  inside a driven body — drive the method directly, or wrap it in a nested
-  free function (shape 1); a nested suspending generic call to a template in
-  ANOTHER module (shape 4); and a method that is BOTH struct-generic and
-  method-generic.
+  calls from a driven body (design 74 shape 3). A suspending METHOD call in a
+  driven/spawned body embeds as a driven sub-frame in EVERY control-flow
+  position — a plain statement, an `if`/`else` branch, a `match` arm
+  (including literal/range-pattern arms), a nested `if`, a nested `while`/`for`,
+  AND a TRAILING (block-final) `if`/`match` (design 84 + 101) — so
+  `while going { …; if c { let x = try! s.read(); s.write(move x) } }` just
+  works. Still a clean, user-anchored compile error (NOT a silent block): a
+  suspending method call buried in a LARGER EXPRESSION (an argument, a receiver,
+  a `let x = if … { s.read() }` value position); a suspending method call in an
+  `if let`/`guard let` BODY (the state split does not CFG-split those — restructure
+  to a plain `if`/`else` or `match`, or drive the method directly); a nested
+  suspending generic call to a template in ANOTHER module (shape 4); and a method
+  that is BOTH struct-generic and method-generic.
 - A CLOSURE created in a driven body works (design 77 DF-C1): call it after a
   suspend, hold it across one (its env deinits exactly once at frame death), or
   own it in a spawned TaskGroup frame — captured frame locals are moved into the
