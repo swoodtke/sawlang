@@ -11,6 +11,27 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 98 — `#file`/`#line`/`#function` source-location literals (LANDED)
+- Magic literals expanding at their DEFINITION site to compile-time constants
+  (zero runtime cost, freestanding-safe): `#file` → source basename (String,
+  matches the design-69 panic prefix), `#line` → 1-based token line (Int),
+  `#function` → enclosing fn/method BARE name (String; module scope → `<module>`).
+  Lexer reads `#`-directives (unknown `#foo` = clean lex error); parser emits a
+  `SourceLocationLiteral` atom carrying the file (stamped from the parser's
+  source_file; interpolation sub-parser now inherits it) + token line; typechecker
+  `visit_SourceLocationLiteral` freezes the value ONCE (idempotent — the post-coro
+  re-check must not re-resolve, so `#line`/`#function` in a suspending body report
+  the ORIGINAL source, not the frame method), returns String/Int; codegen emits a
+  plain Int/String literal; `#line` is const-init-able (`_is_const_init` +
+  `_const_from_expr`) so a top-level `static X: Int = #line` works. Generics report
+  the generic's own file/line identically across instantiations; defaults report
+  the default's definition site. Builds on design 99 (interpolation position
+  rebasing) so `#line` inside `{...}` reports the real line. Tests:
+  source_location_literals (method/generic×2/closure/default/top-static/main, exact
+  pinned lines), source_location_suspending (spawned worker straddling two suspends
+  → original line + bare name), errors/unknown_directive. Docs: spec Source-location
+  literals section + skill debug-print idiom. Suite 922 (919+3), bootstrap ok. [98, 99, 69]
+
 ## Design 96 — nested suspending reactor methods at any depth (LANDED)
 - The depth-2+ hang was NOT the design-91 wake token (token threading is correct
   at every depth). ROOT CAUSE: the effect fixpoint cannot see suspension arising

@@ -23,7 +23,18 @@ enum Msg { case Quit, case Move(x: Int, y: Int) }
 type UserId = Int          // DISTINCT type; flows TO Int; back via UserId(i)
 let raw = id as Int        // explicit projection toward underlying
 print("hi {name}: {p}")    // interpolation; user types need Printable
+print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
 ```
+- `#file`/`#line`/`#function` (design 98) are compile-time magic literals
+  expanding at their DEFINITION site (zero runtime cost): `#file` → source
+  basename (`String`, matches the panic prefix), `#line` → 1-based token line
+  (`Int`), `#function` → enclosing function/method BARE name (`String`; no
+  struct qualifier; module scope → `<module>`). The debug-print idiom is
+  `print("{#file}:{#line} - msg")`. Usable in any expression/interpolation,
+  a default value, or a `static` init (`#line`). In a generic they report the
+  generic's own file/line identically across instantiations; inside a suspending
+  body they report the ORIGINAL source line/name (not the coroutine frame's).
+  `#` takes only these three — any other `#name` is a lex error.
 - Everything is an expression (if/match/while/blocks yield values;
   `break v` from loops → Optional).
 - `for i in 0..5` / `0..=5`; `while cond {}` / infinite `while {}`.

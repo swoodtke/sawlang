@@ -554,6 +554,35 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
     op. Literals are never retained or released, so the common case pays zero
     atomic traffic.
 
+### Source-location literals
+
+Three magic literals expand at compile time to their **definition site** — the
+place the token literally appears in source (design 98). They are ordinary
+compile-time constants of the type below, so they have **zero runtime cost**,
+are freestanding-safe, and are valid anywhere a literal of that type is (an
+expression, an interpolation, a default parameter value, a `static` initializer
+for `#line`):
+
+- **`#file` → `String`** — the source file's **basename** (not a full path, so no
+  build-machine paths leak into a binary). It matches the design-69 panic prefix
+  (`panic at FILE:LINE:`), the same file spelled the same way.
+- **`#line` → `Int`** — the 1-based line of the token.
+- **`#function` → `String`** — the enclosing function/method's **bare name** with
+  no struct qualifier (`main`, `here`, `init`); at module scope, `<module>`.
+
+```saw
+func log(msg: String) { print("{#file}:{#line} - {msg}") }  // debug-print idiom
+```
+
+Expansion is at the definition site, never the caller. In a **generic** the value
+is the generic's own file/line, identical across every instantiation. In a
+**default argument** it is the default's own definition site (there is no
+caller-site `#file`-as-default-argument capture — Swift's other mode — in v1).
+Inside a **suspending function** body `#line`/`#function` report the ORIGINAL
+source line and the user function's name, not the transformed coroutine frame's.
+`#` introduces one of these three directives *only*; any other `#name` is a clean
+"unknown directive" lex error.
+
 ### Composite Types
 
 ```saw
