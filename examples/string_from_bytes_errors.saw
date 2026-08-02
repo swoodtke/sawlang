@@ -17,6 +17,7 @@
 
 // Build Data from a Vector<Int> of byte values and return the error offset
 // (or -1 if fromBytes unexpectedly succeeds).
+import std.data.{Data}
 func offsetOf(bytes: Vector<Int>) -> Int {
     var d = Data()
     var i = 0

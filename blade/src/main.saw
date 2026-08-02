@@ -5,6 +5,9 @@ import src.cli
 import src.manifest
 import src.builder
 import src.tester
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
 
 // libc exit — lets `blade test` set a nonzero process exit code when a test
 // fails (so CI fails the build). exit() terminates the process immediately.

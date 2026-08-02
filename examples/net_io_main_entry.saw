@@ -12,6 +12,7 @@
 
 // One end of a local socketpair (the other is closed); a fresh stream socket is
 // immediately writable.
+import std.net.{tcp_close, tcp_socketpair}
 func writable_fd() -> Int {
     let pair = tcp_socketpair()
     tcp_close(pair.1)

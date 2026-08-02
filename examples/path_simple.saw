@@ -7,6 +7,7 @@
 // EXPECT-OUTPUT: Is absolute: true
 // EXPECT-OUTPUT: Joined: /home/user/docs/subdir
 
+import std.path.{Path}
 func main() {
     let p = Path(s: "/home/user/docs/file.txt")
 

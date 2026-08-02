@@ -7,6 +7,7 @@
 // EXPECT-OUTPUT:
 // 5050
 
+import std.channel.{Channel}
 func main() {
     let ch = Channel<Int>()
 

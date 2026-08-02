@@ -7,6 +7,7 @@
 import src.lock.*
 import src.manifest.*
 import src.resolver.*
+import std.path.{Path}
 
 func main() {
     match Manifest.load_from(Path(s: "tests/fixtures/simple/app")) {

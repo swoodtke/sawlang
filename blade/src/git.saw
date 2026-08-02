@@ -8,6 +8,7 @@
 // Tag candidates (columnar)
 // =============================================================================
 
+import std.process.{Command}
 public struct GitTags {
     versions: Vector<String>   // "1.2.0"
     tags: Vector<String>       // the git ref name, e.g. "v1.2.0" (for cloning)

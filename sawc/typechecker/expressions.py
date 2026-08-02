@@ -1888,6 +1888,11 @@ class ExpressionsMixin:
         overloads = self.namespace.lookup_function_overloads(expr.name)
         if len(overloads) > 1 and self.namespace.is_accessible(expr.name):
             return self._check_overloaded_function_call(expr, overloads)
+        # Prelude discipline (design 82 Part B): a bare call to a non-prelude std
+        # free function not imported here errors with an import hint.
+        if (expr.name in getattr(self, '_std_symbol_file', {})
+                and self._std_name_gated(expr.name, expr.line, expr.column)):
+            return None
         func_info = self.get_function_info(expr.name)
         if func_info and not self.namespace.is_accessible(expr.name):
             self._error(
@@ -3532,6 +3537,13 @@ class ExpressionsMixin:
 
     def _check_struct_init(self, expr: StructInit) -> Optional[SawType]:
         """Check struct initialization with parameter-based resolution."""
+        # Prelude discipline (design 82 Part B): a bare `IoError(...)` /
+        # `Data(...)` for a non-prelude std type not imported here is rejected
+        # with an import hint (unless it is a labeled call to a function — that
+        # reinterpretation still happens below when the name is not a std type).
+        if (expr.struct_name in getattr(self, '_std_symbol_file', {})
+                and self._std_name_gated(expr.struct_name, expr.line, expr.column)):
+            return None
         struct_info = self.get_struct_info(expr.struct_name)
         if struct_info is None:
             # Design 66: `name(label: value, ...)` is syntactically identical to
@@ -4766,6 +4778,13 @@ class ExpressionsMixin:
                     )
                     return None
         if isinstance(expr.object, Identifier):
+            # Prelude discipline (design 82 Part B): a bare `TcpStream.connect(...)`
+            # on a non-prelude std type not imported here errors with an import
+            # hint, before it resolves to the hidden static method.
+            if (expr.object.name in getattr(self, '_std_symbol_file', {})
+                    and self._std_name_gated(
+                        expr.object.name, expr.line, expr.column)):
+                return None
             struct_info = self.get_struct_info(expr.object.name)
             if struct_info:
                 struct_name = expr.object.name

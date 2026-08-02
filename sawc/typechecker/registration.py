@@ -219,7 +219,7 @@ class RegistrationMixin:
 
     def _register_struct(self, struct: Struct):
         """Register a struct definition."""
-        if self.namespace.has_struct(struct.name):
+        if self.namespace.has_struct(struct.name) and not self._shadows_hidden_std(struct.name):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,  # We can reuse this error kind
                 f"struct `{struct.name}` is defined multiple times",

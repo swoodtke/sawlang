@@ -8,6 +8,7 @@
 // 100
 // 77
 
+import std.channel.{Channel}
 struct Res { id: Int }
 extension Res: Deinit { func deinit(&var self) { print(self.id) } }
 extension Res: NoCopy {}

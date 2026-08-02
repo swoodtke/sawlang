@@ -13,6 +13,7 @@
 // 5
 // 5
 
+import std.net.{TcpStream}
 func sender(stream: TcpStream) -> Int {
     try! stream.write("hello")
     return 5

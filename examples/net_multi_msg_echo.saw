@@ -11,6 +11,7 @@
 // 4
 // 4
 
+import std.net.{TcpStream}
 func echo_server(stream: TcpStream) -> Int {
     var echoed = 0
     var i = 0

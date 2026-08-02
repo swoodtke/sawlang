@@ -13,6 +13,7 @@
 // normal exit 3 preserved: true
 // success is zero: true
 
+import std.process.{Command}
 func main() {
     // Each of these LAUNCHES (the shell runs), so run() yields Ok(code);
     // `try!` unwraps the exit code (design 92/94: run() -> Result).

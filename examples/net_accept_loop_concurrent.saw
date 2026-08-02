@@ -10,6 +10,8 @@
 // 3
 // 3
 
+import std.data.{Data}
+import std.net.{TcpListener, TcpStream}
 func handler(stream: TcpStream) -> Int {
     var req = Data()
     var reading = true

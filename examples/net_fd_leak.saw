@@ -8,6 +8,7 @@
 // EXPECT-OUTPUT:
 // 600
 
+import std.net.{TcpListener, TcpStream}
 func main() {
     var opened = 0
 

@@ -9,6 +9,7 @@
 // EXPECT-OUTPUT:
 // 2
 
+import std.net.{tcp_close, tcp_socketpair}
 func waiter(fd: Int) -> Int {
     io_wait(fd, 1)      // register for write, park; the socket is writable -> wake
     return 1

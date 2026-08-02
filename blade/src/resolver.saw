@@ -14,6 +14,9 @@
 import src.manifest.*
 import src.git.*
 import semver.{Version, VersionReq, parse_version, parse_req}
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
 
 // Version parsing / requirement matching is delegated to the libs/semver
 // package (design 64 B2), imported by path — the B8 "blade depends on semver"

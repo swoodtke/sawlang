@@ -6,6 +6,8 @@
 // remove missing: surfaced
 // rename missing: surfaced
 
+import std.file.{File}
+import std.path.{Path}
 func main() {
     let missing = Path(s: "/tmp/saw_df92_does_not_exist_xyz.txt")
     match File.remove(missing) {

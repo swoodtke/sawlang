@@ -5,6 +5,8 @@
 // Command Types
 // =============================================================================
 
+import std.env.{Env}
+import std.process.{Command}
 public enum BladeCommand {
     case Build(force: Bool),
     case Update,

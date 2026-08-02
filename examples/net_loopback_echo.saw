@@ -8,6 +8,7 @@
 // 3
 // 1
 
+import std.net.{net_buffer, net_bytes_to_string, net_free_buffer, net_would_block, tcp_close, tcp_connect_check, tcp_connect_start, tcp_listen, tcp_local_port, tcp_try_accept, tcp_try_read, tcp_try_write}
 func server(lfd: Int) -> Int {
     var cfd = 0 - 1
     var going = true

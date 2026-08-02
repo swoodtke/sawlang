@@ -1,0 +1,12 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `TcpStream` is not in the prelude and must be imported
+// EXPECT-ERROR-CONTAINS: import std.net
+//
+// Design 82 Part B: a non-prelude std type used bare (no import) is a clean
+// error naming the type and pointing at the import that supplies it — not a
+// silent resolution to the hidden std symbol.
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    print(1)
+}

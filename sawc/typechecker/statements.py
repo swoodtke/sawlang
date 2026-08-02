@@ -137,6 +137,14 @@ class StatementsMixin:
         self.found_return_with_value = False
         self.current_type_subst = type_subst or {}
 
+        # design 82 Part B: a std-sourced method body reaches std internals by
+        # construction — check it permissively (see _check_function).
+        _saved_aaa = self.namespace.allow_all_access
+        _saved_cb = getattr(self, '_checking_builtins', False)
+        if self._decl_is_std_sourced(method):
+            self.namespace.allow_all_access = True
+            self._checking_builtins = True
+
         # Method-level generic type params (brief 36) join the type-param scope
         # for this body, so `U` in `func map<U>(...)` is a known abstract type
         # param inside the body (brief-24 abstract body checking then covers it
@@ -325,6 +333,8 @@ class StatementsMixin:
         self.moved_bindings = saved_moves
         self.current_type_params = prev_method_type_params
         self._current_fn_unsafe_domain = saved_unsafe_domain
+        self.namespace.allow_all_access = _saved_aaa
+        self._checking_builtins = _saved_cb
 
     def _erased_err_target(self, result_type):
         """If `result_type` is `Result<T, Box<any Trait>>` (an erased Result,
@@ -613,6 +623,15 @@ class StatementsMixin:
         self.current_function = func
         self.found_return_with_value = False  # Reset for each function
 
+        # design 82 Part B: a std-sourced body (e.g. a suspending std method
+        # spliced into the entry AST by the coro transform) reaches std internals
+        # by construction — check it permissively, like the builtin check.
+        _saved_aaa = self.namespace.allow_all_access
+        _saved_cb = getattr(self, '_checking_builtins', False)
+        if self._decl_is_std_sourced(func):
+            self.namespace.allow_all_access = True
+            self._checking_builtins = True
+
         # design 22: analyze this function body as a suspend-graph node (a
         # `sync func` is a sync context). Generic bodies are analyzed abstractly,
         # matching how they are type-checked.
@@ -681,6 +700,8 @@ class StatementsMixin:
             self.current_function = None
             self.moved_bindings = saved_moves
             self._current_fn_unsafe_domain = saved_unsafe_domain
+            self.namespace.allow_all_access = _saved_aaa
+            self._checking_builtins = _saved_cb
             return
 
         # Propagate expected type to body for None annotation
@@ -703,6 +724,8 @@ class StatementsMixin:
         self.current_function = None
         self.moved_bindings = saved_moves
         self._current_fn_unsafe_domain = saved_unsafe_domain
+        self.namespace.allow_all_access = _saved_aaa
+        self._checking_builtins = _saved_cb
 
     def _check_block(self, block: Block) -> Optional[SawType]:
         """Check a block and return its type (from final expression)."""

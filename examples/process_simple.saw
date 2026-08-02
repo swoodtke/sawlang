@@ -3,6 +3,7 @@
 // EXPECT-OUTPUT: stdout: hello
 // EXPECT-OUTPUT: success: true
 
+import std.process.{Command}
 func main() {
     // Test capturing output from printf (no trailing newline)
     var cmd = Command(program: "/bin/echo")

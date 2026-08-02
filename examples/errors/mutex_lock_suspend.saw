@@ -5,6 +5,7 @@
 // EXPECT-ERROR-CONTAINS: cannot suspend in a `sync` closure context
 // EXPECT-ERROR-CONTAINS: __test_suspend
 
+import std.mutex.{Mutex}
 func block_forever() {
     __test_suspend()
 }

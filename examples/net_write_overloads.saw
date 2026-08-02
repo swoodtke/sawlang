@@ -11,6 +11,8 @@
 // 8
 // 8
 
+import std.data.{Data}
+import std.net.{TcpStream}
 func sender(stream: TcpStream) -> Int {
     try! stream.write("data:".to_data())   // Data overload  (5 bytes)
     try! stream.write("abc")               // String overload (3 bytes)

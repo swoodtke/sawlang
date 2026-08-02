@@ -10,6 +10,9 @@
 
 // Test basic file operations using Data and Path
 
+import std.file.{File}
+import std.path.{Path}
+import std.data.{Data}
 func main() {
     let test_file = Path(s: "/tmp/saw_test_file.txt")
 

@@ -2,6 +2,7 @@
 // (app -> a -> b) and records each package's version from its own manifest.
 import src.resolver.*
 import src.manifest.*
+import std.path.{Path}
 
 func main() {
     match Manifest.load_from(Path(s: "tests/fixtures/chain/app")) {

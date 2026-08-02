@@ -4,6 +4,7 @@
 // EXPECT-OUTPUT: hello from saw
 // EXPECT-OUTPUT: unset successfully
 
+import std.env.{Env}
 func main() {
     // Set and read a custom variable (deterministic test)
     let _ = Env.set("SAW_TEST_VAR", "hello from saw")

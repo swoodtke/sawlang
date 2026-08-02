@@ -6,6 +6,8 @@
 // remove missing: surfaced
 // create bad parent: surfaced
 
+import std.directory.{Directory}
+import std.path.{Path}
 func main() {
     let missing = Path(s: "/tmp/saw_df92_no_such_dir_abc")
     match Directory.remove(missing) {

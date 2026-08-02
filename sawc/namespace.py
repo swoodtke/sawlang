@@ -1452,7 +1452,8 @@ class Namespace:
     # =========================================================================
 
     def merge_into(self, other: 'Namespace', source_label: Optional[str] = None,
-                   collisions: Optional[List[Tuple[str, str, str, str]]] = None):
+                   collisions: Optional[List[Tuple[str, str, str, str]]] = None,
+                   exclude: Optional[set] = None):
         """
         Merge another namespace's symbols into this one.
 
@@ -1479,6 +1480,11 @@ class Namespace:
         """
         def _merge(category: str, dst: Dict[str, Any], src: Dict[str, Any]):
             for name, sym in src.items():
+                # design 82 Part B: a std symbol whose module is not compiled into
+                # this program (non-imported import-required std) is skipped, so a
+                # user type of the same name does not collide with it.
+                if exclude and name in exclude:
+                    continue
                 existing = dst.get(name)
                 if existing is None:
                     dst[name] = sym

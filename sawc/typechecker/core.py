@@ -325,6 +325,130 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             visibility, symbol_module=def_module, accessor_module=accessor,
             package_root=package_root)
 
+    def _process_std_import(self, imp, ns, builtin_namespace) -> None:
+        """Make the requested std symbols accessible for an `import std.<module>`
+        (design 82 Part B). The symbols already live in `builtin_namespace` and
+        are merged into `ns`; a prelude import simply un-gates the requested
+        names (and registers the module for qualified `mod.Name` access). Non-
+        prelude std stays compiler-known but hidden until imported."""
+        file_symbols = getattr(builtin_namespace, '_std_file_symbols', {}) or {}
+        # `import std.net[...]` -> leaf module = the component after `std`.
+        path = list(imp.path)
+        # Drop a trailing '*' (glob form `import std.net.*`).
+        if path and path[-1] == '*':
+            path = path[:-1]
+        if len(path) < 2:
+            self._error(
+                ErrorKind.UNKNOWN_TYPE,
+                "`import std` needs a module (e.g. `import std.net`)",
+                getattr(imp, 'line', 0), getattr(imp, 'column', 0))
+            return
+        leaf = path[1]
+        available = file_symbols.get(leaf)
+        if available is None:
+            self._error(
+                ErrorKind.UNKNOWN_TYPE,
+                f"unknown std module `std.{leaf}`",
+                getattr(imp, 'line', 0), getattr(imp, 'column', 0),
+                hint="std modules are: " + ", ".join(sorted(file_symbols)))
+            return
+
+        def _expose(name, local):
+            # Register an aliased copy so the local name resolves to the symbol
+            # (unaliased just un-gates the already-merged symbol).
+            if local != name:
+                for table, reg in (
+                    (ns.structs, ns.register_struct),
+                    (ns.enums, ns.register_enum),
+                    (ns.functions, ns.register_function),
+                    (ns.traits, ns.register_trait),
+                    (getattr(ns, 'type_aliases', {}), getattr(ns, 'register_type_alias', None)),
+                    (ns.statics, ns.register_static),
+                ):
+                    if name in table and reg is not None and local not in table:
+                        reg(local, table[name])
+                        break
+            ns.make_accessible(local)
+
+        if imp.symbols:
+            aliases = imp.symbol_aliases or {}
+            for sym_name in imp.symbols:
+                if sym_name not in available:
+                    self._error(
+                        ErrorKind.UNKNOWN_TYPE,
+                        f"`{sym_name}` is not defined in `std.{leaf}`",
+                        getattr(imp, 'line', 0), getattr(imp, 'column', 0),
+                        hint="available: " + ", ".join(sorted(available)))
+                    continue
+                _expose(sym_name, aliases.get(sym_name, sym_name))
+        else:
+            # Whole-module import: expose every symbol the module defines.
+            for sym_name in available:
+                _expose(sym_name, sym_name)
+
+        # NOTE: unlike a user-module import, a std prelude import does NOT
+        # register a `leaf.Name` module alias — the leaf name (`data`, `net`,
+        # `path`) is a common local-variable name, and a module alias would
+        # shadow it (`data.push(...)` misparsed as module access). Bare names
+        # (and `.{A, B}`) are the supported std import forms.
+
+    def _decl_is_std_sourced(self, node) -> bool:
+        """Whether a declaration comes from a std/builtin source file. Used so a
+        std method/function body re-checked in a USER compile (e.g. a suspending
+        std method the coroutine transform splices into the entry AST, design 84)
+        may still reach std internals — the accessibility gate applies to user
+        SOURCE, not to std's own already-validated bodies."""
+        sf = getattr(node, 'source_file', None)
+        if not sf:
+            return False
+        return self._vis_module_for_source(sf)[:1] == ("<std>",)
+
+    def _shadows_hidden_std(self, name: str) -> bool:
+        """Whether a user declaration of `name` shadows a HIDDEN (non-prelude,
+        not-yet-imported) std symbol merged in from the builtins (design 82
+        Part B). Such a redefinition is allowed — the std symbol was never in the
+        user's namespace, so there is no real clash. std's own bodies
+        (allow_all_access) and already-accessible prelude/imported names are not
+        shadowable this way."""
+        ns = self.namespace
+        if getattr(self, '_checking_builtins', False):
+            return False
+        if name in ns.directly_accessible:
+            return False
+        return name in getattr(self, '_std_symbol_file', {})
+
+    def _std_name_gated(self, name: str, line: int, column: int) -> bool:
+        """Prelude discipline (design 82 Part B): reject a bare source reference
+        to a NON-PRELUDE std symbol (e.g. `TcpStream`, `File`, `IoError`) that
+        has not been imported, with a "did you mean import" hint. Returns True
+        (and reports) when the name is blocked; False when it is fine to resolve
+        (prelude, imported, a user symbol, or synthesized/std-internal code).
+
+        The name stays compiler-known — this gates only whether USER SOURCE may
+        name it without `import std.<module>`."""
+        ns = self.namespace
+        # std's own bodies reach std internals by construction; synthesized coro
+        # output reaches std/frame internals by construction — both are exempt.
+        if getattr(self, '_checking_builtins', False):
+            return False
+        if self._in_synthesized_context():
+            return False
+        if name in ns.directly_accessible:
+            return False
+        owner = getattr(self, '_std_symbol_file', {}).get(name)
+        if owner is None:
+            return False  # not a std symbol — leave normal resolution/errors
+        # A user module that defines (or imports) its own symbol of this name has
+        # made it directly accessible above, so we never reach here for it — the
+        # gate fires only for a bare reference to a hidden std symbol.
+        self._error(
+            ErrorKind.UNKNOWN_TYPE,
+            f"`{name}` is not in the prelude and must be imported",
+            line, column,
+            hint=f"add `import std.{owner}.{{{name}}}` (or `import std.{owner}`)",
+        )
+        return True
+
     def _vis_word(self, visibility: Visibility) -> str:
         return {
             Visibility.PUBLIC: "public",
@@ -737,6 +861,14 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     imp_path = module_path[:-1] + imp_path[1:]
                 else:
                     imp_path = imp_path[1:]
+
+            # design 82 Part B: `import std.<module>[.{A, B} | .*]` is a PRELUDE
+            # import — the std symbols already live in the builtin namespace
+            # (merged into `ns`); the import just makes the requested names
+            # accessible (non-prelude std is compiler-known but not auto-visible).
+            if imp.path and imp.path[0] == 'std':
+                self._process_std_import(imp, ns, builtin_namespace)
+                continue
 
             if imp.is_glob:
                 # import foo.* -> copy all public symbols to local namespace

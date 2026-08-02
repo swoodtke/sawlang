@@ -9,6 +9,11 @@
 import src.manifest.*
 import src.resolver.*
 import src.lock.*
+import std.directory.{Directory}
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+import std.process.{Command}
 
 // =============================================================================
 // Error Types

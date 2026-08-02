@@ -1,6 +1,7 @@
 // B3: p -> q -> p is a dependency cycle, reported as an error naming the cycle.
 import src.resolver.*
 import src.manifest.*
+import std.path.{Path}
 
 func main() {
     match Manifest.load_from(Path(s: "tests/fixtures/cycle/p")) {

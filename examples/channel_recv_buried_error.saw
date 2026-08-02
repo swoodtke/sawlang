@@ -4,6 +4,7 @@
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: nested/expression position
 
+import std.channel.{Channel}
 func worker(ch: Channel<Int>) -> Int {
     let x = ch.receive() + 1   // receive buried in a binary expression
     return x

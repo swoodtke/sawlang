@@ -13,6 +13,7 @@
 // true
 // true
 
+import std.time.{Duration, Instant, unix_timestamp}
 func main() {
     // Duration round-trip and accessors.
     let d = Duration.from_millis(1420)

@@ -13,6 +13,8 @@
 // 15
 // 1
 
+import std.data.{Data}
+import std.net.{TcpStream}
 func server(stream: TcpStream) -> Int {
     var acc = Data()
     var i = 0

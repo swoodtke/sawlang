@@ -3,6 +3,8 @@
 // into .blade/deps/, and record (version, git source, rev). No network.
 import src.resolver.*
 import src.manifest.*
+import std.directory.{Directory}
+import std.path.{Path}
 
 extern "C" {
     func system(command: UnsafePointer<Int8>) -> Int32

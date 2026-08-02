@@ -4,6 +4,7 @@
 // EXPECT-OUTPUT:
 // set empty name: surfaced
 
+import std.env.{Env}
 func main() {
     match Env.set("", "value") {
         case Ok(_) -> print("set UNEXPECTED ok"),

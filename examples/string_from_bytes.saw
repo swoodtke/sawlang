@@ -11,6 +11,7 @@
 // 102
 // 233
 
+import std.data.{Data}
 func main() {
     // Valid ASCII "Hi"
     var ascii = Data()

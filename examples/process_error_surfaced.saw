@@ -9,6 +9,7 @@
 // launched: false
 // error names program: true
 
+import std.process.{Command}
 func main() {
     var cmd = Command(program: "this_command_does_not_exist_zzq")
     match cmd.run() {

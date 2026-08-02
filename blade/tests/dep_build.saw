@@ -3,6 +3,8 @@
 // on the buildapp fixture (app imports the `greet` dependency).
 import src.resolver.*
 import src.manifest.*
+import std.env.{Env}
+import std.path.{Path}
 
 extern "C" {
     func system(command: UnsafePointer<Int8>) -> Int32

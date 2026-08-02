@@ -48,6 +48,34 @@ def parse_source(source: str, source_path: str, verbose: bool = False):
 # remain available freestanding.
 HOSTED_STD_MODULES = {"file", "process", "env", "directory", "time", "net"}
 
+# ---------------------------------------------------------------------------
+# Prelude discipline (design 82 Part B).
+#
+# The prelude — the std names auto-visible without an `import` — is a CURATED
+# core, not "all of std auto-merged". Every std symbol stays compiler-known for
+# codegen; only the prelude set is injected into a user module's namespace. The
+# rest requires an explicit `import std.<module>` (or `import std.<module>.{X}`).
+#
+# We define the partition by its complement: the IMPORT-REQUIRED std modules
+# (their entire top-level surface needs importing) plus a small set of
+# import-required symbols carved out of an otherwise-prelude file. Everything
+# else — core containers/wrappers/traits, the systems primitives, and the
+# structural types the compiler references implicitly (Range, Ordering, Hasher,
+# TaskHandle, AllocError, the iterator/slot structs) — stays prelude. This
+# realizes design 82's allowlist: the curated core is auto-visible; File,
+# Data, Channel, Mutex, Duration/Instant, IoError/Utf8Error, and the whole net
+# surface are import-required, so a user type named `IoError`/`File` no longer
+# collides with the prelude.
+IMPORT_REQUIRED_STD_MODULES = {
+    "file", "directory", "path", "data", "channel", "mutex", "time",
+    "net", "process", "env", "task",
+}
+# Symbols carved out of an otherwise-prelude std file (the file stays prelude
+# for its other symbols; only these named ones require an import).
+IMPORT_REQUIRED_STD_SYMBOLS = {
+    "Utf8Error": "string",
+}
+
 
 def load_builtins(verbose: bool = False, freestanding: bool = False):
     """Load and parse the builtin.saw file and all std/*.saw files.
@@ -224,6 +252,11 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False):
     builtin_reporter = ErrorReporter("", "builtins")
     builtin_tc = TypeChecker(builtin_reporter, freestanding=freestanding)
     builtin_tc.namespace.allow_all_access = True
+    # design 82 Part B: mark this as the builtin/std check so the prelude gate and
+    # the hidden-std shadow allowance are BOTH disabled while std checks itself
+    # (std reaches every std symbol by construction; allow_all_access is an
+    # unreliable signal because a fresh Namespace defaults it True).
+    builtin_tc._checking_builtins = True
     if not builtin_tc.check(builtin_ast, require_main=False):
         # A builtin that fails to type-check is a compiler bug, not user error.
         print("\033[1;31merror\033[0m: internal compiler error: builtins failed "
@@ -232,10 +265,52 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False):
         sys.exit(1)
 
     builtin_ns = builtin_tc.namespace
+
+    # design 82 Part B: build the (std-file -> {symbol names}) map from the AST's
+    # source_file provenance, so an `import std.<module>` can re-expose exactly
+    # that module's symbols and the "did you mean import" hint can name the owner.
+    def _leaf_of(source_file):
+        if not source_file:
+            return None
+        b = os.path.basename(source_file)
+        return b[:-4] if b.endswith('.saw') else b
+
+    std_file_symbols = {}      # leaf -> set(names)
+    std_symbol_file = {}       # name -> leaf (first owner wins)
+    for decls in (getattr(builtin_ast, 'structs', []),
+                  getattr(builtin_ast, 'enums', []),
+                  getattr(builtin_ast, 'functions', []),
+                  getattr(builtin_ast, 'traits', []),
+                  getattr(builtin_ast, 'type_definitions', [])):
+        for d in decls:
+            leaf = _leaf_of(getattr(d, 'source_file', None))
+            if leaf is None:
+                continue
+            std_file_symbols.setdefault(leaf, set()).add(d.name)
+            std_symbol_file.setdefault(d.name, leaf)
+
+    def _is_prelude(name):
+        """Whether a builtin/std symbol is in the auto-visible prelude."""
+        if name in IMPORT_REQUIRED_STD_SYMBOLS:
+            return False
+        leaf = std_symbol_file.get(name)
+        if leaf is not None and leaf in IMPORT_REQUIRED_STD_MODULES:
+            return False
+        return True
+
+    # Only the prelude core is directly accessible; every other std symbol stays
+    # registered (compiler-known for codegen + reachable via `import std.X`) but
+    # is NOT injected into a user namespace without an import.
     for table in (builtin_ns.structs, builtin_ns.enums, builtin_ns.functions,
                   builtin_ns.traits, builtin_ns.type_aliases):
         for name in table:
-            builtin_ns.make_accessible(name)
+            if _is_prelude(name):
+                builtin_ns.make_accessible(name)
+
+    builtin_ns._std_file_symbols = std_file_symbols
+    builtin_ns._std_symbol_file = std_symbol_file
+    builtin_ns._import_required_modules = IMPORT_REQUIRED_STD_MODULES
+    builtin_ns._import_required_symbols = IMPORT_REQUIRED_STD_SYMBOLS
 
     # design 84: the suspending (struct, method) pairs among the builtins + std
     # (e.g. `TcpStream.read`, `TcpListener.accept`) — computed under the builtin
@@ -253,6 +328,120 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False):
     builtin_ns._std_suspending_methods = std_suspending
 
     return builtin_ast, builtin_ns
+
+
+def _strip_line_comments(text: str) -> str:
+    """Drop `//` line comments so a symbol name mentioned only in prose is not
+    counted as a code reference by the std dependency scan (design 82 Part B)."""
+    out = []
+    for line in text.splitlines():
+        i = line.find('//')
+        out.append(line[:i] if i >= 0 else line)
+    return '\n'.join(out)
+
+
+def compute_std_codegen_exclusions(builtin_ns, import_asts):
+    """design 82 Part B — which std modules are compiled into THIS program.
+
+    Prelude std modules are always compiled. An import-required std module is
+    compiled only if it is imported (any `import std.<module>`) OR referenced by
+    a module that is compiled (the transitive dependency closure — e.g. `string`
+    needs `data`). Everything else is EXCLUDED from codegen, so its symbols do
+    not collide with a user type of the same name (the design-84 `IoError` clash).
+
+    Returns ``(excluded_leaves, excluded_symbols)``: the std file leaves left out
+    and the top-level symbol names they own.
+    """
+    import re
+    file_symbols = getattr(builtin_ns, '_std_file_symbols', {}) or {}
+    all_leaves = set(file_symbols)
+
+    # Read the std sources (comment-stripped) once for the reference scan.
+    sawc_dir = os.path.dirname(__file__)
+    sources = {}
+    std_dir = os.path.join(sawc_dir, 'std')
+    if os.path.isdir(std_dir):
+        for fn in os.listdir(std_dir):
+            if fn.endswith('.saw'):
+                with open(os.path.join(std_dir, fn)) as f:
+                    sources[fn[:-4]] = _strip_line_comments(f.read())
+    builtin_path = os.path.join(sawc_dir, 'builtin.saw')
+    if os.path.exists(builtin_path):
+        with open(builtin_path) as f:
+            sources['builtin'] = _strip_line_comments(f.read())
+
+    # Imported std leaves (an `import std.<leaf>...` anywhere in the program).
+    imported = set()
+    for ast in import_asts:
+        for imp in getattr(ast, 'imports', []):
+            p = getattr(imp, 'path', None) or []
+            if len(p) >= 2 and p[0] == 'std':
+                imported.add(p[1])
+
+    # Base compiled set: prelude modules + imported import-required modules.
+    compiled = {leaf for leaf in all_leaves
+                if leaf not in IMPORT_REQUIRED_STD_MODULES}
+    compiled |= (imported & all_leaves)
+
+    # Precompile a word matcher per leaf's symbols.
+    leaf_patterns = {
+        leaf: re.compile('|'.join(r'\b' + re.escape(s) + r'\b'
+                                  for s in syms)) if syms else None
+        for leaf, syms in file_symbols.items()
+    }
+    # Transitive closure: pull in any module referenced by a compiled module.
+    changed = True
+    while changed:
+        changed = False
+        for leaf in all_leaves - compiled:
+            pat = leaf_patterns.get(leaf)
+            if pat is None:
+                continue
+            for c in compiled:
+                src = sources.get(c)
+                if src and pat.search(src):
+                    compiled.add(leaf)
+                    changed = True
+                    break
+
+    excluded_leaves = all_leaves - compiled
+    excluded_symbols = set()
+    for leaf in excluded_leaves:
+        excluded_symbols |= file_symbols.get(leaf, set())
+    return excluded_leaves, excluded_symbols
+
+
+def _filter_std_ast(builtin_ast, excluded_leaves):
+    """Return a copy of the builtin AST with every top-level declaration (and
+    extension) owned by an EXCLUDED std file removed, so excluded std modules are
+    not code-generated (design 82 Part B). Provenance is the decl's source_file
+    leaf; anything without a std source_file is kept."""
+    from ast_nodes import Program
+
+    def _leaf(node):
+        sf = getattr(node, 'source_file', None)
+        if not sf:
+            return None
+        b = os.path.basename(sf)
+        return b[:-4] if b.endswith('.saw') else b
+
+    def keep(node):
+        leaf = _leaf(node)
+        return leaf is None or leaf not in excluded_leaves
+
+    return Program(
+        structs=[s for s in builtin_ast.structs if keep(s)],
+        functions=[f for f in builtin_ast.functions if keep(f)],
+        extensions=[e for e in builtin_ast.extensions if keep(e)],
+        enums=[e for e in builtin_ast.enums if keep(e)],
+        traits=[t for t in builtin_ast.traits if keep(t)],
+        type_definitions=[t for t in builtin_ast.type_definitions if keep(t)],
+        extern_blocks=[b for b in getattr(builtin_ast, 'extern_blocks', []) if keep(b)],
+        statics=[s for s in getattr(builtin_ast, 'statics', []) if keep(s)],
+        static_asserts=list(getattr(builtin_ast, 'static_asserts', [])),
+        line=builtin_ast.line,
+        column=builtin_ast.column,
+    )
 
 
 def run_codegen(codegen, ast):
@@ -334,6 +523,14 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     while pending_imports:
         imp = pending_imports.pop(0)
         module_path = tuple(imp.path)
+
+        # design 82 Part B: `import std.<module>` is a PRELUDE import — the std
+        # symbols are already compiled into the builtin AST/namespace, so do NOT
+        # re-resolve/re-parse the file (that would double-define every symbol).
+        # The typechecker's import processing makes the requested names accessible
+        # from the builtin namespace; codegen already has them.
+        if imp.path and imp.path[0] == 'std':
+            continue
 
         # Skip package/parent prefix for resolution
         if imp.path and imp.path[0] in ('package', 'parent'):
@@ -477,6 +674,17 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                 bodies.extend(collect_inline_module_bodies(mod_decl.body))
         return bodies
 
+    # design 82 Part B: exclude non-imported import-required std modules from
+    # codegen (and from the merged-namespace collision check). They stay
+    # compiler-known for typechecking, but are not compiled into a program that
+    # does not use them — so a user type named e.g. `IoError`/`File` never
+    # collides with the (uncompiled) std one.
+    import_asts = [entry_ast] + list(module_map.values())
+    excluded_std_leaves, excluded_std_symbols = compute_std_codegen_exclusions(
+        builtin_ns, import_asts)
+    if excluded_std_leaves:
+        builtin_ast = _filter_std_ast(builtin_ast, excluded_std_leaves)
+
     # Build merged AST for code generation (still needed for codegen)
     # Start with builtins
     merged_ast = builtin_ast
@@ -520,6 +728,10 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # so the coroutine transform can embed nested suspending std methods.
     typechecker._std_suspending_methods = getattr(
         builtin_ns, '_std_suspending_methods', set())
+    # design 82 Part B: the (std symbol name -> owning std file) map, so a bare
+    # reference to a non-prelude std symbol errors with a "did you mean import"
+    # hint instead of resolving silently.
+    typechecker._std_symbol_file = getattr(builtin_ns, '_std_symbol_file', {})
 
     # The builtin namespace was built once by build_builtin_namespace(); all its
     # symbols are already type-checked and marked directly accessible.
@@ -603,7 +815,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     from namespace import Namespace
     merged_ns = Namespace()
     collisions = []
-    merged_ns.merge_into(builtin_ns, source_label="<builtins>", collisions=collisions)
+    merged_ns.merge_into(builtin_ns, source_label="<builtins>", collisions=collisions,
+                         exclude=excluded_std_symbols)
 
     for mod_path, (mod_ast, mod_ns) in checked_modules.items():
         label = '.'.join(mod_path) if mod_path else "<entry>"

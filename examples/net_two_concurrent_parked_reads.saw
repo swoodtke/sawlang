@@ -11,6 +11,8 @@
 // 0
 // 0
 
+import std.data.{Data}
+import std.net.{TcpStream}
 func reader(stream: TcpStream, want: String) -> Int {
     var got = Data()
     var reading = true

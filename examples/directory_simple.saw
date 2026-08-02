@@ -5,6 +5,8 @@
 
 // Test basic directory operations using Path
 
+import std.directory.{Directory}
+import std.path.{Path}
 func main() {
     // Get and display current directory
     if let cwd = Directory.current() {

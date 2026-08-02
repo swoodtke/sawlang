@@ -9,6 +9,10 @@
 
 import src.manifest.*
 import src.resolver.*
+import std.directory.{Directory}
+import std.env.{Env}
+import std.path.{Path}
+import std.time.{Duration, Instant}
 
 extern "C" {
     // Run a command line through the shell and return its raw wait status. A

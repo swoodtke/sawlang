@@ -12,6 +12,7 @@
 
 // Test Data with slices, set, copy, and iterator
 
+import std.data.{Data}
 func main() {
     // Create and populate Data
     var data = Data()

@@ -5,6 +5,7 @@
 
 // Test Data type for raw byte handling
 
+import std.data.{Data}
 func main() {
     // Create empty Data and push bytes (ASCII for "Hello")
     var data = Data()

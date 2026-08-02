@@ -27,6 +27,37 @@ items need a probe before being treated as real work.
   visibility error naming both std files; restored. Suite 905 (unchanged), bootstrap
   17+17 green. [82, 80]
 
+## Design 82 Part B — prelude discipline (LANDED)
+- **The prelude is now a CURATED ALLOWLIST, not "all std auto-merged".** Defined
+  by its complement in sawc.py: `IMPORT_REQUIRED_STD_MODULES` (file, directory,
+  path, data, channel, mutex, time, net, process, env, task — whole modules) +
+  `IMPORT_REQUIRED_STD_SYMBOLS` (`Utf8Error` from string). `build_builtin_namespace`
+  makes ONLY prelude symbols `directly_accessible`; the rest stay registered
+  (compiler-known) but hidden. `import std.<mod>[.{A,B}|.*]` is a PRELUDE import —
+  resolution is SKIPPED in the resolver (`imp.path[0]=='std'` → `continue`, symbols
+  already in builtins) and `_process_std_import` un-gates the requested names (no
+  `mod.Name` module alias — it would shadow common locals like `data`).
+- **Gate + hint.** A bare source reference to a hidden std symbol (static call,
+  struct init, free-fn call) errors: "`X` is not in the prelude and must be
+  imported" + hint `add import std.<owner>.{X}`. `_std_name_gated` is exempt for
+  std's own bodies (`_checking_builtins`) and synthesized coro output. A std-
+  sourced method/function body re-checked in a user compile (design-84 spliced
+  suspending std method) is checked permissively (`_decl_is_std_sourced` →
+  allow_all_access) so it reaches its own internals.
+- **No codegen collision (the design-84 IoError clash CLOSED).** Non-imported
+  import-required std modules are EXCLUDED from codegen: `compute_std_codegen_exclusions`
+  computes the compiled set = prelude ∪ imported ∪ transitive-dep-closure (comment-
+  stripped source scan; `string`→`data`, `taskgroup`→`task` stay), `_filter_std_ast`
+  drops excluded decls, and the merged-ns collision check skips them (`merge_into`
+  `exclude=`). So a user may define its own `struct IoError`/`File`; `_shadows_hidden_std`
+  lets the user decl replace the (uncompiled) merged builtin without a "defined
+  multiple times" error. StringBuilder VERDICT: KEPT in prelude (borderline, common).
+- **Migration.** 56 examples + 8 blade/src + 15 blade/tests gained `import std.X.{...}`
+  for the non-prelude types they use (libs/sos needed none). New suite tests:
+  `prelude_user_ioerror` (user IoError+File compiles/runs), `errors/prelude_tcp_needs_import`
+  (bare TcpStream → clean import error), `prelude_import_makes_visible` (import
+  un-gates Duration; Vector bare works). Suite 908 (905→+3), bootstrap 17+17. [82, 84, 80]
+
 ## Design 88 — references across suspension points (implement D6) (IN PROGRESS)
 - **Core LANDED (commit 1).** A reference PARAM/LOCAL of a suspending function
   is now a frame-resident RAW POINTER across suspensions (`_enc_of` REFERENCE ->

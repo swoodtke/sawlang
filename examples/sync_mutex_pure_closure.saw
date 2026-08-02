@@ -5,6 +5,7 @@
 // EXPECT-OUTPUT:
 // 6
 
+import std.mutex.{Mutex}
 func double(n: Int) -> Int {
     n * 2
 }

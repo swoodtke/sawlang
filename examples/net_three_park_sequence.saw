@@ -9,6 +9,7 @@
 // 241
 // 65
 
+import std.net.{net_buffer, net_free_buffer, net_would_block, tcp_close, tcp_socketpair, tcp_try_read, tcp_try_write}
 func read_one(fd: Int) -> Int {
     let buf = unsafe net_buffer(1)
     var v = 0

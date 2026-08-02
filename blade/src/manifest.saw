@@ -2,6 +2,10 @@
 // Part of the Blade package manager
 
 import toml
+import std.data.{Data}
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
 
 // =============================================================================
 // Error Types

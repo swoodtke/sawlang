@@ -12,6 +12,7 @@
 
 // Bind an ephemeral port, learn its number, then let the listener drop (Deinit
 // closes it) so NOTHING listens there — a subsequent connect must fail.
+import std.net.{TcpListener, TcpStream}
 func closed_ephemeral_port() -> Int {
     let listener = try! TcpListener.listen(0)
     let p = listener.local_port()

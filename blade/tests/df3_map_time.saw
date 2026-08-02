@@ -1,6 +1,7 @@
 // Blade dogfood (design 57): DF3 call-site optional auto-wrap, Map
 // iteration (visitor + snapshot), and std.time. Passes by exiting 0.
 
+import std.time.{Duration, Instant}
 func takes_opt(x: Int?) -> Int {
     if let v = x { v } else { -1 }
 }

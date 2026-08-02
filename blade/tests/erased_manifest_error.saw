@@ -6,6 +6,7 @@
 // hand-written concrete error type.
 
 import src.manifest
+import std.path.{Path}
 
 func main() {
     match manifest.Manifest.load_from(Path(s: "/no/such/blade/dir")) {

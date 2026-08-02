@@ -19,6 +19,8 @@
 import toml
 import src.manifest.*
 import src.resolver.*
+import std.file.{File}
+import std.path.{Path}
 
 // =============================================================================
 // Lock data (columnar)

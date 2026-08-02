@@ -1,6 +1,7 @@
 // B5: end-to-end git against a LOCAL file:// repository built in .build/scratch
 // (no network). Exercises `git ls-remote --tags` discovery and a tag clone.
 import src.git.*
+import std.directory.{Directory}
 
 extern "C" {
     func system(command: UnsafePointer<Int8>) -> Int32

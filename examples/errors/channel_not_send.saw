@@ -4,6 +4,7 @@
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: does not satisfy bound `T: Send` on struct `Channel`
 
+import std.channel.{Channel}
 struct Handle {
     raw: UnsafePointer<Int8>
 }

@@ -12,6 +12,7 @@
 // deinit 7
 // 999
 
+import std.net.{net_buffer, net_free_buffer, net_would_block, tcp_close, tcp_socketpair, tcp_try_read, tcp_try_write}
 struct Res { id: Int }
 extension Res: Deinit {
     func deinit(&var self) { print("deinit {self.id}") }

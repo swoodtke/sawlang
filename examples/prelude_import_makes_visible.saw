@@ -1,0 +1,20 @@
+// Design 82 Part B: `import std.<module>.{Name}` makes a non-prelude std type
+// visible by its bare name. Here `Duration` (import-required, from std.time)
+// becomes usable after the import; a prelude core type (`Vector`) needs none.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+
+import std.time.{Duration}
+
+func main() {
+    let d = Duration.from_secs(2 as Int64)
+    let v: Vector<Int> = [1, 2, 4]
+    var sum = 0
+    for x in v.iter() {
+        sum = sum + x
+    }
+    if d.secs() > (0 as Int64) {
+        print(sum)  // 7
+    }
+}

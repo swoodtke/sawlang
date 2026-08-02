@@ -6,6 +6,7 @@
 // 5
 // 50
 
+import std.mutex.{Mutex}
 func main() {
     let m = Mutex<Int>(value: 0)
 
