@@ -2245,12 +2245,29 @@ Observable rules:
   graph would have no finite frame size (frames embed by value), so it is rejected
   with a diagnostic that names the cycle (e.g. `ping -> pong -> ping`). Ordinary
   non-suspending recursion is unaffected.
-- **References may span suspensions** (design 18 D6, task confinement): a
-  `&`/`&var` parameter — including `&var self` — remains valid and exclusive
-  across a suspension, because the whole task suspends and resumes as a unit and
-  references cannot escape it. A driven suspending method (design 45 Part 0c)
-  holds its receiver as a pointer into the caller's storage and mutates it across
-  suspensions; the caller observes the mutation.
+- **References may span suspensions** (design 18 D6, task confinement;
+  implemented design 88): a `&`/`&var` parameter or reference local — including
+  `&var self` — remains valid and exclusive across a suspension, because the whole
+  task suspends and resumes as a unit and references cannot escape it. In the
+  implementation, such a reference becomes a frame-resident raw pointer into the
+  referent's storage; reads/writes after resume address the same referent, and a
+  `&var` mutation is visible to the caller (a driven suspending method, design 45
+  Part 0c, is the same mechanism for its receiver). The reference does not own the
+  referent, so it is never dropped by the frame — destruction stays exactly-once
+  through the referent's real owner.
+  - **Driven-in-place vs spawned (the confinement boundary).** A held reference is
+    sound only when its referent outlives the frame. A function DRIVEN in place may
+    freely hold a reference param into the driver's live storage. A SPAWNED task,
+    whose frame is boxed onto the run queue and resumed later (possibly on another
+    thread), may NOT take a reference PARAMETER — that would point into the
+    spawner's stack, which can die before the task runs; it is a compile error
+    (both single- and multi-threaded groups, a confinement rule deeper than the
+    design-75 `Send` gate). A reference to a task-CONFINED local INSIDE the spawned
+    body is fine — it points into the task's own frame, which the box keeps alive.
+  - Container-internal borrows (`Vector.with_ref`/`with_var_ref`) keep their
+    `sync`-body restriction: unlike a confined stack/frame referent, a container
+    borrow projects into shared, reachable storage that a concurrent task could
+    reallocate across a suspension, so it may not span one.
 - **`deinit` may not suspend** — a destructor is always a `sync` context, so a
   suspension inside one is a compile error (deterministic destruction).
 - **Effect polymorphism — generic suspending functions/methods** (design 70,

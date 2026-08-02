@@ -252,6 +252,18 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   own it in a spawned TaskGroup frame — captured frame locals are moved into the
   closure by value. A tuple local and `let (a, b) = f()` destructuring also
   survive a suspension (design 77): their bindings are frame-resident.
+- **References may span a suspension (design 88, D6).** A `&T`/`&var T` param or
+  a `&var self` receiver of a suspending function stays valid across a suspend —
+  it becomes a frame-resident pointer into the referent, so a read after resume
+  and a `&var` mutation both address the SAME caller value (mutation is
+  caller-visible). The reference doesn't own → never dropped by the frame (deinit
+  stays exactly-once). Held refs are for DRIVEN-in-place frames: a SPAWNED task
+  may NOT take a reference PARAM (it would point into the dead spawner stack — a
+  clean compile error, both group kinds; pass an owned value / `Arc` / `Channel`
+  instead), but a reference to a task-LOCAL inside the spawned body is fine. Net
+  (design 84) stays value-based: `read() -> Data`, `write_all(move data)` — a
+  `&var Data` net read is not offered (an orthogonal nested-method-read depth
+  limit blocks it, not the reference mechanism).
 
 ## Modules & packages
 ```saw

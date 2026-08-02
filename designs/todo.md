@@ -42,8 +42,15 @@ items need a probe before being treated as real work.
   propagation reaches only one nesting level (value-based control hangs
   identically; NOT a design-88 issue). VERDICT: keep the value-based `read()`;
   defer a `&var Data` net read until that depth limit is fixed. Suite 905.
-- **TODO:** item 4 (with_ref/with_var_ref across a suspend verdict); item 7 docs
-  (spec concurrency D6-implemented note; saw-lang skill limitation removal).
+- **Items 4 + 7 LANDED (commit 3).** Item 4 VERDICT: KEEP the `sync`-body
+  restriction on `Vector.with_ref`/`with_var_ref` — unlike a D6 held reference
+  (task-confined stack/frame referent unreachable by other tasks), a container
+  borrow projects into shared reachable storage a concurrent task could realloc
+  across a suspension (iterator invalidation); confinement does not cover it.
+  Documented in vector.saw. Item 7: spec concurrency updated (D6 implemented +
+  driven/spawned boundary + with_ref caveat); saw-lang skill concurrency note
+  added (references-across-suspend capability + spawn-root rejection + net stays
+  value-based). **Design 88 COMPLETE** (scope items 1-7 all addressed).
 - **FLAG (pre-existing, unrelated):** `libs/semver` + `libs/toml` `blade test`
   suites fail on a CLEAN tree (module-path: tests `import src.lib.*`; standalone
   `sawc` compile+run of each test passes). Blade-test-harness issue, orthogonal to

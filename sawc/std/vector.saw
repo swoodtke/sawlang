@@ -113,6 +113,16 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // `body` is `sync`: the borrow must not be held across a suspension (and it
     // keeps `with_var_ref` sync-usable, e.g. the executor drains it from the
     // group's `sync` Deinit).
+    //
+    // design 88 (D6) verdict — the `sync` STAYS. A held D6 reference is sound
+    // because its referent is a task-CONFINED stack/frame local that no other task
+    // can reach or mutate. A `with_var_ref` borrow is different in kind: it
+    // projects INTO a container (this vector) that remains reachable and mutable.
+    // If `body` suspended, the yield would hand the scheduler control while the
+    // element borrow is live, and another task (or a re-entrant call) could `push`
+    // this vector, reallocating the buffer and dangling the borrow — the exact
+    // iterator-invalidation this API prevents. Confinement does not cover a
+    // container-internal borrow, so the borrow may not span a suspension.
     public func with_var_ref<R>(&var self, index: Int, body: (&var T) sync -> R) -> R {
         if let buf = self.buffer {
             body(&var buf[index])
