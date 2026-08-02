@@ -841,6 +841,45 @@ class _FrameBuilder:
         scan(node)
         return found[0]
 
+    def _has_loop_ctrl(self, node):
+        """design 96 (DF6): True if `node` contains a `break`/`continue` that
+        targets the ENCLOSING loop — one NOT nested inside a deeper `while`/`for`
+        within `node` (which would capture it). Such a construct, even when it does
+        NOT itself span a suspension, must be CFG-SPLIT when it sits in a
+        suspension-spanning loop: lowered in place it would keep a raw `break`/
+        `continue`, which escapes the resume method's `while true` DISPATCH loop
+        instead of the logical loop (a driven `while {} { ... if c { break } }`
+        re-entered in a caller's loop then hangs). Splitting routes the jump to the
+        loop's exit/header STATE via `loop_ctx`."""
+        found = [False]
+
+        def scan(n):
+            if found[0]:
+                return
+            if isinstance(n, (BreakStatement, ContinueStatement)):
+                found[0] = True
+                return
+            # A nested loop captures its own break/continue — do not descend.
+            if isinstance(n, (WhileExpr, ForLoop)):
+                return
+            if isinstance(n, ASTNode):
+                for f in dataclasses.fields(n):
+                    scan_val(getattr(n, f.name))
+
+        def scan_val(v):
+            if found[0]:
+                return
+            if isinstance(v, (list, tuple)):
+                for x in v:
+                    scan_val(x)
+            elif isinstance(v, Argument):
+                scan_val(v.value)
+            elif isinstance(v, ASTNode):
+                scan(v)
+
+        scan(node)
+        return found[0]
+
     def _match_binding_types(self, match_expr):
         """Resolve every arm binding of `match_expr` to its payload type, via the
         typechecker's enum info (the scrutinee's enum type was recorded on the
@@ -1558,7 +1597,14 @@ class _FrameBuilder:
             return
 
         ctrl = s.expression if isinstance(s, ExpressionStatement) else s
-        if isinstance(ctrl, IfExpr) and self._spans_suspension(ctrl):
+        # design 96 (DF6): an if/match that carries a `break`/`continue` for the
+        # enclosing spanning loop must be SPLIT even if it does not itself span a
+        # suspension — otherwise the jump lowers in place and escapes the resume
+        # dispatch loop (a `while` / `for` introduces its OWN loop scope, so its
+        # inner break targets itself and needs no split for our sake).
+        needs_ctrl_split = loop_ctx is not None and self._has_loop_ctrl(ctrl)
+        if isinstance(ctrl, IfExpr) and (self._spans_suspension(ctrl)
+                                         or needs_ctrl_split):
             self._split_if(ctrl, loop_ctx)
             return
         if isinstance(ctrl, WhileExpr) and self._spans_suspension(ctrl):
@@ -1567,7 +1613,8 @@ class _FrameBuilder:
         if isinstance(s, ForLoop) and self._spans_suspension(s):
             self._split_for(s, loop_ctx)
             return
-        if isinstance(ctrl, MatchExpr) and self._spans_suspension(ctrl):
+        if isinstance(ctrl, MatchExpr) and (self._spans_suspension(ctrl)
+                                            or needs_ctrl_split):
             self._split_match(ctrl, loop_ctx)
             return
 

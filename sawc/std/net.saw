@@ -468,22 +468,15 @@ extension TcpStream {
     // not a live reference param, the same limitation design 84 met. The Result
     // still makes error distinct from EOF, which is the requirement.)
     public func read(&self) -> Result<Data, IoError> {
-        // NOTE: the `going` flag is retained deliberately. The flag-free break
-        // form miscompiles under the coroutine transform when read is driven and
-        // RE-ENTERED in a caller's loop (a multi-read worker HANGS) — read's
-        // infinite `while {}` + `break` state machine does not resume correctly
-        // across repeated entry. connect/accept are entered once per call so they
-        // use the break form; read (looped by callers) needs the conditional loop.
         var out = Data()
-        var going = true
-        while going {
+        while {
             let r = net_read_once(self.fd, &var out)
             if net_would_block(r) {
                 io_wait(self.fd, 0)            // park until readable
             } else if r < 0 {
                 return io_error("read")        // a real read error, not EOF
             } else {
-                going = false                  // r >= 0: bytes read (0 = EOF)
+                break                          // r >= 0: bytes read (0 = EOF)
             }
         }
         return move out
