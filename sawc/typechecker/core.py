@@ -164,17 +164,20 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         return None
 
     # ------------------------------------------------------------------ #
-    # Member visibility (design 80) — module identity for the field/method gate.
+    # Member visibility (design 80/82) — module identity for the field/method
+    # gate.
     #
     # std/builtin declarations are merged into ONE AST for codegen (the prelude
     # "bypass"), so their registration module_path is `()` — indistinguishable
     # from user code. For the ACCESS gate we key each declaration's defining
-    # module on its SOURCE FILE: std/builtin form the single distinguished module
-    # `("<std>",)`; user code keeps its real module_path. This kills the prelude
-    # bypass for visibility only (codegen's compiler-known-ness is untouched) and
-    # enforces the security-relevant boundary: user code cannot reach a private
-    # std member (e.g. `Vector.length`), while std's own files freely cross-
-    # reference each other (one std module — the standard library is one unit).
+    # module on its SOURCE FILE. Design 82 retired the single-`("<std>",)`
+    # coalescing: each std file is now its OWN module `("<std>", "<leaf>")`
+    # (builtin.saw + std/vector.saw are DISTINCT modules to each other), so a
+    # private member of one std file is invisible to another — exactly like user
+    # modules. Genuinely-shared std internals are marked `public(package)` (std
+    # is the package, rooted at `("<std>",)`); the rest of std reaches an API
+    # only through its owning module's `public` surface. This kills the prelude
+    # bypass for visibility only (codegen's compiler-known-ness is untouched).
     # ------------------------------------------------------------------ #
     def _vis_module_for_source(self, source_file: Optional[str]) -> Tuple[str, ...]:
         import os
@@ -191,7 +194,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             self._std_dir_prefix = std_prefix
         base = os.path.basename(norm)
         if norm.startswith(std_prefix) or base == 'builtin.saw':
-            return ("<std>",)
+            leaf = base[:-4] if base.endswith('.saw') else base
+            return ("<std>", leaf)
         return self.current_module_path
 
     def _accessor_vis_module(self) -> Tuple[str, ...]:
@@ -309,9 +313,17 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         accessor = self._accessor_vis_module()
         if def_module == accessor:
             return True
+        # std is its own package (design 82): a `public(package)` member of one
+        # std file is reachable from any other std file. Root the package at
+        # `("<std>",)` when the member is std-defined, so cross-std-file package
+        # sharing works and a user module (not under `("<std>",)`) is excluded.
+        if def_module and def_module[0] == "<std>":
+            package_root = ("<std>",)
+        else:
+            package_root = getattr(self.namespace, 'package_root', ())
         return self.namespace.check_visibility(
             visibility, symbol_module=def_module, accessor_module=accessor,
-            package_root=getattr(self.namespace, 'package_root', ()))
+            package_root=package_root)
 
     def _vis_word(self, visibility: Visibility) -> str:
         return {

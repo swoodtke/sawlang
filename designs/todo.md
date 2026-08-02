@@ -11,6 +11,22 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 82 — per-file std visibility + prelude discipline (IN PROGRESS)
+- **Part A (per-file std visibility) — LANDED.** Retired design 80's std-as-one-
+  module deviation: `_vis_module_for_source` now keys each std/builtin file to its
+  OWN member-gate module `("<std>", "<leaf>")` (was the single `("<std>",)`), so a
+  private field/method of one std file is invisible to another — same rule as user
+  modules. `_member_gate_allows` roots the package at `("<std>",)` for std-defined
+  members so `public(package)` shares across std files (and excludes user code).
+  Synthesized-provenance exemption unchanged; codegen/compiler-known-ness untouched
+  (ACCESS check only). ABUSE AUDIT: **ZERO restructures / zero new `public(package)`
+  needed** — design 80's public sweep already exposed every legitimate cross-std-
+  file surface, so per-file gating is a pure tightening with no code churn. Gate
+  verified live: temporarily un-`public`-ing `Vector.push` makes the builtin check
+  reject its cross-file callers (directory.saw/env.saw/…) with a clean member-
+  visibility error naming both std files; restored. Suite 905 (unchanged), bootstrap
+  17+17 green. [82, 80]
+
 ## Design 88 — references across suspension points (implement D6) (IN PROGRESS)
 - **Core LANDED (commit 1).** A reference PARAM/LOCAL of a suspending function
   is now a frame-resident RAW POINTER across suspensions (`_enc_of` REFERENCE ->
