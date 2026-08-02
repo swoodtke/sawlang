@@ -1598,6 +1598,20 @@ class ExpressionsMixin:
                 parts.append(''.join(current_part))
                 current_part = []
 
+                # Source position of this `{` so the sub-parsed expression's
+                # diagnostics point at the real call site (design 99). Lines
+                # are exact; columns approximate under escape sequences (each
+                # source escape like `\n` is one raw char), which is fine —
+                # the line is what diagnostics need.
+                prefix = raw_value[:i]
+                newlines = prefix.count('\n')
+                if newlines:
+                    brace_line = line + newlines
+                    brace_column = i - prefix.rfind('\n')
+                else:
+                    brace_line = line
+                    brace_column = column + 1 + i  # +1 for the opening quote
+
                 # Extract expression text between { and }
                 i += 1  # skip {
                 brace_depth = 1
@@ -1614,7 +1628,7 @@ class ExpressionsMixin:
 
                 # Parse the expression using a sub-lexer and sub-parser
                 expr_str = ''.join(expr_chars)
-                expr = self._parse_expression_from_string(expr_str, line, column)
+                expr = self._parse_expression_from_string(expr_str, brace_line, brace_column)
                 expressions.append(expr)
             else:
                 current_part.append(raw_value[i])
@@ -1646,7 +1660,12 @@ class ExpressionsMixin:
         try:
             # Create a sub-parser with these tokens
             sub_parser = Parser(sub_tokens)
-            return sub_parser.parse_expression()
+            expr = sub_parser.parse_expression()
+            # The sub-lexer numbered everything from 1:1; rebase onto the
+            # enclosing string's source position so diagnostics inside an
+            # interpolation point at the real line (design 99).
+            self._rebase_interpolation_positions(expr, line, column)
+            return expr
         except SyntaxError as e:
             preview = expr_str[:30] + "..." if len(expr_str) > 30 else expr_str
             raise SyntaxError(
@@ -1655,6 +1674,37 @@ class ExpressionsMixin:
                 f"  Error: {e}\n"
                 f"  Hint: Use \\{{ and \\}} for literal braces in interpolated strings"
             )
+
+    def _rebase_interpolation_positions(self, node, base_line: int, base_column: int, _seen=None) -> None:
+        """Shift a sub-parsed interpolation expression tree from sub-lexer
+        coordinates (1-based within the `{...}` text) to source coordinates.
+
+        A node on sub-line 1 sits on the string's line, columns offset past the
+        `{`; deeper sub-lines (rare: an interpolation spanning lines) keep
+        their column and offset the line. Unset positions (0) are stamped with
+        the brace position so no node is left reporting 1:1 (design 99)."""
+        if _seen is None:
+            _seen = set()
+        if node is None or id(node) in _seen:
+            return
+        _seen.add(id(node))
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                self._rebase_interpolation_positions(item, base_line, base_column, _seen)
+            return
+        if not hasattr(node, '__dict__'):
+            return
+        sub_line = getattr(node, 'line', None)
+        if isinstance(sub_line, int):
+            sub_column = getattr(node, 'column', 0) or 0
+            if sub_line <= 1:
+                node.line = base_line
+                node.column = base_column + sub_column  # `{` at base_column; expr starts after it
+            else:
+                node.line = base_line + (sub_line - 1)
+        for value in vars(node).values():
+            if isinstance(value, (list, tuple)) or hasattr(value, '__dict__'):
+                self._rebase_interpolation_positions(value, base_line, base_column, _seen)
 
     def _count_shorthand_params(self, body: Block) -> int:
         """Count the maximum $N parameter index used in the closure body."""
