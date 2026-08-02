@@ -357,6 +357,13 @@ point `blade test` at a not-yet-installed compiler (e.g. an in-tree build). This
 is entirely separate from `test_runner.py` — the compiler suite and an app's
 `blade test` suite do not share machinery or semantics.
 
+`blade test` never hides why a test could not compile or run (design 97). If no
+compiler is available — `SAWC` unset **and** no `sawc` on `PATH` — it prints one
+clear error telling you to set `SAWC`, and stops (rather than reporting every
+test as a mysterious `FAILED`). When a test does not compile, the compiler's
+error is shown; when a test aborts (a `panic` or failed `assert`), its stderr is
+shown — a passing run stays quiet, a failing one explains itself.
+
 `blade test` compiles each test with the project's resolved dependency
 module-paths (the same flags `blade build` uses), so a test can `import` a
 dependency. It also reports per-test timing (`test NAME ... ok (Nms)`).
@@ -371,7 +378,11 @@ own `Saw.toml` and `blade test` suite:
   dogfood).
 
 Run a package's own tests by pointing Blade at its directory
-(`blade test` from inside `libs/toml` or `libs/semver`).
+(`blade test` from inside `libs/toml` or `libs/semver`) — nothing but
+`blade test` is needed once `sawc` is installed or `SAWC` is set. On a clean
+in-tree checkout (no installed `sawc`) the bootstrap sets `SAWC` for you: the
+loop runs both lib suites as a standard bar (design 97), so they are actually
+validated on every `make blade-bootstrap` and cannot silently rot.
 
 Because Blade's own `Saw.toml` depends on `libs/toml`, **every Blade build runs
 the resolver, writes/uses `Saw.lock`, and passes `--module-path`** — the dep

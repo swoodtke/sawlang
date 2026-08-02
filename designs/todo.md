@@ -37,6 +37,28 @@ items need a probe before being treated as real work.
   read(), socketpair, deterministic), net_read_into, coro_break_reentered_in_loop.
   Suite 919 (was 915 + 4); bootstrap ok.
 
+## Design 97 — libs/semver + libs/toml `blade test` harness fix (LANDED)
+- Root cause of the recurring "libs blade test fail on a clean tree" flag
+  (noted by designs 84/88/92): candidate (a). `blade test` compiles each test
+  with `sawc` unless SAWC overrides it; the tester ran that compile through
+  `system()` with `> /dev/null 2>&1`, so on a clean tree (no SAWC, no installed
+  `sawc`) the "command not found" was swallowed and all tests reported FAILED.
+  The tests + `import src.lib.*` self-path were always fine — the invocation hid a
+  missing compiler.
+- Fix (tester.saw, never-hide-errors): loud preflight — SAWC unset AND no `sawc`
+  on PATH → one clear actionable error, stop (not N silent FAILEDs); compile+run
+  via `shell_ok_loud` which suppresses only stdout and lets stderr through (sawc
+  writes success to stdout, diagnostics to stderr; panic/failed-assert aborts to
+  stderr) → a passing run stays clean, a compile error or a test's failure reason
+  is surfaced.
+- Coverage gap closed (blade_bootstrap.py): `libs/toml` + `libs/semver`
+  `blade test` now run as a standard bar (SAWC set via ENV, as the main build
+  already does), green (toml 4, semver 4); their gitignored `.blade/` cleaned
+  after. TESTING.md updated. A user runs a lib's tests with nothing but
+  `blade test` when `sawc` is installed / SAWC is set; on a clean tree the
+  bootstrap sets SAWC for them.
+- Suite 919 / 0 xfail; bootstrap ok incl. both lib suites.
+
 ## Design 93 — generic type-argument inference (LANDED)
 - **NOTE:** no `designs/93-*.md` brief file exists on disk (the dispatch brief was
   the authoritative spec; recorded here). Retired the "type inference is not yet
@@ -165,10 +187,12 @@ items need a probe before being treated as real work.
   driven/spawned boundary + with_ref caveat); saw-lang skill concurrency note
   added (references-across-suspend capability + spawn-root rejection + net stays
   value-based). **Design 88 COMPLETE** (scope items 1-7 all addressed).
-- **FLAG (pre-existing, unrelated):** `libs/semver` + `libs/toml` `blade test`
-  suites fail on a CLEAN tree (module-path: tests `import src.lib.*`; standalone
-  `sawc` compile+run of each test passes). Blade-test-harness issue, orthogonal to
-  design 88 (no coroutines in those libs) — not touched here.
+- **FLAG (pre-existing, unrelated) — CLOSED by design 97.** `libs/semver` +
+  `libs/toml` `blade test` suites fail on a CLEAN tree. Root cause: the tester ran
+  the compile through `system()` with `> /dev/null 2>&1`, so with no SAWC set it
+  silently fell back to a `sawc` that isn't on a clean PATH and swallowed the
+  "command not found" — every test reported a mysterious FAILED. Not the
+  `import src.lib.*` self-path (fine). See the design 97 entry.
 
 ## Design 94 — enum/Result payload sizing + temp-drop-at-merge (IN PROGRESS)
 - **Codegen chain LANDED (commit 1).** Two frame-layout-sensitive bugs, both
