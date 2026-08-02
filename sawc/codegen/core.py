@@ -1229,7 +1229,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # EISCONN/EINPROGRESS/EALREADY values live here, like saw_errno_would_block).
         connst = ir.Function(self.module, ir.FunctionType(i64, []),
                              name="saw_errno_connect_state")
-        io_fns = (reg, poll, setnb, ewb, errno_fn, setfam, connst)
+        # design 89-c: the cooperative op-count budget seam. `saw_op_budget_tick()`
+        # decrements the process-global work budget and returns 1 (with a reset to
+        # the default) when it is exhausted — the caller then force-yields — else 0.
+        # `saw_op_budget_reset()` restores the default (called on a genuine park).
+        budtick = ir.Function(self.module, ir.FunctionType(i64, []),
+                              name="saw_op_budget_tick")
+        budreset = ir.Function(self.module, ir.FunctionType(void, []),
+                               name="saw_op_budget_reset")
+        io_fns = (reg, poll, setnb, ewb, errno_fn, setfam, connst, budtick, budreset)
         for fn in io_fns:
             self.functions[fn.name] = fn
 
@@ -1244,6 +1252,45 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         rfd_g = ir.GlobalVariable(self.module, i64, name="__saw_reactor_fd")
         rfd_g.linkage = "internal"
         rfd_g.initializer = ir.Constant(i64, -1)
+
+        # ---- cooperative op-count budget (design 89-c) ------------------------
+        # A fairness backstop for the single-threaded cooperative scheduler: a task
+        # that keeps completing suspending io ops WITHOUT ever parking (an
+        # always-ready socket) would otherwise monopolize the executor forever. Each
+        # such op charges this global counter; every OP_BUDGET_DEFAULT (128) charges
+        # the io primitive force-yields once (park-and-immediately-reschedule) so
+        # siblings run, then the counter resets. A genuine park resets it too (the
+        # task already ceded). Op-count, not wall-clock — kernel-friendly and
+        # deterministic. The counter is process-global (the ST scheduler runs one
+        # task at a time, so "the current task's budget"); monotonic-atomic accesses
+        # keep an MT group's workers race-free (benign shared budget there). Sync
+        # code that makes no suspending io calls never touches it — zero overhead.
+        OP_BUDGET_DEFAULT = 128
+        budget_g = ir.GlobalVariable(self.module, i64, name="__saw_op_budget")
+        budget_g.linkage = "internal"
+        budget_g.initializer = ir.Constant(i64, OP_BUDGET_DEFAULT)
+
+        # saw_op_budget_tick() -> 1 (charge exhausted: reset + caller must yield) / 0
+        b = ir.IRBuilder(budtick.append_basic_block("entry"))
+        curb = b.load_atomic(budget_g, ordering="monotonic", align=8, name="budcur")
+        nv = b.sub(curb, ir.Constant(i64, 1))
+        fire = b.icmp_signed("<=", nv, ir.Constant(i64, 0))
+        fire_bb = budtick.append_basic_block("fire")
+        cont_bb = budtick.append_basic_block("cont")
+        b.cbranch(fire, fire_bb, cont_bb)
+        b = ir.IRBuilder(fire_bb)
+        b.store_atomic(ir.Constant(i64, OP_BUDGET_DEFAULT), budget_g,
+                       ordering="monotonic", align=8)
+        b.ret(ir.Constant(i64, 1))
+        b = ir.IRBuilder(cont_bb)
+        b.store_atomic(nv, budget_g, ordering="monotonic", align=8)
+        b.ret(ir.Constant(i64, 0))
+
+        # saw_op_budget_reset() — restore the default (a genuine park already ceded).
+        b = ir.IRBuilder(budreset.append_basic_block("entry"))
+        b.store_atomic(ir.Constant(i64, OP_BUDGET_DEFAULT), budget_g,
+                       ordering="monotonic", align=8)
+        b.ret_void()
 
         ensure = ir.Function(self.module, ir.FunctionType(i64, []),
                              name="__saw_reactor_ensure")

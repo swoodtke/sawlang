@@ -1,0 +1,70 @@
+// design 89-c: the cooperative op-count budget — a fairness backstop so a task
+// that keeps completing suspending io ops WITHOUT ever parking cannot monopolize
+// the single-threaded ambient scheduler forever.
+//
+// `recirc` reads from one end of a socketpair and immediately writes the bytes
+// back into the OTHER end (which refills the read side), so every `read()` finds
+// data ready and NEVER parks — an endless always-ready io loop. Its only exit is
+// the shared `stop` flag, which the `sibling` task sets only after running its own
+// turns. Without the budget, `recirc` never cedes, `sibling` never runs, `stop` is
+// never set, and the program HANGS (the design-86 runner timeout turns that into a
+// FAILURE). With the budget, `recirc` force-yields every 128 non-parking io ops,
+// `sibling` gets scheduled, finishes its 5 turns, sets `stop`, and `recirc` breaks
+// — so the program completes and prints 5. Deterministic (pure op-count, no clock)
+// and time-bounded.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+
+import std.net.{TcpStream}
+import std.mutex.{Mutex}
+
+// The sibling: run a fixed number of cooperative turns, then signal the reader to
+// stop. Each turn cedes via `yield_now`; it makes progress only because `recirc`
+// keeps ceding back to the scheduler on its op-count budget.
+func sibling(stop: Arc<Mutex<Int>>) -> Int {
+    var k = 0
+    while k < 5 {
+        k = k + 1
+        yield_now()
+    }
+    stop.lock { &var f in
+        f = 1
+        true
+    }
+    k
+}
+
+// The always-ready reader: recirculate a small seed between the two socketpair
+// ends so `read()` always has bytes and never parks. Runs until the sibling sets
+// `stop`. Returns how many recirculations it managed (non-deterministic — not
+// asserted; the assertion is that the program COMPLETES at all).
+func recirc(s_read: TcpStream, s_write: TcpStream, stop: Arc<Mutex<Int>>) -> Int {
+    try! s_write.write("seed")          // prime the pump (bytes readable at s_read)
+    var reads = 0
+    var going = true
+    while going {
+        let chunk = try! s_read.read()   // ALWAYS ready — never parks
+        try! s_write.write(move chunk)   // feed it back so the next read is ready
+        reads = reads + 1
+        // Keep looping until the sibling signals stop. A read/write directly in the
+        // loop body embeds as a driven sub-frame (a suspending call buried under a
+        // nested `if` would not — it would compile to a plain blocking call), so the
+        // op-count budget's forced yield actually cedes to the sibling here.
+        going = stop.lock { &var f in
+            f == 0
+        }
+    }
+    reads
+}
+
+func main() {
+    let (s0, s1) = TcpStream.pair()
+    let stop = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    var group = TaskGroup()
+    let hs = group.spawn(sibling(stop))
+    let hr = group.spawn(recirc(move s0, move s1, stop))
+    let sib = hs.join()
+    let _ = hr.join()
+    print(sib)          // 5 — the sibling ran to completion while the reader looped
+}

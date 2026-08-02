@@ -61,6 +61,14 @@ extern "C" {
     // network-order data filled by `SockAddrIn` below.
     func saw_sin_set_family(buf: UnsafePointer<Int8>)
 
+    // design 89-c: the cooperative op-count budget seam (codegen/core.py). Each io
+    // op that completes WITHOUT parking charges the budget; `saw_op_budget_tick()`
+    // returns non-zero when the budget is exhausted (and resets it), signalling the
+    // primitive to force a fairness `yield_now()`. `saw_op_budget_reset()` restores
+    // the budget after a genuine park (the task already ceded to the scheduler).
+    func saw_op_budget_tick() -> Int
+    func saw_op_budget_reset()
+
     // Bytes -> owned refcounted String (compiler runtime; see codegen/core.py).
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
 }
@@ -393,9 +401,13 @@ extension TcpListener {
             let c = tcp_try_accept(self.fd)
             if net_would_block(c) {
                 io_wait(self.fd, 0)                // park until a client arrives
+                saw_op_budget_reset()             // design 89-c: parked, budget reset
             } else if c < 0 {
                 return io_error("accept")          // a real accept error
             } else {
+                if saw_op_budget_tick() != 0 {     // design 89-c: fairness backstop
+                    yield_now()                    // ran the budget out without parking
+                }
                 return TcpStream(fd: c)            // got a connection
             }
         }
@@ -439,12 +451,16 @@ extension TcpStream {
             let check = tcp_connect_check(fd, port)
             if net_would_block(check) {
                 io_wait(fd, 1)             // still connecting — park until writable
+                saw_op_budget_reset()      // design 89-c: parked, budget reset
             } else if check < 0 {
                 tcp_close(fd)
                 return io_error("connect")
             } else {
                 break                         // connected
             }
+        }
+        if saw_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+            yield_now()
         }
         return TcpStream(fd: fd)
     }
@@ -473,11 +489,15 @@ extension TcpStream {
             let r = net_read_once(self.fd, &var out)
             if net_would_block(r) {
                 io_wait(self.fd, 0)            // park until readable
+                saw_op_budget_reset()          // design 89-c: parked, budget reset
             } else if r < 0 {
                 return io_error("read")        // a real read error, not EOF
             } else {
                 break                          // r >= 0: bytes read (0 = EOF)
             }
+        }
+        if saw_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+            yield_now()                        // always-ready read: cede periodically
         }
         return move out
     }
@@ -501,6 +521,7 @@ extension TcpStream {
             let r = tcp_try_read(self.fd, ptr, READ_CHUNK)
             if net_would_block(r) {
                 io_wait(self.fd, 0)                    // park until readable
+                saw_op_budget_reset()                  // design 89-c: parked, reset
             } else if r < 0 {
                 net_free_buffer(ptr, READ_CHUNK)
                 return io_error("read")                // a real read error, not EOF
@@ -513,6 +534,9 @@ extension TcpStream {
             }
         }
         net_free_buffer(ptr, READ_CHUNK)
+        if saw_op_budget_tick() != 0 {                 // design 89-c: fairness backstop
+            yield_now()
+        }
         return count
     }
 
@@ -527,11 +551,15 @@ extension TcpStream {
             let w = net_write_data_once(self.fd, &bytes, off)
             if net_would_block(w) {
                 io_wait(self.fd, 1)            // park until writable
+                saw_op_budget_reset()          // design 89-c: parked, budget reset
             } else if w < 0 {
                 return io_error("write")
             } else {
                 off = off + w
             }
+        }
+        if saw_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+            yield_now()
         }
         return
     }
@@ -548,11 +576,15 @@ extension TcpStream {
             let w = net_write_data_once(self.fd, &bytes, off)
             if net_would_block(w) {
                 io_wait(self.fd, 1)            // park until writable
+                saw_op_budget_reset()          // design 89-c: parked, budget reset
             } else if w < 0 {
                 return io_error("write")
             } else {
                 off = off + w
             }
+        }
+        if saw_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+            yield_now()
         }
         return
     }
