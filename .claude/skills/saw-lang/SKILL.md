@@ -217,6 +217,12 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   (`req.append(move chunk)`). Fixed by design 85 (fcntl variadic ABI) + design 86
   (`&var self` mutation on an opt-encoded frame-local across a suspend writes back
   to the real frame slot).
+- A suspending reactor method (`stream.read()`, etc.) drives correctly at ANY
+  NESTING DEPTH below a spawned/driven root — a worker may call a free fn that
+  calls a free fn that calls `stream.read()` (2, 3, … frames deep), including a
+  `match stream.read() { … }` where the call is the scrutinee (design 96 closed
+  the depth-2+ hang: a callee whose only suspension source was a nested std method
+  was miscompiled as a blocking call that wedged the thread).
 - **ONE ambient cooperative scheduler (design 89-b):** `spawn` enqueues a task
   into the current thread's shared run queue and it runs EAGERLY — whenever the
   executor runs, not only at `join`. So an infinite `accept`-loop server
@@ -272,9 +278,11 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   may NOT take a reference PARAM (it would point into the dead spawner stack — a
   clean compile error, both group kinds; pass an owned value / `Arc` / `Channel`
   instead), but a reference to a task-LOCAL inside the spawned body is fine. Net
-  (design 84) stays value-based: `read() -> Data`, `write_all(move data)` — a
-  `&var Data` net read is not offered (an orthogonal nested-method-read depth
-  limit blocks it, not the reference mechanism).
+  offers BOTH: value `read() -> Result<Data, IoError>` (fresh Data per call, the
+  ergonomic default) AND reference `read_into(&var Data) -> Result<Int, IoError>`
+  (design 96 — appends the chunk into a caller buffer through a `&var` held across
+  the internal park, so a reader ACCUMULATES successive chunks into ONE growing
+  buffer with no per-chunk allocation; returns the byte count, 0 = EOF).
 
 ## Modules & packages
 ```saw

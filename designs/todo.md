@@ -11,6 +11,32 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 96 — nested suspending reactor methods at any depth (LANDED)
+- The depth-2+ hang was NOT the design-91 wake token (token threading is correct
+  at every depth). ROOT CAUSE: the effect fixpoint cannot see suspension arising
+  SOLELY from a nested std METHOD call (a std method's effect node is absent — the
+  gap `_scan_method_callees` works around), so a FREE fn whose only suspension
+  source is a buried `stream.read()` was left `suspends=False`; the driven-closure
+  walk skipped the caller→callee edge, the fn never joined the closure or got a
+  frame, and it was emitted as a PLAIN blocking call whose buried `io_wait` wedged
+  the single thread. 1-deep worked only because `_scan_method_callees` sees a
+  method call directly in the root body. FIX (coro_transform.py): compute
+  `structurally_susp_fns` (a free fn structurally suspends if its body calls a
+  suspending method or reaches — via free-fn edges — one that does; transitive
+  fixpoint) and follow such edges in the closure walk even when `suspends=False`.
+- SECOND gap fixed same area: a suspending call in a `match <call> { … }`
+  SCRUTINEE was never hoisted (hung even at DEPTH 1) — added
+  `_hoist_suspending_match` mirroring the if-let/try hoists.
+- DF6 (break/continue in a non-spanning if inside a spanning loop) root-caused +
+  fixed here — see the DF6 entry below (now CLOSED).
+- read_into: design-88-deferred `TcpStream.read_into(&var Data) -> Result<Int,
+  IoError>` now works (the depth limit was the blocker) — OFFERED alongside value
+  `read()` (accumulate into one buffer, no per-chunk alloc). Value read() NOT
+  migrated.
+- Tests: net_nested_method_two_deep / _three_deep (spawned worker → free fn(s) →
+  read(), socketpair, deterministic), net_read_into, coro_break_reentered_in_loop.
+  Suite 919 (was 915 + 4); bootstrap ok.
+
 ## Design 93 — generic type-argument inference (LANDED)
 - **NOTE:** no `designs/93-*.md` brief file exists on disk (the dispatch brief was
   the authoritative spec; recorded here). Retired the "type inference is not yet
@@ -1257,16 +1283,18 @@ zero xfails throughout.
   periodically (the bootstrap target is the canary). [49]
 - **DF5.** Keywords (`extension` etc.) can't be identifiers — fine, but
   an eventual contextual-keyword sweep is noted. [49]
-- **DF6 (latent coro-transform bug, found in the post-92 net idiom
-  skim, Aug 2).** A driven suspending method whose loop is the
-  flag-free `while {}` + `break` form MISCOMPILES when the method is
-  RE-ENTERED in a caller's loop (a multi-read worker hangs); the
-  `going`-flag conditional-loop form resumes correctly. `TcpStream.
-  read` retains its `going` flag deliberately (documented in net.saw);
-  accept/connect are entered once per call and use the break form
-  safely. Root-cause candidate for the design-96 agent while
-  instrumenting driven-frame resume — the frame's resume-state for an
-  infinite-loop + break state machine is wrong on repeated entry.
+- ~~**DF6 (latent coro-transform bug, found in the post-92 net idiom
+  skim, Aug 2).**~~ CLOSED (design 96). Root cause was NOT the
+  infinite-loop shape but a `break`/`continue` inside a NON-spanning
+  `if`/`match` nested in a suspension-spanning loop: `_lower_inplace`
+  kept the raw jump, which breaks the resume method's `while true`
+  DISPATCH loop instead of the logical loop → re-entry hangs. net
+  read()'s break form triggered it via its `else if …else {break}`
+  (a non-spanning inner if in the else of the spanning io_wait if).
+  Fix: `_has_loop_ctrl` forces a CFG split of such an if/match when in
+  a spanning loop, routing the jump to the loop state via `loop_ctx`.
+  read() converted to the break form, NOTE removed; regression
+  `coro_break_reentered_in_loop`.
 - **B4 limit.** A git dep's locked REV isn't pinned without
   re-resolution (build-from-lock path reconstruction is future work);
   path deps unaffected. [64, 67]
