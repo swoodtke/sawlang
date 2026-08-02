@@ -1505,7 +1505,20 @@ class StatementsMixin:
             return
 
         if stmt.value is None:
-            if expected.kind != TypeKind.VOID:
+            resolved_exp = self._resolve_type(expected)
+            ok_of = resolved_exp.unwrap_result_ok() if resolved_exp.is_result() else None
+            if ok_of is not None and ok_of.kind == TypeKind.VOID:
+                # design 92: a bare `return` in a `Result<Void, E>` function is
+                # the honest Ok(Void) — the successful, value-less completion of
+                # a fallible-but-dataless op (net write, remove, mkdir, ...).
+                stmt.value = ResultOkWrap(
+                    value=None,
+                    result_type=resolved_exp,
+                    line=stmt.line,
+                    column=stmt.column
+                )
+                self.found_return_with_value = True
+            elif expected.kind != TypeKind.VOID:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"function should return `{expected}` but return has no value",

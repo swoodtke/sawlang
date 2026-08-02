@@ -1,0 +1,44 @@
+// design 92: net failures SURFACE as Err — they are never swallowed — and EOF
+// (an Ok with an empty chunk) is DISTINCT from a genuine error (Err). Two
+// deterministic checks, no bound external ports:
+//   1. connect() to a just-closed ephemeral port -> Err(IoError): the failure is
+//      RETURNED, not a broken stream masquerading as success.
+//   2. read() of a peer-closed stream -> Ok(empty) EOF, NEVER Err: the very
+//      ambiguity design 92 removed (empty Data used to mean BOTH close and error).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// connect failed: surfaced
+// eof is ok empty
+
+// Bind an ephemeral port, learn its number, then let the listener drop (Deinit
+// closes it) so NOTHING listens there — a subsequent connect must fail.
+func closed_ephemeral_port() -> Int {
+    let listener = try! TcpListener.listen(0)
+    let p = listener.local_port()
+    return p
+}
+
+// Consume a stream so its Deinit closes the fd — closing one end of a pair.
+func drop_stream(s: TcpStream) {
+}
+
+func main() {
+    let port = closed_ephemeral_port()
+    match TcpStream.connect("127.0.0.1", port) {
+        case Ok(_) -> print("connect UNEXPECTED ok"),
+        case Err(_) -> print("connect failed: surfaced")
+    }
+
+    let (a, b) = TcpStream.pair()
+    drop_stream(move a)                 // close b's peer -> b sees EOF
+    match b.read() {
+        case Ok(chunk) -> {
+            if chunk.len() == 0 {
+                print("eof is ok empty")
+            } else {
+                print("eof UNEXPECTED bytes")
+            }
+        },
+        case Err(_) -> print("eof UNEXPECTED err")
+    }
+}

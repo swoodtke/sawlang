@@ -37,7 +37,7 @@ from ast_nodes import (
     CastExpr, ReferenceExpr, RangeExpr, ForLoop, MoveExpr,
     BreakStatement, ContinueStatement,
     ExpressionStatement, LetStatement, AssignStatement, WhileExpr,
-    GuardLetStatement,
+    GuardLetStatement, TryExpr,
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
     Parameter, SawType, TypeKind, Visibility, ClosureExpr, CaptureSpec,
     DestructuringLet, TuplePattern, BindingPattern, WildcardPattern, TupleIndex,
@@ -478,6 +478,91 @@ class _FrameBuilder:
             return (let_stmt, ident)
         return None
 
+    def _hoist_suspending_try(self):
+        """design 92: rewrite `let x = try! recv.m(args)` (and `try`/`try?`, bare,
+        or `return`-position) whose tried expression is a SUSPENDING call into a
+        preceding driven temp plus a try over that temp:
+
+            let __trycallN = recv.m(args)     # a plain nested-suspending call-in-let
+            let x = try! __trycallN           # a try over an ordinary Result local
+
+        Without this the tried call hides INSIDE a `TryExpr`, so `_classify_call`
+        never sees a bare `MethodCall`/`FunctionCall` to embed+drive — the callee's
+        internal `io_wait` park then fails to integrate with the executor (a
+        parked read never yields to a runnable peer -> hang). The desugared shape
+        is exactly the already-supported `let res = recv.m(); <use res>`."""
+        self._try_ctr = 0
+        self._hoist_try_block(self.func.body)
+
+    def _hoist_try_block(self, block):
+        new_stmts = []
+        for s in block.statements:
+            new_stmts.extend(self._maybe_hoist_try(s))
+        block.statements = new_stmts
+        for s in block.statements:
+            self._hoist_try_recurse(s)
+
+    def _hoist_try_recurse(self, s):
+        """Descend into control-flow bodies with the TRY hoister (mirrors
+        `_hoist_recurse`, which drives the condition hoister)."""
+        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        if isinstance(ctrl, IfExpr):
+            self._hoist_try_block(ctrl.then_branch)
+            if ctrl.else_branch is not None:
+                self._hoist_try_block(ctrl.else_branch)
+        elif isinstance(ctrl, IfLetExpr):
+            self._hoist_try_block(ctrl.then_branch)
+            if ctrl.else_branch is not None:
+                self._hoist_try_block(ctrl.else_branch)
+        elif isinstance(ctrl, WhileExpr):
+            self._hoist_try_block(ctrl.body)
+        elif isinstance(ctrl, MatchExpr):
+            for arm in ctrl.arms:
+                if isinstance(arm.body, Block):
+                    self._hoist_try_block(arm.body)
+        elif isinstance(s, ForLoop):
+            self._hoist_try_block(s.body)
+        elif isinstance(s, GuardLetStatement):
+            self._hoist_try_block(s.else_branch)
+
+    def _call_suspends_expr(self, e):
+        """True if `e` is a suspending call — a free function in `_suspends` or a
+        suspending method on a concrete struct receiver."""
+        if isinstance(e, FunctionCall):
+            return e.name in self._suspends and not getattr(e, 'type_args', None)
+        if isinstance(e, MethodCall):
+            return self._method_call_suspends(e)
+        return False
+
+    def _maybe_hoist_try(self, s):
+        tnode = None
+        if isinstance(s, LetStatement) and isinstance(s.value, TryExpr):
+            tnode = s.value
+        elif (isinstance(s, ExpressionStatement)
+              and isinstance(s.expression, TryExpr)):
+            tnode = s.expression
+        elif isinstance(s, ReturnStatement) and isinstance(s.value, TryExpr):
+            tnode = s.value
+        if tnode is None or not self._call_suspends_expr(tnode.expr):
+            return [s]
+        inner = tnode.expr
+        tmp = f"__trycall{self._try_ctr}"
+        self._try_ctr += 1
+        let_stmt = LetStatement(name=tmp, type_annotation=None, value=inner,
+                                mutable=False, line=inner.line, column=inner.column)
+        # The try now CONSUMES the temp via `move`: the tried Result owns its
+        # payload (e.g. a NoCopy `TcpStream`/`Data` in the Ok), and try!/try/try?
+        # transfer that payload OUT — so the temp must be forgotten, not dropped
+        # again at scope/frame teardown (a double-close/double-free). `move`
+        # reuses the existing move + drop-flag/__forget machinery on both the
+        # direct and coroutine-frame paths, instead of a try-specific special case.
+        mv = MoveExpr(variable=tmp, line=inner.line, column=inner.column)
+        # Carry the callee's Result type so the driven-call classification and the
+        # try lowering both see the exact instantiation.
+        mv.resolved_type = getattr(inner, 'resolved_type', None)
+        tnode.expr = mv
+        return [let_stmt, s]
+
     def _collect_frame_locals(self):
         """Conservative-by-scope liveness (design 52 Part 0): every local whose
         lexical scope SPANS a suspension is frame-resident. A block "spans a
@@ -810,6 +895,11 @@ class _FrameBuilder:
         # the temp is then an ordinary nested-suspending-call-in-let and the
         # binding is over a non-spanning optional. Runs after `_suspends` is set.
         self._hoist_suspending_conditions()
+        # design 92: hoist a suspending call out of a `try!`/`try`/`try?` wrapper
+        # into a preceding driven temp, so a `try! recv.read()` in a spawned body
+        # is embedded+driven (its internal park integrates with the executor)
+        # rather than hiding inside a TryExpr the nested-call scan cannot see.
+        self._hoist_suspending_try()
         # design 83: lift a suspension-spanning TRAILING expression (a block's
         # `final_expr`, where the parser parks the last bare expression) into an
         # explicit statement, so the nested-call scan and CFG walk both see it. A

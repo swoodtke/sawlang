@@ -1,5 +1,5 @@
 // design 85 + 84: a TRUE multi-message echo over the SAFE owning method API. One
-// worker loops N times { read() [park] -> write_all() [park] } — nested suspending
+// worker loops N times { read() [park] -> write() [park] } — nested suspending
 // METHOD calls, each parking, driven across repeated worker RE-ENTRY inside a loop.
 // The client sends N one-byte messages lock-step (send, wait for echo, repeat) so
 // each read yields exactly one message; it verifies every echo. This is
@@ -15,9 +15,9 @@ func echo_server(stream: TcpStream) -> Int {
     var echoed = 0
     var i = 0
     while i < 4 {
-        let msg = stream.read()          // nested method call, parks
+        let msg = try! stream.read()          // nested method call, parks
         echoed = echoed + msg.len()
-        stream.write_all(move msg)       // nested method call, parks
+        try! stream.write(move msg)      // nested method call, parks
         i = i + 1
     }
     return echoed                        // total bytes echoed back
@@ -27,8 +27,8 @@ func client(stream: TcpStream) -> Int {
     var matched = 0
     var i = 0
     while i < 4 {
-        stream.write_all_str("x")        // send one byte
-        let echo = stream.read()         // read its echo
+        try! stream.write("x".to_data())  // send one byte (Data overload)
+        let echo = try! stream.read()         // read its echo
         if echo.to_string() == "x" {
             matched = matched + 1
         }

@@ -14,7 +14,7 @@ func handle(stream: TcpStream) -> Int {
     var req = Data()
     var reading = true
     while reading {
-        let chunk = stream.read()                  // park until bytes arrive
+        let chunk = try! stream.read()                  // park until bytes arrive
         if chunk.len() == 0 {
             reading = false                        // peer closed
         } else {
@@ -30,16 +30,16 @@ func handle(stream: TcpStream) -> Int {
     sb.append(body.len())
     sb.append("\r\n\r\n")
     sb.append(body)
-    stream.write_all_str(sb.build())               // park on would-block until sent
+    try! stream.write(sb.build().to_data())               // park on would-block until sent
     return body.len()
 }
 
 func client(stream: TcpStream) -> Int {
-    stream.write_all_str("GET / HTTP/1.1\r\n\r\n")
+    try! stream.write("GET / HTTP/1.1\r\n\r\n".to_data())
     var resp = Data()
     var reading = true
     while reading {
-        let chunk = stream.read()
+        let chunk = try! stream.read()
         if chunk.len() == 0 {
             reading = false
         } else {

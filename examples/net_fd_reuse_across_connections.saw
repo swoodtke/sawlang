@@ -14,11 +14,11 @@
 func serve(listener: TcpListener, n: Int) -> Int {
     var served = 0
     while served < n {
-        let stream = listener.accept()
+        let stream = try! listener.accept()
         var req = Data()
         var reading = true
         while reading {
-            let chunk = stream.read()
+            let chunk = try! stream.read()
             if chunk.len() == 0 {
                 reading = false
             } else {
@@ -29,7 +29,7 @@ func serve(listener: TcpListener, n: Int) -> Int {
             }
         }
         assert(req.to_string().starts_with("GET / HTTP/1.1"), "bad request")
-        stream.write_all_str("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
+        try! stream.write("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello".to_data())
         served = served + 1
     }
     return served
@@ -40,11 +40,11 @@ func client_twice(port: Int) -> Int {
     var i = 0
     while i < 2 {
         let stream = try! TcpStream.connect("127.0.0.1", port)
-        stream.write_all_str("GET / HTTP/1.1\r\n\r\n")
+        try! stream.write("GET / HTTP/1.1\r\n\r\n".to_data())
         var resp = Data()
         var reading = true
         while reading {
-            let chunk = stream.read()
+            let chunk = try! stream.read()
             if chunk.len() == 0 {
                 reading = false
             } else {

@@ -11,11 +11,11 @@
 // 1
 
 func serve(listener: TcpListener) -> Int {
-    let stream = listener.accept()
+    let stream = try! listener.accept()
     var req = Data()
     var reading = true
     while reading {
-        let chunk = stream.read()
+        let chunk = try! stream.read()
         if chunk.len() == 0 {
             reading = false
         } else {
@@ -25,17 +25,17 @@ func serve(listener: TcpListener) -> Int {
             }
         }
     }
-    stream.write_all_str("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
+    try! stream.write("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello".to_data())
     if req.to_string().starts_with("GET / HTTP/1.1") { 1 } else { 0 }
 }
 
 func client(port: Int) -> Int {
     let stream = try! TcpStream.connect("127.0.0.1", port)
-    stream.write_all_str("GET / HTTP/1.1\r\n\r\n")
+    try! stream.write("GET / HTTP/1.1\r\n\r\n".to_data())
     var resp = Data()
     var reading = true
     while reading {
-        let chunk = stream.read()
+        let chunk = try! stream.read()
         if chunk.len() == 0 {
             reading = false
         } else {

@@ -157,8 +157,19 @@ class MatchMixin:
             arm_scope_pushed = False
             owning_bindings = []
 
-            # Extract and bind associated values if any (not for wildcard)
-            if arm.variant_name != "_" and arm.bindings and not isinstance(matched_val.type, ir.IntType):
+            # Extract and bind associated values if any (not for wildcard).
+            # A fully Void payload (design 92: the Ok arm of `Result<Void, E>`)
+            # carries no data — there is nothing to extract, so treat a
+            # `case Ok(_)` on it like a payload-free arm.
+            _mv_variant_params = (self.enum_types[enum_name][2].get(arm.variant_name)
+                                  if not isinstance(matched_val.type, ir.IntType)
+                                  and enum_name in self.enum_types else None)
+            _mv_all_void = (_mv_variant_params is not None
+                            and all(isinstance(self._get_llvm_type(t), ir.VoidType)
+                                    for _, t in _mv_variant_params))
+            if (arm.variant_name != "_" and arm.bindings
+                    and not isinstance(matched_val.type, ir.IntType)
+                    and not _mv_all_void):
                 # Get variant info and enum type
                 llvm_enum_type, _, variant_info = self.enum_types[enum_name]
                 variant_params = variant_info[arm.variant_name]

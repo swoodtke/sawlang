@@ -373,28 +373,25 @@ extension TcpListener {
         tcp_local_port(self.fd as Int)
     }
 
-    // Accept the next connection, returning its owning stream. COOPERATIVE: parks
-    // on the listen fd (io_wait, hidden) until a connection arrives — a runnable
-    // peer never stalls. Cancellation-observing at the park (design 76 A3).
-    public func accept(&self) -> TcpStream {
-        var cfd = INVALID_FD as Int
-        var going = true
-        while going {
+    // Accept the next connection, returning its owning stream or an IoError.
+    // COOPERATIVE: parks on the listen fd (io_wait, hidden) until a connection
+    // arrives — a runnable peer never stalls. Cancellation-observing at the park
+    // (design 76 A3). A genuine accept failure surfaces as Err(IoError) — design
+    // 92: a broken accept must NOT be indistinguishable from a live stream.
+    public func accept(&self) -> Result<TcpStream, IoError> {
+        while {
             if cancelled() {
-                going = false
+                return io_error("accept")          // cancelled before a connection
+            }
+            let c = tcp_try_accept(self.fd as Int)
+            if net_would_block(c) {
+                io_wait(self.fd as Int, 0)         // park until a client arrives
+            } else if c < 0 {
+                return io_error("accept")          // a real accept error
             } else {
-                let c = tcp_try_accept(self.fd as Int)
-                if net_would_block(c) {
-                    io_wait(self.fd as Int, 0)     // park until a client arrives
-                } else if c < 0 {
-                    yield_now()                    // transient error — avoid a spin
-                } else {
-                    cfd = c
-                    going = false
-                }
+                return TcpStream(fd: c as Int32)   // got a connection
             }
         }
-        TcpStream(fd: cfd as Int32)
     }
 }
 
@@ -431,8 +428,7 @@ extension TcpStream {
         // (design 90). Loop like read/write/accept — re-check, re-park on
         // would-block — instead of trusting a single wake (which produced ENOTCONN
         // on a spurious rouse in a multi-connection workload).
-        var going = true
-        while going {
+        while {
             let check = tcp_connect_check(fd, port)
             if net_would_block(check) {
                 io_wait(fd, 1)             // still connecting — park until writable
@@ -440,7 +436,7 @@ extension TcpStream {
                 tcp_close(fd)
                 return io_error("connect")
             } else {
-                going = false             // connected
+                break                         // connected
             }
         }
         return TcpStream(fd: fd as Int32)
@@ -453,61 +449,65 @@ extension TcpStream {
         (TcpStream(fd: p.0 as Int32), TcpStream(fd: p.1 as Int32))
     }
 
-    // Read the next chunk of bytes, appending to a freshly-returned Data. An EMPTY
-    // result means the peer closed (EOF). COOPERATIVE: parks internally on
-    // would-block until bytes arrive or the peer closes.
-    public func read(&self) -> Data {
+    // Read the next chunk of bytes. On success returns the chunk as owned Data —
+    // an EMPTY Ok means the peer closed cleanly (EOF). A genuine read failure is
+    // Err(IoError), DISTINCT from EOF (design 92: an empty Data can no longer mean
+    // BOTH close and failure — an Err is now unmistakable). COOPERATIVE: parks
+    // internally on would-block until bytes arrive or the peer closes.
+    //
+    // (Returns the chunk BY VALUE rather than filling a `&var Data`: an in-out
+    // reference parameter cannot be held across this method's internal io_wait
+    // suspension — the coroutine transform opt-encodes across-suspend locals but
+    // not a live reference param, the same limitation design 84 met. The Result
+    // still makes error distinct from EOF, which is the requirement.)
+    public func read(&self) -> Result<Data, IoError> {
+        // NOTE: the `going` flag is retained deliberately. The flag-free break
+        // form miscompiles under the coroutine transform when read is driven and
+        // RE-ENTERED in a caller's loop (a multi-read worker HANGS) — read's
+        // infinite `while {}` + `break` state machine does not resume correctly
+        // across repeated entry. connect/accept are entered once per call so they
+        // use the break form; read (looped by callers) needs the conditional loop.
         var out = Data()
         var going = true
         while going {
             let r = net_read_once(self.fd as Int, &var out)
             if net_would_block(r) {
                 io_wait(self.fd as Int, 0)     // park until readable
+            } else if r < 0 {
+                return io_error("read")        // a real read error, not EOF
             } else {
-                going = false                  // r >= 0: bytes appended (0 = EOF)
+                going = false                  // r >= 0: bytes read (0 = EOF)
             }
         }
         return move out
     }
 
-    // Write the WHOLE string, parking on would-block until every byte is sent.
-    public func write_all_str(&self, s: String) {
+    // Write the WHOLE Data buffer, parking on would-block until every byte is
+    // sent. Returns Ok on success or the write error honestly (design 92 — this
+    // REPLACES the old Void `write_all`/`write_all_str` that silently swallowed a
+    // hard write error). Bytes-typed so it can send arbitrary binary; write text
+    // with `stream.write(s.to_data())`.
+    //
+    // (A `write(s: String)` overload was specified for design 92 but is NOT
+    // provided: the coroutine transform resolves a driven suspending method by
+    // `(struct, method-name)` and cannot disambiguate overloads, so two `write`
+    // overloads mis-resolve to one frame — a separate coro-transform limitation.
+    // Callers convert with `.to_data()`; a real overload lands when the transform
+    // learns per-signature method frames.)
+    public func write(&self, bytes: Data) -> Result<Void, IoError> {
         var off = 0
-        let total = s.len()
-        var going = true
-        while going {
-            let w = net_write_str_once(self.fd as Int, s, off)
+        let total = bytes.len()
+        while off < total {
+            let w = net_write_data_once(self.fd as Int, &bytes, off)
             if net_would_block(w) {
                 io_wait(self.fd as Int, 1)     // park until writable
             } else if w < 0 {
-                going = false                  // error — bail
+                return io_error("write")
             } else {
                 off = off + w
-                if off >= total {
-                    going = false
-                }
             }
         }
-    }
-
-    // Write the WHOLE Data buffer, parking on would-block until it is all sent.
-    public func write_all(&self, bytes: Data) {
-        var off = 0
-        let total = bytes.len()
-        var going = true
-        while going {
-            let w = net_write_data_once(self.fd as Int, &bytes, off)
-            if net_would_block(w) {
-                io_wait(self.fd as Int, 1)
-            } else if w < 0 {
-                going = false
-            } else {
-                off = off + w
-                if off >= total {
-                    going = false
-                }
-            }
-        }
+        return
     }
 }
 

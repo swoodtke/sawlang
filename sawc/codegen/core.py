@@ -1929,7 +1929,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
             # Calculate payload size for this variant
             if variant.associated_types:
-                variant_types = [self._get_llvm_type(typ) for _, typ in variant.associated_types]
+                # A Void-typed payload field carries no data (design 92:
+                # `Result<Void, E>` — the Ok arm is dataless). Drop it so the
+                # variant struct never contains an illegal `{void}` member; an
+                # all-Void variant contributes a zero-size (payload-free) arm.
+                variant_types = [self._get_llvm_type(typ) for _, typ in variant.associated_types
+                                 if not isinstance(self._get_llvm_type(typ), ir.VoidType)]
                 # Create a struct to hold the associated values
                 if variant_types:
                     variant_struct = ir.LiteralStructType(variant_types)

@@ -336,10 +336,24 @@ class ResultsMixin:
 
         return try_result
 
+    def _is_void_payload(self, params) -> bool:
+        """Whether a Result arm's payload is dataless — every field lowers to
+        Void (design 92: the Ok arm of `Result<Void, E>`). Such an arm carries
+        the tag only."""
+        if not params:
+            return True
+        return all(isinstance(self._get_llvm_type(t), ir.VoidType) for _, t in params)
+
     def _extract_result_ok_value(self, result_val, result_enum_name: str):
         """Extract the Ok value from a Result."""
         llvm_enum_type, variant_tags, variant_info = self.enum_types[result_enum_name]
         ok_params = variant_info["Ok"]
+
+        # design 92: a `Result<Void, E>` Ok arm carries no value — there is
+        # nothing to extract. Return None (the Void placeholder); callers in a
+        # Void context (e.g. `try!` as a statement) discard it.
+        if self._is_void_payload(ok_params):
+            return None
 
         # Extract payload
         payload_bytes = self.builder.extract_value(result_val, 1, name="ok_payload")
@@ -395,14 +409,25 @@ class ResultsMixin:
         result = self.builder.insert_value(result, ir.Constant(ir.IntType(1), 0), 0)
         return result
 
-    def _create_result_err_for_return(self, err_value):
-        """Create a Result.Err for the current function's return type."""
-        # Get the return type's Result enum name
-        if not self.current_return_type or not self.current_return_type.is_result():
+    def _create_result_err_for_return(self, err_value, result_type=None):
+        """Create a Result.Err for the given (or current) function's return type.
+
+        `result_type` overrides `current_return_type`: the coroutine transform
+        rewrites `return <ResultErrWrap>` into a store to the frame's result slot
+        inside `resume` (whose own return type is `__Poll`, not the Result), so
+        the wrap node's stored `result_type` is the authority there (design 92)."""
+        # Prefer current_return_type — during generic monomorphization it is the
+        # SUBSTITUTED concrete Result (the wrap node still carries the generic
+        # template). Fall back to the node's type only when current_return_type is
+        # not a Result: the coroutine-transform resume case, where `return` was
+        # rewritten to a result-slot store and current_return_type is `__Poll`.
+        if self.current_return_type and self.current_return_type.is_result():
+            result_type = self.current_return_type
+        if not result_type or not result_type.is_result():
             raise ValueError("Cannot create Result.Err outside Result-returning function")
 
         # Find the monomorphized Result type for the return type
-        result_enum_name = self._get_result_enum_name(self.current_return_type)
+        result_enum_name = self._get_result_enum_name(result_type)
 
         llvm_enum_type, variant_tags, variant_info = self.enum_types[result_enum_name]
 
@@ -432,12 +457,18 @@ class ResultsMixin:
         result_val = self.builder.insert_value(result_val, payload_bytes, 1)
         return result_val
 
-    def _create_result_ok_for_return(self, ok_value):
-        """Create a Result.Ok for the current function's return type."""
-        if not self.current_return_type or not self.current_return_type.is_result():
+    def _create_result_ok_for_return(self, ok_value, result_type=None):
+        """Create a Result.Ok for the given (or current) function's return type.
+
+        `result_type` overrides `current_return_type` — see
+        `_create_result_err_for_return` (the coroutine-transform result-slot case)."""
+        # See _create_result_err_for_return for the precedence rationale.
+        if self.current_return_type and self.current_return_type.is_result():
+            result_type = self.current_return_type
+        if not result_type or not result_type.is_result():
             raise ValueError("Cannot create Result.Ok outside Result-returning function")
 
-        result_enum_name = self._get_result_enum_name(self.current_return_type)
+        result_enum_name = self._get_result_enum_name(result_type)
 
         llvm_enum_type, variant_tags, variant_info = self.enum_types[result_enum_name]
 
@@ -448,8 +479,13 @@ class ResultsMixin:
         ok_tag = ir.Constant(ir.IntType(32), variant_tags["Ok"])
         result_val = self.builder.insert_value(result_val, ok_tag, 0)
 
-        # Create payload struct for Ok
+        # design 92: a `Result<Void, E>` Ok has no payload — the tag alone is
+        # the whole value (the byte array stays undef; the Err arm sizes it).
         ok_params = variant_info["Ok"]
+        if self._is_void_payload(ok_params):
+            return result_val
+
+        # Create payload struct for Ok
         param_types = [self._get_llvm_type(t) for _, t in ok_params]
         param_struct_type = ir.LiteralStructType(param_types)
 
@@ -481,8 +517,13 @@ class ResultsMixin:
         at (premature free). `return move s` still works: the MoveExpr inside is
         not retained and the local is marked moved so cleanup skips it.
         """
+        # design 92: a value-less Ok (bare `return` in a `Result<Void, E>`
+        # function) has no inner expression to transfer — the Ok is the tag alone.
+        rtype = getattr(expr, 'result_type', None)
+        if expr.value is None:
+            return self._create_result_ok_for_return(None, rtype)
         value = self._gen_transfer_value(expr.value)
-        return self._create_result_ok_for_return(value)
+        return self._create_result_ok_for_return(value, rtype)
 
     def visit_ResultErrWrap(self, expr: ResultErrWrap):
         """Generate code for ResultErrWrap (E -> Result<T, E> as Err).
@@ -494,7 +535,7 @@ class ResultsMixin:
         owned ImplicitCopy error value so scope cleanup does not free it early.
         """
         value = self._gen_transfer_value(expr.value)
-        return self._create_result_err_for_return(value)
+        return self._create_result_err_for_return(value, getattr(expr, 'result_type', None))
 
     def visit_ErasedErrWrap(self, expr):
         """Generate code for ErasedErrWrap (design 56): erase a concrete `E`

@@ -11,6 +11,33 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 92 — failable calls return Result: no silent swallow (IN PROGRESS)
+- **net module LANDED** (commit 1): `TcpStream.write(bytes: Data)`,
+  `read() -> Result<Data, IoError>`, `TcpListener.accept() -> Result<TcpStream,
+  IoError>` all surface failure; the swallowing `write_all`/`write_all_str`
+  removed. read's EOF is `Ok(empty)`, DISTINCT from `Err` (was: empty Data meant
+  both). Forced-failure test `net_error_surfaced` (connect-to-closed-port → Err;
+  peer-closed read → Ok empty). Enabling compiler work: `Result<Void, E>` support
+  (enum void-payload filter + Ok/void create/extract + bare `return`→Ok(Void) +
+  match `Ok(_)` on void); `ResultOkWrap`/`ResultErrWrap` re-typecheck visitors (the
+  post-coro-transform re-check was skipping their rewritten inner expr → ICE);
+  coro-transform TRY-HOIST (a `try! recv.m()` in a driven body now hoists to a
+  driven temp + `try move __t` — the tried suspending call was hidden inside a
+  `TryExpr` the nested-call scan couldn't see, so its `io_wait` park never
+  integrated with the executor → hang; the `move` consumes the temp so its owning
+  payload is not double-dropped/closed).
+- **FLAGGED — coro-transform cannot drive OVERLOADED suspending methods.** It
+  resolves a driven method by `(struct, method-name)`, so two `write` overloads
+  collapse to one frame (arg mis-typed → "field s expects String? got Data"). The
+  brief's `write(s: String)` overload is therefore DEFERRED; `write(bytes: Data)`
+  is the single method (binary-capable; text via `s.to_data()`). Real fix: key
+  driven-method frames by resolved signature (stamp the resolved overload on the
+  MethodCall in the typechecker, use it throughout the transform).
+- **TODO (later commits):** file (`remove`/`rename`), directory (`create`/
+  `remove`/`set_current`), env (`set`/`unset`/`set_cwd`) → `Result<Void, IoError>`;
+  migrate blade callers; borderline `file.write`/`seek` `Int?`→Result (report);
+  docs (skill + spec + CLAUDE.md digest).
+
 ## Design 90 — reactor lost-wakeup on the 2nd sequential connection (LANDED)
 - **Root cause (VERIFIED with an instrumented repro, NOT the brief's guessed
   suspects).** It was NOT one-shot re-registration, wake-all clearing the wrong

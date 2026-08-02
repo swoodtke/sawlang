@@ -15,7 +15,7 @@ func reader(stream: TcpStream, want: String) -> Int {
     var got = Data()
     var reading = true
     while reading {
-        let chunk = stream.read()
+        let chunk = try! stream.read()
         if chunk.len() == 0 {
             reading = false
         } else {
@@ -29,7 +29,7 @@ func reader(stream: TcpStream, want: String) -> Int {
 }
 
 func writer(stream: TcpStream, msg: String) -> Int {
-    stream.write_all_str(msg)
+    try! stream.write(msg.to_data())
     0
 }
 

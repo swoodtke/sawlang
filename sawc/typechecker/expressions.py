@@ -182,6 +182,27 @@ class ExpressionsMixin:
     def visit_CastExpr(self, expr: CastExpr) -> Optional[SawType]:
         return self._check_cast_expr(expr)
 
+    def visit_ResultOkWrap(self, expr) -> Optional[SawType]:
+        """Re-check an already-inserted Ok wrap (design 92).
+
+        These wraps are synthesized during the FIRST typecheck, then the
+        coroutine transform rewrites bare identifiers inside `expr.value` into
+        fresh frame-field `MemberAccess` nodes that carry NO `resolved_type`. The
+        pipeline re-typechecks the transformed AST, so this visitor MUST descend
+        into `expr.value` to re-annotate it — without it a Result-returning
+        suspending method that returns a frame-resident value (`return move buf`,
+        `TcpStream(fd: cfd as Int32)`) reaches codegen with an unannotated node
+        and ICEs."""
+        if expr.value is not None:
+            self._check_expression(expr.value)
+        return getattr(expr, 'result_type', None)
+
+    def visit_ResultErrWrap(self, expr) -> Optional[SawType]:
+        """Re-check an already-inserted Err wrap — see visit_ResultOkWrap."""
+        if expr.value is not None:
+            self._check_expression(expr.value)
+        return getattr(expr, 'result_type', None)
+
     def visit_UnsafeExpr(self, expr: UnsafeExpr) -> Optional[SawType]:
         """`unsafe <expr>` (design 81): check the inner expression under the
         marker so any raw-pointer operation it contains is satisfied, then verify
