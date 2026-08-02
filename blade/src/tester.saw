@@ -51,6 +51,18 @@ public extension Tester {
         system(ptr) == (0 as Int32)
     }
 
+    // Like `shell_ok`, but suppresses only stdout and lets stderr THROUGH. sawc
+    // writes its "Compiled ..." success line to stdout and every diagnostic to
+    // stderr, and a `panic`/failed `assert` aborts to stderr — so on success the
+    // report stays clean, while a compile error or a test's failure reason is
+    // SURFACED, never swallowed (design 97: `blade test` must not hide why a
+    // test could not compile or run). Passes iff the raw wait status is exactly 0.
+    public func shell_ok_loud(&self, cmd: String) -> Bool {
+        let quiet = "{cmd} > /dev/null"
+        let ptr = quiet as UnsafePointer<Int8>
+        system(ptr) == (0 as Int32)
+    }
+
     // Dependency `--module-path` flags for compiling tests — the same flags
     // `blade build` uses, so a test sees the project's dependencies (design 64
     // B6). Empty string when there are no deps (or resolution fails; a test that
@@ -81,15 +93,35 @@ public extension Tester {
     // both succeed.
     public func run_one(&self, source: Path, bin: Path, flags: String) -> Bool {
         let compile_cmd = "{self.compiler()} {source.as_str()} -o {bin.as_str()}{flags}"
-        if not self.shell_ok(compile_cmd) {
+        if not self.shell_ok_loud(compile_cmd) {
+            // The compiler's error (stderr) has already been shown; the caller
+            // reports this test as FAILED. Never swallow a compile failure.
             return false
         }
-        self.shell_ok(bin.as_str())
+        // Judge by exit status, but let the test's stderr through so a panic or a
+        // failed assert explains itself when the test FAILS.
+        self.shell_ok_loud(bin.as_str())
     }
 
     // Discover tests/*.saw, run each, report. Returns the process exit code:
     // 0 when every test passed, 1 when any failed (so CI fails the build).
     public func run_all(&self) -> Int {
+        // Preflight (design 97): `blade test` compiles each test with `sawc`
+        // unless SAWC overrides it. If neither is available, EVERY compile would
+        // fail identically — don't bury that under N mysterious FAILEDs. Say so
+        // once, with the fix, and stop. (A silent fallback to a missing compiler
+        // that fails the whole suite is exactly the failure this design kills.)
+        let has_sawc_env = if let _c = Env.get("SAWC") { true } else { false }
+        if not has_sawc_env {
+            if not self.shell_ok("command -v sawc") {
+                print("error: no Saw compiler found — `blade test` needs `sawc`.")
+                print("  No `sawc` is on PATH and SAWC is not set. Point SAWC at a")
+                print("  compiler and retry, e.g. from an in-tree checkout:")
+                print("    SAWC=\"/path/to/python /path/to/sawc/sawc.py\" blade test")
+                return 1
+            }
+        }
+
         let tests_dir = Path(s: "tests")
 
         guard let entries = Directory.list(tests_dir) else {

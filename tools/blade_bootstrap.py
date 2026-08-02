@@ -27,8 +27,11 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = sys.executable
 SAWC = os.path.join(REPO, "sawc", "sawc.py")
 BLADE_DIR = os.path.join(REPO, "blade")
-TOML_SRC = os.path.join(REPO, "libs", "toml", "src")
-SEMVER_SRC = os.path.join(REPO, "libs", "semver", "src")
+TOML_DIR = os.path.join(REPO, "libs", "toml")
+SEMVER_DIR = os.path.join(REPO, "libs", "semver")
+TOML_SRC = os.path.join(TOML_DIR, "src")
+SEMVER_SRC = os.path.join(SEMVER_DIR, "src")
+LIB_DIRS = [("toml", TOML_DIR), ("semver", SEMVER_DIR)]
 STAGE0 = os.path.join(REPO, ".build", "blade0")
 STAGE_BIN = os.path.join(BLADE_DIR, "blade")   # blade's self-built binary
 
@@ -51,6 +54,21 @@ def run(argv, **kw):
     # -> double free), so blade's self-build is now deterministically clean,
     # including with a pipe as stdout.
     return subprocess.run(argv, capture_output=True, text=True, **kw)
+
+
+def lib_tests(blade_bin):
+    # Design 97: the `libs/toml` + `libs/semver` packages ship their own
+    # `blade test` suites. Run them here — with SAWC set (via ENV) so blade drives
+    # the in-tree compiler, exactly as the main build does — so the suites are
+    # ACTUALLY validated as part of the standard bars instead of being a coverage
+    # gap that "fails on a clean tree, pre-existing". A `blade test` in a package
+    # dir writes only under its gitignored `.blade/`, no lock (no deps).
+    for name, d in LIB_DIRS:
+        print(f"== libs/{name}: blade test ==")
+        r = run([blade_bin, "test"], cwd=d, env=ENV)
+        print(r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "")
+        if r.returncode != 0 or "0 failed" not in r.stdout:
+            fail(f"libs/{name} blade test", r.stdout + r.stderr)
 
 
 def main():
@@ -106,8 +124,15 @@ def main():
     if r.returncode != 0:
         fail("stage2 test", r.stdout + r.stderr)
 
-    # Clean the self-built binary (keep Saw.lock committed).
+    # The library packages' own `blade test` suites, run through the self-built
+    # blade with the in-tree compiler (design 97). Green here closes the coverage
+    # gap: the lib suites are now a standard bar, not a "pre-existing" caveat.
+    lib_tests(STAGE_BIN)
+
+    # Clean the self-built binary (keep Saw.lock committed) and the libs' scratch.
     subprocess.run(["rm", "-rf", STAGE_BIN, os.path.join(BLADE_DIR, "blade.ll")])
+    for _name, d in LIB_DIRS:
+        subprocess.run(["rm", "-rf", os.path.join(d, ".blade")])
 
     print("BOOTSTRAP: ok")
 
