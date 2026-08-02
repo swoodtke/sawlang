@@ -1,0 +1,44 @@
+// design 96: a suspending reactor METHOD call TWO embedded frames below a spawned
+// worker root must wake and return. Shape: spawn-root `server` -> nested free fn
+// `read_len` -> the suspending METHOD `stream.read()` (its internal io_wait park).
+// Before design 96 the depth-2 method park was compiled as a PLAIN blocking call
+// (the effect fixpoint could not see suspension arising solely from a std method,
+// so `read_len` never joined the driven closure) — it wedged the single thread and
+// the program hung. `read_len` also HOLDS a `&TcpStream` across the read's
+// suspension (design 88 held-reference across a suspend, at nesting depth).
+// Deterministic byte round-trip over a socketpair; loopback only, time-bounded (the
+// design-86 runner timeout turns a hang into a failure).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 5
+
+import std.net.{TcpStream, IoError}
+
+func read_len(stream: &TcpStream) -> Int {
+    match stream.read() {                 // suspending METHOD, 2 frames below server
+        case Ok(d) -> d.len(),
+        case Err(_) -> -1
+    }
+}
+
+func server(stream: TcpStream) -> Int {
+    let n = read_len(&stream)             // nested free fn -> method: two embeddings
+    return n
+}
+
+func client(stream: TcpStream) -> Int {
+    match stream.write("hello") {
+        case Ok(_) -> 5,
+        case Err(_) -> -1
+    }
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hs = group.spawn(server(move a))
+    let hc = group.spawn(client(move b))
+    print(hs.join())     // 5 bytes read, two frames deep (park woke correctly)
+    print(hc.join())     // 5 bytes written
+}

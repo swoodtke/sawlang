@@ -611,6 +611,73 @@ class _FrameBuilder:
         tnode.expr = mv
         return [let_stmt, s]
 
+    def _hoist_suspending_match(self):
+        """design 96: rewrite a `match <suspending call> { ... }` whose SCRUTINEE
+        is a suspending free-function or method call into a preceding driven temp:
+
+            let __matchN = recv.m(args)   # ordinary nested-suspending-call-in-let
+            match __matchN { ... }
+
+        Mirrors the if-let/guard-let condition hoist and the try hoist. The temp
+        is the already-supported `let res = recv.m(); match res {...}` shape (which
+        the CFG walk drives), so the callee's internal park integrates with the
+        executor instead of blocking the thread. Handles the bare-statement,
+        `let x = match ...`, and `return match ...` positions, descending into
+        control-flow bodies (incl. match arms)."""
+        self._match_ctr = 0
+        self._hoist_match_block(self.func.body)
+
+    def _hoist_match_block(self, block):
+        new_stmts = []
+        for s in block.statements:
+            new_stmts.extend(self._maybe_hoist_match(s))
+        block.statements = new_stmts
+        for s in block.statements:
+            self._hoist_match_recurse(s)
+
+    def _hoist_match_recurse(self, s):
+        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        if isinstance(ctrl, IfExpr):
+            self._hoist_match_block(ctrl.then_branch)
+            if ctrl.else_branch is not None:
+                self._hoist_match_block(ctrl.else_branch)
+        elif isinstance(ctrl, IfLetExpr):
+            self._hoist_match_block(ctrl.then_branch)
+            if ctrl.else_branch is not None:
+                self._hoist_match_block(ctrl.else_branch)
+        elif isinstance(ctrl, WhileExpr):
+            self._hoist_match_block(ctrl.body)
+        elif isinstance(ctrl, MatchExpr):
+            for arm in ctrl.arms:
+                if isinstance(arm.body, Block):
+                    self._hoist_match_block(arm.body)
+        elif isinstance(s, ForLoop):
+            self._hoist_match_block(s.body)
+        elif isinstance(s, GuardLetStatement):
+            self._hoist_match_block(s.else_branch)
+
+    def _maybe_hoist_match(self, s):
+        m = None
+        if isinstance(s, ExpressionStatement) and isinstance(s.expression, MatchExpr):
+            m = s.expression
+        elif isinstance(s, LetStatement) and isinstance(s.value, MatchExpr):
+            m = s.value
+        elif isinstance(s, ReturnStatement) and isinstance(s.value, MatchExpr):
+            m = s.value
+        if m is None or not self._call_suspends_expr(m.matched_expr):
+            return [s]
+        inner = m.matched_expr
+        tmp = f"__match{self._match_ctr}"
+        self._match_ctr += 1
+        let_stmt = LetStatement(name=tmp, type_annotation=None, value=inner,
+                                mutable=False, line=inner.line, column=inner.column)
+        ident = Identifier(name=tmp, line=inner.line, column=inner.column)
+        # Carry the callee's result type so the driven-call classification and the
+        # match lowering both see the exact instantiation.
+        ident.resolved_type = getattr(inner, 'resolved_type', None)
+        m.matched_expr = ident
+        return [let_stmt, s]
+
     def _collect_frame_locals(self):
         """Conservative-by-scope liveness (design 52 Part 0): every local whose
         lexical scope SPANS a suspension is frame-resident. A block "spans a
@@ -956,6 +1023,14 @@ class _FrameBuilder:
         # loop body, a mid-body block) becomes a bare expression statement.
         # Non-suspending tails keep the existing `final_expr` fast path untouched.
         self._normalize_suspending_tails()
+        # design 96: hoist a SUSPENDING call out of a `match <call> { ... }`
+        # SCRUTINEE into a preceding driven temp (`let __matchN = <call>` +
+        # `match __matchN`). Runs AFTER tail normalization so a trailing match is
+        # already a statement. Without this the suspending scrutinee hides inside
+        # the MatchExpr, `_collect_calls` never sees a bare call to embed+drive, and
+        # the callee's internal `io_wait` park blocks the thread instead of yielding
+        # — a `match stream.read() {...}` worker hangs (even at nesting depth 1).
+        self._hoist_suspending_match()
         # A method's `self` receiver is held as the `__recv` pointer, not a normal
         # param — drop it if the parser placed it in `parameters`.
         self.params = [p for p in func.parameters
@@ -2959,6 +3034,45 @@ def transform_program(program, typechecker, imported_ast=None):
                     out.append(("method", mid))
         return out
 
+    # design 96: the effect fixpoint cannot see suspension that arises SOLELY from
+    # a nested std METHOD call — a std method's effect node is absent (the same gap
+    # `_scan_method_callees` works around), so a call edge to it never propagates
+    # `suspends`. A FREE function whose only suspension source is a buried
+    # suspending method call is therefore left `suspends=False`; the edge-follow in
+    # the closure walk below would SKIP the edge to it, its caller would emit a
+    # PLAIN blocking call, and the buried park would wedge the whole single thread
+    # (the design-96 hang at nesting depth >= 2 — a method call one or more free
+    # frames below a root). Close the gap structurally: a free fn STRUCTURALLY
+    # suspends if its body calls a suspending method directly (`_scan_method_callees`
+    # non-empty), or reaches — through free-fn -> free-fn call edges — a fn that
+    # does. Seed the edge-follow with this set so such fns join the closure, get
+    # frames, and are embedded+driven (their internal park integrates with the
+    # executor) instead of blocking the thread. Only ADDS genuinely-suspending fns
+    # (`_scan_method_callees` never yields a non-suspending method), so no over-
+    # inclusion; a fn the fixpoint already marks stays followed via `t.suspends`.
+    structurally_susp_fns = set()
+    for _fname, _f in funcs_by_name.items():
+        if getattr(_f, 'type_params', None):
+            continue
+        if _scan_method_callees(_f.body):
+            structurally_susp_fns.add(_fname)
+    _susp_changed = True
+    while _susp_changed:
+        _susp_changed = False
+        for _key, _nd in nodes.items():
+            if not (isinstance(_key, tuple) and _key[0] == "fn"):
+                continue
+            _fname = _key[1]
+            if _fname in structurally_susp_fns or _fname not in funcs_by_name:
+                continue
+            for _e in _nd.edges:
+                _tgt = _e.target
+                if (isinstance(_tgt, tuple) and _tgt[0] == "fn"
+                        and _tgt[1] in structurally_susp_fns):
+                    structurally_susp_fns.add(_fname)
+                    _susp_changed = True
+                    break
+
     closure = []
     method_closure = {}   # id(method) -> (struct_name, method_ast, extension)
     seen = set()
@@ -3009,10 +3123,19 @@ def transform_program(program, typechecker, imported_ast=None):
         if node is not None:
             for e in node.edges:
                 t = nodes.get(e.target)
-                if t is None or not t.suspends:
+                if t is None:
                     continue
-                if (isinstance(e.target, tuple) and e.target[0] == "fn"
-                        and e.target[1] in funcs_by_name):
+                is_fn_edge = (isinstance(e.target, tuple) and e.target[0] == "fn"
+                              and e.target[1] in funcs_by_name)
+                # design 96: follow a free-fn edge whose target the fixpoint left
+                # `suspends=False` but which STRUCTURALLY suspends via a buried
+                # method call (see `structurally_susp_fns` above) — otherwise a
+                # depth-2+ nested suspending method call is missed and its park
+                # wedges the thread.
+                if not t.suspends and not (
+                        is_fn_edge and e.target[1] in structurally_susp_fns):
+                    continue
+                if is_fn_edge:
                     work.append(("fn", e.target[1]))
                 elif isinstance(e.target, int) and e.target in methods_by_id:
                     work.append(("method", e.target))
