@@ -253,9 +253,13 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   not a separate executor; nested groups compose by construction; a task joining
   another yields to the one scheduler (no nested loop). Suspending calls yield
   IMPLICITLY when they park (a task doing I/O never needs `yield_now`); `yield_now`
-  is only for a CPU loop that makes no parking calls. (⚠ Fairness: a task that
-  never parks and never yields monopolizes the single-threaded scheduler — the
-  op-count cooperative budget that bounds this is deferred, design 89-c.)
+  is only for a CPU loop that makes no parking calls. Fairness backstop (design
+  89-c): a task that keeps completing suspending io ops WITHOUT ever parking (an
+  always-ready socket) does NOT starve siblings — every 128 non-parking io ops the
+  primitive force-yields once (op-count budget, not wall-clock), so a busy reader
+  cedes automatically. The honest residual limit is unchanged: a PURE-compute loop
+  that makes no suspending calls at all still needs an explicit `yield_now` (or an
+  MT thread) to cede — the budget only helps tasks that make SOME suspending calls.
 - A spawned task may CALL `TcpListener.accept()`, and a **multi-connection
   accept-LOOP** (one server task `accept`-looping to serve N connections
   sequentially, with N client tasks in the same joined group) now round-trips —

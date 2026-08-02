@@ -514,6 +514,60 @@ items need a probe before being treated as real work.
   "Undefined struct: TaskGroup" during frame layout — unrelated to executor
   unification; reentrancy is instead tested via nested-group joins. [89, 52b, 76]
 
+## Design 89-c — cooperative op-count budget (LANDED — CLOSES the 89 family)
+- **The fairness backstop.** A task that keeps completing suspending io ops WITHOUT
+  ever parking (an always-ready socket) can no longer monopolize the single-threaded
+  ambient scheduler — the design-89 item-6 starvation caveat. Op-count, not
+  wall-clock (kernel-friendly, deterministic); no preemption, no language surface,
+  purely at existing suspension points.
+- **Mechanism (codegen/core.py `_declare_io_runtime`).** A process-global op counter
+  `__saw_op_budget` (default 128) + two weak/monotonic-atomic seams: `saw_op_budget_
+  tick()` decrements and returns non-zero (self-resetting to the default) when
+  exhausted; `saw_op_budget_reset()` restores it. Each net io primitive
+  (accept/connect/read/read_into/write×2), on its NON-parking success path, ticks and
+  force-`yield_now()`s when the tick fires (park-and-immediately-reschedule → cede to
+  siblings), and calls reset after a genuine `io_wait` park (already ceded). The
+  counter is self-resetting on exhaustion, so it works uniformly under the
+  ambient/MT/single-task/`__drive` executors with NO scheduler or synthesized-executor
+  edits; monotonic-atomic keeps MT workers race-free (shared budget there, benign).
+- **Zero overhead for sync code.** Only a suspending io primitive ever charges the
+  counter — code that makes no such calls never touches it. Well-behaved tasks (<128
+  non-parking ops between parks, which reset the budget) never hit the forced yield,
+  so existing coro_*/taskgroup_*/net_* interleavings are UNCHANGED (suite green, no
+  interleaving test needed adjustment). Channel receive was deliberately NOT
+  instrumented: in the ST cooperative runtime a channel consumer that outruns its
+  producer DRAINS the channel and then parks on empty (the producer only runs when
+  the consumer cedes), so an always-ready channel monopoly is impossible — only io,
+  fed by the kernel/peer independent of the local scheduler, is the real vector.
+- **Test `net_budget_fairness`.** A `recirc` task reads one socketpair end and writes
+  the bytes back into the OTHER (refilling the read side) → every read is always-ready
+  and never parks, an endless io loop whose only exit is a stop flag a sibling sets
+  after its own turns. Without the budget `recirc` never cedes → the program hangs
+  (the design-86 runner timeout turns that into a FAILURE); with it, `recirc`
+  force-yields every 128 ops, the sibling completes and sets stop, and it prints 5.
+  Deterministic (pure op-count) + time-bounded. Verified discriminating: neutering
+  the tick makes it hang (SIGKILL 137), the real budget prints 5.
+- **DF7 (pre-existing coro-transform silent miscompile, discovered here — FLAG).** A
+  suspending METHOD call BURIED under a nested `if` inside a `while` in a driven/
+  spawned body is silently compiled as a PLAIN blocking call (not embedded as a
+  driven sub-frame), so its cooperative suspension (`io_wait` park / `yield_now`) is
+  a NO-OP — it blocks the thread instead of cooperating. Repro: `while going { let go
+  = m.lock{…}; if go { let c = s.read(); s.write(move c) } }` emitted `call
+  @TcpStream_read` (plain) for the under-`if` calls while the TOP-LEVEL seed
+  `s.write("seed")` embedded correctly (`call @__Frame_TcpStream_write…_resume`).
+  Unrelated to the budget (the call-site embedding decision is independent of the
+  method body); the budget test works around it by calling read/write DIRECTLY in
+  the loop body (the net_two_concurrent_parked_reads pattern). This is NOT the
+  documented "buried suspending method call" case (that gives a clean compile error);
+  this shape gives NO error — a silent miscompile. Not fixed here (coro-transform
+  nested-embedding is design-96-class scope, high-risk, out of the 89-c budget
+  scope); scheduled as a follow-up. [89-c, 89, 96, 84]
+- Suite 929 (928 + `net_budget_fairness`); bootstrap ok (blade 17+17, libs toml 4 +
+  semver 4); zero xfails. Docs: saw-lang skill concurrency caveat replaced with the
+  landed backstop + residual pure-compute limit; LANGUAGE_SPEC concurrency gained an
+  implicit-yield + op-count-budget bullet. **The design-89 executor-unification family
+  (89 / 89-b / 89-c) is now COMPLETE.** [89-c, 89, 89-b, 45, 52b, 76]
+
 ## Design 87 — consolidate literal coercion + stable type-ids (IN PROGRESS)
 - **Item 1 (ONE literal-coercion pass) — LANDED.** Integer-literal fixed-width
   typing now routes through the EXISTING expected-type propagation

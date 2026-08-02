@@ -2420,6 +2420,22 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   it with `cancelled()` (rewritten to the frame's word) and returns through normal
   control flow — frame locals drop exactly once. There is no forced destroy and no
   implicit cancellation at suspension points.
+- **Implicit yield + the cooperative fairness budget (designs 89-b/89-c).** A
+  suspending call IS a yield point: when a read / accept / sleep / channel-receive
+  PARKS (would-block / empty / deadline-not-reached) it cedes to the scheduler
+  automatically, so a task doing real I/O never needs an explicit `yield_now`
+  (and a call that has data ready returns WITHOUT parking — no spurious yield).
+  The residual starvation risk — a task that keeps completing suspending io ops
+  WITHOUT ever parking (an always-ready socket) — is bounded by a cooperative
+  **op-count budget** (default 128): each io primitive that completes without
+  parking charges a per-running-task budget, and when it is exhausted the primitive
+  forces one `yield_now` (park-and-immediately-reschedule) so siblings run, then
+  the budget resets; a genuine park resets it too. It is an OP-COUNT, never a
+  wall-clock read — kernel-friendly and DETERMINISTIC (tests may assert exact
+  interleavings). No new yield points, signals, or language surface — purely at
+  existing suspension points. Honest limit: this only helps tasks that make SOME
+  suspending calls; a pure-compute loop with no suspending call at all still needs
+  an explicit `yield_now` (or an MT thread) — the same as every cooperative runtime.
 - **Suspending channel receive (design 62 G3).** `Channel.receive() -> T` is the
   first-class cooperative suspending receive: it dequeues a value if ready, else
   suspends the *task* (not the thread) and is rescheduled when a value arrives
