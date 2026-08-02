@@ -182,7 +182,7 @@ class MatchMixin:
                 param_struct_type = ir.LiteralStructType(param_types)
 
                 # Store bytes to memory, then load as struct
-                payload_alloca = self._entry_alloca(llvm_enum_type.elements[1], name="payload_alloca")
+                payload_alloca = self._entry_alloca(llvm_enum_type.elements[1], name="payload_alloca", align=8)
                 self.builder.store(payload_bytes, payload_alloca)
                 struct_ptr = self.builder.bitcast(payload_alloca,
                                                   ir.PointerType(param_struct_type),
@@ -492,7 +492,7 @@ class MatchMixin:
             payload_bytes = self.builder.extract_value(value, 1, name="payload")
             param_types = [self._get_llvm_type(t) for _, t in params]
             param_struct_type = ir.LiteralStructType(param_types)
-            payload_alloca = self._entry_alloca(llvm_enum_type.elements[1], name="payload_alloca")
+            payload_alloca = self._entry_alloca(llvm_enum_type.elements[1], name="payload_alloca", align=8)
             self.builder.store(payload_bytes, payload_alloca)
             struct_ptr = self.builder.bitcast(payload_alloca,
                                               ir.PointerType(param_struct_type),

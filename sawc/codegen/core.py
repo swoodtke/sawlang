@@ -370,8 +370,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     # Resource management methods are now in codegen_resources.py (ResourcesMixin)
 
-    def _entry_alloca(self, llvm_type, name=""):
+    def _entry_alloca(self, llvm_type, name="", align=None):
         """Create an alloca in the current function's entry block.
+
+        `align` overrides the slot's alignment. An enum/Result payload is typed
+        `[N x i8]` (ABI align 1), but it is bitcast-and-loaded as the active
+        variant's field struct, whose fields (pointers, i64) require 8-alignment;
+        a 1-aligned slot lands the payload on an odd offset and the wider load
+        alignment-faults on arm64 (a layout-sensitive heisenbug). Payload slots
+        therefore pass align=8 so the reinterpreted load is always aligned.
 
         Every stack slot must be allocated in the entry block, for two reasons:
         - mem2reg/SROA only promote allocas that live in the entry block, so
@@ -393,6 +400,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         else:
             builder.position_at_end(entry)
         slot = builder.alloca(llvm_type, name=name)
+        if align is not None:
+            slot.align = align
         builder.position_at_end(saved_block)
         return slot
 
