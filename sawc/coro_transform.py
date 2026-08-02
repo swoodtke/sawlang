@@ -41,6 +41,7 @@ from ast_nodes import (
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
     Parameter, SawType, TypeKind, Visibility, ClosureExpr, CaptureSpec,
     DestructuringLet, TuplePattern, BindingPattern, WildcardPattern, TupleIndex,
+    EnumPattern,
 )
 
 
@@ -775,6 +776,29 @@ class _FrameBuilder:
         walk(pattern, src_type)
         return out
 
+    def _pattern_binding_names(self, pattern):
+        """Every binding name introduced by a design-63 `MatchArm.pattern` — a bare
+        `case n` (BindingPattern), a tuple pattern's leaves, or a nested enum
+        pattern's subpatterns. Literal/range/wildcard patterns bind nothing.
+        Used so a suspension-spanning `match` carries these bindings into frame
+        fields exactly like the classic enum `arm.bindings` (design 101)."""
+        if pattern is None:
+            return []
+        out = []
+
+        def walk(pat):
+            if isinstance(pat, BindingPattern):
+                out.append(pat.name)
+            elif isinstance(pat, TuplePattern):
+                for sub in pat.elements:
+                    walk(sub)
+            elif isinstance(pat, EnumPattern):
+                for sub in pat.subpatterns:
+                    walk(sub)
+
+        walk(pattern)
+        return out
+
     def _destructure_assigns(self, pattern, base_expr, out, line, col):
         """Append `self.<leaf> = <base>.<i>...` assignments for each binding leaf
         of a tuple pattern (design 77 item 10). `base_expr` indexes into the
@@ -1044,6 +1068,25 @@ class _FrameBuilder:
     def prepare(self, suspends):
         self._suspends = suspends
         func = self.func
+        # design 83: lift a suspension-spanning TRAILING expression (a block's
+        # `final_expr`, where the parser parks the last bare expression) into an
+        # explicit statement, so the nested-call scan and CFG walk both see it. A
+        # value flowing to the function result becomes `return <expr>` (recursing
+        # through a tail `if`/`match` so each leaf returns); a discarded tail (a
+        # loop body, a mid-body block) becomes a bare expression statement.
+        # Non-suspending tails keep the existing `final_expr` fast path untouched.
+        #
+        # design 101 (DF7): this MUST run FIRST — before the three wrapper hoists
+        # below — because they each walk only `block.statements`, never
+        # `block.final_expr`. A suspending call buried in a TRAILING `if`/`match`/
+        # wrapper (e.g. `while going { ...; if c { let x = try! s.read() } }`,
+        # where the `if` is the loop body's `final_expr`) would otherwise never be
+        # statementized in time for the try/condition/match hoist to see it, slip
+        # past `_collect_calls`'s classification AND every rejection, and lower as a
+        # PLAIN blocking call — the silent DF7 miscompile. Normalizing first makes
+        # every suspending call sit in statement position within some block, so the
+        # wrapper hoists and the collect/reject walk are exhaustive by construction.
+        self._normalize_suspending_tails()
         # design 62 G2: hoist a suspending call out of an `if let`/`guard let`
         # CONDITION into a preceding driven temp, BEFORE call/local collection —
         # the temp is then an ordinary nested-suspending-call-in-let and the
@@ -1054,14 +1097,6 @@ class _FrameBuilder:
         # is embedded+driven (its internal park integrates with the executor)
         # rather than hiding inside a TryExpr the nested-call scan cannot see.
         self._hoist_suspending_try()
-        # design 83: lift a suspension-spanning TRAILING expression (a block's
-        # `final_expr`, where the parser parks the last bare expression) into an
-        # explicit statement, so the nested-call scan and CFG walk both see it. A
-        # value flowing to the function result becomes `return <expr>` (recursing
-        # through a tail `if`/`match` so each leaf returns); a discarded tail (a
-        # loop body, a mid-body block) becomes a bare expression statement.
-        # Non-suspending tails keep the existing `final_expr` fast path untouched.
-        self._normalize_suspending_tails()
         # design 96: hoist a SUSPENDING call out of a `match <call> { ... }`
         # SCRUTINEE into a preceding driven temp (`let __matchN = <call>` +
         # `match __matchN`). Runs AFTER tail normalization so a trailing match is
@@ -1293,25 +1328,37 @@ class _FrameBuilder:
                 mc.line, mc.column, source_file=self.src_file)
 
     def _reject_buried_suspend_call(self, stmt):
-        """A suspending call in a non-top-level position (inside a larger
-        expression, an `if`/`while`/`match` branch, or a method-call receiver) is
-        not expressible by the flat state split. Reject with a clear message
-        rather than miscompile (the callee's __suspend would silently no-op)."""
+        """A suspending call in a position the flat state split cannot express —
+        inside a larger expression, a method-call receiver, or a control-flow
+        container that is NOT CFG-split (an `if let`/`guard let` branch, whose body
+        is lowered in place, not split) — is rejected with a clear anchored message
+        rather than miscompiled (the callee's park would silently no-op / block).
+
+        design 101 (DF7 class): this is the LAST-RESORT catch for a suspending call
+        that every hoist + the classify/split walk left un-embedded. It MUST see a
+        suspending METHOD call, not only a free-function / channel `receive()` — a
+        buried method call (e.g. `stream.read()` inside a `guard let ... else { }`
+        or `if let ... { }` body) previously slipped through here and lowered as a
+        PLAIN blocking call, the exact silent-blocking miscompile this design closes.
+        The split-capable containers (`if`/`while`/`for`/`match`) never reach this
+        method — `_collect_calls` recurses INTO them and classifies each nested call
+        — so flagging method calls here rejects only genuinely inexpressible shapes."""
         found = []
 
         def scan(n):
             if isinstance(n, FunctionCall) and (
                     n.name in self._suspends or n.name in _SUSPEND_CALLS):
-                found.append(n)
+                found.append(("fn", n))
             # design 62 G3: a cooperative `receive()` buried in an expression /
             # nested position (only a top-level `let v = ch.receive()` or bare
             # `ch.receive()` is supported) is rejected rather than miscompiled.
-            if isinstance(n, MethodCall) and getattr(n, 'is_chan_recv', False):
-                found.append(_FakeCall("receive", n.line, n.column))
-            if isinstance(n, MethodCall):
-                mname = getattr(n, 'method_name', None)
-                # Suspending method receiver handled by Part 0c on driving
-                # methods, not here; leave method calls to that path.
+            elif isinstance(n, MethodCall) and getattr(n, 'is_chan_recv', False):
+                found.append(("recv", _FakeCall("receive", n.line, n.column)))
+            # design 101: a suspending METHOD call in a position no hoist lifted and
+            # the CFG walk cannot split (an `if let`/`guard let` body). Reject with
+            # the same workaround the top-level buried-method rejection names.
+            elif isinstance(n, MethodCall) and self._method_call_suspends(n):
+                found.append(("method", n))
             if isinstance(n, ASTNode):
                 for f in dataclasses.fields(n):
                     v = getattr(n, f.name)
@@ -1328,7 +1375,17 @@ class _FrameBuilder:
 
         scan(stmt)
         if found:
-            g = found[0]
+            kind, g = found[0]
+            if kind == "method":
+                recv_type = getattr(g.object, 'resolved_type', None)
+                sname = getattr(recv_type, 'struct_name', None) if recv_type else "?"
+                raise CoroTransformError(
+                    f"coroutine transform: a buried suspending method call "
+                    f"`{sname}.{g.method_name}(...)` inside driven `{self.name}` "
+                    f"appears in a control-flow branch the state split cannot express "
+                    f"(an `if let`/`guard let` body). Restructure to a plain "
+                    f"`if`/`else` or `match`, or drive the method directly.",
+                    g.line, g.column, source_file=self.src_file)
             raise CoroTransformError(
                 f"coroutine transform: suspending call to `{g.name}` in `{self.name}` "
                 f"appears in a nested/expression position; only a top-level "
@@ -1724,18 +1781,31 @@ class _FrameBuilder:
             entry = self._new_block()
             arm_entries.append((arm, entry))
             dispatch = []
-            for bname in arm.bindings:
+            # Carry every payload binding into its frame field, so the arm's
+            # (separately-dispatched) entry block can read it after a suspend.
+            # Bindings come from the classic enum form (`arm.bindings`) AND — for
+            # design-63 patterns — from `arm.pattern` (a bare `case n`, a tuple, or
+            # a nested enum pattern). The guard, if any, runs during dispatch and
+            # reads these bindings as LOCALS (still in scope in the dispatch arm),
+            # so it stays unrewritten — it is stored to the field only in the body.
+            for bname in list(arm.bindings) + self._pattern_binding_names(arm.pattern):
                 if bname == "_" or bname not in self.encmap:
                     continue
-                # Carry the payload binding into its frame field, so the arm's
-                # (separately-dispatched) entry block can read it after a suspend.
                 dispatch.append(AssignStatement(
                     target=_self_field(bname), value=Identifier(name=bname)))
             dispatch.append(AssignStatement(
                 target=_self_field("__state"), value=_int(entry)))
+            # design 101: preserve `pattern` and `guard` on the regenerated dispatch
+            # arm. Reconstructing from `variant_name`/`bindings` alone dropped the
+            # design-63 literal/range/tuple `pattern` (and any `guard`), so a
+            # suspension-spanning `match` over literal/range arms lost its pattern
+            # info and codegen reported a spurious "match is not exhaustive" on the
+            # synthesized arms (at 0:0). Carrying both through keeps the dispatch
+            # match structurally identical to the source match's arm selection.
             new_arms.append(MatchArm(
                 variant_name=arm.variant_name, bindings=list(arm.bindings),
-                body=Block(statements=dispatch, final_expr=None)))
+                body=Block(statements=dispatch, final_expr=None),
+                pattern=arm.pattern, guard=arm.guard))
         self._emit([ExpressionStatement(expression=MatchExpr(
             matched_expr=scrut, arms=new_arms))])
         self._blocks[self.cur].append(ContinueStatement())

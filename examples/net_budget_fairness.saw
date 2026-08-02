@@ -44,15 +44,21 @@ func recirc(s_read: TcpStream, s_write: TcpStream, stop: Arc<Mutex<Int>>) -> Int
     var reads = 0
     var going = true
     while going {
-        let chunk = try! s_read.read()   // ALWAYS ready — never parks
-        try! s_write.write(move chunk)   // feed it back so the next read is ready
-        reads = reads + 1
-        // Keep looping until the sibling signals stop. A read/write directly in the
-        // loop body embeds as a driven sub-frame (a suspending call buried under a
-        // nested `if` would not — it would compile to a plain blocking call), so the
-        // op-count budget's forced yield actually cedes to the sibling here.
+        // Keep looping until the sibling signals stop.
         going = stop.lock { &var f in
             f == 0
+        }
+        // The read/write sit under a nested `if` (this `if` is the loop body's
+        // trailing expression). design 101 (DF7) embeds a suspending method call in
+        // EVERY structural position — including a trailing `if` — as a driven
+        // sub-frame, so the op-count budget's forced yield still cedes to the sibling
+        // here. Before design 101 this exact nesting silently compiled to a plain
+        // blocking call (the budget's yield a no-op), which is why this worker used
+        // to call read/write directly at the loop top level.
+        if going {
+            let chunk = try! s_read.read()   // ALWAYS ready — never parks
+            try! s_write.write(move chunk)   // feed it back so the next read is ready
+            reads = reads + 1
         }
     }
     reads
