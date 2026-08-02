@@ -11,6 +11,62 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 100 — shadowing: error unless derived from the shadowed binding (LANDED)
+- **Rule.** A `let`/`var`/pattern/param binding that SHADOWS an enclosing binding
+  (an outer local/param/capture in a parent scope, or an accessible module
+  `static`) is a compile error UNLESS it is a visible refinement. Typechecker
+  helpers in `statements.py` (`_shadowed_binding_pos` walks the current scope's
+  PARENT chain + `namespace.get_static`; `_init_mentions_name` is a generic
+  dataclass walk for any `Identifier`/`MoveExpr` use of the name; `_check_shadowing`
+  the entry, `site=binding|pattern|param`). Wired at every binding-introduction
+  site: let/var (`_check_let_statement`, main rule on the initializer), destructuring
+  let (per bound name), single-name if-let/guard-let (main rule on the scrutinee —
+  so `if let x = x` / `guard let x = x` stay legal), tuple/match PATTERN bindings
+  (flat error — patterns bind, not compare; the hint says so), function/method
+  params vs module statics, closure params vs enclosing locals. Same-scope
+  redefinition is unchanged (still the pre-existing DUPLICATE_VARIABLE error);
+  prelude/std names are not bindings. Diagnostic: `` `x` shadows the binding
+  declared at FILE:L:C `` + a rename/derive (or patterns-bind) hint; positions
+  exact (design 99).
+- **MIGRATION AUDIT: only 1 illegal shadow in the ENTIRE corpus** (std + blade +
+  libs + examples all compiled green; only `examples/use_after_move_shadow.saw`,
+  a test that DELIBERATELY shadowed a moved-from binding to prove move-state is
+  per-identity — migrated to a distinct inner name, intent preserved). Accidental
+  shadowing was effectively nonexistent — the codebase was already clean.
+- **CODEGEN double-free FIXED (pre-existing, fix-on-discovery).** Design 100 makes
+  a derived SAME-name shadow of an OWNING binding idiomatic (`let nums = nums.copy()`,
+  `if let x = x`), which exposed a latent codegen bug: scope-exit cleanup and the
+  if-let path resolved a binding's storage/drop-flag by NAME, so a shadowing inner
+  binding redirected the OUTER scope's cleanup to the inner (already-dropped)
+  storage → double-free (SIGABRT/SIGTRAP), and `if let x = x` deleted the outer
+  binding outright (ICE on later use). Repro'd on the clean tree (not my change —
+  typecheck-only). Fix: (1) `_register_cleanup`/`_cleanup_scope` (resources.py) +
+  the guard-let producer (conditionals.py) now CAPTURE the alloca+flag at
+  registration and `_emit_drop_at` the captured pointer (never re-resolve by name);
+  (2) if-let restores the shadowed enclosing binding instead of deleting it
+  (conditionals.py); (3) `_generate_block` (methods.py) snapshots + restores the
+  name→storage maps at block exit so a use of the outer name after a shadowing
+  block is sound. Tests: `shadow_owning_lifetime` (derived owning shadow + outer
+  reused; `if let x = x` + outer reused).
+- **FLAG for the user (rule friction, not weakened).** The design brief's headline
+  example `var data = read(); let data = parse(move data)` — if literally in ONE
+  scope — remains a pre-existing "already defined in this scope" error, because the
+  dispatch scope pinned "same-scope redefinition: if already an error, unchanged"
+  and same-scope redefinition is currently an error. The derived-shadow leniency
+  therefore applies only ACROSS scopes today. If you want `let data = parse(move
+  data)` to be legal in the SAME scope (the design example reads that way), that's
+  a deliberate follow-up (open up same-scope redefinition under the same
+  mentions-rule). Also DEFERRED by scope: for-loop iteration variables are NOT
+  covered (the brief enumerated let/var, patterns, params, closure params; for-loop
+  vars were not listed) — a `for x in xs` under an outer `x` is still allowed; flag
+  if you want it included.
+- Tests (OK): `shadow_derived` (derived let bare/move/call-wrapped/`.copy()`, var,
+  if-let, guard-let unwrap — all run). Tests (ERROR, exact positions on both the
+  shadowed decl and the shadow site): `errors/shadow_inner_let`,
+  `errors/shadow_match_pattern`, `errors/shadow_param`, `errors/shadow_closure_param`.
+  Docs: LANGUAGE_SPEC bindings section + saw-lang skill (rule bullet + gotcha).
+  Suite 928 (922 + 6), bootstrap ok (blade 17+17, libs 4+4). [100, 99, 15, 42]
+
 ## Design 98 — `#file`/`#line`/`#function` source-location literals (LANDED)
 - Magic literals expanding at their DEFINITION site to compile-time constants
   (zero runtime cost, freestanding-safe): `#file` → source basename (String,

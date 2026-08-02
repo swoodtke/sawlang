@@ -50,6 +50,16 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   `\0` is an interior NUL that `len()` counts. Any other escape is a lex
   error (no silent drop). Strings are immutable UTF-8, refcounted.
 - Comments `//`. No semicolons. `not` for logical negation.
+- Shadowing (design 100): a `let`/`var` that shadows an ENCLOSING binding (an
+  outer local/param/capture or a module `static`) is a compile ERROR unless its
+  initializer MENTIONS the shadowed name — `let data = parse(move data)`,
+  `let n = n + 1`, `if let x = x` are OK (derived / scrutinee references it); a
+  non-deriving `let x = compute()` under an outer `x` is rejected. No-initializer
+  shadows are flat errors: a `match`/`if let`/`guard let` PATTERN binding
+  (`case Move(x, y)` under outer `x` — patterns BIND, not compare), a fn param
+  vs a module `static`, a closure param vs an enclosing local. Same-scope
+  redefinition stays the pre-existing "already defined" error; prelude/std names
+  are not bindings for this rule.
 
 ## Ownership (the part that bites)
 Copy tiers: trivial/POD = implicit bitwise copy; `ImplicitCopy`
@@ -365,6 +375,12 @@ non-escaping `&T`/`&var T` borrow, invalidation-proof) — this REPLACED `ref_at
   `Copy` bound, so `Vector<() -> Int>` is copyable — `.copy()`/`.get()` each
   retain the element env exactly once (deinit-once through copy).
 - `guard` must exit (return/break/continue/panic).
+- Shadowing footgun (design 100): naming an inner binding after an outer one is
+  an ERROR unless the inner DERIVES from the outer (its initializer mentions the
+  name). Reach for it deliberately (`let data = parse(move data)`,
+  `if let x = x`); to just reuse a name for an unrelated value, pick a different
+  name. A `case Move(x, y)` under an outer `x` is rejected — it binds fresh
+  `x`/`y`, it does not compare against the outer `x`.
 - A dependency name mapped via `--module-path` shadowing a local
   module file is an error.
 - `Vector.get(i)` returns a COPY (needs copyable element); use

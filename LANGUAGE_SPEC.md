@@ -87,6 +87,44 @@ let _ = compute()      // run compute() for its effect; drop the result now
 let _ = openFile()     // a NoCopy result is deinit'd at end of this statement
 ```
 
+**Shadowing must be a visible refinement.** (design 100) A binding *shadows* when
+its name would also resolve to an enclosing binding — a local/param/capture in a
+lexically-enclosing scope, or a module-level `static`. Shadowing is a **compile
+error UNLESS the new binding derives from the one it shadows**, so an accidental
+shadow (a slip that silently hides the outer value) is caught while a deliberate
+refinement stays ergonomic:
+
+```saw
+let data = read()
+if refine {
+    let data = parse(move data)   // OK: initializer mentions `data` (derived)
+    let data2 = parse(data)       // (in one scope) — mentioning `data` also derives
+}
+let x: Int? = get()
+if let x = x { use(x) }           // OK: the scrutinee references the shadowed `x`
+let n = 5
+if branch {
+    let n = compute()             // ERROR: initializer never mentions `n`
+}
+```
+
+- The reference may be **any** use of the shadowed name in the initializer —
+  bare (`x`), `move x`, `x.copy()`, `f(x)`, or nested. The mention *is* the
+  declaration of intent.
+- Sites with **no initializer** to prove intent are flat errors when they shadow:
+  a `match` / `if let` / `guard let` **pattern** binding (`case Move(x, y)` under
+  an outer `x` — patterns *bind*, they do not compare, the classic footgun), a
+  function parameter shadowing a module `static`, and a closure parameter
+  shadowing an enclosing local. The single-name `if let x = x` / `guard let x = x`
+  stay legal by the main rule (the scrutinee references the shadowed binding).
+- Same-scope redefinition (`let x = 1; let x = 2` in one scope) is unchanged — it
+  remains the pre-existing "already defined in this scope" error.
+- Prelude/std names (`print`, `Vector`, …) are not bindings for this rule; a
+  local named after one is governed by the existing rules, not design 100.
+- The diagnostic names the shadowed binding's exact declaration site
+  (`'data' shadows the binding declared at FILE:L:C`) and hints to rename or
+  derive it.
+
 ### Functions
 
 ```saw
