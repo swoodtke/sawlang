@@ -1372,7 +1372,15 @@ class ExpressionsMixin:
                               names, out)
             return
         if pk == TypeKind.OPTIONAL:
-            inner = actual.inner_type if actual.kind == TypeKind.OPTIONAL else None
+            # A bare argument auto-wraps to the optional parameter (design 30), so
+            # a non-optional actual constrains the payload directly (`f(5)` into
+            # `f(x: T?)` solves `T = Int`). A `None` actual carries no type.
+            if actual.kind == TypeKind.OPTIONAL:
+                inner = actual.inner_type
+            elif actual.is_none_literal():
+                inner = None
+            else:
+                inner = actual
             self._unify_infer(pattern.inner_type, inner, names, out)
             return
         if pk in (TypeKind.REFERENCE, TypeKind.POINTER):

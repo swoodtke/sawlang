@@ -15,6 +15,7 @@
 // 6
 // n=1
 // 42
+// 99
 
 import std.vector.{Vector}
 
@@ -35,6 +36,11 @@ func mk<A, B>(a: A, b: B) -> Pair<A, B> { Pair<A, B>(a: a, b: b) }
 
 // Trailing type param with a default: A inferred from the arg, B defaults.
 func tagged<A, B = Bool>(a: A) -> A { a }
+
+// A bare argument auto-wraps to the optional parameter; `T` is still inferred.
+func unwrap_or<T: Copy>(x: T?, fallback: T) -> T {
+    if let v = x { v } else { fallback }
+}
 
 func main() {
     // free function, one type param, inferred from the argument
@@ -62,4 +68,6 @@ func main() {
 
     // defaults + inference interplay: A inferred = Int, B defaults to Bool
     print(tagged(42))                    // 42
+    // auto-wrap: bare 99 into the `T?` parameter; T inferred = Int
+    print(unwrap_or(99, 0))              // 99
 }
