@@ -60,9 +60,11 @@ func main() {
     let exists = File.exists(test_file)
     print("File exists: {exists}")
 
-    // Remove the file
-    let removed = File.remove(test_file)
-    print("File removed: {removed}")
+    // Remove the file (design 92: Result surfaces the errno on failure)
+    match File.remove(test_file) {
+        case Ok(_) -> print("File removed: true"),
+        case Err(e) -> print("File remove failed: {e}")
+    }
 
     // Verify it's gone
     let exists_after = File.exists(test_file)

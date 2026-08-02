@@ -194,15 +194,24 @@ extension File {
         access(ptr, 0 as Int32) == (0 as Int32)
     }
 
-    public func remove(path: Path) -> Bool {
+    // Remove a file. Returns Ok on success or the errno cause honestly (design
+    // 92 — a Bool hid WHY it failed; `exists` stays a genuine boolean question).
+    public func remove(path: Path) -> Result<Void, IoError> {
         let ptr = path.as_str() as UnsafePointer<Int8>
-        unlink(ptr) == (0 as Int32)
+        if unlink(ptr) != (0 as Int32) {
+            return IoError.from_errno("unlink")
+        }
+        return
     }
 
-    public func rename(from_path: Path, to_path: Path) -> Bool {
+    // Rename/move a file. Ok on success, Err(IoError) with the errno on failure.
+    public func rename(from_path: Path, to_path: Path) -> Result<Void, IoError> {
         let from_ptr = from_path.as_str() as UnsafePointer<Int8>
         let to_ptr = to_path.as_str() as UnsafePointer<Int8>
-        rename(from_ptr, to_ptr) == (0 as Int32)
+        if rename(from_ptr, to_ptr) != (0 as Int32) {
+            return IoError.from_errno("rename")
+        }
+        return
     }
 }
 

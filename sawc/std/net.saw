@@ -329,6 +329,13 @@ extension IoError {
     public func errno(&self) -> Int {
         self.code
     }
+
+    // Public factory capturing the current C errno — the cross-module way for
+    // other hosted std modules (file/directory/env, design 92) to build an
+    // IoError, since the fields and the `io_error` helper are module-private.
+    public func from_errno(syscall: String) -> IoError {
+        IoError(syscall: syscall, code: saw_errno())
+    }
 }
 
 extension IoError: Error {

@@ -1,0 +1,21 @@
+// design 92: file mutation failures SURFACE as Err(IoError) — a Bool used to
+// hide WHY. remove/rename of a nonexistent path RETURN the errno, they don't
+// silently report a bland false.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// remove missing: surfaced
+// rename missing: surfaced
+
+func main() {
+    let missing = Path(s: "/tmp/saw_df92_does_not_exist_xyz.txt")
+    match File.remove(missing) {
+        case Ok(_) -> print("remove UNEXPECTED ok"),
+        case Err(_) -> print("remove missing: surfaced")
+    }
+
+    let dst = Path(s: "/tmp/saw_df92_dst.txt")
+    match File.rename(missing, dst) {
+        case Ok(_) -> print("rename UNEXPECTED ok"),
+        case Err(_) -> print("rename missing: surfaced")
+    }
+}
