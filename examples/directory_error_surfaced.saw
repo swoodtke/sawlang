@@ -1,0 +1,22 @@
+// design 92: directory mutation failures SURFACE as Err(IoError) — a Bool hid
+// the cause. remove of a nonexistent dir and create under a nonexistent parent
+// RETURN the errno.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// remove missing: surfaced
+// create bad parent: surfaced
+
+func main() {
+    let missing = Path(s: "/tmp/saw_df92_no_such_dir_abc")
+    match Directory.remove(missing) {
+        case Ok(_) -> print("remove UNEXPECTED ok"),
+        case Err(_) -> print("remove missing: surfaced")
+    }
+
+    // Parent directory does not exist -> mkdir fails with ENOENT.
+    let bad = Path(s: "/tmp/saw_df92_no_parent_zzz/child")
+    match Directory.create(bad) {
+        case Ok(_) -> print("create UNEXPECTED ok"),
+        case Err(_) -> print("create bad parent: surfaced")
+    }
+}

@@ -16,20 +16,18 @@ func main() {
     // Create a test directory
     let test_dir = Path(s: "/tmp/saw_test_dir")
 
-    // Remove if it exists from previous run
-    Directory.remove(test_dir)
+    // Remove if it exists from previous run (ignore — it may not exist)
+    let _ = Directory.remove(test_dir)
 
     // Create directory
-    if Directory.create(test_dir) {
-        print("Created test directory")
-    } else {
-        print("Could not create test directory")
+    match Directory.create(test_dir) {
+        case Ok(_) -> print("Created test directory"),
+        case Err(e) -> print("Could not create test directory: {e}")
     }
 
     // Remove directory
-    if Directory.remove(test_dir) {
-        print("Removed test directory")
-    } else {
-        print("Could not remove test directory")
+    match Directory.remove(test_dir) {
+        case Ok(_) -> print("Removed test directory"),
+        case Err(e) -> print("Could not remove test directory: {e}")
     }
 }

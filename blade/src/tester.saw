@@ -94,15 +94,11 @@ public extension Tester {
         }
 
         // A scratch directory for compiled test binaries (created if absent;
-        // create() failing because it already exists is harmless).
-        let made_base = Directory.create(Path(s: ".blade"))
+        // create() failing because it already exists is harmless — the design-92
+        // Result is intentionally discarded here, the directory exists either way).
+        let _ = Directory.create(Path(s: ".blade"))
         let out_dir = Path(s: ".blade/tests")
-        let made_out = Directory.create(out_dir)
-        // create() returns false when the directory already exists; either way
-        // the directory now exists, so the results are advisory only.
-        if made_base && made_out {
-            // fresh scratch dirs — nothing else to do
-        }
+        let _ = Directory.create(out_dir)
 
         print("   Testing {self.manifest.name()} v{self.manifest.version()}")
 

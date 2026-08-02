@@ -94,18 +94,23 @@ extension Directory {
     // Directory manipulation
     // =========================================================================
 
-    // Create a directory with default permissions (0755)
-    // Returns true if successful
-    public func create(path: Path) -> Bool {
+    // Create a directory with default permissions (0755). Ok on success, or the
+    // errno cause (design 92 — a Bool hid WHY, e.g. EEXIST vs EACCES vs ENOENT).
+    public func create(path: Path) -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
-        mkdir(path_ptr, 493) == (0 as Int32)  // 0755 = 493 decimal
+        if mkdir(path_ptr, 493) != (0 as Int32) {   // 0755 = 493 decimal
+            return IoError.from_errno("mkdir")
+        }
+        return
     }
 
-    // Remove an empty directory
-    // Returns true if successful
-    public func remove(path: Path) -> Bool {
+    // Remove an empty directory. Ok on success, Err(IoError) with the errno.
+    public func remove(path: Path) -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
-        rmdir(path_ptr) == (0 as Int32)
+        if rmdir(path_ptr) != (0 as Int32) {
+            return IoError.from_errno("rmdir")
+        }
+        return
     }
 
     // Check if a path exists (works for both files and directories)
@@ -136,10 +141,13 @@ extension Directory {
         }
     }
 
-    // Change the current working directory
-    // Returns true if successful
-    public func set_current(path: Path) -> Bool {
+    // Change the current working directory. Ok on success, Err(IoError) with the
+    // errno cause (design 92).
+    public func set_current(path: Path) -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
-        chdir(path_ptr) == (0 as Int32)
+        if chdir(path_ptr) != (0 as Int32) {
+            return IoError.from_errno("chdir")
+        }
+        return
     }
 }

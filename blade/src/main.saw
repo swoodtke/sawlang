@@ -50,16 +50,22 @@ func create_new_project(name: String) -> Int {
         return 1
     }
 
-    if not Directory.create(project_path) {
-        print("Error: Could not create directory '{name}'")
-        return 1
+    match Directory.create(project_path) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("Error: Could not create directory '{name}': {e}")
+            return 1
+        }
     }
 
     // Create src directory
     let src_path = project_path.join("src")
-    if not Directory.create(src_path) {
-        print("Error: Could not create src directory")
-        return 1
+    match Directory.create(src_path) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("Error: Could not create src directory: {e}")
+            return 1
+        }
     }
 
     // Create Saw.toml
