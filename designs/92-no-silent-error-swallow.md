@@ -39,8 +39,15 @@ worktree acceptance uses — avoid the cherry-pick conflict).
 
 ## Concrete findings (Aug 1 std scan — the checklist)
 TIER 1 (true hide — fix all):
-- `net.TcpStream.write_all` / `write_all_str` → `Result<Void, IoError>`
-  (currently `Void`, drops the error — the design-90 offender).
+- `net.TcpStream.write_all` / `write_all_str` → **collapse to a single
+  overloaded `write`** (user, Aug 1): `write(bytes: Data) ->
+  Result<Void, IoError>` + `write(s: String) -> Result<Void, IoError>`
+  (design-55 overload — distinct types). It IMPLICITLY writes the
+  WHOLE buffer (loops + parks internally, as write_all does today) and
+  returns the error honestly. REMOVE `write_all`/`write_all_str` (no
+  deprecated alias — pre-1.0). NO public partial/short `write` — the
+  raw single-syscall write stays the PRIVATE extern. Migrate all
+  callers (httpd/echo/tests) to `write` + handle/`try` the Result.
 - `net.TcpStream.read() -> Data` → error must be distinct from EOF
   (empty Data currently = BOTH). Pick: `read(&var Data) -> Result<Int,
   IoError>` (0 = EOF) or a ReadOutcome; report.
