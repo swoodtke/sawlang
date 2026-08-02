@@ -5,7 +5,7 @@
 // rejection (both single- and multi-threaded groups). The referent must be
 // shared as an owned value / Arc / Channel, or the function driven in place.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: is a reference held across a suspension
+// EXPECT-ERROR-CONTAINS: is a reference into the spawner held across a suspension
 
 struct Rec { n: Int }
 

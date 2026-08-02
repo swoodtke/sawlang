@@ -27,9 +27,22 @@ items need a probe before being treated as real work.
   multi-threaded groups, confinement not merely Send). Tests:
   coro_ref_param_read/_mut/_self_method/_deinit_once + coro_spawn_ref_rejected.
   Suite 904 (was 899); bootstrap green.
-- **TODO:** item 4 (with_ref/with_var_ref across a suspend — relax design-81
-  sync-only body if sound for driven-in-place, else document); item 5 (net
-  `read_into(&var Data)` capability test + report on offering it); item 7 docs
+- **Item 5 (nested ref + capability) LANDED (commit 2).** A NESTED suspending
+  call's reference argument is seeded into the callee sub-frame as a pointer into
+  the TASK frame (`_build_sub_frame` casts `&self.<field>` -> `UnsafePointer<T>`);
+  a reference to a task-CONFINED local inside a spawned body is sound and allowed.
+  The spawn rejection now fires ONLY on the spawn ROOT's own ref params/locals
+  (its referent is the dead spawner stack) — NOT on embedded callees (refs can't
+  escape owned values, so a nested callee can only get a task-frame pointer once
+  the root carries none). Tests: coro_spawn_nested_ref (read_into-shaped helper
+  holding a `&var` across a `yield_now` in a spawned worker, through the real
+  multi-task scheduler). NET `read_into` over a real socket is BLOCKED by an
+  orthogonal PRE-EXISTING limit: a suspending `stream.read()` buried TWO frames
+  deep (spawn-root -> nested free fn -> nested method) HANGS — reactor token
+  propagation reaches only one nesting level (value-based control hangs
+  identically; NOT a design-88 issue). VERDICT: keep the value-based `read()`;
+  defer a `&var Data` net read until that depth limit is fixed. Suite 905.
+- **TODO:** item 4 (with_ref/with_var_ref across a suspend verdict); item 7 docs
   (spec concurrency D6-implemented note; saw-lang skill limitation removal).
 - **FLAG (pre-existing, unrelated):** `libs/semver` + `libs/toml` `blade test`
   suites fail on a CLEAN tree (module-path: tests `import src.lib.*`; standalone

@@ -1,0 +1,34 @@
+// Design 88 (D6): the reference-across-suspend capability end to end through the
+// REAL multi-task cooperative scheduler. A spawned worker calls a nested
+// `read_into`-shaped helper `accumulate(buf: &var Buf, ...)` that holds the
+// buffer reference across a `yield_now()` suspension and mutates the caller's
+// TASK-LOCAL `acc` through it. The reference points into the worker's own task
+// frame (task-confined), so it is sound even though the frame is boxed onto the
+// run queue and resumed by the scheduler — exactly the shape a `read_into(&var
+// Data)` net helper would use (the socket read itself is orthogonally blocked by
+// the nested-suspending-method depth limit; the reference mechanism is proven
+// here). The spawn ROOT itself takes NO reference param (that would be a dead
+// spawner-stack pointer — rejected; see coro_spawn_ref_rejected).
+// EXPECT: success
+// EXPECT-OUTPUT: 40
+
+struct Buf { total: Int }
+
+func accumulate(buf: &var Buf, amount: Int) -> Int {
+    buf.total = buf.total + amount     // 0 -> 10
+    yield_now()                        // suspend; `buf` held across it
+    buf.total = buf.total + amount     // 10 -> 20 through the same pointer
+    buf.total
+}
+
+func worker(base: Int) -> Int {
+    var acc = Buf(total: 0)
+    let r = accumulate(&var acc, base)   // nested ref-param call; ref -> task-local
+    r + acc.total                        // 20 + 20 = 40 (mutation visible)
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker(10))
+    print(h.join())     // 40
+}

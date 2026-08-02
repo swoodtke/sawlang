@@ -1765,7 +1765,18 @@ class _FrameBuilder:
         forgets = []
         arg_vals = []
         for i, a in enumerate(info['args']):
-            arg_vals.append(self._rewrite_expr(a.value, forgets))
+            val = self._rewrite_expr(a.value, forgets)
+            # design 88 (D6): a reference argument to a nested suspending callee is
+            # seeded into the callee sub-frame's `UnsafePointer<T>` field as a raw
+            # pointer into THIS (caller) frame's storage — the referent lives in the
+            # task frame, so it outlives the sub-frame's drive. Cast `&var self.x`
+            # -> `UnsafePointer<T>` to match the callee's "ref" field encoding.
+            if i < len(callee_fb.params):
+                pname = callee_fb.params[i].name
+                if callee_fb.encmap.get(pname) == "ref":
+                    val = CastExpr(expr=val,
+                                   target_type=_ref_ptr_type(callee_fb.params[i].type))
+            arg_vals.append(val)
         recv_value = None
         if info.get('is_method'):
             # design 84: the method frame's `__recv` is a pointer into the
@@ -2349,47 +2360,43 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
 def _reject_spawn_frame_refs(fb: _FrameBuilder, fbs):
     """design 88 (D6 confinement crux). A DRIVEN-in-place frame may hold a
     reference across a suspension: the driver seeds a pointer into a referent on
-    the LIVE caller stack that outlives the whole drive. A SPAWNED frame cannot —
-    it is boxed onto the group's run queue and resumed later (possibly on another
-    thread), by which time a reference into the spawner's stack could dangle. So a
-    reference param or across-suspend reference local in a spawned function is a
-    hard error, for BOTH single- and multi-threaded groups (confinement, not
-    merely Send). Reference args are STRIPPED from spawned frames by construction —
-    there is no seed path for them — this is the honest diagnostic in their place.
-    Checks the root and every embedded callee sub-frame."""
-    seen = set()
+    the LIVE caller stack that outlives the whole drive. A SPAWNED frame cannot
+    hold a reference INTO ITS SPAWNER: it is boxed onto the group's run queue and
+    resumed later (possibly on another thread), by which time a reference into the
+    spawner's stack could dangle. So a reference PARAMETER (or across-suspend
+    reference local) of the SPAWN ROOT is a hard error, for BOTH single- and
+    multi-threaded groups (confinement, not merely Send).
 
-    def _check(fbx):
-        if fbx.name in seen:
-            return
-        seen.add(fbx.name)
-        for p in fbx.params:
-            if fbx.encmap.get(p.name) == "ref":
-                raise CoroTransformError(
-                    f"cannot spawn `{fbx.func.name}`: parameter `{p.name}` of type "
-                    f"`{p.type}` is a reference held across a suspension. A spawned "
-                    f"task's frame outlives the call that created it, so a reference "
-                    f"into the spawner's stack could dangle — references are confined "
-                    f"to their own task (D6). Pass an owned value (`move`), or share "
-                    f"via `Arc`/`Mutex`/`Channel`. (Driving the function in place with "
-                    f"`__drive` DOES allow a held reference.)",
-                    getattr(p, 'line', 0) or fbx.func.line,
-                    getattr(p, 'column', 0) or fbx.func.column,
-                    source_file=fbx.src_file)
-        for (lname, lt) in fbx.frame_locals:
-            if fbx.encmap.get(lname) == "ref":
-                raise CoroTransformError(
-                    f"cannot spawn `{fbx.func.name}`: local `{lname}` of type `{lt}` "
-                    f"is a reference held across a suspension. A spawned task's frame "
-                    f"outlives its spawner, so a held reference could dangle — "
-                    f"references are confined to their own task (D6).",
-                    fbx.func.line, fbx.func.column, source_file=fbx.src_file)
-        for c in fbx.calls:
-            callee = fbs.get(c['callee'])
-            if callee is not None:
-                _check(callee)
-
-    _check(fb)
+    Only the ROOT's own params/locals are checked — NOT embedded callee
+    sub-frames. A nested suspending call's reference argument is rewritten to
+    `&self.<field>` (a pointer into the TASK frame, which the box keeps alive as
+    long as the task runs), so a reference into a task-confined local is sound and
+    stays allowed (`read_into(&var buf)` inside a spawned handler works). Since
+    references cannot be stored in owned values / escape, a nested callee can only
+    ever receive a pointer into the task frame once the root carries no reference
+    param — which this check guarantees."""
+    for p in fb.params:
+        if fb.encmap.get(p.name) == "ref":
+            raise CoroTransformError(
+                f"cannot spawn `{fb.func.name}`: parameter `{p.name}` of type "
+                f"`{p.type}` is a reference into the spawner held across a "
+                f"suspension. A spawned task's frame outlives the call that created "
+                f"it, so a reference into the spawner's stack could dangle — "
+                f"references are confined to their own task (D6). Pass an owned "
+                f"value (`move`), or share via `Arc`/`Mutex`/`Channel`. (Driving the "
+                f"function in place with `__drive` DOES allow a held reference; a "
+                f"reference to a task-LOCAL inside the spawned body is also fine.)",
+                getattr(p, 'line', 0) or fb.func.line,
+                getattr(p, 'column', 0) or fb.func.column,
+                source_file=fb.src_file)
+    for (lname, lt) in fb.frame_locals:
+        if fb.encmap.get(lname) == "ref":
+            raise CoroTransformError(
+                f"cannot spawn `{fb.func.name}`: local `{lname}` of type `{lt}` "
+                f"is a reference held across a suspension. A spawned task's frame "
+                f"outlives its spawner, so a held reference could dangle — "
+                f"references are confined to their own task (D6).",
+                fb.func.line, fb.func.column, source_file=fb.src_file)
 
 
 def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
