@@ -19,7 +19,7 @@ func server(stream: TcpStream) -> Int {
     while i < 5 {
         let chunk = try! stream.read()          // park; one "abc" per read (lock-step)
         acc.append(move chunk)             // &var self across the suspend -> frame slot
-        try! stream.write("k".to_data())          // ack so the client sends the next chunk
+        try! stream.write("k")          // ack so the client sends the next chunk
         i = i + 1
     }
     let s = acc.to_string()
@@ -30,7 +30,7 @@ func server(stream: TcpStream) -> Int {
 func client(stream: TcpStream) -> Int {
     var i = 0
     while i < 5 {
-        try! stream.write("abc".to_data())
+        try! stream.write("abc")
         let ack = try! stream.read()            // wait for the server's ack before next
         i = i + 1
     }

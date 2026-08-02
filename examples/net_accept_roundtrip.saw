@@ -25,13 +25,13 @@ func serve(listener: TcpListener) -> Int {
             }
         }
     }
-    try! stream.write("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello".to_data())
+    try! stream.write("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
     if req.to_string().starts_with("GET / HTTP/1.1") { 1 } else { 0 }
 }
 
 func client(port: Int) -> Int {
     let stream = try! TcpStream.connect("127.0.0.1", port)
-    try! stream.write("GET / HTTP/1.1\r\n\r\n".to_data())
+    try! stream.write("GET / HTTP/1.1\r\n\r\n")
     var resp = Data()
     var reading = true
     while reading {

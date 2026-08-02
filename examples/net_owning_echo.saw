@@ -1,7 +1,7 @@
 // design 84: a TaskGroup round-trip through the SAFE owning net API —
 // TcpStream.pair() + write + read — with ZERO raw fds, ZERO pointers, and
 // suspension hidden INSIDE the methods (read parks on io_wait internally). The
-// worker bodies are just `stream.write(bytes)` / `stream.read()` — the
+// worker bodies are just `stream.write(...)` / `stream.read()` — the
 // load-bearing "suspending method called from a spawned worker" shape (design 45
 // 0c + design 83 + design 84 method embedding). The receiver reads a chunk
 // (parking until it arrives), verifies the content, and returns its length; the
@@ -14,7 +14,7 @@
 // 5
 
 func sender(stream: TcpStream) -> Int {
-    try! stream.write("hello".to_data())
+    try! stream.write("hello")
     return 5
 }
 

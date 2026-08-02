@@ -27,7 +27,7 @@ func client(stream: TcpStream) -> Int {
     var matched = 0
     var i = 0
     while i < 4 {
-        try! stream.write("x".to_data())  // send one byte (Data overload)
+        try! stream.write("x")  // send one byte (String overload)
         let echo = try! stream.read()         // read its echo
         if echo.to_string() == "x" {
             matched = matched + 1

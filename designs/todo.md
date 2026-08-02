@@ -60,13 +60,14 @@ items need a probe before being treated as real work.
   `TryExpr` the nested-call scan couldn't see, so its `io_wait` park never
   integrated with the executor → hang; the `move` consumes the temp so its owning
   payload is not double-dropped/closed).
-- **FLAGGED — coro-transform cannot drive OVERLOADED suspending methods.** It
-  resolves a driven method by `(struct, method-name)`, so two `write` overloads
-  collapse to one frame (arg mis-typed → "field s expects String? got Data"). The
-  brief's `write(s: String)` overload is therefore DEFERRED; `write(bytes: Data)`
-  is the single method (binary-capable; text via `s.to_data()`). Real fix: key
-  driven-method frames by resolved signature (stamp the resolved overload on the
-  MethodCall in the typechecker, use it throughout the transform).
+- **CLOSED by design 95 — coro-transform now drives OVERLOADED suspending
+  methods.** Driven/embedded suspending-method frames are keyed by the design-55
+  RESOLVED SIGNATURE (the overload-mangled `$OL$`/`$LB$` symbol the typechecker
+  stamps: `mangled_symbol` on the method AST, `resolved_symbol` on the MethodCall)
+  via one canonical `_method_frame_key` helper — a non-overloaded method has no
+  symbol and keeps its plain `{struct}_{method}` key (unchanged). `write(s: String)`
+  is re-added as the text overload of `write(bytes: Data)`; the `.to_data()` call-
+  site workarounds are reverted (httpd/echo/net examples).
 - **file/directory/env LANDED** (TIER 2, Bool→`Result<Void, IoError>`): `file`
   {`remove`,`rename`}, `directory` {`create`,`remove`,`set_current`}, `env`
   {`set`,`unset`,`set_cwd`} now surface the errno; `exists`/`contains` stay
@@ -98,7 +99,23 @@ items need a probe before being treated as real work.
   heaps; MallocScribble makes it deterministic.)
 - **TODO:** land process once the codegen OOB/uninit bug is fixed; borderline
   `file.write`/`seek` `Int?`→Result (report); the overloaded-suspending-method
-  fix (above) to restore `write(s: String)`; docs (skill + spec + CLAUDE.md).
+  fix that restored `write(s: String)` is DONE (design 95, below).
+
+## Design 95 — driven-method frames keyed by resolved signature (LANDED)
+- Coroutine transform keyed a driven suspending METHOD's frame by
+  `(struct, method-name)`, so two OVERLOADS of one name collapsed to a single
+  frame (design 92's deferred `write(s: String)`). Fix: one canonical
+  `_method_frame_key(struct, name, resolved_symbol)` helper keys every driven/
+  embedded/direct-drive method frame by the design-55 resolved-signature symbol
+  (`mangled_symbol` on the method AST at the definition side; `resolved_symbol` on
+  the MethodCall at call sites); non-overloaded methods carry no symbol → plain
+  key, byte-for-byte unchanged (coro_*/taskgroup_*/net_* families untouched).
+  `_driven_method_roots` re-keyed by frame key so a directly-driven overload also
+  gets its own frame; `_find_method` disambiguates by symbol. `net.TcpStream`
+  re-gains `write(s: String)` (whole-string bytes) alongside `write(bytes: Data)`;
+  `.to_data()` workarounds reverted at the net examples. New regression test
+  `net_write_overloads` (spawned worker calls BOTH overloads back to back).
+  Suite 899 (+1), bootstrap green, libs (toml/semver) green.
 
 ## Design 90 — reactor lost-wakeup on the 2nd sequential connection (LANDED)
 - **Root cause (VERIFIED with an instrumented repro, NOT the brief's guessed

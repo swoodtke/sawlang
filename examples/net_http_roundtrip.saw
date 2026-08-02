@@ -30,12 +30,12 @@ func handle(stream: TcpStream) -> Int {
     sb.append(body.len())
     sb.append("\r\n\r\n")
     sb.append(body)
-    try! stream.write(sb.build().to_data())               // park on would-block until sent
+    try! stream.write(sb.build())               // park on would-block until sent
     return body.len()
 }
 
 func client(stream: TcpStream) -> Int {
-    try! stream.write("GET / HTTP/1.1\r\n\r\n".to_data())
+    try! stream.write("GET / HTTP/1.1\r\n\r\n")
     var resp = Data()
     var reading = true
     while reading {

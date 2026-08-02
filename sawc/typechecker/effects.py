@@ -172,8 +172,22 @@ class EffectsMixin:
     def _effect_record_spawn(self, name: str, return_type):
         self._spawn_roots[name] = return_type
 
-    def _effect_record_driven_method(self, struct_name: str, method: str, mode: str):
-        self._driven_method_roots.setdefault((struct_name, method), set()).add(mode)
+    def _effect_record_driven_method(self, struct_name: str, method: str, mode: str,
+                                     resolved_symbol=None):
+        # design 95: key a driven method by its resolved-signature FRAME KEY, so two
+        # overloads of the same method name driven directly each get their own frame
+        # (a name-only key collapsed them). `resolved_symbol` is the design-55
+        # overload-mangled symbol on the `__drive`d MethodCall (None for a
+        # non-overloaded method / a monomorphized generic clone → plain key). The
+        # value carries the struct/method/symbol the coroutine transform needs plus
+        # the accumulated drive modes.
+        frame_key = resolved_symbol or f"{struct_name}_{method}"
+        entry = self._driven_method_roots.get(frame_key)
+        if entry is None:
+            entry = {'struct': struct_name, 'method': method,
+                     'symbol': resolved_symbol, 'modes': set()}
+            self._driven_method_roots[frame_key] = entry
+        entry['modes'].add(mode)
 
     def _effect_absorb_scope(self):
         """A context manager-ish pair: push a throwaway suspend node so effect

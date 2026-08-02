@@ -363,6 +363,21 @@ def _analyze_nesting(root_name, root_func, nodes):
 # per-function transform
 # --------------------------------------------------------------------------- #
 
+def _method_frame_key(struct_name, method_name, resolved_symbol=None):
+    """Canonical frame key for a driven/embedded suspending METHOD (design 95).
+
+    THE one spot that decides a driven-method frame's identity. Two OVERLOADS of
+    the same method name must get DISTINCT frames, so an overloaded suspending
+    method is keyed by its design-55 resolved signature — the overload-mangled
+    symbol (`Struct_write$OL$String`, carrying the `$OL$`/`$LB$` suffix) already
+    composed by the typechecker: `mangled_symbol` on the method AST (definition
+    side), `resolved_symbol` on the MethodCall (call site). A NON-overloaded
+    method has no resolved symbol and keeps the plain `{struct}_{method}` key, so
+    the common case (one signature per name) is byte-for-byte unchanged.
+    """
+    return resolved_symbol or f"{struct_name}_{method_name}"
+
+
 class _FrameBuilder:
     def __init__(self, func, struct_name=None, tc=None, force_opt_result=False,
                  recv_saw_type=None):
@@ -386,7 +401,12 @@ class _FrameBuilder:
         self.is_method = struct_name is not None
         self.struct_name = struct_name
         if self.is_method:
-            self.name = f"{struct_name}_{func.name}"
+            # design 95: an overloaded suspending method's frame is keyed by its
+            # resolved signature (the `mangled_symbol` the typechecker stamped on
+            # the method AST), so two `write` overloads get distinct frames; a
+            # non-overloaded method keeps the plain `{struct}_{method}` name.
+            self.name = _method_frame_key(
+                struct_name, func.name, getattr(func, 'mangled_symbol', None))
             # design 74 (A5-rest, shape 2): a method on a GENERIC struct is driven
             # for a concrete receiver (`Holder<Int>`) — `recv_saw_type` carries the
             # instantiation so `__recv` points at the monomorphized struct codegen
@@ -1055,7 +1075,8 @@ class _FrameBuilder:
         if getattr(recv_type, 'type_args', None):
             # A generic-struct receiver — not embedded here (rejected downstream).
             return None
-        return {'callee': f"{sname}_{mc.method_name}",
+        return {'callee': _method_frame_key(
+                    sname, mc.method_name, getattr(mc, 'resolved_symbol', None)),
                 'args': list(mc.arguments), 'target': target, 'ret': is_ret,
                 'recv': mc.object, 'recv_struct': sname, 'is_method': True}
 
@@ -2493,7 +2514,11 @@ def _rewrite_drive_sites(node, roots):
             recv_ptr = CastExpr(
                 expr=ReferenceExpr(expr=inner.object, mutable=False),
                 target_type=ptr_type)
-            node.name = f"{prefix}{struct_name}_{inner.method_name}"
+            # design 95: name the driver by the resolved-signature frame key so an
+            # overloaded method's driver matches its frame.
+            node.name = prefix + _method_frame_key(
+                struct_name, inner.method_name,
+                getattr(inner, 'resolved_symbol', None))
             node.arguments = [Argument(name=None, value=recv_ptr)] + list(inner.arguments)
             return node
         node.name = prefix + inner.name
@@ -2570,14 +2595,22 @@ def _inline_static_refs(val, const_statics):
     _rw(val)
 
 
-def _find_method(program, struct_name, method_name):
-    """Locate a driven method's AST and the extension that owns it."""
+def _find_method(program, struct_name, method_name, method_symbol=None):
+    """Locate a driven method's AST and the extension that owns it.
+
+    design 95: when the method name is overloaded, `method_symbol` (the resolved
+    overload-mangled symbol) selects the exact overload — a name-only match would
+    return whichever overload was declared first."""
     for ext in program.extensions:
         if getattr(ext, 'struct_name', None) != struct_name:
             continue
         for m in ext.methods:
-            if m.name == method_name:
-                return m, ext
+            if m.name != method_name:
+                continue
+            if method_symbol is not None and \
+                    getattr(m, 'mangled_symbol', None) != method_symbol:
+                continue
+            return m, ext
     return None, None
 
 
@@ -2782,13 +2815,18 @@ def transform_program(program, typechecker, imported_ast=None):
     # edges to a method are keyed by `id(Method)`, so map every method AST to its
     # (struct, method, extension) to follow those edges and build the frames.
     methods_by_id = {}
-    methods_by_key = {}   # (struct, method_name) -> id(method) — for the body scan
+    # design 95: keyed by the resolved-signature FRAME KEY (not (struct, name)),
+    # so two overloads of the same method name each map to their OWN AST — a
+    # name-only key collapsed them (second overwrote first → mis-resolution).
+    methods_by_key = {}   # frame_key -> id(method) — for the body scan
     for ext in _all_exts:
         sname = getattr(ext, 'struct_name', None)
         for m in ext.methods:
             methods_by_id[id(m)] = (sname, m, ext)
-            methods_by_key[(sname, m.name)] = id(m)
-    method_root_keys = {f"{s}_{mn}" for (s, mn) in method_roots}
+            methods_by_key[_method_frame_key(
+                sname, m.name, getattr(m, 'mangled_symbol', None))] = id(m)
+    # design 95: `method_roots` is keyed by the resolved-signature frame key.
+    method_root_keys = set(method_roots.keys())
     _susp_methods_set = typechecker._suspending_methods_set
 
     def _scan_method_callees(body):
@@ -2804,7 +2842,11 @@ def transform_program(program, typechecker, imported_ast=None):
             if sn is None or getattr(rt, 'type_args', None):
                 continue
             if (sn, mc.method_name) in _susp_methods_set:
-                mid = methods_by_key.get((sn, mc.method_name))
+                # design 95: resolve the exact overload's frame via its resolved
+                # signature so a call to `write(String)` finds the String frame,
+                # not whichever `write` was registered last.
+                mid = methods_by_key.get(_method_frame_key(
+                    sn, mc.method_name, getattr(mc, 'resolved_symbol', None)))
                 if mid is not None:
                     out.append(("method", mid))
         return out
@@ -2843,7 +2885,8 @@ def transform_program(program, typechecker, imported_ast=None):
             if entry is None:
                 continue
             sname, mast, ext = entry
-            fbkey = f"{sname}_{mast.name}"
+            fbkey = _method_frame_key(
+                sname, mast.name, getattr(mast, 'mangled_symbol', None))
             # A method-level or generic-struct generic, or one already driven
             # directly (a method root), is not embedded here — the call site is
             # rejected cleanly by `_reject_suspending_method_call`.
@@ -2875,12 +2918,14 @@ def transform_program(program, typechecker, imported_ast=None):
     fbs = {n: _FrameBuilder(funcs_by_name[n], tc=typechecker,
                             force_opt_result=(n in spawn_roots))
            for n in closure}
-    # design 84: frame builders for nested suspending method callees, keyed
-    # `{struct}_{method}` (matching `_FrameBuilder.name`) so a nested method-call
-    # site resolves `fbs[callee]` and embeds `__Frame_{struct}_{method}`.
+    # design 84: frame builders for nested suspending method callees, keyed by
+    # the resolved-signature frame key (design 95, matching `_FrameBuilder.name`)
+    # so a nested method-call site resolves `fbs[callee]` and embeds the RIGHT
+    # overload's `__Frame_...`.
     nested_method_fbs = []   # (key, extension, method_ast)
     for mid, (sname, mast, ext) in method_closure.items():
-        fbkey = f"{sname}_{mast.name}"
+        fbkey = _method_frame_key(
+            sname, mast.name, getattr(mast, 'mangled_symbol', None))
         if fbkey in fbs:
             continue
         fbs[fbkey] = _FrameBuilder(mast, struct_name=sname, tc=typechecker)
@@ -2936,7 +2981,13 @@ def transform_program(program, typechecker, imported_ast=None):
         if id(ext) in _entry_ext_ids:
             removed_methods.append((ext, mast))
     gsm = getattr(typechecker, "_driven_generic_struct_methods", {}) or {}
-    for (struct_name, method_name), modes in method_roots.items():
+    for frame_key, info in method_roots.items():
+        # design 95: `method_roots` is keyed by the resolved-signature frame key;
+        # `info` carries the struct/method/overload-symbol/modes.
+        struct_name = info['struct']
+        method_name = info['method']
+        method_symbol = info['symbol']
+        modes = info['modes']
         # design 74 (A5-rest, shape 2): a driven method on a GENERIC struct is
         # monomorphized by the typechecker into a concrete clone (keyed by a
         # per-instantiation name) carrying the concrete receiver type. Use it
@@ -2958,7 +3009,9 @@ def transform_program(program, typechecker, imported_ast=None):
             for mode in modes:
                 new_functions.append(_make_driver(mfb, mode, fbs))
             continue
-        method_ast, ext = _find_method(program, struct_name, method_name)
+        # design 95: disambiguate an overloaded method by its resolved symbol.
+        method_ast, ext = _find_method(program, struct_name, method_name,
+                                       method_symbol)
         if method_ast is None:
             raise CoroTransformError(
                 f"coroutine transform: driven method `{struct_name}.{method_name}` "

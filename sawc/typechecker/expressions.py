@@ -1710,7 +1710,11 @@ class ExpressionsMixin:
                     self._drive_generic_struct_method(
                         inner, struct_name, recv_type, mode, expr)
                 else:
-                    self._effect_record_driven_method(struct_name, inner.method_name, mode)
+                    # design 95: pass the resolved-signature symbol so an
+                    # overloaded suspending method driven directly keys its own frame.
+                    self._effect_record_driven_method(
+                        struct_name, inner.method_name, mode,
+                        resolved_symbol=getattr(inner, 'resolved_symbol', None))
             else:
                 # design 70 (A5): driving a generic free function. Monomorphize the
                 # instantiation to a concrete function keyed by the mangled symbol,

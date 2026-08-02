@@ -29,7 +29,7 @@ func reader(stream: TcpStream, want: String) -> Int {
 }
 
 func writer(stream: TcpStream, msg: String) -> Int {
-    try! stream.write(msg.to_data())
+    try! stream.write(msg)
     0
 }
 

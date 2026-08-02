@@ -183,8 +183,8 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   let port = listener.local_port()
   let stream = try! listener.accept()          // Result<TcpStream, IoError>; suspends
   let chunk = try! stream.read()               // Result<Data, IoError>; Ok(EMPTY) = EOF
-  try! stream.write("hi".to_data())            // write(bytes: Data) -> Result<Void, IoError>
-  try! stream.write(move data)                 // whole buffer; suspends until sent
+  try! stream.write("hi")                      // write(s: String) -> Result<Void, IoError>
+  try! stream.write(move data)                 // write(bytes: Data); whole buffer, suspends
   let (a, b) = TcpStream.pair()                // connected pair, tests/IPC (no port)
   let s = try! TcpStream.connect("127.0.0.1", port)  // Result; suspends until connected
   ```
@@ -193,10 +193,12 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   error (DISTINCT — an empty Data no longer means both); `write(bytes: Data)`
   writes the WHOLE buffer and returns `Result<Void, IoError>` (it REPLACED the old
   Void `write_all`/`write_all_str` that hid a hard write error); `accept` returns
-  `Result<TcpStream, IoError>`. Handle with `try`/`try!`/`match`. Write text as
-  `stream.write(s.to_data())` — there is only the `Data` overload (an overloaded
-  suspending method is a current coro-transform gap). `IoError: Error` (errno-
-  shaped) — interpolate it (`"{e}"`). accept/read/connect are cancellation-
+  `Result<TcpStream, IoError>`. Handle with `try`/`try!`/`match`. `write` is
+  OVERLOADED — `write(s: String)` for text and `write(bytes: Data)` for binary;
+  both suspend and both are drivable from a spawned worker (design 95 keys the two
+  overloads' driven frames by resolved signature, so a worker may call BOTH back
+  to back). `IoError: Error` (errno- shaped) — interpolate it (`"{e}"`).
+  accept/read/connect are cancellation-
   observing at their internal park. The design-76 raw `tcp_*`/`net_*`/`io_wait`
   free functions are PRIVATE std internals — do not use them.
 - A spawned worker that makes MULTIPLE parking net calls works — `read()`

@@ -492,16 +492,29 @@ extension TcpStream {
     // Write the WHOLE Data buffer, parking on would-block until every byte is
     // sent. Returns Ok on success or the write error honestly (design 92 — this
     // REPLACES the old Void `write_all`/`write_all_str` that silently swallowed a
-    // hard write error). Bytes-typed so it can send arbitrary binary; write text
-    // with `stream.write(s.to_data())`.
-    //
-    // (A `write(s: String)` overload was specified for design 92 but is NOT
-    // provided: the coroutine transform resolves a driven suspending method by
-    // `(struct, method-name)` and cannot disambiguate overloads, so two `write`
-    // overloads mis-resolve to one frame — a separate coro-transform limitation.
-    // Callers convert with `.to_data()`; a real overload lands when the transform
-    // learns per-signature method frames.)
+    // hard write error). Bytes-typed so it can send arbitrary binary.
     public func write(&self, bytes: Data) -> Result<Void, IoError> {
+        var off = 0
+        let total = bytes.len()
+        while off < total {
+            let w = net_write_data_once(self.fd as Int, &bytes, off)
+            if net_would_block(w) {
+                io_wait(self.fd as Int, 1)     // park until writable
+            } else if w < 0 {
+                return io_error("write")
+            } else {
+                off = off + w
+            }
+        }
+        return
+    }
+
+    // Write the whole string's bytes (design 95 — the text overload of
+    // `write(bytes: Data)`, re-added once the coroutine transform learned to
+    // key driven-method frames by resolved signature, so the two overloads get
+    // distinct frames). Same park-until-sent loop over the string's UTF-8.
+    public func write(&self, s: String) -> Result<Void, IoError> {
+        let bytes = s.to_data()
         var off = 0
         let total = bytes.len()
         while off < total {
