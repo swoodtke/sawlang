@@ -141,9 +141,20 @@ extension Circle: Shape { func area(&self) -> Int { ... } }  // default inherite
 func show(s: &any Shape) { print(s.area()) }   // dynamic dispatch
 var boxed: Box<any Shape> = Box<any Shape>.make(c)  // owned existential
 func biggest<T: Shape + Comparable>(v: &Vector<T>) -> ...
-v.map<String>({ $0.to_string() })   // method type args are EXPLICIT
+v.map({ $0.to_string() })           // type args INFERRED (design 93): U from
+v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
 ```
 - `any` only behind `&`, `&var`, or `Box` (unsized otherwise).
+- **Generic type-arg inference (design 93):** a generic free function or method
+  may omit its `<...>` — argument types (and a closure's inferred RETURN type)
+  solve them (`wrap(5)`, `first(7,"hi")`, `v.map({...})`, `v.fold(0){...}`).
+  Explicit `<...>` always allowed + wins; a partial explicit prefix pins the
+  leading params, the rest infer; a defaulted trailing param fills unconstrained.
+  Failures are clean errors (underdetermined / conflicting), and an inferred arg
+  is bound-checked. Boundaries: single left-to-right pass (a param solvable only
+  by a LATER arg than one it gates needs explicit args); a GENERIC OVERLOAD (two
+  candidates of one name) still needs explicit `<...>`; driven/spawned inferred
+  generics monomorphize per instantiation just like explicit ones.
 - Equatable: auto for trivial structs/payload-free enums; opt in with
   empty `extension T: Equatable {}` (synthesized) elsewhere.
   Comparable requires Equatable (no auto). Hashable mirrors Equatable.

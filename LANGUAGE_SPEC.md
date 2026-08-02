@@ -162,10 +162,11 @@ Tie-breaks apply in order, then the result must be unique:
    `f(Int?)`; both may coexist.
 2. **Resolution precedes `Result`/optional auto-wrap** — the callee is chosen
    from the raw argument types, before any return-position wrap machinery.
-3. **Concrete beats generic** — `f(Int)` beats `f<T>(T)`; a generic overload
-   competes only when the call supplies explicit type arguments (Saw has no
-   generic-argument inference). Two matching generics are a call-site
-   ambiguity.
+3. **Concrete beats generic** — `f(Int)` beats `f<T>(T)`; when a name is
+   OVERLOADED, a generic candidate competes only when the call supplies explicit
+   type arguments (argument-type inference, design 93, applies to a *singleton*
+   generic function/method — it is not run across an overload set, where it could
+   manufacture new ambiguity). Two matching generics are a call-site ambiguity.
 
 After the rules there must be exactly one survivor, else a call-site ambiguity
 error listing the candidates; a no-match lists them too. **Closure arguments**
@@ -2746,14 +2747,27 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
 
 var v = Vector<Int>()
 // ...
-let labels = v.map<String> { "n={$0}" }   // Vector<Int> -> Vector<String>
-let sum    = v.fold<Int>(0) { $0 + $1 }    // -> Int
+let labels = v.map { "n={$0}" }           // Vector<Int> -> Vector<String>, U inferred
+let sum    = v.fold(0) { $0 + $1 }         // -> Int, Acc inferred from `0`
+let typed  = v.map<String> { "n={$0}" }    // explicit is always allowed and wins
 ```
 
-The method's type arguments are supplied **explicitly** at the call site
-(`v.map<String>(...)`) — type-argument **inference is not yet implemented**, so a
-generic method requires its `<...>`, exactly like a generic free function, and a
-non-generic method rejects type arguments. The method body is checked abstractly
+The method's type arguments may be supplied **explicitly** at the call site
+(`v.map<String>(...)`) or **inferred** from the argument types (design 93):
+`v.map({ $0.to_string() })` solves `U` from the closure's inferred RETURN type,
+`v.fold(0) { ... }` solves the accumulator from the initial argument. Inference
+applies to generic free functions and methods alike; a non-generic call still
+rejects type arguments. Explicit `<...>` always wins; a partial explicit prefix
+pins its leading parameters and the rest are inferred; an unconstrained trailing
+parameter with a default type fills from the default. Inference never guesses — a
+parameter no argument constrains (**underdetermined**) or one an argument forces
+to two different types (**conflict**) is a clean error naming the parameter and
+suggesting explicit arguments, and an inferred argument is bound-checked naming
+the inferred type. Inference is a single left-to-right pass (non-closure
+arguments, then closures), so a parameter determinable only by a *later*
+argument than one it gates must be given explicitly; likewise, generic
+OVERLOAD resolution (two candidates of one name) still requires explicit `<...>`
+on the generic candidate. The method body is checked abstractly
 with its own type parameters in scope (the same abstract-body checking as any
 generic). Each instantiation monomorphizes per `(receiver type arguments, method
 type arguments)` pair; the mangled symbol composes the two
