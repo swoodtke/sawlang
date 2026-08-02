@@ -40,9 +40,31 @@ items need a probe before being treated as real work.
   `IoError.from_errno(syscall)` factory added (net.saw) as the cross-std-module
   constructor. blade callers migrated (`match`/`let _` on the Result). Forced-
   failure tests: file/directory/env `_error_surfaced`.
-- **TODO (later commits):** process `Command.run() -> Result<Int32, ProcessError>`
-  (Ok=exited, Err=couldn't launch); borderline `file.write`/`seek` `Int?`→Result
-  (report); docs (skill + spec + CLAUDE.md digest).
+- **codegen LANDED (design-92 dogfood):** enum/Result payload SCRATCH allocas are
+  now 8-aligned (`_entry_alloca(..., align=8)` on the extract byte-arrays). The
+  payload is `[N x i8]` (ABI align 1) but is bitcast-and-loaded as the variant's
+  field struct (8-aligned pointers/i64); the 1-aligned slot faulted on arm64
+  depending on frame layout — a heisenbug the added Result monomorphizations
+  tipped (`blade build --force` SIGBUS ~1/3; deterministic under MallocScribble).
+  This alone made the bootstrap reliably green again.
+- **process DEFERRED — a SECOND, DEEPER latent codegen bug.** `Command.run() ->
+  Result<Int32, ProcessError>` is implemented + all callers migrated (blade
+  git/builder, process examples + `process_error_surfaced`) and the full suite
+  passes 898 — BUT it re-tips a distinct crash in blade's large `build` frame (a
+  garbage-POINTER read / translation fault at teardown, ~40% normal). ROOT (found,
+  NOT yet safely fixed): the enum/Result CREATE paths (`_create_result_ok/err`,
+  `_wrap_error_in_union`, `_generate_enum_init`) alloc the (smaller) VARIANT struct
+  but bitcast-load the FULL `[N x i8]` payload → an out-of-bounds stack read past
+  the slot. The obvious fix (alloc the full payload, store the variant into its
+  front) is suite-green but shifts the frame and tips YET ANOTHER latent issue in
+  `Builder_build` (blade went 8→20/20) — so it needs a focused codegen
+  investigation, not a design-92 rider. Process change is reverted; std stays at
+  `run() -> Int32` until the codegen bug is fixed. (Evidence: crash reports show
+  `Builder_build` garbage/alignment reads at teardown; masked under lldb + normal
+  heaps; MallocScribble makes it deterministic.)
+- **TODO:** land process once the codegen OOB/uninit bug is fixed; borderline
+  `file.write`/`seek` `Int?`→Result (report); the overloaded-suspending-method
+  fix (above) to restore `write(s: String)`; docs (skill + spec + CLAUDE.md).
 
 ## Design 90 — reactor lost-wakeup on the 2nd sequential connection (LANDED)
 - **Root cause (VERIFIED with an instrumented repro, NOT the brief's guessed

@@ -123,6 +123,15 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   call-site auto-wrap (`f(5)` matches `f(x: Int?)`).
 - `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift
   violations panic ALWAYS (wrap intentionally with `&+ &- &*`).
+- FAILABLE-RETURNS-RESULT (design 92, non-negotiable): a fallible op SURFACES
+  its failure — `Result<T, IoError/…>` (caller must handle/`try`), or `T?` for an
+  uninteresting/expected absence. NEVER a `Void` return that drops the error, and
+  NEVER a sentinel that collides with a valid value (an empty `Data` must not mean
+  BOTH EOF and error). A genuine boolean QUESTION (`exists`, `contains`) stays
+  `Bool`. std follows this: `file.remove/rename`, `directory.create/remove/
+  set_current`, `env.set/unset/set_cwd` → `Result<Void, IoError>`; net read/write/
+  accept → Result (see the net section). `Result<Void, E>`: a bare `return` in
+  such a function is `Ok(())`; `match r { case Ok(_) -> …, case Err(e) -> … }`.
 
 ## Traits & generics
 ```saw
@@ -172,16 +181,24 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   ```saw
   let listener = TcpListener.listen(0)!        // Result<TcpListener, IoError>
   let port = listener.local_port()
-  let stream = listener.accept()               // suspends until a client connects
-  let chunk = stream.read()                    // suspends; -> Data, empty = peer closed
-  stream.write_all_str("hi")                   // suspends until all bytes sent
-  stream.write_all(move data)                  // Data by value
+  let stream = try! listener.accept()          // Result<TcpStream, IoError>; suspends
+  let chunk = try! stream.read()               // Result<Data, IoError>; Ok(EMPTY) = EOF
+  try! stream.write("hi".to_data())            // write(bytes: Data) -> Result<Void, IoError>
+  try! stream.write(move data)                 // whole buffer; suspends until sent
   let (a, b) = TcpStream.pair()                // connected pair, tests/IPC (no port)
-  let s = TcpStream.connect("127.0.0.1", port)!  // suspends until connected
+  let s = try! TcpStream.connect("127.0.0.1", port)  // Result; suspends until connected
   ```
-  `IoError: Error` (errno-shaped) — interpolate it (`"{e}"`). accept/read/connect
-  are cancellation-observing at their internal park. The design-76 raw `tcp_*`/
-  `net_*`/`io_wait` free functions are now PRIVATE std internals — do not use them.
+  DESIGN 92 — failable net calls RETURN the failure, never swallow it: `read`
+  gives `Result<Data, IoError>` where an EMPTY Ok is EOF and an `Err` is a genuine
+  error (DISTINCT — an empty Data no longer means both); `write(bytes: Data)`
+  writes the WHOLE buffer and returns `Result<Void, IoError>` (it REPLACED the old
+  Void `write_all`/`write_all_str` that hid a hard write error); `accept` returns
+  `Result<TcpStream, IoError>`. Handle with `try`/`try!`/`match`. Write text as
+  `stream.write(s.to_data())` — there is only the `Data` overload (an overloaded
+  suspending method is a current coro-transform gap). `IoError: Error` (errno-
+  shaped) — interpolate it (`"{e}"`). accept/read/connect are cancellation-
+  observing at their internal park. The design-76 raw `tcp_*`/`net_*`/`io_wait`
+  free functions are PRIVATE std internals — do not use them.
 - A spawned worker that makes MULTIPLE parking net calls works — `read()`
   then `write()`, a read/write loop, or accumulating chunks across reads
   (`req.append(move chunk)`). Fixed by design 85 (fcntl variadic ABI) + design 86
