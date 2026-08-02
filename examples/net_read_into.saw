@@ -1,0 +1,39 @@
+// design 88 (D6) + design 96: the reference-taking suspending net method
+// `read_into(&var Data)` over a REAL socket, driven from a spawned worker. The
+// `&var buf` is held across the method's internal io_wait park (design 88 —
+// reference params are frame-resident across a suspend) and the bytes are appended
+// into the caller's buffer AFTER the park (mutation visible to the caller). This
+// was deferred by design 88 (an orthogonal nested-method-read depth limit) and is
+// unblocked by design 96. Deterministic byte round-trip over a socketpair;
+// loopback only, time-bounded.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 5
+
+import std.net.{TcpStream, IoError}
+import std.data.{Data}
+
+func server(stream: TcpStream) -> Int {
+    var buf = Data()
+    match stream.read_into(&var buf) {         // suspending; &var buf held across
+        case Ok(n) -> if buf.len() == n { n } else { -1 },
+        case Err(_) -> -1
+    }
+}
+
+func client(stream: TcpStream) -> Int {
+    match stream.write("hello") {
+        case Ok(_) -> 5,
+        case Err(_) -> -1
+    }
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hs = group.spawn(server(move a))
+    let hc = group.spawn(client(move b))
+    print(hs.join())     // 5 bytes read AND appended into the caller's buf
+    print(hc.join())     // 5 bytes written
+}

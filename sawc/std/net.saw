@@ -489,6 +489,40 @@ extension TcpStream {
         return move out
     }
 
+    // Read the next chunk of bytes and APPEND them into the caller's `into`
+    // buffer, returning the byte count (0 = the peer closed cleanly / EOF), or
+    // Err(IoError) on a genuine read failure (distinct from EOF, design 92). The
+    // in-out `&var Data` is held across this method's internal io_wait suspension —
+    // design 88 (D6): a reference parameter is frame-resident across a suspend, so
+    // the append after the park writes back to the SAME caller buffer. Offered
+    // ALONGSIDE the value `read()` (which allocates a fresh Data): `read_into` lets
+    // a caller ACCUMULATE across successive reads into one growing buffer with no
+    // per-chunk allocation (design 96 unblocked it — a `&var Data` read is a
+    // suspending method, and driving one from a spawned worker or a nested frame
+    // works now). COOPERATIVE: parks internally on would-block until bytes arrive.
+    public func read_into(&self, into: &var Data) -> Result<Int, IoError> {
+        let ptr = unsafe net_buffer(READ_CHUNK)        // scratch (panics on OOM)
+        var going = true
+        var count = 0
+        while going {
+            let r = tcp_try_read(self.fd, ptr, READ_CHUNK)
+            if net_would_block(r) {
+                io_wait(self.fd, 0)                    // park until readable
+            } else if r < 0 {
+                net_free_buffer(ptr, READ_CHUNK)
+                return io_error("read")                // a real read error, not EOF
+            } else {
+                if r > 0 {
+                    into.append_bytes(ptr, r)          // write THROUGH the held &var
+                }
+                count = r                              // r >= 0: bytes read (0 = EOF)
+                going = false
+            }
+        }
+        net_free_buffer(ptr, READ_CHUNK)
+        return count
+    }
+
     // Write the WHOLE Data buffer, parking on would-block until every byte is
     // sent. Returns Ok on success or the write error honestly (design 92 — this
     // REPLACES the old Void `write_all`/`write_all_str` that silently swallowed a
