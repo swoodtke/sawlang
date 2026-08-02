@@ -1747,27 +1747,23 @@ class CallsMixin:
                 for i, val in enumerate(arg_values):
                     param_struct = self.builder.insert_value(param_struct, val, i, name=f"param{i}")
 
-                # Cast the param struct to bytes and store in payload
-                # For simplicity, we'll use bitcast + store
+                # Cast the param struct to bytes and store in payload.
                 payload_array_type = llvm_enum_type.elements[1]  # [N x i8]
 
-                # Allocate temporary space for the payload
-                payload_temp = self._entry_alloca(param_struct_type, name="payload_temp")
-                self.builder.store(param_struct, payload_temp)
+                # Allocate temporary space sized to the FULL payload `[N x i8]`
+                # (the biggest variant), NOT the smaller variant struct: the byte
+                # loads below read all N bytes, so a variant-sized alloca reads out
+                # of bounds past the slot (design 94 — the create/extract
+                # asymmetry). Alloca the full payload, store the variant struct
+                # into its front through a bitcast pointer, load the whole thing.
+                payload_temp = self._entry_alloca(payload_array_type, name="payload_temp", align=8)
+                struct_ptr = self.builder.bitcast(payload_temp,
+                                                  ir.PointerType(param_struct_type),
+                                                  name="payload_struct_ptr")
+                self.builder.store(param_struct, struct_ptr)
 
-                # Bitcast to array of bytes
-                payload_ptr = self.builder.bitcast(payload_temp,
-                                                   ir.PointerType(ir.IntType(8)),
-                                                   name="payload_bytes_ptr")
-
-                # Load bytes into an array value
-                payload_bytes = ir.Constant(payload_array_type, ir.Undefined)
-                for i in range(payload_array_type.count):
-                    idx_ptr = self.builder.gep(payload_ptr,
-                                              [ir.Constant(ir.IntType(32), i)],
-                                              inbounds=True)
-                    byte_val = self.builder.load(idx_ptr, name=f"byte{i}")
-                    payload_bytes = self.builder.insert_value(payload_bytes, byte_val, i, name=f"payload{i}")
+                # Load the full payload byte array back in one shot.
+                payload_bytes = self.builder.load(payload_temp, name="enum_payload_bytes")
 
                 # Insert payload into enum
                 enum_val = self.builder.insert_value(enum_val, payload_bytes, 1, name="enum_with_payload")

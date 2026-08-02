@@ -11,6 +11,28 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 94 — enum/Result payload sizing + temp-drop-at-merge (IN PROGRESS)
+- **Codegen chain LANDED (commit 1).** Two frame-layout-sensitive bugs, both
+  root-caused with a deterministic `-O0` repro (`blade build --force` 12/12
+  SIGBUS at -O0; ~40% at -O1) + the design-85/86 discipline. (1) enum/Result
+  CREATE paths (`_create_result_ok/err_for_return`, `_wrap_error_in_union`,
+  `_generate_enum_init`) alloca'd the SMALLER variant struct but bitcast-LOADED
+  the FULL `[N x i8]` payload — an OOB stack read past the slot; fixed to alloca
+  the full payload (align 8), store the variant struct into its front, load the
+  whole array. (2) The create-fix shifted the frame and exposed the real
+  `Builder_build` crash: a statement TEMP created in a block's `final_expr` (an
+  unbound method receiver — here `read_file(".blade/build-hash")` in the inner
+  `if …equals(hash)`, itself the tail-expr of the outer `if not force` body) was
+  registered in the ENCLOSING statement's temp list and dropped at the outer
+  `if`'s MERGE block — reachable from the not-taken `else` where the temp was
+  never initialized → `String_deinit` released an uninitialized (garbage) pointer
+  → EXC_ARM_DA_ALIGN on the refcount atomic. Fix: `_generate_block` now drains
+  the statement temps created during its `final_expr` at block end, on the paths
+  that create them, before the merge. Suite 897 green; bootstrap green; `blade
+  build`/`--force` reliable 15x + under libgmalloc (0 faults, O1 and O0).
+- **TODO:** re-land the process module (`Command.run() -> Result<Int32,
+  ProcessError>` + forced-failure test) as the acceptance; docs.
+
 ## Design 92 — failable calls return Result: no silent swallow (IN PROGRESS)
 - **net module LANDED** (commit 1): `TcpStream.write(bytes: Data)`,
   `read() -> Result<Data, IoError>`, `TcpListener.accept() -> Result<TcpStream,

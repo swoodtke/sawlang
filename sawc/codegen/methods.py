@@ -493,6 +493,19 @@ class MethodsMixin:
 
         result = None
 
+        # design 94: statement temps created while evaluating this block's
+        # final_expr (an unbound method receiver, a discarded call result) must be
+        # dropped on the paths that CREATE them — inside this block — not deferred
+        # to the enclosing statement's cleanup point. A nested block is often a
+        # conditional branch whose merge is also reached by a sibling branch that
+        # never created the temp; dropping there releases an uninitialized slot
+        # (a garbage pointer). Statements inside the block already drain their own
+        # temps in `_generate_statement`, so only the final_expr's temps (those
+        # added beyond this mark) need draining here. `statement_temps` is None
+        # outside any statement context (e.g. a function body before its first
+        # statement) — then there is nothing to confine.
+        temp_mark = len(self.statement_temps) if self.statement_temps is not None else None
+
         for stmt in block.statements:
             self._generate_statement(stmt)
             if self.builder.block.is_terminated:
@@ -511,6 +524,17 @@ class MethodsMixin:
             # expression (only the function/method body's final_expr is marked
             # by the value-transfer checkpoint, so other blocks are unaffected).
             result = self._gen_transfer_value(block.final_expr)
+
+        # Drop final_expr statement temps confined to this block (design 94),
+        # before the block's own scope-var cleanup (LIFO). Skip when the block
+        # already terminated (a `return`/`break` drained via the scope machinery).
+        if (manage_cleanup and temp_mark is not None
+                and not self.builder.block.is_terminated):
+            branch_temps = self.statement_temps[temp_mark:]
+            if branch_temps:
+                for slot, saw_type in reversed(branch_temps):
+                    self._emit_drop_at(slot, saw_type)
+                del self.statement_temps[temp_mark:]
 
         # Cleanup variables declared in this block
         if manage_cleanup:
