@@ -45,8 +45,10 @@ extern "C" {
 
     // OS-divergent socket helpers + the reactor register seam (compiler-defined,
     // codegen/core.py). `saw_reactor_register` is emitted by the `io_wait`
-    // intrinsic lowering, so it must be a namespace-visible symbol.
-    func saw_reactor_register(fd: Int, write: Int)
+    // intrinsic lowering, so it must be a namespace-visible symbol. `token`
+    // (design 91) is the parked frame's `__wake`-word address, carried as the
+    // event's user-data so the reactor wakes EXACTLY this frame on readiness.
+    func saw_reactor_register(fd: Int, write: Int, token: Int)
     func saw_set_nonblocking(fd: Int) -> Int
     func saw_errno_would_block() -> Int
     // design 90: classify a re-issued nonblocking connect()'s errno —

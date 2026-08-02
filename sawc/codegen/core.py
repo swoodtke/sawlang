@@ -1159,14 +1159,29 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         The reactor is a process-global kqueue (macOS) / epoll (Linux) fd, created
         lazily and race-safely (an atomic cmpxchg publishes the fd; a loser closes
-        its spare). `saw_reactor_register(fd, write)` arms one-shot readiness
-        interest; `saw_reactor_poll(timeout_ms)` blocks in kevent/epoll_wait up to
-        `timeout_ms` (<0 = forever) and returns the ready-event count — the
-        executor then wakes ALL io-parked tasks (coarse level-triggered retry: a
-        woken task that is still not ready simply re-registers and re-parks). The
-        kernel owns the interest set, so register/poll are each a single syscall
-        with no user-space fd array to manage — this is why kqueue/epoll fits a
-        global reactor better than poll(2).
+        its spare). `saw_reactor_register(fd, write, token)` arms one-shot readiness
+        interest, carrying `token` as the event's user-data (kevent.udata /
+        epoll_event.data) — the PARKED FRAME'S `__wake`-word ADDRESS (design 91).
+        `saw_reactor_poll(timeout_ms)` blocks in kevent/epoll_wait up to
+        `timeout_ms` (<0 = forever), then for EACH ready event LATCHES its token
+        word to 0 (ready) — waking EXACTLY the frame(s) that registered for that
+        (fd, direction), not the herd — and returns the ready-event count. The
+        latch is a persistent word (not an edge), so even a poll that fires before
+        the scheduler has finished recording the park is never lost: the next wake
+        scan reads the latched word. Because the token is the frame's own word (per
+        PARK, not per fd-number) and EV_ONESHOT + close both drop the registration,
+        a reused fd number can never route a wake to a stale frame. The kernel owns
+        the interest set, so register/poll are each a single syscall with no
+        user-space fd array to manage — this is why kqueue/epoll fits a global
+        reactor better than poll(2).
+
+        Many frames on one fd: kqueue/epoll key the interest set by (fd, filter),
+        so two frames waiting DIFFERENT directions on one fd are two independent
+        registrations, each with its own token — both are woken precisely. Two
+        frames waiting the SAME direction on one fd collapse to a single kernel
+        registration whose token is the last registrant's — last-writer-wins; the
+        retained belt-and-suspenders re-verify keeps that safe. Concurrent
+        same-direction waiters on one fd are not a supported pattern.
 
         The remaining shims keep the OS-divergent socket bits (O_NONBLOCK, the
         EAGAIN/EINPROGRESS errno values, the `struct sockaddr_in` family/len
@@ -1185,7 +1200,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         void = ir.VoidType()
         apple = self._is_apple_triple()
 
-        reg = ir.Function(self.module, ir.FunctionType(void, [i64, i64]),
+        reg = ir.Function(self.module, ir.FunctionType(void, [i64, i64, i64]),
                           name="saw_reactor_register")
         poll = ir.Function(self.module, ir.FunctionType(i64, [i64]),
                            name="saw_reactor_poll")
@@ -1276,7 +1291,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     b.gep(kev, [ir.Constant(i32, 0), ir.Constant(i32, 2)]))
             b.store(ir.Constant(i32, 0), b.gep(kev, [ir.Constant(i32, 0), ir.Constant(i32, 3)]))
             b.store(ir.Constant(i64, 0), b.gep(kev, [ir.Constant(i32, 0), ir.Constant(i32, 4)]))
-            b.store(ir.Constant(i8ptr, None), b.gep(kev, [ir.Constant(i32, 0), ir.Constant(i32, 5)]))
+            # design 91: udata = the parked frame's `__wake`-word address (precise
+            # routing). saw_reactor_poll latches it to 0 when this (fd, filter) fires.
+            udata_p = b.inttoptr(reg.args[2], i8ptr)
+            b.store(udata_p, b.gep(kev, [ir.Constant(i32, 0), ir.Constant(i32, 5)]))
             kevent_fn = self._libc_func(
                 "kevent", i32, [i32, kev_ty.as_pointer(), i32,
                                 kev_ty.as_pointer(), i32, i8ptr])
@@ -1295,7 +1313,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                               ir.Constant(i32, EPOLLIN | EPOLLONESHOT))
             b.store(events, b.bitcast(ev_i8, i32.as_pointer()))
             data_ptr = b.gep(ev_i8, [ir.Constant(i32, 4)])
-            b.store(reg.args[0], b.bitcast(data_ptr, i64.as_pointer()))
+            # design 91: epoll_event.data = the parked frame's `__wake`-word address
+            # (precise routing); saw_reactor_poll latches it to 0 on a ready event.
+            b.store(reg.args[2], b.bitcast(data_ptr, i64.as_pointer()))
             epoll_ctl_fn = self._libc_func(
                 "epoll_ctl", i32, [i32, i32, i32, ev_ty.as_pointer()])
             # EPOLL_CTL_ADD=1; on EEXIST (already known) re-arm with EPOLL_CTL_MOD=3.
@@ -1334,6 +1354,32 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             n = b.call(kevent_fn, [rfd, ir.Constant(kev_ty.as_pointer(), None),
                                    ir.Constant(i32, 0), evbuf0, ir.Constant(i32, 64),
                                    tsptr])
+            # design 91: latch each ready event's udata (kevent.udata, field 5 =
+            # the parked frame's `__wake`-word address) to 0 (ready). A negative
+            # `n` (EINTR) makes the `i < n` guard false, so the loop is skipped.
+            i_slot = b.alloca(i32, name="scan_i")
+            b.store(ir.Constant(i32, 0), i_slot)
+            hdr = poll.append_basic_block("scan_hdr")
+            body = poll.append_basic_block("scan_body")
+            setz = poll.append_basic_block("scan_set")
+            nxt = poll.append_basic_block("scan_next")
+            end = poll.append_basic_block("scan_end")
+            b.branch(hdr)
+            b = ir.IRBuilder(hdr)
+            iv = b.load(i_slot, name="scan_iv")
+            b.cbranch(b.icmp_signed("<", iv, n), body, end)
+            b = ir.IRBuilder(body)
+            udp = b.gep(evbuf, [ir.Constant(i32, 0), iv, ir.Constant(i32, 5)])
+            ud = b.load(udp, name="udata")
+            udi = b.ptrtoint(ud, i64)
+            b.cbranch(b.icmp_signed("==", udi, ir.Constant(i64, 0)), nxt, setz)
+            b = ir.IRBuilder(setz)
+            b.store(ir.Constant(i64, 0), b.bitcast(ud, i64.as_pointer()))
+            b.branch(nxt)
+            b = ir.IRBuilder(nxt)
+            b.store(b.add(iv, ir.Constant(i32, 1)), i_slot)
+            b.branch(hdr)
+            b = ir.IRBuilder(end)
             b.ret(b.sext(n, i64))
         else:
             ev_ty = ir.ArrayType(i8, 12)
@@ -1343,6 +1389,33 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             epoll_wait_fn = self._libc_func(
                 "epoll_wait", i32, [i32, ev_ty.as_pointer(), i32, i32])
             n = b.call(epoll_wait_fn, [rfd, evbuf0, ir.Constant(i32, 64), to])
+            # design 91: latch each ready event's udata (epoll_event.data at byte
+            # offset 4 = the parked frame's `__wake`-word address) to 0 (ready).
+            # A negative `n` (EINTR) makes the `i < n` guard false (loop skipped).
+            i_slot = b.alloca(i32, name="scan_i")
+            b.store(ir.Constant(i32, 0), i_slot)
+            hdr = poll.append_basic_block("scan_hdr")
+            body = poll.append_basic_block("scan_body")
+            setz = poll.append_basic_block("scan_set")
+            nxt = poll.append_basic_block("scan_next")
+            end = poll.append_basic_block("scan_end")
+            b.branch(hdr)
+            b = ir.IRBuilder(hdr)
+            iv = b.load(i_slot, name="scan_iv")
+            b.cbranch(b.icmp_signed("<", iv, n), body, end)
+            b = ir.IRBuilder(body)
+            evp = b.gep(evbuf, [ir.Constant(i32, 0), iv])
+            evp_i8 = b.bitcast(evp, i8ptr)
+            data_p = b.bitcast(b.gep(evp_i8, [ir.Constant(i32, 4)]), i64.as_pointer())
+            udi = b.load(data_p, name="udata")
+            b.cbranch(b.icmp_signed("==", udi, ir.Constant(i64, 0)), nxt, setz)
+            b = ir.IRBuilder(setz)
+            b.store(ir.Constant(i64, 0), b.inttoptr(udi, i64.as_pointer()))
+            b.branch(nxt)
+            b = ir.IRBuilder(nxt)
+            b.store(b.add(iv, ir.Constant(i32, 1)), i_slot)
+            b.branch(hdr)
+            b = ir.IRBuilder(end)
             b.ret(b.sext(n, i64))
 
         # ---- saw_set_nonblocking(fd) -> 0/-1 ---------------------------------

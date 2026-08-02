@@ -203,7 +203,11 @@ class CallsMixin:
         if expr.name == "io_wait":
             fd = self._generate_expression(expr.arguments[0].value)
             direction = self._generate_expression(expr.arguments[1].value)
-            self.builder.call(self.functions["saw_reactor_register"], [fd, direction])
+            # design 91: no frame here (blocking-thread path), so no wake word to
+            # route to — register with a null token. The poll skips null udata and
+            # simply returns when the fd is ready, giving correct blocking semantics.
+            self.builder.call(self.functions["saw_reactor_register"],
+                              [fd, direction, ir.Constant(self.int_type, 0)])
             self.builder.call(self.functions["saw_reactor_poll"],
                               [ir.Constant(self.int_type, -1)])
             return None

@@ -336,9 +336,12 @@ func __tg_worker(addr: Int) -> Int {
                         // EV_ONESHOT + concurrent pollers only one worker gets each
                         // event, so a missed worker must retry rather than block
                         // forever (no lost-wakeup hang). Poll OUTSIDE the lock; then
-                        // wake ALL io-parked tasks (idempotent, so redundant
-                        // concurrent polls are harmless), and advance sleepers only
-                        // if the poll TIMED OUT (events == 0).
+                        // (design 91) wake PRECISELY the io-parked tasks the reactor
+                        // latched (`__wake_reason()` >= 0), not the herd — the latch
+                        // is a persistent word, so a fire that races the park is
+                        // caught on the next scan. Advance sleepers only if the poll
+                        // TIMED OUT (events == 0). The scan runs UNDER the lock, so
+                        // the `with_var_ref` borrow never races a peer worker.
                         var tmo = minrem
                         if tmo < 0 {
                             tmo = 50
@@ -352,7 +355,10 @@ func __tg_worker(addr: Int) -> Int {
                             if not done_k {
                                 let rk = unsafe g[0].remaining.get(k)!
                                 if rk < 0 {
-                                    unsafe g[0].remaining.set(k, 0)
+                                    let wk = unsafe g[0].tasks.with_var_ref<Int>(k, { f in f.__wake_reason() })
+                                    if wk >= 0 {
+                                        unsafe g[0].remaining.set(k, 0)
+                                    }
                                 } else if rk > 0 && events == 0 && minrem > 0 {
                                     var nr = rk - minrem
                                     if nr < 0 {
@@ -570,9 +576,13 @@ func __ambient_should_stop(term_group: Int, term_slot: Int) -> Bool {
     true
 }
 
-// Wake all io-parked frames (design-76 coarse level-triggered retry) and, if the
-// reactor poll TIMED OUT (events == 0), advance sleepers by the elapsed deadline.
-// Skips frames active on the C stack (owned by an outer sweep).
+// design 91: precise reactor wakeup (wake-all retired). The reactor's poll
+// latched the `__wake` word of EXACTLY the frame(s) whose (fd, direction) fired
+// (from IO_PARK_WAKE = -1 to 0). Here we wake only those: an io-parked frame
+// (remaining < 0) is made runnable ONLY when its `__wake_reason()` has become
+// >= 0 — a frame still parked (word == -1) stays parked (no thundering herd, and
+// no reliance on every op re-verifying). If the poll TIMED OUT (events == 0),
+// advance sleepers by the elapsed deadline. Skips frames active on the C stack.
 func __ambient_wake_io(events: Int, deadline: Int) {
     var cur = __saw_exec_head.load()
     while cur != 0 {
@@ -585,7 +595,11 @@ func __ambient_wake_io(events: Int, deadline: Int) {
             if (not done_i) && (not active_i) {
                 let r = unsafe g[0].remaining.get(i)!
                 if r < 0 {
-                    unsafe g[0].remaining.set(i, 0)
+                    // Only the frame the reactor latched (wake word >= 0) wakes.
+                    let wr = unsafe g[0].tasks.with_var_ref<Int>(i, { f in f.__wake_reason() })
+                    if wr >= 0 {
+                        unsafe g[0].remaining.set(i, 0)
+                    }
                 } else if r > 0 && events == 0 && deadline > 0 {
                     var nr = r - deadline
                     if nr < 0 {

@@ -870,6 +870,12 @@ class _FrameBuilder:
         # The wake reason the frame communicates to the executor on a Pending
         # (design 45 item 4): 0 = ready (yield), >0 = sleep that many ms.
         fields.append(StructField(name="__wake", type=SawType(TypeKind.INT)))
+        # design 91: the reactor wake-word ADDRESS to latch on an io readiness
+        # event. For a driven ROOT frame it is `&self.__wake` (set on first resume);
+        # a nested sub-frame inherits its parent's token (propagated at each drive),
+        # so an `io_wait` buried in a sub-frame routes the wakeup to the TOP-LEVEL
+        # frame's `__wake` word — the one the scheduler reads. 0 = not yet set.
+        fields.append(StructField(name="__io_tok", type=SawType(TypeKind.INT)))
         # design 52b item 3: the cooperative cancel word. `handle.cancel()` sets it
         # (through a `TaskHandle`'s raw pointer into this frame); task code reads it
         # via `cancelled()`, which the transform rewrites to `self.__cancel`. NO
@@ -1138,12 +1144,31 @@ class _FrameBuilder:
             condition=BoolLiteral(value=True),
             body=Block(statements=if_chain, final_expr=None)))
 
+        # design 91: on the FIRST resume of a driven ROOT frame, latch this frame's
+        # reactor token to its own `__wake`-word address. A nested sub-frame is
+        # driven with `__io_tok` already set by its parent (propagated in the drive
+        # block), so this leaves the inherited root token in place — an `io_wait`
+        # anywhere in the call tree routes its wakeup to the root's `__wake` word.
+        io_tok_init = ExpressionStatement(expression=IfExpr(
+            condition=BinaryOp(op="==", left=_self_field("__io_tok"), right=_int(0)),
+            then_branch=Block(statements=[AssignStatement(
+                target=_self_field("__io_tok"),
+                value=CastExpr(
+                    expr=CastExpr(
+                        expr=ReferenceExpr(expr=_self_field("__wake"), mutable=False),
+                        target_type=SawType(kind=TypeKind.POINTER,
+                                             inner_type=SawType(kind=TypeKind.INT),
+                                             pointer_mutable=True)),
+                    target_type=SawType(kind=TypeKind.INT)))],
+                final_expr=None),
+            else_branch=None))
+
         resume = Method(
             name="resume",
             parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True, reference_mutable=True)],
             return_type=SawType(TypeKind.ENUM, enum_name="__Poll"),
-            body=Block(statements=[loop], final_expr=None),
+            body=Block(statements=[io_tok_init, loop], final_expr=None),
             self_mutable=True, self_is_reference=True, is_sync=True,
             is_synthesized=True,
             line=func.line, column=func.column,
@@ -1256,10 +1281,18 @@ class _FrameBuilder:
                 fd_a = self._rewrite_expr(fc.arguments[0].value, forgets)
                 dir_a = self._rewrite_expr(fc.arguments[1].value, forgets)
                 self._emit(self._forgets(forgets))
+                # design 91: register with the TOP-LEVEL frame's `__wake`-word address
+                # (`self.__io_tok`) as the reactor token, so a readiness event latches
+                # exactly the wake word the scheduler reads — precise routing, not
+                # wake-all. `__io_tok` is `&root.__wake`: a driven root sets it to
+                # `&self.__wake` on first resume; a nested sub-frame inherits it from
+                # its parent at each drive, so an `io_wait` buried in a sub-frame still
+                # routes the wake to the root frame the scheduler schedules.
                 self._emit([ExpressionStatement(expression=FunctionCall(
                     name="saw_reactor_register",
                     arguments=[Argument(name=None, value=fd_a),
-                               Argument(name=None, value=dir_a)]))])
+                               Argument(name=None, value=dir_a),
+                               Argument(name=None, value=_self_field("__io_tok"))]))])
                 nxt = self._new_block()
                 self._suspend_to(_int(IO_PARK_WAKE), nxt)
                 self.cur = nxt
@@ -1560,6 +1593,12 @@ class _FrameBuilder:
                                                member="__wake")),
             ReturnStatement(value=_poll("Pending")),
         ]
+        # design 91: hand the sub-frame THIS frame's reactor token (the root's
+        # `__wake`-word address) before driving it, so an `io_wait` inside the
+        # sub-frame routes its wakeup to the root frame the scheduler schedules.
+        self._blocks[drive].append(AssignStatement(
+            target=MemberAccess(object=_self_field(sub), member="__io_tok"),
+            value=_self_field("__io_tok")))
         resume_call = MethodCall(object=_self_field(sub), method_name="resume",
                                  arguments=[])
         match = MatchExpr(matched_expr=resume_call, arms=[
@@ -2002,6 +2041,7 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):
             field_inits.append((f"__rcv{rc['idx']}", NoneLiteral()))
     field_inits.append(("__state", _int(0)))
     field_inits.append(("__wake", _int(0)))
+    field_inits.append(("__io_tok", _int(0)))   # design 91: reactor wake-word address
     field_inits.append(("__cancel", BoolLiteral(value=False)))
     if not fb.is_void:
         field_inits.append(("__result", _zeroed_value(fb.result_enc, fb.ret)))

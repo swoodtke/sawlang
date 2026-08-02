@@ -59,6 +59,23 @@ items need a probe before being treated as real work.
   internal). Suite 888 (from 884), all net_*/coro_*/taskgroup_* green, bootstrap +
   libs green. [90, 76, 84, 89]
 
+## Design 91 — precise reactor wakeup (retire wake-all) (IN PROGRESS)
+- **Core landed.** The reactor no longer wakes ALL io-parked frames on any
+  readiness event. `saw_reactor_register(fd, write, token)` carries a udata
+  pointer (kevent.udata / epoll_event.data) = the parked frame's `__wake`-word
+  address; `saw_reactor_poll` reads back each ready event's udata and LATCHES
+  that word to 0 (ready), so only the frame(s) whose (fd, direction) fired wake.
+  The latch is a persistent word (not an edge) → a fire that races the park is
+  caught on the next scan (no lost wakeup, ST or MT). The scheduler
+  (`__ambient_wake_io` + MT `__tg_worker`) wakes an io-parked frame only when its
+  `__wake_reason()` has become >= 0. Nested-call routing: a new frame field
+  `__io_tok` holds the ROOT frame's `__wake` address (a driven root sets it on
+  first resume; each nested drive propagates it down), so an `io_wait` buried in a
+  sub-frame routes its wakeup to the top-level frame the scheduler schedules.
+  design-90 connect re-verify KEPT (belt-and-suspenders). Many-frames-one-fd:
+  different directions = independent registrations (both precise); same direction
+  = last-registrant-wins (documented, unsupported pattern). [91, 76, 90, 89b]
+
 ## Design 89 — executor unification: one ambient scheduler (IN PROGRESS)
 - **Prep — LANDED (612e53d).** Coro-transform **static-visibility fix**: a
   suspending std method that names a module-private `static` (e.g.
