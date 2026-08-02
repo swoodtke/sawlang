@@ -37,6 +37,33 @@ worktree acceptance uses — avoid the cherry-pick conflict).
    stay `Void`/`T?` (a genuinely-infallible op, or one where `T?` is
    the honest shape).
 
+## Concrete findings (Aug 1 std scan — the checklist)
+TIER 1 (true hide — fix all):
+- `net.TcpStream.write_all` / `write_all_str` → `Result<Void, IoError>`
+  (currently `Void`, drops the error — the design-90 offender).
+- `net.TcpStream.read() -> Data` → error must be distinct from EOF
+  (empty Data currently = BOTH). Pick: `read(&var Data) -> Result<Int,
+  IoError>` (0 = EOF) or a ReadOutcome; report.
+- `net.TcpListener.accept() -> TcpStream` → `Result<TcpStream,
+  IoError>` — currently NO error channel (a failed accept can only
+  return a broken/invalid-fd stream). **(scan-added)**
+- `process.Command.run() -> Int32` → `Result<Int32, ProcessError>`
+  (Ok(code) = exited-with-code; Err = couldn't launch) — currently
+  conflates system()=-1 "couldn't run" with a real exit code.
+  **(scan-added)**
+TIER 2 (`Bool`-hides-why — real error indistinguishable from an
+expected `false`, cause lost; convert to `Result<Void, IoError>`,
+keeping a genuine boolean question like `exists` as `Bool`):
+- file: `remove`, `rename`
+- directory: `create`, `remove`, `set_current`
+- env: `set`, `unset`, `set_cwd`
+LEAVE AS-IS (not hiding — confirm, don't change): `data.push`/`append`
+etc. (`Void`; failure is an OOM PANIC = surfaced loudly);
+`Path.parent`/`ext`/`stem`/`file_name` (`T?` for genuinely-absent
+components); `exists`-style boolean QUESTIONS. Lower-priority/borderline
+(report, fix if cheap): `file.write`/`seek` return `Int?` (surfaces
+failure but loses the errno cause — Result would be richer).
+
 ## Tests
 Each converted function: a success path + a forced-failure path
 asserting the error is RETURNED not swallowed (e.g. write to a closed
