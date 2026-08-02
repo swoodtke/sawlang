@@ -18,6 +18,7 @@ from ast_nodes import (
     FunctionCall, IfExpr, IfLetExpr, TupleLiteral, TupleIndex,
     ArrayLiteral, MapLiteral, SetLiteral, ArrayIndex, MemberAccess, StructInit, NoneLiteral,
     ForceUnwrap, NilCoalesce, OptionalChain, MethodCall, SelfExpr,
+    SourceLocationLiteral,
     EnumInit, MatchExpr, WhileExpr, RangeExpr, ForLoop, ClosureExpr,
     TryExpr, TryCatchExpr,
     Block, LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
@@ -124,6 +125,48 @@ class ExpressionsMixin:
 
     def visit_StringLiteral(self, expr: StringLiteral) -> Optional[SawType]:
         return SawType(TypeKind.STRING)
+
+    def visit_SourceLocationLiteral(self, expr: SourceLocationLiteral) -> Optional[SawType]:
+        """Resolve a `#file` / `#line` / `#function` literal at its DEFINITION
+        site (design 98). Filled exactly ONCE and frozen — a second visit (the
+        post-coroutine-transform re-check, where `current_function`/`current_
+        method` may be a synthesized frame method) must NOT re-resolve, so
+        `#line`/`#function` inside a suspending body report the ORIGINAL source,
+        not the transformed frame's line/name."""
+        import os
+        if expr.resolved_kind is None:
+            if expr.kind == 'line':
+                expr.resolved_kind = 'int'
+                expr.resolved_int = getattr(expr, 'line', 0) or 0
+            elif expr.kind == 'file':
+                expr.resolved_kind = 'string'
+                expr.resolved_str = self._source_location_file(expr)
+            else:  # 'function'
+                expr.resolved_kind = 'string'
+                expr.resolved_str = self._source_location_function()
+        return SawType(TypeKind.INT if expr.resolved_kind == 'int'
+                       else TypeKind.STRING)
+
+    def _source_location_file(self, expr: SourceLocationLiteral) -> str:
+        """The source BASENAME for `#file` — matches the design-69 panic prefix
+        (`os.path.basename` of the file the token appears in). Falls back to the
+        enclosing declaration's file, then the entry file."""
+        import os
+        src = getattr(expr, 'source_file', None) or self._get_current_source_file()
+        if not src:
+            src = getattr(self, '_di_source_path', None) or \
+                getattr(getattr(self, 'reporter', None), 'source_path', None)
+        return os.path.basename(src) if src else "<unknown>.saw"
+
+    def _source_location_function(self) -> str:
+        """The bare enclosing function/method name for `#function` (design 98):
+        `method.name` (e.g. `mag`, `init`) with NO struct qualifier, or the free
+        function name (`main`); module scope -> `<module>`."""
+        if self.current_method is not None:
+            return getattr(self.current_method, 'name', None) or "<module>"
+        if self.current_function is not None:
+            return getattr(self.current_function, 'name', None) or "<module>"
+        return "<module>"
 
     def visit_StringInterpolation(self, expr: StringInterpolation) -> Optional[SawType]:
         """Type check string interpolation expressions (design 56).

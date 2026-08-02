@@ -24,7 +24,7 @@ from ast_nodes import (
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MapLiteral, SetLiteral,
     MemberAccess, StructInit,
-    NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
+    NoneLiteral, SourceLocationLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
     TryExpr, TryCatchExpr,
     RangeExpr, MatchExpr, MatchArm,
     MethodCall, SelfExpr,
@@ -545,6 +545,19 @@ class ExpressionsMixin:
         elif self.match(TokenType.SELF):
             self.advance()
             return SelfExpr(line=token.line, column=token.column)
+
+        elif self.match(TokenType.HASH_DIRECTIVE):
+            # `#file` / `#line` / `#function` source-location literal (design 98).
+            # The source file is stamped here (definition site: the file the
+            # token appears in); the typechecker resolves the value from the
+            # token's own line + enclosing-function context. `source_file` is ""
+            # for an interpolation sub-parser lacking it — the enclosing string
+            # token's file, threaded through `_parse_expression_from_string`.
+            self.advance()
+            return SourceLocationLiteral(
+                kind=token.value,
+                source_file=(self.source_file or None),
+                line=token.line, column=token.column)
 
         elif self.match(TokenType.STRING):
             self.advance()
@@ -1658,8 +1671,10 @@ class ExpressionsMixin:
             )
 
         try:
-            # Create a sub-parser with these tokens
-            sub_parser = Parser(sub_tokens)
+            # Create a sub-parser with these tokens. Thread the enclosing file
+            # through so a `#file`/`#function` (design 98) inside an
+            # interpolation resolves against the real source, not "".
+            sub_parser = Parser(sub_tokens, source_file=self.source_file)
             expr = sub_parser.parse_expression()
             # The sub-lexer numbered everything from 1:1; rebase onto the
             # enclosing string's source position so diagnostics inside an

@@ -120,6 +120,10 @@ class TokenType(Enum):
     # Attributes (design 58)
     AT = auto()             # @ for attributes: @export, @section(...)
 
+    # Source-location magic literals (design 98): #file / #line / #function.
+    # The token value is the bare directive name ('file'|'line'|'function').
+    HASH_DIRECTIVE = auto()
+
     # Closure parameters
     DOLLAR_PARAM = auto()   # $0, $1, etc. for shorthand closures
 
@@ -429,6 +433,30 @@ class Lexer:
             self._check_int_range(ival, start_col)
         return Token(TokenType.INT, value, self.line, start_col, suffix=suffix)
 
+    # Source-location magic literals (design 98): the ONLY `#` directives.
+    HASH_DIRECTIVES = {'file', 'line', 'function'}
+
+    def read_hash_directive(self) -> Token:
+        """Lex a `#file` / `#line` / `#function` source-location literal (design
+        98). `#` is otherwise unused at the token level. An unrecognized
+        `#foo` is a clean "unknown directive" lex error (never silently
+        consumed)."""
+        start_col = self.column
+        self.advance()  # consume '#'
+        name_chars = []
+        while self.peek() and (self.peek().isalnum() or self.peek() == '_'):
+            name_chars.append(self.advance())
+        name = ''.join(name_chars)
+        if not name:
+            raise SyntaxError(
+                f"Lexer error at {self.line}:{start_col}: expected a directive "
+                f"name after `#` (one of #file, #line, #function)")
+        if name not in self.HASH_DIRECTIVES:
+            raise SyntaxError(
+                f"Lexer error at {self.line}:{start_col}: unknown directive "
+                f"`#{name}` (expected one of #file, #line, #function)")
+        return Token(TokenType.HASH_DIRECTIVE, name, self.line, start_col)
+
     def read_identifier(self) -> Token:
         start_col = self.column
         result = []
@@ -674,6 +702,8 @@ class Lexer:
             elif ch == '@':
                 self.add_token(TokenType.AT, '@')
                 self.advance()
+            elif ch == '#':
+                self.tokens.append(self.read_hash_directive())
             elif ch == '$':
                 start_col = self.column
                 self.advance()  # consume '$'

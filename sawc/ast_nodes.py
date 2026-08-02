@@ -663,6 +663,33 @@ class NoneLiteral(Expression):
 
 
 @dataclass
+class SourceLocationLiteral(Expression):
+    """A `#file` / `#line` / `#function` source-location magic literal (design 98).
+
+    Resolved at type-check time to an ordinary compile-time constant at its
+    DEFINITION site (where the token appears in source): `#file` -> the source
+    BASENAME (String, matching the design-69 panic prefix), `#line` -> the
+    1-based token line (Int), `#function` -> the enclosing function/method bare
+    name (String; module scope -> `<module>`). Zero runtime cost, freestanding-
+    safe, valid in const/static/default-value positions.
+
+    `source_file` is stamped by the parser (the file the token appears in);
+    `line`/`column` are the token position (rebased into real source
+    coordinates for an interpolation sub-expression, design 99). The typechecker
+    (`visit_SourceLocationLiteral`) fills `resolved_kind` + the value fields
+    exactly once, freezing the definition-site value so the coroutine transform
+    cannot distort it; codegen emits it as a plain Int/String literal."""
+    kind: str = 'file'                       # 'file' | 'line' | 'function'
+    source_file: Optional[str] = None
+    line: int = 0
+    column: int = 0
+    resolved_kind: Optional[str] = None      # 'int' | 'string' (set by typechecker)
+    resolved_int: int = 0
+    resolved_str: Optional[str] = None
+    resolved_type: Optional['SawType'] = None
+
+
+@dataclass
 class ForceUnwrap(Expression):
     """Force unwrap: expr!"""
     expr: Expression

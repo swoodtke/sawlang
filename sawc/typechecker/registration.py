@@ -16,7 +16,7 @@ from ast_nodes import (
     StaticDecl, SawType, TypeKind, Visibility,
     Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr,
     IntLiteral, FloatLiteral, BoolLiteral, UnaryOp, ArrayLiteral, StructInit,
-    FunctionCall, ExpressionStatement
+    FunctionCall, ExpressionStatement, SourceLocationLiteral
 )
 from errors import ErrorKind
 from namespace import (
@@ -773,6 +773,12 @@ class RegistrationMixin:
         compiler-known `Atomic(<int>)` construction."""
         if isinstance(expr, (IntLiteral, FloatLiteral, BoolLiteral)):
             return True
+        # A resolved `#line` literal (design 98) is an Int compile-time constant
+        # — const-init-able like any Int literal. `#file`/`#function` are Strings,
+        # which are not const-init-able (same as a plain String literal in a
+        # static: rejected).
+        if isinstance(expr, SourceLocationLiteral):
+            return getattr(expr, 'resolved_kind', None) == 'int'
         if isinstance(expr, UnaryOp) and expr.op == '-':
             return isinstance(expr.operand, (IntLiteral, FloatLiteral))
         if isinstance(expr, ArrayLiteral):

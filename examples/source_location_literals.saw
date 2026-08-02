@@ -1,0 +1,43 @@
+// design 98: `#file` / `#line` / `#function` source-location magic literals.
+// Each expands at its DEFINITION site to a compile-time constant: `#file` = the
+// source basename (matching the design-69 panic prefix), `#line` = the 1-based
+// token line, `#function` = the enclosing function/method bare name (no struct
+// qualifier). A generic reports the generic's OWN file/line identically across
+// instantiations; a default argument reports the default's definition site.
+// Zero runtime cost. Lines below are PINNED — the reported line must equal the
+// real source line of each token.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// source_location_literals.saw:22:here
+// top source_location_literals.saw:37:main
+// source_location_literals.saw:27:gen=7
+// source_location_literals.saw:27:gen=s
+// source_location_literals.saw:30:with_default
+// source_location_literals.saw:41:main
+
+struct Point { x: Int, y: Int }
+
+extension Point {
+    func here(&self) -> String {
+        "{#file}:{#line}:{#function}"
+    }
+}
+
+func gen<T: Printable>(v: T) -> String {
+    "{#file}:{#line}:{#function}={v}"
+}
+
+func with_default(tag: String = "{#file}:{#line}:{#function}") -> String {
+    tag
+}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    print(p.here())
+    print("top {#file}:{#line}:{#function}")
+    print(gen<Int>(7))
+    print(gen<String>("s"))
+    print(with_default())
+    let cl = { "{#file}:{#line}:{#function}" }
+    print(cl())
+}

@@ -1,0 +1,23 @@
+// design 98: `#file`/`#line`/`#function` inside a SUSPENDING function body must
+// report the ORIGINAL source location, not the transformed coroutine frame's
+// line/name. The literal is frozen to its definition-site value BEFORE the
+// coroutine transform, so a spawned worker whose body straddles two suspension
+// points still names its own source line and its own bare function name.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// source_location_suspending.saw:13:worker
+// done 22
+
+func worker(n: Int) -> String {
+    yield_now()
+    let loc = "{#file}:{#line}:{#function}"
+    yield_now()
+    loc
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker(3))
+    print(h.join())
+    print("done {#line}")
+}

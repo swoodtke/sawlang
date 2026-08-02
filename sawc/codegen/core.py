@@ -988,10 +988,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         drives the target LLVM type (widths, aggregate layout).
         """
         from ast_nodes import (IntLiteral, FloatLiteral, BoolLiteral, UnaryOp,
-                                ArrayLiteral, StructInit, FunctionCall)
+                                ArrayLiteral, StructInit, FunctionCall,
+                                SourceLocationLiteral)
         llvm_type = self._get_llvm_type(saw_type)
         if isinstance(expr, IntLiteral):
             return ir.Constant(llvm_type, expr.value)
+        # A resolved `#line` literal (design 98) is an Int compile-time constant.
+        if isinstance(expr, SourceLocationLiteral):
+            return ir.Constant(llvm_type, expr.resolved_int)
         if isinstance(expr, FloatLiteral):
             return ir.Constant(llvm_type, expr.value)
         if isinstance(expr, BoolLiteral):
@@ -2269,6 +2273,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         g = self._create_string_literal_global(expr.value)
         zero = ir.Constant(ir.IntType(32), 0)
         two = ir.Constant(ir.IntType(32), 2)  # index of the bytes array field
+        return self.builder.gep(g, [zero, two, zero], inbounds=True)
+
+    def visit_SourceLocationLiteral(self, expr):
+        """A `#file`/`#line`/`#function` literal (design 98) — the typechecker
+        froze it to a compile-time constant at its definition site, so this
+        emits exactly a plain Int (platform-width) or String literal. Zero
+        runtime cost."""
+        if getattr(expr, 'resolved_kind', None) == 'int':
+            return ir.Constant(self.int_type, expr.resolved_int)
+        # 'string': an immortal refcounted String literal, exactly like
+        # visit_StringLiteral.
+        g = self._create_string_literal_global(expr.resolved_str or "")
+        zero = ir.Constant(ir.IntType(32), 0)
+        two = ir.Constant(ir.IntType(32), 2)
         return self.builder.gep(g, [zero, two, zero], inbounds=True)
 
     def visit_StringInterpolation(self, expr: StringInterpolation):
