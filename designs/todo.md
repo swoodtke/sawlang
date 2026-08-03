@@ -11,6 +11,55 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 107 — shadowing follow-ups: same-scope derived redefinition + for-loop vars (LANDED)
+- **Item 1 (same-scope derived redefinition) — LANDED.** `var data = read();
+  let data = parse(move data)` in ONE scope is now legal iff the initializer
+  MENTIONS the binding being replaced (the design-100 mentions-rule extended from
+  across-scope to same-scope); a non-deriving `let data = fresh()` after a
+  `let data = …` stays the pre-existing DUPLICATE_VARIABLE error (message
+  unchanged). let->let / var->var / let<->var all legal (new binding's mutability
+  its own). Typechecker (statements.py `_check_let_statement`): the same-scope
+  duplicate check is deferred until AFTER the initializer is checked, then gated on
+  `_init_mentions_name`; a derived redefinition overwrites the scope entry directly
+  (fresh VariableInfo id -> clean move state). Codegen: the old value drops AT the
+  redefinition point — `_drop_redefined_same_scope` (resources.py) retires the old
+  binding's innermost-scope cleanup entry and emits a flag-guarded drop (a
+  `.copy()`-derived old value drops here; a `move`-derived one already cleared its
+  flag -> no-op), extending design 100's captured-alloca cleanup to same-scope so
+  there is no double-free. `_cleanup_scope`'s per-entry drop factored into
+  `_emit_scope_var_drop` (shared). Tests: `shadow_redef_same_scope` (deinit oracle
+  proves old drops at redefinition + new at scope exit, all mutability
+  transitions, clean under libgmalloc), `errors/shadow_redef_nonderived`.
+- **Item 2 (for-loop variables join the rule) — LANDED.** A for-loop var that
+  shadows an enclosing binding is a rename error UNLESS the SEQUENCE (iterable)
+  references the shadowed name (the initializer analog) — `for x in x.iter()` /
+  `for i in 0..i` legal, `for x in ys` under an outer `x` an error; an enclosing
+  LOOP VAR is an enclosing binding (nested inner same-name loop var non-derived =
+  error). Typechecker: both `_check_for_loop` + `_check_for_loop_as_expression`
+  call `_check_shadowing(variable, iterable, …)` with the loop scope active.
+  Codegen (loops.py): the loop var is now shadow-safe — both generators snapshot
+  the name->storage maps and `_restore_shadow_snapshot` after, so a derived
+  `for x in x.iter()` no longer lets the post-loop `del` drop the OUTER binding's
+  entry (the design-100 block-shadow hazard applied to loops); the outer binding
+  (incl. an owning Vector, deinit-once) is restored + usable after the loop.
+  Tuple-pattern loop bindings (`for (a,b) in pairs`) are NOT a parseable form (the
+  parser binds a single IDENT) -> any tuple for-loop is a PARSE error before the
+  shadow check, so the brief's "flat error" is satisfied at parse time (no for-loop
+  pattern path to guard). Tests: `shadow_for_derived` (range + owning-Vector-iter +
+  nested-loop-var, clean under libgmalloc), `errors/shadow_for_nonderived`,
+  `errors/shadow_for_nested_loop` (exact positions), `errors/shadow_for_tuple_pattern`.
+  Cross-cut: `shadow_redef_nested_owning` (a same-scope owning redefinition nested
+  inside an across-scope derived shadow — the double-free hazard class — all three
+  values deinit exactly once, clean under libgmalloc).
+- **MIGRATION: ZERO** newly-illegal for-loop shadows across std + blade + libs +
+  examples (the whole corpus was already clean — mirrors design 100's audit).
+  Same-scope item only ADDS legality (no migration).
+- **Both design-100 flags CLOSED:** (a) the headline `var data = read();
+  let data = parse(move data)` now works in ONE scope; (b) for-loop iteration
+  variables are covered by the rule.
+- Suite 957 (950 + 7), zero xfails; bootstrap ok (blade 17+17, libs toml 4 +
+  semver 4). Docs: spec bindings section + saw-lang skill (rule + gotcha). [107, 100, 42, 65, 99]
+
 ## Design 106 — reference forwarding: pass a received `&T`/`&var T` onward (LANDED)
 - **Largely ALREADY WORKED; one real gap fixed + acceptance + tests + docs.** The
   design-96 flag (inside `f(r: &var Data)`, `g(&var r)` impossible → read_into
@@ -364,18 +413,15 @@ items need a probe before being treated as real work.
   name→storage maps at block exit so a use of the outer name after a shadowing
   block is sound. Tests: `shadow_owning_lifetime` (derived owning shadow + outer
   reused; `if let x = x` + outer reused).
-- **FLAG for the user (rule friction, not weakened).** The design brief's headline
-  example `var data = read(); let data = parse(move data)` — if literally in ONE
-  scope — remains a pre-existing "already defined in this scope" error, because the
-  dispatch scope pinned "same-scope redefinition: if already an error, unchanged"
-  and same-scope redefinition is currently an error. The derived-shadow leniency
-  therefore applies only ACROSS scopes today. If you want `let data = parse(move
-  data)` to be legal in the SAME scope (the design example reads that way), that's
-  a deliberate follow-up (open up same-scope redefinition under the same
-  mentions-rule). Also DEFERRED by scope: for-loop iteration variables are NOT
-  covered (the brief enumerated let/var, patterns, params, closure params; for-loop
-  vars were not listed) — a `for x in xs` under an outer `x` is still allowed; flag
-  if you want it included.
+- **FLAG for the user — CLOSED by design 107 (both halves).** (a) The design
+  brief's headline example `var data = read(); let data = parse(move data)` in ONE
+  scope was left as the pre-existing "already defined in this scope" error (the
+  dispatch scope pinned "same-scope redefinition: if already an error, unchanged").
+  Design 107 item 1 opened same-scope redefinition under the SAME mentions-rule —
+  it is now legal when derived. (b) For-loop iteration variables were DEFERRED by
+  scope (the design-100 brief enumerated let/var/patterns/params, not for-loop
+  vars). Design 107 item 2 brought them under the rule (sequence = initializer
+  analog). See the design 107 tracker entry.
 - Tests (OK): `shadow_derived` (derived let bare/move/call-wrapped/`.copy()`, var,
   if-let, guard-let unwrap — all run). Tests (ERROR, exact positions on both the
   shadowed decl and the shadow site): `errors/shadow_inner_let`,

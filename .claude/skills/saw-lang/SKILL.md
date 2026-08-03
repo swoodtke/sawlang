@@ -50,16 +50,21 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   `\0` is an interior NUL that `len()` counts. Any other escape is a lex
   error (no silent drop). Strings are immutable UTF-8, refcounted.
 - Comments `//`. No semicolons. `not` for logical negation.
-- Shadowing (design 100): a `let`/`var` that shadows an ENCLOSING binding (an
-  outer local/param/capture or a module `static`) is a compile ERROR unless its
-  initializer MENTIONS the shadowed name — `let data = parse(move data)`,
-  `let n = n + 1`, `if let x = x` are OK (derived / scrutinee references it); a
-  non-deriving `let x = compute()` under an outer `x` is rejected. No-initializer
-  shadows are flat errors: a `match`/`if let`/`guard let` PATTERN binding
-  (`case Move(x, y)` under outer `x` — patterns BIND, not compare), a fn param
-  vs a module `static`, a closure param vs an enclosing local. Same-scope
-  redefinition stays the pre-existing "already defined" error; prelude/std names
-  are not bindings for this rule.
+- Shadowing (design 100/107): a `let`/`var`/`for`-var that shadows an ENCLOSING
+  binding (an outer local/param/capture/loop-var or a module `static`) is a
+  compile ERROR unless its initializer MENTIONS the shadowed name —
+  `let data = parse(move data)`, `let n = n + 1`, `if let x = x`,
+  `for x in x.lines()` are OK (derived / scrutinee / sequence references it); a
+  non-deriving `let x = compute()` / `for x in ys` under an outer `x` is rejected.
+  The SAME rule now covers same-scope redefinition (design 107):
+  `var data = read(); let data = parse(move data)` in ONE scope is legal (the new
+  binding REPLACES the old, its own mutability; a `.copy()`-derived old value
+  drops AT the redefinition point); a non-deriving same-scope `let data = fresh()`
+  stays the "already defined" error. No-initializer shadows are flat errors: a
+  `match`/`if let`/`guard let` PATTERN binding (`case Move(x, y)` under outer `x`
+  — patterns BIND, not compare), a fn param vs a module `static`, a closure param
+  vs an enclosing local. (A `for` loop binds a single name — no tuple pattern in
+  the header.) Prelude/std names are not bindings for this rule.
 
 ## Ownership (the part that bites)
 Copy tiers: trivial/POD = implicit bitwise copy; `ImplicitCopy`
@@ -438,12 +443,17 @@ non-escaping `&T`/`&var T` borrow, invalidation-proof) — this REPLACED `ref_at
   `Copy` bound, so `Vector<() -> Int>` is copyable — `.copy()`/`.get()` each
   retain the element env exactly once (deinit-once through copy).
 - `guard` must exit (return/break/continue/panic).
-- Shadowing footgun (design 100): naming an inner binding after an outer one is
-  an ERROR unless the inner DERIVES from the outer (its initializer mentions the
-  name). Reach for it deliberately (`let data = parse(move data)`,
-  `if let x = x`); to just reuse a name for an unrelated value, pick a different
-  name. A `case Move(x, y)` under an outer `x` is rejected — it binds fresh
-  `x`/`y`, it does not compare against the outer `x`.
+- Shadowing footgun (design 100/107): naming an inner binding after an outer one
+  is an ERROR unless the inner DERIVES from the outer (its initializer mentions the
+  name). Reach for it deliberately (`let data = parse(move data)`, `if let x = x`);
+  to just reuse a name for an unrelated value, pick a different name. A
+  `case Move(x, y)` under an outer `x` is rejected — it binds fresh `x`/`y`, it
+  does not compare against the outer `x`. The rule is uniform across SITES: the
+  same-scope redefinition `var data = read(); let data = parse(move data)` is legal
+  in ONE scope (the new binding replaces the old; a `.copy()`-derived old value
+  drops right at the redefinition), and a `for`-loop var derives from the SEQUENCE
+  (`for x in x.iter()` OK, `for x in ys` under an outer `x` errors — including an
+  inner loop var vs an enclosing loop var).
 - A dependency name mapped via `--module-path` shadowing a local
   module file is an error.
 - `Vector.get(i)` returns a COPY (needs copyable element); use

@@ -1,0 +1,33 @@
+// Design 107 x 100: a same-scope DERIVED redefinition of an OWNING binding
+// nested INSIDE an across-scope derived shadow — the double-free hazard class.
+// Each distinct value must deinit exactly once, in deterministic order:
+//   * the inner across-scope shadow (id 1001) drops at the same-scope
+//     redefinition point (design 107 drop-at-redefinition),
+//   * the same-scope replacement (id 2001) drops at block exit,
+//   * the original outer (id 1) is restored after the block (design 100
+//     shadow-restore) and drops at function exit.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// deinit 1001
+// mid 2001
+// deinit 2001
+// after block
+// deinit 1
+
+struct Res { id: Int }
+
+extension Res: ExplicitCopy {
+    func copy(&self) -> Res { Res(id: self.id + 1000) }
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func main() {
+    var outer = Res(id: 1)
+    if true {
+        let outer = outer.copy()        // across-scope derived shadow -> id 1001
+        let outer = outer.copy()        // same-scope redefinition -> id 2001;
+                                        // the inner 1001 drops HERE
+        print("mid {outer.id}")
+    }                                   // block exit: inner 2001 drops
+    print("after block")
+}                                       // function exit: original outer (id 1) drops

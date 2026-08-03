@@ -117,8 +117,19 @@ if branch {
   function parameter shadowing a module `static`, and a closure parameter
   shadowing an enclosing local. The single-name `if let x = x` / `guard let x = x`
   stay legal by the main rule (the scrutinee references the shadowed binding).
-- Same-scope redefinition (`let x = 1; let x = 2` in one scope) is unchanged — it
-  remains the pre-existing "already defined in this scope" error.
+- **Same-scope redefinition** obeys the same mentions-rule (design 107):
+  `var data = read(); let data = parse(move data)` in *one* scope is legal because
+  the initializer mentions `data`; a non-deriving `let data = fresh()` after a
+  `let data = …` stays the "already defined in this scope" error. The new binding
+  **replaces** the old (with its own mutability — `let`↔`var` freely); if the old
+  still owns a value at the point of replacement (a `.copy()` derivation), that
+  value drops **at the redefinition point**, deterministically.
+- A **`for`-loop variable** joins the rule too (design 107), with the **sequence**
+  (the iterable) as the initializer analog: `for x in x.lines()` / `for i in 0..i`
+  is a legal refinement, `for x in ys` under an outer `x` is a rename error. An
+  enclosing loop variable is itself an enclosing binding, so a nested inner loop
+  reusing the name non-derived is an error. (A `for` loop binds a single name;
+  tuple destructuring in the header is not a supported form.)
 - Prelude/std names (`print`, `Vector`, …) are not bindings for this rule; a
   local named after one is governed by the existing rules, not design 100.
 - The diagnostic names the shadowed binding's exact declaration site
