@@ -784,9 +784,10 @@ class _FrameBuilder:
             if isinstance(n, Identifier) and n.name == old:
                 n.name = new
                 return
-            if isinstance(n, MoveExpr) and n.variable == old and n.path is None:
+            if isinstance(n, MoveExpr) and n.variable == old:
+                # Renames a bare `move old` AND a path-qualified `move old.field`;
+                # fall through so any expressions in `path` are still walked.
                 n.variable = new
-                return
             if isinstance(n, ASTNode):
                 if rebinds(n):
                     raise CoroTransformError(
