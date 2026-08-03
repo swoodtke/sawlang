@@ -1893,8 +1893,22 @@ zero xfails throughout.
 ## Decisions needed (user input required)
 - **D10.** Cortex-M0-class atomics (ARMv6-M has no CAS) — decide with
   the first such port. [19, 20]
-- **SOS**: boot protocol + syscall ABI (sos/spec.md §5) — the next
-  design session.
+- **SOS**: design session Aug 3 ratified spec §7–§10 — scheduling
+  (8 levels, band enum + immutable manifest-declared launcher-approved
+  map, LAUNCH capability, no inheritance, direct-switch, UP v1),
+  thread/process lifecycle (fault→process-exit, no join/thread-kill,
+  Thread+Process handles waitable, get_status/kill rights-gated),
+  interrupt delivery (mask-on-fire/ack-to-rearm, ack-is-release,
+  one-task-per-IRQ v1, `wait(ack:)` combined form), and the userspace
+  runtime model (TaskGroup unchanged; NEW `HandlerGroup` = handles on
+  a task pool, move-in/coat-check API, per-attachment non-reentrancy,
+  borrow-per-invocation, wake-word key bridge). REMAINING before the
+  kernel briefs (spec §11): ONE user design session — root server
+  responsibilities + v1 userspace protocol; then the veto-able
+  orchestrator pins (rights bits/op tables, memory layout, refcount
+  placement, sosimg constants incl. priority-map field) land inside
+  the M1/M1b briefs (numbers assigned at dispatch; the spec's old
+  78/79 references are stale).
 
 - **DF4 (meta).** Blade bit-rots as the compiler tightens — re-validate
   periodically (the bootstrap target is the canary). [49]
