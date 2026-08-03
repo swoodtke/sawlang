@@ -324,6 +324,18 @@ class StatementsMixin:
             # Get the variable's type for resource management
             var_type = self.variable_types.get(stmt.target.name)
 
+            # Design 110: whole-referent replacement through a `&var` reference
+            # parameter. The variable holds a POINTER to the caller's value; load
+            # it, deinit the old value at that address, then store the new one —
+            # the through-ref counterpart of the plain-variable path below.
+            if var_type is not None and var_type.kind == TypeKind.REFERENCE:
+                referent_ptr = self.builder.load(
+                    self.variables[stmt.target.name],
+                    name=f"{stmt.target.name}_ref")
+                self._store_replacement_through_ptr(
+                    stmt, value, referent_ptr, var_type.inner_type)
+                return
+
             if var_type:
                 # Call deinit on the old value before overwriting
                 if self._needs_cleanup(var_type):
@@ -512,8 +524,47 @@ class StatementsMixin:
                     self.builder.store(ir.Constant(ir.IntType(1), 0), flag)
                 self.moved_variables.add(stmt.value.name)
 
+        elif isinstance(stmt.target, SelfExpr):
+            # Design 110: `self = v` in a `&var self` method. `self` is bound to
+            # the caller's storage pointer directly (methods.py registers the
+            # mutable-self arg as the pointer itself), so it already IS the
+            # referent address — no reference load, unlike the Identifier path.
+            self_ptr = self.variables.get("self")
+            if self_ptr is None:
+                raise ValueError("`self = v` outside a method")
+            self._store_replacement_through_ptr(
+                stmt, value, self_ptr, self.variable_types.get("self"))
+
         else:
             raise ValueError(f"Invalid assignment target: {type(stmt.target)}")
+
+    def _store_replacement_through_ptr(self, stmt, value, referent_ptr,
+                                       referent_saw):
+        """Design 110 replacement-assignment store: release the old referent
+        value at `referent_ptr`, then install `value`. Mirrors the plain-variable
+        and through-ref field-assignment paths (deinit old, ImplicitCopy-retain a
+        plain-binding RHS, optional-wrap, store); `referent_ptr` already points at
+        the caller's real storage, so the write lands in the caller's slot."""
+        # A generic `&var T` param records the ABSTRACT `T` referent in
+        # variable_types (params are stored unsubstituted); substitute the active
+        # monomorphization so the drop glue and copy tier are the concrete
+        # instantiation's — an abstract `T` reads as non-owning and would LEAK the
+        # replaced value (its deinit never runs).
+        if referent_saw is not None:
+            referent_saw = self._substitute_saw_type(
+                referent_saw, self.type_param_context)
+        if referent_saw is not None and self._needs_cleanup(referent_saw):
+            self._emit_drop_at(referent_ptr, referent_saw)
+        # An ImplicitCopy RHS that is an existing binding is retained (mirrors the
+        # variable/field/element paths); NoCopy/ExplicitCopy already moved at the
+        # value-transfer checkpoint, and `move v`/temporaries are not Identifiers.
+        if referent_saw is not None and isinstance(stmt.value, Identifier):
+            value = self._generate_copy(value, referent_saw)
+        expected_type = referent_ptr.type.pointee
+        if (self._is_optional_type(expected_type)
+                and not self._is_optional_type(value.type)):
+            value = self._wrap_in_optional(value)
+        self.builder.store(value, referent_ptr)
 
     def _generate_compound_assign_statement(self, stmt: CompoundAssignStatement):
         """Generate code for a compound assignment statement (+=, -=, *=, /=, %=).

@@ -1,0 +1,31 @@
+// Design 110 x 88: whole-referent replacement through a `&var` reference HELD
+// across a suspension. The reference is a frame-resident pointer into the real
+// caller slot, so the post-resume store must land there — verified both in a
+// SPAWNED worker (operating on a task-local) and in a __drive'n body.
+// EXPECT: success
+// EXPECT-OUTPUT: spawn result=42
+// EXPECT-OUTPUT: driver local=99
+
+func across(p: &var Int, v: Int) {
+    yield_now()          // suspend while holding the &var reference
+    p = v                // replacement must write the real caller slot
+}
+
+func run_across() -> Int {
+    var local = 10
+    across(&var local, 42)
+    local
+}
+
+func driver() {
+    var local = 7
+    across(&var local, 99)
+    print("driver local={local}")
+}
+
+func main() {
+    var g = TaskGroup()
+    let handle = g.spawn(run_across())
+    print("spawn result={handle.join()}")
+    __drive(driver())
+}

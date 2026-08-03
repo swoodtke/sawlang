@@ -1,0 +1,12 @@
+// Design 110: the RHS of a replacement goes through the ordinary value-transfer
+// checkpoint — an ExplicitCopy binding (Vector) needs `move`/`.copy()`. A plain
+// `p = v` with `v` an existing ExplicitCopy binding is rejected, same as any var
+// assignment.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Vector<Int, GlobalAllocator>` which implements ExplicitCopy
+
+func replace(p: &var Vector<Int>, v: Vector<Int>) {
+    p = v
+}
+
+func main() {}

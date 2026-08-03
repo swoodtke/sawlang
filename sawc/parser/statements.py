@@ -16,7 +16,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
     GuardLetStatement, DestructuringLet,
     WhileExpr, ForLoop, BreakStatement, ContinueStatement,
-    Identifier, MemberAccess, ArrayIndex, UnsafeExpr
+    Identifier, MemberAccess, ArrayIndex, UnsafeExpr, SelfExpr
 )
 
 # Compound assignment token to operator mapping
@@ -197,8 +197,9 @@ class StatementsMixin:
             self.advance()  # consume '='
             value_expr = self.parse_expression()
 
-            # Validate that target is assignable (Identifier, MemberAccess, or ArrayIndex)
-            if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex)):
+            # Validate that target is assignable (Identifier, MemberAccess,
+            # ArrayIndex, or `self` — design 110 `&var self` replacement).
+            if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex, SelfExpr)):
                 self.error("Invalid assignment target")
 
             return AssignStatement(

@@ -1,8 +1,10 @@
+// Design 110: whole-referent replacement `x = v` is legal through a `&var`
+// reference but stays BANNED through an immutable `&` reference (read-only).
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot assign through reference
+// EXPECT-ERROR-CONTAINS: cannot assign through immutable reference
 
-func replaceValue(y: &var Int) {
-    y = 42  // Error: cannot assign through reference
+func replaceValue(y: &Int) {
+    y = 42  // Error: `&Int` is read-only, cannot replace the referent
 }
 
 func main() {

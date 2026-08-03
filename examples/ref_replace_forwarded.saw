@@ -1,0 +1,14 @@
+// Design 110 x 106: replacement through a FORWARDED reference. `relay` re-borrows
+// its own `&var` param onward to `inner`, which performs the whole-referent
+// replacement — the write lands in the original caller's slot two frames up.
+// EXPECT: success
+// EXPECT-OUTPUT: a=100
+
+func inner(p: &var Int, v: Int) { p = v }
+func relay(r: &var Int, v: Int) { inner(&var r, v) }
+
+func main() {
+    var a = 1
+    relay(&var a, 100)
+    print("a={a}")
+}

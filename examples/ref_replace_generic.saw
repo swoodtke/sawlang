@@ -1,0 +1,32 @@
+// Design 110 item 6: generic `<T: Bound>(p: &var T)` replacement `p = move v`,
+// instantiated at 2+ conforming types INCLUDING a Deinit type — the old referent
+// drops exactly once at the concrete instantiation's drop glue (an abstract `T`
+// must not read as non-owning and leak).
+// EXPECT: success
+// EXPECT-OUTPUT: drop dog 1
+// EXPECT-OUTPUT: d=dog/2
+// EXPECT-OUTPUT: c=cat/8
+// EXPECT-OUTPUT: end
+// EXPECT-OUTPUT: drop dog 2
+
+trait Named { func name(&self) -> String }
+
+struct Dog { public tag: Int }
+extension Dog: Named { func name(&self) -> String { "dog" } }
+extension Dog: Deinit { func deinit(&var self) { print("drop dog {self.tag}") } }
+
+struct Cat { public tag: Int }
+extension Cat: Named { func name(&self) -> String { "cat" } }
+
+func replace<T: Named>(p: &var T, v: T) { p = move v }
+
+func main() {
+    var d = Dog(tag: 1)
+    replace(&var d, Dog(tag: 2))
+    print("d={d.name()}/{d.tag}")
+
+    var c = Cat(tag: 7)
+    replace(&var c, Cat(tag: 8))
+    print("c={c.name()}/{c.tag}")
+    print("end")
+}

@@ -1,0 +1,43 @@
+// Design 110: whole-referent replacement `x = v` through a `&var T` function
+// parameter. A trivial Int replaces in place; a String replaces (old refcount
+// released); an ExplicitCopy Vector replaces via `move` of the callee local; a
+// Deinit struct replacement drops the OLD referent exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT: s=new
+// EXPECT-OUTPUT: n=42
+// EXPECT-OUTPUT: vlen=2
+// EXPECT-OUTPUT: replace tracker
+// EXPECT-OUTPUT: deinit 1
+// EXPECT-OUTPUT: t=2
+// EXPECT-OUTPUT: end
+// EXPECT-OUTPUT: deinit 2
+
+struct Tracker { public id: Int }
+extension Tracker: Deinit {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func set_int(p: &var Int, v: Int) { p = v }
+func set_str(p: &var String, v: String) { p = v }
+func set_vec(p: &var Vector<Int>, v: Vector<Int>) { p = move v }
+func set_tracker(p: &var Tracker, v: Tracker) { p = move v }
+
+func main() {
+    var s = "old"
+    set_str(&var s, "new")
+    print("s={s}")
+
+    var n = 0
+    set_int(&var n, 42)
+    print("n={n}")
+
+    var v: Vector<Int> = [1, 2, 3]
+    set_vec(&var v, [7, 8])
+    print("vlen={v.len()}")
+
+    print("replace tracker")
+    var t = Tracker(id: 1)
+    set_tracker(&var t, Tracker(id: 2))
+    print("t={t.id}")
+    print("end")
+}

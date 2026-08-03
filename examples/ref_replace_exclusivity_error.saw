@@ -1,0 +1,12 @@
+// Design 110 item 3: the newly-permitted replacement does not weaken the Law of
+// Exclusivity. A `&var` reference used for replacement and an overlapping `&` to
+// the same root passed in one call is still rejected by the existing check.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusiv
+
+func f(a: &var Int, b: &Int) { a = b }
+
+func main() {
+    var x = 1
+    f(&var x, &x)
+}

@@ -1,0 +1,24 @@
+// Design 110: the payload-swap idiom that DOES work under the existential
+// exclusion — a `&var Box<any Trait>` referent is a SIZED concrete type, so
+// `b = Box<any Shape>.make(...)` replaces the payload and the caller's binding
+// stays a valid `Box<any Shape>` throughout (old payload dropped once).
+// EXPECT: success
+// EXPECT-OUTPUT: before 25
+// EXPECT-OUTPUT: after 12
+
+trait Shape { func area(&self) -> Int }
+struct Sq { s: Int }
+extension Sq: Shape { func area(&self) -> Int { self.s * self.s } }
+struct Ci { r: Int }
+extension Ci: Shape { func area(&self) -> Int { self.r * 3 } }
+
+func swap_payload(b: &var Box<any Shape>) {
+    b = Box<any Shape>.make(Ci(r: 4))
+}
+
+func main() {
+    var b: Box<any Shape> = Box<any Shape>.make(Sq(s: 5))
+    print("before {b.area()}")
+    swap_payload(&var b)
+    print("after {b.area()}")
+}

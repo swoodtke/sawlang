@@ -1,0 +1,24 @@
+// Design 110: `self = v` replaces the whole receiver in a `&var self` method
+// (Swift mutating-self precedent). The old receiver value drops exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT: before 10
+// EXPECT-OUTPUT: deinit 10
+// EXPECT-OUTPUT: after 20
+// EXPECT-OUTPUT: end
+// EXPECT-OUTPUT: deinit 20
+
+struct Cell { public id: Int }
+extension Cell: Deinit {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+extension Cell {
+    func become(&var self, other: Cell) { self = move other }
+}
+
+func main() {
+    var c = Cell(id: 10)
+    print("before {c.id}")
+    c.become(Cell(id: 20))
+    print("after {c.id}")
+    print("end")
+}

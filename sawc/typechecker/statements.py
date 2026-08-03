@@ -16,7 +16,7 @@ from ast_nodes import (
     BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, RangeExpr,
     Identifier, MemberAccess, ArrayIndex, TupleIndex, MoveExpr, IntLiteral,
-    FunctionCall, StructInit,
+    FunctionCall, StructInit, SelfExpr,
     SawType, TypeKind,
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     WildcardPattern, BindingPattern, TuplePattern,
@@ -1361,16 +1361,10 @@ class StatementsMixin:
                 )
                 return
 
-            # Disallow replacement assignment through references
-            # References can only be modified via compound assignment (+=, -=, etc.)
-            # or by calling mutating methods
+            # Replacement assignment through a reference (design 110).
             if var_info.type.kind == TypeKind.REFERENCE:
-                self._error(
-                    ErrorKind.IMMUTABLE_ASSIGNMENT,
-                    f"cannot assign through reference `{stmt.target.name}`",
-                    stmt.line, stmt.column,
-                    hint="use compound assignment (+=, -=, etc.) or mutating methods instead"
-                )
+                self._check_ref_replacement_assign(
+                    stmt, var_info.type, stmt.target.name)
                 return
 
             # Check mutability
@@ -1550,12 +1544,98 @@ class StatementsMixin:
             self._check_value_transfer(stmt.value, element_type, "element assignment",
                                        stmt.line, stmt.column)
 
+        elif isinstance(stmt.target, SelfExpr):
+            # Whole-receiver replacement `self = v` in a `&var self` method
+            # (design 110, Swift mutating-self precedent).
+            self._check_self_replacement_assign(stmt)
+
         else:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 "invalid assignment target",
                 stmt.line, stmt.column
             )
+
+    def _check_ref_replacement_assign(self, stmt: AssignStatement,
+                                      ref_type: SawType, name: str):
+        """Design 110: whole-referent replacement `x = v` through a reference
+        parameter `x`. Legal only through `&var T` (a mutable reference) whose
+        referent is a STATICALLY-KNOWN type — concrete or a type parameter. The
+        caller's binding is never invalidated: the RHS goes through the ordinary
+        value-transfer checkpoint against the referent type, the old referent
+        value deinits, and the new value installs in place (codegen)."""
+        # Assignment through an immutable `&T` stays banned (its own diagnostic).
+        if not ref_type.reference_mutable:
+            self._error(
+                ErrorKind.IMMUTABLE_ASSIGNMENT,
+                f"cannot assign through immutable reference `{name}`",
+                stmt.line, stmt.column,
+                hint="an immutable `&` reference is read-only; take `&var` to "
+                     "replace the referent, or use a mutating method"
+            )
+            return
+        referent = ref_type.inner_type
+        # Erased referents are EXCLUDED (design 110 item 7): behind `&var any
+        # Trait` the caller's storage is a CONCRETE type, so a differently-typed
+        # store would corrupt the slot — the identical-type rule is statically
+        # unsatisfiable. Point the user at the sized `Box<any Trait>` level.
+        if referent is not None and referent.kind == TypeKind.EXISTENTIAL:
+            tn = referent.existential_trait
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot replace the referent of `&var any {tn}` `{name}`: the "
+                f"concrete type behind the erasure is unknown",
+                stmt.line, stmt.column,
+                hint=f"a differently-typed value would corrupt the caller's "
+                     f"slot — replace at the `Box<any {tn}>` level instead "
+                     f"(a `&var Box<any {tn}>` referent CAN be reassigned)"
+            )
+            return
+        self._check_replacement_rhs(stmt, referent)
+
+    def _check_self_replacement_assign(self, stmt: AssignStatement):
+        """Design 110: `self = v` inside a `&var self` method. Rejected in a
+        `&self` (immutable) method with the existing self-mutability diagnostic;
+        otherwise routed through the normal replacement checkpoint against the
+        receiver's (Self) type."""
+        method = self.current_method
+        self_mutable = method is not None and getattr(method, "self_mutable", False)
+        if not self_mutable:
+            self._error(
+                ErrorKind.IMMUTABLE_ASSIGNMENT,
+                "cannot assign to `self`: the receiver is immutable",
+                stmt.line, stmt.column,
+                hint="use `&var self` in the method signature to replace `self`"
+            )
+            return
+        self_info = self.current_scope.lookup("self")
+        referent = self_info.type if self_info is not None else None
+        self._check_replacement_rhs(stmt, referent)
+
+    def _check_replacement_rhs(self, stmt: AssignStatement, referent):
+        """Shared tail for design-110 replacement assignment: type-check the RHS
+        against the (sized) referent type exactly as an ordinary var assignment
+        would, then run the value-transfer checkpoint. `move v` (of a callee
+        local) and `.copy()` follow the ordinary transfer rules; the caller's
+        object is the thing being replaced and stays valid."""
+        value_type = self._check_expression(stmt.value)
+        if referent is None:
+            return
+        # Propagate an optional referent type onto a bare `None` RHS (mirrors the
+        # var/field paths) so the None literal carries its inner type.
+        referent_resolved = self._resolve_type_alias(referent)
+        if (value_type and value_type.is_none_literal()
+                and referent_resolved.is_optional()):
+            self._propagate_optional_type(stmt.value, referent_resolved)
+            value_type = referent_resolved
+        if value_type and not self._types_compatible(value_type, referent):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot assign `{value_type}` to referent of type `{referent}`",
+                stmt.line, stmt.column
+            )
+        self._check_value_transfer(stmt.value, referent, "assignment",
+                                   stmt.line, stmt.column)
 
     def _check_compound_assign_statement(self, stmt: CompoundAssignStatement):
         """Check a compound assignment statement (+=, -=, *=, /=, %=).

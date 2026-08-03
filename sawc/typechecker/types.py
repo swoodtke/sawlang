@@ -268,7 +268,29 @@ class TypeUtilsMixin:
             self._check_object_safety(t.existential_trait, line, column)
             return
         if kind == TypeKind.REFERENCE:
-            self._validate_existential_type(t.inner_type, line, column, slot_ok=True)
+            # Design 110 rider: a BARE trait name behind a reference
+            # (`&var Shape` / `&Shape`) reaches here tagged STRUCT (the parser
+            # cannot tell a trait from a struct). Left alone it would sail past
+            # type checking and ICE in codegen ("Undefined struct: Shape").
+            # Catch it as the same unsized-trait class as the `any`-placement
+            # diagnostics, naming the fix (`&var any Shape`).
+            inner = t.inner_type
+            if (inner is not None and inner.kind == TypeKind.STRUCT
+                    and inner.struct_name
+                    and self.get_trait_info(inner.struct_name.split('.')[-1],
+                                            qualified_path=inner.struct_name)
+                    is not None):
+                # Render the sigil exactly as `SawType.__repr__` does: `&T`
+                # (no space) vs `&var T` (one space).
+                sig = "&var " if t.reference_mutable else "&"
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`{sig}{inner.struct_name}` names a trait, which is unsized",
+                    line, column,
+                    hint=f"a trait can only be borrowed as an existential: write "
+                         f"`{sig}any {inner.struct_name}`")
+                return
+            self._validate_existential_type(inner, line, column, slot_ok=True)
             return
         if kind == TypeKind.STRUCT:
             is_box = (t.struct_name == "Box")
