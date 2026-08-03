@@ -521,30 +521,29 @@ extension TcpStream {
     // suspending method, and driving one from a spawned worker or a nested frame
     // works now). COOPERATIVE: parks internally on would-block until bytes arrive.
     public func read_into(&self, into: &var Data) -> Result<Int, IoError> {
-        let ptr = unsafe net_buffer(READ_CHUNK)        // scratch (panics on OOM)
-        var going = true
         var count = 0
-        while going {
+        while {
             if cancelled() {
-                net_free_buffer(ptr, READ_CHUNK)       // design 102: cancelled at park
-                return io_error("read")
+                return io_error("read")                // design 102: cancelled at park
             }
-            let r = tcp_try_read(self.fd, ptr, READ_CHUNK)
+            // Design 106: FORWARD the held `&var into` straight to the raw-layer
+            // helper (`net_read_once` owns the scratch buffer + the append). The
+            // reference param is re-borrowed onward across this method's io_wait
+            // park — design 88 makes `into` a frame-resident pointer, and the
+            // forwarding call passes that same pointer through with no per-chunk
+            // buffer management here. (Pre-106 this had to inline net_read_once's
+            // body — a reference param could not be the operand of `&var`.)
+            let r = net_read_once(self.fd, &var into)
             if net_would_block(r) {
                 io_wait(self.fd, 0)                    // park until readable
                 saw_op_budget_reset()                  // design 89-c: parked, reset
             } else if r < 0 {
-                net_free_buffer(ptr, READ_CHUNK)
                 return io_error("read")                // a real read error, not EOF
             } else {
-                if r > 0 {
-                    into.append_bytes(ptr, r)          // write THROUGH the held &var
-                }
                 count = r                              // r >= 0: bytes read (0 = EOF)
-                going = false
+                break
             }
         }
-        net_free_buffer(ptr, READ_CHUNK)
         if saw_op_budget_tick() != 0 {                 // design 89-c: fairness backstop
             yield_now()
         }

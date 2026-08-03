@@ -1,0 +1,55 @@
+// Design 106: reference forwarding — passing a received `&T`/`&var T` onward as
+// the operand of `&`/`&var` at a call site (a RE-BORROW with mirrored sigils).
+// Covers 1- and 2-level forwarding (f->g->h) for both `&` and `&var`, mutation
+// through a twice-forwarded `&var` visible at the ROOT caller, `&`-downgrade of a
+// `&var`, and whole-`self` + `self.field` projection forwarding from a `&var self`
+// method. The re-borrow forwards the already-held pointer (no re-take of a local
+// address); a moved value cannot alias a forwarded reference.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// imm1=11
+// imm2=11
+// var2=101
+// downgrade=101
+// selffwd=106
+
+// ---- immutable forwarding: `&r` where `r` is a `&Int` param ----
+func read_one(x: &Int) -> Int { x + 1 }
+func fwd_imm1(r: &Int) -> Int { read_one(&r) }      // 1-level forward
+func fwd_imm2(r: &Int) -> Int { fwd_imm1(&r) }      // 2-level forward (r -> fwd_imm1 -> read_one)
+
+// ---- mutable forwarding f->g->h, mutation visible at the root ----
+func h_bump(x: &var Int) { x += 100 }
+func g_fwd(r: &var Int) { h_bump(&var r) }          // forward the `&var` onward
+func f_fwd(r: &var Int) { g_fwd(&var r) }           // twice-forwarded `&var`
+
+// ---- downgrade: a `&var` param forwarded as `&` ----
+func read_two(x: &Int) -> Int { x }
+func downgrade(r: &var Int) -> Int { read_two(&r) } // &var r forwarded as &r
+
+// ---- self forwarding (projection through a `&var self` receiver) ----
+struct Inner { v: Int }
+struct Counter { inner: Inner }
+func add_inner(i: &var Inner, amount: Int) { i.v += amount }
+func add_int(x: &var Int, amount: Int) { x += amount }
+extension Counter {
+    func step(&var self) {
+        add_inner(&var self.inner, 100)     // `&var self.field` projection forward
+        add_int(&var self.inner.v, 6)       // deeper `&var self.a.b` projection
+    }
+}
+
+func main() {
+    let a = 10
+    print("imm1={fwd_imm1(&a)}")            // 11
+    print("imm2={fwd_imm2(&a)}")            // 11 (through two forwarding frames)
+
+    var n = 1
+    f_fwd(&var n)                           // 1 -> 101 via a twice-forwarded `&var`
+    print("var2={n}")                       // 101 (mutation visible at the root)
+    print("downgrade={downgrade(&var n)}")  // 101 (read through a downgraded `&`)
+
+    var c = Counter(inner: Inner(v: 0))
+    c.step()
+    print("selffwd={c.inner.v}")            // 106
+}

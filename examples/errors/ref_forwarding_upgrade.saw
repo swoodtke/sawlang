@@ -1,0 +1,21 @@
+// Design 106: `&var` forwarding requires an INCOMING `&var`. Forwarding a shared
+// `&` reference param as `&var` would silently upgrade a read borrow to a write
+// borrow — rejected cleanly (exact position on the `&var r` operand). Downgrading
+// a `&var` to `&` is fine; only the upgrade is forbidden.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot forward `&` reference `r` as `&var`
+// EXPECT-ERROR-CONTAINS: a shared `&` reference cannot be upgraded to `&var`
+
+func bump(x: &var Int) {
+    x += 1
+}
+
+func fwd(r: &Int) {
+    bump(&var r)          // upgrade a `&` param to `&var` — rejected
+}
+
+func main() {
+    var n = 10
+    fwd(&n)
+    print(n)
+}

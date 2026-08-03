@@ -11,6 +11,53 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 106 — reference forwarding: pass a received `&T`/`&var T` onward (LANDED)
+- **Largely ALREADY WORKED; one real gap fixed + acceptance + tests + docs.** The
+  design-96 flag (inside `f(r: &var Data)`, `g(&var r)` impossible → read_into
+  routed through inlined helper bodies) was STALE: the design-56 `&var ref`
+  re-borrow acceptance (`is_mut_ref_binding`, typechecker/expressions.py) + the
+  codegen re-borrow (operators.py `_generate_reference_expr`: an Identifier bound
+  to a REFERENCE type LOADs the held pointer, not `&alloca`) + design 88's
+  frame-resident ref pointer already delivered forwarding end-to-end. VERIFIED at
+  runtime across every brief shape: 1- and 2-level (f->g->h) for `&` and `&var`,
+  mutation through a twice-forwarded `&var` visible at the root, `&var`->`&`
+  downgrade, exclusivity-by-root-path (`&var r` + `&r` in one call → clean
+  EXCLUSIVITY_VIOLATION at exact position via the Identifier-root access path), and
+  a held ref forwarded ACROSS a suspend in a driven (nested-spawned) callee (value
+  visible after resume). **PROJECTION-FORWARDING VERDICT: IN scope, works** —
+  `g(&var self.field)` / deeper `&var self.a.b` fall straight out of the existing
+  MemberAccess path machinery (`_build_access_path` / `_get_member_pointer`), no
+  new code.
+- **The ONE real gap (fixed): whole-`&var self` forwarding.** `g(&var self)` in a
+  `&var self` method was rejected ("cannot take mutable reference to immutable
+  `self`") — `self`'s VariableInfo is always registered `mutable=False`
+  (self-mutability lives on `method.self_mutable`, not the binding), and the
+  SelfExpr branch of `_check_reference_expr` only checked `self_info.mutable`. Fix:
+  consult `self.current_method.self_mutable` — a `&var self` receiver is a mutable
+  reference binding, so re-borrowing the whole self is sound (mirrors the `&var
+  ref` param case); a `&self` method still cleanly rejects `&var self` (no upgrade).
+- **Upgrade rejection message improved** (fix-on-discovery, clean-not-generic): an
+  immutable reference param `r: &T` forwarded as `&var r` now gets a
+  forwarding-specific diagnostic ("cannot forward `&` reference `r` as `&var`: a
+  shared `&` reference cannot be upgraded to `&var`" + hint) instead of the
+  misleading generic "declare with `var`" (the referent is not the caller's to
+  re-var). Upgrade was already REJECTED; only the message was wrong.
+- **ACCEPTANCE (design-96 flag CLOSED):** `std/net.saw` `read_into` re-simplified
+  from the inlined-`net_read_once`-body workaround (manual scratch buffer alloc +
+  `tcp_try_read` + `append_bytes` + free) to direct helper forwarding — the park
+  loop now calls `net_read_once(self.fd, &var into)`, forwarding the held `&var
+  into` onward across the internal io_wait park (net_read_once owns the scratch
+  buffer + append). Same `while { … break }` shape as value `read()`; net_read_into
+  + coro_spawn_nested_ref still green over real sockets.
+- Tests: `ref_forwarding` (1-/2-level `&`+`&var`, twice-forwarded mutation,
+  downgrade, whole-`self` + `self.field`/`self.a.b` projection), `ref_forwarding_
+  suspend` (held ref forwarded across a suspend in a spawned worker's nested driven
+  callee → 40), `errors/ref_forwarding_upgrade` (`&`-param → `&var`),
+  `errors/ref_forwarding_self_upgrade` (`&self` method → `&var self`),
+  `errors/ref_forwarding_exclusivity` (`&var r` + `&r` overlap). Suite 949 (944 +
+  5), zero xfails; bootstrap ok (blade 17+17, libs toml 4 + semver 4). [106, 96, 88,
+  56, 42, 34, 16]
+
 ## Design 104 — coro embedding: if-let/guard-let bodies + remaining generic shapes (IN PROGRESS)
 - **Item 1 (suspending calls in `if let`/`guard let` bodies) — LANDED.** The
   design-101 clean-error residue: an optional-binding branch could not be CFG-split.

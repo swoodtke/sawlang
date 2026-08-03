@@ -1,0 +1,22 @@
+// Design 106: whole-`self` forwarding follows the same no-upgrade rule. A `&self`
+// method holds a SHARED borrow of the receiver, so forwarding `&var self` onward
+// would upgrade it — rejected cleanly. (A `&var self` method forwards `&var self`
+// fine; see ref_forwarding.saw.)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot take mutable reference to immutable `self`
+
+struct Cell { value: Int }
+
+func bumpcell(c: &var Cell) { c.value += 1 }
+
+extension Cell {
+    func bad(&self) {
+        bumpcell(&var self)     // upgrade `&self` -> `&var self` — rejected
+    }
+}
+
+func main() {
+    var c = Cell(value: 3)
+    c.bad()
+    print(c.value)
+}

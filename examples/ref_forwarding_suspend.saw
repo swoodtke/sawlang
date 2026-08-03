@@ -1,0 +1,35 @@
+// Design 106 x 88: forward a HELD `&var` reference across a suspension in a DRIVEN
+// callee. A spawned worker calls `accumulate(&var acc, ...)` (a nested driven
+// sub-frame); `accumulate` forwards `&var buf` to `add` BEFORE its `yield_now()`
+// and again AFTER resume. Design 88 makes `buf` a frame-resident pointer across
+// the park, and design 106 forwards THAT pointer onward — so the post-resume
+// forwarded mutation lands on the worker's task-local `acc` (visible after join).
+// The reference points into the worker's own task frame (task-confined), sound
+// under the multi-task scheduler. Deterministic; no external IO.
+// EXPECT: success
+// EXPECT-OUTPUT: 40
+
+struct Buf { total: Int }
+
+func add(buf: &var Buf, amount: Int) {
+    buf.total = buf.total + amount
+}
+
+func accumulate(buf: &var Buf, amount: Int) -> Int {
+    add(&var buf, amount)      // forward the reference BEFORE the suspend (0 -> 10)
+    yield_now()                // suspend; `buf` held across it (design 88)
+    add(&var buf, amount)      // forward the HELD reference AFTER resume (10 -> 20)
+    buf.total
+}
+
+func worker(base: Int) -> Int {
+    var acc = Buf(total: 0)
+    let r = accumulate(&var acc, base)   // nested ref-param call; ref -> task-local
+    r + acc.total                        // 20 + 20 = 40 (post-resume mutation visible)
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker(10))
+    print(h.join())            // 40
+}

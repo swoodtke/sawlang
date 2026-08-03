@@ -1,0 +1,20 @@
+// Design 106: a forwarded reference is a re-borrow rooted at the param's referent
+// path, so the Law of Exclusivity applies across the call by root path. Forwarding
+// `&var r` while ALSO forwarding `&r` (the same referent) in the SAME call is an
+// exclusive-access violation — caught statically at the `&var r` operand.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: `r` is passed as `&var`
+
+func both(a: &var Int, b: &Int) -> Int {
+    a += 1
+    a + b
+}
+
+func fwd(r: &var Int) -> Int {
+    both(&var r, &r)     // &var r overlaps &r (same root) — rejected
+}
+
+func main() {
+    var n = 10
+    print(fwd(&var n))
+}

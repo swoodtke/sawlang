@@ -510,6 +510,25 @@ class ExpressionsMixin:
                                       and var_info.type is not None
                                       and var_info.type.kind == TypeKind.REFERENCE
                                       and var_info.type.reference_mutable)
+                # An IMMUTABLE reference binding (`r: &T`) is a shared borrow;
+                # forwarding it as `&var` would silently UPGRADE it (design 106
+                # forbids this — `&var` forwarding requires an incoming `&var`).
+                # Give a forwarding-specific diagnostic rather than the generic
+                # "declare with var" (the referent is not the caller's to re-var).
+                is_imm_ref_binding = (var_info is not None
+                                      and var_info.type is not None
+                                      and var_info.type.kind == TypeKind.REFERENCE
+                                      and not var_info.type.reference_mutable)
+                if is_imm_ref_binding:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"cannot forward `&` reference `{expr.expr.name}` as `&var`: "
+                        f"a shared `&` reference cannot be upgraded to `&var`",
+                        expr.line, expr.column,
+                        hint="take the parameter as `&var T` to forward it mutably, "
+                             f"or forward it as `&{expr.expr.name}`"
+                    )
+                    return None
                 if var_info and not var_info.mutable and not is_mut_ref_binding:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -519,9 +538,17 @@ class ExpressionsMixin:
                     )
                     return None
             elif isinstance(expr.expr, SelfExpr):
-                # In a method, check if self is mutable
-                self_info = self.current_scope.lookup("self")
-                if self_info and not self_info.mutable:
+                # In a `&var self` method the receiver is itself a mutable
+                # reference binding, so re-borrowing the WHOLE self (`&var self` —
+                # forwarding the receiver onward, design 106) is sound, mirroring
+                # the `&var ref` param re-borrow above. `self`'s VariableInfo is
+                # always registered `mutable=False` (self-mutability lives on the
+                # method, not the binding), so consult the enclosing method's
+                # `self_mutable`. A `&self` method's receiver is a shared borrow —
+                # `&var self` is rejected.
+                cm = getattr(self, "current_method", None)
+                self_is_mut = cm is not None and getattr(cm, "self_mutable", False)
+                if not self_is_mut:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         "cannot take mutable reference to immutable `self`",
