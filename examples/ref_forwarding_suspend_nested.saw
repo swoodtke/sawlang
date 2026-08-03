@@ -1,0 +1,35 @@
+// Design 106 x 88: forward a HELD reference into a SUSPENDING nested callee. Both
+// `outer` and `inner` suspend and hold `buf` across their parks; `outer` forwards
+// its frame-resident `&var buf` to `inner` (which is embedded as a driven
+// sub-frame). The design-88 sub-frame builder seeds `inner`'s ref param from the
+// forwarded held pointer, so `inner`'s two mutations (before + after its own
+// suspend) land on the worker's task-local `acc`. Exercises the exact 106x88
+// interaction most likely to silently miscompile. Deterministic; no external IO.
+// EXPECT: success
+// EXPECT-OUTPUT: 40
+
+struct Buf { total: Int }
+
+func inner(buf: &var Buf, amount: Int) {
+    buf.total = buf.total + amount     // before inner's suspend (0 -> 10)
+    yield_now()                        // inner suspends, holds buf
+    buf.total = buf.total + amount     // after resume (10 -> 20)
+}
+
+func outer(buf: &var Buf, amount: Int) -> Int {
+    yield_now()                        // outer suspends first, holds buf
+    inner(&var buf, amount)            // forward the HELD ref into a SUSPENDING callee
+    buf.total
+}
+
+func worker(base: Int) -> Int {
+    var acc = Buf(total: 0)
+    let r = outer(&var acc, base)
+    r + acc.total                      // 20 + 20 = 40
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker(10))
+    print(h.join())                    // 40
+}

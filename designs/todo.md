@@ -54,9 +54,10 @@ items need a probe before being treated as real work.
   suspend` (held ref forwarded across a suspend in a spawned worker's nested driven
   callee → 40), `errors/ref_forwarding_upgrade` (`&`-param → `&var`),
   `errors/ref_forwarding_self_upgrade` (`&self` method → `&var self`),
-  `errors/ref_forwarding_exclusivity` (`&var r` + `&r` overlap). Suite 949 (944 +
-  5), zero xfails; bootstrap ok (blade 17+17, libs toml 4 + semver 4). [106, 96, 88,
-  56, 42, 34, 16]
+  `errors/ref_forwarding_exclusivity` (`&var r` + `&r` overlap), `ref_forwarding_
+  suspend_nested` (forward a held ref INTO a suspending nested callee — the 106x88
+  sub-frame ref-seeding path → 40). Suite 950 (944 + 6), zero xfails; bootstrap ok
+  (blade 17+17, libs toml 4 + semver 4). [106, 96, 88, 56, 42, 34, 16]
 
 ## Design 104 — coro embedding: if-let/guard-let bodies + remaining generic shapes (IN PROGRESS)
 - **Item 1 (suspending calls in `if let`/`guard let` bodies) — LANDED.** The
