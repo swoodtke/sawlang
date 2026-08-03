@@ -4554,8 +4554,7 @@ class ExpressionsMixin:
         copyable — trivially copyable or ImplicitCopy. A move-only field (NoCopy,
         an owning Deinit type, or ExplicitCopy) is rejected (matching
         `Vector.get`'s copyable-element rule)."""
-        if self._is_trivially_copyable(field_type) or \
-                self._is_implicit_copy_type(field_type):
+        if self._chain_field_freely_copyable(field_type):
             return
         detail = "ExplicitCopy" if self._is_explicit_copy_type(field_type) \
             else "move-only (NoCopy / owns a resource)"
@@ -4567,6 +4566,28 @@ class ExpressionsMixin:
             member.line, member.column,
             hint="bind the optional first (`if let x = opt`) and move/`.copy()` "
                  "the field out, or end the chain in a method that returns a value")
+
+    def _chain_field_freely_copyable(self, t: SawType) -> bool:
+        """Whether a final-projection field type can be read out by value with no
+        `move`/`.copy()` — trivially copyable or ImplicitCopy at the leaves,
+        recursing through Optional / tuple / array wrappers (so an `Optional<Point>`
+        or `String?` final field is fine, an owning/NoCopy/ExplicitCopy one is
+        not)."""
+        if t is None:
+            return True
+        t = self._resolve_type_alias(t)
+        if t.kind == TypeKind.OPTIONAL:
+            return self._chain_field_freely_copyable(t.inner_type)
+        if t.kind == TypeKind.TUPLE:
+            return all(self._chain_field_freely_copyable(e)
+                       for e in (t.element_types or []))
+        if t.kind == TypeKind.ARRAY:
+            return self._chain_field_freely_copyable(t.array_element_type)
+        if self._is_no_copy_type(t) or self._is_explicit_copy_type(t):
+            return False
+        if self._is_implicit_copy_type(t):
+            return True
+        return self._is_trivially_copyable(t)
 
     def _check_optional_chain_assign(self, expr: OptionalChainAssign) -> Optional[SawType]:
         """`x?.y = v` (design 111). Writes the RHS through the chain into the

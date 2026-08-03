@@ -9,12 +9,16 @@
 // here
 // none
 // none
+// 1
+// 0
 
 struct Inner { v: Int }
 struct Outer { inner: Inner, tag: Int }
 
 struct Profile { bio: String }
 struct User { profile: Profile? }
+
+struct Reg { slot: Int? }   // a copyable struct with an Optional field
 
 func makeOuter(present: Bool) -> Outer? {
     if present { return Outer(inner: Inner(v: 21), tag: 7) }
@@ -50,4 +54,12 @@ func main() {
     // None at the HEAD of a two-hop chain.
     let u3: User? = None
     print(u3?.profile?.bio ?? "none")
+
+    // Flattening where the FINAL segment is itself `T?`: `r?.slot` is `Int?`,
+    // never `Int??`. Present -> 1, absent (None slot) -> 0.
+    let r: Reg? = Reg(slot: 5)
+    let has: Int? = r?.slot
+    if let _ = has { print(1) } else { print(0) }
+    let empty: Reg? = Reg(slot: None)
+    if let _ = empty?.slot { print(1) } else { print(0) }
 }
