@@ -4808,8 +4808,14 @@ class ExpressionsMixin:
             if recv_info is not None and getattr(recv_info, 'is_mt_group', False):
                 self._mt_spawn_roots.add(spawn_name)
         expr.spawn_root = spawn_name
-        handle_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle",
-                              type_args=[result_type])
+        # design 102 item 1: a `Void` spawn body carries no result slot, so it
+        # yields a `VoidTaskHandle` (no `result_ptr`) rather than `TaskHandle<Void>`
+        # — join drives to completion and returns, with nothing to take.
+        if result_type.kind == TypeKind.VOID:
+            handle_type = SawType(TypeKind.STRUCT, struct_name="VoidTaskHandle")
+        else:
+            handle_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle",
+                                  type_args=[result_type])
         # Stamp the handle type so the transform's `__spawn_<f>` rewrite can carry
         # it onto the replacement call (needed when a suspending spawner makes the
         # `let h = group.spawn(...)` binding frame-resident and must type it).

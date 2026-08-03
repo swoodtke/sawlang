@@ -11,6 +11,25 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 102 — runtime edge bugs: spawn-Void ICE + cancel wakes an io-parked task (IN PROGRESS)
+- **Item 1 (spawn-Void ICE — cooperative TaskGroup) — LANDED.** `group.spawn(void_body)`
+  ICE'd: the frame correctly omits `__result` for a Void body (a `{..., void}` struct
+  field is illegal LLVM), but the `__spawn_<f>` helper still built `__rp =
+  &__fp[0].__result` and the handle was `TaskHandle<Void>` (join force-unwraps a
+  zero-size `T?`). FIX (proper omission, no placeholder): a Void spawn now yields a
+  dedicated non-generic `VoidTaskHandle` (cancel_ptr + group_ptr + slot, no
+  result_ptr) whose `join()` drives to completion and returns Void; the spawn helper
+  skips the `__rp` capture entirely for a Void frame. Typechecker `_check_taskgroup_spawn`
+  returns `VoidTaskHandle` when the body is Void. SWEEP: `__drive_<f>` had the same
+  hazard (read `__f.__result` unconditionally) — now returns Void with no result read
+  for a Void driven body. The design-75 executor return-Int workaround is now DEAD and
+  removed: `__tg_worker` returns `Void` (21b `spawn { void }` works since design 77) and
+  `__drain_mt` holds `Vector<Task<Void>>`. Channels of Void are not a void-slot hazard
+  (the type constructs; there's just no Void literal to `send` — a front-end value gap,
+  orthogonal). Tests `taskgroup_spawn_void` (single- + multi-threaded, explicit-join +
+  drop-drain, sum oracle 60), `coro_drive_void_body`. Closes the design-75 spawn-Void
+  flag. Suite 934, bootstrap 17+17, libs 4+4. [75, 77, 21b]
+
 ## Design 101 — DF7: no silent blocking for suspending method calls in nested/trailing positions (LANDED)
 - **Root cause (precise boundary).** The coro transform's wrapper hoists
   (`_hoist_suspending_conditions`/`_hoist_suspending_try`/`_hoist_suspending_match`)
@@ -1248,6 +1267,8 @@ zero xfails throughout.
   invalid LLVM struct ("void type only allowed for function results"). Worked
   around in the executor (worker bodies return `Int`); a proper fix is to omit the
   result slot for a Void spawn body. [21b, 75]
+  - **CLOSED** — 21b `spawn { void }` fixed by design 77 item 1; the cooperative
+    `group.spawn(void)` + the executor return-Int workaround closed by design 102 item 1.
 
 ## Design 74 — A5-rest: finish effect-polymorphism shapes + A8 anchors (IN PROGRESS)
 - **Commit 1 (A8 — diagnostic anchoring):** A coroutine-transform rejection

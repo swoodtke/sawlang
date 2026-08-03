@@ -233,7 +233,7 @@ extension TaskGroup {
             return
         }
         let addr = (&self) as UnsafePointer<TaskGroup> as Int
-        var handles = Vector<Task<Int>>()
+        var handles = Vector<Task<Void>>()
         var i = 0
         while i < self.workers {
             var t = spawn { __tg_worker(addr) }
@@ -243,7 +243,7 @@ extension TaskGroup {
         while handles.len() > 0 {
             if let ht = handles.pop() {
                 var h = move ht
-                let _ = h.join()
+                h.join()
             }
         }
     }
@@ -254,8 +254,9 @@ extension TaskGroup {
 // resuming runnable frames until no live task remains. The mutex serializes queue
 // bookkeeping (done/remaining/active); `resume()` runs OUTSIDE the lock, so
 // distinct frames run in parallel while a claimed frame is owned by exactly one
-// worker (D6). Returns a dummy `Int` (a `Void` spawn body currently ICEs).
-func __tg_worker(addr: Int) -> Int {
+// worker (D6). Returns `Void` — a `Void` spawn body (design 102 item 1) needs no
+// result slot, so the old dummy-`Int` return is gone.
+func __tg_worker(addr: Int) {
     let g = addr as UnsafePointer<TaskGroup>
     // `g[0]` derefs the shared group through a raw pointer (this free function
     // gets the group's ADDRESS across the `spawn` boundary as a Send `Int`); each
@@ -399,7 +400,6 @@ func __tg_worker(addr: Int) -> Int {
             }
         }
     }
-    0
 }
 
 // Deinit runs the executor to completion of every child (structured join at
@@ -507,6 +507,47 @@ extension TaskHandle<T>: Deinit {
 }
 
 extension TaskHandle<T>: NoCopy {
+}
+
+// VoidTaskHandle — the handle for a spawned task whose body returns `Void`
+// (design 102 item 1). A `Void` frame carries NO result slot (`__result` is
+// omitted — a `{..., void}` struct field is illegal LLVM), so there is no
+// `result_ptr` to hold and no value to take: `join` drives the task to
+// completion and returns. Cancellation and drop-if-unjoined behave exactly like
+// `TaskHandle<T>`. Distinct type (not `TaskHandle<Void>`) so the generic handle
+// never has to encode a zero-size `T?` result pointer.
+struct VoidTaskHandle {
+    cancel_ptr: UnsafePointer<Bool>
+    group_ptr: UnsafePointer<TaskGroup>
+    slot: Int
+}
+
+extension VoidTaskHandle {
+    // Drive the group until this task is Done. No result to take — the void body
+    // ran purely for its effects.
+    public func join(&self) {
+        if self.group_ptr[0].workers >= 2 {
+            self.group_ptr[0].__run_all()
+        } else {
+            __ambient_run(self.group_ptr as Int, self.slot)
+        }
+    }
+
+    public func cancel(&self) {
+        self.cancel_ptr[0] = true
+    }
+
+    public func cancel_addr(&self) -> Int {
+        self.cancel_ptr as Int
+    }
+}
+
+extension VoidTaskHandle: Deinit {
+    public func deinit(&var self) {
+    }
+}
+
+extension VoidTaskHandle: NoCopy {
 }
 
 // =============================================================================

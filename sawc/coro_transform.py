@@ -2524,11 +2524,16 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
     else:
         driver_name = f"__drive_{fb.name}"
         ret = fb.ret
-        result_acc = MemberAccess(object=Identifier(name="__f"), member="__result")
-        # Reading the result CONSUMES the slot (opt-encoded: force-unwrap the
-        # Some); an unconsumed result (e.g. driven only for its step count) stays
-        # in the frame and is dropped once at frame death.
-        final = ForceUnwrap(expr=result_acc) if _enc_unwraps(fb.result_enc) else result_acc
+        if fb.is_void:
+            # design 102 item 1: a `Void` driven body has no `__result` slot —
+            # the driver just loops to completion and returns Void.
+            final = None
+        else:
+            result_acc = MemberAccess(object=Identifier(name="__f"), member="__result")
+            # Reading the result CONSUMES the slot (opt-encoded: force-unwrap the
+            # Some); an unconsumed result (e.g. driven only for its step count) stays
+            # in the frame and is dropped once at frame death.
+            final = ForceUnwrap(expr=result_acc) if _enc_unwraps(fb.result_enc) else result_acc
 
     # design 88: a reference param flows through the driver AS a raw pointer (the
     # drive site casts `&var x` -> `UnsafePointer<T>`), seeding the frame's pointer
@@ -2690,6 +2695,8 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
             object=ArrayIndex(array_expr=Identifier(name="__fp"), index=_int(0)),
             member=name)
 
+    # design 102 item 1: a `Void` spawn body has no `__result` field, so the
+    # handle captures no result pointer — only the cancel word + slot.
     stmts = [
         LetStatement(name="__box", type_annotation=None, value=box_make, mutable=True),
         LetStatement(name="__data", type_annotation=None, mutable=False,
@@ -2699,10 +2706,14 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
         LetStatement(name="__fp", type_annotation=None, mutable=False,
                      value=CastExpr(expr=Identifier(name="__data"),
                                     target_type=frame_ptr)),
-        LetStatement(name="__rp", type_annotation=None, mutable=False,
-                     value=CastExpr(
-                         expr=ReferenceExpr(expr=_fp_field("__result"), mutable=False),
-                         target_type=SawType(TypeKind.POINTER, inner_type=_opt(T)))),
+    ]
+    if not fb.is_void:
+        stmts.append(
+            LetStatement(name="__rp", type_annotation=None, mutable=False,
+                         value=CastExpr(
+                             expr=ReferenceExpr(expr=_fp_field("__result"), mutable=False),
+                             target_type=SawType(TypeKind.POINTER, inner_type=_opt(T)))))
+    stmts.extend([
         LetStatement(name="__cp", type_annotation=None, mutable=False,
                      value=CastExpr(
                          expr=ReferenceExpr(expr=_fp_field("__cancel"), mutable=False),
@@ -2713,7 +2724,21 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
                          object=ArrayIndex(array_expr=Identifier(name="__group"), index=_int(0)),
                          method_name="__enqueue",
                          arguments=[Argument(name=None, value=MoveExpr(variable="__box", path=None))])),
-    ]
+    ])
+    if fb.is_void:
+        handle = StructInit(
+            struct_name="VoidTaskHandle", type_args=None,
+            field_inits=[("cancel_ptr", Identifier(name="__cp")),
+                         ("group_ptr", Identifier(name="__group")),
+                         ("slot", Identifier(name="__slot"))])
+        ret_type = SawType(TypeKind.STRUCT, struct_name="VoidTaskHandle")
+        helper_params = [Parameter(name="__group", type=tg_ptr)] + \
+                        [Parameter(name=p.name, type=p.type) for p in params]
+        return Function(name=f"__spawn_{fb.name}", parameters=helper_params,
+                        return_type=ret_type,
+                        body=Block(statements=stmts, final_expr=handle),
+                        is_synthesized=True,
+                        source_file=getattr(fb.func, 'source_file', ""))
     handle = StructInit(
         struct_name="TaskHandle", type_args=[T],
         field_inits=[("result_ptr", Identifier(name="__rp")),
