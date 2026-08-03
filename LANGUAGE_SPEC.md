@@ -2367,6 +2367,10 @@ Observable rules:
   over the struct's type params so the frame's receiver pointer gets a concrete
   layout, and a nested suspending generic call is promoted to a concrete spliced
   callee embedded as a sub-frame by value (keyed by its mangled instantiation).
+  The defining module does not matter (design 104 item 2, shape 4): the
+  pristine-template capture spans every module checked in the compilation unit, so a
+  generic suspending free function or generic-struct method defined in module A is
+  driven / nested-driven from module B at any instantiation.
   A **closure** created in a driven body is supported (design 77 DF-C1): it is a
   frame field, an indirect call `f(args)` is rewritten to a call through that
   field, and captured frame locals are moved into the closure by value so its
@@ -2385,9 +2389,12 @@ Observable rules:
   line, not miscompiled): a suspending call buried in a *larger expression* (an
   argument, a receiver, a `let x = if … { s.read() }` value position); a
   suspension-spanning `if let`/`guard let` with a *tuple pattern*, or one whose body
-  *re-binds* the bound name (rename the inner binding); a nested suspending *generic*
-  call to a template in *another module*; a suspension inside a `for` over a
-  non-range iterable; and a value-producing `break` out of a suspension-spanning
+  *re-binds* the bound name (rename the inner binding); a **nested** generic call
+  whose template suspends *unconditionally* without calling a type-param method
+  (`func g<T>(x: T) -> T { yield_now(); x }` called nested — its instantiation's
+  effect node is not built; drive it directly with `__drive`/`spawn` instead — a
+  same-module limit, orthogonal to the module boundary); a suspension inside a `for`
+  over a non-range iterable; and a value-producing `break` out of a suspension-spanning
   loop.
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The

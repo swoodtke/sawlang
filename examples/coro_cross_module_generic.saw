@@ -1,0 +1,39 @@
+// design 104 item 2: cross-module generic driven templates (design-74 shape 4).
+// Module B drives a generic suspending free function AND a generic struct's
+// suspending method — both defined in module A (`modules.coro_provider`) — each at
+// TWO instantiations. The coroutine transform reaches the templates' ASTs at drive
+// time regardless of defining module (the pristine-template capture is shared across
+// every module in the compilation unit), splices each concrete instantiation, and
+// embeds/drives it as its own frame. A miscompile would either reject at compile
+// time (sync violation on the synthesized resume) or misprint.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 211
+// 207
+// 208
+
+import modules.coro_provider.{Seed, amplify, Cell}
+
+struct Lo { n: Int }
+extension Lo: Seed { func seed(&self) -> Int { self.n } }
+
+struct Hi { m: Int }
+extension Hi: Seed { func seed(&self) -> Int { self.m } }
+
+// A driven body making NESTED cross-module suspending generic calls at two
+// instantiations (`amplify$1$Lo`, `amplify$1$Hi` — distinct spliced sub-frames).
+func run_free(x: Int) -> Int {
+    let a = amplify<Lo>(Lo(n: x))
+    let c = amplify<Hi>(Hi(m: x + 1))
+    a + c
+}
+
+func main() {
+    // amplify<Lo>(5) = 105, amplify<Hi>(6) = 106 => 211
+    print(__drive(run_free(5)))
+    // A cross-module generic struct's suspending method, driven at two types.
+    var c1 = Cell<Lo>(item: Lo(n: 7))
+    var c2 = Cell<Hi>(item: Hi(m: 8))
+    print(__drive(c1.charge()))   // 207
+    print(__drive(c2.charge()))   // 208
+}

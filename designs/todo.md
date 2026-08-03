@@ -53,6 +53,31 @@ items need a probe before being treated as real work.
   frame-resident `self.value.tag()` across a `yield_now` with the U arg → 11/12/21/22,
   so a collision would misprint); `errors/coro_generic_struct_and_method_generic_unsupported`
   removed. Suite 940, bootstrap 17+17 + libs 4+4. [104, 95, 74, 70]
+- **Item 2 (cross-module generic driven templates, design-74 shape 4) — ALREADY
+  WORKS; regression test added.** The brief's premise (the `_pristine_` capture is
+  module-local) is STALE: all modules in one compilation unit are checked by ONE
+  shared typechecker (sawc.py's per-module loop in dependency order), so
+  `_pristine_generics` / `_pristine_generic_struct_methods` accumulate templates from
+  EVERY module (in-tree and `--module-path`). `_splice_fn_mono` /
+  `_build_generic_struct_method_mono` therefore find a template regardless of its
+  defining module. VERIFIED by probes + the new test `coro_cross_module_generic`
+  (module `modules/coro_provider.saw` defines a generic suspending free fn
+  `amplify<T: Seed>` + a generic struct `Cell<T: Seed>` with a suspending `charge`;
+  entry drives `amplify` NESTED at two types → 211 and `Cell.charge` directly at two
+  types → 207/208; IR: distinct `Frame_amplify$1$Lo/$Hi` + `Frame_Cell_charge$1$*`,
+  zero plain calls). The stale `_promote_nested_generic_calls` comment ("cross-module
+  = shape 4 → reject") corrected. Docs: spec + skill shape-4 now supported.
+  **FLAG (discovered, orthogonal — NOT fixed):** a NESTED generic call whose template
+  suspends UNCONDITIONALLY without calling a type-param method (`func g<T>(x: T) -> T
+  { yield_now(); x }` called nested) fails SAME-MODULE too — the template is not
+  `poly_candidate`, so `_process_effect_monos` never builds its instantiation's
+  suspend node, so `_promote_nested_generic_calls` can't promote it and it lowers as
+  a plain call → a clean (not silent) sync-violation error on the synthesized resume.
+  Precise blocker: build a generic instantiation's effect node when the TEMPLATE
+  structurally suspends (a direct `__suspend`/`yield_now`/`sleep`, not gated on a
+  type-param method), not only when `poly_candidate`. Workaround: drive it directly
+  (`__drive`/`spawn`), or give the template a type-param method call. Suite 941 (+1),
+  bootstrap 17+17 + libs 4+4. [104, 74, 70, 96]
 
 ## Design 102 — runtime edge bugs: spawn-Void ICE + cancel wakes an io-parked task (LANDED)
 - **Item 2 (cancel wakes an ALREADY-io-parked task — A3 remainder) — LANDED.** A task

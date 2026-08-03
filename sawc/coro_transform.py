@@ -3427,8 +3427,12 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
         if mangled not in funcs_by_name:
             clone = splice(program, fc.name, list(args), mangled)
             if not clone:
-                # Template not in this module (cross-module = shape 4) — leave the
-                # rejection to `_classify_call`, which names the workaround.
+                # No pristine template captured for this generic (e.g. a std
+                # template checked under the separate builtin typechecker). A
+                # USER-module template — including one in ANOTHER user module —
+                # IS captured (the pristine map spans every module in the
+                # compilation unit, design 104 item 2), so cross-module user
+                # generics splice here. Leave the rest to `_classify_call`.
                 return None
             funcs_by_name[mangled] = clone
         fc.name = mangled

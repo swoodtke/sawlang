@@ -1,0 +1,28 @@
+// Module A for coro_cross_module_generic (design 104 item 2): defines a generic
+// SUSPENDING free function and a generic struct with a SUSPENDING method, both used
+// (driven / nested-driven) at two instantiations from the importing module B. The
+// coroutine transform must reach these templates' ASTs at drive time even though
+// they live in another module (the pristine-template capture is shared across all
+// modules checked in one compilation unit).
+
+public trait Seed { func seed(&self) -> Int }
+
+// A generic suspending free function (poly over a type-param method + a direct
+// suspend), driven as a nested sub-frame from module B at two instantiations.
+public func amplify<T: Seed>(w: T) -> Int {
+    let b = w.seed()
+    __suspend()
+    b + 100
+}
+
+// A generic struct with a suspending method, driven from module B at two
+// instantiations (each gets its own monomorphized frame).
+public struct Cell<T: Seed> { public item: T }
+
+public extension Cell<T: Seed> {
+    public func charge(&self) -> Int {
+        let b = self.item.seed()
+        __suspend()
+        b + 200
+    }
+}
