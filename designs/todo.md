@@ -59,6 +59,63 @@ items need a probe before being treated as real work.
   drop-drain, sum oracle 60), `coro_drive_void_body`. Closes the design-75 spawn-Void
   flag. Suite 934, bootstrap 17+17, libs 4+4. [75, 77, 21b]
 
+## Design 103 — A6 runtime offload: `extern blocking` calls RUN in tasks (LANDED)
+- **The last A6 half.** A blocking FFI call inside a suspending body (driven /
+  spawned / a suspending `main`) no longer REJECTS — it OFFLOADS to a worker thread
+  and PARKS on the job's pipe like any socket read, so siblings keep running while
+  it blocks and the single cooperative reactor thread is never wedged. Closes the
+  design-76 A6 remainder (thread-per-call v1 in place of the ledgered "pool").
+- **Runtime shims** (`codegen/core.py _declare_io_runtime`, hosted-only weak seams).
+  `saw_offload_start(fn, arg) -> job` mallocs a job record `{ fn, arg, result, done,
+  pipe_r, pipe_w, thread }`, pipes it, and `pthread_create`s a worker running
+  `__saw_offload_thread`: it calls the extern via the raw fnptr (`i64(i64)` thunk),
+  stores the result, PUBLISHES `done` (atomic release), then writes one byte to the
+  job's self-pipe. `saw_offload_done` (acquire-load the flag), `saw_offload_pipe_fd`
+  (the readable fd), `saw_offload_take` (pthread_join = full barrier -> read result
+  -> close pipe -> free). HAZARD discipline: the worker touches ONLY its own job +
+  pipe write end; ALL wake routing stays in the reactor; the pipe byte + the join
+  are the release/acquire boundary, so the result transfers single-owner with no
+  data race (start owns -> thread fills -> take transfers). `saw_blocking_sleep(ms)
+  -> ms` is the reference blocking primitive the tests drive via a `blocking func`.
+- **Lowering** (`coro_transform.py`). A top-level blocking-extern call boundary
+  (`let x = slow(arg)`, a bare/`let _` discard, or a design-83 tail `return
+  slow(arg)`) is classified (`_classify_blk`) BEFORE frame layout and desugars in
+  `_emit_blk_call` to `self.__blkjobN = __blk_start(slow(arg))` -> park loop
+  `while __blk_done(job)==0 { saw_reactor_register(__blk_pipe_fd(job), read);
+  suspend(IO_PARK) }` -> `<x> = __blk_take(job)`. `__blk_start` is a CODEGEN
+  intrinsic (calls.py) that resolves the extern's `ir.Function` (a function address
+  is not expressible in Saw) and bitcasts it to i64 + evaluates the Int arg; the
+  three wrappers thin over the shims. The blocking-extern call is now a suspension
+  point for `_spans_suspension` (its result local becomes frame-resident) and gets a
+  frame-resident `__blkjobN: Int` handle (+ `_build_frame_init` seeds it 0). The
+  typechecker (`__blk_start`/`__blk_done`/`__blk_pipe_fd`/`__blk_take` handlers)
+  types them as Int and — crucially — `__blk_start` does NOT re-record the blocking
+  effect (the offload REPLACES the direct call), so the synthesized `resume` stays
+  suspension-free of the blocking source. Precise wake tokens + budget reset-on-park
+  apply unchanged (the park reuses the design-91 `__io_tok` routing).
+- **Cancel compose (design 102).** The park loop re-checks `__cancel` at its loop
+  top and BAILS — a peer cancel writes the reactor self-pipe (design 102 item 1) or
+  is caught by the pre-poll cancelled scan (item 3), which rouses the poll; the
+  re-check exits the loop. The in-flight blocking call cannot be aborted, so take()
+  still joins its worker on the cancel path (documented v1 limit: no leak, no race).
+- **Anchor fix (item 3).** A blocking-extern call in a position the desugar cannot
+  occupy (buried in an expression, a `try!`, an `if let`/`guard` body) is rejected
+  in the transform ANCHORED AT THE USER CALL SITE (source_file threaded), never left
+  to lower as a direct call and trip the synthesized `resume`'s sync check anchored
+  at `__Frame_*.resume`. v1 also rejects a non-`(Int) -> Int` blocking extern
+  (`_check_blk_whitelist`, anchored) — the offload thunk is `i64(i64)`; multi-arg +
+  non-Int + a real pool are future work. The `sync`-context + freestanding
+  rejections are UNCHANGED (correct).
+- **Tests.** `offload_spawn_interleave` (a spawned task blocks on a real offload
+  call while main's sleep-loop provably runs — 0,1,2 then 61; the 60 -> 61
+  round-trip proves the Int flowed into the worker and back; a plain block would
+  hang -> runner-timeout FAILURE; stable 8x), `offload_cancel_parked` (a task parked
+  on an offload job is peer-cancelled via `cancel_addr`, wakes, observes cancel ->
+  -1, deinit-once oracle; stable 8x), `errors/offload_buried_reject` (buried call ->
+  user-anchored error, asserts the source basename), `errors/offload_freestanding_
+  reject` (`--freestanding` COMPILE-FLAGS). Suite 941 (937 + 4), bootstrap 17+17,
+  libs toml 4 + semver 4, zero xfails. [103, 76, 18, 22, 58, 102, 90, 91, 89-b]
+
 ## Design 101 — DF7: no silent blocking for suspending method calls in nested/trailing positions (LANDED)
 - **Root cause (precise boundary).** The coro transform's wrapper hoists
   (`_hoist_suspending_conditions`/`_hoist_suspending_try`/`_hoist_suspending_match`)
@@ -1204,6 +1261,9 @@ zero xfails throughout.
   extern + suspension path (locked by `errors/blocking_extern_sync_reject`); (2)
   declaring an `extern blocking func` in the FREESTANDING profile is a clean
   registration-time error (no hosted pool). Suite 825, bootstrap 17+17, libs 4+4.
+  - **CLOSED by design 103** (thread-per-call offload + coro lowering; see the design
+    103 entry). The worked-out design below is what landed (thread-per-call v1 in
+    place of a pool; `__blk_start` codegen intrinsic + pre-frame-builder classify).
   - **DEFERRED (A6 runtime offload — re-ledgered with the worked-out design):** the
     hosted pool + coro lowering that makes a blocking call actually RUN in a task.
     Today a blocking call inside a driven/spawned body is REJECTED (the synthesized
@@ -1629,11 +1689,10 @@ zero xfails throughout.
   nonblocking TCP; ST group + entry executor never-block poll. Remainders
   re-ledgered under design 76 (MT integration, first-class inline-lowered
   read/accept/write). [18, 76]
-- **A6.** `extern blocking` offload pool. PARTLY DONE (design 76): front-end
-  (parse/effect) + the two type-system rejections landed — a blocking call in a
-  `sync` context is rejected (anchored), and a blocking extern in the freestanding
-  profile is rejected at registration. Runtime offload pool + coro lowering
-  DEFERRED with the worked-out design (re-ledgered under design 76). **A7.**
+- ~~**A6.** `extern blocking` offload pool.~~ DONE (design 76 front-end + the two
+  type-system rejections; design 103 the runtime offload + coro lowering — a
+  blocking call inside a suspending body now RUNS on a worker thread and parks on
+  its pipe; see the design 103 entry). **A7.**
   Separate-compilation interface format w/ suspends bit. ~~**A8.** Suspension-path
   diagnostic anchors.~~ DONE (design 74): coroutine-transform rejections + sync
   violations anchor at the user's file:line:col with a source snippet, naming the

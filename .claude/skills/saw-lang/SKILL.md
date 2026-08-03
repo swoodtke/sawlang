@@ -280,10 +280,20 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   still re-checks its own fd and re-parks on a spurious wake, now purely
   belt-and-suspenders — you never see any of this, it is internal.
 - `extern "C" { blocking func f(...) -> T }` marks an unbounded FFI call: it
-  SUSPENDS (offloads to a hosted pool), is illegal in a `sync` context, and is
-  rejected in the freestanding profile. An unannotated extern promises promptness.
-  (Runtime offload pool is still pending — a blocking call inside a task body is
-  currently rejected, not yet run.)
+  SUSPENDS, is illegal in a `sync` context, and is rejected in the freestanding
+  profile. An unannotated extern promises promptness. Design 103 (A6): a blocking
+  call inside a suspending body (driven / spawned / a suspending `main`) now RUNS —
+  it is OFFLOADED to a worker thread (thread-per-call v1) and the task PARKS on the
+  job's pipe like any socket read, so siblings keep running while it blocks and the
+  cooperative thread is never wedged. Write it as a plain call bound to a statement:
+  `let r = slow(arg)` (or a bare / tail call). v1 restricts the extern to the C-ABI
+  `(Int) -> Int` whitelist (a single Int arg, Int result); a wider signature is a
+  clean anchored error (multi-arg + a real pool are future work). A blocking-extern
+  call BURIED in a larger expression (`foo(slow(x))`, `return a + slow(x)`, a
+  `try!`, an `if let`/`guard` body) is a clean error anchored at the call site —
+  bind it to its own `let` first. Cancelling a task parked on an offload job wakes
+  it (design 102), but the in-flight blocking call cannot be aborted: take() joins
+  the worker before the task takes its cancel path.
 - Generic suspending functions/methods work (design 70 + 74): effect is
   re-inferred PER instantiation, so `f<A>` may suspend while `f<B>` is
   sync. You can `__drive` / `group.spawn` a generic instantiation, drive a

@@ -2678,7 +2678,7 @@ invariant is about latency-UNBOUNDED waits, not IO in general.
 
 **`extern blocking func`.** An FFI call that may block for an unbounded time is
 annotated `blocking` inside an `extern` block; the call is a suspension point (it
-offloads to a hosted thread pool and suspends the task, rather than blocking the
+offloads to a worker thread and suspends the task, rather than blocking the
 executor):
 
 ```saw
@@ -2691,6 +2691,24 @@ An unannotated extern promises promptness and is `sync`-callable. A `blocking`
 extern call is illegal in a `sync` context (a compile error, like any other
 suspension), and `blocking` externs are rejected in the freestanding profile
 (no thread pool).
+
+Design 103 (A6) — the offload actually RUNS. Inside a suspending body (a driven /
+spawned task, or a suspending `main`), a blocking-extern call bound to its own
+statement (`let r = db_query(id)`, a bare call, or a tail `return db_query(id)`)
+is lowered to: start a worker thread that runs the extern, PARK the task on the
+worker's self-pipe (registered with the reactor exactly like a socket read), then
+take the result when the pipe signals completion. So the task suspends
+cooperatively — siblings keep running while it blocks, and the single reactor
+thread is never wedged. The worker thread touches only its own job + pipe; all
+wake routing stays in the reactor; the pipe byte and the join of the worker form
+the release/acquire boundary, so the result transfers with no data race. v1 is
+thread-per-call and restricts the extern to the C-ABI `(Int) -> Int` whitelist (a
+pool + wider signatures are future work); a wider signature, or a blocking-extern
+call buried in a larger expression (an argument, a `try!`, an `if let` body), is a
+clean compile error anchored at the call site. Cancelling a task parked on an
+offload job wakes it (via the design-102 reactor self-pipe), but the in-flight
+blocking call cannot be aborted — the task joins the worker before taking its
+cancel path.
 
 **Two engines coexist today, deliberately not unified.** `spawn`/`Task`/`Channel`
 (design 21b) run on a **thread-per-task** engine: `spawn` starts an OS thread,
