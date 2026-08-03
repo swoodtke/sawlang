@@ -1180,8 +1180,9 @@ class StatementsMixin:
     def _check_guard_let_statement(self, stmt: GuardLetStatement):
         """Check a guard let/var statement for optional binding."""
         from .core import VariableInfo, Scope
-        # Check for duplicate in current scope (single-name form only).
-        if stmt.pattern is None:
+        # Check for duplicate in current scope (single-name form only; `_` binds
+        # nothing — design 111 rider — so it never collides).
+        if stmt.pattern is None and stmt.name != "_":
             existing = self.current_scope.lookup_local(stmt.name)
             if existing:
                 self._error(
@@ -1257,8 +1258,12 @@ class StatementsMixin:
             # single-name shadow is an error.
             self._check_shadowing(stmt.name, stmt.optional_expr,
                                   stmt.line, stmt.column, site="binding")
-            info = VariableInfo(inner_type, stmt.mutable, stmt.line, stmt.column)
-            self.current_scope.define(stmt.name, info)
+            # Design 111 rider: `guard let _ = opt else { ... }` tests the Optional
+            # and binds nothing (the payload drops immediately at codegen) — the
+            # idiomatic way to consume a `Void?` optional-chain-assignment result.
+            if stmt.name != "_":
+                info = VariableInfo(inner_type, stmt.mutable, stmt.line, stmt.column)
+                self.current_scope.define(stmt.name, info)
 
     def _assign_target_immutable_array(self, target):
         """If an lvalue chain indexes into an immutable fixed array, return that

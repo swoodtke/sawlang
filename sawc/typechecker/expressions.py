@@ -3029,10 +3029,14 @@ class ExpressionsMixin:
             # single-name shadow is an error.
             self._check_shadowing(expr.name, expr.optional_expr,
                                   expr.line, expr.column, site="binding")
-            self.current_scope.define(
-                expr.name,
-                VariableInfo(inner_type, expr.mutable, expr.line, expr.column)
-            )
+            # Design 111 rider: `if let _ = opt` evaluates + tests the Optional but
+            # BINDS NOTHING (the payload drops immediately at codegen). This is the
+            # idiomatic way to consume a `Void?` (`if let _ = x?.y = v`).
+            if expr.name != "_":
+                self.current_scope.define(
+                    expr.name,
+                    VariableInfo(inner_type, expr.mutable, expr.line, expr.column)
+                )
         # Move dataflow (design 15 rule 6): branches merge as union of the
         # non-diverging paths, from a shared entry state.
         entry_moves = self._snapshot_moves()

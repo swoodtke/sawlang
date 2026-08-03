@@ -207,6 +207,8 @@ class ConditionalsMixin:
         # flat name maps and a later use of it would ICE ("Undefined variable").
         if expr.pattern is not None:
             _shadow_names = self._pattern_binding_names(expr.pattern)
+        elif expr.name == "_":
+            _shadow_names = []  # design 111 rider: `_` binds nothing
         else:
             _shadow_names = [expr.name]
         _shadow_save = [
@@ -223,6 +225,17 @@ class ConditionalsMixin:
         if expr.pattern is not None:
             self._destructure_bind(expr.pattern, inner_val, inner_saw, expr.mutable, False)
             pattern_names = self._pattern_binding_names(expr.pattern)
+        elif expr.name == "_":
+            # Design 111 rider: `if let _ = opt` binds nothing. Drop the unwrapped
+            # payload immediately when this optional is a fresh owned temporary
+            # whose payload we now solely hold (a named/field source keeps owning
+            # it). This is how a `Void?` is consumed (its unit payload is trivial).
+            if (inner_saw is not None
+                    and self._is_owned_temporary(expr.optional_expr)
+                    and self._needs_cleanup(inner_saw)):
+                slot = self._entry_alloca(inner_val.type, name="_.discard")
+                self.builder.store(inner_val, slot)
+                self._emit_drop_at(slot, inner_saw)
         else:
             # For 'if let', create a copy; for 'if var', we store and use reference
             # Currently, we always create a local variable (copy semantics for if let)
@@ -498,6 +511,18 @@ class ConditionalsMixin:
         # bindings (bind by value; components stay owned by the source optional).
         if stmt.pattern is not None:
             self._destructure_bind(stmt.pattern, inner_val, inner_saw, stmt.mutable, False)
+            return
+
+        # Design 111 rider: `guard let _ = opt else { ... }` binds nothing. Drop the
+        # unwrapped payload immediately for a fresh owned-temporary source (a
+        # named/field source keeps owning it). Consumes a `Void?` (trivial unit).
+        if stmt.name == "_":
+            if (inner_saw is not None
+                    and self._is_owned_temporary(stmt.optional_expr)
+                    and self._needs_cleanup(inner_saw)):
+                slot = self._entry_alloca(inner_val.type, name="_.discard")
+                self.builder.store(inner_val, slot)
+                self._emit_drop_at(slot, inner_saw)
             return
 
         # Store in a local variable

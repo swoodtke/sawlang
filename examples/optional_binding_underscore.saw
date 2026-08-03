@@ -1,0 +1,53 @@
+// Design 111 rider: `_` is blessed as the bound pattern of `if let` / `guard let`
+// — evaluate + test the Optional, bind nothing, drop the payload immediately.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// a present
+// b absent
+// got res
+// 1
+// no res
+// 1
+// 1
+// 2
+// -1
+// 2
+
+static DROPS: Atomic<Int> = Atomic(0)
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { DROPS.fetch_add(1) }
+}
+
+func maybeRes(present: Bool) -> Res? {
+    if present { return Res(id: 1) }
+    return None
+}
+
+func checkGuard(present: Bool) -> Int {
+    guard let _ = maybeRes(present) else { return -1 }
+    return 1
+}
+
+func main() {
+    // `if let _` over a plain Optional<Int> (present + absent).
+    let a: Int? = 5
+    if let _ = a { print("a present") }
+    let b: Int? = None
+    if let _ = b { print("unreachable") } else { print("b absent") }
+
+    // `if let _` over an owned Deinit-payload temporary: payload drops immediately.
+    if let _ = maybeRes(present: true) { print("got res") }
+    print(DROPS.load())   // 1
+
+    // None owned temporary: nothing created, nothing dropped.
+    if let _ = maybeRes(present: false) { print("unreachable") } else { print("no res") }
+    print(DROPS.load())   // still 1
+
+    // `guard let _` present / absent.
+    print(checkGuard(true))    // 1  (dropped the temp res -> 2)
+    print(DROPS.load())        // 2
+    print(checkGuard(false))   // -1 (no res)
+    print(DROPS.load())        // still 2
+}
