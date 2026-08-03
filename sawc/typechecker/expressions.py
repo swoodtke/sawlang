@@ -1233,7 +1233,9 @@ class ExpressionsMixin:
             cand.type_params, abstract_params, expr,
             mapping if mapping is not None else None,
             base_subst, None, "", expr.line, expr.column, silent=True,
-            known_arg_types=arg_types)
+            known_arg_types=arg_types,
+            default_values=(cand.default_values[offset:]
+                            if cand.default_values else None))
         if full is None:
             return None
         # Type-match: each KNOWN actual argument must be compatible with its
@@ -1615,7 +1617,8 @@ class ExpressionsMixin:
 
     def _solve_call_type_args(self, type_params, abstract_params, expr, mapping,
                               base_subst, provided_type_args, what, line, column,
-                              silent=False, known_arg_types=None):
+                              silent=False, known_arg_types=None,
+                              default_values=None):
         """Infer this call's own generic type arguments (design 93 + 105).
 
         `abstract_params` are the callee's LOGICAL parameter types (receiver
@@ -1691,6 +1694,26 @@ class ExpressionsMixin:
                                           ct, remaining, out)
                 if '__conflict__' in out or len(out) == before:
                     break
+            # Design 108: a parameter with a DEFAULT VALUE that is OMITTED at this
+            # call drives inference from the default's OWN type when the parameter
+            # it types is otherwise undetermined — `f(1)` with `b: T = 0` infers
+            # `T = Int`. Consulted only AFTER argument-driven solving (a supplied
+            # argument always wins), and only for a still-unsolved name, so it is
+            # the last resort before the underdetermined error. The trial check is
+            # inside the inference snapshot, so the default's moves/effects roll
+            # back (they already tainted the callee at its declaration).
+            if default_values and '__conflict__' not in out and (own_names - set(out.keys())):
+                bound = (set(mapping) if mapping is not None
+                         else set(range(len(expr.arguments))))
+                for p, dv in enumerate(default_values):
+                    if dv is None or p in bound or p >= len(abstract_params):
+                        continue
+                    if not (own_names - set(out.keys())):
+                        break
+                    dt = self._check_expression(dv)
+                    if dt is not None:
+                        self._unify_infer(abstract_params[p].substitute(base_subst),
+                                          dt, remaining, out)
         finally:
             self._infer_restore(snap)
 
@@ -1724,6 +1747,77 @@ class ExpressionsMixin:
                          f"<{tp.name}=...>`")
                 return None
         return {**base_subst, **out}
+
+    def _check_generic_call_defaults(self, expr, func_info, instantiated_param_types,
+                                     mapping):
+        """Design 108: validate each OMITTED default-valued parameter of a generic
+        call against its INSTANTIATED parameter type.
+
+        The design-53 declaration-time check runs against the abstract type
+        parameter and is a no-op for a generic function, so a
+        `func f<T>(a: Int, b: T = 0)` never has its `0` checked against a concrete
+        `T` until a call fixes `T`. This is that check, anchored at the CALL: it
+        turns the former `list index out of range` codegen ICE (a call emitted
+        with too few args, or a non-coercible literal materialized at the wrong
+        LLVM type) into a clean, actionable diagnostic. A bare integer literal
+        default follows Saw's literal rules — it adopts an integer instantiation
+        (range-checked) and is rejected against a non-integer one (a bare `0` does
+        not become a `Float`). Side-effect-free: the default's own moves/effects
+        already tainted the callee at its declaration, so a non-literal default's
+        trial check is sandboxed."""
+        dvals = func_info.default_values or []
+        if not any(dv is not None for dv in dvals):
+            return
+        bound = (set(mapping) if mapping is not None
+                 else set(range(len(expr.arguments))))
+        for p, dv in enumerate(dvals):
+            if dv is None or p in bound or p >= len(instantiated_param_types):
+                continue
+            expected = instantiated_param_types[p]
+            if expected is None:
+                continue
+            pname = (func_info.param_names[p]
+                     if p < len(func_info.param_names) else f"#{p}")
+            rt = self._resolve_type(expected)
+            ut = self._get_underlying_type(rt) if rt is not None else None
+            # Bare integer literal (the `b: T = 0` case): adopt an integer
+            # instantiation with a range check; reject a non-integer one.
+            if isinstance(dv, IntLiteral) and getattr(dv, 'suffix', None) is None:
+                if ut is not None and ut.kind in self._FIXED_INT_RANGES:
+                    lo, hi = self._FIXED_INT_RANGES[ut.kind]
+                    if not (lo <= dv.value <= hi):
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"default value {dv.value} for parameter `{pname}` does "
+                            f"not fit `{expected}` (range {lo}..={hi})",
+                            expr.line, expr.column,
+                            hint="the default is checked against the instantiated "
+                                 "type at this call")
+                    continue
+                if ut is not None and ut.kind in (TypeKind.INT, TypeKind.UINT):
+                    continue
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"default value for parameter `{pname}` has type `Int` but the "
+                    f"parameter is instantiated as `{expected}` at this call",
+                    expr.line, expr.column,
+                    hint="a bare integer literal does not adopt a non-integer type; "
+                         "pass the argument explicitly here")
+                continue
+            # General default: sandbox the trial type check (no move/effect leak).
+            snap = self._infer_snapshot()
+            try:
+                dt = self._check_expression(dv)
+            finally:
+                self._infer_restore(snap)
+            if dt is not None and not self._arg_type_ok(None, dt, rt, allow_wrap=False):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"default value for parameter `{pname}` has type `{dt}` but the "
+                    f"parameter is instantiated as `{expected}` at this call",
+                    expr.line, expr.column,
+                    hint="the default is checked against the instantiated type at "
+                         "this call")
 
     def _check_type_param_bounds(self, type_params, type_map, line, column):
         """Verify each parameter's concrete binding in `type_map` satisfies the
@@ -1811,6 +1905,11 @@ class ExpressionsMixin:
             param_types = [t.substitute(type_map) for t in func_info.param_types]
             return_type = (func_info.return_type.substitute(type_map)
                            if func_info.return_type else func_info.return_type)
+            # Design 108: an omitted default on the winning generic overload is
+            # checked against its instantiated type here too (mirrors the singleton
+            # generic path), so `g<Float>(1)` selecting a `b: T = 0` overload is a
+            # clean error rather than a codegen ICE.
+            self._check_generic_call_defaults(expr, func_info, param_types, mapping)
         else:
             param_types = func_info.param_types
             return_type = func_info.return_type
@@ -2501,7 +2600,8 @@ class ExpressionsMixin:
                 full = self._solve_call_type_args(
                     func_info.type_params, func_info.param_types, expr,
                     infer_mapping, {}, expr.type_args, f"function `{expr.name}`",
-                    expr.line, expr.column)
+                    expr.line, expr.column,
+                    default_values=func_info.default_values)
                 if full is None:
                     return None
                 expr.type_args = [full[tp.name] for tp in func_info.type_params]
@@ -2670,6 +2770,14 @@ class ExpressionsMixin:
                         expr.line, expr.column
                     )
                     return return_type
+        # Design 108: for a GENERIC call, an OMITTED default-valued parameter must
+        # have its default expression fit the INSTANTIATED parameter type. The
+        # declaration-time check (design 53) ran against the abstract `T` and was
+        # skipped, so this is the only place the default is validated per call —
+        # `f<Float>(1)` with `b: T = 0` is a clean anchored error (a bare integer
+        # literal does not adopt Float), never a codegen ICE.
+        if func_info.type_params:
+            self._check_generic_call_defaults(expr, func_info, param_types, mapping)
         for i, arg in enumerate(expr.arguments):
             p = mapping[i] if mapping is not None else i
             expected_type = param_types[p] if p < len(param_types) else None
@@ -5561,7 +5669,9 @@ class ExpressionsMixin:
                 full = self._solve_call_type_args(
                     method_type_params, method_info.param_types[off:], expr,
                     infer_mapping, type_subst, provided_type_args,
-                    f"method `{expr.method_name}`", expr.line, expr.column)
+                    f"method `{expr.method_name}`", expr.line, expr.column,
+                    default_values=(method_info.default_values[off:]
+                                    if method_info.default_values else None))
                 if full is None:
                     return None
                 expr.type_args = [full[tp.name] for tp in method_type_params]

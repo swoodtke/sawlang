@@ -647,6 +647,15 @@ class GenericsMixin:
             if (not method.is_init and not method.is_static
                     and getattr(method, 'self_mutable', False)):
                 llvm_func.args[0].add_attribute('noalias')
+            # Design 108: register default parameter values under this mono's
+            # mangled name (the non-generic _declare_method path does this, but a
+            # per-call-site generic-method instantiation routes only through here).
+            # Without it, an omitted trailing default on a generic method
+            # (`x.f<Int>(1)` for `func f<T>(&self, a, b: T = 0)`) is never filled
+            # and the call is emitted with too few args (an llvmlite ICE).
+            defaults = [p.default_value for p in method.parameters]
+            if any(d is not None for d in defaults):
+                self.method_defaults[mangled_name] = defaults
         finally:
             self.type_param_context = old_context
         return mangled_name

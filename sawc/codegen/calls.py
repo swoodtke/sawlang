@@ -362,22 +362,29 @@ class CallsMixin:
             ]
             mangled_name = self._instantiate_generic_function(gen_name, call_type_args)
             func = self.functions[mangled_name]
+            # Design 108: a generic instantiation registers its default values
+            # under the MANGLED name (`f$1$Int`), not the plain call name, so the
+            # default-fill below must key by it — otherwise an omitted trailing
+            # default (`f<Int>(1)` for `f<T>(a, b: T = 0)`) is never materialized
+            # and the call is emitted with too few args (an llvmlite ICE).
+            defaults_key = mangled_name
         else:
             # Look up regular user-defined function
             if expr.name not in self.functions:
                 raise ValueError(f"Undefined function: {expr.name}")
             func = self.functions[expr.name]
+            defaults_key = expr.name
 
         # Arguments are now Argument objects with .value
         if getattr(expr, 'arg_plan', None) is not None:
             # Design 66: labeled/mid-skip call — emit args by the binding plan,
             # interleaving default-filled parameter slots.
             args = self._planned_arg_values(
-                expr, self.func_defaults.get(expr.name) or [])
+                expr, self.func_defaults.get(defaults_key) or [])
         else:
             args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
             # Fill omitted trailing arguments from their default expressions (design 53).
-            self._fill_func_defaults(args, expr.name)
+            self._fill_func_defaults(args, defaults_key)
         result = self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
 
         # Wrap result in optional for extern functions that return nullable pointers
