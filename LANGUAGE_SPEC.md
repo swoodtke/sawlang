@@ -1386,6 +1386,45 @@ bump(&var b)        // OK — &var mirrors the &var parameter
 // readIt(&var b)   // error: parameter `x` is `&Int`; write `&b`
 ```
 
+**Reference forwarding (re-borrowing a received reference):** a reference
+parameter (or a `&var self` receiver) may itself be the operand of `&`/`&var` at
+a call site — passing a received reference *onward* to another reference
+parameter. This is a **re-borrow**: the callee gets a reference to the same
+referent, and codegen forwards the already-held pointer (no re-take of a local
+address). The call-site sigils still mirror the parameter, and the mutability
+rules hold: **a `&var` forward requires an incoming `&var`** (a shared `&`
+reference cannot be upgraded to `&var` — rejected cleanly), while a `&var` may be
+forwarded as `&` (a downgrade to a shared read is fine).
+
+```saw
+func bump(x: &var Int) { x += 1 }
+func read_it(x: &Int) -> Int { x }
+
+func relay(r: &var Int) {
+    bump(&var r)        // forward the `&var` onward (mutation reaches the root)
+    let _ = read_it(&r) // downgrade the same `&var` to a shared `&` — OK
+}
+// func relay2(r: &Int) { bump(&var r) }   // error: cannot forward `&` as `&var`
+
+extension Counter {
+    func step(&var self) {
+        bump(&var self.n)   // `&var self.field` projection forwarding
+        // and `bump2(&var self)` forwards the WHOLE `&var self` receiver onward
+    }
+}
+```
+
+Forwarding composes to any depth (`f` → `g` → `h`) and works across a suspension:
+a reference held in a driven coroutine frame (a frame-resident pointer, see
+*References across suspensions* under Concurrency) forwards that pointer onward, so
+a mutation through a twice-forwarded `&var` after a resume is visible at the root
+caller. Exclusivity is enforced by **root path**: forwarding `&var r` while also
+forwarding `&r` (the same referent) in one call is an exclusive-access violation,
+caught statically — the forwarded borrow is rooted at the parameter's referent
+path exactly like a directly-taken reference. A spawned (cross-task) frame still
+may not take a reference parameter at its root (confinement — the referent would
+be the dead spawner stack), so forwarding never lets a reference escape its task.
+
 **Method Self:**
 Methods use reference syntax for self:
 ```saw

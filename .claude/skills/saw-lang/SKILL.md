@@ -79,6 +79,15 @@ var u = w.copy()       // explicit duplicate
   methods — plain `x = ...` through a ref is rejected.
 - Law of Exclusivity: one `&var` XOR many `&` to overlapping paths,
   statically checked.
+- Forwarding (design 106): a received reference param (or `&var self`) may
+  itself be the operand of `&`/`&var` — pass it onward as a re-borrow:
+  `func relay(r: &var T) { g(&var r) }`, `g(&var self.field)`, `g(&var self)`.
+  Sigils still mirror; `&var` forwarding needs an INCOMING `&var` (a `&` can't
+  upgrade to `&var` — clean error), a `&var` may forward as `&` (downgrade OK).
+  Composes to any depth and across a suspend (the frame-resident pointer is
+  forwarded — a twice-forwarded `&var` mutation is visible at the root);
+  exclusivity is by root path (`g(&var r, &r)` in one call is rejected). This
+  is what lets `net.read_into` forward its `&var Data` to a helper.
 - Deterministic LIFO destruction (`Deinit` trait); never call
   `deinit()` manually.
 - `let _ = expr` = true discard (consumes + drops immediately).
