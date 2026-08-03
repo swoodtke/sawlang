@@ -11,6 +11,26 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Doc-sync audit findings (Aug 3) — two DECIDE items
+Surfaced by the four-source consistency audit (README / spec / skill /
+CLAUDE.md digest vs code); docs were updated to match the implementation,
+these two need a design call:
+- **DECIDE: method call on an integer literal.** `7.doubled()` is a parse
+  error — the lexer consumes `7.` as a float-literal prefix; `(7).doubled()`
+  and a bound name work. `Int(7).doubled()` does NOT work (probe Aug 3:
+  "struct initialization requires named arguments" — constructor-call syntax
+  is structs + distinct aliases only). Decide whether INT `.` IDENT should lex
+  as a method call, or whether `(7).method()` is the blessed spelling
+  (README's Type Extensions example now uses a binding meanwhile). [57]
+- **DECIDED (Aug 3): plain assignment through `&var` — unify permissive.**
+  Function/method refs rejected `x = ...` while closures allowed it and
+  field assignment through refs already worked (incl. Deinit fields —
+  probed); wholesale replacement of an opaque referent through a fn ref was
+  inexpressible. User picked option C: `&var` behaves uniformly as the
+  caller's variable. Briefed as **design 110** (queued — two open scope
+  points for user: RHS `move`, `self = v`); the Aug-3 doc caveats revert
+  when it lands. [110, 34, 88, 106]
+
 ## Design 109 — silently unchecked trait bounds for primitive type args (LANDED)
 - **Root cause (typechecker + one namespace gap).** The free-function bound-check
   loop in `_check_function_call` (expressions.py) derived a `concrete_type_name`
