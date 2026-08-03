@@ -880,6 +880,14 @@ class ExpressionsMixin:
             saved_trailing = self.allow_trailing_closure
             self.allow_trailing_closure = False
             optional_expr = self.parse_expression()
+            # Design 111: `if let _ = x?.y = v { ... }` — an optional-chain
+            # ASSIGNMENT (type `Void?`) consumed by the binding.
+            if self.match(TokenType.ASSIGN) and isinstance(optional_expr, OptionalEvalExpr):
+                assign_tok = self.advance()
+                optional_assign_value = self.parse_expression()
+                optional_expr = OptionalChainAssign(
+                    target=optional_expr, value=optional_assign_value,
+                    line=assign_tok.line, column=assign_tok.column)
             self.allow_trailing_closure = saved_trailing
 
             self.skip_newlines()

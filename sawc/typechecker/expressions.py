@@ -28,6 +28,7 @@ from ast_nodes import (
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     Pattern, WildcardPattern, BindingPattern, LiteralPattern,
     RangePattern, TuplePattern, EnumPattern,
+    Argument,
 )
 from errors import ErrorKind
 from namespace import Visibility, EnumSymbol

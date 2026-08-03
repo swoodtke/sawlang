@@ -1,0 +1,23 @@
+// Design 111: the RHS of a chained assignment follows ordinary transfer rules
+// against the referent field's type — an ExplicitCopy binding needs `move` /
+// `.copy()` (a bare aliasing binding is rejected).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Money` which implements ExplicitCopy
+
+struct Money { cents: Int }
+extension Money: ExplicitCopy {
+    func copy(&self) -> Money { Money(cents: self.cents) }
+    func deinit(&var self) {}
+}
+struct Wallet { money: Money }
+extension Wallet: ExplicitCopy {
+    func copy(&self) -> Wallet { Wallet(money: self.money.copy()) }
+    func deinit(&var self) {}
+}
+
+func main() {
+    var ow: Wallet? = Wallet(money: Money(cents: 1))
+    let m = Money(cents: 5)
+    ow?.money = m
+    print(ow!.money.cents)
+}

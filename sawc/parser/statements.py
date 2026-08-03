@@ -118,6 +118,15 @@ class StatementsMixin:
         saved_trailing = self.allow_trailing_closure
         self.allow_trailing_closure = False
         optional_expr = self.parse_expression()
+        # Design 111: `guard let _ = x?.y = v else { ... }` — an optional-chain
+        # ASSIGNMENT (type `Void?`) consumed by the binding. The scrutinee is the
+        # OptionalChainAssign, not the chain read.
+        if self.match(TokenType.ASSIGN) and isinstance(optional_expr, OptionalEvalExpr):
+            assign_tok = self.advance()
+            value_expr = self.parse_expression()
+            optional_expr = OptionalChainAssign(
+                target=optional_expr, value=value_expr,
+                line=assign_tok.line, column=assign_tok.column)
         self.allow_trailing_closure = saved_trailing
 
         self.skip_newlines()

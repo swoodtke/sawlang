@@ -1,0 +1,16 @@
+// Design 111: exclusivity applies to the written root path — the chain
+// assignment is a write of the root, so the RHS may not also borrow it `&var`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: `oh` is written by this optional-chain assignment
+
+struct Holder { n: Int }
+
+func bump(h: &var Holder?) -> Int {
+    return 5
+}
+
+func main() {
+    var oh: Holder? = Holder(n: 1)
+    oh?.n = bump(&var oh)
+    print(oh!.n)
+}

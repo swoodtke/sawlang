@@ -1,0 +1,36 @@
+// Design 111: on the WRITTEN path the old field value deinits exactly once
+// (before the store); on the SKIPPED path nothing drops and the RHS is never
+// built (a fresh NoCopy temporary transfers with no `move`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 1
+// 2
+
+static DROPS: Atomic<Int> = Atomic(0)
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { DROPS.fetch_add(1) }
+}
+
+struct Slot { r: Res, tag: Int }
+extension Slot: Deinit { func deinit(&var self) {} }
+
+func run() {
+    var s: Slot? = Slot(r: Res(id: 1), tag: 0)
+    print(DROPS.load())          // 0
+    s?.r = Res(id: 2)       // overwrite: old Res(id:1) deinits once
+    print(DROPS.load())          // 1
+
+    // None head: the old-value drop AND the RHS temporary are both skipped.
+    var none_s: Slot? = None
+    none_s?.r = Res(id: 99)
+    print(DROPS.load())          // still 1
+}
+
+func main() {
+    run()                        // s (holding Res(id:2)) deinits at scope exit
+    print(DROPS.load())          // 2
+}

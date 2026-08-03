@@ -1,0 +1,21 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// wrote-if
+struct Money { cents: Int }
+extension Money: ExplicitCopy {
+    func copy(&self) -> Money { Money(cents: self.cents) }
+    func deinit(&var self) {}
+}
+struct Wallet { money: Money }
+extension Wallet: ExplicitCopy {
+    func copy(&self) -> Wallet { Wallet(money: self.money.copy()) }
+    func deinit(&var self) {}
+}
+func main() {
+    var ow: Wallet? = Wallet(money: Money(cents: 1))
+    var m = Money(cents: 3)
+    ow?.money = move m
+    print(ow!.money.cents)
+    if let _ = ow?.money.cents = 7 { print("wrote-if") }
+}
