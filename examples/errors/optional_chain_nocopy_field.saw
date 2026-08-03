@@ -1,0 +1,16 @@
+// Design 111: a final FIELD projection copies the value, so a move-only (NoCopy /
+// owns a resource) field cannot be the last segment of a chain.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot project field `f` of type `F` through an optional chain
+
+struct F { h: Int }
+extension F: Deinit { func deinit(&var self) {} }
+struct Wrap { f: F, n: Int }
+extension Wrap: Deinit { func deinit(&var self) {} }
+
+func mk() -> Wrap? { return Wrap(f: F(h: 1), n: 2) }
+
+func main() {
+    let x = mk()?.f
+    print(x.h)
+}

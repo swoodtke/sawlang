@@ -165,6 +165,11 @@ class TypesMixin:
             if saw_type.inner_type is None:
                 # None literal with unknown type - platform Int placeholder
                 inner_llvm_type = self.int_type
+            elif saw_type.inner_type.kind == TypeKind.VOID:
+                # `Void?` (design 111 optional-chain assignment result): LLVM has no
+                # void-in-struct, so the unit payload is a placeholder i8. Only the
+                # is_some flag is ever inspected (via `guard let _ =` / discard).
+                inner_llvm_type = ir.IntType(8)
             else:
                 inner_llvm_type = self._get_llvm_type(saw_type.inner_type)
             return ir.LiteralStructType([ir.IntType(1), inner_llvm_type])

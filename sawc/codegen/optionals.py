@@ -16,7 +16,12 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain, OptionalWrap
+from ast_nodes import (
+    NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain, OptionalWrap,
+    BindOptional, OptionalEvalExpr, OptionalChainAssign,
+    MemberAccess, MethodCall, Identifier, ArrayIndex, SelfExpr,
+    SawType, TypeKind,
+)
 
 
 class OptionalsMixin:
@@ -235,4 +240,265 @@ class OptionalsMixin:
         phi.add_incoming(some_result, some_bb)
         phi.add_incoming(none_result, none_bb)
 
+        return phi
+
+    # ==================================================================== #
+    # Design 111 — full optional chaining.
+    #
+    # An OptionalEvalExpr wraps the maximal postfix run; each `?.` hop is a
+    # BindOptional marking an unwrap-or-short-circuit. Codegen flattens the spine
+    # into a segment list and lowers it as a linear address-based walk: every
+    # optional hop tests `is_some` in place and, on None, jumps to a shared
+    # none-block (skipping the REST of the chain, including method arguments).
+    # Intermediate payloads are borrowed IN PLACE (a pointer into the optional's
+    # payload) — never copied, never consumed. Owned mid-chain temporaries (an
+    # rvalue head, a non-final method result) are spilled to slots and dropped
+    # EXACTLY ONCE on every path: each short-circuit block drops the temps created
+    # before it; the some-completion drops them all.
+    # ==================================================================== #
+    _I32_0 = None  # (documented) — helpers below build i32 constants inline.
+
+    def _flatten_optional_chain(self, spine):
+        """Walk an OptionalEvalExpr spine outer->inner into (head, segments).
+
+        Each segment is `(kind, node, is_optional)` with kind in {'field',
+        'method'} and `is_optional` True when the segment is reached through a
+        `?.` hop (its receiver is a BindOptional). `segments` is ordered
+        inner->outer (head first)."""
+        segments = []
+        node = spine
+        while True:
+            if isinstance(node, MemberAccess):
+                obj = node.object
+                is_opt = isinstance(obj, BindOptional)
+                base = obj.expr if is_opt else obj
+                segments.append(('field', node, is_opt))
+                node = base
+            elif isinstance(node, MethodCall):
+                obj = node.object
+                is_opt = isinstance(obj, BindOptional)
+                base = obj.expr if is_opt else obj
+                segments.append(('method', node, is_opt))
+                node = base
+            else:
+                head = node
+                break
+        segments.reverse()
+        return head, segments
+
+    def _is_chain_lvalue(self, head) -> bool:
+        """A chain head that already denotes real storage — borrowed in place, not
+        spilled/consumed. Everything else (a call/constructor result) is an owned
+        rvalue the chain spills and drops."""
+        return isinstance(head, (Identifier, MemberAccess, ArrayIndex, SelfExpr))
+
+    def _chain_head_pointer(self, head):
+        """Return `(ptr, temps)` for a chain head. An lvalue is addressed in place
+        (no drop); an owned rvalue is spilled to a slot the chain drops."""
+        temps = []
+        if self._is_chain_lvalue(head):
+            ptr = self._get_lvalue_pointer(head)
+        else:
+            val = self._generate_expression(head)
+            slot = self._entry_alloca(val.type, name="chain_head")
+            self.builder.store(val, slot)
+            ptr = slot
+            head_saw = self._expr_type(head)
+            if head_saw is not None:
+                head_saw = self._substitute_saw_type(head_saw, self.type_param_context)
+                if self._needs_cleanup(head_saw):
+                    temps.append((slot, head_saw))
+        return ptr, temps
+
+    def _chain_field_gep(self, base_ptr, member):
+        """GEP the field `member` from a pointer to a struct value. Returns
+        `(field_ptr, field_saw, struct_name)`."""
+        pointee = base_ptr.type.pointee
+        struct_name = None
+        if hasattr(pointee, 'name') and pointee.name in self.struct_types:
+            struct_name = pointee.name
+        else:
+            for name, (lt, _) in self.struct_types.items():
+                if str(pointee) == str(lt):
+                    struct_name = name
+                    break
+        if struct_name is None:
+            raise ValueError(f"optional chain: cannot resolve struct for field `{member}`")
+        _, field_order = self.struct_types[struct_name]
+        idx = field_order.index(member)
+        field_ptr = self.builder.gep(
+            base_ptr,
+            [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), idx)],
+            name=f"chain_{member}")
+        field_saw = self._struct_field_saw_type(struct_name, member)
+        return field_ptr, field_saw, struct_name
+
+    def _drop_chain_temps(self, temps):
+        """Deinit the chain's owned temporaries LIFO (in the CURRENT block)."""
+        for slot, saw in reversed(temps):
+            self._emit_drop_at(slot, saw)
+
+    def _chain_optional_gate(self, cur_ptr, none_bb, chain_temps):
+        """Emit the in-place `is_some` test for a `?.` hop. On None, drop the
+        temps created so far and jump to `none_bb`. Returns the payload pointer on
+        the continue path (builder left positioned there)."""
+        func = self.builder.function
+        is_some_ptr = self.builder.gep(
+            cur_ptr, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)],
+            name="chain_flag_ptr")
+        is_some = self.builder.load(is_some_ptr, name="chain_is_some")
+        cont_bb = func.append_basic_block(name="chain_cont")
+        sc_bb = func.append_basic_block(name="chain_sc")
+        self.builder.cbranch(is_some, cont_bb, sc_bb)
+        self.builder.position_at_start(sc_bb)
+        self._drop_chain_temps(chain_temps)
+        self.builder.branch(none_bb)
+        self.builder.position_at_start(cont_bb)
+        return self.builder.gep(
+            cur_ptr, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 1)],
+            name="chain_payload")
+
+    def visit_BindOptional(self, expr: BindOptional):
+        # BindOptional never lowers on its own — the OptionalEvalExpr routine
+        # consumes the spine directly. Reaching here is a compiler bug.
+        raise ValueError("BindOptional lowered outside an optional chain")
+
+    def visit_OptionalEvalExpr(self, expr: OptionalEvalExpr):
+        return self._generate_optional_eval(expr)
+
+    def visit_OptionalChainAssign(self, expr: OptionalChainAssign):
+        return self._generate_optional_chain_assign(expr)
+
+    def _generate_optional_eval(self, expr: OptionalEvalExpr):
+        """Lower a read chain `a?.b?.c()` to short-circuit control flow."""
+        head, segments = self._flatten_optional_chain(expr.expr)
+        result_saw = self._expr_type(expr)
+        result_llvm = self._get_llvm_type(result_saw)
+
+        cur_ptr, chain_temps = self._chain_head_pointer(head)
+        func = self.builder.function
+        none_bb = func.append_basic_block(name="chain_none")
+        merge_bb = func.append_basic_block(name="chain_merge")
+
+        final_val = None
+        n = len(segments)
+        for idx, (kind, node, is_opt) in enumerate(segments):
+            last = (idx == n - 1)
+            if is_opt:
+                base_ptr = self._chain_optional_gate(cur_ptr, none_bb, chain_temps)
+            else:
+                base_ptr = cur_ptr
+            if kind == 'field':
+                field_ptr, field_saw, _ = self._chain_field_gep(base_ptr, node.member)
+                if last:
+                    final_val = self.builder.load(field_ptr, name="chain_leaf")
+                    if field_saw is not None:
+                        final_val = self._generate_copy(final_val, field_saw)
+                else:
+                    cur_ptr = field_ptr
+            else:  # method
+                result = self._generate_method_call(node, receiver_ptr=base_ptr)
+                if last:
+                    final_val = result
+                else:
+                    slot = self._entry_alloca(result.type, name="chain_mtmp")
+                    self.builder.store(result, slot)
+                    res_saw = self._expr_type(node)
+                    if res_saw is not None:
+                        res_saw = self._substitute_saw_type(res_saw, self.type_param_context)
+                    cur_ptr = slot
+                    if res_saw is not None and self._needs_cleanup(res_saw):
+                        chain_temps.append((slot, res_saw))
+
+        # Some-completion path: wrap (unless the final segment is already the
+        # result Optional — flattening) and drop all owned temporaries.
+        if final_val.type == result_llvm:
+            some_val = final_val
+        else:
+            some_val = self._wrap_in_optional(final_val)
+        self._drop_chain_temps(chain_temps)
+        some_end_bb = self.builder.block
+        self.builder.branch(merge_bb)
+
+        # None path.
+        self.builder.position_at_start(none_bb)
+        none_val = ir.Constant(result_llvm, ir.Undefined)
+        none_val = self.builder.insert_value(none_val, ir.Constant(ir.IntType(1), 0), 0)
+        self.builder.branch(merge_bb)
+        none_end_bb = self.builder.block
+
+        self.builder.position_at_start(merge_bb)
+        phi = self.builder.phi(result_llvm, name="chain_result")
+        phi.add_incoming(some_val, some_end_bb)
+        phi.add_incoming(none_val, none_end_bb)
+        return phi
+
+    def _generate_optional_chain_assign(self, expr: OptionalChainAssign):
+        """Lower `x?.y = v` (design 111): write the RHS through the payload field
+        in place iff every optional hop is non-None; skip the RHS entirely on
+        short-circuit. Yields `Void?` — Some(unit) written, None skipped."""
+        target = expr.target
+        head, segments = self._flatten_optional_chain(target.expr)
+        result_llvm = ir.LiteralStructType([ir.IntType(1), ir.IntType(8)])
+
+        cur_ptr, chain_temps = self._chain_head_pointer(head)
+        func = self.builder.function
+        none_bb = func.append_basic_block(name="chainw_none")
+        merge_bb = func.append_basic_block(name="chainw_merge")
+
+        n = len(segments)
+        for idx, (kind, node, is_opt) in enumerate(segments):
+            last = (idx == n - 1)
+            if is_opt:
+                base_ptr = self._chain_optional_gate(cur_ptr, none_bb, chain_temps)
+            else:
+                base_ptr = cur_ptr
+            if last:
+                # The typechecker guarantees the final segment is a field.
+                field_ptr, field_saw, _ = self._chain_field_gep(base_ptr, node.member)
+                if field_saw is not None:
+                    field_saw = self._substitute_saw_type(field_saw, self.type_param_context)
+                # RHS is generated HERE, on the all-some path only.
+                value = self._generate_expression(expr.value)
+                if field_saw is not None and self._needs_cleanup(field_saw):
+                    self._emit_drop_at(field_ptr, field_saw)
+                if field_saw is not None and isinstance(expr.value, Identifier):
+                    value = self._generate_copy(value, field_saw)
+                expected_field_type = field_ptr.type.pointee
+                if (self._is_optional_type(expected_field_type)
+                        and not self._is_optional_type(value.type)):
+                    value = self._wrap_in_optional(value)
+                self.builder.store(value, field_ptr)
+            elif kind == 'field':
+                field_ptr, _, _ = self._chain_field_gep(base_ptr, node.member)
+                cur_ptr = field_ptr
+            else:  # method
+                result = self._generate_method_call(node, receiver_ptr=base_ptr)
+                slot = self._entry_alloca(result.type, name="chainw_mtmp")
+                self.builder.store(result, slot)
+                res_saw = self._expr_type(node)
+                if res_saw is not None:
+                    res_saw = self._substitute_saw_type(res_saw, self.type_param_context)
+                cur_ptr = slot
+                if res_saw is not None and self._needs_cleanup(res_saw):
+                    chain_temps.append((slot, res_saw))
+
+        # Some-completion: drop temps, produce Some(unit).
+        self._drop_chain_temps(chain_temps)
+        some_val = ir.Constant(result_llvm, ir.Undefined)
+        some_val = self.builder.insert_value(some_val, ir.Constant(ir.IntType(1), 1), 0)
+        some_val = self.builder.insert_value(some_val, ir.Constant(ir.IntType(8), 0), 1)
+        some_end_bb = self.builder.block
+        self.builder.branch(merge_bb)
+
+        self.builder.position_at_start(none_bb)
+        none_val = ir.Constant(result_llvm, ir.Undefined)
+        none_val = self.builder.insert_value(none_val, ir.Constant(ir.IntType(1), 0), 0)
+        self.builder.branch(merge_bb)
+        none_end_bb = self.builder.block
+
+        self.builder.position_at_start(merge_bb)
+        phi = self.builder.phi(result_llvm, name="chainw_result")
+        phi.add_incoming(some_val, some_end_bb)
+        phi.add_incoming(none_val, none_end_bb)
         return phi

@@ -25,6 +25,7 @@ from ast_nodes import (
     MapLiteral, SetLiteral,
     MemberAccess, StructInit,
     NoneLiteral, SourceLocationLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
+    BindOptional, OptionalEvalExpr, OptionalChainAssign,
     TryExpr, TryCatchExpr,
     RangeExpr, MatchExpr, MatchArm,
     MethodCall, SelfExpr,
@@ -390,10 +391,92 @@ class ExpressionsMixin:
 
         return expr
 
+    def _parse_dot_access(self, base_expr: Expression, dot_token, member_name: str) -> Expression:
+        """Build a `.member` / `.method(args)` access on `base_expr` (design 111
+        shares this between plain `.` and the `?.` optional hop). `member_name` is
+        already consumed; this handles explicit `<...>` type args, a `(args)` call,
+        a trailing-closure call, or a bare field access."""
+        # Explicit method-level type arguments (brief 36):
+        # `v.map<Int>(...)` or the trailing-closure form
+        # `v.map<Int> { ... }`. Same backtracking ambiguity as a free
+        # generic call — keep the `<...>` only if it is genuinely
+        # followed by `(` (a paren call) or `{` (a trailing-closure
+        # call); otherwise `a.b < c` is a comparison and we restore.
+        method_type_args = None
+        if self.match(TokenType.LT):
+            saved_pos = self.pos
+            try:
+                method_type_args = self._parse_type_args()
+                followed_by_call = self.match(TokenType.LPAREN) or (
+                    self.allow_trailing_closure and self.match(TokenType.LBRACE))
+                if not followed_by_call:
+                    self.pos = saved_pos
+                    method_type_args = None
+            except SyntaxError:
+                self.pos = saved_pos
+                method_type_args = None
+
+        # Check if followed by '(' - if so, it's a call (method or enum)
+        if self.match(TokenType.LPAREN):
+            # Parse as MethodCall - type checker will determine if it's
+            # actually an enum initialization based on the object type
+            self.advance()  # consume '('
+            arguments = self.parse_arguments()
+
+            # Check for trailing closure: obj.method(args) { ... }
+            if self.allow_trailing_closure and self.match(TokenType.LBRACE):
+                trailing_closure = self._parse_closure_expression()
+                arguments.append(Argument(value=trailing_closure, name=None))
+
+            return MethodCall(
+                object=base_expr,
+                method_name=member_name,
+                arguments=arguments,
+                type_args=method_type_args,
+                line=dot_token.line,
+                column=dot_token.column
+            )
+        elif self.allow_trailing_closure and self.match(TokenType.LBRACE):
+            # Method call with only trailing closure: obj.method { ... }
+            # (possibly with explicit type args: obj.method<U> { ... })
+            trailing_closure = self._parse_closure_expression()
+            arguments = [Argument(value=trailing_closure, name=None)]
+            return MethodCall(
+                object=base_expr,
+                method_name=member_name,
+                arguments=arguments,
+                type_args=method_type_args,
+                line=dot_token.line,
+                column=dot_token.column
+            )
+        else:
+            # It's just member access (could be simple enum variant or struct field)
+            # For simple enum variants like Status.Success, we create MemberAccess
+            # The type checker will convert this to EnumInit if needed
+            return MemberAccess(
+                object=base_expr,
+                member=member_name,
+                line=dot_token.line,
+                column=dot_token.column
+            )
+
     def parse_postfix(self) -> Expression:
         expr = self.parse_primary()
 
-        # Handle postfix operations: .0, .1, .field, !, ?.
+        # `saw_chain` is True while an optional-chain postfix run is open (design
+        # 111): a `?.` opens it; further `.`/`?.` extend it; `!`, `[`, and a tuple
+        # `.N` CLOSE it (wrapping the run in an OptionalEvalExpr) so they apply to
+        # the resulting Optional — `a?.b!` is `(a?.b)!`. One short-circuit skips the
+        # whole run.
+        saw_chain = False
+
+        def _close_chain():
+            nonlocal expr, saw_chain
+            if saw_chain:
+                expr = OptionalEvalExpr(expr=expr, line=expr.line, column=expr.column)
+                saw_chain = False
+
+        # Handle postfix operations: .0, .1, .field, !, ?., [i]
         while True:
             if self.match(TokenType.DOT):
                 dot_token = self.advance()
@@ -401,6 +484,7 @@ class ExpressionsMixin:
 
                 if member_token.type == TokenType.INT:
                     # Tuple indexing: expr.0, expr.1, etc.
+                    _close_chain()
                     self.advance()
                     index = int(member_token.value)
                     expr = TupleIndex(
@@ -410,79 +494,18 @@ class ExpressionsMixin:
                         column=dot_token.column
                     )
                 elif member_token.type == TokenType.IDENT:
-                    # Could be member access or method/enum call
+                    # Could be member access or method/enum call; extends an open
+                    # optional chain (operates on the unwrapped payload).
                     member_name = member_token.value
                     self.advance()
-
-                    # Explicit method-level type arguments (brief 36):
-                    # `v.map<Int>(...)` or the trailing-closure form
-                    # `v.map<Int> { ... }`. Same backtracking ambiguity as a free
-                    # generic call — keep the `<...>` only if it is genuinely
-                    # followed by `(` (a paren call) or `{` (a trailing-closure
-                    # call); otherwise `a.b < c` is a comparison and we restore.
-                    method_type_args = None
-                    if self.match(TokenType.LT):
-                        saved_pos = self.pos
-                        try:
-                            method_type_args = self._parse_type_args()
-                            followed_by_call = self.match(TokenType.LPAREN) or (
-                                self.allow_trailing_closure and self.match(TokenType.LBRACE))
-                            if not followed_by_call:
-                                self.pos = saved_pos
-                                method_type_args = None
-                        except SyntaxError:
-                            self.pos = saved_pos
-                            method_type_args = None
-
-                    # Check if followed by '(' - if so, it's a call (method or enum)
-                    if self.match(TokenType.LPAREN):
-                        # Parse as MethodCall - type checker will determine if it's
-                        # actually an enum initialization based on the object type
-                        self.advance()  # consume '('
-                        arguments = self.parse_arguments()
-
-                        # Check for trailing closure: obj.method(args) { ... }
-                        if self.allow_trailing_closure and self.match(TokenType.LBRACE):
-                            trailing_closure = self._parse_closure_expression()
-                            arguments.append(Argument(value=trailing_closure, name=None))
-
-                        expr = MethodCall(
-                            object=expr,
-                            method_name=member_name,
-                            arguments=arguments,
-                            type_args=method_type_args,
-                            line=dot_token.line,
-                            column=dot_token.column
-                        )
-                    elif self.allow_trailing_closure and self.match(TokenType.LBRACE):
-                        # Method call with only trailing closure: obj.method { ... }
-                        # (possibly with explicit type args: obj.method<U> { ... })
-                        trailing_closure = self._parse_closure_expression()
-                        arguments = [Argument(value=trailing_closure, name=None)]
-                        expr = MethodCall(
-                            object=expr,
-                            method_name=member_name,
-                            arguments=arguments,
-                            type_args=method_type_args,
-                            line=dot_token.line,
-                            column=dot_token.column
-                        )
-                    else:
-                        # It's just member access (could be simple enum variant or struct field)
-                        # For simple enum variants like Status.Success, we create MemberAccess
-                        # The type checker will convert this to EnumInit if needed
-                        expr = MemberAccess(
-                            object=expr,
-                            member=member_name,
-                            line=dot_token.line,
-                            column=dot_token.column
-                        )
+                    expr = self._parse_dot_access(expr, dot_token, member_name)
                 else:
                     self.error(f"Expected field name or tuple index after '.', got {member_token.type.name}")
 
             elif self.match(TokenType.EXCLAIM):
-                # Force unwrap: expr!
+                # Force unwrap: expr! — closes an open chain, then unwraps it.
                 exclaim_token = self.advance()
+                _close_chain()
                 expr = ForceUnwrap(
                     expr=expr,
                     line=exclaim_token.line,
@@ -490,19 +513,19 @@ class ExpressionsMixin:
                 )
 
             elif self.match(TokenType.QUESTION_DOT):
-                # Optional chaining: expr?.member
+                # Optional chaining hop: expr?.member / expr?.method(args).
                 chain_token = self.advance()
                 member_token = self.expect(TokenType.IDENT, "Expected member name after '?.'")
-                expr = OptionalChain(
-                    expr=expr,
-                    member=member_token.value,
-                    line=chain_token.line,
-                    column=chain_token.column
-                )
+                base = BindOptional(
+                    expr=expr, line=chain_token.line, column=chain_token.column)
+                expr = self._parse_dot_access(base, chain_token, member_token.value)
+                saw_chain = True
 
             elif self.match(TokenType.LBRACKET):
-                # Array indexing: expr[index]
+                # Array indexing: expr[index] — closes an open chain first
+                # (`?.` indexing is out of scope; `a?.b[i]` is `(a?.b)[i]`).
                 bracket_token = self.advance()
+                _close_chain()
                 index_expr = self.parse_expression()
                 self.expect(TokenType.RBRACKET, "Expected ']' after array index")
                 expr = ArrayIndex(
@@ -515,6 +538,7 @@ class ExpressionsMixin:
             else:
                 break
 
+        _close_chain()
         return expr
 
     def parse_primary(self) -> Expression:
@@ -1775,6 +1799,11 @@ class ExpressionsMixin:
                 visit_expr(expr.default)
             elif isinstance(expr, OptionalChain):
                 visit_expr(expr.expr)
+            elif isinstance(expr, (BindOptional, OptionalEvalExpr)):
+                visit_expr(expr.expr)
+            elif isinstance(expr, OptionalChainAssign):
+                visit_expr(expr.target)
+                visit_expr(expr.value)
             elif isinstance(expr, ClosureExpr):
                 # Don't recurse into nested closures - they have their own params
                 pass

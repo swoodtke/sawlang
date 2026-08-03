@@ -648,8 +648,14 @@ class CallsMixin:
         align = llvm_type.get_abi_alignment(self.target_data)
         return ir.Constant(self.int_type, align)  # alignof<T>() -> platform Int
 
-    def _generate_method_call(self, expr: MethodCall):
+    def _generate_method_call(self, expr: MethodCall, receiver_ptr=None):
         """Generate code for method call, static method call, enum initialization, or module function call.
+
+        `receiver_ptr` (design 111 optional chaining): when set, the instance
+        receiver is this precomputed pointer to the payload struct — the caller
+        (the optional-chain lowering) already unwrapped the payload in place, so
+        the object sub-expression is NOT re-evaluated and the mid-chain receiver is
+        borrowed, never spilled/copied.
 
         The parser creates MethodCall for all these cases:
         - object.method(args) - instance method call
@@ -781,7 +787,13 @@ class CallsMixin:
         # Get mangled method name first to check if method expects mutable self
         # We need this info before generating the object expression
         # First, determine struct type by generating the object
-        obj_val = self._generate_expression(expr.object)
+        if receiver_ptr is not None:
+            # Optional-chain method hop: the receiver is the unwrapped payload,
+            # already addressed in place. Load its value for struct-type detection;
+            # a `&self`/`&var self` method takes the pointer directly (below).
+            obj_val = self.builder.load(receiver_ptr, name="chain_recv")
+        else:
+            obj_val = self._generate_expression(expr.object)
 
         # Determine the struct type
         # For identified types, we can get the name directly
@@ -980,7 +992,7 @@ class CallsMixin:
         # receiver (Identifier / self / field) is owned by its binding and is
         # NOT registered here, which would double-free it.
         receiver_temp_slot = None
-        if self._is_owned_temporary(expr.object):
+        if receiver_ptr is None and self._is_owned_temporary(expr.object):
             receiver_type = self._expr_type(expr.object)
             receiver_temp_slot = self._register_stmt_temp(obj_val, receiver_type)
 
@@ -1005,8 +1017,12 @@ class CallsMixin:
 
         if is_mutable_self:
             # Method expects pointer to self
+            if receiver_ptr is not None:
+                # Optional-chain hop: the payload is already addressed in place;
+                # a `&var self` mutation lands on the real chain storage.
+                self_arg = receiver_ptr
             # If object is a variable, pass its alloca directly
-            if isinstance(expr.object, Identifier) and expr.object.name in self.variables:
+            elif isinstance(expr.object, Identifier) and expr.object.name in self.variables:
                 self_arg = self.variables[expr.object.name]
                 # If the receiver binding is itself a `&`/`&var` reference (e.g. a
                 # reference parameter like `h: &var Hasher`), its alloca holds a

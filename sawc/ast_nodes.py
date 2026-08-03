@@ -708,9 +708,45 @@ class NilCoalesce(Expression):
 
 @dataclass
 class OptionalChain(Expression):
-    """Optional chaining: expr?.member"""
+    """Optional chaining: expr?.member (legacy single-hop node, no longer emitted
+    by the parser — full chains lower to BindOptional / OptionalEvalExpr below).
+    Kept for back-compat of imports; its visitors are unreachable."""
     expr: Expression
     member: str
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class BindOptional(Expression):
+    """An `?.` unwrap point inside an optional chain (design 111). Wraps the
+    receiver expression whose Optional payload is projected on the some-path and
+    short-circuits the enclosing OptionalEvalExpr to None otherwise. Types to the
+    payload type U (the object of the following `.member`/`.method()` segment)."""
+    expr: Expression
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class OptionalEvalExpr(Expression):
+    """The maximal postfix chain containing at least one `?.` hop (design 111).
+    Its inner spine is a nest of MemberAccess/MethodCall whose optional hops are
+    marked by BindOptional. Types to `U?` where U is the spine's type, flattening
+    an already-optional U (never `U??`)."""
+    expr: Expression
+    line: int = 0
+    column: int = 0
+
+
+@dataclass
+class OptionalChainAssign(Expression):
+    """Chained assignment `x?.y = v` (design 111). `target` is an OptionalEvalExpr
+    whose final segment is a payload FIELD; writes the RHS through the chain in
+    place iff every optional hop is non-None. Types to `Void?` (None = skipped,
+    Some(unit) = written); silently discardable in statement position."""
+    target: Expression
+    value: Expression
     line: int = 0
     column: int = 0
 

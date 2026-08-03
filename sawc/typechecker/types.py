@@ -13,7 +13,8 @@ from typing import Optional, Tuple
 from ast_nodes import (
     SawType, TypeKind, Visibility,
     Expression, Identifier, MoveExpr, ReferenceExpr, IntLiteral, Block,
-    MemberAccess, ArrayIndex, TupleIndex, SelfExpr, ClosureExpr
+    MemberAccess, ArrayIndex, TupleIndex, SelfExpr, ClosureExpr,
+    BindOptional, OptionalEvalExpr
 )
 from errors import ErrorKind
 from namespace import (
@@ -1219,6 +1220,12 @@ class TypeUtilsMixin:
             if isinstance(node, MemberAccess):
                 projections.append(('field', node.member))
                 node = node.object
+            elif isinstance(node, (BindOptional, OptionalEvalExpr)):
+                # An `?.` hop / chain wrapper (design 111) is transparent for
+                # access-path purposes: the root and its field/index projections
+                # are what determine overlap; the optional unwrap adds no path
+                # component.
+                node = node.expr
             elif isinstance(node, TupleIndex):
                 projections.append(('tuple', node.index))
                 node = node.tuple_expr

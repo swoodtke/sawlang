@@ -1,0 +1,49 @@
+// Design 111: an owned Optional flowing through a chain is dropped EXACTLY ONCE
+// on both the taken and the short-circuited path (mid-chain temp deinit
+// discipline); a None head creates and drops nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 1
+// -1
+// 1
+// 7
+// 2
+
+static DROPS: Atomic<Int> = Atomic(0)
+
+struct Res { id: Int }
+extension Res: Deinit {
+    func deinit(&var self) { DROPS.fetch_add(1) }
+}
+
+struct Holder { res: Res, n: Int }
+extension Holder: Deinit {
+    func deinit(&var self) {}
+}
+extension Holder {
+    func value(&self) -> Int { self.n }
+}
+
+// returns an OWNED Optional<Holder> (holds a Deinit Res)
+func makeHolder(present: Bool) -> Holder? {
+    if present { return Holder(res: Res(id: 1), n: 7) }
+    return None
+}
+
+func main() {
+    // owned call head, method final: the temporary Holder? must drop once.
+    let a: Int? = makeHolder(present: true)?.value()
+    print(a ?? -1)
+    print(DROPS.load())    // expect 1
+
+    // None head: nothing created, nothing dropped.
+    let b: Int? = makeHolder(present: false)?.value()
+    print(b ?? -1)
+    print(DROPS.load())    // still 1
+
+    // owned head, final field projection (copyable Int field): drop once more.
+    let c: Int? = makeHolder(present: true)?.n
+    print(c ?? -1)
+    print(DROPS.load())    // expect 2
+}

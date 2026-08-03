@@ -17,7 +17,8 @@ from ast_nodes import (
     UnsafeExpr,
     FunctionCall, IfExpr, IfLetExpr, TupleLiteral, TupleIndex,
     ArrayLiteral, MapLiteral, SetLiteral, ArrayIndex, MemberAccess, StructInit, NoneLiteral,
-    ForceUnwrap, NilCoalesce, OptionalChain, MethodCall, SelfExpr,
+    ForceUnwrap, NilCoalesce, OptionalChain, BindOptional, OptionalEvalExpr,
+    OptionalChainAssign, MethodCall, SelfExpr,
     SourceLocationLiteral,
     EnumInit, MatchExpr, WhileExpr, RangeExpr, ForLoop, ClosureExpr,
     TryExpr, TryCatchExpr,
@@ -310,6 +311,15 @@ class ExpressionsMixin:
 
     def visit_OptionalChain(self, expr: OptionalChain) -> Optional[SawType]:
         return self._check_optional_chain(expr)
+
+    def visit_BindOptional(self, expr: BindOptional) -> Optional[SawType]:
+        return self._check_bind_optional(expr)
+
+    def visit_OptionalEvalExpr(self, expr: OptionalEvalExpr) -> Optional[SawType]:
+        return self._check_optional_eval(expr)
+
+    def visit_OptionalChainAssign(self, expr: OptionalChainAssign) -> Optional[SawType]:
+        return self._check_optional_chain_assign(expr)
 
     def visit_MethodCall(self, expr: MethodCall) -> Optional[SawType]:
         return self._check_method_call(expr)
@@ -4492,6 +4502,207 @@ class ExpressionsMixin:
             return None
         field_type = struct_info.fields[expr.member]
         return SawType(TypeKind.OPTIONAL, inner_type=field_type)
+
+    # ------------------------------------------------------------------ #
+    # Design 111 — full optional chaining. A `?.` hop is a BindOptional node
+    # (unwrap-or-short-circuit); the maximal postfix run is an OptionalEvalExpr
+    # (flatten to `U?`); `x?.y = v` is an OptionalChainAssign (`Void?`).
+    # ------------------------------------------------------------------ #
+    def _check_bind_optional(self, expr: BindOptional) -> Optional[SawType]:
+        """A `?.` unwrap point: the receiver must be `Optional<U>`; the hop yields
+        the payload `U` (the object the following segment projects/calls). `None`
+        short-circuits the enclosing chain at codegen — here it is a pure type
+        projection."""
+        opt_type = self._check_expression(expr.expr)
+        if opt_type is None:
+            return None
+        if opt_type.kind != TypeKind.OPTIONAL:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot use optional chaining on non-optional type `{opt_type}`",
+                expr.line, expr.column
+            )
+            return None
+        inner_type = opt_type.inner_type
+        if inner_type is None:
+            return None
+        return self._resolve_type(inner_type)
+
+    def _check_optional_eval(self, expr: OptionalEvalExpr) -> Optional[SawType]:
+        """The whole optional chain. Type the spine, then flatten to `U?` — an
+        already-optional final segment stays `U?`, never `U??`. A final FIELD
+        projection copies its value, so it must be freely copyable; a final METHOD
+        result is a fresh owned value and is unrestricted."""
+        inner_type = self._check_expression(expr.expr)
+        if inner_type is None:
+            return None
+        if isinstance(expr.expr, MemberAccess):
+            self._check_chain_final_field_copyable(expr.expr, inner_type)
+        if inner_type.kind == TypeKind.OPTIONAL:
+            return inner_type
+        return SawType(TypeKind.OPTIONAL, inner_type=inner_type)
+
+    def _check_chain_final_field_copyable(self, member: MemberAccess,
+                                          field_type: SawType) -> None:
+        """A final `?...field` projection reads the field out BY VALUE (there is no
+        `.copy()`/`move` spelling inside a chain), so the field must be freely
+        copyable — trivially copyable or ImplicitCopy. A move-only field (NoCopy,
+        an owning Deinit type, or ExplicitCopy) is rejected (matching
+        `Vector.get`'s copyable-element rule)."""
+        if self._is_trivially_copyable(field_type) or \
+                self._is_implicit_copy_type(field_type):
+            return
+        detail = "ExplicitCopy" if self._is_explicit_copy_type(field_type) \
+            else "move-only (NoCopy / owns a resource)"
+        self._error(
+            ErrorKind.CANNOT_COPY,
+            f"cannot project field `{member.member}` of type `{field_type}` "
+            f"through an optional chain: it is {detail}, and a chain projection "
+            f"copies the value by value",
+            member.line, member.column,
+            hint="bind the optional first (`if let x = opt`) and move/`.copy()` "
+                 "the field out, or end the chain in a method that returns a value")
+
+    def _check_optional_chain_assign(self, expr: OptionalChainAssign) -> Optional[SawType]:
+        """`x?.y = v` (design 111). Writes the RHS through the chain into the
+        payload FIELD in place iff every optional hop is non-None; the RHS is
+        skipped entirely on short-circuit (codegen). Types to `Void?` — `None` =
+        skipped, `Some(unit)` = written."""
+        target = expr.target
+        if not isinstance(target, OptionalEvalExpr):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "the left-hand side of this assignment is not an optional chain",
+                expr.line, expr.column)
+            return None
+        spine = target.expr
+        if not isinstance(spine, MemberAccess):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "an optional-chain assignment must target a field of the payload "
+                "(the final segment must be `.field`, not a method call)",
+                expr.line, expr.column)
+            return None
+        # Type the target field (also type-checks + stamps the whole chain, and
+        # verifies the field exists and is visible for writing).
+        field_type = self._check_expression(spine)
+        if field_type is None:
+            return None
+        # Mutability: the chain head must be a mutable place (a `var` or a
+        # `&var`-reachable path). Exclusivity: the written root must not overlap a
+        # borrow in the RHS.
+        root_path = self._build_access_path(spine)
+        self._check_chain_assign_head_mutable(spine, root_path, expr)
+        self._check_chain_assign_exclusivity(root_path, expr.value, expr)
+        # RHS follows ordinary assignment transfer rules against the field type,
+        # including optional-None propagation onto a bare `None` RHS.
+        value_type = self._check_expression(expr.value)
+        field_resolved = self._resolve_type_alias(field_type)
+        if (value_type and value_type.is_none_literal()
+                and field_resolved.is_optional()):
+            self._propagate_optional_type(expr.value, field_resolved)
+            value_type = field_resolved
+        if value_type and not self._types_compatible(value_type, field_type):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot assign `{value_type}` to field of type `{field_type}`",
+                expr.line, expr.column)
+        self._check_value_transfer(expr.value, field_type,
+                                   "optional-chain assignment",
+                                   expr.line, expr.column)
+        return SawType(TypeKind.OPTIONAL, inner_type=SawType(TypeKind.VOID))
+
+    def _chain_assign_root(self, spine):
+        """Walk a chain-assignment target to its ROOT node, transparent through
+        MemberAccess/BindOptional/OptionalEvalExpr/tuple/index projections."""
+        node = spine
+        while True:
+            if isinstance(node, MemberAccess):
+                node = node.object
+            elif isinstance(node, (BindOptional, OptionalEvalExpr)):
+                node = node.expr
+            elif isinstance(node, TupleIndex):
+                node = node.tuple_expr
+            elif isinstance(node, ArrayIndex):
+                node = node.array_expr
+            else:
+                return node
+
+    def _check_chain_assign_head_mutable(self, spine, root_path, expr) -> None:
+        """The head of a chain assignment must be an assignable, mutable place."""
+        root = self._chain_assign_root(spine)
+        if isinstance(root, SelfExpr):
+            return  # governed by `&var self`, like an ordinary field write
+        if not isinstance(root, Identifier):
+            self._error(
+                ErrorKind.IMMUTABLE_ASSIGNMENT,
+                "the head of an optional-chain assignment must be a mutable "
+                "variable or a `&var`-reachable path",
+                expr.line, expr.column)
+            return
+        if self.namespace.get_static(root.name) is not None and \
+                self.current_scope.lookup(root.name) is None:
+            self._error(
+                ErrorKind.IMMUTABLE_ASSIGNMENT,
+                f"cannot assign through optional chain rooted at the immutable "
+                f"static `{root.name}`",
+                expr.line, expr.column)
+            return
+        info = self.current_scope.lookup(root.name)
+        if info is None:
+            return
+        if info.mutable:
+            return
+        # A `&var` reference param is a mutable path; a `&` or plain `let` is not.
+        if (info.type is not None and info.type.kind == TypeKind.REFERENCE
+                and info.type.reference_mutable):
+            return
+        self._error(
+            ErrorKind.IMMUTABLE_ASSIGNMENT,
+            f"cannot assign through optional chain: `{root.name}` is not mutable",
+            expr.line, expr.column,
+            hint="consider using `var` instead of `let` to make it mutable")
+
+    def _check_chain_assign_exclusivity(self, root_path, value, expr) -> None:
+        """Law of Exclusivity on the written root path: the chain assignment is a
+        write of the root, so the RHS may not also borrow (`&`/`&var`) or `move`
+        an overlapping path."""
+        if root_path is None:
+            return
+        import dataclasses
+        stack = [value]
+        seen = set()
+        while stack:
+            cur = stack.pop()
+            if cur is None or id(cur) in seen:
+                continue
+            seen.add(id(cur))
+            if isinstance(cur, ClosureExpr):
+                continue  # a closure's captures are its own access domain
+            other = None
+            if isinstance(cur, ReferenceExpr):
+                other = self._build_access_path(cur.expr)
+            elif isinstance(cur, MoveExpr):
+                other = (cur.variable, ())
+            if other is not None and self._paths_overlap(root_path, other):
+                self._error(
+                    ErrorKind.EXCLUSIVITY_VIOLATION,
+                    f"exclusive access violation: `{root_path[0]}` is written by "
+                    f"this optional-chain assignment while also being accessed in "
+                    f"the right-hand side",
+                    expr.line, expr.column)
+                return
+            if dataclasses.is_dataclass(cur) and not isinstance(cur, type):
+                for f in dataclasses.fields(cur):
+                    v = getattr(cur, f.name, None)
+                    if dataclasses.is_dataclass(v) and not isinstance(v, type):
+                        stack.append(v)
+                    elif isinstance(v, (list, tuple)):
+                        for it in v:
+                            if isinstance(it, Argument):
+                                stack.append(it.value)
+                            elif dataclasses.is_dataclass(it) and not isinstance(it, type):
+                                stack.append(it)
 
     def _make_specialization_key(self, type_args: List[SawType]) -> tuple:
         """Convert type arguments to a specialization key tuple."""

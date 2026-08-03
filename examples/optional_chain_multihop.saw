@@ -1,0 +1,53 @@
+// Design 111: multi-hop optional chaining — field chains, a call-result head,
+// None at each hop position, and flattening (never `U??`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 21
+// 7
+// -99
+// -88
+// here
+// none
+// none
+
+struct Inner { v: Int }
+struct Outer { inner: Inner, tag: Int }
+
+struct Profile { bio: String }
+struct User { profile: Profile? }
+
+func makeOuter(present: Bool) -> Outer? {
+    if present { return Outer(inner: Inner(v: 21), tag: 7) }
+    return None
+}
+
+func main() {
+    let o: Outer? = Outer(inner: Inner(v: 21), tag: 7)
+
+    // Multi-hop field: `?.` then a plain `.` on the unwrapped payload.
+    print(o?.inner.v ?? -1)
+
+    // Optional-returning call as the head.
+    print(makeOuter(present: true)?.tag ?? -1)
+
+    // None at the FIRST hop short-circuits the whole tail.
+    let none_head: Outer? = None
+    print(none_head?.inner.v ?? -99)
+
+    // None from a call head short-circuits.
+    print(makeOuter(present: false)?.inner.v ?? -88)
+
+    // Flattening: a chain whose final segment is itself `T?` stays `T?`,
+    // never `T??`. `??` composes with the single-level result.
+    let u: User? = User(profile: Profile(bio: "here"))
+    let bio: String? = u?.profile?.bio
+    print(bio ?? "none")
+
+    // None at the MIDDLE hop (profile is None).
+    let u2: User? = User(profile: None)
+    print(u2?.profile?.bio ?? "none")
+
+    // None at the HEAD of a two-hop chain.
+    let u3: User? = None
+    print(u3?.profile?.bio ?? "none")
+}

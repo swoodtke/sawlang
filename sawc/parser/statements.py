@@ -16,7 +16,8 @@ from ast_nodes import (
     LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
     GuardLetStatement, DestructuringLet,
     WhileExpr, ForLoop, BreakStatement, ContinueStatement,
-    Identifier, MemberAccess, ArrayIndex, UnsafeExpr, SelfExpr
+    Identifier, MemberAccess, ArrayIndex, UnsafeExpr, SelfExpr,
+    OptionalEvalExpr, OptionalChainAssign
 )
 
 # Compound assignment token to operator mapping
@@ -196,6 +197,22 @@ class StatementsMixin:
         if self.match(TokenType.ASSIGN):
             self.advance()  # consume '='
             value_expr = self.parse_expression()
+
+            # Optional-chain assignment `x?.y = v` (design 111): the target is an
+            # OptionalEvalExpr. It becomes an OptionalChainAssign expression (type
+            # `Void?`) wrapped in an ExpressionStatement — statement position
+            # discards the `Void?` silently.
+            if isinstance(target_expr, OptionalEvalExpr):
+                return ExpressionStatement(
+                    expression=OptionalChainAssign(
+                        target=target_expr,
+                        value=value_expr,
+                        line=target_expr.line,
+                        column=target_expr.column,
+                    ),
+                    line=target_expr.line,
+                    column=target_expr.column,
+                )
 
             # Validate that target is assignable (Identifier, MemberAccess,
             # ArrayIndex, or `self` — design 110 `&var self` replacement).
