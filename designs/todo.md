@@ -79,6 +79,60 @@ items need a probe before being treated as real work.
   (`__drive`/`spawn`), or give the template a type-param method call. Suite 941 (+1),
   bootstrap 17+17 + libs 4+4. [104, 74, 70, 96]
 
+## Design 105 — generic inference: overloads, later-arg solve, labeled args (LANDED)
+- **Extends design 93 past its three explicit-args boundaries.** One feature
+  commit + docs. Suite 944 (941 + 3), zero xfails; bootstrap ok (blade 17+17,
+  libs toml 4 + semver 4). Bootstrap wall unchanged (baseline ~71.4s / 62.1 user;
+  after ~71.1s / 61.9 user — within noise; generic overloaded calls are absent
+  from the bootstrap corpus so the per-candidate sandbox adds ~0).
+- **Overload sets.** `_resolve_overload` (all four callers: free/module fn +
+  instance/static method) gained `expr`/`base_subst`. When no concrete (or
+  explicit-type-arg generic) candidate matches, inference runs PER generic
+  candidate via `_try_infer_overload_candidate` -> `_solve_call_type_args(...,
+  silent=True, known_arg_types=...)` (each fully sandboxed; `known_arg_types`
+  reuses the already-checked `_overload_arg_types` so no double `move`/effect —
+  a failed candidate leaves ZERO residue). Exactly one solving-and-type-matching
+  candidate is picked (solved args stamped on `expr.type_args`); >=2 -> clean
+  ambiguity error listing candidates + solved type args (`<T=Int>`) + explicit-
+  args/labels hint; 0 -> the existing no-match diagnostic. Concrete beats generic
+  is untouched (design 55) — an inferred overload never changes a call that
+  already resolved.
+- **Later-arg solve.** `_solve_call_type_args` fixpoints over the arg list
+  (bounded by param count): phase-1 non-closure args unify against `base_subst`
+  ONLY (so a two-args-one-param conflict is still detected), phase-2 closures
+  improve as `out` grows — a param gated by an arg to its RIGHT (incl. a closure
+  before the value that fixes its `T`) now solves.
+- **Labeled args.** `_infer_label_mapping` pairs args to params BY LABEL (design
+  66 binding) before unifying; the per-candidate label FILTER also disambiguates
+  a label-distinguished generic overload. NOTE: under Saw's trailing-defaults +
+  forward-only-binding rules a *legal* labeled call cannot actually reorder a
+  type-param-carrying argument, so the design-93 "mis-map" was latent-only; the
+  mapping is threaded for the general model and for the overload type-match.
+- **Codegen (the real enabler).** Two+ GENERIC overloads of one name previously
+  collided (both -> `name$<args>`; the clean tree mis-resolved them even with
+  EXPLICIT args — pre-existing, verified by probe). Registration now stamps each
+  a distinct `$OL$` base (declared param-type sig; `$LB$` labels when they share
+  a sig); codegen `generic_functions` + typechecker `_pristine_generics` + the
+  call/spawn/`__drive` mono sites key by that base via `resolved_symbol`. A lone
+  generic in a set keeps its plain name (byte-identical) -> inert for all existing
+  code (no std/blade/libs set has 2+ generic overloads). Inferred args are marked
+  `type_args_inferred` so a spawn/drive/coro RE-CHECK re-infers instead of
+  mistaking the stamped args for an explicit-generic selection (`_has_explicit_
+  type_args`). Inferred + explicit generic-overload args are now bound-checked.
+- **FLAG (scoped limitation, clean not silent):** a driven/spawned generic
+  *METHOD* OVERLOAD (2+ generic method overloads of one name, suspending) is NOT
+  supported — only free-function generic overloads carry the per-overload codegen
+  symbol; the coro/method-mono path still resolves a generic method template by
+  `(struct, name)`. Free-fn generic overloads spawn/drive per resolved candidate
+  (tested). Two generic overloads that BOTH solve at a call are an ambiguity
+  error by design (give `<...>`).
+- Tests: `infer_overload` (unique-solve generic-fallback + concrete; two-generic
+  container-shape Wrap/Vector both instantiated; label-distinguished; later-arg
+  closure-first; explicit selects the generic), `infer_overload_driven` (two
+  suspending generic overloads spawned -> own bodies; a driven inferred generic),
+  `errors/infer_overload_ambiguous`. Design-93 suite stays green. [105, 93, 55,
+  66, 38, 95, 70, 74]
+
 ## Design 102 — runtime edge bugs: spawn-Void ICE + cancel wakes an io-parked task (LANDED)
 - **Item 2 (cancel wakes an ALREADY-io-parked task — A3 remainder) — LANDED.** A task
   parked in `io_wait` on a permanently-idle fd, cancelled by a peer, never observed the

@@ -166,16 +166,30 @@ v.map({ $0.to_string() })           // type args INFERRED (design 93): U from
 v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
 ```
 - `any` only behind `&`, `&var`, or `Box` (unsized otherwise).
-- **Generic type-arg inference (design 93):** a generic free function or method
-  may omit its `<...>` — argument types (and a closure's inferred RETURN type)
-  solve them (`wrap(5)`, `first(7,"hi")`, `v.map({...})`, `v.fold(0){...}`).
+- **Generic type-arg inference (design 93 + 105):** a generic free function or
+  method may omit its `<...>` — argument types (and a closure's inferred RETURN
+  type) solve them (`wrap(5)`, `first(7,"hi")`, `v.map({...})`, `v.fold(0){...}`).
   Explicit `<...>` always allowed + wins; a partial explicit prefix pins the
   leading params, the rest infer; a defaulted trailing param fills unconstrained.
   Failures are clean errors (underdetermined / conflicting), and an inferred arg
-  is bound-checked. Boundaries: single left-to-right pass (a param solvable only
-  by a LATER arg than one it gates needs explicit args); a GENERIC OVERLOAD (two
-  candidates of one name) still needs explicit `<...>`; driven/spawned inferred
-  generics monomorphize per instantiation just like explicit ones.
+  is bound-checked. Design 105 extended the boundary:
+  - **Overload sets** now infer: inference runs PER CANDIDATE, and if EXACTLY ONE
+    generic overload both solves and type-matches it is picked. Concrete overloads
+    still win (design 55 exact-match). Two+ that solve is a clean AMBIGUITY error
+    listing the candidates + their solved type args (`give explicit type arguments
+    or labels`) — never a silent pick. So a generic fallback alongside concrete
+    specializations, or two generic overloads distinguished by container shape
+    (`f(Wrap<T>)` vs `f(Vector<T>)`) or by LABEL, all infer.
+  - **Later-arg solve**: a parameter determined by an argument to its RIGHT is now
+    solved (fixpoint over the arg list), including a closure that appears BEFORE
+    the value that fixes its `T` (`run({ $0*2 }, 10)`).
+  - **Labeled calls** map arguments to parameters by LABEL before unifying.
+  - Driven/spawned inferred generics (incl. a suspending generic OVERLOAD)
+    monomorphize per resolved candidate, just like explicit ones.
+  Still explicit: two generic overloads of one name that BOTH solve at a call
+  (ambiguous — give `<...>`); a driven/spawned generic METHOD overload (only free
+  functions carry the per-overload codegen symbol) — drive it directly at an
+  explicit instantiation if needed.
 - Equatable: auto for trivial structs/payload-free enums; opt in with
   empty `extension T: Equatable {}` (synthesized) elsewhere.
   Comparable requires Equatable (no auto). Hashable mirrors Equatable.

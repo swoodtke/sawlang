@@ -200,11 +200,14 @@ Tie-breaks apply in order, then the result must be unique:
    `f(Int?)`; both may coexist.
 2. **Resolution precedes `Result`/optional auto-wrap** — the callee is chosen
    from the raw argument types, before any return-position wrap machinery.
-3. **Concrete beats generic** — `f(Int)` beats `f<T>(T)`; when a name is
-   OVERLOADED, a generic candidate competes only when the call supplies explicit
-   type arguments (argument-type inference, design 93, applies to a *singleton*
-   generic function/method — it is not run across an overload set, where it could
-   manufacture new ambiguity). Two matching generics are a call-site ambiguity.
+3. **Concrete beats generic** — `f(Int)` beats `f<T>(T)`. When a name is
+   OVERLOADED and no concrete candidate matches, argument-type inference
+   (design 93 + 105) is run PER generic candidate: if EXACTLY ONE generic
+   overload both solves its type arguments and type-matches, it is picked; two or
+   more that solve are a clean ambiguity error listing the candidates and their
+   solved type args (`give explicit type arguments or labels`). A concrete
+   candidate that matches always wins over any generic one, so an inferred
+   overload never changes the meaning of a call that already resolved.
 
 After the rules there must be exactly one survivor, else a call-site ambiguity
 error listing the candidates; a no-match lists them too. **Closure arguments**
@@ -2888,11 +2891,15 @@ parameter with a default type fills from the default. Inference never guesses �
 parameter no argument constrains (**underdetermined**) or one an argument forces
 to two different types (**conflict**) is a clean error naming the parameter and
 suggesting explicit arguments, and an inferred argument is bound-checked naming
-the inferred type. Inference is a single left-to-right pass (non-closure
-arguments, then closures), so a parameter determinable only by a *later*
-argument than one it gates must be given explicitly; likewise, generic
-OVERLOAD resolution (two candidates of one name) still requires explicit `<...>`
-on the generic candidate. The method body is checked abstractly
+the inferred type. Inference runs non-closure arguments first, then closures,
+**fixpointing** over the argument list (design 105) so a parameter determined by
+an argument to its *right* — including a closure that precedes the value that
+fixes its `T` (`run({ $0 * 2 }, 10)`) — is solved on a later pass. Labeled
+arguments are paired with parameters by LABEL before unifying. Inference also
+runs across an **overload set** (design 105): with no concrete match, each
+generic candidate is solved independently and the unique solving-and-type-matching
+one is picked, two or more being the ambiguity error above (see *Overloading*).
+The method body is checked abstractly
 with its own type parameters in scope (the same abstract-body checking as any
 generic). Each instantiation monomorphizes per `(receiver type arguments, method
 type arguments)` pair; the mangled symbol composes the two
