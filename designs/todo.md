@@ -34,6 +34,23 @@ these two need a design call:
   trait name behind a ref (`&Shape`/`&var Shape`) was an ICE, now a clean
   unsized-trait error naming `&any Shape`/`&var any Shape`. Spec/skill/README
   caveats reverted to the uniform rule. [110, 34, 88, 106]
+- **QUEUED (design 111): full optional chaining.** Brief at
+  designs/111-optional-chaining.md — multi-hop `?.`, `?.method()`, flattening,
+  short-circuit RHS/arg skip, CHAINED ASSIGNMENT with `Void?` result, `_`
+  optional-binding rider. Dispatch after 110 (done — dispatchable now).
+- **VERIFY (agent claim, Aug 3): two-suspend helper embedding failure.** The
+  design-110 agent reported that a non-driven helper with TWO suspend points
+  ("plain `yield_now(); print; yield_now()`, no references") fails to embed
+  under a driven body with the nested/expression-position error. NOT reproduced
+  by the lead: statement-position `let a = helper()` with two suspends compiles
+  AND runs at depth 1 and depth 2 (probes `.build/scratch/probe_two_suspends*.
+  saw`, Aug 3). The failing shape, if real, is more specific — extract the
+  exact repro from the agent transcript before treating as work. [104, 96]
+- **Future work: suspension mid-chain.** Supporting a suspending hop inside a
+  postfix or `?.` chain means lowering the chain to a resumable multi-state
+  expression (frame-resident intermediates, short-circuit resume paths). The
+  unchained `let`-per-step spelling is equivalent; design only if the ergonomic
+  pull proves real. [111, 104]
 
 ## Design 109 — silently unchecked trait bounds for primitive type args (LANDED)
 - **Root cause (typechecker + one namespace gap).** The free-function bound-check

@@ -424,7 +424,9 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   unrestricted. Gotchas: (1) a cross-module memberwise literal
   `T(a:, b:)` needs ALL fields visible — expose a `public init` when a
   field is private; reads AND writes are gated, so another module cannot
-  corrupt a private field. (2) A method satisfying a visible trait's
+  corrupt a private field. Do NOT cargo-cult `public` onto fields/methods in a
+  SINGLE-module program or test — same-module access is ungated, so it is inert
+  noise there. (2) A method satisfying a visible trait's
   requirement is callable through the conformance with no `public` needed.
   (3) `public` on a member of a private struct is legal but inert. std is
   under the gate too — you reach its public API, never its internals; each std
