@@ -1,0 +1,14 @@
+// Design 107 item 2: an enclosing LOOP VAR is an enclosing binding for a nested
+// loop. A nested inner loop reusing the outer loop var's name WITHOUT deriving
+// its sequence from it is a rename error — the same rule as any other shadow.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `x` shadows the binding declared at shadow_for_nested_loop.saw:9:5
+// EXPECT-ERROR-CONTAINS: shadow_for_nested_loop.saw:10:9
+
+func main() {
+    for x in 0..3 {
+        for x in 4..6 {       // inner sequence 4..6 never mentions outer loop var x
+            print(x)
+        }
+    }
+}

@@ -1923,6 +1923,16 @@ class StatementsMixin:
         old_scope = self.current_scope
         self.current_scope = Scope(parent=old_scope)
 
+        # Design 107 item 2: a for-loop variable joins the design-100
+        # mentions-rule with the SEQUENCE expression as the initializer analog —
+        # `for x in x.lines()` (the sequence references the shadowed name) is a
+        # legal refinement; `for x in ys` under an outer `x` is a rename error.
+        # An enclosing LOOP VAR is an enclosing binding, so a nested inner loop
+        # reusing the name non-derived errors the same way. Checked with the loop
+        # scope active so the shadowed binding is found on the parent chain.
+        self._check_shadowing(stmt.variable, stmt.iterable, stmt.line,
+                              stmt.column, site="binding")
+
         # Add loop variable to scope (immutable by default)
         self.current_scope.define(
             stmt.variable,
@@ -1968,6 +1978,11 @@ class StatementsMixin:
         # Create new scope for loop body with loop variable
         old_scope = self.current_scope
         self.current_scope = Scope(parent=old_scope)
+
+        # Design 107 item 2: the for-loop variable joins the mentions-rule with
+        # the SEQUENCE expression as the initializer analog (see _check_for_loop).
+        self._check_shadowing(expr.variable, expr.iterable, expr.line,
+                              expr.column, site="binding")
 
         # Add loop variable to scope (immutable by default)
         self.current_scope.define(

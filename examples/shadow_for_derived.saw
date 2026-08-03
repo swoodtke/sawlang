@@ -1,0 +1,46 @@
+// Design 107 item 2: a for-loop variable joins the mentions-rule — it may
+// SHADOW an enclosing binding exactly when the SEQUENCE expression references
+// the shadowed name (a visible refinement). `for x in 0..x` / `for v in
+// v.iter()` are legal; the outer binding is restored after the loop (an owning
+// outer must still deinit exactly once). An enclosing LOOP VAR is itself an
+// enclosing binding, so an inner loop deriving its sequence from the outer loop
+// var is legal too.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 3
+// 60
+// 3
+// 1
+// 2
+// 3
+
+func main() {
+    // Range sequence mentions the outer `x` -> derived shadow legal.
+    let x = 3
+    var sum = 0
+    for x in 0..x {          // x: 0,1,2 (loop var shadows outer x)
+        sum = sum + x
+    }
+    print(sum)               // 3
+    print(x)                 // 3 (outer restored after the loop)
+
+    // Owning outer binding: `for v in v.iter()` derives the sequence from v;
+    // the outer Vector must remain valid (deinit once) after the loop.
+    let v: Vector<Int> = [10, 20, 30]
+    var total = 0
+    for v in v.iter() {      // v: 10,20,30 (loop var shadows the Vector)
+        total = total + v
+    }
+    print(total)             // 60
+    print(v.len())           // 3 (outer Vector still valid)
+
+    // Nested loop: the inner sequence derives from the OUTER loop var.
+    for i in 1..4 {          // i: 1,2,3
+        var inner = 0
+        for i in 0..i {      // derived from the enclosing loop var i -> legal
+            inner = inner + 1
+        }
+        print(inner)         // 1, 2, 3
+    }
+}

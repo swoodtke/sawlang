@@ -138,6 +138,15 @@ class LoopsMixin:
         # Generate body
         self.builder.position_at_end(body_block)
 
+        # Design 107 item 2: a derived for-loop variable may SHADOW an enclosing
+        # binding (`let x = ...; for x in x.lines() { ... }`). Snapshot the
+        # name->storage maps so the shadowed OUTER binding is restored after the
+        # loop — otherwise a use of the outer name afterward would resolve to the
+        # loop's (dead) storage, and the plain `del` below would drop the outer
+        # entry entirely (the design-100 block-shadow hazard, applied to loops).
+        _shadow_snap = (dict(self.variables), dict(self.variable_types),
+                        dict(self.drop_flags))
+
         # Extract value and create loop variable
         loop_val = self.builder.extract_value(optional_result, 1, name="loop_val")
         loop_var_alloca = self._entry_alloca(item_type, name=stmt.variable)
@@ -182,11 +191,15 @@ class LoopsMixin:
         # Pop loop blocks
         self.loop_stack.pop()
 
-        # Clean up loop variable from scope
+        # Clean up loop variable from scope, restoring any shadowed enclosing
+        # binding (design 107). A non-shadowing loop var is left in the maps but
+        # is out of scope and thus unreferenceable (same reasoning as block
+        # shadow-restore); a shadowing one re-exposes the outer storage/type/flag.
         del self.variables[stmt.variable]
         if drop_loop_var:
             self.variable_types.pop(stmt.variable, None)
             self.drop_flags.pop(stmt.variable, None)
+        self._restore_shadow_snapshot(_shadow_snap)
 
         # Position at end block for next statements
         self.builder.position_at_end(end_block)
@@ -306,6 +319,10 @@ class LoopsMixin:
         # Generate body
         self.builder.position_at_end(body_block)
 
+        # Design 107 item 2: shadow-safe loop variable (see _generate_for_loop).
+        _shadow_snap = (dict(self.variables), dict(self.variable_types),
+                        dict(self.drop_flags))
+
         # Extract value and create loop variable
         loop_val = self.builder.extract_value(optional_result, 1, name="loop_val")
         loop_var_alloca = self._entry_alloca(item_type, name=expr.variable)
@@ -343,11 +360,13 @@ class LoopsMixin:
         # Pop loop info
         self.loop_stack.pop()
 
-        # Clean up loop variable from scope
+        # Clean up loop variable from scope, restoring any shadowed enclosing
+        # binding (design 107; see _generate_for_loop).
         del self.variables[expr.variable]
         if drop_loop_var:
             self.variable_types.pop(expr.variable, None)
             self.drop_flags.pop(expr.variable, None)
+        self._restore_shadow_snapshot(_shadow_snap)
 
         # Load and return result
         self.builder.position_at_end(end_block)
