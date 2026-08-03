@@ -1,0 +1,44 @@
+// design 104 item 3: driving a suspending method that is BOTH struct-generic
+// (`Dual<T>`) AND method-generic (`mix<U>`) now EMBEDS. The frame is keyed by BOTH
+// instantiations (design 95's resolved-signature keying extended with the method's
+// own type args: `Dual_mix$2$<T>$<U>`), so 2 struct × 2 method instantiations drive
+// as 4 DISTINCT frames. Each combines the struct's `T` value and the method's `U`
+// argument across a suspension, so a frame that collapsed two instantiations would
+// print a wrong (collided) value.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 12
+// 21
+// 22
+
+trait Tagged {
+    func tag(&self) -> Int
+}
+
+struct A {}
+extension A: Tagged { func tag(&self) -> Int { 1 } }
+
+struct B {}
+extension B: Tagged { func tag(&self) -> Int { 2 } }
+
+struct Dual<T: Tagged> { value: T }
+
+extension Dual<T: Tagged> {
+    func mix<U: Tagged>(&var self, other: U) -> Int {
+        let base = self.value.tag()
+        yield_now()
+        base * 10 + other.tag()
+    }
+}
+
+func main() {
+    var d1 = Dual<A>(value: A())
+    var d2 = Dual<A>(value: A())
+    var d3 = Dual<B>(value: B())
+    var d4 = Dual<B>(value: B())
+    print(__drive(d1.mix<A>(A())))  // 11
+    print(__drive(d2.mix<B>(B())))  // 12
+    print(__drive(d3.mix<A>(A())))  // 21
+    print(__drive(d4.mix<B>(B())))  // 22
+}

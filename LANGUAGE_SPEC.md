@@ -2372,21 +2372,23 @@ Observable rules:
   field, and captured frame locals are moved into the closure by value so its
   refcounted env deinits exactly once at frame death. A **tuple** local and a
   `let (a, b) = f()` **destructuring** also survive a suspension — their bindings
-  are frame-resident (design 77).
-  struct's type params so the frame's receiver pointer gets a concrete type. A
-  suspending call in an **`if let` / `guard let` body** also embeds (design 104
-  item 1): the optional-binding branch is CFG-split like an `if`/`match`, the bound
-  name becomes a frame field, `guard let`'s else-exit path splits with it, and the
-  design-100 same-name unwrap `if let x = x` keeps the inner `x: T` and the outer
-  `x: T?` in distinct fields.
+  are frame-resident (design 77). A suspending call in an **`if let` / `guard let`
+  body** also embeds (design 104 item 1): the optional-binding branch is CFG-split
+  like an `if`/`match`, the bound name becomes a frame field, `guard let`'s
+  else-exit path splits with it, and the design-100 same-name unwrap `if let x = x`
+  keeps the inner `x: T` and the outer `x: T?` in distinct fields. A method that is
+  **both struct-generic and method-generic** (`Dual<T>.mix<U>`) drives too (design
+  104 item 3): the frame is keyed by both instantiations (`Dual_mix$2$T$U` — design
+  95's resolved-signature keying extended with the method's own type args), so
+  2 struct × 2 method instantiations are 4 distinct frames.
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
   line, not miscompiled): a suspending call buried in a *larger expression* (an
   argument, a receiver, a `let x = if … { s.read() }` value position); a
   suspension-spanning `if let`/`guard let` with a *tuple pattern*, or one whose body
   *re-binds* the bound name (rename the inner binding); a nested suspending *generic*
-  call to a template in *another module*; a method that is *both* struct-generic and
-  method-generic; a suspension inside a `for` over a non-range iterable; and a
-  value-producing `break` out of a suspension-spanning loop.
+  call to a template in *another module*; a suspension inside a `for` over a
+  non-range iterable; and a value-producing `break` out of a suspension-spanning
+  loop.
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately

@@ -374,13 +374,16 @@ class EffectsMixin:
         return True
 
     def _effect_queue_generic_struct_method_mono(
-            self, struct_name, method_name, resolved_args, mono_name, recv_type):
-        """design 74 (A5-rest, shape 2): queue a build of a driven suspending
-        method on a GENERIC struct, monomorphized over the struct's type params for
-        a concrete receiver (`Holder<Int>`). Returns False if no pristine template
-        is known (e.g. the method lives in another module — not supported here).
-        Records the concrete receiver SawType eagerly (the frame's `__recv` needs
-        it); the clone+re-check is deferred to `_process_effect_monos`."""
+            self, struct_name, method_name, resolved_args, method_args, mono_name,
+            recv_type):
+        """design 74 (A5-rest, shape 2) + design 104 item 3: queue a build of a
+        driven suspending method on a GENERIC struct, monomorphized over the
+        struct's type params for a concrete receiver (`Holder<Int>`) AND — when the
+        method is ALSO method-generic (`mix<U>`) — over the method's own type params
+        (`method_args`). Returns False if no pristine template is known (e.g. the
+        method lives in another module — not supported here). Records the concrete
+        receiver SawType eagerly (the frame's `__recv` needs it); the clone+re-check
+        is deferred to `_process_effect_monos`."""
         if (struct_name, method_name) not in self._pristine_generic_struct_methods:
             return False
         key = (struct_name, mono_name)
@@ -388,18 +391,20 @@ class EffectsMixin:
             # Clone filled in by the deferred build; recv_type known now.
             self._driven_generic_struct_methods[key] = (recv_type, None)
             self._pending_generic_struct_method_mono.append(
-                (struct_name, method_name, list(resolved_args), mono_name, recv_type))
+                (struct_name, method_name, list(resolved_args), list(method_args),
+                 mono_name, recv_type))
         return True
 
     def _build_generic_struct_method_mono(self, struct_name, method_name,
-                                          resolved_args, mono_name):
-        """Clone + substitute (struct type params) + re-check one generic-struct
-        driven method (design 74 shape 2). The concrete method is NOT spliced onto
-        an extension (its `self` is `Holder<Int>`, which a plain non-generic
-        extension can't express); it is stored for the coroutine transform, which
-        builds the frame with `__recv: UnsafePointer<Holder<Int>>` from it. The
-        re-check stamps the resolved (concrete) types the frame builder consumes.
-        Errors suppressed (effect / annotation harvest only)."""
+                                          resolved_args, method_args, mono_name):
+        """Clone + substitute (struct type params + any method type params) +
+        re-check one generic-struct driven method (design 74 shape 2, design 104
+        item 3). The concrete method is NOT spliced onto an extension (its `self` is
+        `Holder<Int>`, which a plain non-generic extension can't express); it is
+        stored for the coroutine transform, which builds the frame with
+        `__recv: UnsafePointer<Holder<Int>>` from it. The re-check stamps the
+        resolved (concrete) types the frame builder consumes. Errors suppressed
+        (effect / annotation harvest only)."""
         import copy
         key = (struct_name, mono_name)
         recv_type, existing = self._driven_generic_struct_methods.get(key, (None, None))
@@ -409,9 +414,13 @@ class EffectsMixin:
         if entry is None:
             return False
         pristine, ext = entry
-        tps = ext.type_params or []
+        struct_tps = ext.type_params or []
+        method_tps = getattr(pristine, 'type_params', None) or []
         clone = copy.deepcopy(pristine)
-        type_map = {tp.name: arg for tp, arg in zip(tps, resolved_args)}
+        # Combined substitution: the struct's type params (T->Int, for `self`'s
+        # fields) plus the method's own type params (U->Bool, for its params/locals).
+        type_map = {tp.name: arg for tp, arg in zip(struct_tps, resolved_args)}
+        type_map.update({tp.name: arg for tp, arg in zip(method_tps, method_args)})
         substitute_ast_types(clone, type_map)
         clone.name = mono_name
         clone.type_params = []
@@ -419,7 +428,8 @@ class EffectsMixin:
         saved_errors = len(self.reporter.errors)
         saved_warnings = len(self.reporter.warnings)
         # type_subst binds `self` to `Holder<Int>` so field access through `self`
-        # resolves the struct's `T`-typed fields to their concrete types.
+        # resolves the struct's `T`-typed fields to their concrete types, and maps
+        # the method's own type params to their concrete arguments.
         self._check_method(struct_name, clone, type_map)
         del self.reporter.errors[saved_errors:]
         del self.reporter.warnings[saved_warnings:]
@@ -428,7 +438,7 @@ class EffectsMixin:
         # generic StructSymbol carries `T`, and `_resolve_type` doesn't apply the
         # method's type_subst to a bare type param). Substitute AGAIN over the
         # stamped types so a frame local like `let before = self.value` gets the
-        # concrete field type (Int) the frame layout needs — not `T`.
+        # concrete field type (Int) the frame layout needs — not `T` (or `U`).
         substitute_ast_types(clone, type_map)
         self._driven_generic_struct_methods[key] = (recv_type, clone)
         return True
@@ -469,10 +479,11 @@ class EffectsMixin:
                                            mono_name):
                     progress = True
             while self._pending_generic_struct_method_mono:
-                (struct_name, method_name, resolved_args, mono_name, _recv) = \
-                    self._pending_generic_struct_method_mono.pop()
+                (struct_name, method_name, resolved_args, method_args, mono_name,
+                 _recv) = self._pending_generic_struct_method_mono.pop()
                 if self._build_generic_struct_method_mono(
-                        struct_name, method_name, resolved_args, mono_name):
+                        struct_name, method_name, resolved_args, method_args,
+                        mono_name):
                     progress = True
             # 2. Materialize polymorphic call edges whose template is poly. Build
             #    the instantiation, then add a real edge caller -> instantiation.

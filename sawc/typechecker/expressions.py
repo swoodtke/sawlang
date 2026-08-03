@@ -945,23 +945,39 @@ class ExpressionsMixin:
                 inner.line, inner.column)
             return
         pristine, _ext = entry
-        if getattr(pristine, 'type_params', None):
-            # Combined struct-generic AND method-generic — still A5-rest.
-            self._error(
-                ErrorKind.TYPE_MISMATCH,
-                f"driving a method that is BOTH struct-generic and method-generic "
-                f"(`{struct_name}.{inner.method_name}`) is not yet supported "
-                f"(design 74 A5-rest); drop one level of genericity",
-                inner.line, inner.column)
-            return
+        # design 104 item 3: a method that is BOTH struct-generic (`Dual<T>`) AND
+        # method-generic (`mix<U>`). Resolve the method's OWN type args from the call
+        # and key the frame by BOTH instantiations (design 95's resolved-signature
+        # keying, extended with the method's type args) — so 2 struct × 2 method
+        # instantiations produce 4 distinct frames.
+        method_tps = getattr(pristine, 'type_params', None) or []
+        method_args = []
+        if method_tps:
+            if not inner.type_args or len(inner.type_args) != len(method_tps):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"driving generic method `{struct_name}.{inner.method_name}` "
+                    f"requires {len(method_tps)} concrete method type argument(s)",
+                    inner.line, inner.column)
+                return
+            method_args = [self._resolve_type(a) for a in inner.type_args]
+            if not all(self._is_concrete_type(a) for a in method_args):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`{struct_name}.{inner.method_name}<...>` requires concrete "
+                    f"method type arguments", inner.line, inner.column)
+                return
         from codegen.mangle import mangle_named
-        mono_name = mangle_named(inner.method_name, resolved_args)
+        # Encode both the struct's and the method's type args, so each
+        # (struct instantiation, method instantiation) pair gets a distinct frame.
+        mono_name = mangle_named(inner.method_name, resolved_args + method_args)
         # Carry the concrete receiver type (`Holder<Int>`) so the frame's `__recv`
         # points at the monomorphized struct codegen produces for it.
         concrete_recv = SawType(TypeKind.STRUCT, struct_name=struct_name,
                                 type_args=resolved_args)
         self._effect_queue_generic_struct_method_mono(
-            struct_name, inner.method_name, resolved_args, mono_name, concrete_recv)
+            struct_name, inner.method_name, resolved_args, method_args, mono_name,
+            concrete_recv)
         self._effect_record_driven_method(struct_name, mono_name, mode)
         inner.method_name = mono_name
         inner.type_args = None
@@ -2006,7 +2022,12 @@ class ExpressionsMixin:
                 struct_is_generic = (
                     struct_sym is not None and bool(struct_sym.type_params)
                     and bool(getattr(recv_type, 'type_args', None)))
-                if getattr(inner, 'type_args', None):
+                # design 104 item 3: a method that is BOTH struct-generic and
+                # method-generic routes to the generic-STRUCT path (it monomorphizes
+                # over the struct's type params AND the method's own type args). Only
+                # a method-generic method on a NON-generic struct takes the
+                # method-only path.
+                if getattr(inner, 'type_args', None) and not struct_is_generic:
                     self._drive_generic_method(inner, struct_name, mode, expr)
                 elif struct_is_generic:
                     self._drive_generic_struct_method(

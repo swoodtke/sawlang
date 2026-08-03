@@ -35,6 +35,24 @@ items need a probe before being treated as real work.
   else-body, and the `if let ok = ok` shadow — exact per-shape recirc counts); the
   two `errors/coro_suspending_method_in_{iflet,guardlet}_body` tests removed (shapes
   flipped ERROR→EMBED). Suite 940 (941 −2 err +1), bootstrap 17+17 + libs 4+4. [104, 101, 100, 84, 74]
+- **Item 3 (struct-generic AND method-generic suspending methods) — LANDED.**
+  `Dual<T> { func mix<U>(&var self, ...) }` where `mix` suspends was a clean design-74
+  A5-rest error; now it drives. The `__drive` dispatcher routes a method that is BOTH
+  struct-generic and method-generic to the generic-STRUCT path (was: any `inner.type_args`
+  went to the method-only path, which has no template for a generic-struct method →
+  the old rejection). `_drive_generic_struct_method` (expressions.py) resolves the
+  method's OWN type args from the call, keys the mono by `mangle_named(method, struct_args
+  + method_args)`, and threads `method_args` through `_effect_queue_generic_struct_method_mono`
+  → `_build_generic_struct_method_mono` (effects.py), which now applies a COMBINED
+  substitution (struct type params T→Int for `self`'s fields + the method's own
+  params U→Bool for its params/locals) before + after the effect re-check.
+  **Frame-key shape:** `_method_frame_key(struct, mangle_named(method, struct_args +
+  method_args))` = `Dual_mix$2$<T>$<U>` — design 95's resolved-signature key extended
+  with the method's type args. Test `coro_generic_struct_and_method` (2 struct × 2
+  method = 4 distinct `__Frame_Dual_mix$2$*$*` frames, IR-verified; each combines a
+  frame-resident `self.value.tag()` across a `yield_now` with the U arg → 11/12/21/22,
+  so a collision would misprint); `errors/coro_generic_struct_and_method_generic_unsupported`
+  removed. Suite 940, bootstrap 17+17 + libs 4+4. [104, 95, 74, 70]
 
 ## Design 102 — runtime edge bugs: spawn-Void ICE + cancel wakes an io-parked task (LANDED)
 - **Item 2 (cancel wakes an ALREADY-io-parked task — A3 remainder) — LANDED.** A task

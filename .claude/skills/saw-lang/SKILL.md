@@ -314,9 +314,11 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   suspending method call buried in a LARGER EXPRESSION (an argument, a receiver,
   a `let x = if … { s.read() }` value position); a suspension-spanning `if let`/
   `guard let` with a TUPLE pattern, or one whose body RE-BINDS the bound name
-  (rename the inner binding); a nested suspending generic call to a template in
-  ANOTHER module (shape 4); and a method that is BOTH struct-generic and
-  method-generic.
+  (rename the inner binding); and a nested suspending generic call to a template in
+  ANOTHER module (shape 4). A method that is BOTH struct-generic AND method-generic
+  (`Dual<T>.mix<U>`) now drives (design 104 item 3): the frame is keyed by both
+  instantiations (`Dual_mix$2$T$U`), so 2 struct × 2 method insts are 4 distinct
+  frames.
 - A CLOSURE created in a driven body works (design 77 DF-C1): call it after a
   suspend, hold it across one (its env deinits exactly once at frame death), or
   own it in a spawned TaskGroup frame — captured frame locals are moved into the
