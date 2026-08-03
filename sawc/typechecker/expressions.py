@@ -1062,8 +1062,9 @@ class ExpressionsMixin:
         return f"{prefix}{name}(" + ", ".join(parts) + ")"
 
     def _resolve_overload(self, display_name, candidates, arg_types,
-                          has_type_args, is_method, line, column, arguments):
-        """Select the unique matching overload for a call (design 55 + 66).
+                          has_type_args, is_method, line, column, arguments,
+                          expr=None, base_subst=None):
+        """Select the unique matching overload for a call (design 55 + 66 + 105).
 
         `arg_types[i] is None` marks a closure argument, which is neutral for
         matching (the closure-arg rule: resolve on the non-closure arguments;
@@ -1076,8 +1077,14 @@ class ExpressionsMixin:
         design-55 exact-type matching + tie-breaks, in order:
           1. exact beats optional-wrap (fewest implicit `T -> T?` wraps wins);
           2. resolution precedes Result/Optional auto-wrap (raw argument types);
-          3. concrete beats generic (a generic overload competes only with
-             explicit call-site type args — Saw has no generic inference).
+          3. concrete beats generic (a concrete overload that matches wins over
+             any generic candidate — design 55's exact-match model is untouched).
+        Design 105: when NO concrete (or explicit-type-arg generic) candidate
+        matches, generic candidates are tried by PER-CANDIDATE inference (each in
+        its own sandbox); exactly one solving-and-type-matching candidate is
+        picked (its solved type args stamped onto `expr.type_args`), two or more
+        raise a clean ambiguity error listing the solving candidates + their
+        solved type args, and zero falls through to the no-match diagnostic.
         Returns `(chosen FunctionSymbol, binding_mapping)`; the mapping is the
         per-source-argument logical parameter index for the winner (used to align
         argument checks and stamp `arg_plan`). Returns `(None, None)` after a
@@ -1085,12 +1092,9 @@ class ExpressionsMixin:
         """
         n = len(arg_types)
         matches = []  # (candidate, wrap_penalty, is_generic, mapping)
+        infer_cands = []  # design 105: generic candidates to try by inference
         for cand in candidates:
             is_generic = bool(cand.type_params)
-            # A generic overload competes only with explicit call-site type args
-            # (no inference); a concrete overload rejects type args.
-            if is_generic and not has_type_args:
-                continue
             if has_type_args and not is_generic:
                 continue
             offset = self._overload_cand_offset(cand, is_method)
@@ -1101,6 +1105,11 @@ class ExpressionsMixin:
             # subsumes the old arity gate for positional calls.
             mapping, berr = self._compute_binding(cnames, defaults, arguments)
             if berr is not None:
+                continue
+            # A generic overload with no explicit type args is a design-105
+            # inference candidate (deferred; tried only if no concrete match).
+            if is_generic and not has_type_args:
+                infer_cands.append((cand, mapping, offset))
                 continue
             tp_names = {tp.name for tp in (cand.type_params or [])}
             ok = True
@@ -1122,6 +1131,39 @@ class ExpressionsMixin:
             if ok:
                 matches.append((cand, penalty, is_generic, mapping))
         if not matches:
+            # Design 105: no concrete/explicit match — try generic inference per
+            # candidate (each fully sandboxed, so a candidate that fails to solve
+            # leaves zero residue). Requires the call node to run the solver.
+            if infer_cands and expr is not None:
+                solved = []  # (candidate, mapping, solved_type_args)
+                for cand, mapping, offset in infer_cands:
+                    targs = self._try_infer_overload_candidate(
+                        cand, expr, mapping, offset, base_subst or {}, arg_types)
+                    if targs is not None:
+                        solved.append((cand, mapping, targs))
+                if len(solved) == 1:
+                    cand, mapping, targs = solved[0]
+                    expr.type_args = targs
+                    # Mark as INFERRED so a re-check (spawn/drive/coro re-typecheck)
+                    # re-runs inference instead of mistaking these for explicit
+                    # call-site type args (which would mis-resolve the overload).
+                    expr.type_args_inferred = True
+                    return cand, mapping
+                if len(solved) >= 2:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"ambiguous call to `{display_name}`: type-argument "
+                        f"inference matches multiple generic overloads "
+                        f"({self._format_arg_types(arg_types)})",
+                        line, column,
+                        hint="give explicit type arguments or labels to select "
+                             "one; matching: " + "; ".join(
+                                 self._format_overload_candidate(
+                                     display_name, c, is_method)
+                                 + " with "
+                                 + self._format_solved_type_args(c, ta)
+                                 for c, _m, ta in solved))
+                    return None, None
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"no overload of `{display_name}` matches the argument types "
@@ -1150,6 +1192,42 @@ class ExpressionsMixin:
                 for m in matches)
         )
         return None, None
+
+    def _try_infer_overload_candidate(self, cand, expr, mapping, offset,
+                                      base_subst, arg_types):
+        """Design 105: try to solve one generic overload candidate's own type
+        arguments by inference (silently). Returns the solved type-argument list
+        (one per `cand.type_params`) if inference succeeds AND every known actual
+        argument type-matches the substituted parameter, else None. Fully
+        sandboxed by `_solve_call_type_args`, so a failed attempt leaves no
+        residue (moves / mono queues / effect edges roll back)."""
+        abstract_params = cand.param_types[offset:]
+        full = self._solve_call_type_args(
+            cand.type_params, abstract_params, expr,
+            mapping if mapping is not None else None,
+            base_subst, None, "", expr.line, expr.column, silent=True,
+            known_arg_types=arg_types)
+        if full is None:
+            return None
+        # Type-match: each KNOWN actual argument must be compatible with its
+        # solved parameter (a closure arg is None here — it drove the solve).
+        for i, at in enumerate(arg_types):
+            if at is None:
+                continue
+            p = mapping[i] if mapping is not None else i
+            if p >= len(abstract_params):
+                return None
+            pt = abstract_params[p].substitute(full)
+            if not self._arg_type_ok(None, at, pt):
+                return None
+        return [full[tp.name] for tp in cand.type_params]
+
+    def _format_solved_type_args(self, cand, type_args) -> str:
+        """Render a candidate's solved type arguments as `<T=Int, U=String>` for
+        the design-105 overload-ambiguity diagnostic."""
+        parts = [f"{tp.name}={ta}"
+                 for tp, ta in zip(cand.type_params or [], type_args or [])]
+        return "<" + ", ".join(parts) + ">"
 
     def _arg_type_ok(self, arg_value, arg_type, expected_type, allow_wrap=True):
         """Argument-position type check with DF3 call-site optional auto-wrap
@@ -1210,6 +1288,14 @@ class ExpressionsMixin:
                 and declared_type.struct_name in tp_names):
             return False
         return True
+
+    def _has_explicit_type_args(self, expr) -> bool:
+        """Design 105: whether the call carries EXPLICIT (user-written) type args.
+        Type args stamped by inference are marked `type_args_inferred` so a
+        re-check (spawn/drive/coro re-typecheck) re-infers rather than treating
+        the inferred args as an explicit-generic overload selection."""
+        return bool(getattr(expr, 'type_args', None)) and not getattr(
+            expr, 'type_args_inferred', False)
 
     def _call_has_labels(self, expr) -> bool:
         """Whether the call carries at least one labeled argument (design 66).
@@ -1488,16 +1574,43 @@ class ExpressionsMixin:
         del self._pending_generic_struct_method_mono[pgm_n:]
         self._mono_built = mono_built
 
+    def _infer_label_mapping(self, expr, logical_param_names, default_values):
+        """Design 105: for a LABELED call, the source-arg -> logical-parameter
+        binding (design 66) so inference pairs each argument with the parameter
+        it actually names. Returns None (positional identity) when the call has
+        no labels or the binding fails (the real binding check downstream emits
+        the diagnostic)."""
+        if not self._call_has_labels(expr):
+            return None
+        mapping, err = self._compute_binding(
+            logical_param_names, default_values, expr.arguments)
+        return None if err is not None else mapping
+
     def _solve_call_type_args(self, type_params, abstract_params, expr, mapping,
-                              base_subst, provided_type_args, what, line, column):
-        """Infer this call's own generic type arguments (design 93).
+                              base_subst, provided_type_args, what, line, column,
+                              silent=False, known_arg_types=None):
+        """Infer this call's own generic type arguments (design 93 + 105).
 
         `abstract_params` are the callee's LOGICAL parameter types (receiver
         excluded), which may mention both the enclosing struct's type params
         (already concrete in `base_subst`) and this call's own `type_params`.
         Returns a complete substitution map (base_subst ∪ solved own params) or
         `None` after emitting a diagnostic. Leading `provided_type_args` pin their
-        parameters explicitly (a partial prefix is allowed; explicit wins)."""
+        parameters explicitly (a partial prefix is allowed; explicit wins).
+
+        `known_arg_types`, when given (the overload path already type-checked the
+        arguments once), supplies each non-closure argument's type so the solver
+        does NOT re-check it — avoiding a double `move`/effect record on the real
+        state (the sandbox rolls back only what it touches).
+
+        Design 105: `mapping` (source-arg index -> logical parameter index, or
+        None for positional identity) makes inference honor labeled/out-of-order
+        calls — arguments are paired with parameters BY LABEL before unification.
+        A LATER argument that pins a parameter an earlier one gates is solved by
+        the FIXPOINT (repeat passes until no new solution; bounded by param
+        count; closures still solved after non-closure args each pass). `silent`
+        suppresses the failure diagnostics so an overload candidate can be tried
+        without emitting an error when it does not solve."""
         own = list(type_params)
         own_names = {tp.name for tp in own}
         out: Dict[str, SawType] = {}
@@ -1509,36 +1622,55 @@ class ExpressionsMixin:
 
         snap = self._infer_snapshot()
         try:
-            # Phase 1: non-closure arguments pin the parameters they mention.
-            for i, arg in enumerate(expr.arguments):
-                if isinstance(arg.value, ClosureExpr):
-                    continue
-                p = mapping[i] if mapping is not None else i
-                if p >= len(abstract_params):
-                    continue
-                at = self._check_expression(arg.value)
-                if at is not None:
-                    self._unify_infer(abstract_params[p].substitute(base_subst),
-                                      at, remaining, out)
-            # Phase 2: closures. Their parameter types are now concrete (from the
-            # struct and from phase-1 solutions); the inferred RETURN type solves
-            # any remaining parameter (`map<U>`'s `U`).
-            for i, arg in enumerate(expr.arguments):
-                if not isinstance(arg.value, ClosureExpr):
-                    continue
-                p = mapping[i] if mapping is not None else i
-                if p >= len(abstract_params):
-                    continue
-                expected = abstract_params[p].substitute({**base_subst, **out})
-                ct = self._check_closure(arg.value, expected, as_call_argument=True)
-                if ct is not None:
-                    self._unify_infer(abstract_params[p].substitute(base_subst),
-                                      ct, remaining, out)
+            # Fixpoint over the argument list (design 105): each pass runs the
+            # non-closure args then the closures; a parameter gated by an argument
+            # to its RIGHT is picked up on the next pass once that argument's own
+            # parameters are known. Bounded by the parameter count — every pass
+            # that changes anything solves at least one new name.
+            max_passes = max(1, len(own))
+            for _ in range(max_passes):
+                before = len(out)
+                # Phase 1: non-closure arguments pin the parameters they mention.
+                # Unify against `base_subst` only (NOT the growing `out`) so two
+                # arguments binding one parameter to unequal types still record a
+                # conflict rather than silently comparing concrete-vs-concrete.
+                for i, arg in enumerate(expr.arguments):
+                    if isinstance(arg.value, ClosureExpr):
+                        continue
+                    p = mapping[i] if mapping is not None else i
+                    if p >= len(abstract_params):
+                        continue
+                    if known_arg_types is not None:
+                        at = known_arg_types[i]
+                    else:
+                        at = self._check_expression(arg.value)
+                    if at is not None:
+                        self._unify_infer(abstract_params[p].substitute(base_subst),
+                                          at, remaining, out)
+                # Phase 2: closures. Their parameter types are now concrete (from
+                # the struct and from already-solved params); the inferred RETURN
+                # type solves any remaining parameter (`map<U>`'s `U`).
+                for i, arg in enumerate(expr.arguments):
+                    if not isinstance(arg.value, ClosureExpr):
+                        continue
+                    p = mapping[i] if mapping is not None else i
+                    if p >= len(abstract_params):
+                        continue
+                    expected = abstract_params[p].substitute({**base_subst, **out})
+                    ct = self._check_closure(arg.value, expected,
+                                             as_call_argument=True)
+                    if ct is not None:
+                        self._unify_infer(abstract_params[p].substitute(base_subst),
+                                          ct, remaining, out)
+                if '__conflict__' in out or len(out) == before:
+                    break
         finally:
             self._infer_restore(snap)
 
         conflict = out.pop('__conflict__', None)
         if conflict:
+            if silent:
+                return None
             nm = sorted(conflict.keys())[0]
             a, b = conflict[nm]
             self._error(
@@ -1554,6 +1686,8 @@ class ExpressionsMixin:
             if tp.default is not None:
                 out[tp.name] = self._resolve_type(tp.default)
             else:
+                if silent:
+                    return None
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot infer type argument `{tp.name}` for {what}",
@@ -1614,12 +1748,14 @@ class ExpressionsMixin:
                     line, column, hint=hint)
 
     def _check_overloaded_function_call(self, expr, candidates):
-        """Resolve and check a call to an overloaded free function (design 55)."""
+        """Resolve and check a call to an overloaded free function (design 55).
+        Design 105: a generic overload may be selected by type-argument
+        inference when no concrete candidate matches."""
         arg_types = self._overload_arg_types(expr)
         func_info, mapping = self._resolve_overload(
-            expr.name, candidates, arg_types, bool(expr.type_args),
+            expr.name, candidates, arg_types, self._has_explicit_type_args(expr),
             is_method=False, line=expr.line, column=expr.column,
-            arguments=expr.arguments)
+            arguments=expr.arguments, expr=expr, base_subst={})
         if func_info is None:
             return None
         # Concrete overload: stamp its codegen symbol so codegen calls the right
@@ -1634,6 +1770,17 @@ class ExpressionsMixin:
             type_map = {}
             for tp, ta in zip(func_info.type_params, expr.type_args or []):
                 type_map[tp.name] = self._resolve_type(ta)
+            # Design 105: inferred (or explicit) type args are bound-checked.
+            self._check_type_param_bounds(
+                func_info.type_params, type_map, expr.line, expr.column)
+            # design 70 (A5): record the deferred poly-call edge so a suspending
+            # instantiation taints the caller / drives (mirrors the singleton
+            # generic path), only when the args are fully concrete.
+            resolved_args = [type_map.get(tp.name) for tp in func_info.type_params]
+            if all(a is not None and self._is_concrete_type(a)
+                   for a in resolved_args):
+                self._effect_record_poly_call(
+                    expr.name, resolved_args, f"`{expr.name}`", expr.line)
             param_types = [t.substitute(type_map) for t in func_info.param_types]
             return_type = (func_info.return_type.substitute(type_map)
                            if func_info.return_type else func_info.return_type)
@@ -1654,12 +1801,15 @@ class ExpressionsMixin:
 
         Mirrors the singleton method tail but resolves the callee first and
         checks each argument exactly once (so a `move`/mutating argument is not
-        double-processed)."""
+        double-processed). Design 105: a generic method overload may be selected
+        by type-argument inference (the struct's own type substitution
+        `type_subst` seeds the solve as the base substitution)."""
         arg_types = self._overload_arg_types(expr)
         method_info, mapping = self._resolve_overload(
             f"{struct_name}.{expr.method_name}", candidates, arg_types,
-            bool(expr.type_args), is_method=True, line=expr.line, column=expr.column,
-            arguments=expr.arguments)
+            self._has_explicit_type_args(expr), is_method=True,
+            line=expr.line, column=expr.column,
+            arguments=expr.arguments, expr=expr, base_subst=type_subst or {})
         if method_info is None:
             return None
         if method_info.mangled_name:
@@ -1669,9 +1819,17 @@ class ExpressionsMixin:
         # Single chokepoint: effect edge to the resolved method.
         self._effect_call_method(
             method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
+        # Fold the method's OWN generic type params (inferred or explicit) into
+        # the substitution alongside the struct's args (design 105).
+        full_subst = dict(type_subst) if type_subst else {}
+        if method_info.type_params:
+            for tp, ta in zip(method_info.type_params, expr.type_args or []):
+                full_subst[tp.name] = self._resolve_type(ta)
+            self._check_type_param_bounds(
+                method_info.type_params, full_subst, expr.line, expr.column)
         param_types = method_info.param_types[offset:]
-        if type_subst:
-            param_types = [t.substitute(type_subst) if t is not None else t
+        if full_subst:
+            param_types = [t.substitute(full_subst) if t is not None else t
                            for t in param_types]
         self._finish_overloaded_args(expr, param_types, arg_types, mapping)
         # `&var self` method may not be called on an immutable binding (L11).
@@ -1695,8 +1853,8 @@ class ExpressionsMixin:
             param_names=aligned_names,
         )
         return_type = method_info.return_type
-        if type_subst and return_type is not None:
-            return_type = return_type.substitute(type_subst)
+        if full_subst and return_type is not None:
+            return_type = return_type.substitute(full_subst)
         return return_type
 
     def _check_function_call(self, expr: FunctionCall) -> Optional[SawType]:
@@ -2053,7 +2211,11 @@ class ExpressionsMixin:
                             f"whose type arguments are themselves type parameters)",
                             inner.line, inner.column)
                     else:
-                        mangled = self._effect_queue_fn_mono(inner.name, resolved_args)
+                        # Design 105: drive from the resolved overload's `$OL$`
+                        # base template when present (generic overload), else the
+                        # plain name (lone generic).
+                        tmpl = getattr(inner, 'resolved_symbol', None) or inner.name
+                        mangled = self._effect_queue_fn_mono(tmpl, resolved_args)
                         self._effect_record_driven(mangled, mode)
                         inner.name = mangled
                         inner.type_args = None
@@ -2305,9 +2467,13 @@ class ExpressionsMixin:
             # (a partial explicit prefix pins its parameters, the rest infer).
             # Explicit-and-complete keeps the exact legacy path below.
             if len(expr.type_args or []) < len(func_info.type_params):
+                # Design 105: map arguments to parameters BY LABEL before
+                # unification, so a labeled/out-of-order call infers correctly.
+                infer_mapping = self._infer_label_mapping(
+                    expr, func_info.param_names, func_info.default_values)
                 full = self._solve_call_type_args(
-                    func_info.type_params, func_info.param_types, expr, None,
-                    {}, expr.type_args, f"function `{expr.name}`",
+                    func_info.type_params, func_info.param_types, expr,
+                    infer_mapping, {}, expr.type_args, f"function `{expr.name}`",
                     expr.line, expr.column)
                 if full is None:
                     return None
@@ -4831,7 +4997,10 @@ class ExpressionsMixin:
         # instantiation to a concrete function (keyed by the mangled symbol) and
         # spawns THAT, so the coroutine transform's frame + `__spawn_<f>` synthesis
         # sees an ordinary non-generic function.
-        spawn_name = inner.name
+        # Design 105: a generic OVERLOAD resolved by inference carries its distinct
+        # `$OL$` base in `resolved_symbol`; monomorphize from THAT template so the
+        # right overload is instantiated (plain `inner.name` maps ambiguously).
+        spawn_name = getattr(inner, 'resolved_symbol', None) or inner.name
         if getattr(inner, 'type_args', None):
             resolved_args = [self._resolve_type(a) for a in inner.type_args]
             if not all(self._is_concrete_type(a) for a in resolved_args):
@@ -4840,7 +5009,7 @@ class ExpressionsMixin:
                     f"`group.spawn(...)` of a generic function requires concrete "
                     f"type arguments", expr.line, expr.column)
                 return None
-            spawn_name = self._effect_queue_fn_mono(inner.name, resolved_args)
+            spawn_name = self._effect_queue_fn_mono(spawn_name, resolved_args)
             inner.name = spawn_name
             inner.type_args = None
         self._effect_record_spawn(spawn_name, result_type)
@@ -5356,9 +5525,15 @@ class ExpressionsMixin:
                 )
             elif len(provided_type_args) < len(method_type_params):
                 off = 1 if not method_info.is_init else 0
+                # Design 105: label-map before unification (logical param names
+                # exclude the receiver `self`).
+                infer_mapping = self._infer_label_mapping(
+                    expr, method_info.param_names[off:],
+                    (method_info.default_values[off:]
+                     if method_info.default_values else None))
                 full = self._solve_call_type_args(
-                    method_type_params, method_info.param_types[off:], expr, None,
-                    type_subst, provided_type_args,
+                    method_type_params, method_info.param_types[off:], expr,
+                    infer_mapping, type_subst, provided_type_args,
                     f"method `{expr.method_name}`", expr.line, expr.column)
                 if full is None:
                     return None
@@ -5479,9 +5654,9 @@ class ExpressionsMixin:
         arg_types = self._overload_arg_types(expr)
         func_info, mapping = self._resolve_overload(
             expr.method_name, candidates, arg_types,
-            bool(getattr(expr, 'type_args', None)),
+            self._has_explicit_type_args(expr),
             is_method=False, line=expr.line, column=expr.column,
-            arguments=expr.arguments)
+            arguments=expr.arguments, expr=expr, base_subst={})
         if func_info is None:
             return None
         if func_info.mangled_name:
@@ -5489,33 +5664,40 @@ class ExpressionsMixin:
         self._stamp_overload_plan(expr, func_info.param_names, mapping)
         self._effect_call_function(func_info, expr.method_name, expr.line)
         param_types = func_info.param_types
+        return_type = func_info.return_type
+        # Design 105: a generic module-function overload selected by inference.
+        if func_info.type_params:
+            type_map = {}
+            for tp, ta in zip(func_info.type_params, expr.type_args or []):
+                type_map[tp.name] = self._resolve_type(ta)
+            self._check_type_param_bounds(
+                func_info.type_params, type_map, expr.line, expr.column)
+            resolved_args = [type_map.get(tp.name) for tp in func_info.type_params]
+            if all(a is not None and self._is_concrete_type(a)
+                   for a in resolved_args):
+                self._effect_record_poly_call(
+                    expr.method_name, resolved_args,
+                    f"`{expr.method_name}`", expr.line)
+            param_types = [t.substitute(type_map) for t in param_types]
+            if return_type is not None:
+                return_type = return_type.substitute(type_map)
         self._finish_overloaded_args(expr, param_types, arg_types, mapping)
         aligned_types, aligned_names = self._aligned_call_meta(
             expr, mapping if self._call_has_labels(expr) else None,
             param_types, func_info.param_names)
         self._check_call_exclusivity([a.value for a in expr.arguments], aligned_types,
                                      param_names=aligned_names)
-        return func_info.return_type
+        return return_type
 
     def _check_overloaded_static_method_call(self, expr, struct_name,
                                              struct_info, candidates):
         """Resolve and check an overloaded static method call (design 55):
         `StructName.method(args)` with 2+ static overloads."""
         arg_types = self._overload_arg_types(expr)
-        method_info, mapping = self._resolve_overload(
-            f"{struct_name}.{expr.method_name}", candidates, arg_types,
-            bool(expr.type_args), is_method=True, line=expr.line, column=expr.column,
-            arguments=expr.arguments)
-        if method_info is None:
-            return None
-        if method_info.mangled_name:
-            expr.resolved_symbol = method_info.mangled_name
-        self._stamp_overload_plan(expr, method_info.param_names, mapping)
-        self._effect_call_method(
-            method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
         # Build the struct type-param -> concrete map from the receiver's type
         # args (default-filled), as _check_static_method_call does, so a factory
         # whose parameters mention the struct's type params checks concretely.
+        # Computed BEFORE resolution so it seeds design-105 inference (base subst).
         obj_type_args = getattr(expr.object, 'type_args', None)
         struct_type_params = getattr(struct_info, 'type_params', None)
         type_map = {}
@@ -5524,6 +5706,25 @@ class ExpressionsMixin:
             resolved_args = self._append_default_type_args(struct_name, resolved_args)
             for tp, ta in zip(struct_type_params, resolved_args):
                 type_map[tp.name] = ta
+        method_info, mapping = self._resolve_overload(
+            f"{struct_name}.{expr.method_name}", candidates, arg_types,
+            self._has_explicit_type_args(expr), is_method=True,
+            line=expr.line, column=expr.column,
+            arguments=expr.arguments, expr=expr, base_subst=dict(type_map))
+        if method_info is None:
+            return None
+        if method_info.mangled_name:
+            expr.resolved_symbol = method_info.mangled_name
+        self._stamp_overload_plan(expr, method_info.param_names, mapping)
+        self._effect_call_method(
+            method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
+        # Fold the static method's OWN generic type params (design 105) into the
+        # substitution alongside the struct's args.
+        if method_info.type_params:
+            for tp, ta in zip(method_info.type_params, expr.type_args or []):
+                type_map[tp.name] = self._resolve_type(ta)
+            self._check_type_param_bounds(
+                method_info.type_params, type_map, expr.line, expr.column)
         param_types = method_info.param_types  # static: no self slot
         if type_map:
             param_types = [t.substitute(type_map) if t is not None else t

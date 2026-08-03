@@ -1,0 +1,40 @@
+// Design 105 + 95: a generic overload selected by INFERENCE that is then
+// DRIVEN / SPAWNED must monomorphize the RESOLVED candidate — the coroutine
+// transform keys the frame + effect mono by the resolved overload (its distinct
+// `$OL$` base), not the ambiguous plain name. Two suspending generic overloads
+// of one name, each spawned at the same type args, must run their OWN body.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 100
+// 20
+
+struct Wrap<T> { v: T }
+struct Cell<T> { v: T }
+
+// Two suspending generic overloads of one name, distinguished by container.
+func work<T: Copy>(x: Wrap<T>) -> Int {
+    yield_now()
+    7
+}
+func work<T: Copy>(x: Cell<T>) -> Int {
+    yield_now()
+    100
+}
+
+// A single generic suspending overload set member driven directly.
+func doubled<T: Copy>(x: T, f: (T) -> Int) -> Int {
+    yield_now()
+    f(x)
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(work(Wrap<Int>(v: 3)))   // overload 1 -> 7
+    let b = g.spawn(work(Cell<Int>(v: 5)))   // overload 2 -> 100
+    print(a.join())
+    print(b.join())
+    // Driven inferred generic (single candidate): later-arg + closure.
+    let c = g.spawn(doubled(10, { $0 * 2 }))
+    print(c.join())                          // 20
+}

@@ -1,0 +1,61 @@
+// Design 105: generic type-argument inference across OVERLOAD SETS. Inference
+// runs PER CANDIDATE; exactly one candidate that both solves and type-matches is
+// picked (concrete overloads still win by design 55's exact-match model — those
+// keep their meaning). Also: later-arg solve (a param determined by an argument
+// to its right, including a closure before the value), and explicit type args
+// selecting a generic overload.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 8
+// 3
+// 4
+// 0
+// 42
+// 7
+
+import std.vector.{Vector}
+
+struct Wrap<T> { v: T }
+
+// Unique-solve: two concrete specializations + a generic fallback of one name.
+func kind(x: Bool) -> Int { 1 }
+func kind(x: String) -> Int { 2 }
+func kind<T: Copy>(x: Wrap<T>) -> Int { 3 }
+
+// Two generic overloads distinguished by container shape (BOTH instantiated).
+func handle<T: Copy>(x: Wrap<T>) -> T { x.v }
+func handle<T: Copy>(x: Vector<T>) -> Int { x.len() }
+
+// Two generic overloads distinguished ONLY by label.
+func put<T: Copy>(item: T) -> T { item }
+func put<T: Copy>(note: T) -> Int { 0 }
+
+// Later-arg solve: the closure precedes the value that determines T.
+func run<T: Copy>(f: (T) -> Int, seed: T) -> Int { f(seed) }
+
+// Explicit type args select + pin the generic overload of a mixed set.
+func tag<T: Copy>(x: T) -> Int { 7 }
+func tag(x: Bool) -> Int { 9 }
+
+func main() {
+    print(kind(true))                 // 1  concrete Bool
+    print(kind("hi"))                 // 2  concrete String
+    print(kind(Wrap<Int>(v: 5)))      // 3  generic, inferred T=Int
+
+    print(handle(Wrap<Int>(v: 8)))    // 8  first generic overload
+    var v = Vector<Int>()
+    v.push(1)
+    v.push(2)
+    v.push(3)
+    print(handle(move v))             // 3  second generic overload
+
+    print(put(item: 4))               // 4  label selects overload 1
+    print(put(note: 6))               // 0  label selects overload 2
+
+    print(run({ $0 + 1 }, 41))        // 42 later-arg: T from seed, closure first
+
+    print(tag<Int>(9))                // 7  explicit type arg selects the generic
+}

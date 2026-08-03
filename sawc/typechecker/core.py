@@ -1115,7 +1115,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for func in module_ast.functions:
             if getattr(func, 'type_params', None) and not getattr(
                     func, 'is_mono_instance', False):
-                self._pristine_generics[func.name] = _copy.deepcopy(func)
+                # Design 105: a generic OVERLOAD carries a distinct `$OL$` base
+                # symbol; key its pristine template by that so two overloads of one
+                # name don't collide (a lone generic keeps its plain-name key).
+                key = getattr(func, 'mangled_symbol', None) or func.name
+                self._pristine_generics[key] = _copy.deepcopy(func)
         # Method-level generic methods on a NON-generic extension: pristine snapshot
         # keyed by (struct, method), with the owning extension (design 70).
         for ext in module_ast.extensions:

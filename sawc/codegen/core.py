@@ -1922,8 +1922,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Declare all functions (skip generic functions)
         for func in program.functions:
             if func.type_params:
-                # Store generic function for later instantiation
-                self.generic_functions[func.name] = func
+                # Store generic function for later instantiation. Design 105: a
+                # generic overload in a 2+ generic set carries a distinct `$OL$`
+                # base symbol (registration) so its template is stored/looked up
+                # under that base, not the collision-prone plain name.
+                self.generic_functions[
+                    getattr(func, 'mangled_symbol', None) or func.name] = func
             else:
                 # Overloading (design 55): a member of a 2+ overload set is
                 # emitted under its type-signature-suffixed symbol (stamped on

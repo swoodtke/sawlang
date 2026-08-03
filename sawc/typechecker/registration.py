@@ -589,6 +589,29 @@ class RegistrationMixin:
                 sym.mangled_name = mangled
                 if sym.decl_node is not None:
                     sym.decl_node.mangled_symbol = mangled
+            # Design 105: two or more GENERIC overloads of one name would both
+            # monomorphize to `name$<args>` and collide in codegen. Give each a
+            # distinct `$OL$`-tagged base (its declared param-type signature, which
+            # includes the type params) so its instantiations are `base$<args>` —
+            # collision-free. A lone generic in the set keeps its plain name
+            # (the byte-identical single-template path), so this is inert for all
+            # existing code (no std/blade/libs set has 2+ generic overloads).
+            generic_syms = [s for s in overloads if s.type_params]
+            if len(generic_syms) >= 2:
+                gsig_counts = {}
+                for sym in generic_syms:
+                    gsig_counts[_type_sig(sym.param_types)] = \
+                        gsig_counts.get(_type_sig(sym.param_types), 0) + 1
+                for sym in generic_syms:
+                    # Design 66: generic overloads that share a param-TYPE sig
+                    # (differ only by label) need their labels appended too.
+                    need_labels = gsig_counts.get(_type_sig(sym.param_types), 0) > 1
+                    mangled = mangle_overload(
+                        name, sym.param_types,
+                        sym.param_names if need_labels else None)
+                    sym.mangled_name = mangled
+                    if sym.decl_node is not None:
+                        sym.decl_node.mangled_symbol = mangled
         for struct_name, struct_sym in self.namespace.structs.items():
             for mname, overloads in struct_sym.method_overloads.items():
                 if len(overloads) < 2:

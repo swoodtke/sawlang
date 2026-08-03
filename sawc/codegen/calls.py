@@ -336,8 +336,15 @@ class CallsMixin:
                 struct_init.resolved_init_params = expr.resolved_init_params
             return self._generate_struct_init(struct_init)
 
-        # Check if this is a call to a generic function
-        if expr.name in self.generic_functions:
+        # Check if this is a call to a generic function. Design 105: a generic
+        # overload winner carries its distinct `$OL$` base in `resolved_symbol`;
+        # prefer it so the RIGHT template is instantiated (the plain name may map
+        # to a sibling generic overload) and its instantiations stay collision-free.
+        gen_name = expr.name
+        rs = getattr(expr, 'resolved_symbol', None)
+        if rs is not None and rs in self.generic_functions:
+            gen_name = rs
+        if gen_name in self.generic_functions:
             if not expr.type_args:
                 raise ValueError(
                     f"Generic function {expr.name} requires type arguments. "
@@ -353,7 +360,7 @@ class CallsMixin:
                 self._substitute_saw_type(ta, self.type_param_context)
                 for ta in expr.type_args
             ]
-            mangled_name = self._instantiate_generic_function(expr.name, call_type_args)
+            mangled_name = self._instantiate_generic_function(gen_name, call_type_args)
             func = self.functions[mangled_name]
         else:
             # Look up regular user-defined function

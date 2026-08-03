@@ -1,0 +1,14 @@
+// Design 105: when type-argument inference makes TWO OR MORE generic overloads
+// both solve and type-match, the call is a clean ambiguity error listing the
+// solving candidates and their solved type args (with an explicit-args/labels
+// hint) — never a silent pick (design 55 exact-match model + never-hide-errors).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: inference matches multiple generic overloads
+
+func amb<T: Copy>(a: T, b: Int) -> T { a }
+func amb<T: Copy>(a: T, b: T) -> T { a }
+
+func main() {
+    let x = amb(5, 5)   // both solve T=Int and type-match -> ambiguous
+    print(x)
+}
