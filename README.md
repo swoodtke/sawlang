@@ -170,6 +170,44 @@ print(area(5))      // 25
 print(area(3, 4))   // 12
 ```
 
+### Generic Type Inference
+
+Type arguments are inferred at call sites — from argument types, closure
+return types, even default values — including across overload sets (a unique
+match is picked; a genuine tie is a compile error listing the candidates,
+never a silent guess). Explicit `<...>` always remains valid and always wins:
+
+```saw
+func first<T>(v: &Vector<T>) -> T? { v.get(0) }
+
+let names: Vector<String> = ["ada", "alan"]
+let n = first(&names)              // T = String, inferred
+let squares = names.map({ $0.len() })   // map<Int> solved from the closure
+```
+
+### Debug-Friendly Source Locations
+
+`#file`, `#line`, and `#function` are compile-time literals (definition-site,
+zero runtime cost — panics and asserts already carry `panic at FILE:LINE:`):
+
+```saw
+print("{#file}:{#line} in {#function} - checkpoint")
+```
+
+### Shadowing Must Be Earned
+
+Accidentally reusing a name from an enclosing scope is a compile error —
+unless the new binding is visibly *derived* from the one it shadows (the
+initializer mentions it). Refinement stays idiomatic; accidents don't compile:
+
+```saw
+if let x = x { }                  // OK — unwrap refinement
+let data = parse(move data)       // OK — derived, old binding retired
+for item in items.iter() { }      // fine — no shadow at all
+for x in x.iter() { }             // OK — sequence mentions the shadowed name
+let x = compute()                 // ERROR under an outer `x` — rename it
+```
+
 ### Printable and String Interpolation
 
 Conform to `Printable` and your type interpolates like a builtin:
@@ -214,6 +252,8 @@ match parse(false) {
 No `async`/`await` keyword — **any call may suspend**, and the rare marked side
 is the checked negative effect `sync`. A `TaskGroup` is a structured-concurrency
 nursery: children are joined (or cancelled) when the group is torn down.
+`TaskGroup(threads: N)` opts into multi-threaded execution with `Send` checked
+at every spawn boundary; the default stays single-threaded and deterministic.
 
 ```saw
 func work(n: Int) -> Int {
@@ -226,6 +266,35 @@ func main() {
     let a = group.spawn(work(3))
     let b = group.spawn(work(4))
     print(a.join() + b.join())   // 25 — structured join
+}
+```
+
+One ambient cooperative scheduler runs spawned tasks eagerly, with an io
+reactor (kqueue/epoll) underneath: a task parked on a socket wakes precisely
+when *its* fd is ready, cancellation rouses even an already-parked task, an
+op-count budget keeps a spinning task from starving its siblings — so an
+infinite `accept`-loop server serves live connections. Blocking FFI calls
+(`extern "C" { blocking func ... }`) offload to a thread and park the task
+like any other I/O, keeping the cooperative world responsive.
+
+### Cooperative Networking
+
+`std.net` exposes owning, safe types — no raw fds, no callbacks, no `await`.
+Suspension is inside the methods; failures are `Result`s, and EOF is distinct
+from error by construction:
+
+```saw
+import std.net.{TcpListener, TcpStream}
+
+let listener = try! TcpListener.listen(0)
+while {
+    let conn = try! listener.accept()        // parks; siblings keep running
+    let _ = group.spawn(handle(move conn))
+}
+
+func handle(stream: TcpStream) {
+    let chunk = try! stream.read()           // Result<Data, IoError>; empty Ok = EOF
+    try! stream.write("hello")               // writes everything or errors honestly
 }
 ```
 
@@ -313,6 +382,18 @@ per-symbol aliasing (`import std.io as sio`, `import m.{A as B}`), scoped
 visibility (`public(package)`, `public(parent)`), and glob imports
 (`import m.*`).
 
+**Member visibility**: struct fields and extension methods (including `init`)
+are private by default outside their defining module — `public` marks the API
+surface. The standard library lives under the same gate: you reach its public
+API, never its internals.
+
+**Prelude discipline**: a curated core is available bare (primitives,
+`Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/`Arc`, the trait vocabulary,
+`print`/`panic`/`assert`, the concurrency primitives). Everything else —
+`File`, `Data`, `Channel`, `Mutex`, `TcpStream`, `Command`, ... — needs
+`import std.<module>`, which also means your own type named `File` or
+`IoError` never collides with the standard library's.
+
 ## Memory Management
 
 Saw provides deterministic memory management without garbage collection:
@@ -326,8 +407,15 @@ Saw provides deterministic memory management without garbage collection:
 - **Reference types** (`&T`, `&var T`) for borrowing, with static exclusivity checking
 - **Law of Exclusivity** — a `&var` path must be disjoint from every other
   by-reference path in the same call; fully static, no lifetimes
+- **References compose** — a received `&T`/`&var T` forwards onward to another
+  function as a re-borrow (mutability never amplified, exclusivity checked at
+  the root), and references stay valid across cooperative suspension points
 - **Shared ownership** via `Arc<T>` (atomic refcount — Saw is Arc-only) and owned
   heap allocation via `Box<T, A>`
+- **Unsafety is type-carried** — raw pointers live in `Unsafe*` types; where a
+  pointer flows invisibly in a function whose signature doesn't say so, an
+  explicit `unsafe` expression marker is required. No unsafe blocks, no
+  ambient unsafety
 
 ```saw
 // Mutable reference parameter (mutate via compound assignment; direct `x = ...`
@@ -393,7 +481,12 @@ Saw includes a growing standard library. Highlights:
   `union`/`intersection`/`difference`/`is_subset`; `{a, b}` literals.
 - **Arc<T>** / **Box<T, A>** - Atomic reference counting / owned heap allocation.
 - **Mutex<T>**, **Channel<T>**, **Task<T>**, **TaskGroup** - Concurrency.
-- **File**, **Directory**, **Path**, **Data**, **Env**, **Process** - System I/O.
+- **std.net** - `TcpListener`/`TcpStream`: owning, cooperative, `Result`-honest
+  (accept/connect/read/`read_into`/overloaded write).
+- **File**, **Directory**, **Path**, **Data**, **Env** - System I/O; failable
+  operations return `Result<_, IoError>` — no silent error swallowing anywhere
+  in std.
+- **std.process** - `Command.run() -> Result<Int32, ProcessError>`, `.output()`.
 - **std.time** - `Duration`, `Instant` (hosted).
 - **Numeric extensions** - `Int`/`Float` methods: `abs`, `pow`, `min`/`max`/
   `clamp`, `sqrt`, `floor`/`ceil`/`round`, `is_even`/`is_odd`, `signum`.
@@ -463,12 +556,15 @@ Run `make test` to see the current test count. See
 
 ## Current Status
 
-Saw is in active development, with a large and growing feature set: generics with
-trait bounds and monomorphization, ADTs with exhaustive `match`, the Copy trait
-family, traits with default bodies and `any Trait` existentials, overloading,
-`Printable`/`Error`/`Equatable`/`Comparable`/`Hashable`, colorless concurrency
-(cooperative tasks + a thread-per-task engine), pluggable allocators, and the
-freestanding toolkit (memory-mapped I/O, `static_assert`, C-ABI exports).
+Saw is in active development, with a large and growing feature set: generics
+with trait bounds, monomorphization, and call-site type inference; ADTs with
+exhaustive `match`; the Copy trait family; traits with default bodies and
+`any Trait` existentials; overloading; `Printable`/`Error`/`Equatable`/
+`Comparable`/`Hashable`; colorless concurrency (an ambient cooperative
+scheduler with a precise io reactor, multi-threaded task groups, blocking-FFI
+offload); member visibility with a curated prelude; earned shadowing;
+source-location literals; pluggable allocators; and the freestanding toolkit
+(memory-mapped I/O, `static_assert`, C-ABI exports).
 
 The authoritative, always-current feature list lives in
 [CLAUDE.md](CLAUDE.md); the full language reference is in

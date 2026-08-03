@@ -89,25 +89,41 @@ on discovery unless genuinely ambiguous (then tracker + flag). Record
 language pain hit while writing Saw as DF-findings in the tracker.
 
 ## Language state (orientation digest — details in spec/skill)
-Landed through design 67 (Jul 30): full trait system (default bodies,
+Landed through design 109 (Aug 3): full trait system (default bodies,
 `any Trait` existentials, Equatable/Comparable/Hashable/Printable/
 Error), overloading + labeled arguments (lenient model), generics with
-default type params, Copy trait family + move checkpoint + Law of
+default type params + default VALUES that drive inference (108) +
+type-argument INFERENCE at call sites — args, closure returns,
+overload sets (unique solver wins, ties error), later-arg fixpoint,
+labeled mapping (93, 105) — with bounds checked for EVERY type arg
+incl. primitives (109), Copy trait family + move checkpoint + Law of
 Exclusivity, Result/Optional with auto-wrap + erased
 `Result<T, Box<any Error>>`, patterns (literals/ranges/guards/tuple
 destructuring) + named tuples, collection literals (Map/Set/Vector),
-colorless concurrency (coroutine transform + TaskGroup + channels),
-allocator type params + Box/slab + statics/Atomic + UnsafeMemory +
-`@export`/`@section` (freestanding-ready), platform-width Int,
-bounds/overflow/shift checks always on. Member visibility (design 80):
-struct fields + extension methods are private-by-default outside the
-defining module (std under the gate too — design 82 makes each std FILE
-its own module). Prelude discipline (design 82): only a curated core is
-auto-visible (primitives, Vector/Map/Set, Optional/Result/Box/Arc/
-Allocator, the trait vocabulary, the builtins + concurrency primitives,
-StringBuilder); File/Data/Channel/Mutex/net/IoError/Utf8Error/process/env/
-time need `import std.<module>` — so a user type named `IoError`/`File`
-no longer collides. Unsafe surface (design 81):
+platform-width Int, bounds/overflow/shift checks always on,
+`#file`/`#line`/`#function` definition-site literals (98), shadowing
+= error unless derived from the shadowed binding — incl. same-scope
+redefinition and for-loop vars via the mentions-rule (100, 107).
+Colorless concurrency: coroutine transform + one ambient cooperative
+scheduler (89-b/c: live accept-loop servers work; op-budget fairness
+backstop) + TaskGroup (MT via `threads: N`, Send-checked) + channels +
+precise reactor wakeup (91) + cancel wakes even an io-parked task
+(102) + `extern blocking` calls RUN via thread offload (103);
+suspending calls embed at any nesting depth / control-flow position
+or error cleanly — never silently block (96, 101, 104); references
+span suspends (88) and forward onward as re-borrows (106); std.net
+owning TcpListener/TcpStream (failable ops return Result, EOF distinct
+from error — 84-92). Freestanding toolkit: allocator type params +
+Box/slab + statics/Atomic + UnsafeMemory + `@export`/`@section`.
+Member visibility (design 80): struct fields + extension methods are
+private-by-default outside the defining module (std under the gate
+too — design 82 makes each std FILE its own module). Prelude
+discipline (design 82): only a curated core is auto-visible
+(primitives, Vector/Map/Set, Optional/Result/Box/Arc/Allocator, the
+trait vocabulary, the builtins + concurrency primitives,
+StringBuilder); File/Data/Channel/Mutex/net/IoError/Utf8Error/process/
+env/time need `import std.<module>` — so a user type named `IoError`/
+`File` no longer collides. Unsafe surface (design 81):
 unsafety is type-carried, plus an `unsafe` expression marker required
 wherever a raw pointer flows invisibly — a deref/index/write, pointer
 arithmetic, or binding a pointer produced by a call — in a function whose
