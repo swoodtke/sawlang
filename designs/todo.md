@@ -62,6 +62,14 @@ these two need a design call:
   expression (frame-resident intermediates, short-circuit resume paths). The
   unchained `let`-per-step spelling is equivalent; design only if the ergonomic
   pull proves real. [111, 104]
+- **FLAG (minor, design 111 discovery): buried-suspend diagnostic wording.** A
+  suspending METHOD inside a `?.` chain now correctly hits
+  `_reject_buried_suspend_call` (coro_transform.py "method" branch), but that
+  message names the shape as "a control-flow branch the state split cannot express
+  (an `if let`/`guard let` body)" — accurate for the design-104 case, slightly
+  off for a chain (it is a nested/expression position). Functionally correct
+  (clean error, never a silent block); only the explanatory clause could name the
+  chain case. Cosmetic; fix opportunistically. [111, 104, 101]
 
 ## Design 109 — silently unchecked trait bounds for primitive type args (LANDED)
 - **Root cause (typechecker + one namespace gap).** The free-function bound-check
