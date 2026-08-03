@@ -1,0 +1,37 @@
+// design 103 (A6): a REAL blocking FFI call (`saw_blocking_sleep`, a genuine
+// thread-blocking sleep) inside a SPAWNED task is OFFLOADED to a worker thread, so
+// the task PARKS cooperatively instead of wedging the single reactor thread. Proof
+// of interleave: main prints 0,1,2 (its own sleep-loop) WHILE the worker is blocked
+// on the offload thread; the worker's result is joined LAST. The blocking arg
+// (60) round-trips out as 60 + 1 = 61 — the value flowed into the worker thread and
+// back through take(). If the call were NOT offloaded (a plain block on the one
+// cooperative thread), main would never resume and join would hang forever (the
+// runner timeout turns that into a FAILURE) — so this is discriminating. The exact
+// output order is deterministic (the worker only surfaces its value at join).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 1
+// 2
+// 61
+
+extern "C" {
+    blocking func saw_blocking_sleep(ms: Int) -> Int
+}
+
+func worker() -> Int {
+    let r = saw_blocking_sleep(60)   // offloads + parks; main runs meanwhile
+    return r + 1                     // round-trip: 60 -> 61
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker())
+    var i = 0
+    while i < 3 {
+        print(i)                     // 0,1,2 print while the worker is blocked
+        sleep(10)
+        i = i + 1
+    }
+    print(h.join())                  // 61 (the worker's offload finished last)
+}

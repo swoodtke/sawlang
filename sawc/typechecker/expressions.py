@@ -1880,6 +1880,29 @@ class ExpressionsMixin:
                             expr.line, expr.column)
             self._effect_direct_source("io_wait", expr.line)
             return SawType(TypeKind.VOID)
+        if expr.name == "__blk_start":
+            # design 103 (A6): the blocking-extern offload START intrinsic, emitted
+            # by the coro transform. Its argument is syntactically a call to the
+            # blocking extern (`slow(arg)`), but the offload does NOT call it inline —
+            # it hands the extern's ADDRESS + the arg to the runtime thread. So we
+            # type-check only the inner argument expressions and deliberately do NOT
+            # record the blocking suspension effect (the real suspension is the
+            # `io_wait` the transform emits between start and take, which keeps the
+            # synthesized `resume` method suspension-free of the blocking source).
+            # Returns the job handle as an Int. Compiler-generated only.
+            if len(expr.arguments) == 1:
+                inner = expr.arguments[0].value
+                for a in getattr(inner, 'arguments', []):
+                    self._check_expression(a.value)
+            return SawType(TypeKind.INT)
+        if expr.name in ("__blk_done", "__blk_pipe_fd", "__blk_take"):
+            # design 103 (A6): the offload done-poll / pipe-fd / join+take intrinsics.
+            # Each takes the job handle (Int) and returns an Int (a flag, an fd, or —
+            # for `__blk_take` — the v1 `(Int) -> Int` extern's result). None is a
+            # suspension source. Compiler-generated only.
+            if len(expr.arguments) == 1:
+                self._check_expression(expr.arguments[0].value)
+            return SawType(TypeKind.INT)
         if expr.name == "sleep":
             # design 45 item 4: cooperative timed wait — a suspension point that
             # carries a "sleep for N ms" wake reason. The executor sleeps that long

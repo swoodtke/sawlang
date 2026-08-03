@@ -1,0 +1,22 @@
+// design 103 (A6): a blocking-extern call in a position the offload desugar cannot
+// occupy (buried in a larger expression — here a `return a + b`) is a CLEAN compile
+// error ANCHORED AT THE USER CALL SITE, never a silent miscompile and never anchored
+// at the synthesized `__Frame_*.resume` method. Bind it to its own statement.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: blocking-extern call `saw_blocking_sleep(...)`
+// EXPECT-ERROR-CONTAINS: nested/expression position
+// EXPECT-ERROR-CONTAINS: offload_buried_reject.saw
+
+extern "C" {
+    blocking func saw_blocking_sleep(ms: Int) -> Int
+}
+
+func worker() -> Int {
+    return saw_blocking_sleep(10) + saw_blocking_sleep(10)
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker())
+    print(h.join())
+}

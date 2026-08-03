@@ -1,0 +1,51 @@
+// design 103 (A6) + design 102: cancellation of a task PARKED on an offload job.
+// The worker parks inside the offloaded blocking call (`saw_blocking_sleep`); a
+// sibling task sets the cancel word (via `cancel_addr`) while it is parked. Design
+// 102's pre-poll cancelled scan wakes the parked frame, the offload park loop
+// re-checks `__cancel` at its loop top and bails, and take() joins the worker
+// thread (the in-flight blocking call cannot be aborted — a documented v1 limit —
+// so take completes it, then frees the job: no leak, no data race). The worker then
+// observes `cancelled()` and returns -1 through normal control flow. The deinit
+// oracle proves its held sentinel drops EXACTLY once (clean cooperative exit). Time
+// bounded — a hang would be a runner-timeout FAILURE.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -1
+// deinits=1
+
+extern "C" {
+    blocking func saw_blocking_sleep(ms: Int) -> Int
+}
+
+static DEINITS: Atomic<Int> = Atomic(0)
+
+struct Res { id: Int }
+extension Res: Deinit { func deinit(&var self) { DEINITS.fetch_add(1) } }
+extension Res: NoCopy {}
+
+func worker() -> Int {
+    let _held = Res(id: 1)           // deinit oracle: drops exactly once on exit
+    let r = saw_blocking_sleep(40)   // parks; the sibling cancels it while parked
+    if cancelled() {
+        return 0 - 1                 // cooperative early return on cancel
+    }
+    return r
+}
+
+func canceller(addr: Int) {
+    let p = addr as UnsafePointer<Bool>
+    unsafe p[0] = true               // peer-cancel via the Send cancel-word address
+}
+
+func run() {
+    var group = TaskGroup()
+    let hr = group.spawn(worker())   // parks in the offload
+    let addr = hr.cancel_addr()
+    let _ = group.spawn(canceller(addr))   // runs after the worker parks; cancels it
+    print(hr.join())                 // worker wakes, observes cancel -> -1
+}
+
+func main() {
+    run()
+    print("deinits={DEINITS.load()}")
+}

@@ -834,6 +834,13 @@ class _FrameBuilder:
                     n.name in _SUSPEND_CALLS or n.name in self._suspends):
                 found[0] = True
                 return
+            # design 103 (A6): a blocking-extern call is a suspension point (the
+            # offload parks the task on the job's pipe), so a block containing one
+            # spans a suspension — its locals become frame-resident and a
+            # control-flow construct around it is CFG-split.
+            if isinstance(n, FunctionCall) and self._is_blocking_extern(n.name):
+                found[0] = True
+                return
             # design 62 G3: a cooperative `ch.receive()` is a suspension point
             # (it lowers to a try_receive+yield_now loop), so a control-flow
             # construct containing one must be CFG-split.
@@ -1015,6 +1022,11 @@ class _FrameBuilder:
         # callee frame — the try_receive+yield_now loop runs against THIS frame).
         self.recv_calls = []
         self.recv_by_id = {}
+        # design 103 (A6): blocking-extern call sites lowered to the offload
+        # start -> io_wait(pipe fd) -> take sequence (no callee frame — the loop
+        # runs against THIS frame, like a cooperative `receive()`).
+        self.blk_calls = []
+        self.blk_by_id = {}
 
         def visit_block(block):
             for s in block.statements:
@@ -1026,6 +1038,12 @@ class _FrameBuilder:
                 rinfo['idx'] = len(self.recv_calls)
                 self.recv_calls.append(rinfo)
                 self.recv_by_id[id(s)] = rinfo
+                return
+            binfo = self._classify_blk(s)
+            if binfo is not None:
+                binfo['idx'] = len(self.blk_calls)
+                self.blk_calls.append(binfo)
+                self.blk_by_id[id(s)] = binfo
                 return
             info = self._classify_call(s)
             if info is not None:
@@ -1153,6 +1171,12 @@ class _FrameBuilder:
             if rc['target'] is None:
                 fields.append(StructField(name=f"__rcv{rc['idx']}",
                                           type=_opt(rc['elem_type'])))
+        # design 103 (A6): each offloaded blocking-extern call needs a frame-resident
+        # `__blkjobN` handle (the job pointer as Int), held across the io_wait park
+        # between start and take.
+        for bc in self.blk_calls:
+            fields.append(StructField(name=f"__blkjob{bc['idx']}",
+                                      type=SawType(TypeKind.INT)))
         fields.append(StructField(name="__state", type=SawType(TypeKind.INT)))
         # The wake reason the frame communicates to the executor on a Pending
         # (design 45 item 4): 0 = ready (yield), >0 = sleep that many ms.
@@ -1278,6 +1302,73 @@ class _FrameBuilder:
                 f"resolved element type", mc.line, mc.column)
         return {'receiver': mc.object, 'target': target, 'elem_type': elem_type}
 
+    # ------------------------------------------------------------------ #
+    # design 103 (A6): blocking-extern offload
+    # ------------------------------------------------------------------ #
+    def _blocking_extern_sym(self, name):
+        """The FunctionSymbol for `name` if it is a registered `extern blocking
+        func`, else None. Consulted so the transform can OFFLOAD a blocking FFI
+        call (start a worker thread + park on its pipe) instead of leaving it a
+        direct call that would trip the synthesized `resume`'s sync check."""
+        tc = self._tc
+        if tc is None:
+            return None
+        ns = (getattr(tc, "_entry_module_ns", None)
+              or getattr(tc, "namespace", None))
+        if ns is None:
+            return None
+        sym = ns.lookup_function(name)
+        if sym is not None and getattr(sym, "is_blocking", False):
+            return sym
+        return None
+
+    def _is_blocking_extern(self, name):
+        return self._blocking_extern_sym(name) is not None
+
+    def _check_blk_whitelist(self, fc):
+        """v1 offload thunk is the C ABI `i64(i64)` — enforce a single `Int`
+        parameter and an `Int` result (a subset of the design-58 extern whitelist).
+        A wider signature is a clean anchored error (multi-arg / non-Int is future
+        work), never a silent miscompile."""
+        sym = self._blocking_extern_sym(fc.name)
+        pts = list(getattr(sym, "param_types", []) or [])
+        rt = getattr(sym, "return_type", None)
+        ok = (len(pts) == 1 and pts[0] is not None and pts[0].kind == TypeKind.INT
+              and rt is not None and rt.kind == TypeKind.INT)
+        if not ok:
+            raise CoroTransformError(
+                f"coroutine transform: the blocking extern `{fc.name}` offloaded "
+                f"from `{self.name}` must have the v1 signature `(Int) -> Int` "
+                f"(the thread-per-call offload thunk is `i64(i64)`; multi-argument "
+                f"and non-Int blocking externs are future work)",
+                fc.line, fc.column, source_file=self.src_file)
+
+    def _classify_blk(self, stmt):
+        """design 103: if `stmt` is a top-level blocking-extern call boundary,
+        return {call, target, ret}; else None. Supported forms mirror the nested
+        free-function ones: `let x = slow(arg)` (result -> local `x`), a bare
+        `slow(arg)` / `let _ = slow(arg)` (discard), and — after design-83 tail
+        normalization — `return slow(arg)` (result -> this frame's `__result`).
+        The call site desugars to start -> io_wait(pipe fd) -> take (see
+        `_emit_blk_call`)."""
+        fc = None
+        target = None
+        is_ret = False
+        if isinstance(stmt, LetStatement) and isinstance(stmt.value, FunctionCall):
+            fc = stmt.value
+            target = stmt.name if stmt.name != "_" else None
+        elif (isinstance(stmt, ExpressionStatement)
+              and isinstance(stmt.expression, FunctionCall)):
+            fc = stmt.expression
+        elif (isinstance(stmt, ReturnStatement)
+              and isinstance(stmt.value, FunctionCall)):
+            fc = stmt.value
+            is_ret = True
+        if fc is None or not self._is_blocking_extern(fc.name):
+            return None
+        self._check_blk_whitelist(fc)
+        return {'call': fc, 'target': target, 'ret': is_ret}
+
     def _method_call_suspends(self, mc):
         """design 84: True if `mc` is a call to a suspending method on a concrete
         (non-generic) struct receiver — the shape embedded as a nested method
@@ -1349,6 +1440,13 @@ class _FrameBuilder:
             if isinstance(n, FunctionCall) and (
                     n.name in self._suspends or n.name in _SUSPEND_CALLS):
                 found.append(("fn", n))
+            # design 103 (A6): a blocking-extern call in a position the offload
+            # desugar cannot occupy (buried in a larger expression, a `try!`, an
+            # `if let`/`guard let` body). Reject cleanly, ANCHORED AT THE USER CALL
+            # SITE — never let it fall through to lower as a direct call and trip the
+            # synthesized `resume`'s sync check anchored at `__Frame_*.resume`.
+            elif isinstance(n, FunctionCall) and self._is_blocking_extern(n.name):
+                found.append(("blk", n))
             # design 62 G3: a cooperative `receive()` buried in an expression /
             # nested position (only a top-level `let v = ch.receive()` or bare
             # `ch.receive()` is supported) is rejected rather than miscompiled.
@@ -1386,11 +1484,18 @@ class _FrameBuilder:
                     f"(an `if let`/`guard let` body). Restructure to a plain "
                     f"`if`/`else` or `match`, or drive the method directly.",
                     g.line, g.column, source_file=self.src_file)
+            if kind == "blk":
+                raise CoroTransformError(
+                    f"coroutine transform: the blocking-extern call `{g.name}(...)` "
+                    f"inside `{self.name}` appears in a nested/expression position "
+                    f"the offload desugar cannot occupy; bind it to its own statement "
+                    f"first (`let r = {g.name}(...)`), then use `r`",
+                    g.line, g.column, source_file=self.src_file)
             raise CoroTransformError(
                 f"coroutine transform: suspending call to `{g.name}` in `{self.name}` "
                 f"appears in a nested/expression position; only a top-level "
                 f"`let x = {g.name}(...)` or `{g.name}(...)` statement is supported",
-                g.line, g.column)
+                g.line, g.column, source_file=self.src_file)
 
     # ------------------------------------------------------------------ #
     # Phase 2: the resume state machine, built by a CFG walk (design 52 Part 0).
@@ -1636,6 +1741,12 @@ class _FrameBuilder:
         if rinfo is not None:
             self._emit_recv_call(rinfo)
             return
+        # design 103 (A6): a blocking-extern call — offload it to a worker thread
+        # and park on the job's pipe (start -> io_wait -> take).
+        binfo = self.blk_by_id.get(id(s))
+        if binfo is not None:
+            self._emit_blk_call(binfo)
+            return
         # A nested suspending call: embed + drive the callee sub-frame.
         info = self.call_by_id.get(id(s))
         if info is not None:
@@ -1834,6 +1945,65 @@ class _FrameBuilder:
             if self.cur not in self._term:
                 self._goto(merge)
         self.cur = merge
+
+    def _emit_blk_call(self, bc):
+        """design 103 (A6): lower a blocking-extern call to the offload sequence,
+        parking on the job's pipe like any socket read. The desugar is
+        `self.__blkjobN = __blk_start(slow(arg))` then a park loop
+        `while __blk_done(job) == 0 { io_wait(__blk_pipe_fd(job), read) }` then
+        `<target> = __blk_take(job)` — start spawns the worker thread, the io_wait
+        registers the job's readable pipe fd with the reactor (precise wake token +
+        budget reset-on-park apply unchanged), and take joins the thread + frees the
+        job. The park loop ALSO bails on `__cancel` (design 102 compose: a peer
+        cancel writes the reactor self-pipe, which rouses this poll; the re-check
+        exits the loop). The in-flight blocking call cannot be aborted, so take()
+        still joins its thread on the cancel path — no leak, no data race."""
+        idx = bc['idx']
+        job = f"__blkjob{idx}"
+        fc = bc['call']
+        forgets = []
+        inner_args = [Argument(name=None, value=self._rewrite_expr(a.value, forgets))
+                      for a in fc.arguments]
+        inner = FunctionCall(name=fc.name, arguments=inner_args,
+                             line=fc.line, column=fc.column)
+        start = FunctionCall(name="__blk_start",
+                             arguments=[Argument(name=None, value=inner)])
+        self._emit(self._forgets(forgets))
+        self._emit([AssignStatement(target=_self_field(job), value=start)])
+        header = self._new_block()
+        check = self._new_block()
+        park = self._new_block()
+        after = self._new_block()
+        self._goto(header)
+        # header: bail on a peer cancel (design 102), else fall to the done check.
+        self.cur = header
+        self._branch(_self_field("__cancel"), after, check)
+        # check: the worker finished -> take; else park on the job's pipe.
+        self.cur = check
+        done = BinaryOp(op="!=", left=FunctionCall(
+            name="__blk_done",
+            arguments=[Argument(name=None, value=_self_field(job))]), right=_int(0))
+        self._branch(done, after, park)
+        # park: register the readable pipe fd + suspend (io-park), retry on wake.
+        self.cur = park
+        fd = FunctionCall(name="__blk_pipe_fd",
+                          arguments=[Argument(name=None, value=_self_field(job))])
+        self._emit([ExpressionStatement(expression=FunctionCall(
+            name="saw_reactor_register",
+            arguments=[Argument(name=None, value=fd),
+                       Argument(name=None, value=_int(0)),
+                       Argument(name=None, value=_self_field("__io_tok"))]))])
+        self._suspend_to(_int(IO_PARK_WAKE), header)
+        # after: take the result (joins the worker thread + frees the job).
+        self.cur = after
+        take = FunctionCall(name="__blk_take",
+                            arguments=[Argument(name=None, value=_self_field(job))])
+        if bc['ret']:
+            self._done(take)
+        elif bc['target'] is not None:
+            self._emit([AssignStatement(target=_self_field(bc['target']), value=take)])
+        else:
+            self._emit([ExpressionStatement(expression=take)])
 
     def _emit_recv_call(self, rc):
         """design 62 G3: lower a cooperative `ch.receive()` INLINE into the
@@ -2408,6 +2578,10 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):
         field_inits.append((f"__have{rc['idx']}", BoolLiteral(value=False)))
         if rc['target'] is None:
             field_inits.append((f"__rcv{rc['idx']}", NoneLiteral()))
+    # design 103 (A6): each offloaded blocking call's `__blkjobN` handle starts 0
+    # (no job yet — start writes the real handle when the call site is reached).
+    for bc in getattr(fb, 'blk_calls', []):
+        field_inits.append((f"__blkjob{bc['idx']}", _int(0)))
     field_inits.append(("__state", _int(0)))
     field_inits.append(("__wake", _int(0)))
     field_inits.append(("__io_tok", _int(0)))   # design 91: reactor wake-word address

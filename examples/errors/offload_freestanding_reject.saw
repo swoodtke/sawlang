@@ -1,0 +1,16 @@
+// design 103 (A6): `extern blocking func` needs the hosted offload thread pool,
+// which the freestanding runtime does not provide — declaring one in the
+// freestanding profile is a clean registration-time error, anchored at the decl.
+// COMPILE-FLAGS: --freestanding
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not available in the freestanding profile
+// EXPECT-ERROR-CONTAINS: blocking-call offload needs the hosted
+
+extern "C" {
+    blocking func slow(x: Int) -> Int
+}
+
+@export("entry")
+func entry(x: Int) -> Int {
+    x
+}

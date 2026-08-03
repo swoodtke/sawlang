@@ -211,6 +211,27 @@ class CallsMixin:
             self.builder.call(self.functions["saw_reactor_poll"],
                               [ir.Constant(self.int_type, -1)])
             return None
+        # design 103 (A6): the blocking-extern offload intrinsics, emitted by the
+        # coro transform when it lowers a `let x = slow(arg)` blocking-extern call.
+        # `__blk_start(slow(arg))` resolves the extern's ir.Function (a function
+        # address is not expressible in Saw), bitcasts it to an i64, evaluates the
+        # single Int arg, and hands both to the offload runtime — which spawns the
+        # worker thread. The other three are thin one-arg wrappers over the runtime
+        # shims (done-poll / pipe fd / join+take). All non-suspending: the SUSPENSION
+        # is the `io_wait` on the job's pipe the transform emits between start and take.
+        if expr.name == "__blk_start":
+            inner = expr.arguments[0].value          # FunctionCall to the blocking extern
+            fn = self.functions[inner.name]
+            fnptr = self.builder.ptrtoint(fn, self.int_type, name="blkfn")
+            argv = self._generate_expression(inner.arguments[0].value)
+            return self.builder.call(self.functions["saw_offload_start"],
+                                     [fnptr, argv], name="blkjob")
+        if expr.name in ("__blk_done", "__blk_pipe_fd", "__blk_take"):
+            shim = {"__blk_done": "saw_offload_done",
+                    "__blk_pipe_fd": "saw_offload_pipe_fd",
+                    "__blk_take": "saw_offload_take"}[expr.name]
+            job = self._generate_expression(expr.arguments[0].value)
+            return self.builder.call(self.functions[shim], [job], name="blkr")
         # `__exec_sleep(ms)` is the executor's OWN (non-suspending) timer call,
         # generated into the entry executor to honour a task's sleep wake reason.
         if expr.name in ("sleep", "__exec_sleep"):
