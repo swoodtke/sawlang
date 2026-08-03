@@ -308,6 +308,11 @@ enum __Poll {
 trait Resumable {
     func resume(&var self) sync -> __Poll
     func __wake_reason(&self) sync -> Int
+    // design 102 item 2: the frame's cooperative-cancel word, read by the
+    // scheduler so a `cancel()` on an ALREADY-io-parked frame rouses it (the
+    // reactor self-wake returns the blocked poll; this tells the scheduler which
+    // parked frame to make runnable so it re-checks `cancelled()` at its loop top).
+    func __is_cancelled(&self) sync -> Bool
 }
 
 // =============================================================================

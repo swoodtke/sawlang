@@ -1217,6 +1217,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                           name="saw_reactor_register")
         poll = ir.Function(self.module, ir.FunctionType(i64, [i64]),
                            name="saw_reactor_poll")
+        # design 102 item 2: the reactor self-wake seam. `saw_reactor_wake()` writes
+        # one byte to a process-global self-pipe whose read end the reactor poll
+        # registers, so a `cancel()` on an already-io-parked task makes the blocked
+        # poll return promptly (else an idle-fd park would never observe the cancel).
+        wake = ir.Function(self.module, ir.FunctionType(void, []),
+                           name="saw_reactor_wake")
         setnb = ir.Function(self.module, ir.FunctionType(i64, [i64]),
                             name="saw_set_nonblocking")
         ewb = ir.Function(self.module, ir.FunctionType(i64, []),
@@ -1237,7 +1243,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                               name="saw_op_budget_tick")
         budreset = ir.Function(self.module, ir.FunctionType(void, []),
                                name="saw_op_budget_reset")
-        io_fns = (reg, poll, setnb, ewb, errno_fn, setfam, connst, budtick, budreset)
+        io_fns = (reg, poll, wake, setnb, ewb, errno_fn, setfam, connst, budtick, budreset)
         for fn in io_fns:
             self.functions[fn.name] = fn
 
@@ -1252,6 +1258,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         rfd_g = ir.GlobalVariable(self.module, i64, name="__saw_reactor_fd")
         rfd_g.linkage = "internal"
         rfd_g.initializer = ir.Constant(i64, -1)
+
+        # ---- the self-wake pipe (design 102 item 2) ---------------------------
+        # A process-global self-pipe: the reactor poll registers its READ end each
+        # cycle (one-shot, token 0 so no frame word is latched) and drains it on
+        # return; `saw_reactor_wake()` writes one byte to the WRITE end to rouse a
+        # blocked poll. Lazily + race-safely created (cmpxchg publishes the read fd).
+        wr_g = ir.GlobalVariable(self.module, i64, name="__saw_wake_r")
+        wr_g.linkage = "internal"
+        wr_g.initializer = ir.Constant(i64, -1)
+        ww_g = ir.GlobalVariable(self.module, i64, name="__saw_wake_w")
+        ww_g.linkage = "internal"
+        ww_g.initializer = ir.Constant(i64, -1)
 
         # ---- cooperative op-count budget (design 89-c) ------------------------
         # A fairness backstop for the single-threaded cooperative scheduler: a task
@@ -1334,6 +1352,74 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.call(close_fn, [newfd])          # discard our spare; use the winner's
         b.ret(old)
 
+        # ---- self-wake pipe lazy init: __saw_wake_ensure() -> read fd (or -1) --
+        # design 102 item 2. Race-safe: cmpxchg publishes the read fd; the loser
+        # closes its spare pair. Both ends nonblocking (drain never blocks; a full
+        # pipe drops the wake byte harmlessly — one pending byte already rouses).
+        pipe_fn = self._libc_func("pipe", i32, [i32.as_pointer()])
+        wake_ensure = ir.Function(self.module, ir.FunctionType(i64, []),
+                                  name="__saw_wake_ensure")
+        wake_ensure.linkage = "internal"
+        b = ir.IRBuilder(wake_ensure.append_basic_block("entry"))
+        wcur = b.load(wr_g, name="wr_cur"); wcur.ordering = "monotonic"; wcur.align = 8
+        whave = b.icmp_signed(">=", wcur, ir.Constant(i64, 0))
+        wr_have_bb = wake_ensure.append_basic_block("have")
+        wr_make_bb = wake_ensure.append_basic_block("make")
+        b.cbranch(whave, wr_have_bb, wr_make_bb)
+        b = ir.IRBuilder(wr_have_bb)
+        b.ret(wcur)
+        b = ir.IRBuilder(wr_make_bb)
+        wfds = b.alloca(ir.ArrayType(i32, 2), name="wfds")
+        wfds0 = b.gep(wfds, [ir.Constant(i32, 0), ir.Constant(i32, 0)])
+        pr = b.call(pipe_fn, [wfds0])
+        pbad = b.icmp_signed("<", pr, ir.Constant(i32, 0))
+        wr_fail_bb = wake_ensure.append_basic_block("pipe_fail")
+        wr_ok_bb = wake_ensure.append_basic_block("pipe_ok")
+        b.cbranch(pbad, wr_fail_bb, wr_ok_bb)
+        b = ir.IRBuilder(wr_fail_bb)
+        b.ret(ir.Constant(i64, -1))
+        b = ir.IRBuilder(wr_ok_bb)
+        rfd_new = b.load(b.gep(wfds, [ir.Constant(i32, 0), ir.Constant(i32, 0)]), name="pr0")
+        wfd_new = b.load(b.gep(wfds, [ir.Constant(i32, 0), ir.Constant(i32, 1)]), name="pw1")
+        r64 = b.sext(rfd_new, i64)
+        w64 = b.sext(wfd_new, i64)
+        b.call(setnb, [r64])
+        b.call(setnb, [w64])
+        wcx = b.cmpxchg(wr_g, ir.Constant(i64, -1), r64, "seq_cst", "monotonic")
+        wold = b.extract_value(wcx, 0, name="wr_old")
+        wok = b.extract_value(wcx, 1, name="wr_ok")
+        wr_won_bb = wake_ensure.append_basic_block("won")
+        wr_lost_bb = wake_ensure.append_basic_block("lost")
+        b.cbranch(wok, wr_won_bb, wr_lost_bb)
+        b = ir.IRBuilder(wr_won_bb)
+        b.store_atomic(w64, ww_g, ordering="monotonic", align=8)
+        b.ret(r64)
+        b = ir.IRBuilder(wr_lost_bb)
+        b.call(close_fn, [rfd_new])
+        b.call(close_fn, [wfd_new])
+        b.ret(wold)
+
+        # ---- saw_reactor_wake() ----------------------------------------------
+        # Write one byte to the self-pipe's write end. If the pipe isn't up yet
+        # (rare MT init race), skip — the byte a later cancel writes, plus the
+        # scheduler's re-check of `__is_cancelled()` on any poll return, still
+        # observes the cancel (and MT workers poll on a bounded timeout).
+        write_fn = self._libc_func("write", i64, [i32, i8ptr, i64])
+        b = ir.IRBuilder(wake.append_basic_block("entry"))
+        b.call(wake_ensure, [])
+        wwv = b.load(ww_g, name="ww_cur"); wwv.ordering = "monotonic"; wwv.align = 8
+        wwgood = b.icmp_signed(">=", wwv, ir.Constant(i64, 0))
+        wake_do_bb = wake.append_basic_block("do")
+        wake_skip_bb = wake.append_basic_block("skip")
+        b.cbranch(wwgood, wake_do_bb, wake_skip_bb)
+        b = ir.IRBuilder(wake_do_bb)
+        wbyte = b.alloca(i8, name="wkbyte")
+        b.store(ir.Constant(i8, 1), wbyte)
+        b.call(write_fn, [b.trunc(wwv, i32), wbyte, ir.Constant(i64, 1)])
+        b.ret_void()
+        b = ir.IRBuilder(wake_skip_bb)
+        b.ret_void()
+
         # ---- saw_reactor_register(fd, write) ---------------------------------
         b = ir.IRBuilder(reg.append_basic_block("entry"))
         rfd = b.trunc(b.call(ensure, []), i32)
@@ -1391,8 +1477,22 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             b.ret_void()
 
         # ---- saw_reactor_poll(timeout_ms) -> ready count ---------------------
+        read_fn = self._libc_func("read", i64, [i32, i8ptr, i64])
         b = ir.IRBuilder(poll.append_basic_block("entry"))
         rfd = b.trunc(b.call(ensure, []), i32)
+        # design 102 item 2: register the self-wake pipe's read end (one-shot,
+        # token 0 -> the latch loop skips it, no frame is falsely woken) so a
+        # `saw_reactor_wake()` byte makes this poll return promptly.
+        wrp = b.call(wake_ensure, [], name="wake_rfd")
+        drainbuf = b.alloca(ir.ArrayType(i8, 64), name="drainbuf")
+        wrp_ok = b.icmp_signed(">=", wrp, ir.Constant(i64, 0))
+        wreg_bb = poll.append_basic_block("wake_reg")
+        wreg_done_bb = poll.append_basic_block("wake_reg_done")
+        b.cbranch(wrp_ok, wreg_bb, wreg_done_bb)
+        b = ir.IRBuilder(wreg_bb)
+        b.call(reg, [wrp, ir.Constant(i64, 0), ir.Constant(i64, 0)])
+        b.branch(wreg_done_bb)
+        b = ir.IRBuilder(wreg_done_bb)
         tmo = poll.args[0]
         neg = b.icmp_signed("<", tmo, ir.Constant(i64, 0))
         if apple:
@@ -1440,6 +1540,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             b.store(b.add(iv, ir.Constant(i32, 1)), i_slot)
             b.branch(hdr)
             b = ir.IRBuilder(end)
+            # design 102 item 2: drain the self-wake pipe so a level of readiness
+            # doesn't busy-fire the next poll (both ends nonblocking; read to EAGAIN).
+            wrp_ok2 = b.icmp_signed(">=", wrp, ir.Constant(i64, 0))
+            drain_hdr = poll.append_basic_block("drain_hdr")
+            drain_ret = poll.append_basic_block("drain_ret")
+            b.cbranch(wrp_ok2, drain_hdr, drain_ret)
+            b = ir.IRBuilder(drain_hdr)
+            db0 = b.bitcast(drainbuf, i8ptr)
+            rn = b.call(read_fn, [b.trunc(wrp, i32), db0, ir.Constant(i64, 64)])
+            more = b.icmp_signed(">", rn, ir.Constant(i64, 0))
+            b.cbranch(more, drain_hdr, drain_ret)
+            b = ir.IRBuilder(drain_ret)
             b.ret(b.sext(n, i64))
         else:
             ev_ty = ir.ArrayType(i8, 12)
@@ -1476,6 +1588,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             b.store(b.add(iv, ir.Constant(i32, 1)), i_slot)
             b.branch(hdr)
             b = ir.IRBuilder(end)
+            # design 102 item 2: drain the self-wake pipe so a level of readiness
+            # doesn't busy-fire the next poll (both ends nonblocking; read to EAGAIN).
+            wrp_ok2 = b.icmp_signed(">=", wrp, ir.Constant(i64, 0))
+            drain_hdr = poll.append_basic_block("drain_hdr")
+            drain_ret = poll.append_basic_block("drain_ret")
+            b.cbranch(wrp_ok2, drain_hdr, drain_ret)
+            b = ir.IRBuilder(drain_hdr)
+            db0 = b.bitcast(drainbuf, i8ptr)
+            rn = b.call(read_fn, [b.trunc(wrp, i32), db0, ir.Constant(i64, 64)])
+            more = b.icmp_signed(">", rn, ir.Constant(i64, 0))
+            b.cbranch(more, drain_hdr, drain_ret)
+            b = ir.IRBuilder(drain_ret)
             b.ret(b.sext(n, i64))
 
         # ---- saw_set_nonblocking(fd) -> 0/-1 ---------------------------------

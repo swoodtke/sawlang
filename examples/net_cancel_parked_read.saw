@@ -1,0 +1,51 @@
+// design 102 item 2: a task ALREADY io-parked on a permanently-idle fd is woken
+// by a peer's cancel. The reader parks inside `TcpStream.read()` (its peer never
+// writes), a sibling task sets the cancel flag via `cancel_addr`, and the
+// scheduler — finding a parked frame cancelled — wakes it so `read()` re-checks
+// `cancelled()` at its loop top and returns Err. Before the fix the reader's poll
+// blocked forever (the runner timeout would turn that hang into a failure).
+// Deinit oracle: the reader's held sentinel drops EXACTLY once (clean cooperative
+// exit, no double-drop, no leak), and its stream closes exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// reader-cancelled
+// deinits=1
+
+import std.net.{TcpStream}
+
+static DEINITS: Atomic<Int> = Atomic(0)
+
+struct Res { id: Int }
+extension Res: Deinit { func deinit(&var self) { DEINITS.fetch_add(1) } }
+extension Res: NoCopy {}
+
+func reader(s: TcpStream) {
+    let _held = Res(id: 1)          // deinit oracle: drops exactly once on exit
+    match s.read() {
+        case Ok(_) -> print("reader-read"),
+        case Err(_) -> print("reader-cancelled")
+    }
+    // `s` (TcpStream) deinits here: closes the conn fd exactly once
+}
+
+func canceller(addr: Int) {
+    let p = addr as UnsafePointer<Bool>
+    unsafe p[0] = true              // peer-cancel via the Send cancel-word address
+}
+
+func run() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hr = group.spawn(reader(move a))   // parks: peer `b` never writes
+    let addr = hr.cancel_addr()
+    let _ = group.spawn(canceller(addr))   // runs after the reader parks; cancels it
+    hr.join()
+    // keep `b` alive until here so the reader's fd stays a valid idle peer
+    let _ = move b
+    // group Deinit at end of scope tears the reader frame down: `_held` drops once
+}
+
+func main() {
+    run()
+    print("deinits={DEINITS.load()}")
+}

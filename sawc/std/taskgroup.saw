@@ -49,6 +49,11 @@ extern "C" {
     // in codegen/core.py). Blocks up to `timeout_ms` (< 0 = forever) and returns
     // the ready-event count; the executor then wakes all io-parked tasks.
     func saw_reactor_poll(timeout_ms: Int) -> Int
+
+    // design 102 item 2: rouse a blocked reactor poll by writing one byte to the
+    // reactor's self-wake pipe. `cancel()` calls this so an ALREADY-io-parked
+    // task's poll returns promptly and the scheduler can re-check its cancel flag.
+    func saw_reactor_wake()
 }
 
 // design 89: the per-thread AMBIENT cooperative scheduler. A single intrusive
@@ -356,8 +361,14 @@ func __tg_worker(addr: Int) {
                             if not done_k {
                                 let rk = unsafe g[0].remaining.get(k)!
                                 if rk < 0 {
-                                    let wk = unsafe g[0].tasks.with_var_ref<Int>(k, { f in f.__wake_reason() })
-                                    if wk >= 0 {
+                                    // design 102 item 2: wake a reactor-latched OR a
+                                    // peer-cancelled io-parked frame (it re-checks
+                                    // cancelled() and bails); non-cancelled parked
+                                    // siblings stay parked.
+                                    let wk = unsafe g[0].tasks.with_var_ref<Bool>(k, { f in
+                                        f.__wake_reason() >= 0 || f.__is_cancelled()
+                                    })
+                                    if wk {
                                         unsafe g[0].remaining.set(k, 0)
                                     }
                                 } else if rk > 0 && events == 0 && minrem > 0 {
@@ -485,6 +496,9 @@ extension TaskHandle<T> {
     // a cancellation-aware wait, and returns through normal control flow.
     public func cancel(&self) {
         self.cancel_ptr[0] = true
+        // design 102 item 2: rouse a blocked reactor poll so an ALREADY-io-parked
+        // target observes the cancel now (not only at its pre-park check).
+        saw_reactor_wake()
     }
 
     // design 75 (A2): the cancel word's ADDRESS as a Send `Int`. A `TaskHandle` is
@@ -535,6 +549,8 @@ extension VoidTaskHandle {
 
     public func cancel(&self) {
         self.cancel_ptr[0] = true
+        // design 102 item 2: rouse a blocked reactor poll (see TaskHandle.cancel).
+        saw_reactor_wake()
     }
 
     public func cancel_addr(&self) -> Int {
@@ -636,9 +652,14 @@ func __ambient_wake_io(events: Int, deadline: Int) {
             if (not done_i) && (not active_i) {
                 let r = unsafe g[0].remaining.get(i)!
                 if r < 0 {
-                    // Only the frame the reactor latched (wake word >= 0) wakes.
-                    let wr = unsafe g[0].tasks.with_var_ref<Int>(i, { f in f.__wake_reason() })
-                    if wr >= 0 {
+                    // Wake an io-parked frame the reactor latched (wake word >= 0)
+                    // OR one a peer cancelled (design 102 item 2) — it re-checks
+                    // cancelled() at its park-loop top and bails. Non-cancelled,
+                    // still-parked siblings stay parked (no herd wake).
+                    let woke = unsafe g[0].tasks.with_var_ref<Bool>(i, { f in
+                        f.__wake_reason() >= 0 || f.__is_cancelled()
+                    })
+                    if woke {
                         unsafe g[0].remaining.set(i, 0)
                     }
                 } else if r > 0 && events == 0 && deadline > 0 {
@@ -653,6 +674,38 @@ func __ambient_wake_io(events: Int, deadline: Int) {
         }
         cur = unsafe g[0].next
     }
+}
+
+// design 102 item 2: is any io-parked frame cancelled? A peer cancels a task via
+// `cancel_addr` — it sets the frame's `__cancel` word directly, WITHOUT a reactor
+// self-wake — so in the single-threaded scheduler this pre-poll scan is what keeps
+// `__ambient_run` from blocking forever in `saw_reactor_poll` on a permanently-idle
+// fd: if a parked frame is cancelled, wake it (it re-checks cancelled() at its park
+// loop top and bails) instead of polling. (`cancel()` additionally self-wakes the
+// reactor so an MT worker blocked in poll returns promptly rather than at its cap.)
+func __ambient_any_cancelled_io() -> Bool {
+    var cur = __saw_exec_head.load()
+    while cur != 0 {
+        let g = cur as UnsafePointer<TaskGroup>
+        let n = unsafe g[0].tasks.len()
+        var i = 0
+        while i < n {
+            let done_i = unsafe g[0].done.get(i)!
+            let active_i = unsafe g[0].active.get(i)!
+            if (not done_i) && (not active_i) {
+                let r = unsafe g[0].remaining.get(i)!
+                if r < 0 {
+                    let c = unsafe g[0].tasks.with_var_ref<Bool>(i, { f in f.__is_cancelled() })
+                    if c {
+                        return true
+                    }
+                }
+            }
+            i = i + 1
+        }
+        cur = unsafe g[0].next
+    }
+    false
 }
 
 // Pure-sleep advance: subtract the parked deadline from every sleeper so the
@@ -762,8 +815,14 @@ func __ambient_run(term_group: Int, term_slot: Int) {
             return
         }
         if io {
-            let events = saw_reactor_poll(deadline)
-            __ambient_wake_io(events, deadline)
+            if __ambient_any_cancelled_io() {
+                // A parked frame was cancelled by a peer (via cancel_addr, no
+                // self-wake) — wake it now instead of blocking in poll on an idle fd.
+                __ambient_wake_io(1, deadline)
+            } else {
+                let events = saw_reactor_poll(deadline)
+                __ambient_wake_io(events, deadline)
+            }
         } else {
             if deadline > 0 {
                 __exec_sleep(deadline)

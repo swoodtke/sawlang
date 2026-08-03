@@ -11,7 +11,36 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
-## Design 102 — runtime edge bugs: spawn-Void ICE + cancel wakes an io-parked task (IN PROGRESS)
+## Design 102 — runtime edge bugs: spawn-Void ICE + cancel wakes an io-parked task (LANDED)
+- **Item 2 (cancel wakes an ALREADY-io-parked task — A3 remainder) — LANDED.** A task
+  parked in `io_wait` on a permanently-idle fd, cancelled by a peer, never observed the
+  cancel (the landed model only checked BEFORE parking; a blocked reactor poll never
+  returned). FIX, layered + precise (no herd wake):
+  1. Reactor self-wake pipe (portable self-pipe on kqueue/epoll; codegen/core.py):
+     `saw_reactor_wake()` writes one byte to a process-global self-pipe whose read end
+     `saw_reactor_poll` registers (one-shot, token 0 -> the latch loop skips it) each
+     cycle and drains on return. `handle.cancel()` / `VoidTaskHandle.cancel()` call it,
+     so a blocked poll returns promptly.
+  2. Precise wake by cancel flag: a new `Resumable.__is_cancelled()` frame reader (reads
+     `__cancel`); `__ambient_wake_io` + the MT worker wake scan now make an io-parked
+     frame runnable when `__wake_reason() >= 0 OR __is_cancelled()` — so ONLY the
+     reactor-latched frame(s) and the cancelled frame(s) wake; a non-cancelled sibling
+     parked on another idle fd stays parked (net_precise_* unaffected).
+  3. ST liveness for a `cancel_addr` peer cancel (which sets the flag WITHOUT a
+     self-wake): `__ambient_run` scans (`__ambient_any_cancelled_io`) BEFORE blocking in
+     poll and wakes a cancelled parked frame instead of polling an idle fd forever.
+  4. Cancel propagation down the frame chain: the nested-sub-frame drive now copies the
+     root's `__cancel` into the sub-frame each drive (mirroring the design-91 `__io_tok`
+     propagation), so a `cancelled()` check INSIDE a nested `stream.read()` sub-frame
+     observes a cancel set on the ROOT frame the handle points at. Without this the
+     parked reader re-parked forever.
+  5. net.saw: `read`/`read_into`/`write` (both overloads)/`connect` now re-check
+     `cancelled()` at their park-loop top (accept already did) and return `Err(IoError)`.
+  Tests (time-bounded; a hang -> runner failure): `net_cancel_parked_read` (ST parked
+  reader peer-cancelled via cancel_addr; deinit-once oracle), `net_cancel_precise`
+  (cancelled reader wakes while a sibling on another idle fd stays parked until its own
+  data arrives -> `-1 2`), `net_cancel_parked_mt` (`TaskGroup(threads: 2)`, stable 5x).
+  Closes the design-76 A3-remainder flag. Suite 937, bootstrap 17+17, libs 4+4. [76, 18, 90, 91, 89-b]
 - **Item 1 (spawn-Void ICE — cooperative TaskGroup) — LANDED.** `group.spawn(void_body)`
   ICE'd: the frame correctly omits `__result` for a Void body (a `{..., void}` struct
   field is illegal LLVM), but the `__spawn_<f>` helper still built `__rp =
@@ -1165,6 +1194,8 @@ zero xfails throughout.
     Same liveness class as the design's "join on a task that never observes
     cancellation blocks"; the landed model observes cancel at the check BEFORE
     parking. [18, 76]
+    - **CLOSED** by design 102 item 2 (reactor self-wake pipe + `__is_cancelled()`
+      precise wake + pre-poll cancelled scan + cancel propagation into sub-frames).
 - **Commit 3 (A6 honest subset: `extern blocking` sync-reject + freestanding
   reject):** the A6 FRONT-END was already wired (parse `extern "C" { blocking func
   ... }`, `is_blocking` on the AST, blocking-extern as an effect suspension

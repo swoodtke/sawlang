@@ -448,6 +448,10 @@ extension TcpStream {
         // would-block — instead of trusting a single wake (which produced ENOTCONN
         // on a spurious rouse in a multi-connection workload).
         while {
+            if cancelled() {
+                tcp_close(fd)              // design 102: cancelled while connecting
+                return io_error("connect")
+            }
             let check = tcp_connect_check(fd, port)
             if net_would_block(check) {
                 io_wait(fd, 1)             // still connecting — park until writable
@@ -486,6 +490,9 @@ extension TcpStream {
     public func read(&self) -> Result<Data, IoError> {
         var out = Data()
         while {
+            if cancelled() {
+                return io_error("read")        // design 102: peer-cancelled at the park
+            }
             let r = net_read_once(self.fd, &var out)
             if net_would_block(r) {
                 io_wait(self.fd, 0)            // park until readable
@@ -518,6 +525,10 @@ extension TcpStream {
         var going = true
         var count = 0
         while going {
+            if cancelled() {
+                net_free_buffer(ptr, READ_CHUNK)       // design 102: cancelled at park
+                return io_error("read")
+            }
             let r = tcp_try_read(self.fd, ptr, READ_CHUNK)
             if net_would_block(r) {
                 io_wait(self.fd, 0)                    // park until readable
@@ -548,6 +559,9 @@ extension TcpStream {
         var off = 0
         let total = bytes.len()
         while off < total {
+            if cancelled() {
+                return io_error("write")       // design 102: cancelled at the park
+            }
             let w = net_write_data_once(self.fd, &bytes, off)
             if net_would_block(w) {
                 io_wait(self.fd, 1)            // park until writable
@@ -573,6 +587,9 @@ extension TcpStream {
         var off = 0
         let total = bytes.len()
         while off < total {
+            if cancelled() {
+                return io_error("write")       // design 102: cancelled at the park
+            }
             let w = net_write_data_once(self.fd, &bytes, off)
             if net_would_block(w) {
                 io_wait(self.fd, 1)            // park until writable

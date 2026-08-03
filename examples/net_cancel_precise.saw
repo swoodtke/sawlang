@@ -1,0 +1,50 @@
+// design 102 item 2 (precision): cancelling ONE io-parked reader must not herd-wake
+// a sibling parked on a DIFFERENT idle fd. Two readers park on two idle socketpairs;
+// an agitator cancels reader #1 and writes 2 bytes to reader #2's peer. Reader #1
+// wakes on the cancel and returns Err (-1); reader #2 stays parked through the cancel
+// and wakes only when ITS own fd becomes readable, returning the byte count (2). A
+// herd wake would have roused #2 spuriously — it would still re-park (it is not
+// cancelled), so the observable proof is that both resolve to their correct outcomes.
+// EXPECT: success
+// EXPECT-OUTPUT: -1 2
+
+import std.net.{TcpStream}
+
+func reader_cancel(s: TcpStream) -> Int {
+    match s.read() {
+        case Ok(_) -> 100,          // not expected: this reader is cancelled
+        case Err(_) -> -1           // woken by the peer cancel
+    }
+}
+
+func reader_data(s: TcpStream) -> Int {
+    match s.read() {
+        case Ok(d) -> d.len(),      // woken by its OWN fd, gets the 2 bytes
+        case Err(_) -> -2
+    }
+}
+
+func agitator(addr: Int, peer: TcpStream) {
+    let p = addr as UnsafePointer<Bool>
+    unsafe p[0] = true              // cancel reader #1
+    let _ = peer.write("XY")        // make reader #2's fd readable
+}
+
+func run() -> (Int, Int) {
+    let (a1, b1) = TcpStream.pair()
+    let (a2, b2) = TcpStream.pair()
+    var g = TaskGroup()
+    let h1 = g.spawn(reader_cancel(move a1))
+    let h2 = g.spawn(reader_data(move a2))
+    let addr = h1.cancel_addr()
+    let _ = g.spawn(agitator(addr, move b2))
+    let r1 = h1.join()
+    let r2 = h2.join()
+    let _ = move b1
+    (r1, r2)
+}
+
+func main() {
+    let (r1, r2) = run()
+    print("{r1} {r2}")
+}

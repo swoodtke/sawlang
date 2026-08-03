@@ -1496,13 +1496,27 @@ class _FrameBuilder:
             is_synthesized=True,
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
+        # design 102 item 2: the cooperative-cancel read surface — a `&self`
+        # accessor returning the frame's `__cancel` word, so the scheduler can wake
+        # an io-parked frame whose peer set the cancel flag (it then re-checks
+        # `cancelled()` at its park-loop top and bails). Every frame has `__cancel`.
+        is_cancelled = Method(
+            name="__is_cancelled",
+            parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
+                                  is_reference=True, reference_mutable=False)],
+            return_type=SawType(TypeKind.BOOL),
+            body=Block(statements=[], final_expr=_self_field("__cancel")),
+            self_mutable=False, self_is_reference=True, is_sync=True,
+            is_synthesized=True,
+            line=func.line, column=func.column,
+            source_file=getattr(func, 'source_file', ""))
         # Every frame conforms to the builtin `Resumable` trait (design 52b item
         # 1): the conformance is what lets a frame be erased into
         # `Box<any Resumable>` for the heterogeneous run queue. Concrete drives
         # (nested sub-frames, the entry executor, `__drive_*`) still bind `resume`
         # statically — conformance only synthesizes a vtable at an erasure site.
         resume_ext = Extension(struct_name=self.frame_name,
-                               methods=[resume, wake_reason],
+                               methods=[resume, wake_reason, is_cancelled],
                                conformances=["Resumable"],
                                line=func.line, column=func.column,
                                source_file=getattr(func, 'source_file', ""))
@@ -1930,6 +1944,14 @@ class _FrameBuilder:
         self._blocks[drive].append(AssignStatement(
             target=MemberAccess(object=_self_field(sub), member="__io_tok"),
             value=_self_field("__io_tok")))
+        # design 102 item 2: propagate the cancel word down the frame chain the same
+        # way. A peer cancels the ROOT frame (the one the handle points at); this
+        # copy makes the flag visible to a `cancelled()` check inside the nested
+        # (sub-frame) suspending method, so a task parked in `stream.read()` observes
+        # the cancel at its park-loop top and bails.
+        self._blocks[drive].append(AssignStatement(
+            target=MemberAccess(object=_self_field(sub), member="__cancel"),
+            value=_self_field("__cancel")))
         resume_call = MethodCall(object=_self_field(sub), method_name="resume",
                                  arguments=[])
         match = MatchExpr(matched_expr=resume_call, arms=[

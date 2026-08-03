@@ -230,9 +230,15 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   both suspend and both are drivable from a spawned worker (design 95 keys the two
   overloads' driven frames by resolved signature, so a worker may call BOTH back
   to back). `IoError: Error` (errno- shaped) — interpolate it (`"{e}"`).
-  accept/read/connect are cancellation-
-  observing at their internal park. The design-76 raw `tcp_*`/`net_*`/`io_wait`
-  free functions are PRIVATE std internals — do not use them.
+  accept/read/read_into/write/connect all OBSERVE cooperative cancellation at their
+  internal park — including a task ALREADY parked on a permanently-idle fd (design
+  102 item 2): a peer's `handle.cancel()` or a `cancel_addr` write rouses the parked
+  task (the reactor has a self-wake pipe, and the scheduler wakes a parked frame it
+  finds cancelled), it re-checks `cancelled()` at its loop top and returns
+  `Err(IoError)` — so a cancelled idle-fd wait no longer hangs. A NON-cancelled
+  sibling parked on another idle fd stays parked (precise, no herd wake). The
+  design-76 raw `tcp_*`/`net_*`/`io_wait` free functions are PRIVATE std internals —
+  do not use them.
 - A spawned worker that makes MULTIPLE parking net calls works — `read()`
   then `write()`, a read/write loop, or accumulating chunks across reads
   (`req.append(move chunk)`). Fixed by design 85 (fcntl variadic ABI) + design 86
