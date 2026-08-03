@@ -1167,31 +1167,68 @@ class ResourcesMixin:
         to the wrong storage.
         """
         for entry in reversed(scope_vars):
-            var_name, saw_type, var_ptr, flag = entry
+            self._emit_scope_var_drop(*entry)
+
+    def _emit_scope_var_drop(self, var_name, saw_type, var_ptr, flag):
+        """Drop one registered scope binding, honoring its runtime drop flag.
+
+        Shared by `_cleanup_scope` (scope exit) and the design-107 same-scope
+        redefinition drop. A flagged binding drops only if its flag is still set
+        (`if flag { deinit }`) — correct under conditional moves; an unflagged
+        one uses the static `moved_variables` skip."""
+        if var_ptr is None:
+            # No captured storage (guard-let with no fresh temporary): fall
+            # back to a by-name resolution for compatibility.
+            var_ptr = self.variables.get(var_name)
             if var_ptr is None:
-                # No captured storage (guard-let with no fresh temporary): fall
-                # back to a by-name resolution for compatibility.
-                var_ptr = self.variables.get(var_name)
-                if var_ptr is None:
-                    continue
-            if flag is not None:
-                # Guard the drop on the runtime flag: `if flag { deinit }`.
-                needs = self.builder.load(flag, name=f"{var_name}.needsdrop")
-                drop_bb = self.builder.function.append_basic_block(
-                    name=f"drop.{var_name}")
-                cont_bb = self.builder.function.append_basic_block(
-                    name=f"drop.{var_name}.cont")
-                self.builder.cbranch(needs, drop_bb, cont_bb)
-                self.builder.position_at_start(drop_bb)
-                self._emit_drop_at(var_ptr, saw_type)
-                if not self.builder.block.is_terminated:
-                    self.builder.branch(cont_bb)
-                self.builder.position_at_start(cont_bb)
-                continue
-            # No drop flag: fall back to the static moved-variable skip.
-            if var_name in self.moved_variables:
-                continue
+                return
+        if flag is not None:
+            # Guard the drop on the runtime flag: `if flag { deinit }`.
+            needs = self.builder.load(flag, name=f"{var_name}.needsdrop")
+            drop_bb = self.builder.function.append_basic_block(
+                name=f"drop.{var_name}")
+            cont_bb = self.builder.function.append_basic_block(
+                name=f"drop.{var_name}.cont")
+            self.builder.cbranch(needs, drop_bb, cont_bb)
+            self.builder.position_at_start(drop_bb)
             self._emit_drop_at(var_ptr, saw_type)
+            if not self.builder.block.is_terminated:
+                self.builder.branch(cont_bb)
+            self.builder.position_at_start(cont_bb)
+            return
+        # No drop flag: fall back to the static moved-variable skip.
+        if var_name in self.moved_variables:
+            return
+        self._emit_drop_at(var_ptr, saw_type)
+
+    def _drop_redefined_same_scope(self, var_name: str):
+        """Design 107: a DERIVED same-scope redefinition (`var d = read();
+        let d = parse(move d)` / `let d = d.copy()`) REPLACES the old binding.
+        If the old binding still OWNS a value here — a `.copy()`-style
+        derivation — drop it at THIS point, deterministically; a `move`-style
+        derivation already cleared its drop flag, so the guarded drop is a
+        no-op. Its scope-exit cleanup entry is retired either way, so the old
+        storage is never dropped twice.
+
+        Detection is precise: an entry for `var_name` in the INNERMOST cleanup
+        scope means a prior owning binding of this name in the same lexical
+        scope (an enclosing-scope shadow lives in an OUTER frame and keeps
+        living). Called after the initializer is generated (so `move` has
+        settled the flag) and before the replacing binding is registered."""
+        if not self.cleanup_stack:
+            return
+        current = self.cleanup_stack[-1]
+        idx = None
+        for i, entry in enumerate(current):
+            if entry[0] == var_name:
+                idx = i  # the most recent same-scope owning binding
+        if idx is None:
+            return
+        _, saw_type, var_ptr, flag = current.pop(idx)
+        # The replacing binding starts fresh; clear any moved-from mark so a
+        # later reuse of the name is not mistaken for the retired binding.
+        self.moved_variables.discard(var_name)
+        self._emit_scope_var_drop(var_name, saw_type, var_ptr, flag)
 
     def _cleanup_all_scopes(self):
         """Generate cleanup code for all scopes (for early return).

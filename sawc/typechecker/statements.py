@@ -1059,16 +1059,14 @@ class StatementsMixin:
                                        stmt.line, stmt.column)
             return
 
-        # Check for duplicate in current scope
+        # Same-scope redefinition (design 107): a prior binding of this name in
+        # the CURRENT scope. Legal ONLY when the new binding DERIVES from it (its
+        # initializer mentions the name) — `var data = read(); let data =
+        # parse(move data)`; a non-deriving redefinition stays the pre-existing
+        # duplicate-definition error. The decision is deferred until AFTER the
+        # initializer is checked (below), so its bare/`move` uses resolve to the
+        # OLD binding (the new one is not in scope yet).
         existing = self.current_scope.lookup_local(stmt.name)
-        if existing:
-            self._error(
-                ErrorKind.DUPLICATE_VARIABLE,
-                f"variable `{stmt.name}` is already defined in this scope",
-                stmt.line, stmt.column,
-                hint=f"previous definition was at line {existing.line}"
-            )
-            return
 
         # Design 54: a collection/array literal RHS gets the annotation as its
         # expected type (K/V/T inference, custom allocator, Vector-vs-array)
@@ -1080,10 +1078,26 @@ class StatementsMixin:
         # Infer or check type
         value_type = self._check_expression(stmt.value)
 
-        # Design 100: a let/var that shadows an enclosing binding is legal only
+        # Design 107: rule on the same-scope redefinition now that the
+        # initializer is checked. A derived redefinition REPLACES the old binding
+        # (its own mutability); a non-deriving one is the duplicate error
+        # (message unchanged). Only ADDS legality — no migration.
+        if existing is not None and not self._init_mentions_name(stmt.value,
+                                                                 stmt.name):
+            self._error(
+                ErrorKind.DUPLICATE_VARIABLE,
+                f"variable `{stmt.name}` is already defined in this scope",
+                stmt.line, stmt.column,
+                hint=f"previous definition was at line {existing.line}"
+            )
+            return
+
+        # Design 100: a let/var that shadows an ENCLOSING binding is legal only
         # when its initializer mentions the shadowed name (a visible refinement).
         # Checked AFTER the initializer so its bare uses resolved to the outer
-        # binding (the new binding is not in scope yet).
+        # binding (the new binding is not in scope yet). (A same-scope
+        # redefinition was already ruled on just above; this covers a parent
+        # scope, so the two never double-report.)
         self._check_shadowing(stmt.name, stmt.value, stmt.line, stmt.column,
                               site="binding")
 
@@ -1146,7 +1160,11 @@ class StatementsMixin:
             # other construction) is single-threaded — gate skipped, byte-identical.
             if self._is_multithreaded_taskgroup_init(stmt.value):
                 info.is_mt_group = True
-            self.current_scope.define(stmt.name, info)
+            # A derived same-scope redefinition (design 107) REPLACES the old
+            # binding — overwrite it directly (`define` no-ops on a name already
+            # present). The fresh VariableInfo carries a new identity, so the new
+            # binding starts with clean move state (`moved_bindings` keys by id).
+            self.current_scope.variables[stmt.name] = info
 
     def _is_multithreaded_taskgroup_init(self, value) -> bool:
         """True if `value` is a `TaskGroup(threads: ...)` construction (design 75).

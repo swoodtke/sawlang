@@ -263,6 +263,12 @@ class StatementsMixin:
                 else:
                     value = self.builder.sext(value, target_llvm)
 
+        # Design 107: a DERIVED same-scope redefinition REPLACES the old binding.
+        # The initializer above already consumed (`move`) or copied the old
+        # value; drop the old binding now if it still owns one (a `.copy()`
+        # derivation), retiring its scope-exit cleanup so it never double-frees.
+        self._drop_redefined_same_scope(stmt.name)
+
         alloca = self._entry_alloca(value.type, name=stmt.name)
         self.builder.store(value, alloca)
         self.variables[stmt.name] = alloca

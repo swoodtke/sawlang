@@ -1,0 +1,58 @@
+// Design 107 item 1: same-scope DERIVED redefinition. `var d = read();
+// let d = wrap(move d)` (and `.copy()`, and call-wrapped) is legal in ONE scope
+// iff the initializer mentions the binding being replaced. The new binding
+// REPLACES the old (its own mutability). A `.copy()` derivation still owns the
+// old value at the redefinition point, so the old value drops THERE,
+// deterministically — the deinit oracle proves "deinit 1" prints before the
+// "after copy-redef" marker; the replacing binding (id 101) drops at scope exit.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// deinit 1
+// after copy-redef
+// 5
+// 60
+// 8
+// hello world
+// deinit 101
+
+struct Res { id: Int }
+
+extension Res: ExplicitCopy {
+    func copy(&self) -> Res { Res(id: self.id + 100) }
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func double(n: Int) -> Int { n * 2 }
+func wrap(v: Vector<Int>) -> Vector<Int> { move v }
+
+func main() {
+    // .copy() derivation of an OWNING binding: old (id 1) drops at redefinition.
+    var r = Res(id: 1)
+    let r = r.copy()                 // OK: mentions `r`; old drops here
+    print("after copy-redef")
+
+    // let -> let, bare mention (non-owning value refinement).
+    let n = 4
+    let n = n + 1
+    print(n)                         // 5
+
+    // var -> var, move derivation of an owning Vector (old moved, no extra drop).
+    var xs: Vector<Int> = [10, 20]
+    var xs = wrap(move xs)
+    xs.push(30)                       // it is its own mutable binding
+    print(xs.fold(0) { $0 + $1 })     // 60
+
+    // let -> var then var -> let, call-wrapped derivation.
+    let m = 2
+    var m = double(m)                 // 4
+    let m = double(m)                 // 8
+    print(m)                          // 8
+
+    // string (ImplicitCopy) derivation, same scope.
+    let s = "hello"
+    let s = "{s} world"
+    print(s)                          // hello world
+
+    // keep `r` live to end so its scope-exit deinit (id 101) is observed.
+    let _ = r.id
+}
