@@ -11,6 +11,59 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 108 — ICE: generic parameter with a default VALUE (LANDED)
+- **Root cause (codegen, post-typecheck).** `func f<T>(a: Int, b: T = 0)` called
+  with the default OMITTED (`f<Int>(1)`, and after this fix also `f(1)`) emitted
+  the LLVM call with too FEW args → llvmlite `IndexError: list index out of range`.
+  A generic instantiation registers its defaults under the MANGLED name
+  (`f$1$Int`), but the free-fn call-site default-fill keyed by the PLAIN name
+  (`expr.name`), so the lookup missed and no default was materialized; a generic
+  METHOD mono (`_declare_monomorphized_method`) never registered `method_defaults`
+  at ALL. Both paths ICE'd. Fixes: calls.py keys the generic free-fn fill by the
+  mangled instantiation name; generics.py registers `method_defaults` in
+  `_declare_monomorphized_method`.
+- **Semantics — DEFAULT-DRIVES-INFERENCE landed (the preferred branch, not the
+  clean-error fallback).** `_solve_call_type_args` gained a default-driven phase
+  (threaded a new `default_values` arg at the free-fn / method / design-105
+  overload solve sites): an OMITTED default-valued parameter drives inference from
+  the default's own type when the parameter is otherwise undetermined — `f(1)`
+  infers `T = Int` from `b: T = 0`. Consulted only AFTER argument-driven solving
+  (a supplied argument always wins — `f(1, 2.0)` infers `Float`), inside the
+  inference snapshot (the default's moves/effects roll back — they already tainted
+  the callee at its declaration).
+- **Per-call default type check.** `_check_generic_call_defaults` validates each
+  omitted default against the INSTANTIATED parameter type at every generic call
+  (the design-53 declaration check runs against abstract `T` and is a no-op). A
+  bare integer literal adopts an integer instantiation (range-checked) and is
+  cleanly REJECTED against a non-integer one — `f<Float>(1)` with `b: T = 0` is a
+  clean call-anchored error (bare `0` doesn't adopt `Float`), never an ICE. An
+  inferred default that violates a bound (`b: T = Widget()` → `T = Widget`, not
+  `Fooable`) is caught by the existing bound check naming the inferred type. Every
+  failure mode is a clean anchored diagnostic; no path ICEs.
+- **Design-105 overload sets compose.** A defaulted generic overload in a mixed
+  set binds `g(1)` by filling `b` and infers its `T` from the default
+  (`_try_infer_overload_candidate` now passes `default_values`); the concrete
+  sibling `g("hi")` still wins by exact match.
+- **FLAG (pre-existing, orthogonal — NOT fixed, discovered here).** A generic
+  bound of a USER trait against a PRIMITIVE type argument is silently UNCHECKED —
+  `func f<T: Fooable>(...)` accepts `f<Int>(1, 5)` even though `Int` has no `foo`.
+  The bound-check loop in `_check_function_call` derives a `concrete_type_name`
+  only for STRUCT/ENUM args (a primitive has none) and only special-cases
+  Copy/Send/Sync/Equatable, so Comparable/Hashable/Printable/user-trait bounds on
+  a primitive fall through unchecked. Affects EXPLICIT calls too (not a design-108
+  regression; design 108's default-inference mirrors the explicit behavior
+  consistently). The brief's "Int doesn't satisfy SomeTrait" bound test therefore
+  uses a STRUCT default (`Widget`) to exercise the bound check that DOES fire. Fix
+  is a route of the primitive case through `_bound_satisfied`/structural checks —
+  broad, own change.
+- Tests: `generic_default_value` (default used / overridden / explicit Int8
+  adoption / generic method / defaulted generic overload in a design-105 set —
+  output proves the default value flows), `errors/generic_default_value_float`
+  (bare `0` vs `Float`), `errors/generic_default_value_bound` (inferred `Widget`
+  default violates `Fooable`). Suite 960 (957 + 3), zero xfails; bootstrap ok
+  (blade 17+17, libs toml 4 + semver 4). Docs: spec generics/inference paragraph +
+  saw-lang skill inference bullet. [108, 93, 105, 53, 37, 55, 66]
+
 ## Design 107 — shadowing follow-ups: same-scope derived redefinition + for-loop vars (LANDED)
 - **Item 1 (same-scope derived redefinition) — LANDED.** `var data = read();
   let data = parse(move data)` in ONE scope is now legal iff the initializer

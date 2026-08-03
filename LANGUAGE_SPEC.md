@@ -2937,7 +2937,15 @@ The method's type arguments may be supplied **explicitly** at the call site
 applies to generic free functions and methods alike; a non-generic call still
 rejects type arguments. Explicit `<...>` always wins; a partial explicit prefix
 pins its leading parameters and the rest are inferred; an unconstrained trailing
-parameter with a default type fills from the default. Inference never guesses — a
+parameter with a default type fills from the default. A parameter whose *value*
+default is typed by a type parameter (`func f<T>(a: Int, b: T = 0)`) has that
+default type-checked against the **instantiated** `T` at each call, and when `T`
+is otherwise undetermined the **default drives inference** (design 108) — `f(1)`
+infers `T = Int` from `b: T = 0` (a supplied argument always wins, so `f(1, 2.0)`
+infers `Float`); a default that cannot fit the instantiated type (`f<Float>(1)` —
+a bare integer literal does not adopt `Float`) or that drives inference to a
+bound-violating type is a clean call-anchored error, never an ICE. Inference
+never guesses — a
 parameter no argument constrains (**underdetermined**) or one an argument forces
 to two different types (**conflict**) is a clean error naming the parameter and
 suggesting explicit arguments, and an inferred argument is bound-checked naming

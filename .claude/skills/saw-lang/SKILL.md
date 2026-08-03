@@ -186,7 +186,13 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   Explicit `<...>` always allowed + wins; a partial explicit prefix pins the
   leading params, the rest infer; a defaulted trailing param fills unconstrained.
   Failures are clean errors (underdetermined / conflicting), and an inferred arg
-  is bound-checked. Design 105 extended the boundary:
+  is bound-checked. A default VALUE typed by a type param (`func f<T>(a: Int,
+  b: T = 0)`, design 108) is checked against the INSTANTIATED `T` per call, and
+  when `T` is otherwise undetermined the default DRIVES inference — `f(1)` infers
+  `T = Int` from `b: T = 0` (a supplied arg wins). A default that can't fit the
+  instantiation (`f<Float>(1)` — a bare `0` doesn't adopt `Float`) or that infers
+  a bound-violating type is a clean call-anchored error (never an ICE). Design 105
+  extended the boundary:
   - **Overload sets** now infer: inference runs PER CANDIDATE, and if EXACTLY ONE
     generic overload both solves and type-matches it is picked. Concrete overloads
     still win (design 55 exact-match). Two+ that solve is a clean AMBIGUITY error
