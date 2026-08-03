@@ -168,9 +168,22 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
 - Downcast an owned `Box<any Trait>` with `b.is<T>() -> Bool` (borrow) and
   `b.take<T>() -> T?` (CONSUMES the box — moves the payload out on a hit, drops
   it on a miss; use `is<T>()` first to branch). Explicit `T`, must conform.
-- Optionals: `T?`, `None`, force `!` (panics), `??`, `?.` (single-hop FIELD
-  access only — `?.method()` and multi-hop chains not yet), and
-  call-site auto-wrap (`f(5)` matches `f(x: Int?)`).
+- Optionals: `T?`, `None`, force `!` (panics), `??`, call-site auto-wrap
+  (`f(5)` matches `f(x: Int?)`), and full **optional chaining** `?.` (design 111):
+  `a?.b?.c()` any length, `?.field`/`?.method()`, call-result heads
+  (`x.a()?.b`); each optional hop needs its own `?`, a plain intermediate uses
+  `.`; the first None short-circuits the WHOLE tail INCLUDING skipped-call args
+  (side effects don't run); result is `U?`, flattened (never `U??`). A final FIELD
+  projection copies → must be copyable (move-only field rejected — end in a method
+  instead); a final method result is unrestricted. Composes with `??`/`if let`/
+  `guard let`/`!`. Chained ASSIGNMENT `x?.y = v` writes the payload field in place
+  iff every hop is non-None (RHS skipped on short-circuit, ordinary transfer rules
+  — `move`/`.copy()` for ExplicitCopy/NoCopy); it types `Void?` (discard in
+  statement position; consume "did it write" via `guard let _ = x?.y = v else {}`
+  — `_` is blessed as an `if let`/`guard let` pattern that binds nothing + drops
+  the payload). A SUSPENDING hop, or a CHAIN of suspending calls
+  (`foo().bar().a` needs every call sync), is a clean buried-suspension error —
+  unchain into `let` statements. `?.` indexing is unsupported.
 - `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift
   violations panic ALWAYS (wrap intentionally with `&+ &- &*`).
 - FAILABLE-RETURNS-RESULT (design 92, non-negotiable): a fallible op SURFACES

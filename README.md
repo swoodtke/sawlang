@@ -79,8 +79,9 @@ guard let value = maybe else {
 // Default values
 let result = maybe ?? 0
 
-// Optional chaining (illustrative)
+// Optional chaining — multi-hop fields + methods; result is `U?` (flattened)
 let len = user?.profile?.name?.len()
+user?.profile?.name = "Ada"   // chained assignment writes in place (`Void?`)
 ```
 
 ### Error Handling with Result

@@ -187,6 +187,12 @@ var b = 1
 f(b, &var b)          // snapshot copies b (== 1) at call setup; then b becomes 101
 ```
 
+The one deliberate exception is **optional chaining** (`designs/111`, see
+[Optionals](#optionals)): when a `?` hop short-circuits, the REST of the postfix
+chain is skipped — including the argument expressions of a skipped method call, so
+those arguments (and their side effects) do not run. This is observable and
+intentional.
+
 **Overloading (exact-match model).**
 **Status: implemented (design 55).** A name may carry several
 functions/methods (beyond `init`, which was always overloadable). This is
@@ -799,9 +805,12 @@ match msg1 {
 let maybe: Int? = 42
 let nothing: Int? = None
 
-// Optional chaining — implemented for single-hop FIELD access (`p?.x`).
-// Multi-hop chains and `?.method()` are planned; this one is (illustrative):
-let len = user?.profile?.bio?.len()
+// Optional chaining — `?.field` / `?.method()` on ANY Optional-typed expression,
+// arbitrary length. Each optional hop carries its own `?`; the first None
+// short-circuits the WHOLE tail. The result is `U?`, flattened (never `U??`).
+let len: Int? = user?.profile?.bio?.len()   // multi-hop, method final
+let id: Int? = makeUser()?.id               // call-result head
+user?.name = "Ada"                          // chained assignment (writes in place)
 
 // Unwrap with default
 let value = maybe ?? 0
@@ -819,6 +828,46 @@ guard let value = maybe else {
     return
 }
 ```
+
+**Optional chaining** (`designs/111`) is **implemented** in full (Swift-style).
+`e?.field` and `e?.method(args)` are legal where `e: T?`: `None` short-circuits,
+`Some(v)` projects the field / calls the method on the payload. Chains are
+arbitrary postfix sequences — each OPTIONAL hop carries its own `?`, a
+non-optional intermediate uses plain `.`, and the head may be any Optional-typed
+expression including a **call result** (`x.a()?.b?.c()`). The chain's type is
+`U?` where `U` is the final segment's non-optional type; an already-optional final
+segment stays `U?` (**never `U??`** — flattening). Intermediate payloads are
+borrowed IN PLACE (no copy, no consume — chaining an owned Optional does not
+consume it); a final FIELD projection copies its value (so the field must be
+copyable — a move-only NoCopy/ExplicitCopy field is rejected; end the chain in a
+method instead), while a final METHOD result is a fresh value, unrestricted. The
+result composes as an ordinary Optional (`??`, `if let`, `guard let`, `!`, match
+all apply). `?.` on a non-Optional expression is a clean error.
+
+Once a `?` short-circuits, **ALL later evaluation is skipped, including the
+argument expressions of a skipped method call** — a deliberate, observable
+carve-out of the left-to-right rule under "Argument Evaluation Order" below.
+
+**Chained assignment** `x?.y = v` (and longer chains, `x?.a.b?.c = v`) writes the
+RHS through the chain into the payload FIELD **in place** iff every optional hop
+is non-None; the RHS is skipped entirely on short-circuit (same eval-order
+carve-out). The head must be a mutable place (a `var` or a `&var`-reachable path),
+and exclusivity applies to the written root. The RHS follows ordinary assignment
+transfer rules against the field type (implicit copy where the tier allows,
+`move`/`.copy()` for ExplicitCopy/NoCopy); the old field value deinits exactly
+once on the written path, and nothing drops on the skipped path. The assignment
+EXPRESSION has type **`Void?`** (`None` = skipped, wrapped unit = written): in
+statement position it is discarded silently (the common case); "did it happen" is
+consumed via optional binding, **not** a `!= nil` comparison —
+`guard let _ = x?.y = v else { … }` (design 111 blesses `_` as the `if let` /
+`guard let` bound pattern: evaluate and test the Optional, bind nothing, drop the
+payload immediately).
+
+*Not supported:* a SUSPENDING function/method inside a chain — a chain of calls
+`foo().bar().a` requires EVERY call in it to be synchronous. A suspending hop
+(read or write side) is a clean, user-anchored compile error (never a silent
+block); unchain it into `let` statements, each of which may embed a suspension at
+any control-flow depth. `?.` indexing (`a?[i]`) is also out of scope.
 
 **Call-site optional auto-wrap** (`designs/57`, DF3). The implicit `T → T?` wrap
 also applies at **call boundaries**: a bare `T` argument auto-wraps into a `T?`

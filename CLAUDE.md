@@ -98,7 +98,13 @@ overload sets (unique solver wins, ties error), later-arg fixpoint,
 labeled mapping (93, 105) — with bounds checked for EVERY type arg
 incl. primitives (109), Copy trait family + move checkpoint + Law of
 Exclusivity, Result/Optional with auto-wrap + erased
-`Result<T, Box<any Error>>`, patterns (literals/ranges/guards/tuple
+`Result<T, Box<any Error>>`, full Swift-style optional chaining (111:
+`a?.b?.c()` arbitrary length incl. call heads + method hops, one short-circuit
+skips the rest of the postfix chain incl. args, flattening never `U??`, final
+field must be copyable; chained assignment `x?.y = v` writes the payload in place,
+types `Void?`, consumed via the `_`-blessed `if let`/`guard let`; a suspending
+hop / a suspending CHAIN stays a clean buried-suspension error),
+patterns (literals/ranges/guards/tuple
 destructuring) + named tuples, collection literals (Map/Set/Vector),
 platform-width Int, bounds/overflow/shift checks always on,
 `#file`/`#line`/`#function` definition-site literals (98), shadowing

@@ -34,10 +34,21 @@ these two need a design call:
   trait name behind a ref (`&Shape`/`&var Shape`) was an ICE, now a clean
   unsized-trait error naming `&any Shape`/`&var any Shape`. Spec/skill/README
   caveats reverted to the uniform rule. [110, 34, 88, 106]
-- **QUEUED (design 111): full optional chaining.** Brief at
-  designs/111-optional-chaining.md — multi-hop `?.`, `?.method()`, flattening,
-  short-circuit RHS/arg skip, CHAINED ASSIGNMENT with `Void?` result, `_`
-  optional-binding rider. Dispatch after 110 (done — dispatchable now).
+- **LANDED (design 111): full optional chaining.** Brief at
+  designs/111-optional-chaining.md. Swift-style `?.` reads (multi-hop
+  `?.field`/`?.method()`, call-result heads, arbitrary length, one short-circuit
+  skips the rest of the postfix chain INCLUDING skipped-call args, flattening
+  never `U??`, final field must be copyable); chained assignment `x?.y = v` writes
+  the payload field in place (RHS skipped on short-circuit, ordinary transfer +
+  deinit-once of the old value, `Void?` result discardable / consumed via the
+  `_`-blessed `if let`/`guard let`); a suspending hop or a suspending CHAIN stays
+  a clean buried-suspension error (regression-tested). Parser: OptionalEvalExpr +
+  BindOptional spine, OptionalChainAssign. Codegen: address-based short-circuit
+  walk reusing `_generate_method_call(receiver_ptr=…)`; `Void?` = `{i1, i8}`.
+  Tests under examples/optional_chain_*, optional_binding_underscore, and
+  examples/errors/optional_chain_*. Docs: spec Optionals + Argument Evaluation
+  Order, skill, README, this digest. (Suspension-mid-chain stays future work,
+  below.)
 - **VERIFY (agent claim, Aug 3): two-suspend helper embedding failure.** The
   design-110 agent reported that a non-driven helper with TWO suspend points
   ("plain `yield_now(); print; yield_now()`, no references") fails to embed
