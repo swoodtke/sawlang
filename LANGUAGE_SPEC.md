@@ -1335,7 +1335,7 @@ See [Resource Management Interfaces](#resource-management-traits) for the full `
 
 ### Reference Types
 
-**Status: implemented.** Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape. Mutation through a `&var` reference is done with compound assignment (`x += 1`) or mutating methods — direct assignment `x = ...` through a function/method reference parameter is rejected (a closure's `&var` parameter does permit plain assignment — see Closures). Some example bodies below use planned stdlib methods (`push_str`, `String.from`) and are *(illustrative)*.
+**Status: implemented.** Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape. Mutation through a `&var` reference is done with compound assignment (`x += 1`), mutating methods, or — as of design 110 — whole-referent *replacement* assignment `x = v` (the same rule closures already followed; see below). Some example bodies below use planned stdlib methods (`push_str`, `String.from`) and are *(illustrative)*.
 
 ```saw
 // &T - immutable reference (read-only access)
@@ -1355,9 +1355,7 @@ var msg = String.from("Hello")
 append_greeting(&var msg)  // &var mirrors the &var parameter
 print(msg)  // "Hello, world!"
 
-// Multiple reference parameters. (The body is illustrative: because direct
-// assignment through a reference is rejected, a real swap uses a by-value
-// temporary or a stdlib helper.)
+// Multiple reference parameters.
 func swap<T>(a: &var T, b: &var T) { /* ... */ }
 
 var x = 1
@@ -1376,10 +1374,30 @@ process(original)  // original is copied, unchanged
 **Reference Semantics:**
 - References auto-dereference on read: `x` where `x: &Int` gives the `Int` value
 - Mutable references allow compound assignment: `x += 1` where `x: &var Int`
-- Direct assignment through a function/method reference parameter is not
-  allowed: `x = 5` is an error (a closure's `&var` parameter permits it —
-  `{ &var n in n = n + 5 }`)
+- **Whole-referent replacement (design 110):** `x = v` through a `&var T`
+  function/method reference parameter — and `self = v` in a `&var self` method —
+  *replaces* the referent in place. It is legal exactly when `v` would type-check
+  against `var x: T = v`: the RHS goes through the ordinary value-transfer
+  checkpoint (a fresh temporary needs nothing; an `ImplicitCopy` binding copies
+  implicitly; an `ExplicitCopy`/`NoCopy` binding needs `move v` / `.copy()`, and
+  the `move` consumes the *callee's* local). The old referent value deinits
+  exactly once, then the new value installs; the caller's binding is never
+  invalidated and still owns a valid `T`. This unifies functions/methods with
+  closures, which already permitted `n = v` through a `&var`/`[&var]` parameter,
+  and matches Swift `inout`. Two exclusions keep their own diagnostics: (1)
+  assignment through an immutable `&T` is rejected (read-only); (2) the referent
+  must be a **statically-known** type — a `&var any Trait` **erased** referent is
+  rejected (behind the erasure the caller's slot is a concrete type, so a
+  differently-typed store would corrupt it), with a specific error pointing at
+  the `Box<any Trait>` level. The payload-swap idiom that *does* work: a
+  `&var Box<any Shape>` referent is a sized concrete type, so
+  `b = Box<any Shape>.make(Square(...))` replaces the payload and the caller's
+  binding stays a valid `Box<any Shape>`. A generic `&var T` referent works per
+  instantiation — inside the abstract body the RHS must itself be a `T`.
 - Moving out of references is not allowed: `move x` where `x: &var T` is an error
+  (it would invisibly invalidate the caller's object)
+- A bare trait name behind a reference (`&Shape` / `&var Shape`) is unsized and
+  rejected — write the existential (`&any Shape` / `&var any Shape`)
 - References cannot escape: cannot return, store in structs, or be captured by
   an escaping closure (the non-escaping `[&x]`/`[&var x]` borrow-captures are
   confined to the call)

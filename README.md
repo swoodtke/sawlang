@@ -434,13 +434,20 @@ Saw provides deterministic memory management without garbage collection:
 
 ```saw
 // Mutable reference parameter (the call site mirrors the parameter's sigil;
-// mutate via compound assignment or mutating methods)
+// mutate via compound assignment, mutating methods, or whole-referent
+// replacement `x = v` — the same rule holds for `self = v` in a `&var self`
+// method and for a closure's `&var` parameter)
 func increment(x: &var Int) {
     x += 1
 }
 
+func reset(x: &var Int) {
+    x = 0      // replaces the referent in place; caller still owns a valid Int
+}
+
 var n = 5
 increment(&var n)  // n is now 6
+reset(&var n)      // n is now 0
 ```
 
 ## Kernels and Embedded

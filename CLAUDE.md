@@ -111,7 +111,9 @@ precise reactor wakeup (91) + cancel wakes even an io-parked task
 (102) + `extern blocking` calls RUN via thread offload (103);
 suspending calls embed at any nesting depth / control-flow position
 or error cleanly — never silently block (96, 101, 104); references
-span suspends (88) and forward onward as re-borrows (106); std.net
+span suspends (88) and forward onward as re-borrows (106) + whole-referent
+replacement `x = v` / `self = v` through `&var` (110: uniform with closures,
+erased `&var any Trait` excluded, Box payload-swap works); std.net
 owning TcpListener/TcpStream (failable ops return Result, EOF distinct
 from error — 84-92). Freestanding toolkit: allocator type params +
 Box/slab + statics/Atomic + UnsafeMemory + `@export`/`@section`.

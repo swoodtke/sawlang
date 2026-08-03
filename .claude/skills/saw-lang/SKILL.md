@@ -82,9 +82,20 @@ var u = w.copy()       // explicit duplicate
 - NO partial moves (`move p.x` is an error) — move whole bindings.
 - References `&T`/`&var T` are PARAMETER-ONLY, cannot escape/be
   stored. Call sites mirror the sigil: `f(&x)` / `f(&var x)` (and `x`
-  must be `var`). Mutate through `&var` via compound assignment or
-  methods — plain `x = ...` through a function/method ref param is rejected
-  (a CLOSURE's `&var` param does allow it: `lock { &var c in c = c + 1 }`).
+  must be `var`). Mutate through `&var` via compound assignment, methods, or
+  whole-referent REPLACEMENT `x = v` (design 110 — uniform across functions,
+  `&var self` methods via `self = v`, and closures; matches Swift `inout`).
+  `x = v` is legal exactly when `v` type-checks as `var x: T = v`: the RHS takes
+  the ordinary transfer checkpoint (fresh temp needs nothing, ImplicitCopy copies,
+  ExplicitCopy/NoCopy need `move v`/`.copy()` — the `move` consumes the CALLEE's
+  local); the old referent deinits once and the new value installs, caller's
+  binding stays valid. STILL banned: `x = v` through an immutable `&T`
+  (read-only); `move` OUT of a ref. EXCLUDED: a `&var any Trait` ERASED referent
+  (the slot's concrete type is unknown — specific error points at Box) — but a
+  `&var Box<any Shape>` referent IS sized, so `b = Box<any Shape>.make(Square(..))`
+  swaps the payload. Generic `&var T` works per instantiation (the RHS must BE a
+  `T`). A bare trait name behind a ref (`&Shape`/`&var Shape`) is unsized — write
+  `&any Shape`/`&var any Shape`.
 - Law of Exclusivity: one `&var` XOR many `&` to overlapping paths,
   statically checked.
 - Forwarding (design 106): a received reference param (or `&var self`) may

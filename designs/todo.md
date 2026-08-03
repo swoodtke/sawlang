@@ -22,14 +22,18 @@ these two need a design call:
   is structs + distinct aliases only). Decide whether INT `.` IDENT should lex
   as a method call, or whether `(7).method()` is the blessed spelling
   (README's Type Extensions example now uses a binding meanwhile). [57]
-- **DECIDED (Aug 3): plain assignment through `&var` — unify permissive.**
-  Function/method refs rejected `x = ...` while closures allowed it and
-  field assignment through refs already worked (incl. Deinit fields —
-  probed); wholesale replacement of an opaque referent through a fn ref was
-  inexpressible. User picked option C: `&var` behaves uniformly as the
-  caller's variable. Briefed as **design 110** (queued — two open scope
-  points for user: RHS `move`, `self = v`); the Aug-3 doc caveats revert
-  when it lands. [110, 34, 88, 106]
+- **LANDED (design 110): plain assignment through `&var` — unified permissive.**
+  Whole-referent replacement `x = v` through a `&var T` function/method param and
+  `self = v` in a `&var self` method are now legal (RHS `move` + `self = v` both
+  in, per the Aug-3 scope call), matching closures and Swift `inout`: RHS takes
+  the ordinary transfer checkpoint, old referent deinits once, new value installs,
+  caller stays valid. Immutable `&T` assignment and `move` out of a ref stay
+  banned (own diagnostics); a `&var any Trait` ERASED referent is excluded with a
+  specific Box-level diagnostic; `&var Box<any Trait>` payload swap works; generic
+  `&var T` works per instantiation (deinit-once verified). Rider fixed: a bare
+  trait name behind a ref (`&Shape`/`&var Shape`) was an ICE, now a clean
+  unsized-trait error naming `&any Shape`/`&var any Shape`. Spec/skill/README
+  caveats reverted to the uniform rule. [110, 34, 88, 106]
 
 ## Design 109 — silently unchecked trait bounds for primitive type args (LANDED)
 - **Root cause (typechecker + one namespace gap).** The free-function bound-check
