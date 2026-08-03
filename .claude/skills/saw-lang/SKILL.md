@@ -36,7 +36,8 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   body they report the ORIGINAL source line/name (not the coroutine frame's).
   `#` takes only these three — any other `#name` is a lex error.
 - Everything is an expression (if/match/while/blocks yield values;
-  `break v` from loops → Optional).
+  `break v` from an infinite `while {}` yields `T` directly — must break;
+  from a conditional while/for it yields `T?`).
 - `for i in 0..5` / `0..=5`; `while cond {}` / infinite `while {}`.
 - Integer literals: `0xFF`, `0b1010`, `1_000_000`, fixed-width
   suffixes `255u8`/`1_000i32` (exact-typed, range-checked). A bare
@@ -69,8 +70,9 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
 ## Ownership (the part that bites)
 Copy tiers: trivial/POD = implicit bitwise copy; `ImplicitCopy`
 (String, Arc, escaping closures) = free refcount bump; `ExplicitCopy`
-(Vector, Map, Set) = must `move v` or `v.copy()` at every transfer;
-`NoCopy` (File, Mutex, Box) = `move` only.
+(Vector, conformance bounded `T: Copy`) = must `move v` or `v.copy()` at every
+transfer; `NoCopy` (File, Mutex, Box — and currently Map/Set: their
+`ExplicitCopy` is future work, `.copy()` on them is a compile error) = `move` only.
 ```saw
 var w = move v         // v now invalid (use-after-move = compile error)
 var u = w.copy()       // explicit duplicate
@@ -81,7 +83,8 @@ var u = w.copy()       // explicit duplicate
 - References `&T`/`&var T` are PARAMETER-ONLY, cannot escape/be
   stored. Call sites mirror the sigil: `f(&x)` / `f(&var x)` (and `x`
   must be `var`). Mutate through `&var` via compound assignment or
-  methods — plain `x = ...` through a ref is rejected.
+  methods — plain `x = ...` through a function/method ref param is rejected
+  (a CLOSURE's `&var` param does allow it: `lock { &var c in c = c + 1 }`).
 - Law of Exclusivity: one `&var` XOR many `&` to overlapping paths,
   statically checked.
 - Forwarding (design 106): a received reference param (or `&var self`) may
@@ -154,7 +157,8 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
 - Downcast an owned `Box<any Trait>` with `b.is<T>() -> Bool` (borrow) and
   `b.take<T>() -> T?` (CONSUMES the box — moves the payload out on a hit, drops
   it on a miss; use `is<T>()` first to branch). Explicit `T`, must conform.
-- Optionals: `T?`, `None`, force `!` (panics), `??`, `?.`, and
+- Optionals: `T?`, `None`, force `!` (panics), `??`, `?.` (single-hop FIELD
+  access only — `?.method()` and multi-hop chains not yet), and
   call-site auto-wrap (`f(5)` matches `f(x: Int?)`).
 - `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift
   violations panic ALWAYS (wrap intentionally with `&+ &- &*`).
@@ -245,7 +249,7 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   NO raw fds, NO pointers, NO `io_wait` in your code — suspension is hidden INSIDE
   the methods (each parks on the global kqueue/epoll reactor internally):
   ```saw
-  let listener = TcpListener.listen(0)!        // Result<TcpListener, IoError>
+  let listener = try! TcpListener.listen(0)    // Result<TcpListener, IoError>
   let port = listener.local_port()
   let stream = try! listener.accept()          // Result<TcpStream, IoError>; suspends
   let chunk = try! stream.read()               // Result<Data, IoError>; Ok(EMPTY) = EOF
@@ -422,7 +426,7 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
 (volatile, RO/WO markers); `@export("sym")`/`@section(".s")` on
 top-level func/static (C ABI, whitelist: fixed-width ints, Int/UInt,
 Float, UnsafePointer, Void/Never — no Bool/String/aggregates by
-value); `static_assert(sizeof<T> == N, "msg")`; struct layout =
+value); `static_assert(sizeof<T>() == N, "msg")`; struct layout =
 declaration-order natural ABI (documented rule). Unsafety is
 TYPE-carried (Unsafe* prefix), not region-carried — no unsafe blocks.
 **`unsafe` marker (design 81):** an expression prefix, required where a raw

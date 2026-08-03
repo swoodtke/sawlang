@@ -64,7 +64,7 @@ count += 1
 
 // Type annotations (optional with inference)
 let pi: Float64 = 3.14159
-var items: [Int] = []
+var items: Vector<Int> = []
 ```
 
 **Bindings always initialize.** Every `let`/`var` requires an initializer at the
@@ -163,11 +163,10 @@ func greet(name: String, greeting: String = "Hello") -> String {
 greet("Sam")             // greeting defaults to "Hello"
 greet("Sam", "Hi")       // explicit
 
-// Trailing closure syntax  (illustrative — method-chained `.map` is planned)
-func map<T, U>(list: [T], transform: (T) -> U) -> [U]
-
+// Trailing closure syntax (implemented — `numbers` is a Vector<Int>;
+// Vector.map infers U from the closure's return type, design 93)
 let doubled = numbers.map { x in x * 2 }
-let doubled = numbers.map { $0 * 2 }  // shorthand
+let tripled = numbers.map { $0 * 3 }  // shorthand parameter form
 ```
 
 **Argument Evaluation Order:**
@@ -536,14 +535,15 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   points at `bytes`, with the header at negative offsets. The buffer stays
   NUL-terminated for zero-copy C FFI, and `len` is authoritative (O(1),
   interior NUL bytes are representable). The buffer is immutable after
-  construction: concatenation and interpolation build fresh buffers (an
-  `s + t` loop is O(n²); the mutable, geometrically-growing `StringBuilder`
-  (design 38) is the efficient builder — `append`/`build`).
+  construction: interpolation builds a fresh buffer each time (a `"{s}{t}"`
+  accumulation loop is O(n²); the mutable, geometrically-growing `StringBuilder`
+  (design 38) is the efficient builder — `append`/`build`). There is no `+`
+  operator on `String` — concatenate via interpolation or `StringBuilder`.
 - **Escape sequences.** The supported escapes in a string literal are exactly
   `\\`, `\"`, `\n` (LF, 10), `\t` (tab, 9), `\r` (CR, 13), `\0` (NUL, 0),
   `\u{...}`, plus the `\{` / `\}` brace forms (a literal brace, distinct from
-  interpolation). `\0` produces an interior NUL that `len()` counts (a `String`
-  is length-prefixed, not NUL-terminated). Any OTHER backslash sequence is a
+  interpolation). `\0` produces an interior NUL that `len()` counts (`len` is
+  authoritative — the trailing NUL never defines the length). Any OTHER backslash sequence is a
   clean **lex error** naming it (``unknown escape `\d` ``) — the backslash is
   never silently dropped.
 - **`\u{...}` escapes** (design 53). A string literal may contain a Unicode
@@ -591,7 +591,7 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   divide-back checks (portable across Int widths, no `Int.max` constant needed;
   `Int.min` round-trips). `to_float` is naive accumulation — fine for typical
   input, but **not** a correctly-rounded `strtod` (the last ULP may differ).
-- **The refcount is atomic** (`i64`), from day one. This is a deliberate cost
+- **The refcount is atomic** (platform-word `isize`), from day one. This is a deliberate cost
   paid up front so `String` is `Send`-ready before multithreading lands, so the
   concurrency milestone does not have to relitigate the memory model. The
   ordering protocol is the standard `Arc` discipline — immutability does *not*
@@ -799,7 +799,8 @@ match msg1 {
 let maybe: Int? = 42
 let nothing: Int? = None
 
-// Optional chaining
+// Optional chaining — implemented for single-hop FIELD access (`p?.x`).
+// Multi-hop chains and `?.method()` are planned; this one is (illustrative):
 let len = user?.profile?.bio?.len()
 
 // Unwrap with default
@@ -876,8 +877,8 @@ extension Point: Display {
 }
 
 // Interface bounds
-func print_all<T: Display>(items: [T]) {
-    for item in items {
+func print_all<T: Display>(items: &Vector<T>) {
+    for item in items.iter() {
         print(item.display())
     }
 }
@@ -1243,10 +1244,12 @@ claim: the cost of every transfer is now readable at the use site.
   are `ImplicitCopy`.
 - **`ExplicitCopy`** — the compiler *never* copies implicitly; a transfer out of
   an existing binding requires `move`, and duplication is always a visible
-  `v.copy()`. **Contract: may be expensive/deep** — e.g. `Vector`, `Map`.
+  `v.copy()`. **Contract: may be expensive/deep** — e.g. `Vector` (whose
+  conformance is bounded `T: Copy`).
   Enforcement is the value-transfer checkpoint (the same machinery that backs
   `NoCopy`).
-- **`NoCopy`** — never duplicable, on purpose (`File`, `Mutex`). Move-only.
+- **`NoCopy`** — never duplicable, on purpose (`File`, `Mutex`, `Box`; currently
+  also `Map`/`Set` — their `ExplicitCopy` conformance is future work). Move-only.
 - **Every declared policy trait extends `Deinit`**: `ImplicitCopy`,
   `ExplicitCopy`, and `NoCopy` all require a `deinit(&var self)` (declared as
   `trait ImplicitCopy: Deinit` etc. in the builtin prelude). A type opts into
@@ -1332,7 +1335,7 @@ See [Resource Management Interfaces](#resource-management-traits) for the full `
 
 ### Reference Types
 
-**Status: implemented.** Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape. Mutation through a `&var` reference is done with compound assignment (`x += 1`) or mutating methods — direct assignment `x = ...` through a reference is rejected. Some example bodies below use planned stdlib methods (`push_str`, `String.from`) and are *(illustrative)*.
+**Status: implemented.** Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape. Mutation through a `&var` reference is done with compound assignment (`x += 1`) or mutating methods — direct assignment `x = ...` through a function/method reference parameter is rejected (a closure's `&var` parameter does permit plain assignment — see Closures). Some example bodies below use planned stdlib methods (`push_str`, `String.from`) and are *(illustrative)*.
 
 ```saw
 // &T - immutable reference (read-only access)
@@ -1373,9 +1376,13 @@ process(original)  // original is copied, unchanged
 **Reference Semantics:**
 - References auto-dereference on read: `x` where `x: &Int` gives the `Int` value
 - Mutable references allow compound assignment: `x += 1` where `x: &var Int`
-- Direct assignment through references is not allowed: `x = 5` is an error
+- Direct assignment through a function/method reference parameter is not
+  allowed: `x = 5` is an error (a closure's `&var` parameter permits it —
+  `{ &var n in n = n + 5 }`)
 - Moving out of references is not allowed: `move x` where `x: &var T` is an error
-- References cannot escape: cannot return, store in structs, or capture in closures
+- References cannot escape: cannot return, store in structs, or be captured by
+  an escaping closure (the non-escaping `[&x]`/`[&var x]` borrow-captures are
+  confined to the call)
 
 **Call-site reference sigils:** the call site mirrors the parameter's reference
 spelling. `&x` lends immutably to a `&T` parameter; `&var x` lends mutably to a
@@ -1457,8 +1464,9 @@ alias any reference argument in the same call.
 func swap(a: &var Int, b: &var Int) { ... }
 
 var x = 0
-swap(&x, &x)          // error: `x` is passed as `&var` while also aliased
-swap(&x, &y)          // ok: distinct roots
+var y = 0
+swap(&var x, &var x)  // error: `x` is passed as `&var` while also aliased
+swap(&var x, &var y)  // ok: distinct roots
 
 var p = Point(x: 1, y: 2)
 f(&var p, &p.x)       // error: `p` overlaps its field `p.x`
@@ -1469,8 +1477,9 @@ g(&x, &x)             // ok when both parameters are immutable `&` (shared reads
 
 This check is **fully static** and needs no lifetimes or runtime flags.
 Because references cannot escape in Saw (they are only parameters — never
-returned, stored in fields, or captured by reference; closures capture by
-value), every live reference was created at some call expression on the stack.
+returned or stored in fields; closures capture by value, and the
+`[&x]`/`[&var x]` borrow-captures are confined to non-escaping closures),
+every live reference was created at some call expression on the stack.
 Two references can therefore only alias if they were passed in the same call
 chain, and forwarding is covered by applying the same rule at *every* call
 site: inside a callee its `var` parameters are distinct storage, and the only
@@ -1613,7 +1622,8 @@ trait ExplicitCopy: Deinit {
 Types implementing `ExplicitCopy` are **never** copied implicitly — the
 compiler demands `move` at a transfer out of an existing binding, and any
 duplication is a visible `v.copy()`. This is the policy for expensive,
-resource-owning types such as `Vector` and `Map`. Enforcement reuses the
+resource-owning types such as `Vector` — today the only conforming std type
+(`Map`/`Set` remain `NoCopy` pending their `copy()`). Enforcement reuses the
 `NoCopy` value-transfer checkpoint, with its own diagnostic:
 
 ```saw
@@ -2298,11 +2308,12 @@ multi-task `TaskGroup` — designs 44/45/52/52b, below).
 
 The atomic-ordering runtime (`__saw_atomic_*`, per the String protocol) is
 shared by `Arc` and `Channel`; the `pthread_create`/`join` and condvar wrappers
-back `spawn`/`Task` and `Channel`. Under the future cooperative engine, `recv()`
-and channel waits become suspension points but keep their shapes; `lock`'s
+back `spawn`/`Task` and `Channel`. Under the cooperative engine the channel wait
+is the suspending `receive()` twin — `recv()` remains the blocking
+thread-engine call; `lock`'s
 critical section stays synchronous (a `sync` closure cannot suspend), which is
 how the never-block invariant makes holding a lock across a suspension point a
-compile error. Task bodies may suspend under that engine, so a `spawn` closure is not a
+compile error. Task bodies may suspend, so a `spawn` closure is not a
 `sync` context.
 
 **Status: tasks, channels, Mutex, Send/Sync — implemented (stage 1,
@@ -2321,8 +2332,8 @@ change.
 
 ### Suspension and the coroutine transform
 
-**Status: in progress (design 44).** How a suspending function is turned
-into a resumable state machine is decided and partly built. The mechanism
+**Status: implemented (designs 44/45/52/52b, extended through 104).** How a
+suspending function is turned into a resumable state machine: the mechanism
 is a **source-level transform**: a suspending function becomes an ordinary
 synthesized struct — its *frame* — plus a `resume` method that dispatches on
 a state field. The frame holds the function's parameters, every local whose
@@ -2471,13 +2482,17 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
 - **`TaskGroup`** is a local nursery. `group.spawn(f(args)) -> TaskHandle<T>`
   lowers like `__drive`: `f` becomes a spawnable root (frame + `Resumable`
   conformance), and a synthesized `__spawn_f` helper builds the frame, erases it
-  into a `Box<any Resumable>`, enqueues it, and returns a typed handle. `T` must
-  be non-`Void` (the handle needs a result slot; return a value such as a count).
-- **The executor** lives in the group: round-robin drive to completion of all
-  children, honoring wake reasons — `yield_now` requeues immediately, `sleep(ms)`
-  is scheduled earliest-deadline over relative sleeps, and a channel wait is a
-  yield-requeue retry (wake-on-send folded into yield). It is `sync` (built from
-  `resume`), which is what lets the group's `Deinit` run it.
+  into a `Box<any Resumable>`, enqueues it, and returns a typed handle. A `Void`
+  task is fine too: it returns a result-less `VoidTaskHandle` (design 102 item 1).
+- **The scheduler** is ambient and per-thread (design 89-b): spawned frames enter
+  the thread's shared run queue and run EAGERLY — whenever the scheduler runs, not
+  only at `join`. A group is a membership/lifetime scope, not a private executor:
+  its `join`/`Deinit` drive the shared queue until the group's own members
+  finish, honoring wake reasons — `yield_now` requeues immediately, `sleep(ms)`
+  is scheduled earliest-deadline over relative sleeps, and a channel wait parks
+  until a send. The drive loop is `sync` (built from `resume`), which is what
+  lets the group's `Deinit` run it. A multi-threaded `TaskGroup(threads: N)`
+  keeps its own worker-drained queue (design 75).
 - **`TaskHandle<T>`** owns nothing — raw pointers into the group-owned heap frame.
   `join()` drives the group then TAKES the frame's `__result` exactly once
   (force-unwrap read + a slot clear, so teardown drops nothing). Dropping an
@@ -2569,16 +2584,20 @@ Now-closed gaps (design 62), each landed with tests:
   frame-resident local of a suspending function: the group + its erased run queue
   are frame state, and `group.spawn(...)`'s `&group` resolves to an addressable
   frame field (plain-encoded, real empty-`TaskGroup()` placeholder). The group's
-  `Deinit` still runs its executor to completion during normal frame cleanup
-  (including across a parent suspension between spawn and drop); each group's
-  executor drives only its own queue (nested groups compose without re-entrancy);
-  cancellation words are frame-resident and reachable.
+  `Deinit` still drives its members to completion during normal frame cleanup
+  (including across a parent suspension between spawn and drop); nested groups
+  compose on the one ambient scheduler (design 89-b — a joining task yields to
+  it, no re-entrant drive loop); cancellation words are frame-resident and
+  reachable.
 
-Remaining limits (rejected cleanly / documented, not miscompiled): a spawned
-function must be non-`Void`; a suspending call as a nested *method* other than the
-`receive()` inline lowering is not embeddable (use a free function or the loop
-idiom); a suspension INSIDE an `if let`/`guard let` BRANCH (as opposed to its
-condition) is not split.
+Remaining limits (rejected cleanly / documented, not miscompiled): the
+design-104-era list in the Suspension section above — a suspending call buried
+in a larger expression, a suspension-spanning `if let`/`guard let` with a tuple
+pattern or a body that re-binds the bound name, and a nested generic call whose
+template suspends unconditionally without calling a type-param method. Earlier
+restrictions — a spawned function had to be non-`Void`, a nested suspending
+*method* was not embeddable, an `if let`/`guard let` body could not span a
+suspension — were lifted (designs 102 item 1, 84/101, and 104 item 1).
 
 The transform is also still exercisable through a test-only entry: `__suspend()`
 marks a synthetic suspension point and `__drive(f(args))` / `__drive_steps(f(args))`
@@ -2602,8 +2621,8 @@ let producer = spawn {
     true
 }
 let got = ch.recv()              // blocks the calling thread (thread-per-task
-                                 // engine); the cooperative engine uses the
-                                 // suspending try_receive idiom (below)
+                                 // engine); the cooperative twin is the
+                                 // suspending receive() (below)
 producer.join()
 ```
 
@@ -2621,7 +2640,8 @@ func worker(base: Int) -> Int {
 
 func main() {
     var group = TaskGroup()
-    let a = group.spawn(worker(10))   // -> TaskHandle<Int>; T must be non-Void
+    let a = group.spawn(worker(10))   // -> TaskHandle<Int> (a Void spawn gives
+                                      //    a VoidTaskHandle, design 102)
     let b = group.spawn(worker(20))
     print(a.join())                   // drive the group; take a's result: 11
     print(b.join())                   // 21
@@ -2719,18 +2739,20 @@ the task internally, so the caller writes an ordinary method call with no `io_wa
 in sight. Errors are `IoError` (conforms to `Error`, errno-shaped).
 
 ```saw
-// A cooperative echo, entirely over the safe owning API.
+// A cooperative echo, entirely over the safe owning API. Failable ops return
+// Result (design 92): read gives Result<Data, IoError> — an EMPTY Ok is EOF,
+// DISTINCT from Err — and write sends the whole buffer or surfaces the error.
 func serve(stream: TcpStream) -> Int {
-    let chunk = stream.read()             // suspends until bytes arrive; empty = EOF
+    let chunk = try! stream.read()        // suspends until bytes arrive; empty Ok = EOF
     let n = chunk.len()
-    stream.write_all(move chunk)          // suspends until every byte is sent
+    try! stream.write(move chunk)         // suspends until every byte is sent
     return n                              // stream.Deinit closes the fd here
 }
 
 func main() {
-    let listener = TcpListener.listen(0)!             // Result<TcpListener, IoError>
-    let stream = TcpStream.connect("127.0.0.1", listener.local_port())!
-    // ... spawn workers over accept()/read()/write_all_str() in a TaskGroup ...
+    let listener = try! TcpListener.listen(0)         // Result<TcpListener, IoError>
+    let stream = try! TcpStream.connect("127.0.0.1", listener.local_port())
+    // ... spawn workers over accept()/read()/write() in a TaskGroup ...
 }
 // TcpStream.pair() gives a connected pair for tests/IPC with no bound port.
 ```
@@ -2784,10 +2806,11 @@ cancel path.
 `Task.join()`/`Channel.recv()` block that thread, and `Deinit` joins an unjoined
 task at scope exit (structured concurrency). Separately, a suspending `main`
 runs on the **single-threaded cooperative executor** (above) with `yield_now`/
-`sleep`. These are distinct runtimes for now — a cooperative task cannot yet be
-`spawn`ed onto the executor (that needs type-erased task handles), and the two do
-not share a scheduler. Unifying them (cooperative `spawn`, structured join, and
-cancellation on the executor) is a later stage.
+`sleep`. Cooperative `spawn`, structured join, and cancellation shipped as
+`TaskGroup` on the ambient cooperative scheduler — `Box<any Resumable>` is the
+type-erased handle that made the shared run queue possible. The residual split
+is only that the thread-per-task engine remains its own runtime: do not mix the
+two engines for one task.
 
 ### Shared State
 
@@ -3205,11 +3228,12 @@ Imports follow Python-style semantics - only the explicitly named symbol is adde
 // A std import re-exposes names already compiled into the builtins; it does NOT
 // create a `mod.Name` alias (the leaf, e.g. `data`/`net`, is a common local).
 import std.net.{TcpListener, TcpStream}
-let l = TcpListener.listen(0)!
+let l = try! TcpListener.listen(0)
 
 // Whole std module - exposes every symbol the module defines, bare.
 import std.file
-let f = File.create("data.txt")
+import std.path.{Path}
+let f = File.create(Path(s: "data.txt"))
 
 // User-module imports still support qualified access + aliasing (design 53).
 import mypkg.parser.{Parser}
@@ -3220,8 +3244,9 @@ import mypkg.io as fileio                          // module alias
 import package.parser.Parser
 import parent.helpers.utility
 
-// Glob import (implemented, discouraged) — all public symbols enter scope
-import std.prelude.*
+// Glob import (implemented, discouraged) — all public symbols of a USER module
+// enter scope (std imports take only the bare and `.{A, B}` forms)
+import mypkg.utils.*
 ```
 
 ### Package Structure
@@ -3251,11 +3276,12 @@ my_project/
 namespace layout and are largely *illustrative* (the concrete names may differ).
 Actually shipped today: `String`, `StringBuilder`, `Vector<T, A>`,
 `Map<K, V, A>`, `Set<T, A>`, `Arc<T>`, `Box<T, A>`, `Mutex<T>`, `Channel<T>`,
-`Task<T>`, `TaskGroup`, `File`, `Directory`, `Path`, `Data`, `Env`, `Process`,
+`Task<T>`, `TaskGroup`, `File`, `Directory`, `Path`, `Data`, `Env`,
+`Command`/`ProcessError` (std.process), `std.net` (`TcpListener`/`TcpStream`),
 `std.time` (`Duration`/`Instant`), plus `Int`/`Float` numeric extensions and the
 `Equatable`/`Comparable`/`Hashable`/`Printable`/`Error` traits (and
-`Result`/optionals as language features). I/O beyond files, `net`, `RwLock`, and
-a formalized module namespacing are still planned. There is no `async`/`future`
+`Result`/optionals as language features). `RwLock` and I/O beyond files and
+sockets are still planned. There is no `async`/`future`
 module: concurrency is colorless (no `async`/`await`).
 
 ### Core Types
@@ -3319,7 +3345,8 @@ symbols the environment must supply at link time — `saw_alloc(size, align)`,
 libc-backed defaults (overridable at link time without a flag). Freestanding
 programs may use `core` and the `alloc`-layer types (`String`, `Vector`, `Map`,
 `Data`, `StringBuilder`, `Path`), which allocate only through the seams; the
-hosted-only modules (`File`, `Process`, `Env`, `Directory`, `time`) and `Float`
+hosted-only modules (`File`, `process` (`Command`), `Env`, `Directory`, `time`,
+`net`) and `Float`
 printing are unavailable. See `designs/19-freestanding-profile.md` for the full design.
 
 ---

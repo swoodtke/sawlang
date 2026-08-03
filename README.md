@@ -2,22 +2,25 @@
 
 [![CI](https://github.com/swoodtke/claudes-lang/actions/workflows/ci.yml/badge.svg)](https://github.com/swoodtke/claudes-lang/actions/workflows/ci.yml)
 
-A modern systems programming language combining the safety of Rust with the elegance of Swift.
+A systems programming language with Rust-style memory safety and Swift-style
+syntax. It has no garbage collector and no lifetimes.
 
-## Why Saw?
+## What Saw gives you
 
-Saw takes the best ideas from modern languages and combines them into a cohesive whole:
-
-- **Safety enforced, not just promised** - No null pointers; memory safety is
-  checked at a single value-transfer checkpoint, and mutable aliasing is caught
-  statically by the Law of Exclusivity (many readers XOR one writer) — no
-  garbage collector, no lifetimes
-- **Elegant syntax** - Clean, readable code inspired by Swift
-- **Zero-cost abstractions** - High-level constructs compile to efficient machine code
-- **Predictable performance** - No hidden allocations (the only implicit copies
-  are cheap by contract), deterministic LIFO destruction
-- **Kernel- and embedded-ready** - freestanding by design: pluggable allocators,
-  memory-mapped registers, compile-time layout checks, and C-ABI exports
+- **Memory safety without a garbage collector or lifetimes** - There are no null
+  pointers. Memory safety is checked when a value is transferred, and mutable
+  aliasing is caught at compile time by the Law of Exclusivity: a value can have
+  many readers or one writer, never both at once.
+- **Swift-style syntax** - `let`/`var` bindings, `extension` blocks, `T?`
+  optionals, and trailing closures.
+- **Zero-cost abstractions** - Generics and traits compile down to specialized
+  machine code, with no runtime overhead for the abstraction.
+- **Predictable performance** - No hidden allocations. The only implicit copies
+  are cheap ones, and values are destroyed in a defined order (last in, first
+  out) as they go out of scope.
+- **Runs on bare metal** - Saw is freestanding. Pluggable allocators,
+  memory-mapped registers, compile-time layout checks, and C-ABI exports let it
+  target kernels and embedded systems.
 
 ## Quick Example
 
@@ -131,14 +134,15 @@ func handle(msg: Message) {
 
 ### Traits, Default Methods, and Dynamic Dispatch
 
-Conform via `extension Type: Trait`. Trait methods may carry a **default body**,
-and any object-safe trait can be used as an `any Trait` existential for runtime
-dynamic dispatch behind explicit ownership (`&any Trait` or `Box<any Trait>`):
+Conform via `extension Type: Trait`. Trait methods may carry a **default body**.
+Any object-safe trait can also be used as a trait object (`any Trait`, called
+an existential in the language spec) for runtime dynamic dispatch, held behind
+explicit ownership (`&any Trait` or `Box<any Trait>`):
 
 ```saw
 trait Greeter {
     func name(&self) -> String
-    func greet(&self) -> String {       // default body — calls a required method
+    func greet(&self) -> String {       // default body: calls a required method
         "Hello, {self.name()}!"
     }
 }
@@ -152,7 +156,7 @@ trait Shape {
     func area(&self) -> Int
 }
 
-func print_area(s: &any Shape) {   // dynamic dispatch through a fat pointer
+func print_area(s: &any Shape) {   // dynamic dispatch
     print(s.area())
 }
 ```
@@ -172,10 +176,11 @@ print(area(3, 4))   // 12
 
 ### Generic Type Inference
 
-Type arguments are inferred at call sites — from argument types, closure
-return types, even default values — including across overload sets (a unique
-match is picked; a genuine tie is a compile error listing the candidates,
-never a silent guess). Explicit `<...>` always remains valid and always wins:
+Type arguments are inferred at call sites, from argument types, closure return
+types, and even default values. Inference also works across overload sets: the
+compiler picks a unique match, and a genuine tie is a compile error that lists
+the candidates rather than guessing. You can always write `<...>` explicitly, and
+an explicit type argument always wins:
 
 ```saw
 func first<T>(v: &Vector<T>) -> T? { v.get(0) }
@@ -187,8 +192,9 @@ let squares = names.map({ $0.len() })   // map<Int> solved from the closure
 
 ### Debug-Friendly Source Locations
 
-`#file`, `#line`, and `#function` are compile-time literals (definition-site,
-zero runtime cost — panics and asserts already carry `panic at FILE:LINE:`):
+`#file`, `#line`, and `#function` are compile-time literals filled in at the
+definition site, with no runtime cost. Panics and asserts already include a
+`panic at FILE:LINE:` prefix.
 
 ```saw
 print("{#file}:{#line} in {#function} - checkpoint")
@@ -196,16 +202,17 @@ print("{#file}:{#line} in {#function} - checkpoint")
 
 ### Shadowing Must Be Earned
 
-Accidentally reusing a name from an enclosing scope is a compile error —
-unless the new binding is visibly *derived* from the one it shadows (the
-initializer mentions it). Refinement stays idiomatic; accidents don't compile:
+Accidentally reusing a name from an enclosing scope is a compile error. The
+exception is when the new binding is visibly derived from the one it shadows,
+meaning the initializer mentions it. Deliberate refinement compiles; accidental
+reuse does not:
 
 ```saw
-if let x = x { }                  // OK — unwrap refinement
-let data = parse(move data)       // OK — derived, old binding retired
-for item in items.iter() { }      // fine — no shadow at all
-for x in x.iter() { }             // OK — sequence mentions the shadowed name
-let x = compute()                 // ERROR under an outer `x` — rename it
+if let x = x { }                  // OK: unwrap refinement
+let data = parse(move data)       // OK: derived, old binding retired
+for item in items.iter() { }      // fine: no shadow at all
+for x in x.iter() { }             // OK: sequence mentions the shadowed name
+let x = compute()                 // ERROR under an outer `x`; rename it
 ```
 
 ### Printable and String Interpolation
@@ -225,35 +232,37 @@ extension Point: Printable {
 
 let p = Point(x: 3, y: 4)
 print("point = {p}")   // point = (3, 4)
-print(p.to_string())   // (3, 4)  — default method from Printable
+print(p.to_string())   // (3, 4), from Printable's default method
 ```
 
-### Errors as Values, Optionally Erased
+### Errors as Values
 
-`Error: Printable`, and `Result<T, Box<any Error>>` lets a function return any
-error type without a hand-written union — the concrete error is auto-wrapped and
-auto-erased at the return boundary (hosted convenience; kernel code keeps
-concrete or closed-union errors to avoid hidden allocation):
+Every `Error` is `Printable`. Returning `Result<T, Box<any Error>>` lets a
+function return any error type without writing a union by hand: the concrete
+error is boxed and its exact type hidden behind `any Error` at the return
+boundary. That is a convenience for hosted code. Kernel code sticks to concrete
+or closed-union error types to avoid the hidden allocation.
 
 ```saw
 func parse(ok: Bool) -> Result<Int, Box<any Error>> {
     if ok { return 42 }
-    return ParseError(line: 7)   // auto-wrapped Err, erased into Box<any Error>
+    return ParseError(line: 7)   // auto-wrapped Err, boxed as Box<any Error>
 }
 
 match parse(false) {
     case Ok(n) -> print(n),
-    case Err(e) -> print("{e}")  // renders via the vtable
+    case Err(e) -> print("{e}")  // prints via Printable
 }
 ```
 
 ### Colorless Concurrency
 
-No `async`/`await` keyword — **any call may suspend**, and the rare marked side
-is the checked negative effect `sync`. A `TaskGroup` is a structured-concurrency
-nursery: children are joined (or cancelled) when the group is torn down.
-`TaskGroup(threads: N)` opts into multi-threaded execution with `Send` checked
-at every spawn boundary; the default stays single-threaded and deterministic.
+There is no `async`/`await` keyword. **Any call may suspend**, and the rare call
+that must not is marked `sync`, which the compiler checks. A `TaskGroup` owns its
+child tasks and joins them when it goes out of scope; cancellation is explicit
+and cooperative (`handle.cancel()`).
+`TaskGroup(threads: N)` opts into running on multiple threads, with `Send` checked
+at every spawn; the default stays single-threaded and deterministic.
 
 ```saw
 func work(n: Int) -> Int {
@@ -265,23 +274,23 @@ func main() {
     var group = TaskGroup()
     let a = group.spawn(work(3))
     let b = group.spawn(work(4))
-    print(a.join() + b.join())   // 25 — structured join
+    print(a.join() + b.join())   // 25, structured join
 }
 ```
 
-One ambient cooperative scheduler runs spawned tasks eagerly, with an io
-reactor (kqueue/epoll) underneath: a task parked on a socket wakes precisely
-when *its* fd is ready, cancellation rouses even an already-parked task, an
-op-count budget keeps a spinning task from starving its siblings — so an
-infinite `accept`-loop server serves live connections. Blocking FFI calls
-(`extern "C" { blocking func ... }`) offload to a thread and park the task
-like any other I/O, keeping the cooperative world responsive.
+A single cooperative scheduler runs spawned tasks eagerly, backed by an I/O
+reactor (kqueue or epoll). A task parked on a socket wakes exactly when its file
+descriptor is ready, cancellation wakes even an already-parked task, and an
+operation-count budget stops a spinning task from starving the others. So an
+endless `accept`-loop server keeps serving live connections. Blocking FFI calls
+(`extern "C" { blocking func ... }`) run on a separate thread and park the task
+like any other I/O, so the remaining tasks stay responsive.
 
 ### Cooperative Networking
 
-`std.net` exposes owning, safe types — no raw fds, no callbacks, no `await`.
-Suspension is inside the methods; failures are `Result`s, and EOF is distinct
-from error by construction:
+`std.net` exposes owning, safe types with no raw file descriptors or callbacks.
+Suspension happens inside the methods, failures come back as `Result`, and
+end-of-stream is represented as a distinct value from an error:
 
 ```saw
 import std.net.{TcpListener, TcpStream}
@@ -300,11 +309,11 @@ func handle(stream: TcpStream) {
 
 ### The Copy Trait Family
 
-Transfer cost is readable at the use site. Trivial types (integers, POD structs)
-copy implicitly and cheaply. Owning types are move-by-default: duplication is a
-visible `.copy()`, and the compiler demands `move` to transfer ownership.
-Refcounted types (like `String` and `Arc`) are `ImplicitCopy` — copies are cheap
-refcount bumps, no `move` needed.
+You can see the cost of a transfer at the point where it happens. Trivial types
+(integers, simple structs) copy implicitly and cheaply. Owning types move by
+default: duplicating one is a visible `.copy()`, and transferring ownership
+requires the `move` keyword. Reference-counted types like `String` and `Arc` are
+`ImplicitCopy`, so a copy is a cheap refcount bump and needs no `move`.
 
 ```saw
 let a = Point(x: 1, y: 2)
@@ -334,7 +343,7 @@ let primes: Set<Int> = {2, 3, 5, 7}
 ```saw
 func scale(x: Int, by: Int = 2) -> Int { x * by }  // default parameter value
 
-scale(10)          // 20 — default used
+scale(10)          // 20, default used
 scale(10, 3)       // 30
 
 for i in 1..=5 { }  // inclusive range (..= )
@@ -345,7 +354,7 @@ assert(byte == 255, "sanity")   // panics with a message when false
 
 ### Type Extensions
 
-Add methods and trait conformances to a type — including built-in primitives —
+Add methods and trait conformances to a type, including built-in primitives,
 without modifying its definition:
 
 ```saw
@@ -353,7 +362,8 @@ extension Int {
     func doubled(&self) -> Int { self * 2 }
 }
 
-print(7.doubled())  // 14
+let n = 7
+print(n.doubled())  // 14
 ```
 
 ### Module System
@@ -378,19 +388,20 @@ func main() {
 ```
 
 Imports are Python-style (only the named symbol enters scope), with module and
-per-symbol aliasing (`import std.io as sio`, `import m.{A as B}`), scoped
+per-symbol aliasing (`import mypkg.io as fileio`, `import m.{A as B}`), scoped
 visibility (`public(package)`, `public(parent)`), and glob imports
 (`import m.*`).
 
 **Member visibility**: struct fields and extension methods (including `init`)
-are private by default outside their defining module — `public` marks the API
+are private by default outside their defining module, and `public` marks the API
 surface. The standard library lives under the same gate: you reach its public
 API, never its internals.
 
 **Prelude discipline**: a curated core is available bare (primitives,
 `Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/`Arc`, the trait vocabulary,
-`print`/`panic`/`assert`, the concurrency primitives). Everything else —
-`File`, `Data`, `Channel`, `Mutex`, `TcpStream`, `Command`, ... — needs
+`print`/`panic`/`assert`, the concurrency primitives, `StringBuilder`).
+Everything else
+(`File`, `Data`, `Channel`, `Mutex`, `TcpStream`, `Command`, and so on) needs
 `import std.<module>`, which also means your own type named `File` or
 `IoError` never collides with the standard library's.
 
@@ -398,56 +409,61 @@ API, never its internals.
 
 Saw provides deterministic memory management without garbage collection:
 
-- **The Copy trait family** — trivial types auto-copy bitwise; `ImplicitCopy`
-  types copy cheaply on every transfer (refcount bumps, e.g. `String`, `Arc`);
-  `ExplicitCopy` types (e.g. `Vector`, `Map`) never copy implicitly — you `move`
-  to transfer or `.copy()` to duplicate; `NoCopy` types are move-only.
-- **Explicit `move`** for ownership transfer, enforced at one value-transfer checkpoint
-- **`Deinit` trait** for cleanup when values go out of scope (LIFO)
-- **Reference types** (`&T`, `&var T`) for borrowing, with static exclusivity checking
-- **Law of Exclusivity** — a `&var` path must be disjoint from every other
-  by-reference path in the same call; fully static, no lifetimes
-- **References compose** — a received `&T`/`&var T` forwards onward to another
-  function as a re-borrow (mutability never amplified, exclusivity checked at
-  the root), and references stay valid across cooperative suspension points
-- **Shared ownership** via `Arc<T>` (atomic refcount — Saw is Arc-only) and owned
-  heap allocation via `Box<T, A>`
-- **Unsafety is type-carried** — raw pointers live in `Unsafe*` types; where a
-  pointer flows invisibly in a function whose signature doesn't say so, an
-  explicit `unsafe` expression marker is required. No unsafe blocks, no
-  ambient unsafety
+- **The Copy trait family**: trivial types copy bitwise. `ImplicitCopy` types
+  (like `String` and `Arc`) copy cheaply on every transfer as a refcount bump.
+  `ExplicitCopy` types (like `Vector`) never copy implicitly: you `move` to
+  transfer them or `.copy()` to duplicate. `NoCopy` types (like `File`, `Mutex`,
+  and for now `Map`/`Set`) can only be moved.
+- **Explicit `move`** for ownership transfer, checked at the point of transfer.
+- **The `Deinit` trait** runs cleanup when a value goes out of scope, in reverse
+  order of creation.
+- **Reference types** (`&T`, `&var T`) for borrowing, checked for exclusivity at
+  compile time.
+- **The Law of Exclusivity**: a `&var` (mutable) reference must not overlap any
+  other reference reaching the same value in the same call. It is fully static,
+  with no lifetimes to write.
+- **References compose**: a `&T` or `&var T` you receive can be passed on to
+  another function as a re-borrow. A reference is never made more permissive than
+  the one it came from, and references stay valid across suspension points.
+- **Shared ownership** through `Arc<T>` (Saw uses atomic reference counts only)
+  and owned heap allocation through `Box<T, A>`.
+- **Unsafety is carried in the type**: raw pointers live in `Unsafe*` types.
+  Where a pointer would flow through a function whose signature does not advertise
+  it, you have to mark the spot with an `unsafe` expression. There are no
+  `unsafe` blocks, and unsafety never spreads implicitly.
 
 ```saw
-// Mutable reference parameter (mutate via compound assignment; direct `x = ...`
-// through a reference is rejected)
+// Mutable reference parameter (the call site mirrors the parameter's sigil;
+// mutate via compound assignment or mutating methods)
 func increment(x: &var Int) {
     x += 1
 }
 
 var n = 5
-increment(&n)  // n is now 6
+increment(&var n)  // n is now 6
 ```
 
 ## Kernels and Embedded
 
-Saw is freestanding by design — the same language targets bare metal:
+Saw is freestanding: the same language targets bare metal.
 
-- **Pluggable allocation** — the allocator is a default type parameter on
-  alloc-layer containers (`Vector<T, A = Global>`, `Map<K, V, A = Global>`,
-  `Box<T, A = Global>`); a custom zero-sized allocator gives a distinct type that
-  routes through its own `A` as a direct call. Per-type slab allocators over a
-  `static` region make the `type JobBox = Box<Job, JobSlab>` kernel idiom work.
-- **Memory-mapped I/O** — `UnsafeMemory<T, Use>` is a compiler-known view of
-  memory at a fixed address, with volatile scalar `read()`/`write()` for device
-  registers and field-offset projection.
-- **Compile-time layout checks** — `static_assert(sizeof<UartRegs>() == 0x1C,
-  "...")` fails the build on register-block drift at zero runtime cost.
-- **C-ABI exports** — `@export("kernel_add")` gives a function an exact,
-  unmangled symbol with the C calling convention; `@section("...")` places it in
-  a named linker section. `Never`-returning exports lower to the `_start` shape.
-- **Platform-width `Int`** — `Int`/`UInt` follow the target word (i64 on
-  x86-64/aarch64, i32 on riscv32); fixed-width `Int8`…`Int64` have stable layouts
-  for wire formats.
+- **Pluggable allocation**: the allocator is a default type parameter on the
+  allocating containers (`Vector<T, A = GlobalAllocator>`,
+  `Map<K, V, A = GlobalAllocator>`, `Box<T, A = GlobalAllocator>`). A custom zero-sized allocator produces a distinct type
+  that routes through its own `A` as a direct call. Per-type slab allocators over
+  a `static` region make the `type JobBox = Box<Job, JobSlab>` kernel idiom work.
+- **Memory-mapped I/O**: `UnsafeMemory<T, Use>` is a compiler-known view of memory
+  at a fixed address, with volatile `read()`/`write()` for device registers and
+  field-offset projection.
+- **Compile-time layout checks**: `static_assert(sizeof<UartRegs>() == 0x1C,
+  "...")` fails the build when a register block's layout drifts, at no runtime
+  cost.
+- **C-ABI exports**: `@export("kernel_add")` gives a function an exact, unmangled
+  symbol with the C calling convention, and `@section("...")` places it in a
+  named linker section. A `Never`-returning export lowers to the `_start` shape.
+- **Platform-width `Int`**: `Int` and `UInt` follow the target word (i64 on
+  x86-64 and aarch64, i32 on riscv32), while fixed-width `Int8` through `Int64`
+  have stable layouts for wire formats.
 
 ```saw
 struct UartRegs {
@@ -465,27 +481,30 @@ func add(a: Int, b: Int) -> Int {
 
 ## Standard Library
 
-Saw includes a growing standard library. Highlights:
+The standard library includes:
 
 - **String** - Immutable, reference-counted byte string (atomic refcount, O(1)
   `len()`), always valid UTF-8. `bytes()`/`chars()` iterator views, `split`,
-  concatenation with `+`, `to_int`/`to_float` parsing, `fromBytes` (validating).
+  `to_int`/`to_float` parsing, `fromBytes` (validating). Concatenation goes
+  through interpolation or `StringBuilder`.
 - **StringBuilder** - Efficient, geometrically-growing builder: `append`
   (overloaded for `String`/`Int`), `build`.
 - **Vector<T, A>** - Dynamic array: `push`, `pop`, `get`, `len`, `map`/`fold`,
   `sort`/`sort_by`, `swap`; context-driven `[...]` literals.
 - **Map<K, V, A>** - Hash map (open addressing): `insert`, `get`, `remove`,
   `contains_key`, `len`; `each` visitors and `keys()`/`values()` snapshots;
-  `{k: v}` literals. Keys are any `Hashable + Equatable` type.
+  `{k: v}` literals. Keys are any copyable `Hashable + Equatable` type
+  (move-only keys are rejected).
 - **Set<T, A>** - Hash set: `insert`, `remove`, `contains`, `len`, plus
   `union`/`intersection`/`difference`/`is_subset`; `{a, b}` literals.
 - **Arc<T>** / **Box<T, A>** - Atomic reference counting / owned heap allocation.
 - **Mutex<T>**, **Channel<T>**, **Task<T>**, **TaskGroup** - Concurrency.
 - **std.net** - `TcpListener`/`TcpStream`: owning, cooperative, `Result`-honest
   (accept/connect/read/`read_into`/overloaded write).
-- **File**, **Directory**, **Path**, **Data**, **Env** - System I/O; failable
-  operations return `Result<_, IoError>` — no silent error swallowing anywhere
-  in std.
+- **File**, **Directory**, **Path**, **Data**, **Env** - System I/O. Lookups and
+  opens return Optionals; failable mutating operations (`remove`, `rename`,
+  `create`, env `set`/`unset`) return `Result<Void, IoError>`. Nothing in std
+  silently swallows an error.
 - **std.process** - `Command.run() -> Result<Int32, ProcessError>`, `.output()`.
 - **std.time** - `Duration`, `Instant` (hosted).
 - **Numeric extensions** - `Int`/`Float` methods: `abs`, `pow`, `min`/`max`/
@@ -496,7 +515,7 @@ Saw includes a growing standard library. Highlights:
 
 ### Requirements
 
-- Python 3.14 (a virtualenv is used — see below)
+- Python 3.14 (a virtualenv is used; see below)
 - `llvmlite` (LLVM bindings)
 - Clang (for linking)
 
@@ -556,15 +575,15 @@ Run `make test` to see the current test count. See
 
 ## Current Status
 
-Saw is in active development, with a large and growing feature set: generics
-with trait bounds, monomorphization, and call-site type inference; ADTs with
-exhaustive `match`; the Copy trait family; traits with default bodies and
-`any Trait` existentials; overloading; `Printable`/`Error`/`Equatable`/
-`Comparable`/`Hashable`; colorless concurrency (an ambient cooperative
-scheduler with a precise io reactor, multi-threaded task groups, blocking-FFI
-offload); member visibility with a curated prelude; earned shadowing;
-source-location literals; pluggable allocators; and the freestanding toolkit
-(memory-mapped I/O, `static_assert`, C-ABI exports).
+Saw is in active development. Implemented so far: generics with trait bounds and
+call-site type inference (generics compile to specialized code); algebraic data
+types with exhaustive `match`; the Copy trait family; traits with default bodies
+and trait objects (`any Trait`); overloading; the `Printable`, `Error`,
+`Equatable`, `Comparable`, and `Hashable` traits; colorless concurrency (a
+cooperative scheduler with a precise I/O reactor, multi-threaded task groups, and
+blocking-FFI offload); member visibility with a curated prelude; earned
+shadowing; source-location literals; pluggable allocators; and the freestanding
+toolkit (memory-mapped I/O, `static_assert`, and C-ABI exports).
 
 The authoritative, always-current feature list lives in
 [CLAUDE.md](CLAUDE.md); the full language reference is in
@@ -572,14 +591,16 @@ The authoritative, always-current feature list lives in
 
 ## Blade Package Manager
 
-Saw includes Blade, a package manager written in Saw itself — with a real TOML
-parser, manifest model, dependency resolver, deterministic lockfile, git
+Saw includes Blade, a package manager written in Saw itself. It has a TOML
+parser, a manifest model, a dependency resolver, a deterministic lockfile, git
 fetching, and incremental builds:
 
 ```bash
-# Build the package manager (it depends on the libs/toml package, so map it)
+# Build the package manager (it depends on the libs/toml and libs/semver
+# packages, so map both)
 ./.venv/bin/python sawc/sawc.py blade/src/main.saw -o .build/blade \
-    --module-path toml=libs/toml/src
+    --module-path toml=libs/toml/src \
+    --module-path semver=libs/semver/src
 
 # Use it
 ./.build/blade new myproject   # scaffold a new project
@@ -612,9 +633,9 @@ tiny  = "0.3.1"          # bare = EXACT pin (ranges need ^, ~, or >=)
   (`.blade/` is self-gitignoring). No global cache yet.
 - **Incremental**: a content hash of every reachable source (`.blade/build-hash`)
   skips an up-to-date build; `--force` bypasses it.
-- **Self-hosting**: Blade's own build depends on the `libs/toml` package by
-  path, so every Blade build exercises the resolver / lock / module-path
-  pipeline. `make blade-bootstrap` runs the loop that builds and tests Blade
+- **Self-hosting**: Blade's own build depends on the `libs/toml` and
+  `libs/semver` packages by path, so every Blade build exercises the resolver /
+  lock / module-path pipeline. `make blade-bootstrap` runs the loop that builds and tests Blade
   through Blade itself.
 
 `blade test` discovers `tests/*.saw` files, compiles and runs each (with the
@@ -680,7 +701,7 @@ Saw is an experimental language. Contributions, feedback, and ideas are welcome!
 Saw is licensed under the [Apache License 2.0 with LLVM
 Exceptions](LICENSE) (SPDX: `Apache-2.0 WITH LLVM-exception`).
 
-In plain terms: use, modify, and redistribute freely — with an explicit
+In plain terms: use, modify, and redistribute freely, with an explicit
 patent grant from contributors. The LLVM exception means programs you
 compile with `sawc` are entirely yours: the standard-library code
 embedded in your binaries carries no attribution requirements.
