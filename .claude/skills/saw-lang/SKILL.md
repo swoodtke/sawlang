@@ -290,8 +290,9 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   `(Int) -> Int` whitelist (a single Int arg, Int result); a wider signature is a
   clean anchored error (multi-arg + a real pool are future work). A blocking-extern
   call BURIED in a larger expression (`foo(slow(x))`, `return a + slow(x)`, a
-  `try!`, an `if let`/`guard` body) is a clean error anchored at the call site —
-  bind it to its own `let` first. Cancelling a task parked on an offload job wakes
+  `try!`) is a clean error anchored at the call site — bind it to its own `let`
+  first. (At statement position inside an `if let`/`guard let` body it offloads
+  fine — design 104 CFG-splits that branch.) Cancelling a task parked on an offload job wakes
   it (design 102), but the in-flight blocking call cannot be aborted: take() joins
   the worker before the task takes its cancel path.
 - Generic suspending functions/methods work (design 70 + 74): effect is
@@ -303,15 +304,19 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   driven/spawned body embeds as a driven sub-frame in EVERY control-flow
   position — a plain statement, an `if`/`else` branch, a `match` arm
   (including literal/range-pattern arms), a nested `if`, a nested `while`/`for`,
-  AND a TRAILING (block-final) `if`/`match` (design 84 + 101) — so
-  `while going { …; if c { let x = try! s.read(); s.write(move x) } }` just
-  works. Still a clean, user-anchored compile error (NOT a silent block): a
+  a TRAILING (block-final) `if`/`match` (design 84 + 101), AND an `if let` /
+  `guard let` BODY (design 104 item 1: the optional-binding branch is CFG-split
+  like `if`/`match`; the bound name becomes a frame field, and the design-100
+  same-name unwrap `if let x = x` keeps the inner `x: T` and outer `x: T?` in
+  distinct fields) — so
+  `while going { …; if let ok = maybe(k) { let x = try! s.read(); s.write(move x) } }`
+  just works. Still a clean, user-anchored compile error (NOT a silent block): a
   suspending method call buried in a LARGER EXPRESSION (an argument, a receiver,
-  a `let x = if … { s.read() }` value position); a suspending method call in an
-  `if let`/`guard let` BODY (the state split does not CFG-split those — restructure
-  to a plain `if`/`else` or `match`, or drive the method directly); a nested
-  suspending generic call to a template in ANOTHER module (shape 4); and a method
-  that is BOTH struct-generic and method-generic.
+  a `let x = if … { s.read() }` value position); a suspension-spanning `if let`/
+  `guard let` with a TUPLE pattern, or one whose body RE-BINDS the bound name
+  (rename the inner binding); a nested suspending generic call to a template in
+  ANOTHER module (shape 4); and a method that is BOTH struct-generic and
+  method-generic.
 - A CLOSURE created in a driven body works (design 77 DF-C1): call it after a
   suspend, hold it across one (its env deinits exactly once at frame death), or
   own it in a spawned TaskGroup frame — captured frame locals are moved into the

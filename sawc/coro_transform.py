@@ -679,6 +679,144 @@ class _FrameBuilder:
         m.matched_expr = ident
         return [let_stmt, s]
 
+    # ------------------------------------------------------------------ #
+    # design 104 item 1: CFG-split `if let`/`guard let` bodies that suspend
+    # ------------------------------------------------------------------ #
+    def _mark_optional_binding_splits(self):
+        """Find every `if let`/`guard let` whose body spans a suspension and mark
+        it `_coro_split` (so `_collect_frame_locals`, `_collect_calls`, and the CFG
+        walk all treat it as a split point), renaming its binding to a fresh unique
+        frame field. An `if let` splits when either branch spans; a `guard let`
+        splits when its ENCLOSING block spans (the binding lives on into the rest of
+        that block, which is what may cross the suspension)."""
+        self._optbind_ctr = 0
+        self._mark_ob_block(self.func.body)
+
+    def _mark_ob_block(self, block):
+        block_spans = self._spans_suspension(block)
+        for s in block.statements:
+            ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+            if isinstance(ctrl, IfLetExpr):
+                then_spans = self._spans_suspension(ctrl.then_branch)
+                else_spans = (ctrl.else_branch is not None
+                              and self._spans_suspension(ctrl.else_branch))
+                if then_spans or else_spans:
+                    self._prep_ob_split(ctrl, ctrl.then_branch, [], None)
+                self._mark_ob_block(ctrl.then_branch)
+                if ctrl.else_branch is not None:
+                    self._mark_ob_block(ctrl.else_branch)
+            elif isinstance(s, GuardLetStatement):
+                if block_spans:
+                    # The binding's scope is the REST of the enclosing block after
+                    # this guard (statements + the block's trailing expression).
+                    # Index by identity — dataclass `==` could match an earlier
+                    # structurally-equal statement.
+                    idx = next(i for i, st in enumerate(block.statements)
+                               if st is s)
+                    self._prep_ob_split(
+                        s, None, block.statements[idx + 1:], block)
+                self._mark_ob_block(s.else_branch)
+            elif isinstance(ctrl, IfExpr):
+                self._mark_ob_block(ctrl.then_branch)
+                if ctrl.else_branch is not None:
+                    self._mark_ob_block(ctrl.else_branch)
+            elif isinstance(ctrl, WhileExpr):
+                self._mark_ob_block(ctrl.body)
+            elif isinstance(ctrl, MatchExpr):
+                for arm in ctrl.arms:
+                    if isinstance(arm.body, Block):
+                        self._mark_ob_block(arm.body)
+            elif isinstance(s, ForLoop):
+                self._mark_ob_block(s.body)
+
+    def _prep_ob_split(self, node, scope_block, scope_stmts, scope_final_owner):
+        """Mark `node` for CFG-splitting and rename its binding to a fresh unique
+        name, rewriting the binding's uses in its scope (`scope_block` for an
+        `if let` then-branch, or `scope_stmts` + the owner block's `final_expr` for
+        a `guard let` continuation). A tuple-pattern binding across a suspension is
+        not supported (rejected cleanly). A nested re-binding of the same name in
+        the scope (a design-100 derived shadow) is likewise unsupported here and
+        rejected, so no use is ever mis-renamed."""
+        if getattr(node, 'pattern', None) is not None:
+            kind = "if let" if isinstance(node, IfLetExpr) else "guard let"
+            raise CoroTransformError(
+                f"coroutine transform: a tuple-pattern `{kind}` whose body spans a "
+                f"suspension in `{self.name}` is not supported; bind a single name "
+                f"and destructure inside the body",
+                node.line, node.column, source_file=self.src_file)
+        old = node.name
+        new = f"__ob{self._optbind_ctr}"
+        self._optbind_ctr += 1
+        scopes = []
+        if scope_block is not None:
+            scopes.append(scope_block)
+        scopes.extend(scope_stmts)
+        for sc in scopes:
+            self._rename_binding_use(sc, old, new)
+        if scope_final_owner is not None and scope_final_owner.final_expr is not None:
+            self._rename_binding_use(scope_final_owner.final_expr, old, new)
+        node.name = new
+        node._coro_split = True
+
+    def _rename_binding_use(self, node, old, new):
+        """Rewrite every use of the identifier `old` to `new` in `node`'s subtree.
+        Raises cleanly if the subtree RE-BINDS `old` (a nested let/var, pattern,
+        loop var, closure param, or optional binding) — that scope shadow would make
+        a blanket rename unsound, and design-100 makes it rare; a clean error beats a
+        miscompile (the design-101 standing bar)."""
+        def rebinds(n):
+            if isinstance(n, LetStatement) and n.name == old:
+                return True
+            if isinstance(n, (IfLetExpr, GuardLetStatement)) and n.name == old:
+                return True
+            if isinstance(n, ForLoop) and n.variable == old:
+                return True
+            if isinstance(n, DestructuringLet):
+                return old in self._pattern_binding_names(n.pattern)
+            if isinstance(n, MatchArm):
+                return (old in n.bindings
+                        or old in self._pattern_binding_names(n.pattern))
+            if isinstance(n, ClosureExpr):
+                return any(p.name == old for p in getattr(n, 'parameters', []))
+            return False
+
+        def walk(n):
+            if isinstance(n, Identifier) and n.name == old:
+                n.name = new
+                return
+            if isinstance(n, MoveExpr) and n.variable == old and n.path is None:
+                n.variable = new
+                return
+            if isinstance(n, ASTNode):
+                if rebinds(n):
+                    raise CoroTransformError(
+                        f"coroutine transform: re-binding `{old}` inside a "
+                        f"suspension-spanning `if let`/`guard let` body in "
+                        f"`{self.name}` is not supported; rename the inner binding",
+                        getattr(n, 'line', 0) or 0, 0, source_file=self.src_file)
+                for f in dataclasses.fields(n):
+                    v = getattr(n, f.name)
+                    if isinstance(v, list):
+                        for x in v:
+                            if isinstance(x, Argument):
+                                walk(x.value)
+                            elif isinstance(x, ASTNode):
+                                walk(x)
+                    elif isinstance(v, Argument):
+                        walk(v.value)
+                    elif isinstance(v, ASTNode):
+                        walk(v)
+
+        walk(node)
+
+    def _optional_binding_type(self, node):
+        """The inner type `T` of an `if let`/`guard let` binding over a `T?`
+        scrutinee — the type of the frame field carrying it across a suspension."""
+        ot = getattr(node.optional_expr, 'resolved_type', None)
+        if ot is not None and ot.kind == TypeKind.OPTIONAL and ot.inner_type is not None:
+            return ot.inner_type
+        return None
+
     def _collect_frame_locals(self):
         """Conservative-by-scope liveness (design 52 Part 0): every local whose
         lexical scope SPANS a suspension is frame-resident. A block "spans a
@@ -726,6 +864,21 @@ class _FrameBuilder:
                 walk_block(ctrl.then_branch)
                 if ctrl.else_branch is not None:
                     walk_block(ctrl.else_branch)
+            elif isinstance(ctrl, IfLetExpr):
+                # design 104 item 1: a split `if let` binding survives the
+                # dispatch→then-branch state transition, so it is frame-resident.
+                if getattr(ctrl, '_coro_split', False):
+                    add(ctrl.name, self._optional_binding_type(ctrl),
+                        ctrl.line, ctrl.column)
+                walk_block(ctrl.then_branch)
+                if ctrl.else_branch is not None:
+                    walk_block(ctrl.else_branch)
+            elif isinstance(s, GuardLetStatement):
+                # design 104 item 1: a split `guard let` binding lives on into the
+                # rest of the enclosing block (which crosses the suspension).
+                if getattr(s, '_coro_split', False):
+                    add(s.name, self._optional_binding_type(s), s.line, s.column)
+                walk_block(s.else_branch)
             elif isinstance(ctrl, WhileExpr):
                 walk_block(ctrl.body)
             elif isinstance(ctrl, MatchExpr):
@@ -1060,6 +1213,16 @@ class _FrameBuilder:
                 visit_block(ctrl.then_branch)
                 if ctrl.else_branch is not None:
                     visit_block(ctrl.else_branch)
+            elif isinstance(ctrl, IfLetExpr) and getattr(ctrl, '_coro_split', False):
+                # design 104 item 1: a split `if let` body is CFG-split — recurse so
+                # nested suspending calls in the branches are embedded (not rejected).
+                visit_block(ctrl.then_branch)
+                if ctrl.else_branch is not None:
+                    visit_block(ctrl.else_branch)
+            elif isinstance(s, GuardLetStatement) and getattr(s, '_coro_split', False):
+                # design 104 item 1: recurse into the split `guard let` else-branch;
+                # the guard's continuation is visited by the enclosing block loop.
+                visit_block(s.else_branch)
             elif isinstance(ctrl, WhileExpr):
                 visit_block(ctrl.body)
             elif isinstance(ctrl, MatchExpr):
@@ -1123,6 +1286,14 @@ class _FrameBuilder:
         # the callee's internal `io_wait` park blocks the thread instead of yielding
         # — a `match stream.read() {...}` worker hangs (even at nesting depth 1).
         self._hoist_suspending_match()
+        # design 104 item 1: an `if let`/`guard let` whose BODY spans a suspension
+        # cannot be lowered in place (its branch must break across resume states).
+        # Mark such bindings for CFG-splitting and rename each to a UNIQUE frame
+        # field, rewriting its body uses — so the design-100 `if let x = x` shadow
+        # (inner `x: T` vs the outer optional `x: T?`) never collides on one field.
+        # Runs after the condition/try/match hoists (a suspending CONDITION is
+        # already lifted to a temp) and before call/local collection.
+        self._mark_optional_binding_splits()
         # A method's `self` receiver is held as the `__recv` pointer, not a normal
         # param — drop it if the parser placed it in `parameters`.
         self.params = [p for p in func.parameters
@@ -1785,6 +1956,14 @@ class _FrameBuilder:
         # dispatch loop (a `while` / `for` introduces its OWN loop scope, so its
         # inner break targets itself and needs no split for our sake).
         needs_ctrl_split = loop_ctx is not None and self._has_loop_ctrl(ctrl)
+        # design 104 item 1: an `if let`/`guard let` whose body spans a suspension
+        # was CFG-split (marked in `_mark_optional_binding_splits`).
+        if isinstance(ctrl, IfLetExpr) and getattr(ctrl, '_coro_split', False):
+            self._split_if_let(ctrl, loop_ctx)
+            return
+        if isinstance(s, GuardLetStatement) and getattr(s, '_coro_split', False):
+            self._split_guard_let(s, loop_ctx)
+            return
         if isinstance(ctrl, IfExpr) and (self._spans_suspension(ctrl)
                                          or needs_ctrl_split):
             self._split_if(ctrl, loop_ctx)
@@ -1826,6 +2005,75 @@ class _FrameBuilder:
             if self.cur not in self._term:
                 self._goto(merge)
         self.cur = merge
+
+    def _optbind_dispatch(self, node, scrut, some_state, none_state):
+        """design 104 item 1: emit the optional-binding dispatch as an ordinary
+        `if let` whose branches ONLY set the resume state (codegen already lowers an
+        `if let` over a `T?` correctly — this reuses that has-value test + unwrap
+        instead of a synthesized Some/None match). On the value path the unwrapped
+        binding is stored into its frame field so it survives the transition to the
+        (separately-dispatched) body state; both paths set `__state` and re-dispatch."""
+        bind = node.name
+        some_body = []
+        if bind in self.encmap:
+            some_body.append(AssignStatement(
+                target=_self_field(bind), value=Identifier(name=bind)))
+        some_body.append(AssignStatement(
+            target=_self_field("__state"), value=_int(some_state)))
+        none_body = [AssignStatement(
+            target=_self_field("__state"), value=_int(none_state))]
+        dispatch = IfLetExpr(
+            name=bind, optional_expr=scrut, mutable=node.mutable,
+            then_branch=Block(statements=some_body, final_expr=None),
+            else_branch=Block(statements=none_body, final_expr=None),
+            line=node.line, column=node.column)
+        self._emit([ExpressionStatement(expression=dispatch)])
+        self._blocks[self.cur].append(ContinueStatement())
+        self._term.add(self.cur)
+
+    def _split_if_let(self, e, loop_ctx):
+        forgets = []
+        scrut = self._rewrite_expr(e.optional_expr, forgets)
+        if forgets:
+            raise CoroTransformError(
+                f"coroutine transform: `move` of the scrutinee of a "
+                f"suspension-spanning `if let` in `{self.name}` is not supported",
+                e.line, e.column)
+        then_entry = self._new_block()
+        else_entry = self._new_block() if e.else_branch is not None else None
+        merge = self._new_block()
+        self._optbind_dispatch(
+            e, scrut, then_entry, else_entry if else_entry is not None else merge)
+        self.cur = then_entry
+        self._lower_block(e.then_branch, loop_ctx)
+        if self.cur not in self._term:
+            self._goto(merge)
+        if else_entry is not None:
+            self.cur = else_entry
+            self._lower_block(e.else_branch, loop_ctx)
+            if self.cur not in self._term:
+                self._goto(merge)
+        self.cur = merge
+
+    def _split_guard_let(self, s, loop_ctx):
+        forgets = []
+        scrut = self._rewrite_expr(s.optional_expr, forgets)
+        if forgets:
+            raise CoroTransformError(
+                f"coroutine transform: `move` of the scrutinee of a "
+                f"suspension-spanning `guard let` in `{self.name}` is not supported",
+                s.line, s.column)
+        none_entry = self._new_block()
+        after = self._new_block()
+        # Value path -> `after` (the guard's continuation, which the enclosing
+        # statement loop lowers into `after` next); None path -> the else-branch,
+        # which must diverge (return/break/continue) per guard semantics.
+        self._optbind_dispatch(s, scrut, after, none_entry)
+        self.cur = none_entry
+        self._lower_block(s.else_branch, loop_ctx)
+        if self.cur not in self._term:
+            self._goto(after)
+        self.cur = after
 
     def _split_while(self, e, loop_ctx):
         if e.condition is not None:

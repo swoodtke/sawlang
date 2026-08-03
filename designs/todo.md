@@ -11,6 +11,31 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 104 — coro embedding: if-let/guard-let bodies + remaining generic shapes (IN PROGRESS)
+- **Item 1 (suspending calls in `if let`/`guard let` bodies) — LANDED.** The
+  design-101 clean-error residue: an optional-binding branch could not be CFG-split.
+  Fix (coro_transform.py): `_mark_optional_binding_splits` (new prepare pre-pass,
+  after the condition/try/match hoists) marks every `if let`/`guard let` whose body
+  spans a suspension and renames its binding to a UNIQUE frame field (`__obN`),
+  rewriting body uses — so design-100's `if let x = x` keeps inner `x: T` and outer
+  `x: T?` in DISTINCT fields (a nested re-bind of the name, or a tuple pattern, is a
+  clean anchored error, not a miscompile). `_collect_frame_locals` + `_collect_calls`
+  gained IfLetExpr/GuardLetStatement branches (binding→frame field; recurse into the
+  bodies so nested suspending calls embed). CFG split (`_split_if_let`/
+  `_split_guard_let` via one `_optbind_dispatch`): emits the dispatch as an ordinary
+  `if let` whose branches ONLY set `__state` (reuses codegen's has-value test+unwrap
+  over `T?` — no synthesized Some/None match, which the parser rejects for `None`),
+  stores the unwrapped binding into its frame field, then re-dispatches to the body
+  states; guard-let's Some path flows to the continuation (the enclosing stmt loop
+  lowers the rest into it), None path lowers the else-exit. IR-verified: nested
+  `work()`/`s.read()` drive as `__Frame_*_resume`, zero plain `@work`/`@TcpStream_read`
+  calls. Incidental: a statement-position blocking-extern (design 103) in a spanning
+  if-let/guard body now offloads too (the branch is split). Tests: `net_iflet_guardlet_bodies`
+  (socketpair recirc in an if-let then-body, a guard-let continuation, a guard-let
+  else-body, and the `if let ok = ok` shadow — exact per-shape recirc counts); the
+  two `errors/coro_suspending_method_in_{iflet,guardlet}_body` tests removed (shapes
+  flipped ERROR→EMBED). Suite 940 (941 −2 err +1), bootstrap 17+17 + libs 4+4. [104, 101, 100, 84, 74]
+
 ## Design 102 — runtime edge bugs: spawn-Void ICE + cancel wakes an io-parked task (LANDED)
 - **Item 2 (cancel wakes an ALREADY-io-parked task — A3 remainder) — LANDED.** A task
   parked in `io_wait` on a permanently-idle fd, cancelled by a peer, never observed the

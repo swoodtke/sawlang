@@ -2373,15 +2373,20 @@ Observable rules:
   refcounted env deinits exactly once at frame death. A **tuple** local and a
   `let (a, b) = f()` **destructuring** also survive a suspension — their bindings
   are frame-resident (design 77).
+  struct's type params so the frame's receiver pointer gets a concrete type. A
+  suspending call in an **`if let` / `guard let` body** also embeds (design 104
+  item 1): the optional-binding branch is CFG-split like an `if`/`match`, the bound
+  name becomes a frame field, `guard let`'s else-exit path splits with it, and the
+  design-100 same-name unwrap `if let x = x` keeps the inner `x: T` and the outer
+  `x: T?` in distinct fields.
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
   line, not miscompiled): a suspending call buried in a *larger expression* (an
-  argument, a receiver, a `let x = if … { s.read() }` value position); a suspending
-  call in an `if let`/`guard let` **body** (the state split does not CFG-split those
-  branches — restructure to a plain `if`/`else` or `match`, or drive the method
-  directly); a nested suspending *generic* call to a template in *another module*; a
-  method that is *both* struct-generic and method-generic; a suspension inside a
-  `for` over a non-range iterable; and a value-producing `break` out of a
-  suspension-spanning loop.
+  argument, a receiver, a `let x = if … { s.read() }` value position); a
+  suspension-spanning `if let`/`guard let` with a *tuple pattern*, or one whose body
+  *re-binds* the bound name (rename the inner binding); a nested suspending *generic*
+  call to a template in *another module*; a method that is *both* struct-generic and
+  method-generic; a suspension inside a `for` over a non-range iterable; and a
+  value-producing `break` out of a suspension-spanning loop.
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately
@@ -2704,8 +2709,10 @@ wake routing stays in the reactor; the pipe byte and the join of the worker form
 the release/acquire boundary, so the result transfers with no data race. v1 is
 thread-per-call and restricts the extern to the C-ABI `(Int) -> Int` whitelist (a
 pool + wider signatures are future work); a wider signature, or a blocking-extern
-call buried in a larger expression (an argument, a `try!`, an `if let` body), is a
-clean compile error anchored at the call site. Cancelling a task parked on an
+call buried in a larger expression (an argument, a `try!`), is a clean compile
+error anchored at the call site. A blocking-extern call at statement position inside
+a suspension-spanning `if let`/`guard let` body offloads like any other (design 104
+item 1 CFG-splits the branch). Cancelling a task parked on an
 offload job wakes it (via the design-102 reactor self-pipe), but the in-flight
 blocking call cannot be aborted — the task joins the worker before taking its
 cancel path.
