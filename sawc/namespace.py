@@ -735,6 +735,14 @@ class Namespace:
         TypeKind.FLOAT, TypeKind.BOOL,
     })
 
+    # Primitive kinds that register an extensible pseudo-struct (design 57), so a
+    # `extension Int: Fooable` conformance is keyed under this name — the same key
+    # trait-method dispatch resolves a primitive receiver's methods by.
+    _PRIMITIVE_CONFORMANCE_KEYS = {
+        TypeKind.INT: "Int",
+        TypeKind.FLOAT: "Float",
+    }
+
     def _lookup_struct_deep(self, name: str) -> Optional[StructSymbol]:
         """Look up a struct in this namespace or any imported module namespace."""
         result = self.structs.get(name)
@@ -1192,6 +1200,13 @@ class Namespace:
             name = saw_type.enum_name
         elif saw_type.kind == TypeKind.STRING:
             name = "String"
+        else:
+            # A primitive that carries method extensions (design 57) conforms to
+            # a user trait through the SAME conformance key the trait-method
+            # dispatch uses for its pseudo-struct (`extension Int: Fooable`).
+            # Only Int/Float register as extensible pseudo-structs; other
+            # primitives cannot be extended, so their conformance set is empty.
+            name = self._PRIMITIVE_CONFORMANCE_KEYS.get(saw_type.kind)
         if name is None:
             return False
         return self.type_conforms_to(name, bound)

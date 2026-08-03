@@ -1,0 +1,14 @@
+// Design 109: an EXPLICIT primitive type argument that does not satisfy a user
+// trait bound is a clean, call-anchored error (previously silently accepted —
+// the check derived a concrete name only for struct/enum args). `Int` has no
+// `extension Int: Fooable`, so `run<Int>` is rejected.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type `Int` does not satisfy the `Fooable` bound
+
+trait Fooable { func foo(&self) -> Int }
+
+func run<T: Fooable>(x: T) -> Int { x.foo() }
+
+func main() {
+    print(run<Int>(5))
+}

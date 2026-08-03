@@ -2696,6 +2696,22 @@ class ExpressionsMixin:
                             type_assigns = self.namespace.get_type_assignments(concrete_type_name, bound)
                             for assoc_name, assoc_type in type_assigns.items():
                                 type_map[assoc_name] = assoc_type
+                    else:
+                        # Design 109: a type argument with no struct/enum name to
+                        # key a conformance by — a primitive, tuple, Optional,
+                        # closure, or existential — was previously left UNCHECKED
+                        # for the non-structural / user-trait bounds (silent accept
+                        # of an invalid program). Route it through the same
+                        # `_bound_satisfied` / conformance registry the trait-method
+                        # dispatch and the generic-method path use: a structural
+                        # trait (Comparable/Hashable/Printable) is satisfied where
+                        # the primitive structurally conforms; a user trait is
+                        # satisfied only via a registered `extension Int: T`.
+                        if not self._bound_satisfied(resolved_arg, bound):
+                            self._error(
+                                ErrorKind.TYPE_MISMATCH,
+                                f"type `{resolved_arg}` does not satisfy the `{bound}` bound",
+                                expr.line, expr.column)
             # design 70 (A5): record a deferred effect edge to this instantiation.
             # Materialized at finalize only if `expr.name`'s template is
             # effect-polymorphic (calls a method on a type-param receiver), so an

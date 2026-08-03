@@ -800,11 +800,17 @@ class CallsMixin:
         # Check for primitive type extensions (design 57). The LLVM type of an
         # Int (i64) is ambiguous with Int64/UInt, so use the typechecker's stamped
         # SawType (`recv_saw`) to name the primitive pseudo-struct precisely;
-        # fall back to the i8* shape for String.
+        # fall back to the i8* shape for String. Inside a monomorphized generic
+        # body the stamped type is still the abstract param `T`, so resolve it
+        # through the active substitution first — a `T: Fooable` bound satisfied
+        # by `extension Int: Fooable` names the `Int` pseudo-struct here (design 109).
         if struct_name is None:
-            if recv_saw is not None and recv_saw.kind == TypeKind.INT:
+            recv_saw_conc = recv_saw
+            if recv_saw_conc is not None and self.type_param_context:
+                recv_saw_conc = recv_saw_conc.substitute(self.type_param_context)
+            if recv_saw_conc is not None and recv_saw_conc.kind == TypeKind.INT:
                 struct_name = "Int"
-            elif recv_saw is not None and recv_saw.kind == TypeKind.FLOAT:
+            elif recv_saw_conc is not None and recv_saw_conc.kind == TypeKind.FLOAT:
                 struct_name = "Float"
             elif isinstance(obj_type, ir.PointerType):
                 pointee = obj_type.pointee

@@ -11,6 +11,51 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Design 109 — silently unchecked trait bounds for primitive type args (LANDED)
+- **Root cause (typechecker + one namespace gap).** The free-function bound-check
+  loop in `_check_function_call` (expressions.py) derived a `concrete_type_name`
+  only for STRUCT/ENUM type args and special-cased Copy/Send/Sync/Equatable; a
+  Comparable/Hashable/Printable/user-trait bound on a PRIMITIVE (or tuple/Optional/
+  closure/existential — anything with no struct/enum name) fell through its final
+  `elif concrete_type_name:` UNCHECKED, silently accepting an invalid program (both
+  explicit and inferred args). The generic-METHOD path (`_check_type_param_bounds`)
+  already routed every non-Copy bound through `_bound_satisfied` uniformly, so only
+  the free-fn loop had the hole.
+- **Fix 1 (the loop): an `else` safety net** — a type arg with no struct/enum name
+  is routed through the SAME `_bound_satisfied`/conformance registry (the diagnostic
+  is the design-93/105/108 "type `X` does not satisfy the `B` bound", anchored at the
+  call, naming the INFERRED type for inferred args). Structural traits pass where the
+  primitive structurally conforms; a user trait passes only via a registered
+  `extension Int: T`.
+- **Fix 2 (namespace): primitive → pseudo-struct conformance key.**
+  `type_satisfies_bound` derived a conformance NAME only for STRUCT/ENUM/STRING, so
+  `extension Int: Fooable` (keyed under `"Int"`, the same key trait-method dispatch
+  uses) was invisible — a satisfied primitive user-trait bound would have FALSELY
+  failed. Added `_PRIMITIVE_CONFORMANCE_KEYS` (INT→`"Int"`, FLOAT→`"Float"`; only
+  these register as extensible pseudo-structs) so a primitive user-trait conformance
+  is honored (fixes the method path's latent false-negative too).
+- **Fix 3 (codegen, in scope for the satisfied-via-extension test): substitute the
+  monomorphized receiver.** Calling a type-param trait method whose `T` resolves to a
+  primitive (`run<Int>` with `extension Int: Fooable`) ICE'd ("Cannot determine struct
+  type for method call") — in a mono'd generic body the receiver's stamped type is
+  still the abstract `T`, so the design-57 primitive-pseudo-struct detection missed.
+  `_generate_method_call` (calls.py) now substitutes `recv_saw` against the active
+  `type_param_context` before naming the `Int`/`Float` pseudo-struct. Pre-existing
+  (independent of the typecheck change), but blocked the required item-4 test, so
+  fixed here to deliver it end-to-end (`run<Int>` / `run(5)` → 105).
+- **AUDIT: ZERO latent violations.** The full suite + std + blade + libs were already
+  clean of silently-accepted primitive user-trait bounds (mirrors the design 100/107
+  sweeps) — no missing conformance to add, no bound to correct.
+- Tests: `generic_primitive_bounds` (user trait satisfied via `extension Int/Float:
+  Fooable`, explicit + INFERRED; prelude Comparable/Printable/Equatable over Int/
+  Float/String; tuple arg via Equatable recursion), `errors/generic_primitive_bound_
+  explicit` + `errors/generic_primitive_bound_inferred` (Int violates a user trait,
+  explicit + inferred naming the inferred type), `errors/generic_tuple_bound_violation`
+  (tuple type arg checked). Suite 964 (960 + 4), zero xfails; bootstrap ok (blade
+  17+17, libs toml 4 + semver 4). Docs: NONE beyond this tracker — the RULE was always
+  "bounds are checked"; this fixes the implementation to match (no user-visible rule
+  statement changed). [109, 108, 93, 105, 57, 32, 48]
+
 ## Design 108 — ICE: generic parameter with a default VALUE (LANDED)
 - **Root cause (codegen, post-typecheck).** `func f<T>(a: Int, b: T = 0)` called
   with the default OMITTED (`f<Int>(1)`, and after this fix also `f(1)`) emitted
@@ -44,8 +89,8 @@ items need a probe before being treated as real work.
   set binds `g(1)` by filling `b` and infers its `T` from the default
   (`_try_infer_overload_candidate` now passes `default_values`); the concrete
   sibling `g("hi")` still wins by exact match.
-- **FLAG (pre-existing, orthogonal — NOT fixed, discovered here).** A generic
-  bound of a USER trait against a PRIMITIVE type argument is silently UNCHECKED —
+- **FLAG (pre-existing, orthogonal — CLOSED by design 109).** A generic
+  bound of a USER trait against a PRIMITIVE type argument was silently UNCHECKED —
   `func f<T: Fooable>(...)` accepts `f<Int>(1, 5)` even though `Int` has no `foo`.
   The bound-check loop in `_check_function_call` derives a `concrete_type_name`
   only for STRUCT/ENUM args (a primitive has none) and only special-cases
