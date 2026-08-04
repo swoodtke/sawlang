@@ -169,6 +169,17 @@ inlined (the `.build/scratch` probes are gitignored).
   buried-suspension error class (104 list, 111 suspending-hop carve, the
   suspension-mid-chain future-work item). Brief:
   designs/120-expression-suspension.md. [120]
+- **Design 121 — doc comments + --emit-docs (queued; dispatch AFTER 119
+  integrates; user-authorized Aug 4; may run concurrent with 120).** The
+  sawlang.com pipeline foundation: `///` (following decl) + `//!` (module)
+  captured as trivia in BOTH lexers (default dump format unchanged; new
+  --docs dump + lexdiff sweep), parser/AST attachment with clean
+  unattached-doc errors, `--emit-docs` JSON from the TYPECHECKED namespace
+  (public-only per design 80; signatures/effect/ownership from resolved
+  types), std.task + std.time docstringed as the end-to-end sample. The new
+  `.claude/skills/saw-docs` writing skill (humanizer distilled + Saw
+  terminology/example/docstring conventions) is the mandatory style guide
+  for all user-facing doc text. Brief: designs/121-doc-comments.md. [121]
 - **Design 117 — runtime ABI v2 minimization. LANDED (Aug 4).** Errno
   accessors DELETED; the reactor is INSTANCE-based and relocated to Saw
   (DF-113d dissolved); the thread surface is spawn/join. Per-unit commits:
