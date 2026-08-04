@@ -1,0 +1,34 @@
+// Unsigned integer relational comparisons (`<` `>` `<=` `>=`) must use an
+// UNSIGNED icmp: a UInt with the high bit set reads as negative under a signed
+// compare, so `UInt.max > 1` was wrongly false. Mirrors the udiv split already
+// in place for `/` and `%`. (Discovered implementing design 119 Part A — the
+// lexer's literal magnitude check needs unsigned compares against UInt bounds.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// max_gt_one: true
+// one_lt_max: true
+// high_bit_gt_one: true
+// max_ge_max: true
+// small_le_u8max: true
+// over_u8_le_u8max: false
+// max_gt_u32max: true
+// max_ge_u32max: true
+
+func main() {
+    let big: UInt = 18446744073709551615   // 2^64 - 1 (all ones)
+    let one: UInt = 1
+    let high: UInt = 9223372036854775808   // 2^63 (high bit set)
+
+    print("max_gt_one: {big > one}")
+    print("one_lt_max: {one < big}")
+    print("high_bit_gt_one: {high > one}")
+    print("max_ge_max: {big >= big}")
+
+    let small: UInt = 200
+    let over: UInt = 300
+    print("small_le_u8max: {small <= UInt8.max}")
+    print("over_u8_le_u8max: {over <= UInt8.max}")
+
+    print("max_gt_u32max: {big > UInt32.max}")
+    print("max_ge_u32max: {big >= UInt32.max}")
+}

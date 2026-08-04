@@ -385,7 +385,14 @@ class OperatorsMixin:
                                               TypeKind.ENUM):
                 return self._ordering_to_bool(expr.op,
                                               self._emit_compare(left, right, st))
-            return self.builder.icmp_signed(expr.op, left, right, name="icmptmp")
+            # Unsigned integer operands must compare with icmp_unsigned: under a
+            # signed compare a UInt with the high bit set reads as negative, so
+            # `UInt64.max > 1` would be false (design 41 / mirror of the udiv
+            # split above). Only genuine unsigned kinds switch; Int and raw
+            # pointers stay signed as before.
+            icmp = (self.builder.icmp_signed if self._int_is_signed(expr.left)
+                    else self.builder.icmp_unsigned)
+            return icmp(expr.op, left, right, name="icmptmp")
 
         else:
             raise ValueError(f"Unknown binary operator: {expr.op}")
