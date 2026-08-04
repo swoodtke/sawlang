@@ -34,6 +34,11 @@ import sys
 import signal
 import subprocess
 import tempfile
+import io
+import copy
+import contextlib
+import multiprocessing
+import multiprocessing.connection
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional
@@ -216,6 +221,147 @@ def compile_saw_file(file_path: Path, output_path: Path,
         return False, "", f"Failed to run compiler: {e}"
 
 
+# ===========================================================================
+# In-process compilation (design 115).
+#
+# Spawning a fresh `sawc.py` subprocess per test repeats ~250 ms of FIXED
+# bootstrap overhead every time — Python startup, the llvmlite/sawc imports,
+# and (the dominant slice) rebuilding the builtin + std namespace. A persistent
+# worker PROCESS imports sawc once, builds that namespace once, and then invokes
+# the compiler in-process via `compile_saw()` for its share of tests. Only
+# compiler BOOTSTRAP is amortized: each test still produces its own binary and
+# still RUNS it as a separate, timeout-and-process-group-guarded subprocess
+# (see run_executable), so execution isolation is unchanged.
+#
+# Correctness rests on two things audited for design 115:
+#   * the compiler is re-entrant in one long-lived process — a fresh
+#     TypeChecker/CodeGenerator per compile, and codegen now isolates each
+#     compile in its own llvmlite `ir.Context` (the identified-type registry
+#     was the one true global leak);
+#   * the builtin namespace is rebuilt ONCE per worker and deep-copied per
+#     compile (measured ~2.4x cheaper than re-parsing+re-checking std, and
+#     bit-identical — the full suite is diffed against --subprocess).
+# ===========================================================================
+
+_SAWC = None                 # the imported `sawc` module (per worker process)
+_WORKER_VERBOSE = False
+
+
+def _install_builtin_cache(sawc_mod):
+    """Monkeypatch `sawc.build_builtin_namespace` so the (expensive) builtin +
+    std parse/type-check happens ONCE per worker; every compile gets a fresh
+    deep copy of that result.
+
+    `build_builtin_namespace` returns `(builtin_ast, builtin_ns)` whose namespace
+    shares AST-node identity with the ast (the ns points at the same decl
+    nodes). Both are then mutated downstream — type-checking mutates namespaces,
+    codegen annotates AST nodes — so a compile needs its OWN copies. Deep-copying
+    the PAIR together (one memo) preserves that shared-identity invariant while
+    isolating each compile. The cache is keyed on the two flags that change what
+    gets loaded (freestanding drops hosted std; runtime-build loads no std).
+    """
+    orig = sawc_mod.build_builtin_namespace
+    cache = {}
+
+    def cached(verbose=False, freestanding=False, runtime_build=False):
+        key = (freestanding, runtime_build)
+        if key not in cache:
+            cache[key] = orig(verbose, freestanding, runtime_build)
+        return copy.deepcopy(cache[key])
+
+    sawc_mod.build_builtin_namespace = cached
+
+
+def _init_in_process(verbose: bool = False):
+    """Import sawc into THIS process and install the builtin-namespace cache.
+
+    Used both as the multiprocessing.Pool initializer (once per worker) and, for
+    --sequential, directly in the main process.
+    """
+    global _SAWC, _WORKER_VERBOSE
+    _WORKER_VERBOSE = verbose
+    if _SAWC is None:
+        sawc_dir = str(Path(__file__).parent / 'sawc')
+        if sawc_dir not in sys.path:
+            sys.path.insert(0, sawc_dir)
+        import sawc as _s
+        _SAWC = _s
+        _install_builtin_cache(_s)
+
+
+def _parse_compile_flags(flags: List[str]):
+    """Translate a test's `// COMPILE-FLAGS:` list into `compile_saw()` kwargs.
+
+    Mirrors the subset of sawc's own CLI handling that any test uses. Returns
+    None for a flag the in-process path does not model, so the caller can fall
+    back to a faithful subprocess compile rather than silently diverge.
+    """
+    kwargs = {'object_only': False, 'freestanding': False, 'runtime_build': False,
+              'target_triple': None, 'module_paths': {}}
+    i, n = 0, len(flags)
+    while i < n:
+        f = flags[i]
+        if f == '-c':
+            kwargs['object_only'] = True
+        elif f == '--freestanding':
+            kwargs['freestanding'] = True
+        elif f == '--runtime-build':
+            kwargs['runtime_build'] = True
+        elif f == '--target':
+            i += 1
+            if i >= n:
+                return None
+            kwargs['target_triple'] = flags[i]
+        elif f == '--module-path':
+            i += 1
+            if i >= n or '=' not in flags[i]:
+                return None
+            name, _, d = flags[i].partition('=')
+            name, d = name.strip(), d.strip()
+            if not name or not d:
+                return None
+            kwargs['module_paths'][name] = d
+        else:
+            return None  # unmodeled flag -> caller falls back to subprocess
+        i += 1
+    return kwargs
+
+
+def compile_saw_in_process(file_path: Path, output_path: Path,
+                           compile_flags: Optional[List[str]] = None
+                           ) -> tuple[bool, str, str]:
+    """Compile `file_path` in this process via the cached `compile_saw()`.
+
+    Returns `(success, stdout, stderr)` with the SAME shape as
+    `compile_saw_file`. All compiler output (stdout + the diagnostic reporter's
+    stderr) is captured into the stderr slot: the reporter and every `error:`
+    line render unconditional ANSI text (no isatty gating), so the captured text
+    is byte-identical to what the CLI subprocess would emit — the invariant that
+    lets error tests (examples/errors/) run in-process without losing assertion
+    fidelity. `compile_saw` signals failure by `sys.exit(1)` (parse/type/codegen
+    errors) which surfaces here as SystemExit.
+    """
+    kwargs = _parse_compile_flags(compile_flags or [])
+    if kwargs is None:
+        # A flag the in-process path does not model: compile via subprocess so
+        # the result is exactly the CLI's, never a silent divergence.
+        return compile_saw_file(file_path, output_path, compile_flags)
+
+    buf = io.StringIO()
+    ok = True
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        try:
+            _SAWC.compile_saw(str(file_path), str(output_path), verbose=False,
+                              **kwargs)
+        except SystemExit as e:
+            ok = e.code in (None, 0)
+        except Exception as e:  # a compiler bug: fail the test, don't kill the worker
+            ok = False
+            print(f"\033[1;31merror\033[0m: internal compiler error: {e}",
+                  file=sys.stderr)
+    return ok, "", buf.getvalue()
+
+
 # Hard wall-clock cap on a single test's RUN phase. Generous vs. the
 # ~seconds a real test takes; its whole job is to stop a test that HANGS
 # AT RUNTIME (a live hazard for every concurrency brief) from wedging the
@@ -279,12 +425,20 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
             pass
 
 
-def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
+def run_test(test: TestCase, verbose: bool = False, compile_fn=None) -> tuple[bool, str]:
     """
     Run a single test case
 
+    `compile_fn(path, output_path, compile_flags) -> (success, stdout, stderr)`
+    performs the compilation; it defaults to the spawn-a-subprocess compiler
+    (`compile_saw_file`). The persistent-worker path passes the in-process
+    compiler (`compile_saw_in_process`) instead. Everything else — running the
+    produced binary, `nm` inspection, output matching — is identical either way.
+
     Returns: (passed, message)
     """
+    if compile_fn is None:
+        compile_fn = compile_saw_file
     # Require explicit EXPECT: directive
     if test.expect_type is None:
         return False, "Missing '// EXPECT: success', '// EXPECT: error', or '// EXPECT: panic' directive"
@@ -304,7 +458,7 @@ def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
         exe_path.parent.mkdir(exist_ok=True)
 
         # Compile
-        compile_success, compile_stdout, compile_stderr = compile_saw_file(test.path, exe_path, test.compile_flags)
+        compile_success, compile_stdout, compile_stderr = compile_fn(test.path, exe_path, test.compile_flags)
 
         if test.expect_type == ExpectType.ERROR:
             # Should fail to compile
@@ -509,11 +663,118 @@ def resolve_status(test: TestCase, raw_passed: bool, msg: str) -> tuple[TestStat
     return TestStatus.XFAIL, f"{test.xfail_reason}\n{msg}"
 
 
-def run_test_wrapper(test: TestCase, verbose: bool) -> tuple[TestCase, TestStatus, str]:
+def run_test_wrapper(test: TestCase, verbose: bool, compile_fn=None) -> tuple[TestCase, TestStatus, str]:
     """Wrapper to run a test and return all needed info for results"""
-    raw_passed, msg = run_test(test, verbose)
+    raw_passed, msg = run_test(test, verbose, compile_fn)
     status, msg = resolve_status(test, raw_passed, msg)
     return (test, status, msg)
+
+
+# ---------------------------------------------------------------------------
+# Persistent-worker pool (design 115), built on Process + Pipe.
+#
+# NOT multiprocessing.Pool: Pool's task/result queues rest on POSIX named
+# semaphores (`SemLock`), which some sandboxes and locked-down CI containers
+# refuse to create (`sem_open` -> EPERM), and there is no need for them. Each
+# worker instead owns ONE duplex Pipe (a socketpair — no semaphore) to the main
+# process, and the main process multiplexes across those pipes with
+# `connection.wait` (select/poll on fds). Work is handed out dynamically in a
+# strict per-worker ping-pong (main sends a task, worker replies with its
+# result, main sends the next), so a worker that draws several slow tests never
+# starves the others — the same load-balancing the old ThreadPool had.
+# ---------------------------------------------------------------------------
+
+_WORKER_DONE = None  # sentinel: no more work, exit the loop
+
+
+def _worker_loop(conn, verbose: bool):
+    """Persistent worker body: import sawc + build the builtin namespace once,
+    then compile-and-run tasks in-process until the sentinel arrives.
+
+    Each task is `(index, TestCase)`; each reply is `(index, TestStatus, msg)`.
+    The index lets the main process match a reply to its test without shipping
+    the (already-known) TestCase back."""
+    _init_in_process(verbose)
+    try:
+        while True:
+            task = conn.recv()
+            if task is _WORKER_DONE:
+                break
+            index, test = task
+            _, status, msg = run_test_wrapper(test, verbose, compile_saw_in_process)
+            conn.send((index, status, msg))
+    except (EOFError, KeyboardInterrupt):
+        pass
+    finally:
+        conn.close()
+
+
+def _run_parallel_in_process(tests, num_workers, verbose, on_result):
+    """Drive `tests` across `num_workers` persistent worker processes.
+
+    Returns a results list aligned with `tests`. `on_result(index, status, msg)`
+    is called on the main process as each test finishes, for live progress. A
+    worker that dies mid-task (e.g. an LLVM-level abort on a compiler bug) leaves
+    its task's slot filled with a synthesized FAIL, so the run never hangs and
+    never silently drops a test."""
+    ctx = multiprocessing.get_context('spawn')
+    results = [None] * len(tests)
+    tasks = iter(enumerate(tests))
+
+    conns, procs = [], []
+    for _ in range(min(num_workers, len(tests))):
+        parent, child = ctx.Pipe()
+        p = ctx.Process(target=_worker_loop, args=(child, verbose), daemon=True)
+        p.start()
+        child.close()  # only the worker holds the child end
+        conns.append(parent)
+        procs.append(p)
+
+    def feed(conn) -> bool:
+        """Send the next task to `conn`; return False (and send the sentinel) if
+        the work is exhausted."""
+        nxt = next(tasks, None)
+        if nxt is None:
+            conn.send(_WORKER_DONE)
+            return False
+        conn.send(nxt)
+        return True
+
+    active = set()
+    for conn in conns:
+        if feed(conn):
+            active.add(conn)
+        else:
+            conn.close()
+
+    received = 0
+    while active:
+        for conn in multiprocessing.connection.wait(list(active)):
+            try:
+                index, status, msg = conn.recv()
+            except EOFError:
+                # Worker exited unexpectedly with a task outstanding.
+                active.discard(conn)
+                continue
+            results[index] = (tests[index], status, msg)
+            received += 1
+            on_result(index, status, msg)
+            if not feed(conn):
+                active.discard(conn)
+                conn.close()
+
+    for p in procs:
+        p.join()
+
+    # Fill any holes left by a crashed worker so the caller sees a definite,
+    # build-breaking result rather than a None.
+    if received != len(tests):
+        for i, slot in enumerate(results):
+            if slot is None:
+                results[i] = (tests[i], TestStatus.FAIL,
+                              "worker process died during compilation "
+                              "(no result returned)")
+    return results
 
 
 def main():
@@ -527,7 +788,17 @@ def main():
                         help='Number of parallel jobs (default: CPU count)')
     parser.add_argument('--sequential', action='store_true',
                         help='Run tests sequentially (no parallelism)')
+    parser.add_argument('--subprocess', action='store_true',
+                        help='Compile each test by spawning a fresh sawc.py '
+                             'subprocess (the pre-design-115 path). The default '
+                             'compiles in-process in persistent worker processes; '
+                             'use this to debug any runner-vs-compiler discrepancy.')
     args = parser.parse_args()
+
+    # Default: compile in-process in persistent worker processes (design 115).
+    # --subprocess restores the spawn-a-sawc.py-per-test path for debugging.
+    in_process = not args.subprocess
+    compile_fn = compile_saw_in_process if in_process else compile_saw_file
 
     examples_dir = Path(__file__).parent / 'examples'
 
@@ -549,60 +820,62 @@ def main():
         print("No tests found!")
         return 1
 
+    def _report(completed, total, test, status, msg):
+        """Emit the one-line progress record for a finished test."""
+        print(f"[{completed}/{total}] {STATUS_SYMBOLS[status]} {test.name}")
+        if not status.is_ok and not args.verbose:
+            for line in msg.split('\n'):
+                print(f"      {line}")
+
     if args.sequential:
-        # Sequential execution (original behavior)
+        # Sequential execution. In-process still amortizes bootstrap: sawc is
+        # imported and the builtin namespace built once in THIS process.
+        if in_process:
+            _init_in_process(args.verbose)
         results = []
         for i, test in enumerate(tests, 1):
-            status = f"[{i}/{len(tests)}]"
-            print(f"{status} Running {test.name}...", end=' ', flush=True)
-
-            raw_passed, msg = run_test(test, args.verbose)
+            print(f"[{i}/{len(tests)}] Running {test.name}...", end=' ', flush=True)
+            raw_passed, msg = run_test(test, args.verbose, compile_fn)
             status, msg = resolve_status(test, raw_passed, msg)
             results.append((test, status, msg))
-
             print(STATUS_SYMBOLS[status])
             if not status.is_ok and not args.verbose:
                 print(f"  {msg}")
-    else:
-        # Parallel execution
+    elif in_process:
+        # Parallel, in-process: PERSISTENT worker processes, each importing sawc
+        # + building the builtin namespace once and then compiling many tests
+        # in-process. Test binaries are still RUN as separate subprocesses inside
+        # run_test.
         num_workers = args.jobs if args.jobs else os.cpu_count()
-        print(f"Running tests in parallel ({num_workers} workers)...\n")
+        print(f"Running tests in parallel ({num_workers} persistent workers)...\n")
+        completed = [0]
 
+        def _on_result(index, status, msg):
+            completed[0] += 1
+            _report(completed[0], len(tests), tests[index], status, msg)
+
+        results = _run_parallel_in_process(tests, num_workers, args.verbose,
+                                           _on_result)
+        results.sort(key=lambda r: r[0].name)
+    else:
+        # Parallel, --subprocess: the pre-design-115 path. Each compile spawns a
+        # sawc.py subprocess, so threads (not processes) suffice to overlap them.
+        num_workers = args.jobs if args.jobs else os.cpu_count()
+        print(f"Running tests in parallel ({num_workers} workers, subprocess compile)...\n")
         results = []
         completed = 0
-        passed_count = 0
-        failed_count = 0
         print_lock = threading.Lock()
-
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # Submit all tests
             future_to_test = {
-                executor.submit(run_test_wrapper, test, args.verbose): test
+                executor.submit(run_test_wrapper, test, args.verbose, compile_fn): test
                 for test in tests
             }
-
-            # Process results as they complete
             for future in as_completed(future_to_test):
                 test, status, msg = future.result()
                 results.append((test, status, msg))
-
                 with print_lock:
                     completed += 1
-                    if status.is_ok:
-                        passed_count += 1
-                    else:
-                        failed_count += 1
-
-                    # Show progress with test name
-                    progress = f"[{completed}/{len(tests)}]"
-                    print(f"{progress} {STATUS_SYMBOLS[status]} {test.name}")
-
-                    # Show error immediately for tests that break the build
-                    if not status.is_ok and not args.verbose:
-                        for line in msg.split('\n'):
-                            print(f"      {line}")
-
-        # Sort results by test name for consistent summary output
+                    _report(completed, len(tests), test, status, msg)
         results.sort(key=lambda r: r[0].name)
 
     # Print summary
