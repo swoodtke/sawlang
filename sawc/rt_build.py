@@ -68,9 +68,15 @@ def _cache_key(saw_sources, shim_c, triple: str) -> str:
 
 
 def _build_dir_root() -> str:
-    # `.build/rt/` under the current working directory (the repo root when the
-    # compiler runs), matching the design-113 pin.
-    return os.path.join(".build", "rt")
+    # `.build/rt/` under the COMPILER checkout (anchored via __file__, exactly
+    # like the runtime sources above), NOT the caller's cwd: sawc is invoked
+    # from arbitrary directories (blade package builds), where a cwd-relative
+    # cache would rebuild per directory, need write access wherever the user
+    # happens to stand, and collide with unrelated `.build/rt` entries (a stale
+    # scratch binary named `rt` broke every repo-root compile during 113b
+    # verification).
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(repo_root, ".build", "rt")
 
 
 def _do_build(build_dir: str, saw_sources, shim_c, triple: str, verbose: bool):
