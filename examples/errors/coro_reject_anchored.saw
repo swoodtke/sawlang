@@ -1,21 +1,22 @@
 // design 74 (A8): a coroutine-transform rejection anchors at the USER's source
-// line (file:line:col + snippet) via the shared error reporter — not a bare
-// message pointing nowhere. Here a suspending call buried in an expression
-// position is rejected, and the diagnostic points at the exact call site.
+// (file:line:col + snippet) via the shared error reporter — not a bare message
+// pointing nowhere. Design 120 removed the old buried-in-an-operand rejection
+// this test used to assert (that shape now compiles via the ANF hoist), so the
+// anchoring is now exercised on suspending RECURSION — a shape the flat-frame
+// model still cannot size, and so still rejects, anchored at the function.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: nested/expression position
-// EXPECT-ERROR-CONTAINS: coro_reject_anchored.saw:15:17
+// EXPECT-ERROR-CONTAINS: suspending recursion is not allowed
+// EXPECT-ERROR-CONTAINS: coro_reject_anchored.saw:11:1
 
 func slow(n: Int) -> Int {
     __saw_suspend()
-    n * 2
-}
-
-func outer(x: Int) -> Int {
-    let r = 1 + slow(x)
-    r
+    if n <= 0 {
+        return 0
+    }
+    let r = slow(n - 1)   // suspending self-recursion: no compile-time frame size
+    return r + 1
 }
 
 func main() {
-    print(__saw_drive(outer(5)))
+    print(__saw_drive(slow(3)))
 }

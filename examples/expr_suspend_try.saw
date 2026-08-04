@@ -4,7 +4,6 @@
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 20
-// XFAIL: design 120 pending
 
 func sr(n: Int) -> Result<Int, Box<any Error>> {
     __saw_suspend()

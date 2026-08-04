@@ -7,7 +7,6 @@
 // 12
 // 10
 // 10
-// XFAIL: design 120 pending
 
 func s(n: Int) -> Int {
     __saw_suspend()

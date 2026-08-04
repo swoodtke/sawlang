@@ -42,6 +42,9 @@ from ast_nodes import (
     Parameter, SawType, TypeKind, Visibility, ClosureExpr, CaptureSpec,
     DestructuringLet, TuplePattern, BindingPattern, WildcardPattern, TupleIndex,
     EnumPattern,
+    StringInterpolation, ArrayLiteral, MapLiteral, SetLiteral, StructInit,
+    TupleLiteral, UnsafeExpr, NilCoalesce, OptionalChain, BindOptional,
+    OptionalEvalExpr, OptionalChainAssign,
 )
 
 
@@ -680,6 +683,206 @@ class _FrameBuilder:
         return [let_stmt, s]
 
     # ------------------------------------------------------------------ #
+    # design 120: the general ANF hoist — suspension in expression position
+    # ------------------------------------------------------------------ #
+    #
+    # The blessed manual workaround IS the transform: rewrite any statement whose
+    # expression tree contains a BURIED suspending call (an argument, receiver,
+    # operand, literal element, interpolation, or return/`try!` expression) into
+    # evaluation-ordered temporaries — `let r = a().b().c()` becomes
+    # `let __anf0 = a(); let __anf1 = __anf0.b(); let r = __anf1.c()` — so each
+    # suspending call lands in a top-level `let __anfN = <call>` the EXISTING
+    # design-96/101/104 embedding machinery drives unchanged. Only UNCONDITIONAL
+    # positions are hoisted here (design 120 stage 1); conditional positions (the
+    # RHS of `??`/`&&`/`||`, a value-position `if`/`match` arm, a `?.` tail) are
+    # left opaque — they lower to the branch shape first (stage 2). A statement
+    # with no buried suspend is returned untouched (zero codegen diff for sync
+    # code). The narrow condition/match hoists ran already; the try hoist runs
+    # AFTER, so a buried `try!` lifted here into a top-level `let __anfN = try! ...`
+    # is desugared by design 92 next.
+
+    # Expression nodes whose evaluation is (partly) CONDITIONAL — a suspend inside
+    # one may not be hoisted above its guard. Opaque to the stage-1 hoist; the
+    # stage-2 branch lowering handles them.
+    _ANF_CONDITIONAL = (IfExpr, MatchExpr, NilCoalesce, OptionalChain,
+                        BindOptional, OptionalEvalExpr, OptionalChainAssign,
+                        ClosureExpr)
+
+    def _anf_hoist(self):
+        self._anf_ctr = 0
+        self._anf_block(self.func.body)
+
+    def _anf_block(self, block):
+        new_stmts = []
+        for s in block.statements:
+            new_stmts.extend(self._anf_stmt(s))
+        block.statements = new_stmts
+        for s in block.statements:
+            self._anf_recurse(s)
+
+    def _anf_recurse(self, s):
+        """Descend into control-flow bodies so a buried suspend inside a branch is
+        hoisted within that branch's statement list (mirrors `_collect_calls`)."""
+        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        if isinstance(ctrl, IfExpr):
+            self._anf_block(ctrl.then_branch)
+            if ctrl.else_branch is not None:
+                self._anf_block(ctrl.else_branch)
+        elif isinstance(ctrl, IfLetExpr):
+            self._anf_block(ctrl.then_branch)
+            if ctrl.else_branch is not None:
+                self._anf_block(ctrl.else_branch)
+        elif isinstance(ctrl, WhileExpr):
+            self._anf_block(ctrl.body)
+        elif isinstance(ctrl, MatchExpr):
+            for arm in ctrl.arms:
+                if isinstance(arm.body, Block):
+                    self._anf_block(arm.body)
+        elif isinstance(s, ForLoop):
+            self._anf_block(s.body)
+        elif isinstance(s, GuardLetStatement):
+            self._anf_block(s.else_branch)
+
+    def _anf_stmt(self, s):
+        """Hoist buried suspending calls out of a leaf statement's value
+        expression into preceding `let __anfN = ...` temps (evaluation order),
+        returning the replacement statement list. Control-flow statements are
+        left for `_anf_recurse` to descend into (their condition/scrutinee is the
+        narrow hoists' / CFG walk's job)."""
+        out = []
+        if isinstance(s, LetStatement):
+            if isinstance(s.value, self._ANF_CONDITIONAL):
+                return [s]
+            s.value = self._anf(s.value, out, lift_self=False)
+        elif isinstance(s, AssignStatement):
+            if isinstance(s.value, self._ANF_CONDITIONAL):
+                return [s]
+            s.value = self._anf(s.value, out, lift_self=False)
+        elif isinstance(s, ReturnStatement):
+            if s.value is not None and not isinstance(s.value, self._ANF_CONDITIONAL):
+                s.value = self._anf(s.value, out, lift_self=False)
+        elif isinstance(s, ExpressionStatement):
+            e = s.expression
+            # Control-flow expression statements are descended into by
+            # `_anf_recurse`; only a plain value expression is hoisted here.
+            if not isinstance(e, (IfExpr, WhileExpr, MatchExpr, IfLetExpr)):
+                s.expression = self._anf(e, out, lift_self=False)
+        return out + [s]
+
+    def _anf(self, expr, out, lift_self):
+        """Return a replacement for `expr`, appending `let __anfN = <subexpr>`
+        hoist statements to `out` for each buried suspending call lifted (in
+        evaluation order). `lift_self` asks: if `expr` is itself a suspending call
+        node, lift it to a temp (a buried child position); a statement's DIRECT
+        value passes `lift_self=False` so a top-level `let x = call()` stays put."""
+        if expr is None or not isinstance(expr, ASTNode):
+            return expr
+        if not self._spans_suspension(expr):
+            return expr
+        # A conditional construct: leave opaque (stage 2 lowers it to branches).
+        if isinstance(expr, self._ANF_CONDITIONAL):
+            return expr
+        # A `try!`/`try`/`try?` over a suspend: lift the WHOLE try as a unit, after
+        # linearizing the tried call's own arguments/receiver. The design-92 try
+        # hoist (runs next) desugars the resulting `let __anfN = try! <call>`.
+        if isinstance(expr, TryExpr):
+            self._anf_children(expr.expr, out)
+            if lift_self:
+                return self._anf_lift(expr, out)
+            return expr
+        # Otherwise linearize the unconditional children first (evaluation order),
+        # then lift this node if it is itself a buried suspending call.
+        self._anf_children(expr, out)
+        if lift_self and self._is_suspending_call_node(expr):
+            return self._anf_lift(expr, out)
+        return expr
+
+    def _anf_lift(self, expr, out):
+        tmp = f"__anf{self._anf_ctr}"
+        self._anf_ctr += 1
+        line = getattr(expr, 'line', 0) or 0
+        col = getattr(expr, 'column', 0) or 0
+        out.append(LetStatement(name=tmp, type_annotation=None, value=expr,
+                                mutable=False, line=line, column=col))
+        ident = Identifier(name=tmp, line=line, column=col)
+        # Carry the subexpression's resolved type so the temp is typed exactly
+        # (frame-local typing, method-call classification, and codegen all read it).
+        ident.resolved_type = getattr(expr, 'resolved_type', None)
+        return ident
+
+    def _anf_children(self, expr, out):
+        """Linearize `expr`'s UNCONDITIONAL child positions in evaluation order,
+        replacing each with its hoisted form (a suspending-call child becomes a
+        temp reference; a sync child is returned unchanged)."""
+        def do(child):
+            return self._anf(child, out, lift_self=True)
+        if isinstance(expr, FunctionCall):
+            for a in expr.arguments:
+                a.value = do(a.value)
+        elif isinstance(expr, MethodCall):
+            obj = do(expr.object)
+            # A suspending method / channel `receive()` embeds its receiver as a
+            # frame-resident value the sub-frame borrows through `&receiver` — that
+            # needs an ADDRESSABLE location. A non-addressable receiver (a call,
+            # binary op, …), even a SYNC one like `makeT(42).susp()`, is hoisted to
+            # a temp so `&__anfN` is well-formed. A suspending receiver was already
+            # lifted by `do` above (its temp is addressable).
+            if self._is_suspending_call_node(expr) and not self._is_addressable(obj):
+                obj = self._anf_lift(obj, out)
+            expr.object = obj
+            for a in expr.arguments:
+                a.value = do(a.value)
+        elif isinstance(expr, BinaryOp):
+            expr.left = do(expr.left)
+            # `&&`/`||` short-circuit: the right operand is conditional (stage 2).
+            if expr.op not in ("&&", "||", "and", "or"):
+                expr.right = do(expr.right)
+        elif isinstance(expr, UnaryOp):
+            expr.operand = do(expr.operand)
+        elif isinstance(expr, (ArrayLiteral, SetLiteral, TupleLiteral)):
+            expr.elements = [do(e) for e in expr.elements]
+        elif isinstance(expr, MapLiteral):
+            expr.entries = [(do(k), do(v)) for (k, v) in expr.entries]
+        elif isinstance(expr, StructInit):
+            expr.field_inits = [(n, do(v)) for (n, v) in expr.field_inits]
+        elif isinstance(expr, StringInterpolation):
+            expr.expressions = [do(e) for e in expr.expressions]
+        elif isinstance(expr, MemberAccess):
+            expr.object = do(expr.object)
+        elif isinstance(expr, TupleIndex):
+            expr.tuple_expr = do(expr.tuple_expr)
+        elif isinstance(expr, ArrayIndex):
+            expr.array_expr = do(expr.array_expr)
+            expr.index = do(expr.index)
+        elif isinstance(expr, ForceUnwrap):
+            expr.expr = do(expr.expr)
+        elif isinstance(expr, CastExpr):
+            expr.expr = do(expr.expr)
+        elif isinstance(expr, UnsafeExpr):
+            expr.expression = do(expr.expression)
+
+    def _is_suspending_call_node(self, expr):
+        """True if `expr` is a suspending call node the transform can lift to a
+        top-level temp: a suspending free-function call, a blocking-extern call, a
+        suspending method call, or a cooperative channel `receive()`."""
+        if isinstance(expr, FunctionCall):
+            if getattr(expr, 'type_args', None):
+                return False
+            return (expr.name in self._suspends
+                    or self._is_blocking_extern(expr.name))
+        if isinstance(expr, MethodCall):
+            return (getattr(expr, 'is_chan_recv', False)
+                    or self._method_call_suspends(expr))
+        return False
+
+    def _is_addressable(self, expr):
+        """True for an lvalue location the sub-frame's `&receiver` can point at —
+        a bare name, a field/tuple projection, an index, or `self`. A call /
+        operator / literal is a temporary and must be hoisted first."""
+        return isinstance(expr, (Identifier, MemberAccess, ArrayIndex,
+                                 SelfExpr, TupleIndex))
+
+    # ------------------------------------------------------------------ #
     # design 104 item 1: CFG-split `if let`/`guard let` bodies that suspend
     # ------------------------------------------------------------------ #
     def _mark_optional_binding_splits(self):
@@ -1274,11 +1477,6 @@ class _FrameBuilder:
         # the temp is then an ordinary nested-suspending-call-in-let and the
         # binding is over a non-spanning optional. Runs after `_suspends` is set.
         self._hoist_suspending_conditions()
-        # design 92: hoist a suspending call out of a `try!`/`try`/`try?` wrapper
-        # into a preceding driven temp, so a `try! recv.read()` in a spawned body
-        # is embedded+driven (its internal park integrates with the executor)
-        # rather than hiding inside a TryExpr the nested-call scan cannot see.
-        self._hoist_suspending_try()
         # design 96: hoist a SUSPENDING call out of a `match <call> { ... }`
         # SCRUTINEE into a preceding driven temp (`let __matchN = <call>` +
         # `match __matchN`). Runs AFTER tail normalization so a trailing match is
@@ -1287,6 +1485,21 @@ class _FrameBuilder:
         # the callee's internal `io_wait` park blocks the thread instead of yielding
         # — a `match stream.read() {...}` worker hangs (even at nesting depth 1).
         self._hoist_suspending_match()
+        # design 120: the general ANF hoist. Lift any BURIED suspending call (an
+        # argument, receiver, operand, literal element, interpolation, or a `try!`
+        # over a suspend) out of an unconditional expression position into
+        # preceding evaluation-ordered `let __anfN = <call>` temps, so each
+        # suspending call lands in a top-level statement the existing embedding
+        # machinery drives. Runs AFTER the condition/match scrutinee hoists (so it
+        # never double-processes a scrutinee they already lifted) and BEFORE the
+        # try hoist (so a buried `try!` it lifts to `let __anfN = try! <call>` is
+        # then desugared by design 92). Sync code is untouched.
+        self._anf_hoist()
+        # design 92: hoist a suspending call out of a `try!`/`try`/`try?` wrapper
+        # into a preceding driven temp, so a `try! recv.read()` in a spawned body
+        # is embedded+driven (its internal park integrates with the executor)
+        # rather than hiding inside a TryExpr the nested-call scan cannot see.
+        self._hoist_suspending_try()
         # design 104 item 1: an `if let`/`guard let` whose BODY spans a suspension
         # cannot be lowered in place (its branch must break across resume states).
         # Mark such bindings for CFG-splitting and rename each to a UNIQUE frame

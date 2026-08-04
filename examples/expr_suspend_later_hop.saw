@@ -5,7 +5,6 @@
 // EXPECT-OUTPUT:
 // 6
 // 6
-// XFAIL: design 120 pending
 
 struct Cell { v: Int }
 extension Cell {

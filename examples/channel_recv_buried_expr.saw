@@ -1,0 +1,21 @@
+// Design 120: a cooperative `receive()` buried in an expression position — here
+// `ch.receive() + 1` — is now hoisted by the ANF pass into an evaluation-ordered
+// temp (`let __anf0 = ch.receive(); let x = __anf0 + 1`) and lowered inline, so
+// it works instead of the old design-62-G3 buried rejection.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+
+import std.channel.{Channel}
+func worker(ch: Channel<Int>) -> Int {
+    let x = ch.receive() + 1   // receive buried in a binary expression
+    return x
+}
+
+func main() {
+    var group = TaskGroup()
+    let ch = Channel<Int>()
+    ch.send(5)
+    let h = group.spawn(worker(ch.copy()))
+    print(h.join())            // 5 + 1 = 6
+}

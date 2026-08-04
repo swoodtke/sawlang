@@ -7,7 +7,6 @@
 // EXPECT-OUTPUT:
 // 42
 // 143
-// XFAIL: design 120 pending
 
 struct Tracker { id: Int }
 extension Tracker: Deinit {

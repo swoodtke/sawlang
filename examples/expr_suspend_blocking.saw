@@ -6,7 +6,6 @@
 // EXPECT-OUTPUT:
 // 61
 // 61
-// XFAIL: design 120 pending
 
 extern "C" {
     blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
