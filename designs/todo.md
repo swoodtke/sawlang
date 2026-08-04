@@ -114,14 +114,33 @@ items need a probe before being treated as real work.
   is `!`); whether the literal `while true { }` joins it is part of the
   call. Rider: the diagnostic leaks the internal kind spelling `NEVER`
   (should say `Never`). [49, 58, 112]
-- **Design 115 — test runner: persistent compile workers.** Amortize the
-  measured ~250 ms/test fixed compiler-bootstrap overhead (python +
-  llvmlite/sawc imports + builtin namespace) via N long-lived worker
+- **Design 115 — test runner: persistent compile workers. LANDED (Aug 4).**
+  Amortize the measured ~250 ms/test fixed compiler-bootstrap overhead (python
+  + llvmlite/sawc imports + builtin namespace) via N long-lived worker
   processes compiling in-process; binaries still run as isolated
-  subprocesses; identical pass/fail/xfail set both modes. Merged-binary
-  consolidation REJECTED (user, Aug 4) — breaks error tests, abort tests,
-  per-test EXPECT/COMPILE-FLAGS, attribution. AFTER 113 (re-entrancy
-  audit depends on its codegen shape). [115]
+  subprocesses; identical pass/fail/xfail set both modes (997 passed each).
+  Merged-binary consolidation REJECTED (user, Aug 4) — breaks error tests,
+  abort tests, per-test EXPECT/COMPILE-FLAGS, attribution. Builtin namespace
+  built once/worker, deep-copied per compile (62 ms vs 147 ms rebuild). Pool
+  is Process + Pipe (`connection.wait`), NOT `multiprocessing.Pool`, which
+  needs POSIX named semaphores a locked-down sandbox refuses (`sem_open`
+  EPERM). Error tests run in-process (reporter text has no isatty color
+  gating → byte-identical to CLI capture). Old spawn-per-test path kept
+  behind `--subprocess`.
+  - **DF-115a — codegen relied on llvmlite's process-global context.**
+    The re-entrancy audit found (and this design FIXED) two latent
+    dependencies on `ir.context.global_context` that would also bite a future
+    compile-server/LSP: (1) `ir.Module` defaults to the global context, whose
+    `identified_types` registry persists across compiles → a 2nd in-process
+    compile raised "`<Struct>` is already defined"; fixed by a fresh
+    `ir.Context()` per `CodeGenerator`. (2) `ir.Type.get_abi_size/alignment`
+    render a throwaway module in the global context, so once (1) moved a
+    compile's identified types into a private context the size probe rendered
+    an undefined-type reference; fixed by routing every ABI query through
+    `_abi_size`/`_abi_align`, which pass `context=self.module.context`. The
+    broader audit found NO other module-level mutable leaks (counters/caches
+    are per-`CodeGenerator`; type-ids are a deterministic hash; llvmlite
+    `initialize_*` is idempotent).
 
 ## Doc-sync audit findings (Aug 3) — two DECIDE items
 Surfaced by the four-source consistency audit (README / spec / skill /
