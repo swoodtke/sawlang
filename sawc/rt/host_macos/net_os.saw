@@ -1,0 +1,57 @@
+// OS-divergent socket helpers (design 84/90 / 113b) — macOS.
+//
+// The errno family reads the calling thread's errno (behind `__error()` on
+// macOS) and classifies it; `sin_set_family` stamps the OS-divergent prefix of
+// `struct sockaddr_in`. All the VALUES here (errno numbers, the sin_len/family
+// layout) are macOS-specific — exactly what makes these host-runtime material.
+
+extern "C" {
+    // errno lives behind __error() on macOS (returns `int*`).
+    func __error() -> UnsafePointer<Int32>
+}
+
+static EAGAIN: Int = 35        // == EWOULDBLOCK
+static EINPROGRESS: Int = 36
+static EISCONN: Int = 56
+static EALREADY: Int = 37
+
+// sockaddr_in prefix (macOS): { u8 sin_len = 16; u8 sin_family = AF_INET }.
+static SIN_LEN: Int8 = 16
+static AF_INET: Int8 = 2
+
+// The current thread's errno (sign-extended to a platform word). Private helper.
+func errno_value() -> Int {
+    unsafe __error()[0] as Int
+}
+
+@export("__saw_rt_errno")
+func rt_errno() -> Int {
+    errno_value()
+}
+
+@export("__saw_rt_errno_would_block")
+func rt_errno_would_block() -> Int {
+    let e = errno_value()
+    if e == EAGAIN || e == EINPROGRESS { 1 } else { 0 }
+}
+
+@export("__saw_rt_errno_connect_state")
+func rt_errno_connect_state() -> Int {
+    let e = errno_value()
+    if e == EISCONN {
+        0
+    } else if e == EINPROGRESS || e == EALREADY {
+        1
+    } else {
+        2
+    }
+}
+
+// Stamp the macOS sockaddr_in prefix: sin_len at byte 0, sin_family at byte 1.
+// `buf` is a pointer param (the marked unsafe domain), so the byte stores need
+// no `unsafe` marker.
+@export("__saw_rt_sin_set_family")
+func rt_sin_set_family(buf: UnsafePointer<Int8>) {
+    buf[0] = SIN_LEN
+    buf[1] = AF_INET
+}

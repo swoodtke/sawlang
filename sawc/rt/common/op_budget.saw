@@ -1,0 +1,35 @@
+// Cooperative-scheduler fairness backstop (design 89-c / 113b), authored in Saw.
+//
+// A task that keeps completing suspending io ops WITHOUT ever parking (an
+// always-ready socket) would otherwise monopolize the executor. Each such op
+// charges a process-global budget; when it hits zero the io primitive
+// force-yields once (the caller sees the `1`) and the budget resets. Op-count,
+// not wall-clock — deterministic + kernel-friendly.
+//
+// The counter is process-global; the synthesized seam used a non-atomic
+// load-then-store under monotonic ordering (benign shared budget across MT
+// workers). `Atomic<Int>` gives seq_cst load/store — stronger ordering, observ-
+// ably equivalent (the budget is a best-effort fairness hint, not a lock).
+
+// Default budget. `Atomic(128)` must be a literal in the static init, so the
+// 128 is repeated in BUDGET's initializer below — keep them in sync.
+static OP_BUDGET_DEFAULT: Int = 128
+static BUDGET: Atomic<Int> = Atomic(128)
+
+@export("__saw_rt_op_budget_tick")
+func rt_op_budget_tick() -> Int {
+    let cur = BUDGET.load()
+    let nv = cur &- 1
+    if nv <= 0 {
+        BUDGET.store(OP_BUDGET_DEFAULT)
+        1
+    } else {
+        BUDGET.store(nv)
+        0
+    }
+}
+
+@export("__saw_rt_op_budget_reset")
+func rt_op_budget_reset() {
+    BUDGET.store(OP_BUDGET_DEFAULT)
+}

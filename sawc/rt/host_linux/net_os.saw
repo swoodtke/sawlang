@@ -1,0 +1,54 @@
+// OS-divergent socket helpers (design 84/90 / 113b) — Linux.
+//
+// The errno family reads the calling thread's errno (behind `__errno_location()`
+// on Linux) and classifies it; `sin_set_family` stamps the OS-divergent prefix
+// of `struct sockaddr_in`. The errno VALUES and the sockaddr layout are
+// Linux-specific.
+
+extern "C" {
+    // errno lives behind __errno_location() on Linux (returns `int*`).
+    func __errno_location() -> UnsafePointer<Int32>
+}
+
+static EAGAIN: Int = 11        // == EWOULDBLOCK
+static EINPROGRESS: Int = 115
+static EISCONN: Int = 106
+static EALREADY: Int = 114
+
+// sockaddr_in prefix (Linux): { u16 sin_family = AF_INET } (bytes 0-1, LE).
+static AF_INET_LO: Int8 = 2
+static AF_INET_HI: Int8 = 0
+
+func errno_value() -> Int {
+    unsafe __errno_location()[0] as Int
+}
+
+@export("__saw_rt_errno")
+func rt_errno() -> Int {
+    errno_value()
+}
+
+@export("__saw_rt_errno_would_block")
+func rt_errno_would_block() -> Int {
+    let e = errno_value()
+    if e == EAGAIN || e == EINPROGRESS { 1 } else { 0 }
+}
+
+@export("__saw_rt_errno_connect_state")
+func rt_errno_connect_state() -> Int {
+    let e = errno_value()
+    if e == EISCONN {
+        0
+    } else if e == EINPROGRESS || e == EALREADY {
+        1
+    } else {
+        2
+    }
+}
+
+// Stamp the Linux sockaddr_in prefix: u16 sin_family = AF_INET (little-endian).
+@export("__saw_rt_sin_set_family")
+func rt_sin_set_family(buf: UnsafePointer<Int8>) {
+    buf[0] = AF_INET_LO
+    buf[1] = AF_INET_HI
+}

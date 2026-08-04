@@ -1167,8 +1167,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             for fn in io_fns:
                 fn.linkage = "external"
             return
+
+        # design 113b: the errno family + sin_set_family + op-budget +
+        # set_nonblocking seams are authored in Saw + shim.c under `sawc/rt/`
+        # (host_*/net_os.saw, common/op_budget.saw, shim.c for the variadic
+        # fcntl — DF-113c); the compiler DECLARES them (external) and links the
+        # runtime. The REACTOR (register/poll/wake) and the blocking-extern
+        # OFFLOAD stay synthesized here: the reactor's poll needs an
+        # uninitialized / array-repeat-initialized per-call stack event buffer
+        # that Saw cannot express today (a new DF-finding — see designs/todo.md),
+        # and register/poll/wake share the reactor's fd globals so they cannot be
+        # split from poll.
+        relocated = {setnb, ewb, errno_fn, setfam, connst, budtick, budreset}
         for fn in io_fns:
-            fn.linkage = "weak"
+            fn.linkage = "external" if fn in relocated else "weak"
 
         # ---- the process-global reactor fd + lazy race-safe init --------------
         rfd_g = ir.GlobalVariable(self.module, i64, name="__saw_reactor_fd")
@@ -1187,44 +1199,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         ww_g.linkage = "internal"
         ww_g.initializer = ir.Constant(i64, -1)
 
-        # ---- cooperative op-count budget (design 89-c) ------------------------
-        # A fairness backstop for the single-threaded cooperative scheduler: a task
-        # that keeps completing suspending io ops WITHOUT ever parking (an
-        # always-ready socket) would otherwise monopolize the executor forever. Each
-        # such op charges this global counter; every OP_BUDGET_DEFAULT (128) charges
-        # the io primitive force-yields once (park-and-immediately-reschedule) so
-        # siblings run, then the counter resets. A genuine park resets it too (the
-        # task already ceded). Op-count, not wall-clock — kernel-friendly and
-        # deterministic. The counter is process-global (the ST scheduler runs one
-        # task at a time, so "the current task's budget"); monotonic-atomic accesses
-        # keep an MT group's workers race-free (benign shared budget there). Sync
-        # code that makes no suspending io calls never touches it — zero overhead.
-        OP_BUDGET_DEFAULT = 128
-        budget_g = ir.GlobalVariable(self.module, i64, name="__saw_op_budget")
-        budget_g.linkage = "internal"
-        budget_g.initializer = ir.Constant(i64, OP_BUDGET_DEFAULT)
-
-        # saw_op_budget_tick() -> 1 (charge exhausted: reset + caller must yield) / 0
-        b = ir.IRBuilder(budtick.append_basic_block("entry"))
-        curb = b.load_atomic(budget_g, ordering="monotonic", align=8, name="budcur")
-        nv = b.sub(curb, ir.Constant(i64, 1))
-        fire = b.icmp_signed("<=", nv, ir.Constant(i64, 0))
-        fire_bb = budtick.append_basic_block("fire")
-        cont_bb = budtick.append_basic_block("cont")
-        b.cbranch(fire, fire_bb, cont_bb)
-        b = ir.IRBuilder(fire_bb)
-        b.store_atomic(ir.Constant(i64, OP_BUDGET_DEFAULT), budget_g,
-                       ordering="monotonic", align=8)
-        b.ret(ir.Constant(i64, 1))
-        b = ir.IRBuilder(cont_bb)
-        b.store_atomic(nv, budget_g, ordering="monotonic", align=8)
-        b.ret(ir.Constant(i64, 0))
-
-        # saw_op_budget_reset() — restore the default (a genuine park already ceded).
-        b = ir.IRBuilder(budreset.append_basic_block("entry"))
-        b.store_atomic(ir.Constant(i64, OP_BUDGET_DEFAULT), budget_g,
-                       ordering="monotonic", align=8)
-        b.ret_void()
+        # (op-budget seams relocated to sawc/rt/common/op_budget.saw — design 113b)
 
         ensure = ir.Function(self.module, ir.FunctionType(i64, []),
                              name="__saw_reactor_ensure")
@@ -1518,97 +1493,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             b = ir.IRBuilder(drain_ret)
             b.ret(b.sext(n, i64))
 
-        # ---- saw_set_nonblocking(fd) -> 0/-1 ---------------------------------
-        # fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK). O_NONBLOCK is
-        # 0x0004 on macOS, 0x0800 on Linux; F_GETFL=3 / F_SETFL=4 on both.
-        o_nonblock = 0x0004 if apple else 0x0800
-        # `fcntl` is VARIADIC in C: `int fcntl(int fd, int cmd, ...)`. It MUST be
-        # declared with two fixed params + varargs, else on arm64 (Apple Silicon)
-        # the `...` argument — here the F_SETFL flag word — is passed in a register
-        # the variadic callee reads off the STACK, so it gets garbage and O_NONBLOCK
-        # is only "set" when the stack slot happens to hold it (a code-layout-
-        # sensitive heisenbug: nonblocking sockets that intermittently block).
-        fcntl_fn = self._libc_func("fcntl", i32, [i32, i32], var_arg=True)
-        b = ir.IRBuilder(setnb.append_basic_block("entry"))
-        fdi = b.trunc(setnb.args[0], i32)
-        flags = b.call(fcntl_fn, [fdi, ir.Constant(i32, 3), ir.Constant(i32, 0)])
-        bad = b.icmp_signed("<", flags, ir.Constant(i32, 0))
-        err_bb = setnb.append_basic_block("err")
-        ok_bb = setnb.append_basic_block("ok")
-        b.cbranch(bad, err_bb, ok_bb)
-        b = ir.IRBuilder(err_bb)
-        b.ret(ir.Constant(i64, -1))
-        b = ir.IRBuilder(ok_bb)
-        newflags = b.or_(flags, ir.Constant(i32, o_nonblock))
-        b.call(fcntl_fn, [fdi, ir.Constant(i32, 4), newflags])
-        b.ret(ir.Constant(i64, 0))
-
-        # ---- saw_errno_would_block() -> 1/0 ----------------------------------
-        # errno lives behind __error() (macOS) / __errno_location() (Linux).
-        eagain = 35 if apple else 11           # EAGAIN == EWOULDBLOCK on both
-        einprogress = 36 if apple else 115
-        errloc_name = "__error" if apple else "__errno_location"
-        errloc_fn = self._libc_func(errloc_name, i32.as_pointer(), [])
-        b = ir.IRBuilder(ewb.append_basic_block("entry"))
-        e = b.load(b.call(errloc_fn, []), name="errno")
-        w1 = b.icmp_signed("==", e, ir.Constant(i32, eagain))
-        w2 = b.icmp_signed("==", e, ir.Constant(i32, einprogress))
-        b.ret(b.zext(b.or_(w1, w2), i64))
-
-        # ---- saw_errno() -> Int ----------------------------------------------
-        # The current thread's errno (behind __error()/__errno_location()), for
-        # IoError to carry the failing syscall's error code (design 84).
-        b = ir.IRBuilder(errno_fn.append_basic_block("entry"))
-        ev = b.load(b.call(errloc_fn, []), name="errno_val")
-        b.ret(b.sext(ev, i64))
-
-        # ---- saw_errno_connect_state() -> 0/1/2 ------------------------------
-        # design 90: classify errno after a RE-ISSUED nonblocking connect(), so the
-        # cooperative connect can distinguish "done" from "still connecting" and
-        # re-park on a SPURIOUS wake (the reactor wakes ALL io-parked frames on any
-        # event, so a connect park can be woken before ITS socket is writable —
-        # trusting that wake and writing yielded ENOTCONN, design-90 root cause).
-        #   0 = connected (EISCONN); 1 = still in progress (EINPROGRESS/EALREADY);
-        #   2 = a real failure. OS-divergent errno values stay in the compiler.
-        eisconn = 56 if apple else 106
-        ealready = 37 if apple else 114
-        b = ir.IRBuilder(connst.append_basic_block("entry"))
-        ec = b.load(b.call(errloc_fn, []), name="errno_conn")
-        is_conn = b.icmp_signed("==", ec, ir.Constant(i32, eisconn))
-        conn_bb = connst.append_basic_block("connected")
-        chk_bb = connst.append_basic_block("check_prog")
-        prog_bb = connst.append_basic_block("in_progress")
-        fail_bb = connst.append_basic_block("failed")
-        b.cbranch(is_conn, conn_bb, chk_bb)
-        b = ir.IRBuilder(conn_bb)
-        b.ret(ir.Constant(i64, 0))
-        b = ir.IRBuilder(chk_bb)
-        p1 = b.icmp_signed("==", ec, ir.Constant(i32, einprogress))
-        p2 = b.icmp_signed("==", ec, ir.Constant(i32, ealready))
-        b.cbranch(b.or_(p1, p2), prog_bb, fail_bb)
-        b = ir.IRBuilder(prog_bb)
-        b.ret(ir.Constant(i64, 1))
-        b = ir.IRBuilder(fail_bb)
-        b.ret(ir.Constant(i64, 2))
-
-        # ---- saw_sin_set_family(buf) — the OS-divergent sockaddr_in prefix ----
-        # The ONLY part of `struct sockaddr_in` whose layout differs by OS: macOS
-        # is { u8 sin_len; u8 sin_family; ... } (family at byte 1), Linux is
-        # { u16 sin_family; ... } (family at bytes 0-1). Everything else (port,
-        # addr) is uniform network-order data the Saw `SockAddrIn` struct fills
-        # directly. AF_INET == 2 on both.
-        b = ir.IRBuilder(setfam.append_basic_block("entry"))
-        buf = setfam.args[0]
-
-        def _store_byte(off, val_i8):
-            b.store(val_i8, b.gep(buf, [ir.Constant(i32, off)]))
-        if apple:
-            _store_byte(0, ir.Constant(i8, 16))   # sin_len
-            _store_byte(1, ir.Constant(i8, 2))    # sin_family = AF_INET
-        else:
-            _store_byte(0, ir.Constant(i8, 2))    # sin_family (u16 LE) = AF_INET
-            _store_byte(1, ir.Constant(i8, 0))
-        b.ret_void()
+        # (set_nonblocking [shim.c — DF-113c, variadic fcntl], the errno family,
+        # and sin_set_family relocated to sawc/rt/ — design 113b.)
 
         # ---- design 103 (A6): blocking-extern offload -------------------------
         # A blocking FFI call inside a suspending task is OFFLOADED to a

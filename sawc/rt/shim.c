@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <fcntl.h>
 
 /* ---- DF-113a: no extern C global ---------------------------------------
  * `__saw_rt_write`/`_panic` route through C stdio's `stdout` FILE* (spelled
@@ -50,4 +51,20 @@ void __saw_rt_panic(const char *msg, size_t len) {
  * (sawc/rt/common/pthread.saw) — only this fn-pointer body stays here. */
 void __saw_rt_pthread_create(void *tid, void *(*start)(void *), void *arg) {
     pthread_create((pthread_t *)tid, NULL, start, arg);
+}
+
+/* ---- DF-113c: no variadic extern ---------------------------------------
+ * Set O_NONBLOCK on `fd`. `fcntl` is VARIADIC in C — `int fcntl(int, int, ...)`
+ * — and the F_SETFL flag word is the variadic argument. On arm64 (Apple
+ * Silicon) a fixed-arity declaration passes that argument in a register the
+ * variadic callee reads off the STACK, so it reads garbage (a code-layout-
+ * sensitive heisenbug: nonblocking sockets that intermittently block). Saw
+ * extern declarations have no `...`, so this call must be C. F_GETFL/F_SETFL/
+ * O_NONBLOCK come from <fcntl.h> (the per-OS values C already knows). Returns
+ * 0 on success, -1 on the F_GETFL failure — the design-84 ABI. */
+long __saw_rt_set_nonblocking(long fd) {
+    int flags = fcntl((int)fd, F_GETFL, 0);
+    if (flags < 0) return -1;
+    fcntl((int)fd, F_SETFL, flags | O_NONBLOCK);
+    return 0;
 }
