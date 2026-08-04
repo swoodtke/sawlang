@@ -20,10 +20,27 @@ items need a probe before being treated as real work.
   format, `tools/dump_tokens.py` + `tools/lexdiff.py` differential harness over
   the WHOLE .saw corpus (zero mismatches = bar), LOC/perf metrics, DF-116
   findings as the explicit product. Full rewrite DEFERRED (user, Aug 4) until
-  design churn slows; surface-area growth is the chosen mechanism. Proposed
-  ABI-v2-minimization + executor-in-Saw briefs (errno accessors out, reactor/
-  thread as trait objects, minimal `__saw_rt_*` floor) are DISCUSSED, numbers
-  117/118 reserved, awaiting user go. [116]
+  design churn slows; surface-area growth is the chosen mechanism. [116]
+- **Design 117 — runtime ABI v2 minimization (dispatched Aug 4).** Errno
+  accessors DELETED (ops return status directly; portable SysError tag space
+  convergent with the SOS syscall ABI; every errno-reading site moves inside
+  the runtime); reactor becomes an INSTANCE (`__saw_rt_reactor_create` +
+  handle-taking ops, poll buffer as instance state → dissolves DF-113d's
+  blocker, reactor relocates to Saw); thread seams shrink to spawn/join.
+  ABI.md v2 with deprecation table. Brief: designs/117-abi-v2-minimization.md.
+  NEW STANDING POLICY (user, Aug 4): agents do NOT work around language
+  bugs/limitations — stop the unit, DF-record repro + wanted code, report.
+  [117]
+- **Design 118 — the executor in Saw (queued; dispatch AFTER 117).** The last
+  synthesized runtime layer (cooperative executor/scheduler, MT engine,
+  offload parking) relocates to Saw consuming a `Reactor` trait (per-host
+  kqueue/epoll types; future SOS-hosted impl over the Waiter) + minimal
+  thread surface; compiler keeps frames + a small documented entry-point
+  boundary. Staged (map/carve → ST core → reactor trait → threads/MT/
+  offload), each stage suite-green, clean stop at a boundary acceptable.
+  Resolves the deferred design-114 io_wait gating (white-box reactor tests
+  become reactor-impl unit tests). Brief: designs/118-executor-in-saw.md.
+  [118]
 - **Design 113 — runtime extraction. IN PROGRESS (Aug 4).**
   - **LANDED — ABI freeze + rename (the time-critical, irreversible piece).**
     Both symbol tiers renamed to the uniform scheme: `__saw_rt_*` =
