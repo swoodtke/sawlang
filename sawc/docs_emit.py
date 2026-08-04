@@ -68,10 +68,15 @@ def _type_str(t) -> Optional[str]:
     return None if t is None else str(t)
 
 
+def _conformance_suffix(traits) -> str:
+    """The `: Trait, Other` tail of a declaration, empty when there are none."""
+    return ": " + ", ".join(traits) if traits else ""
+
+
 def _expr_str(expr) -> str:
     """Render a default-value expression. Defaults are constant-ish by nature, so
     the literal forms cover them; anything else names its node kind."""
-    if isinstance(expr, IntLiteral) or isinstance(expr, FloatLiteral):
+    if isinstance(expr, (IntLiteral, FloatLiteral)):
         return str(expr.value)
     if isinstance(expr, BoolLiteral):
         return "true" if expr.value else "false"
@@ -275,7 +280,7 @@ class DocsBuilder:
 
     def _trait_item(self, t) -> Dict[str, Any]:
         gen = _generics_str(t.type_params)
-        parents = "".join(": " + ", ".join(t.parent_traits) if t.parent_traits else "")
+        parents = _conformance_suffix(t.parent_traits)
         # A trait method has no visibility of its own — the trait's requirement is
         # as visible as the trait.
         methods = [self._callable(m, owner=t.name, is_trait_method=True,
@@ -294,7 +299,7 @@ class DocsBuilder:
 
     def _extension_item(self, x) -> Dict[str, Any]:
         gen = _generics_str(x.type_params)
-        conf = "".join(": " + ", ".join(x.conformances) if x.conformances else "")
+        conf = _conformance_suffix(x.conformances)
         methods = []
         for m in x.methods:
             if getattr(m, "is_synthesized", False) or _is_synthetic(m.name):
@@ -370,7 +375,7 @@ class DocsBuilder:
         self_txt = {"borrows-var": "&var self", "borrows": "&self",
                     "consumes": "self"}.get(self_kind)
         rendered = ([self_txt] if self_txt else [])
-        for p, e in zip(params, param_entries):
+        for e in param_entries:
             text = "%s: %s" % (e["name"], e["type"])
             if "default" in e:
                 text += " = " + e["default"]
