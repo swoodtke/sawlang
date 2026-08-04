@@ -1,0 +1,32 @@
+// Design 120: a cooperative `Channel.receive()` buried in an expression — an
+// argument and a binary operand — rather than bound to its own `let`. The ANF
+// hoist lifts each receive to its own statement in evaluation order, where the
+// design-62 inline try_receive/yield lowering already works, so left-to-right
+// order still decides which value each receive takes.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 31
+
+import std.channel
+
+func inc(x: Int) -> Int { x + 1 }
+
+func consumer(ch: Channel<Int>) -> Int {
+    inc(ch.receive()) + ch.receive()   // takes 10 then 20
+}
+
+func producer(ch: Channel<Int>) -> Int {
+    ch.send(10)
+    ch.send(20)
+    0
+}
+
+func main() {
+    let ch = Channel<Int>()
+    var group = TaskGroup()
+    let c = group.spawn(consumer(ch))
+    let p = group.spawn(producer(ch))
+    print(p.join())    // 0
+    print(c.join())    // (10 + 1) + 20 = 31
+}

@@ -181,9 +181,12 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   — `move`/`.copy()` for ExplicitCopy/NoCopy); it types `Void?` (discard in
   statement position; consume "did it write" via `guard let _ = x?.y = v else {}`
   — `_` is blessed as an `if let`/`guard let` pattern that binds nothing + drops
-  the payload). A SUSPENDING hop, or a CHAIN of suspending calls
-  (`foo().bar().a` needs every call sync), is a clean buried-suspension error —
-  unchain into `let` statements. `?.` indexing is unsupported.
+  the payload). A SUSPENDING hop works (design 120): `o?.read()` runs the hop only
+  when every earlier hop is non-None, a multi-hop chain peels one hop at a time,
+  and a chained assignment with a suspending RHS writes only on the non-None path.
+  Still rejected: a chained assignment through MORE THAN ONE hop whose RHS suspends
+  (`a?.b?.c = s.read()` — `if let` the inner optional first). `?.` indexing is
+  unsupported.
 - `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift
   violations panic ALWAYS (wrap intentionally with `&+ &- &*`).
 - FAILABLE-RETURNS-RESULT (design 92, non-negotiable): a fallible op SURFACES
@@ -377,9 +380,15 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   same-name unwrap `if let x = x` keeps the inner `x: T` and outer `x: T?` in
   distinct fields) — so
   `while going { …; if let ok = maybe(k) { let x = try! s.read(); s.write(move x) } }`
-  just works. Still a clean, user-anchored compile error (NOT a silent block): a
-  suspending method call buried in a LARGER EXPRESSION (an argument, a receiver,
-  a `let x = if … { s.read() }` value position); a suspension-spanning `if let`/
+  just works. It also embeds in any EXPRESSION position (design 120): a chain head
+  or later hop, an argument, a receiver, an operand, a literal element, a string
+  interpolation, a `return` value, a `try!` subject, a `?.` hop, a
+  `Channel.receive()`. The compiler unchains the statement into evaluation-ordered
+  temporaries for you, so left-to-right order and intermediate deinit timing match
+  the hand-written `let`-per-step spelling; a CONDITIONAL position (a value
+  `if`/`match` arm, a `??` / `&&` / `||` RHS, a `?.` hop) keeps its short-circuit,
+  so a skipped suspension and its side effects never run. Still a clean,
+  user-anchored compile error (NOT a silent block): a suspension-spanning `if let`/
   `guard let` with a TUPLE pattern, or one whose body RE-BINDS the bound name
   (rename the inner binding); and a NESTED generic call whose template suspends
   UNCONDITIONALLY without calling a type-param method (`func g<T>(x: T) -> T {

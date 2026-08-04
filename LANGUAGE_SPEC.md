@@ -193,6 +193,11 @@ chain is skipped — including the argument expressions of a skipped method call
 those arguments (and their side effects) do not run. This is observable and
 intentional.
 
+A **suspending** argument, receiver, or operand does not change this order
+(`designs/120`). The compiler rewrites such a call into evaluation-ordered
+temporaries before embedding the suspension, so `f(a(), b())` with either call
+suspending still evaluates `a()` fully, then `b()`, then calls `f`.
+
 **Overloading (exact-match model).**
 **Status: implemented (design 55).** A name may carry several
 functions/methods (beyond `init`, which was always overloadable). This is
@@ -877,11 +882,14 @@ consumed via optional binding, **not** a `!= nil` comparison —
 `guard let` bound pattern: evaluate and test the Optional, bind nothing, drop the
 payload immediately).
 
-*Not supported:* a SUSPENDING function/method inside a chain — a chain of calls
-`foo().bar().a` requires EVERY call in it to be synchronous. A suspending hop
-(read or write side) is a clean, user-anchored compile error (never a silent
-block); unchain it into `let` statements, each of which may embed a suspension at
-any control-flow depth. `?.` indexing (`a?[i]`) is also out of scope.
+A **suspending hop** is supported (`designs/120`), on the read and the write
+side. The chain lowers to its branch shape before the suspension is embedded, so
+`o?.read()` runs the hop only when every earlier hop is non-None, and a
+short-circuit still skips it (and its side effects) entirely. A multi-hop chain
+peels one hop at a time; `o?.a?.read()` evaluates `o?.a` into a temporary and
+then takes the last hop over it. A chained assignment whose RHS suspends
+(`x?.y = stream.read()`) lowers to a None-guarded read-modify-writeback, so the
+RHS runs only on the written path. `?.` indexing (`a?[i]`) is still out of scope.
 
 **Call-site optional auto-wrap** (`designs/57`, DF3). The implicit `T → T?` wrap
 also applies at **call boundaries**: a bare `T` argument auto-wraps into a `T?`
@@ -2530,17 +2538,32 @@ Observable rules:
   104 item 3): the frame is keyed by both instantiations (`Dual_mix$2$T$U` — design
   95's resolved-signature keying extended with the method's own type args), so
   2 struct × 2 method instantiations are 4 distinct frames.
+- **Expression position (design 120).** A suspending call may appear anywhere an
+  expression may: a chain head or a later hop (`a().b().c()`), a call argument or
+  receiver, an operator operand, a collection/tuple/struct-literal element, a
+  string interpolation, a `return` value, a `try!`/`try?`/`try … catch` subject, a
+  `?.` hop, and a cooperative `Channel.receive()`. The transform rewrites the
+  statement into evaluation-ordered temporaries (`let __t1 = a()`,
+  `let __t2 = __t1.b()`, …) and embeds each step with the statement-level
+  machinery above, so evaluation order, the deinit timing of the intermediates,
+  and the ownership rules are the ones the hand-unchained spelling gets. A
+  position that is evaluated CONDITIONALLY keeps its guard: a value-position
+  `if`/`match` arm, a `??` RHS, an `&&`/`||` RHS, a `?.` hop, and a
+  chained-assignment RHS lower to the branch shape first, so an arm that is not
+  taken never runs its suspension or its side effects. A blocking `extern` call
+  (below) rides the same rewrite.
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
-  line, not miscompiled): a suspending call buried in a *larger expression* (an
-  argument, a receiver, a `let x = if … { s.read() }` value position); a
+  line, not miscompiled): a
   suspension-spanning `if let`/`guard let` with a *tuple pattern*, or one whose body
   *re-binds* the bound name (rename the inner binding); a **nested** generic call
   whose template suspends *unconditionally* without calling a type-param method
   (`func g<T>(x: T) -> T { yield_now(); x }` called nested — its instantiation's
   effect node is not built; drive it directly with `__saw_drive`/`spawn` instead — a
   same-module limit, orthogonal to the module boundary); a suspension inside a `for`
-  over a non-range iterable; and a value-producing `break` out of a suspension-spanning
-  loop.
+  over a non-range iterable; a value-producing `break` out of a suspension-spanning
+  loop; and a chained assignment through MORE THAN ONE optional hop whose RHS
+  suspends (`a?.b?.c = stream.read()` — the single-hop form works; bind the inner
+  optional with `if let` first).
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately
@@ -2622,8 +2645,9 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   loop (`if cancelled() { ... }`). NAMING: the cooperative method is `receive`;
   the 21b thread engine's blocking `recv` keeps its name and is untouched (same
   signature `(&self) -> T`, so overloading — which cannot differ by effect —
-  cannot distinguish the two). A `receive()` buried in an expression position (not
-  a top-level `let v = ...` / bare statement) is rejected cleanly.
+  cannot distinguish the two). A `receive()` buried in an expression position is
+  hoisted to its own statement first (design 120), so `inc(ch.receive()) +
+  ch.receive()` takes the two values left to right.
 
 **Multi-threaded execution — `TaskGroup(threads: N)` (design 75 A2).** By default a
 `TaskGroup()` runs its children on ONE thread (deterministic interleaving, above).
@@ -2677,13 +2701,14 @@ Now-closed gaps (design 62), each landed with tests:
   reachable.
 
 Remaining limits (rejected cleanly / documented, not miscompiled): the
-design-104-era list in the Suspension section above — a suspending call buried
-in a larger expression, a suspension-spanning `if let`/`guard let` with a tuple
-pattern or a body that re-binds the bound name, and a nested generic call whose
-template suspends unconditionally without calling a type-param method. Earlier
-restrictions — a spawned function had to be non-`Void`, a nested suspending
-*method* was not embeddable, an `if let`/`guard let` body could not span a
-suspension — were lifted (designs 102 item 1, 84/101, and 104 item 1).
+design-104-era list in the Suspension section above — a suspension-spanning
+`if let`/`guard let` with a tuple pattern or a body that re-binds the bound name,
+and a nested generic call whose template suspends unconditionally without calling
+a type-param method. Earlier restrictions — a spawned function had to be
+non-`Void`, a nested suspending *method* was not embeddable, an `if let`/`guard
+let` body could not span a suspension, a suspending call could not sit in a
+larger expression — were lifted (designs 102 item 1, 84/101, 104 item 1, and
+120).
 
 The transform is also still exercisable through a test-only entry: `__saw_suspend()`
 marks a synthetic suspension point and `__saw_drive(f(args))` / `__saw_drive_steps(f(args))`
@@ -2879,9 +2904,10 @@ thread is never wedged. The worker thread touches only its own job + pipe; all
 wake routing stays in the reactor; the pipe byte and the join of the worker form
 the release/acquire boundary, so the result transfers with no data race. v1 is
 thread-per-call and restricts the extern to the C-ABI `(Int) -> Int` whitelist (a
-pool + wider signatures are future work); a wider signature, or a blocking-extern
-call buried in a larger expression (an argument, a `try!`), is a clean compile
-error anchored at the call site. A blocking-extern call at statement position inside
+pool + wider signatures are future work); a wider signature is a clean compile
+error anchored at the call site. A blocking-extern call buried in a larger
+expression (an argument, an operand, a `try!`) is hoisted to its own statement by
+the design-120 rewrite and offloads from there. A blocking-extern call at statement position inside
 a suspension-spanning `if let`/`guard let` body offloads like any other (design 104
 item 1 CFG-splits the branch). Cancelling a task parked on an
 offload job wakes it (via the design-102 reactor self-pipe), but the in-flight

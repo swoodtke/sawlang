@@ -120,7 +120,7 @@ Exclusivity, Result/Optional with auto-wrap + erased
 skips the rest of the postfix chain incl. args, flattening never `U??`, final
 field must be copyable; chained assignment `x?.y = v` writes the payload in place,
 types `Void?`, consumed via the `_`-blessed `if let`/`guard let`; a suspending
-hop / a suspending CHAIN stays a clean buried-suspension error),
+hop and a suspending chain both work since 120),
 patterns (literals/ranges/guards/tuple
 destructuring) + named tuples, collection literals (Map/Set/Vector),
 platform-width Int, bounds/overflow/shift checks always on,
@@ -133,7 +133,11 @@ backstop) + TaskGroup (MT via `threads: N`, Send-checked) + channels +
 precise reactor wakeup (91) + cancel wakes even an io-parked task
 (102) + `extern blocking` calls RUN via thread offload (103);
 suspending calls embed at any nesting depth / control-flow position
-or error cleanly — never silently block (96, 101, 104); references
+or error cleanly — never silently block (96, 101, 104) — and, since 120,
+in any EXPRESSION position too (chains, args, receivers, operands,
+literals, interpolation, return, `try!`, `?.` hops, value if/match,
+`??`/`&&`/`||` RHS) via an ANF hoist in coro_transform that preserves
+evaluation order and short-circuits; references
 span suspends (88) and forward onward as re-borrows (106) + whole-referent
 replacement `x = v` / `self = v` through `&var` (110: uniform with closures,
 erased `&var any Trait` excluded, Box payload-swap works); std.net

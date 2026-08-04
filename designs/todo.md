@@ -258,17 +258,6 @@ inlined (the `.build/scratch` probes are gitignored).
   (DF-116d); (D) restore Token.suffix + the dump's 4th column in both dumpers
   (the DF-116a stopped unit; 116a itself fixed Aug 4). Brief:
   designs/119-lexer-pilot-followups.md. [119]
-- **Design 120 — suspension in expression position (queued; dispatch AFTER
-  118 integrates; user-authorized Aug 4; may run concurrent with 119).**
-  Suspending calls anywhere an expression appears — chains a().b().c(),
-  args, receivers, operands, literals, value-position if/match, ?? / && / ||
-  / ?. conditional positions — via an ANF hoist in coro_transform reusing the
-  96/101/104 statement embedding. STAGE 0 = the full known-unsupported
-  matrix as XFAIL tests (tests-first, user-directed); success = every marker
-  flipped or an explicit recorded carve-out, zero XPASS. Deletes the
-  buried-suspension error class (104 list, 111 suspending-hop carve, the
-  suspension-mid-chain future-work item). Brief:
-  designs/120-expression-suspension.md. [120]
 - **Design 121 — doc comments + --emit-docs (queued; dispatch AFTER 119
   integrates; user-authorized Aug 4; may run concurrent with 120).** The
   sawlang.com pipeline foundation: `///` (following decl) + `//!` (module)
@@ -497,6 +486,74 @@ inlined (the `.build/scratch` probes are gitignored).
     are per-`CodeGenerator`; type-ids are a deterministic hash; llvmlite
     `initialize_*` is idempotent).
 
+## Design 120 — suspension in expression position (LANDED, Aug 4)
+Brief: designs/120-expression-suspension.md. A suspending call may now sit
+anywhere an expression may. Stage 0 landed the known-unsupported matrix as XFAIL
+tests first (`examples/expr_suspend_*`); every marker is flipped, zero XPASS, and
+the carve-outs below are the only survivors.
+- **Mechanism (coro_transform.py).** `_anf_hoist` rewrites a statement whose
+  expression tree contains a suspension source into evaluation-ordered
+  `let __anfN = …` temps, so each suspending call lands in a top-level statement
+  the existing 96/101/104 embedding machinery drives unchanged. Sync code is
+  untouched. `_lower_value_conditionals` runs first and turns a suspension-
+  spanning CONDITIONAL construct into the branch shape (value `if`/`match`, `??`,
+  `&&`/`||`, a `?.` chain, a chained assignment), so a conditional position keeps
+  its short-circuit: an arm that is not taken never runs its suspension or its
+  side effects.
+- **Composition.** `_vc_head_hoist` lifts a conditional nested in another
+  conditional's unconditionally-evaluated head (a `??` LHS, an `if` condition, a
+  `match` scrutinee, an `&&`/`||` left operand) into its own statement first, and
+  `_vc_chain_prefix_hoist` peels a multi-hop `?.` chain one hop at a time. Both
+  exist because an `if let` nested inside an `if let` is a shape the state split
+  cannot express; as statements they lower fine. `o?.susp() ?? -1` is the case
+  that needs both.
+- **Rides along.** Blocking `extern` calls (design 103) and cooperative
+  `Channel.receive()` (design 62 G3) hoist for free — their statement-bound
+  restriction existed for the same buried-suspension reason. Tests
+  `expr_suspend_blocking`, `expr_suspend_channel_recv`.
+- **Closes:** the design-104 buried-in-a-larger-expression rejection list, the
+  design-111 suspending-hop/suspending-chain carve-out, and the
+  suspension-mid-chain future-work item. `examples/errors/
+  optional_chain_suspend_method.saw` moved to `examples/` as the positive case;
+  `errors/coro_reject_anchored.saw` re-pointed at suspending recursion (the
+  shape it asserted now compiles).
+- **CARVE-OUT (recorded): multi-hop chained assignment with a suspending RHS.**
+  `a?.b?.c = stream.read()` still rejects cleanly; the single-hop
+  `a?.c = stream.read()` works. The lowering is a None-guarded
+  read-modify-writeback of ONE payload (`var __wp = a!; __wp.c = rhs; a = __wp`);
+  more than one hop needs the writeback nested per level. Wanted spelling: the
+  multi-hop form lowering the same way. Workaround: `if let` the inner optional
+  first. [120, 111]
+- **DF-120a — ICE: spawn + join a task whose function returns an Optional.**
+  PRE-EXISTING (reproduces at the design-118 tip, before any 120 commit), so it
+  is recorded rather than fixed here. `internal compiler error: cannot store
+  {i1, i64} to {i1, {i1, i64}}*` — an `Optional<T>`-typed value stored into a
+  frame slot typed `Optional<Optional<T>>`. The optional-wrap-on-store heuristic
+  in `_generate_assign_statement` (codegen/statements.py, the MemberAccess
+  branch) wraps only when the VALUE is not already an optional, so a genuinely
+  optional value going into an opt-encoded slot is stored raw. Repro:
+  ```saw
+  import std.task
+  func run(n: Int) -> Int? { yield_now(); n }
+  func main() {
+      var g = TaskGroup()
+      let h = g.spawn(run(5))
+      print(h.join() ?? -1)     // ICE
+  }
+  ```
+  `__saw_drive(run(5))` on the same function is fine; only the spawn/join path
+  hits it. Wanted fix: compare the value's type against the slot's PAYLOAD type
+  rather than asking whether the value is optional at all. [120, 52b]
+- **FLAG (minor): a NoCopy payload under a suspending chained assignment
+  reports at 0:0.** `var local: NC? = …; local?.x = s(7)` inside a driven
+  function is a clean error (`cannot copy value of type ... which implements
+  NoCopy`) — the lowering's `local!` read duplicates the payload — but the
+  diagnostic carries no source position. The sync form compiles, so the shape is
+  legal outside a coroutine. A guard in `_lower_optchain_assign` cannot fix it:
+  the transform's typechecker handle has not merged the entry module's namespace
+  yet, so `_is_no_copy_type` answers False there. Cosmetic; the program is
+  rejected either way. [120, 111]
+
 ## Doc-sync audit findings (Aug 3) — two DECIDE items
 Surfaced by the four-source consistency audit (README / spec / skill /
 CLAUDE.md digest vs code); docs were updated to match the implementation,
@@ -529,14 +586,13 @@ these two need a design call:
   never `U??`, final field must be copyable); chained assignment `x?.y = v` writes
   the payload field in place (RHS skipped on short-circuit, ordinary transfer +
   deinit-once of the old value, `Void?` result discardable / consumed via the
-  `_`-blessed `if let`/`guard let`); a suspending hop or a suspending CHAIN stays
-  a clean buried-suspension error (regression-tested). Parser: OptionalEvalExpr +
+  `_`-blessed `if let`/`guard let`); a suspending hop or a suspending CHAIN was a
+  clean buried-suspension error (CLOSED by design 120 — both now lower). Parser: OptionalEvalExpr +
   BindOptional spine, OptionalChainAssign. Codegen: address-based short-circuit
   walk reusing `_generate_method_call(receiver_ptr=…)`; `Void?` = `{i1, i8}`.
   Tests under examples/optional_chain_*, optional_binding_underscore, and
   examples/errors/optional_chain_*. Docs: spec Optionals + Argument Evaluation
-  Order, skill, README, this digest. (Suspension-mid-chain stays future work,
-  below.)
+  Order, skill, README, this digest.
 - **VERIFY (agent claim, Aug 3): two-suspend helper embedding failure.** The
   design-110 agent reported that a non-driven helper with TWO suspend points
   ("plain `yield_now(); print; yield_now()`, no references") fails to embed
@@ -547,19 +603,14 @@ these two need a design call:
   exact repro from the agent transcript before treating as work. [104, 96]
   **Deferred (user, Aug 4):** revisit only if it reproduces during the SOS
   work (design 112 onward flags suspending-shape oddities on discovery).
-- **Future work: suspension mid-chain.** Supporting a suspending hop inside a
-  postfix or `?.` chain means lowering the chain to a resumable multi-state
-  expression (frame-resident intermediates, short-circuit resume paths). The
-  unchained `let`-per-step spelling is equivalent; design only if the ergonomic
-  pull proves real. [111, 104]
-- **FLAG (minor, design 111 discovery): buried-suspend diagnostic wording.** A
-  suspending METHOD inside a `?.` chain now correctly hits
-  `_reject_buried_suspend_call` (coro_transform.py "method" branch), but that
-  message names the shape as "a control-flow branch the state split cannot express
-  (an `if let`/`guard let` body)" — accurate for the design-104 case, slightly
-  off for a chain (it is a nested/expression position). Functionally correct
-  (clean error, never a silent block); only the explanatory clause could name the
-  chain case. Cosmetic; fix opportunistically. [111, 104, 101]
+- **Future work: suspension mid-chain — CLOSED by design 120 (Aug 4).** The
+  compiler unchains the statement for you; a suspending hop inside a postfix or
+  `?.` chain lowers. [111, 104, 120]
+- **FLAG (minor, design 111 discovery): buried-suspend diagnostic wording —
+  MOOT (Aug 4).** The message's "an `if let`/`guard let` body" clause no longer
+  reaches the chain case: design 120 lowers suspending chains instead of
+  rejecting them. The clause is accurate for the design-104 shapes that still
+  reject. [111, 104, 101, 120]
 
 ## Design 109 — silently unchecked trait bounds for primitive type args (LANDED)
 - **Root cause (typechecker + one namespace gap).** The free-function bound-check
