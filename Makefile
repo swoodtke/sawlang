@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test
 
 # Default target
 all: test
@@ -22,6 +22,13 @@ test-filter:
 blade-bootstrap:
 	@python3 tools/blade_bootstrap.py
 
+# SOS M0 QEMU smoke tests (design 112): build the freestanding riscv32 kernel
+# and run it under QEMU `virt`, asserting the UART banner + emulator exit status.
+# Requires host tools qemu-system-riscv32, ld.lld, and clang (the harness probes
+# for them and prints install hints if missing).
+sos-test:
+	@python3 tools/sos_runner.py
+
 # Clean build artifacts
 clean:
 	@rm -rf .build/*
@@ -41,6 +48,7 @@ help:
 	@echo "  make test-sequential - Run tests sequentially (no parallelism)"
 	@echo "  make test-filter     - Run tests matching FILTER pattern"
 	@echo "                         Example: make test-filter FILTER=enum"
+	@echo "  make sos-test        - Build + run the SOS M0 riscv32 kernel under QEMU"
 	@echo "  make clean           - Remove build artifacts"
 	@echo "  make help            - Show this help message"
 	@echo ""
