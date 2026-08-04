@@ -127,6 +127,19 @@ inlined (the `.build/scratch` probes are gitignored).
   112): Saw kernel boots + prints a UART banner + exits cleanly under
   QEMU `virt` riscv32 (`make sos-test`). Ultimate milestone: UART "blink"
   on real P4 hardware. See sos/spec.md §5b (M0 recap) + designs/112.
+- **Docs website (sawlang.com): VISION (user, Aug 4) — "eventually", not
+  scheduled.** A complete site: installation, usage/tutorial, stdlib API
+  reference extracted from source. Component designs to brief when
+  scheduled: (1) doc comments — `///`-style attached to the following
+  decl (+ a module-doc form), lexed as trivia in BOTH lexers (lexdiff
+  parity contract), parser attaches to AST; (2) `--emit-docs` compiler
+  mode walking the TYPECHECKED namespace → JSON (real signatures,
+  conformances; design-80 visibility = document exactly the public
+  surface); (3) `sawdoc` — the JSON→HTML generator WRITTEN IN SAW
+  (surface-area strategy: markdown/string/file-IO heavy dogfood);
+  (4) std docstring-writing pass (per-module content work, agent-friendly);
+  (5) site shell + hosting (static; README "Building from a fresh clone"
+  section is the near-term precursor). [website]
 
 ## Queued briefs (Aug 4) — awaiting dispatch
 - **Design 116 — self-hosting pilot: the lexer in Saw (dispatched Aug 4).**
