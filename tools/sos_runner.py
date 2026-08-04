@@ -63,7 +63,7 @@ TEST_CASES = [
         "name": "panic_seam",
         "src": os.path.join(TESTS_DIR, "panic.saw"),
         "expect_out": "SOS M0: deliberate panic",
-        "expect_clean_exit": False,     # saw_panic → UART + FINISHER_FAIL
+        "expect_clean_exit": False,     # __saw_rt_panic → UART + FINISHER_FAIL
     },
 ]
 
