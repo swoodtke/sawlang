@@ -267,6 +267,11 @@ class Lexer:
         self.advance()  # consume opening quote
         result = []
         has_interpolation = False
+        # Position of the FIRST interpolation `{` opened in this literal (None =
+        # none yet). An unbalanced interpolation reports HERE, not at EOF (DF-116d):
+        # a stray `{` otherwise runs the scan off the end of the file and surfaces
+        # as a far-away "Unterminated string".
+        interp_open = None
 
         while self.peek() and self.peek() != '"':
             if self.peek() == '\\':
@@ -301,6 +306,9 @@ class Lexer:
             elif self.peek() == '{':
                 # Interpolation detected - preserve braces for parser
                 has_interpolation = True
+                open_line, open_col = self.line, self.column
+                if interp_open is None:
+                    interp_open = (open_line, open_col)
                 result.append(self.advance())  # Keep {
                 # Read until matching }, tracking nested braces
                 brace_depth = 1
@@ -312,11 +320,25 @@ class Lexer:
                         brace_depth -= 1
                     result.append(self.advance())
                 if brace_depth > 0:
-                    self.error("Unterminated interpolation in string")
+                    # This interpolation ran to EOF without a closing `}`.
+                    raise SyntaxError(
+                        "Lexer error at %d:%d: unterminated interpolation in "
+                        "string literal, opened at this `{` (write `\\{` for a "
+                        "literal brace)" % (open_line, open_col))
             else:
                 result.append(self.advance())
 
         if not self.peek():
+            # At EOF with the string still open. If an interpolation `{` was
+            # opened, the likely cause is a stray brace meant as a literal: point
+            # at that brace (its `}` was probably consumed by a later `}`) rather
+            # than at the far-off EOF.
+            if interp_open is not None:
+                il, ic = interp_open
+                raise SyntaxError(
+                    "Lexer error at %d:%d: unterminated interpolation in string "
+                    "literal, opened at this `{` (write `\\{` for a literal "
+                    "brace)" % (il, ic))
             self.error("Unterminated string")
         self.advance()  # consume closing quote
         return (''.join(result), has_interpolation)

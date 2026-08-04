@@ -111,7 +111,18 @@ inlined (the `.build/scratch` probes are gitignored).
   code point is arguably lexer work), but the asymmetry is a real std gap the
   pilot surfaces.
 
-- **DF-116d — diagnostic quality: an unbalanced interpolation `{` in a string
+- **DF-116d — CLOSED (design 119 Part C, Aug 4).** Both lexers now track the
+  first interpolation-open `{` position in a string literal and, when the string
+  fails to terminate (the interpolation runs to EOF, or a later `}` was consumed
+  as its close and the string then runs off the end), report AT that brace —
+  "unterminated interpolation in string literal, opened at this `{` (write `\{`
+  for a literal brace)" — instead of "Unterminated string" at EOF. Landed in
+  sawc/lexer.py AND selfhost/lexer/src/lib.saw in one commit (error positions are
+  the lexdiff parity contract). Error positions match byte-for-byte; `make
+  lexdiff` stays at 0 mismatches. Tests: selfhost/lexer/tests/errors.saw (the
+  brace-position case), examples/lexer_unterminated_interpolation.saw (the
+  compiler-level message). Original finding follows:
+  **diagnostic quality: an unbalanced interpolation `{` in a string
   literal reports "Unterminated string" at EOF, not at the offending brace.**
   Writing `"...{..."` (a stray `{`, meaning interpolation, with no matching `}`)
   makes the lexer consume the rest of the file — the error surfaces as

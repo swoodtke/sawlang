@@ -1,0 +1,12 @@
+// A stray `{` in a string literal (meant as a literal brace) opens an
+// interpolation that never closes: the `}` of the enclosing block is consumed
+// as its close, then the string runs to EOF. The lexer reports at the offending
+// brace with a message naming interpolation and the `\{` escape (design 119
+// Part C, closing DF-116d), not a far-off "unterminated string" at EOF.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: unterminated interpolation in string literal
+
+func main() {
+    let msg = "value {x"
+    print(msg)
+}

@@ -19,6 +19,16 @@ func main() {
     us.append("abc")
     expect_err(us.build(), 1, 5, "unterminated string")
 
+    // Unbalanced interpolation `{`: a stray brace opens an interpolation that
+    // never closes; reported AT the brace, not at EOF (design 119 / DF-116d).
+    // The string is `"a {b` — the `{` is at column 4.
+    var interp = StringBuilder()
+    interp.append_char(34 as Int8)      // "
+    interp.append("a ")
+    interp.append_char(123 as Int8)     // {
+    interp.append("b")                  // no closing } or "
+    expect_err(interp.build(), 1, 4, "unterminated interpolation at the brace")
+
     // Unknown escape `\q`: error at the escaped char position.
     var be = StringBuilder()
     be.append_char(34 as Int8)      // "

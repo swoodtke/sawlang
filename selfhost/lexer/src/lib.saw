@@ -613,6 +613,12 @@ extension Lexer {
         let _ = self.advance()  // consume opening quote
         var out = StringBuilder()
         var has_interp = false
+        // Position of the FIRST interpolation `{` opened in this literal (0 = none
+        // yet). An unbalanced interpolation reports HERE, not at EOF (DF-116d): a
+        // stray `{` otherwise runs the scan off the end of the file and surfaces
+        // as a far-away "unterminated string".
+        var interp_line = 0
+        var interp_col = 0
 
         while self.peek() != -1 && self.peek() != B_QUOTE {
             if self.peek() == B_BACKSLASH {
@@ -640,6 +646,12 @@ extension Lexer {
                 }
             } else if self.peek() == B_LBRACE {
                 has_interp = true
+                let open_line = self.line
+                let open_col = self.col
+                if interp_line == 0 {
+                    interp_line = open_line
+                    interp_col = open_col
+                }
                 out.append_char(to_i8(self.advance()))  // keep '{'
                 var depth = 1
                 while self.peek() != -1 && depth > 0 {
@@ -649,7 +661,8 @@ extension Lexer {
                     out.append_char(to_i8(self.advance()))
                 }
                 if depth > 0 {
-                    return self.err("Unterminated interpolation in string")
+                    // This interpolation ran to EOF without a closing `}`.
+                    return self.err_at("unterminated interpolation in string literal, opened at this `\{` (write `\\\{` for a literal brace)", open_line, open_col)
                 }
             } else {
                 out.append_char(to_i8(self.advance()))
@@ -657,6 +670,13 @@ extension Lexer {
         }
 
         if self.peek() == -1 {
+            // At EOF with the string still open. If an interpolation `{` was
+            // opened, the likely cause is a stray brace meant as a literal: point
+            // at that brace (its `}` was probably consumed by a later `}`) rather
+            // than at the far-off EOF.
+            if interp_line != 0 {
+                return self.err_at("unterminated interpolation in string literal, opened at this `\{` (write `\\\{` for a literal brace)", interp_line, interp_col)
+            }
             return self.err("Unterminated string")
         }
         let _ = self.advance()  // consume closing quote
