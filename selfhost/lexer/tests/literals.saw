@@ -1,0 +1,54 @@
+// Integer / float / string / bool literal forms.
+import src.lib.*
+
+func toks(s: String) -> Vector<Token> {
+    match lex(s) {
+        case Ok(t) -> move t,
+        case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
+    }
+}
+
+// The canonical dump line for token `i` (kind + position + escaped text).
+func at(ts: &Vector<Token>, i: Int) -> String {
+    if let t = ts.get(i) {
+        format_token(&t)
+    } else {
+        panic("no token at index {i}")
+    }
+}
+
+func main() {
+    // Decimal, hex (digit case preserved, prefix lowercased), binary, octal,
+    // underscores stripped, float.
+    let a = toks("42 0XFf 0b1010 0o17 1_000 3.14")
+    assert(at(&a, 0).equals("INT\t1:1\t42"), "decimal")
+    assert(at(&a, 1).equals("INT\t1:4\t0xFf"), "hex: prefix lowercased, digits kept")
+    assert(at(&a, 2).equals("INT\t1:9\t0b1010"), "binary")
+    assert(at(&a, 3).equals("INT\t1:16\t0o17"), "octal")
+    assert(at(&a, 4).equals("INT\t1:21\t1000"), "underscores stripped")
+    assert(at(&a, 5).equals("FLOAT\t1:27\t3.14"), "float")
+
+    // Width-suffixed literals lex as a single INT with the digits as the value
+    // (the suffix attribute is withheld — DF-116a). 255u8 is in range (no error).
+    let b = toks("255u8 65535u16 1_000i32")
+    assert(at(&b, 0).equals("INT\t1:1\t255"), "255u8 -> INT 255")
+    assert(at(&b, 1).equals("INT\t1:7\t65535"), "65535u16 -> INT 65535")
+    assert(at(&b, 2).equals("INT\t1:16\t1000"), "1_000i32 -> INT 1000")
+
+    // `5abc` stays INT + IDENT (no bogus suffix); `0xFace` reads as hex.
+    let c = toks("5abc 0xFace")
+    assert(at(&c, 0).equals("INT\t1:1\t5"), "5abc: INT")
+    assert(at(&c, 1).equals("IDENT\t1:2\tabc"), "5abc: IDENT")
+    assert(at(&c, 2).equals("INT\t1:6\t0xFace"), "0xFace hex")
+
+    // Keywords vs identifiers; true/false map to their own kinds.
+    let d = toks("func x let true false module")
+    assert(at(&d, 0).equals("FUNC\t1:1\tfunc"), "func keyword")
+    assert(at(&d, 1).equals("IDENT\t1:6\tx"), "ident")
+    assert(at(&d, 2).equals("LET\t1:8\tlet"), "let keyword")
+    assert(at(&d, 3).equals("TRUE\t1:12\ttrue"), "true")
+    assert(at(&d, 4).equals("FALSE\t1:17\tfalse"), "false")
+    assert(at(&d, 5).equals("IDENT\t1:23\tmodule"), "module is IDENT, not a keyword")
+
+    print("literals: ok")
+}

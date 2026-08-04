@@ -1,0 +1,52 @@
+// Range operators vs float dots, including the `7.` float-prefix behavior.
+import src.lib.*
+
+func toks(s: String) -> Vector<Token> {
+    match lex(s) {
+        case Ok(t) -> move t,
+        case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
+    }
+}
+
+func at(ts: &Vector<Token>, i: Int) -> String {
+    if let t = ts.get(i) { format_token(&t) } else { panic("no token at index {i}") }
+}
+
+func main() {
+    // Exclusive range: INT `..` INT (the dot pair is not consumed by the number).
+    let a = toks("0..5")
+    assert(at(&a, 0).equals("INT\t1:1\t0"), "0..5 -> INT 0")
+    assert(at(&a, 1).equals("DOTDOT\t1:2\t.."), "0..5 -> DOTDOT")
+    assert(at(&a, 2).equals("INT\t1:4\t5"), "0..5 -> INT 5")
+
+    // Inclusive range `..=` is a single token, checked before bare `..`.
+    let b = toks("0..=5")
+    assert(at(&b, 0).equals("INT\t1:1\t0"), "0..=5 -> INT 0")
+    assert(at(&b, 1).equals("DOTDOT_EQ\t1:2\t..="), "0..=5 -> DOTDOT_EQ")
+    assert(at(&b, 2).equals("INT\t1:5\t5"), "0..=5 -> INT 5")
+
+    // `7.` float-prefix: a trailing dot (not `..`) makes a FLOAT "7."; the
+    // following identifier is a separate token (matches the Python lexer).
+    let c = toks("7.foo")
+    assert(at(&c, 0).equals("FLOAT\t1:1\t7."), "7.foo -> FLOAT 7.")
+    assert(at(&c, 1).equals("IDENT\t1:3\tfoo"), "7.foo -> IDENT foo")
+
+    // `7..5` keeps the number whole and lexes the range operator.
+    let d = toks("7..5")
+    assert(at(&d, 0).equals("INT\t1:1\t7"), "7..5 -> INT 7")
+    assert(at(&d, 1).equals("DOTDOT\t1:2\t.."), "7..5 -> DOTDOT")
+
+    // A second dot in a float ends the number: `7.5.6` -> FLOAT 7.5 DOT INT 6.
+    let e = toks("7.5.6")
+    assert(at(&e, 0).equals("FLOAT\t1:1\t7.5"), "7.5.6 -> FLOAT 7.5")
+    assert(at(&e, 1).equals("DOT\t1:4\t."), "7.5.6 -> DOT")
+    assert(at(&e, 2).equals("INT\t1:5\t6"), "7.5.6 -> INT 6")
+
+    // `...` ellipsis and a leading-dot member access are distinct.
+    let f = toks("a...b .5")
+    assert(at(&f, 1).equals("ELLIPSIS\t1:2\t..."), "ellipsis")
+    assert(at(&f, 3).equals("DOT\t1:7\t."), ".5 -> DOT")
+    assert(at(&f, 4).equals("INT\t1:8\t5"), ".5 -> INT 5")
+
+    print("ranges: ok")
+}

@@ -1,0 +1,29 @@
+// #file / #line / #function source-location directives, and NEWLINE tokens.
+import src.lib.*
+
+func toks(s: String) -> Vector<Token> {
+    match lex(s) {
+        case Ok(t) -> move t,
+        case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
+    }
+}
+
+func at(ts: &Vector<Token>, i: Int) -> String {
+    if let t = ts.get(i) { format_token(&t) } else { panic("no token at index {i}") }
+}
+
+func main() {
+    // The value is the bare directive name.
+    let a = toks("#file #line #function")
+    assert(at(&a, 0).equals("HASH_DIRECTIVE\t1:1\tfile"), "#file")
+    assert(at(&a, 1).equals("HASH_DIRECTIVE\t1:7\tline"), "#line")
+    assert(at(&a, 2).equals("HASH_DIRECTIVE\t1:13\tfunction"), "#function")
+
+    // A NEWLINE token carries the newline, and line/col advance across it.
+    let b = toks("a\nb")
+    assert(at(&b, 0).equals("IDENT\t1:1\ta"), "line 1 ident")
+    assert(at(&b, 1).equals("NEWLINE\t1:2\t\\n"), "newline token, escaped value")
+    assert(at(&b, 2).equals("IDENT\t2:1\tb"), "line 2 ident at col 1")
+
+    print("directives: ok")
+}

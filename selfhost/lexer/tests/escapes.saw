@@ -1,0 +1,75 @@
+// String escapes: \n \t \r \0 \\ \" \{ and \u{...} (incl. non-ASCII).
+import src.lib.*
+
+func toks(s: String) -> Vector<Token> {
+    match lex(s) {
+        case Ok(t) -> move t,
+        case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
+    }
+}
+
+// The canonical dump line for the FIRST token of `s` (String by value, so no
+// reference-to-temporary is needed).
+func dump0(s: String) -> String {
+    let ts = toks(s)
+    if let t = ts.get(0) { format_token(&t) } else { panic("no tokens") }
+}
+
+// Wrap `inner` (the raw bytes between the quotes) into a source string literal.
+func lit(inner: String) -> String {
+    var sb = StringBuilder()
+    sb.append_char(34 as Int8)      // opening "
+    sb.append(inner)
+    sb.append_char(34 as Int8)      // closing "
+    sb.build()
+}
+
+func main() {
+    // \n \t \r \0 decode to their control bytes; the dump re-escapes them.
+    assert(dump0(lit("a\\nb")).equals("STRING\t1:1\ta\\nb"), "backslash-n")
+    assert(dump0(lit("a\\tb")).equals("STRING\t1:1\ta\\tb"), "backslash-t")
+    assert(dump0(lit("a\\rb")).equals("STRING\t1:1\ta\\rb"), "backslash-r")
+    assert(dump0(lit("a\\0b")).equals("STRING\t1:1\ta\\0b"), "backslash-0 NUL")
+
+    // \\ -> one backslash;  \" -> one quote.
+    assert(dump0(lit("a\\\\b")).equals("STRING\t1:1\ta\\\\b"), "backslash-backslash")
+    assert(dump0(lit("a\\\"b")).equals("STRING\t1:1\ta\"b"), "backslash-quote")
+
+    // \u{41} -> 'A'  (source built byte-wise so the braces are literal).
+    var u1 = StringBuilder()
+    u1.append_char(34 as Int8)      // "
+    u1.append_char(92 as Int8)      // backslash
+    u1.append_char(117 as Int8)     // u
+    u1.append_char(123 as Int8)     // {
+    u1.append("41")
+    u1.append_char(125 as Int8)     // }
+    u1.append_char(34 as Int8)      // "
+    assert(dump0(u1.build()).equals("STRING\t1:1\tA"), "backslash-u{41} -> A")
+
+    // \u{1F600} -> the emoji's 4 UTF-8 bytes, emitted verbatim in the dump.
+    var u2 = StringBuilder()
+    u2.append_char(34 as Int8)
+    u2.append_char(92 as Int8)
+    u2.append_char(117 as Int8)
+    u2.append_char(123 as Int8)
+    u2.append("1F600")
+    u2.append_char(125 as Int8)
+    u2.append_char(34 as Int8)
+    var exp = StringBuilder()
+    exp.append("STRING\t1:1\t")
+    exp.append("😀")
+    assert(dump0(u2.build()).equals(exp.build()), "backslash-u{1F600} -> emoji bytes")
+
+    // \{ escaped brace: value carries the 0x01 sentinel + '{', and it stays a
+    // plain STRING (NOT an interpolation).  Expected uses \{ for a literal brace.
+    var e1 = StringBuilder()
+    e1.append_char(34 as Int8)      // "
+    e1.append_char(97 as Int8)      // a
+    e1.append_char(92 as Int8)      // backslash
+    e1.append_char(123 as Int8)     // {
+    e1.append_char(98 as Int8)      // b
+    e1.append_char(34 as Int8)      // "
+    assert(dump0(e1.build()).equals("STRING\t1:1\ta\\x01\{b"), "escaped-brace STRING")
+
+    print("escapes: ok")
+}

@@ -1,0 +1,66 @@
+// String interpolation delimiters: a bare `{...}` makes an INTERP_STRING whose
+// value keeps the braces raw (the parser handles the inner expression later).
+import src.lib.*
+
+func toks(s: String) -> Vector<Token> {
+    match lex(s) {
+        case Ok(t) -> move t,
+        case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
+    }
+}
+
+func dump0(s: String) -> String {
+    let ts = toks(s)
+    if let t = ts.get(0) { format_token(&t) } else { panic("no tokens") }
+}
+
+// A source string literal `"<parts...>"` with a bare `{name}` interior.
+func interp_src() -> String {
+    var sb = StringBuilder()
+    sb.append_char(34 as Int8)      // "
+    sb.append("hi ")
+    sb.append_char(123 as Int8)     // {
+    sb.append("name")
+    sb.append_char(125 as Int8)     // }
+    sb.append_char(34 as Int8)      // "
+    sb.build()
+}
+
+func nested_src() -> String {
+    var sb = StringBuilder()
+    sb.append_char(34 as Int8)      // "
+    sb.append_char(123 as Int8)     // {
+    sb.append("a ")
+    sb.append_char(123 as Int8)     // {  (nested)
+    sb.append("b")
+    sb.append_char(125 as Int8)     // }
+    sb.append(" c")
+    sb.append_char(125 as Int8)     // }
+    sb.append_char(34 as Int8)      // "
+    sb.build()
+}
+
+func main() {
+    // Braces are preserved raw and the kind is INTERP_STRING.
+    // build the full expected text: "hi {name}"
+    var full = StringBuilder()
+    full.append("INTERP_STRING\t1:1\thi ")
+    full.append_char(123 as Int8)
+    full.append("name")
+    full.append_char(125 as Int8)
+    assert(dump0(interp_src()).equals(full.build()), "interpolation keeps braces")
+
+    // Nested braces are balanced and preserved.
+    var nexp = StringBuilder()
+    nexp.append("INTERP_STRING\t1:1\t")
+    nexp.append_char(123 as Int8)
+    nexp.append("a ")
+    nexp.append_char(123 as Int8)
+    nexp.append("b")
+    nexp.append_char(125 as Int8)
+    nexp.append(" c")
+    nexp.append_char(125 as Int8)
+    assert(dump0(nested_src()).equals(nexp.build()), "nested braces balanced")
+
+    print("interpolation: ok")
+}

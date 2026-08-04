@@ -1,0 +1,36 @@
+// Line comments are skipped (never tokens); code after them still lexes.
+import src.lib.*
+
+func toks(s: String) -> Vector<Token> {
+    match lex(s) {
+        case Ok(t) -> move t,
+        case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
+    }
+}
+
+func at(ts: &Vector<Token>, i: Int) -> String {
+    if let t = ts.get(i) { format_token(&t) } else { panic("no token at index {i}") }
+}
+
+func count(ts: &Vector<Token>) -> Int { ts.len() }
+
+func main() {
+    // A trailing comment produces no tokens; the NEWLINE after it survives.
+    let a = toks("x // comment here\ny")
+    assert(at(&a, 0).equals("IDENT\t1:1\tx"), "x")
+    assert(at(&a, 1).equals("NEWLINE\t1:18\t\\n"), "newline after comment")
+    assert(at(&a, 2).equals("IDENT\t2:1\ty"), "y on next line")
+    // x, NEWLINE, y, EOF
+    assert(count(&a) == 4, "comment contributed no tokens")
+
+    // A whole-line comment: only the NEWLINE and EOF remain.
+    let b = toks("// just a comment\n")
+    assert(at(&b, 0).equals("NEWLINE\t1:18\t\\n"), "newline")
+    assert(count(&b) == 2, "comment-only line: NEWLINE + EOF")
+
+    // A `//` inside a comment does not start anything; a division `/` is distinct.
+    let c = toks("a / b")
+    assert(at(&c, 1).equals("SLASH\t1:3\t/"), "division slash")
+
+    print("comments: ok")
+}
