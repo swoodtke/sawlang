@@ -102,6 +102,18 @@ items need a probe before being treated as real work.
   prelude); rename all compiler-recognized double-underscore names to
   __saw_* (deinit_in_place, suspend, io_park, blk_*, drive...). AFTER 113
   lands (shared intrinsic surface). [114]
+- **DECIDE: infinite loops should type as `Never` (probe Aug 4, lead).**
+  `func f() -> Never` is satisfiable ONLY by ending in a Never-typed
+  EXPRESSION (`panic(...)` / a Never call); a no-`break` infinite loop —
+  `while { }` conditionless AND `while true { }` — is rejected with
+  "should return `NEVER` but body has no value" (probe
+  .build/scratch/probe_never_spin.saw). Bare-metal spin/WFI/hang idioms
+  (design 112's exit_pass/exit_qemu, kernel idle loops) therefore cannot be
+  typed honestly and fall back to Void + a comment. Proposed rule: a
+  conditionless no-`break` `while { }` types as `Never` (Rust: `loop {}`
+  is `!`); whether the literal `while true { }` joins it is part of the
+  call. Rider: the diagnostic leaks the internal kind spelling `NEVER`
+  (should say `Never`). [49, 58, 112]
 - **Design 115 — test runner: persistent compile workers.** Amortize the
   measured ~250 ms/test fixed compiler-bootstrap overhead (python +
   llvmlite/sawc imports + builtin namespace) via N long-lived worker
