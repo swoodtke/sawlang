@@ -26,6 +26,35 @@ extern "C" {
     func __saw_rt_thread_join(handle: Int)
 }
 
+// =============================================================================
+// The Thread trait (design 118 stage 4)
+// =============================================================================
+// The minimal OS-thread surface the executor's Saw side consumes: JOIN by handle.
+// The SPAWN half stays the compiler-emitted `__saw_rt_thread_spawn` primitive (spawn
+// codegen builds a control block + a raw C-ABI trampoline pointer — DF-113b, a value
+// Saw cannot express — the thread analog of the coroutine frame layout the compiler
+// keeps). `PosixThread` wraps `__saw_rt_thread_join`; a future SOS-hosted runtime
+// implements the SAME trait over kernel threads (its thread handle == the word). Both
+// the `spawn`/`Task` engine (here) and the MT `TaskGroup` drain (which joins its
+// workers as `Task`s) join through this surface. Consumed by static dispatch through
+// the conformance — no per-join boxing; the impl is link/compile-time selected, so an
+// `any Thread` existential would add an allocation with no runtime-swap benefit (same
+// rationale as the design-118 stage-3 `Reactor`/`SystemReactor`). Internal to the
+// thread engine (not `public`) — no user-facing `Thread`/`PosixThread` collision.
+trait Thread {
+    func join(&self)
+}
+
+struct PosixThread {
+    handle: Int
+}
+
+extension PosixThread: Thread {
+    func join(&self) {
+        __saw_rt_thread_join(self.handle)
+    }
+}
+
 struct Task<T> {
     // Points at the task control block (`None` only on the inert OOM path).
     handle: UnsafePointer<Int8>?
@@ -43,7 +72,7 @@ extension Task<T> {
             panic("Task.join: task already joined")
         } else {
             if let h = self.handle {
-                __saw_rt_thread_join((h as UnsafePointer<Int>)[0])
+                PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
                 let result_ptr = (h + 16) as UnsafePointer<T>
                 let result = result_ptr[0]
                 GlobalAllocator().dealloc(h, 16 + sizeof<T>(), 16)
@@ -64,7 +93,7 @@ extension Task<T>: Deinit {
         // unclaimed result dropped, and the control block freed.
         if not self.joined {
             if let h = self.handle {
-                __saw_rt_thread_join((h as UnsafePointer<Int>)[0])
+                PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
                 let result_ptr = (h + 16) as UnsafePointer<T>
                 __saw_deinit_in_place(result_ptr)
                 GlobalAllocator().dealloc(h, 16 + sizeof<T>(), 16)

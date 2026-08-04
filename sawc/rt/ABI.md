@@ -409,8 +409,10 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
   codegen lowers `__saw_blk_*` to the `__saw_rt_offload_*` seams.
 - **`spawn { } -> Task<T>` thread engine** (`codegen/calls.py::_generate_spawn`)
   — control block `{tid, env, result}`, a per-site `i8*(i8*)` trampoline, and a
-  `__saw_rt_thread_spawn(tramp, cb)` launch. Task join/deinit (`std/task.saw`,
-  Saw) call `__saw_rt_thread_join`.
+  `__saw_rt_thread_spawn(tramp, cb)` launch (the SPAWN half stays codegen — the raw
+  C trampoline pointer is DF-113b). Task join/deinit (`std/task.saw`, Saw) join
+  through the design-118 stage-4 `Thread` trait / `PosixThread` over
+  `__saw_rt_thread_join`.
 - ~~**`__saw_reactor()`** reactor-instance getter + injection~~ — RETIRED (design
   118 stage 3). The process-global reactor singleton is now the Saw
   `__saw_host_reactor()` (lazy CAS over an `Atomic<Int>` static in
@@ -506,9 +508,21 @@ instance), without touching a single synthesized call site.
   now exercise exactly the `(fd, direction, token)` semantics `SystemReactor` wraps,
   so they ARE the `Reactor`-contract unit tests. No harder gating was added (that
   would need a new visibility mechanism — out of scope; a follow-up if wanted).
-- **Stage 4 (threads/MT/offload):** a `Thread` (spawn/join) surface behind the
-  `spawn{}` engine + `__drain_mt`; offload parking through the same surface.
-  Send checks + design-103 semantics unchanged.
+- **Stage 4 (threads/MT/offload) — LANDED:** the `Thread` trait (`join`) +
+  `struct PosixThread { handle: Int }` conforming over `__saw_rt_thread_join` are
+  defined in std/task.saw; `Task<T>.join`/`deinit` join through the trait, and the
+  MT `TaskGroup` drain (`__drain_mt`) joins its workers as `Task`s, so both the
+  `spawn{}`/`Task` engine and the MT engine go through the Thread surface. The SPAWN
+  half stays the compiler-emitted `__saw_rt_thread_spawn` primitive — spawn codegen
+  (`_generate_spawn`) builds the task control block + a raw C-ABI trampoline pointer
+  (DF-113b, a value Saw cannot express), the thread analog of the coroutine frame
+  layout the compiler keeps. Offload PARKING already goes through the reactor (the
+  `io_wait` on the job pipe, stage 2/3); the offload worker's own thread spawn lives
+  in the rt/ runtime (rt/common/offload.saw), not the executor, so it needs no
+  executor-side Thread routing. DEVIATION (same as stage 3): STATIC dispatch through
+  the `Thread` conformance, not an `any Thread` existential (no per-join box; the
+  impl is link/compile-time selected). Send checks + design-103 semantics unchanged
+  (byte-identical; the MT/offload/Send regression tests are the ratchet).
 
 ## The four intended implementations
 
