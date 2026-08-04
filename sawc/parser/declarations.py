@@ -298,7 +298,8 @@ class DeclarationsMixin:
             parent_traits=parent_traits,
             visibility=visibility,
             line=start.line,
-            column=start.column
+            column=start.column,
+            source_file=self.source_file
         )
 
     def parse_associated_type(self) -> AssociatedType:
@@ -495,7 +496,8 @@ class DeclarationsMixin:
             defined_type=defined_type,
             visibility=visibility,
             line=start.line,
-            column=start.column
+            column=start.column,
+            source_file=self.source_file
         )
 
     def parse_static(self, visibility: Visibility = Visibility.PRIVATE) -> 'StaticDecl':

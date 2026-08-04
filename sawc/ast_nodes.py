@@ -1296,6 +1296,7 @@ class Trait(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
+    source_file: str = ""
     doc: Optional[str] = None
 
 
@@ -1442,6 +1443,7 @@ class TypeDefinition(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
+    source_file: str = ""
     doc: Optional[str] = None
 
 

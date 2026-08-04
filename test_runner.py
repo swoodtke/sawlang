@@ -16,6 +16,12 @@ Test expectations are specified via comments in the source files:
                                 definition. Used to prove the freestanding profile
                                 still EXTERNS the runtime seams and links no runtime
                                 (design 113 / 113b negative test).
+    // EXPECT: docs           - Compile with `// COMPILE-FLAGS: --emit-docs` and
+                                compare the COMPILER's stdout (the design-121
+                                documentation JSON) against EXPECT-OUTPUT; never
+                                run anything. Lines are compared with leading and
+                                trailing whitespace stripped, since the directive
+                                comments cannot carry the JSON's indentation.
     // EXPECT: skip           - Skip this file (library modules, etc.)
     // EXPECT-OUTPUT:         - Next lines are expected stdout (until next directive or code)
     // some output
@@ -52,6 +58,7 @@ class ExpectType(Enum):
     ERROR = "error"
     PANIC = "panic"  # Runtime panic (compiles but aborts at runtime)
     OBJECT = "object"  # Compile to a .o and inspect symbols; do not run
+    DOCS = "docs"  # Compare the compiler's --emit-docs JSON; do not run
 
 
 class TestStatus(Enum):
@@ -133,6 +140,8 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
                     expect_type = ExpectType.PANIC
                 elif directive == 'object':
                     expect_type = ExpectType.OBJECT
+                elif directive == 'docs':
+                    expect_type = ExpectType.DOCS
                 elif directive == 'skip':
                     return None  # Skip this file entirely
                 in_output_block = False
@@ -217,6 +226,27 @@ def compile_saw_file(file_path: Path, output_path: Path,
         return result.returncode == 0, result.stdout, result.stderr
     except subprocess.TimeoutExpired:
         return False, "", "Compilation timed out"
+    except Exception as e:
+        return False, "", f"Failed to run compiler: {e}"
+
+
+def emit_docs_file(file_path: Path,
+                   compile_flags: Optional[List[str]] = None) -> tuple[bool, str, str]:
+    """Run sawc with the test's flags and NO `-o`, so `--emit-docs` writes its
+    JSON to stdout instead of a file (design 121).
+
+    Returns: (success, stdout, stderr)
+    """
+    sawc_path = Path(__file__).parent / 'sawc' / 'sawc.py'
+    cmd = [sys.executable, str(sawc_path), str(file_path)]
+    if compile_flags:
+        cmd.extend(compile_flags)
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        return result.returncode == 0, result.stdout, result.stderr
+    except subprocess.TimeoutExpired:
+        return False, "", "Documentation extraction timed out"
     except Exception as e:
         return False, "", f"Failed to run compiler: {e}"
 
@@ -452,6 +482,25 @@ def run_test(test: TestCase, verbose: bool = False, compile_fn=None) -> tuple[bo
         return False, "Panic test must have at least one '// EXPECT-PANIC-CONTAINS:' directive"
     if test.expect_type == ExpectType.OBJECT and not test.expected_undefined_symbols:
         return False, "Object test must have at least one '// EXPECT-SYMBOL-UNDEFINED:' directive"
+    if test.expect_type == ExpectType.DOCS and not test.expected_output:
+        return False, "Docs test must have '// EXPECT-OUTPUT:' with the expected JSON"
+
+    if test.expect_type == ExpectType.DOCS:
+        # design 121: the compiler emits documentation JSON on stdout instead of
+        # code. Nothing is compiled to a binary and nothing is run; the JSON is
+        # the assertion. Lines are compared with whitespace stripped, because a
+        # `//` directive line cannot preserve the JSON's indentation.
+        ok, out, err = emit_docs_file(test.path, test.compile_flags)
+        if not ok:
+            return False, f"Documentation extraction failed:\n{err[:500]}"
+        actual = [ln.strip() for ln in out.splitlines() if ln.strip()]
+        expected = [ln.strip() for ln in test.expected_output if ln.strip()]
+        if actual != expected:
+            msg = "Docs JSON mismatch:\n"
+            msg += "Expected:\n  " + "\n  ".join(expected) + "\n"
+            msg += "Got:\n  " + "\n  ".join(actual)
+            return False, msg
+        return True, "Docs as expected"
 
     with tempfile.TemporaryDirectory() as tmpdir:
         exe_path = Path('.build') / test.name

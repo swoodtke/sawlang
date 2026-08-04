@@ -95,6 +95,9 @@ def load_builtins(verbose: bool = False, freestanding: bool = False,
 
     sawc_dir = os.path.dirname(__file__)
     combined_ast = None
+    # design 121: builtin.saw + every std file merge into ONE Program, so each
+    # file's `//!` module doc is kept here, keyed by path, for `--emit-docs`.
+    file_module_docs = {}
 
     # Load builtin.saw first (core traits)
     builtin_path = os.path.join(sawc_dir, 'builtin.saw')
@@ -104,6 +107,7 @@ def load_builtins(verbose: bool = False, freestanding: bool = False,
         if verbose:
             print("  Loading builtins...")
         combined_ast = parse_source(builtin_source, builtin_path, verbose)
+        file_module_docs[builtin_path] = combined_ast.module_doc
 
     # Load all files from std/ directory (skipped entirely in runtime-build).
     std_dir = os.path.join(sawc_dir, 'std')
@@ -121,6 +125,7 @@ def load_builtins(verbose: bool = False, freestanding: bool = False,
             if verbose:
                 print(f"  Loading std/{filename}...")
             file_ast = parse_source(source, filepath, verbose)
+            file_module_docs[filepath] = file_ast.module_doc
             if combined_ast is None:
                 combined_ast = file_ast
             else:
@@ -138,6 +143,8 @@ def load_builtins(verbose: bool = False, freestanding: bool = False,
                     column=combined_ast.column
                 )
 
+    if combined_ast is not None:
+        combined_ast.file_module_docs = file_module_docs
     return combined_ast
 
 
@@ -339,6 +346,17 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
                 std_suspending.add((sname, m.name))
     builtin_ns._std_suspending_methods = std_suspending
 
+    # design 121: the same question for FREE std functions (`yield_now`), so
+    # `--emit-docs` can report each std item's effect. Same reason the method set
+    # exists — only the builtin typechecker ever analyzes std bodies.
+    std_suspending_funcs = set()
+    for fn in getattr(builtin_ast, 'functions', []):
+        node = builtin_tc._suspend_nodes.get(
+            ("fn", getattr(fn, 'mangled_symbol', None) or fn.name))
+        if node is not None and node.suspends:
+            std_suspending_funcs.add(fn.name)
+    builtin_ns._std_suspending_functions = std_suspending_funcs
+
     return builtin_ast, builtin_ns
 
 
@@ -441,19 +459,27 @@ def _filter_std_ast(builtin_ast, excluded_leaves):
         leaf = _leaf(node)
         return leaf is None or leaf not in excluded_leaves
 
-    return Program(
+    # Traits and type aliases are kept regardless of their owning file: they are
+    # declaration-only (no code to emit), other std modules name them in their
+    # signatures, and this filter never dropped them (they carried no
+    # `source_file` until design 121 gave every declaration one).
+    filtered = Program(
         structs=[s for s in builtin_ast.structs if keep(s)],
         functions=[f for f in builtin_ast.functions if keep(f)],
         extensions=[e for e in builtin_ast.extensions if keep(e)],
         enums=[e for e in builtin_ast.enums if keep(e)],
-        traits=[t for t in builtin_ast.traits if keep(t)],
-        type_definitions=[t for t in builtin_ast.type_definitions if keep(t)],
+        traits=list(builtin_ast.traits),
+        type_definitions=list(builtin_ast.type_definitions),
         extern_blocks=[b for b in getattr(builtin_ast, 'extern_blocks', []) if keep(b)],
         statics=[s for s in getattr(builtin_ast, 'statics', []) if keep(s)],
         static_asserts=list(getattr(builtin_ast, 'static_asserts', [])),
         line=builtin_ast.line,
         column=builtin_ast.column,
     )
+    # design 121: the per-file `//!` docs survive the filter (a module that was
+    # excluded from codegen simply has no declarations left to document).
+    filtered.file_module_docs = getattr(builtin_ast, 'file_module_docs', {})
+    return filtered
 
 
 def run_codegen(codegen, ast):
@@ -484,7 +510,7 @@ def run_codegen(codegen, ast):
         sys.exit(1)
 
 
-def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False):
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None):
     """Resolve modules, load builtins, and type-check the whole program.
 
     This is the single front half of the compile pipeline: a plain single file
@@ -867,6 +893,22 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         reporter.print_all()
         sys.exit(1)
 
+    # design 121 `--emit-docs`: the program is type-checked, which is all
+    # documentation needs. Hand the caller the checked ASTs plus the namespaces
+    # and stop here — before the coroutine transform, so the documented AST is
+    # the one the author wrote rather than its frame-struct rewrite.
+    if docs_out is not None:
+        docs_out.update({
+            'entry_ast': entry_ast,
+            'entry_path': source_path,
+            'module_map': module_map,
+            'builtin_ast': builtin_ast,
+            'builtin_ns': builtin_ns,
+            'namespace': merged_ns,
+            'typechecker': typechecker,
+        })
+        return None, merged_ast
+
     # design 44: the source-level coroutine transform. If the program drove any
     # suspending function (`__saw_drive(...)` recorded roots during the effect
     # analysis above), rewrite those roots into frame structs + resume methods on
@@ -1036,6 +1078,38 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
                  optimize, freestanding=freestanding)
 
 
+def emit_docs(source_path: str, output_path: str = None, verbose: bool = False,
+              include_private: bool = False, module_paths: dict = None):
+    """Type-check `source_path` and write its documentation JSON (design 121).
+
+    The entry file is also the selector: its module and every module it imports
+    — including `import std.<module>` — are documented, so a doc driver is a file
+    that imports what it wants covered. Output goes to `output_path`, or stdout.
+    """
+    from docs_emit import build_docs, render_docs
+
+    with open(source_path, 'r') as f:
+        source = f.read()
+
+    if verbose:
+        print(f"Documenting {source_path}...")
+    entry_ast = parse_source(source, source_path, verbose)
+    entry_ast.source_path = os.path.abspath(source_path)
+
+    ctx = {}
+    _prepare_codegen(source_path, entry_ast, source, verbose, object_only=True,
+                     module_paths=module_paths, docs_out=ctx)
+    text = render_docs(build_docs(ctx, include_private=include_private))
+
+    if output_path:
+        with open(output_path, 'w') as f:
+            f.write(text)
+        if verbose:
+            print(f"  Wrote {output_path}")
+    else:
+        sys.stdout.write(text)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Saw Language Compiler",
@@ -1054,6 +1128,14 @@ Examples:
     parser.add_argument("-c", action="store_true", help="Compile to object file (.o) without linking, no main() required")
     parser.add_argument("--emit-ir", action="store_true", help="Only emit LLVM IR, don't compile")
     parser.add_argument("--emit-ast", action="store_true", help="Dump typed AST for debugging")
+    parser.add_argument("--emit-docs", action="store_true", dest="emit_docs",
+                        help="Type-check and emit documentation JSON instead of "
+                             "code (design 121). Covers the entry module and every "
+                             "module it imports, std included. Writes to -o, else "
+                             "stdout.")
+    parser.add_argument("--emit-docs-all", action="store_true", dest="emit_docs_all",
+                        help="Like --emit-docs, but keep private fields, methods "
+                             "and inits (internal tooling).")
     parser.add_argument("-O0", dest="no_optimize", action="store_true",
                         help="Disable optimization passes (emit raw codegen output for debugging)")
     parser.add_argument("--target", metavar="TRIPLE",
@@ -1094,6 +1176,13 @@ Examples:
     if not os.path.exists(args.input):
         print(f"Error: File not found: {args.input}", file=sys.stderr)
         sys.exit(1)
+
+    # design 121: documentation extraction replaces code generation entirely, and
+    # writes to stdout when no -o is given (so it composes in a shell pipeline).
+    if args.emit_docs or args.emit_docs_all:
+        emit_docs(args.input, args.output, args.verbose,
+                  include_private=args.emit_docs_all, module_paths=module_paths)
+        return
 
     # Determine output path
     if args.output:
