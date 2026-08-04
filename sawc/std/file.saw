@@ -18,8 +18,9 @@ extern "C" {
 
     // File info and manipulation
     func access(path: UnsafePointer<Int8>, mode: Int32) -> Int32
-    func unlink(path: UnsafePointer<Int8>) -> Int32
-    func rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) -> Int32
+    // design 117: status-carrying fs ops (0 = ok, -SysError tag on failure).
+    func __saw_rt_fs_unlink(path: UnsafePointer<Int8>) -> Int
+    func __saw_rt_fs_rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) -> Int
 
     // Memory
     func malloc(size: Int) -> UnsafePointer<Int8>?
@@ -198,18 +199,20 @@ extension File {
     // 92 — a Bool hid WHY it failed; `exists` stays a genuine boolean question).
     public func remove(path: Path) -> Result<Void, IoError> {
         let ptr = path.as_str() as UnsafePointer<Int8>
-        if unlink(ptr) != (0 as Int32) {
-            return IoError.from_errno("unlink")
+        let e = __saw_rt_fs_unlink(ptr)
+        if e != 0 {
+            return IoError.of("unlink", -e)
         }
         return
     }
 
-    // Rename/move a file. Ok on success, Err(IoError) with the errno on failure.
+    // Rename/move a file. Ok on success, Err(IoError) with the SysError cause.
     public func rename(from_path: Path, to_path: Path) -> Result<Void, IoError> {
         let from_ptr = from_path.as_str() as UnsafePointer<Int8>
         let to_ptr = to_path.as_str() as UnsafePointer<Int8>
-        if rename(from_ptr, to_ptr) != (0 as Int32) {
-            return IoError.from_errno("rename")
+        let e = __saw_rt_fs_rename(from_ptr, to_ptr)
+        if e != 0 {
+            return IoError.of("rename", -e)
         }
         return
     }

@@ -21,6 +21,14 @@ extern "C" {
     func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
     func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
     func close(fd: Int32) -> Int32
+    // filesystem / environment ops (design 117).
+    func unlink(path: UnsafePointer<Int8>) -> Int32
+    func rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) -> Int32
+    func mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int32
+    func rmdir(path: UnsafePointer<Int8>) -> Int32
+    func chdir(path: UnsafePointer<Int8>) -> Int32
+    func setenv(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int32) -> Int32
+    func unsetenv(name: UnsafePointer<Int8>) -> Int32
     // host seams: the nonblocking-socket helper (shim.c), the sockaddr prefix
     // stamp, and the errno -> portable SysError tag mapper (net_os.saw).
     func __saw_rt_set_nonblocking(fd: Int) -> Int
@@ -180,4 +188,73 @@ func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
         return n
     }
     return 0 - __saw_rt_last_syserror()
+}
+
+// =============================================================================
+// Filesystem / environment status ops (design 117). Each does its libc call and
+// returns 0 on success or the NEGATED SysError tag on failure — the tag captured
+// right after the failing call, so std sees a tag, never a raw errno.
+// =============================================================================
+
+@export("__saw_rt_fs_unlink")
+func rt_fs_unlink(path: UnsafePointer<Int8>) -> Int {
+    if unlink(path) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_fs_rename")
+func rt_fs_rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) -> Int {
+    if rename(oldpath, newpath) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_fs_mkdir")
+func rt_fs_mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int {
+    if mkdir(path, mode) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_fs_rmdir")
+func rt_fs_rmdir(path: UnsafePointer<Int8>) -> Int {
+    if rmdir(path) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_fs_chdir")
+func rt_fs_chdir(path: UnsafePointer<Int8>) -> Int {
+    if chdir(path) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_env_set")
+func rt_env_set(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int) -> Int {
+    if setenv(name, value, overwrite as Int32) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_env_unset")
+func rt_env_unset(name: UnsafePointer<Int8>) -> Int {
+    if unsetenv(name) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
 }

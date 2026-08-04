@@ -13,10 +13,10 @@ extern "C" {
     func readdir(dirp: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
     func closedir(dirp: UnsafePointer<Int8>) -> Int32
 
-    // Directory manipulation
-    func mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int32
-    func rmdir(path: UnsafePointer<Int8>) -> Int32
-    func chdir(path: UnsafePointer<Int8>) -> Int32
+    // Directory manipulation (design 117: status-carrying, -SysError tag on fail).
+    func __saw_rt_fs_mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int
+    func __saw_rt_fs_rmdir(path: UnsafePointer<Int8>) -> Int
+    func __saw_rt_fs_chdir(path: UnsafePointer<Int8>) -> Int
     func getcwd(buf: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
 
     // Memory
@@ -98,17 +98,19 @@ extension Directory {
     // errno cause (design 92 — a Bool hid WHY, e.g. EEXIST vs EACCES vs ENOENT).
     public func create(path: Path) -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
-        if mkdir(path_ptr, 493) != (0 as Int32) {   // 0755 = 493 decimal
-            return IoError.from_errno("mkdir")
+        let e = __saw_rt_fs_mkdir(path_ptr, 493)   // 0755 = 493 decimal
+        if e != 0 {
+            return IoError.of("mkdir", -e)
         }
         return
     }
 
-    // Remove an empty directory. Ok on success, Err(IoError) with the errno.
+    // Remove an empty directory. Ok on success, Err(IoError) with the SysError cause.
     public func remove(path: Path) -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
-        if rmdir(path_ptr) != (0 as Int32) {
-            return IoError.from_errno("rmdir")
+        let e = __saw_rt_fs_rmdir(path_ptr)
+        if e != 0 {
+            return IoError.of("rmdir", -e)
         }
         return
     }
@@ -145,8 +147,9 @@ extension Directory {
     // errno cause (design 92).
     public func set_current(path: Path) -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
-        if chdir(path_ptr) != (0 as Int32) {
-            return IoError.from_errno("chdir")
+        let e = __saw_rt_fs_chdir(path_ptr)
+        if e != 0 {
+            return IoError.of("chdir", -e)
         }
         return
     }

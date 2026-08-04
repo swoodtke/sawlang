@@ -39,6 +39,14 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_tcp_connect_check",
     "__saw_rt_tcp_read",
     "__saw_rt_tcp_write",
+    # Status-carrying filesystem / environment ops (design 117)
+    "__saw_rt_fs_unlink",
+    "__saw_rt_fs_rename",
+    "__saw_rt_fs_mkdir",
+    "__saw_rt_fs_rmdir",
+    "__saw_rt_fs_chdir",
+    "__saw_rt_env_set",
+    "__saw_rt_env_unset",
     # Cooperative-scheduler fairness (design 89-c)
     "__saw_rt_op_budget_tick",
     "__saw_rt_op_budget_reset",

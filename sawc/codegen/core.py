@@ -1181,6 +1181,22 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                                name="__saw_rt_tcp_read")
         tcp_write = ir.Function(self.module, ir.FunctionType(i64, [i64, i8ptr, i64]),
                                 name="__saw_rt_tcp_write")
+        # design 117: status-carrying filesystem / environment ops (0 success,
+        # -tag on failure). Path/name args are C strings.
+        fs_unlink = ir.Function(self.module, ir.FunctionType(i64, [i8ptr]),
+                                name="__saw_rt_fs_unlink")
+        fs_rename = ir.Function(self.module, ir.FunctionType(i64, [i8ptr, i8ptr]),
+                                name="__saw_rt_fs_rename")
+        fs_mkdir = ir.Function(self.module, ir.FunctionType(i64, [i8ptr, i64]),
+                               name="__saw_rt_fs_mkdir")
+        fs_rmdir = ir.Function(self.module, ir.FunctionType(i64, [i8ptr]),
+                               name="__saw_rt_fs_rmdir")
+        fs_chdir = ir.Function(self.module, ir.FunctionType(i64, [i8ptr]),
+                               name="__saw_rt_fs_chdir")
+        env_set = ir.Function(self.module, ir.FunctionType(i64, [i8ptr, i8ptr, i64]),
+                              name="__saw_rt_env_set")
+        env_unset = ir.Function(self.module, ir.FunctionType(i64, [i8ptr]),
+                                name="__saw_rt_env_unset")
         # design 89-c: the cooperative op-count budget seam. `saw_op_budget_tick()`
         # decrements the process-global work budget and returns 1 (with a reset to
         # the default) when it is exhausted — the caller then force-yields — else 0.
@@ -1207,8 +1223,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                                      name="__saw_rt_blocking_sleep")
         io_fns = (create, reg, poll, wake, destroy, setnb, setfam, last_err,
                   tcp_listen, tcp_local_port, tcp_accept, tcp_connect_start,
-                  tcp_connect_check, tcp_read, tcp_write, budtick, budreset,
-                  offload_start, offload_done, offload_fd, offload_take,
+                  tcp_connect_check, tcp_read, tcp_write, fs_unlink, fs_rename,
+                  fs_mkdir, fs_rmdir, fs_chdir, env_set, env_unset, budtick,
+                  budreset, offload_start, offload_done, offload_fd, offload_take,
                   blocking_sleep)
         for fn in io_fns:
             self.functions[fn.name] = fn
