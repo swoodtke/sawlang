@@ -1,0 +1,103 @@
+// Blocking-extern offload seams (design 103 / 113b), authored in Saw.
+//
+// A blocking FFI call inside a suspending task is offloaded to a thread-per-call
+// (v1) so the cooperative reactor thread never blocks; the task parks on the
+// job's self-pipe like any socket read. A job is a 48-byte heap record shared
+// with the C offload thread thunk (sawc/rt/shim.c — DF-113b, the thunk CALLS a
+// raw C function pointer). Single-owner discipline: `start` owns the job -> the
+// thread fills it -> `take` joins the thread (a full happens-before barrier)
+// then reads/closes/frees. `done` is atomic (release-published by the thread,
+// acquire-observed here — Atomic<Int> is seq_cst, stronger and equivalent).
+
+extern "C" {
+    func malloc(size: Int) -> UnsafePointer<Int8>
+    func free(ptr: UnsafePointer<Int8>)
+    func pipe(fds: UnsafePointer<Int8>) -> Int32
+    func close(fd: Int32) -> Int32
+    // pthread wrappers (mutex/cond/join are Saw; create is shim — DF-113b).
+    func __saw_rt_pthread_create(tid: UnsafePointer<Int8>, start: UnsafePointer<Int8>, arg: UnsafePointer<Int8>)
+    func __saw_rt_pthread_join(tid: UnsafePointer<Int8>)
+    func __saw_rt_sleep_ms(ms: Int)
+    // The offload thread thunk's address (shim). Saw cannot name a C function
+    // pointer, so the shim exposes it as an opaque pointer for pthread_create.
+    func __saw_offload_thread_ptr() -> UnsafePointer<Int8>
+}
+
+// MUST match `struct saw_offload_job` in shim.c (sizeof == 48). The layout is
+// declaration-order natural ABI: fn@0, arg@8, result@16, done@24, pipe_r@32,
+// pipe_w@36, thread@40.
+struct Job {
+    fn: Int
+    arg: Int
+    result: Int
+    done: Atomic<Int>
+    pipe_r: Int32
+    pipe_w: Int32
+    thread: Int
+}
+
+// pipe() writes fds[0]=read, fds[1]=write into two adjacent Int32s.
+struct PipeFds {
+    r: Int32
+    w: Int32
+}
+
+// offsetof(Job, thread) — the pthread_t slot pthread_create writes and
+// pthread_join reads. The total size is asserted below to catch layout drift.
+static THREAD_OFFSET: Int = 40
+
+static_assert(sizeof<Job>() == 48, "offload Job layout must match shim.c")
+
+@export("__saw_rt_offload_start")
+func rt_offload_start(fn: Int, arg: Int) -> Int {
+    let raw = unsafe malloc(sizeof<Job>())
+    let p = raw as UnsafePointer<Job>
+    unsafe p[0].fn = fn
+    unsafe p[0].arg = arg
+    unsafe p[0].result = 0
+    unsafe p[0].done.store(0)
+    // pipe into a local pair, then copy the two fds into the job record.
+    var fds = PipeFds(r: 0, w: 0)
+    pipe((&fds) as UnsafePointer<Int8>)
+    unsafe p[0].pipe_r = fds.r
+    unsafe p[0].pipe_w = fds.w
+    // Spawn the C thunk on the job's own thread slot (&job.thread).
+    let thread_slot = unsafe raw + THREAD_OFFSET
+    let thunk = unsafe __saw_offload_thread_ptr()
+    __saw_rt_pthread_create(thread_slot, thunk, raw)
+    raw as Int
+}
+
+@export("__saw_rt_offload_done")
+func rt_offload_done(job: Int) -> Int {
+    let p = job as UnsafePointer<Job>
+    unsafe p[0].done.load()
+}
+
+@export("__saw_rt_offload_pipe_fd")
+func rt_offload_pipe_fd(job: Int) -> Int {
+    let p = job as UnsafePointer<Job>
+    unsafe p[0].pipe_r as Int
+}
+
+@export("__saw_rt_offload_take")
+func rt_offload_take(job: Int) -> Int {
+    let raw = job as UnsafePointer<Int8>
+    let p = job as UnsafePointer<Job>
+    let thread_slot = unsafe raw + THREAD_OFFSET
+    // Join (full barrier -> the thread's stores are visible) then read + free.
+    __saw_rt_pthread_join(thread_slot)
+    let result = unsafe p[0].result
+    close(unsafe p[0].pipe_r)
+    close(unsafe p[0].pipe_w)
+    free(raw)
+    result
+}
+
+// The reference blocking primitive: a real thread-blocking sleep returning its
+// argument — the offload path + its tests exercise it via a `blocking func`.
+@export("__saw_rt_blocking_sleep")
+func rt_blocking_sleep(ms: Int) -> Int {
+    __saw_rt_sleep_ms(ms)
+    ms
+}

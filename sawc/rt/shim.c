@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 /* ---- DF-113a: no extern C global ---------------------------------------
  * `__saw_rt_write`/`_panic` route through C stdio's `stdout` FILE* (spelled
@@ -67,4 +68,46 @@ long __saw_rt_set_nonblocking(long fd) {
     if (flags < 0) return -1;
     fcntl((int)fd, F_SETFL, flags | O_NONBLOCK);
     return 0;
+}
+
+/* ---- DF-113b: the blocking-extern offload thread thunk ------------------
+ * The offload seams `__saw_rt_offload_start/done/pipe_fd/take` are authored in
+ * Saw (sawc/rt/common/offload.saw); this thunk is the ONE piece that must be C
+ * — it CALLS a raw C function pointer (`job->fn`, a `long(long)` blocking
+ * extern), which Saw cannot express (DF-113b). It touches ONLY its own job + the
+ * pipe write end (the hazard discipline): run fn(arg), store the result,
+ * PUBLISH `done` (atomic release) after the store, then write one byte to the
+ * job's self-pipe. `__saw_offload_thread_ptr` hands the Saw `offload_start` the
+ * thunk's address (Saw cannot name a C function pointer either), which it
+ * forwards to __saw_rt_pthread_create.
+ *
+ * The struct layout MUST match `struct Job` in offload.saw (sizeof == 48, guarded
+ * by a static_assert there): { i64 fn, arg, result, done; i32 pipe_r, pipe_w;
+ * i64 thread }. `done` is accessed atomically on both sides. */
+struct saw_offload_job {
+    long fn;
+    long arg;
+    long result;
+    long done;      /* atomic */
+    int  pipe_r;
+    int  pipe_w;
+    long thread;    /* pthread_t slot */
+};
+
+static void *__saw_offload_thread(void *jobp) {
+    struct saw_offload_job *job = (struct saw_offload_job *)jobp;
+    long (*thunk)(long) = (long (*)(long))job->fn;
+    long res = thunk(job->arg);
+    job->result = res;
+    __atomic_store_n(&job->done, 1L, __ATOMIC_RELEASE);
+    unsigned char one = 1;
+    ssize_t w = write(job->pipe_w, &one, 1);
+    (void)w;
+    return NULL;
+}
+
+/* The offload thunk's address as an opaque pointer (Saw has no C function-
+ * pointer type). offload_start forwards it to __saw_rt_pthread_create. */
+void *__saw_offload_thread_ptr(void) {
+    return (void *)__saw_offload_thread;
 }

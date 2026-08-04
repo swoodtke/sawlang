@@ -1053,11 +1053,19 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # pthread_create — DF-113b, a raw C function pointer). The compiler only
         # DECLARES them (external) and links the runtime; a `--runtime-build`
         # module's `@export` collapses into the declaration (design-58 unify).
+        #
+        # `__saw_rt_pthread_create`'s start-routine param: in a user program the
+        # spawn codegen passes a real trampoline `ir.Function` (the fn-ptr type);
+        # in the runtime-build offload body (offload.saw) the shim's thunk address
+        # arrives as a plain `i8*`. Both are pointer-identical at the C ABI (the
+        # shim declares `void*(*)(void*)`); pick the param type that matches the
+        # caller in this compilation so llvmlite's strict type check is satisfied.
+        start_ty = i8ptr if self.runtime_build else tramp_ptr_ty
         decls = [
             ("__saw_rt_pthread_mutex_init_default", ir.FunctionType(void, [i8ptr])),
             ("__saw_rt_pthread_cond_init_default", ir.FunctionType(void, [i8ptr])),
             ("__saw_rt_pthread_create",
-             ir.FunctionType(void, [i8ptr, tramp_ptr_ty, i8ptr])),
+             ir.FunctionType(void, [i8ptr, start_ty, i8ptr])),
             ("__saw_rt_pthread_join", ir.FunctionType(void, [i8ptr])),
         ]
         for name, fty in decls:
@@ -1169,16 +1177,19 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return
 
         # design 113b: the errno family + sin_set_family + op-budget +
-        # set_nonblocking seams are authored in Saw + shim.c under `sawc/rt/`
-        # (host_*/net_os.saw, common/op_budget.saw, shim.c for the variadic
-        # fcntl — DF-113c); the compiler DECLARES them (external) and links the
-        # runtime. The REACTOR (register/poll/wake) and the blocking-extern
-        # OFFLOAD stay synthesized here: the reactor's poll needs an
-        # uninitialized / array-repeat-initialized per-call stack event buffer
-        # that Saw cannot express today (a new DF-finding — see designs/todo.md),
-        # and register/poll/wake share the reactor's fd globals so they cannot be
+        # set_nonblocking + the blocking-extern OFFLOAD seams are authored in Saw
+        # + shim.c under `sawc/rt/` (host_*/net_os.saw, common/op_budget.saw,
+        # common/offload.saw, shim.c for the variadic fcntl [DF-113c] + the
+        # offload thread thunk [DF-113b]); the compiler DECLARES them (external)
+        # and links the runtime. Only the REACTOR (register/poll/wake) stays
+        # synthesized: the reactor's poll needs an uninitialized /
+        # array-repeat-initialized per-call stack event buffer that Saw cannot
+        # express today (a new DF-finding — see designs/todo.md), and
+        # register/poll/wake share the reactor's fd globals so they cannot be
         # split from poll.
-        relocated = {setnb, ewb, errno_fn, setfam, connst, budtick, budreset}
+        relocated = {setnb, ewb, errno_fn, setfam, connst, budtick, budreset,
+                     offload_start, offload_done, offload_fd, offload_take,
+                     blocking_sleep}
         for fn in io_fns:
             fn.linkage = "external" if fn in relocated else "weak"
 
@@ -1496,93 +1507,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # (set_nonblocking [shim.c — DF-113c, variadic fcntl], the errno family,
         # and sin_set_family relocated to sawc/rt/ — design 113b.)
 
-        # ---- design 103 (A6): blocking-extern offload -------------------------
-        # A blocking FFI call inside a suspending task is OFFLOADED to a
-        # thread-per-call so the cooperative reactor thread never blocks. A job is a
-        # heap record { i64 fn, i64 arg, i64 result, i64 done, i32 pipe_r, i32
-        # pipe_w, i64 thread }. The offload thread runs fn(arg), stores the result,
-        # PUBLISHES `done` (atomic release) after the store, then writes one byte to
-        # the job's self-pipe. The parked task registers the pipe's READ end with the
-        # reactor (like any socket read) and parks; the reactor wakes it precisely
-        # when the byte arrives. HAZARD DISCIPLINE: the offload thread touches ONLY
-        # its own job + the pipe write end — ALL wake routing stays in the reactor.
-        # Ownership is single-owner at every point: start owns the job -> the thread
-        # fills it -> take() joins the thread (a full happens-before barrier making
-        # the result visible), reads it, closes the pipe, frees the job. The pipe
-        # byte + the join are the release/acquire boundary, so there is no data race.
-        # v1 is thread-per-call (pooling is future work); the offload thunk is the
-        # C ABI `i64(i64)` — the design-58 whitelist restriction the coro transform
-        # enforces at the call site (a single Int arg, an Int result).
-        job_ty = ir.LiteralStructType([i64, i64, i64, i64, i32, i32, i64])
-        job_pp = job_ty.as_pointer()
-        free_fn = self._libc_func("free", void, [i8ptr])
-        i0, i1, i2, i3, i4, i5, i6 = (ir.Constant(i32, k) for k in range(7))
-        z32 = ir.Constant(i32, 0)
-
-        def _jf(bld, jp, idx):
-            return bld.gep(jp, [z32, idx])
-
-        # __saw_offload_thread(void* jobp) -> void*: run fn(arg), store, signal.
-        tramp = ir.Function(self.module, self.pthread_tramp_type,
-                            name="__saw_offload_thread")
-        tramp.linkage = "internal"
-        b = ir.IRBuilder(tramp.append_basic_block("entry"))
-        jp = b.bitcast(tramp.args[0], job_pp, name="job")
-        fn_word = b.load(_jf(b, jp, i0), name="fnword")
-        arg_word = b.load(_jf(b, jp, i1), name="argword")
-        thunk = b.inttoptr(fn_word, ir.FunctionType(i64, [i64]).as_pointer(),
-                           name="thunk")
-        res = b.call(thunk, [arg_word], name="blkres")
-        b.store(res, _jf(b, jp, i2))
-        b.store_atomic(ir.Constant(i64, 1), _jf(b, jp, i3),
-                       ordering="release", align=8)
-        pw = b.load(_jf(b, jp, i5), name="pw")
-        onebyte = b.alloca(i8, name="wkbyte")
-        b.store(ir.Constant(i8, 1), onebyte)
-        b.call(write_fn, [pw, onebyte, ir.Constant(i64, 1)])
-        b.ret(ir.Constant(i8ptr, None))
-
-        # saw_offload_start(fn, arg) -> job handle (the heap pointer as i64).
-        b = ir.IRBuilder(offload_start.append_basic_block("entry"))
-        jsize = b.ptrtoint(b.gep(ir.Constant(job_pp, None), [ir.Constant(i32, 1)]),
-                           i64, name="jsz")
-        jp = b.bitcast(b.call(self.functions["__saw_rt_alloc"], [jsize, ir.Constant(i64, 8)]),
-                       job_pp, name="job")
-        b.store(offload_start.args[0], _jf(b, jp, i0))
-        b.store(offload_start.args[1], _jf(b, jp, i1))
-        b.store(ir.Constant(i64, 0), _jf(b, jp, i2))
-        b.store(ir.Constant(i64, 0), _jf(b, jp, i3))
-        # pipe() writes fds[0]/fds[1] into the adjacent i32 pipe_r/pipe_w fields.
-        b.call(pipe_fn, [_jf(b, jp, i4)])
-        b.call(self.functions["__saw_rt_pthread_create"],
-               [b.bitcast(_jf(b, jp, i6), i8ptr), tramp, b.bitcast(jp, i8ptr)])
-        b.ret(b.ptrtoint(jp, i64))
-
-        # saw_offload_done(job) -> 0/1 (acquire load of the published flag).
-        b = ir.IRBuilder(offload_done.append_basic_block("entry"))
-        jp = b.inttoptr(offload_done.args[0], job_pp)
-        b.ret(b.load_atomic(_jf(b, jp, i3), ordering="acquire", align=8, name="done"))
-
-        # saw_offload_pipe_fd(job) -> the readable pipe fd.
-        b = ir.IRBuilder(offload_fd.append_basic_block("entry"))
-        jp = b.inttoptr(offload_fd.args[0], job_pp)
-        b.ret(b.sext(b.load(_jf(b, jp, i4), name="prfd"), i64))
-
-        # saw_offload_take(job) -> result. Join (full barrier) -> read -> close -> free.
-        b = ir.IRBuilder(offload_take.append_basic_block("entry"))
-        jp = b.inttoptr(offload_take.args[0], job_pp)
-        b.call(self.functions["__saw_rt_pthread_join"], [b.bitcast(_jf(b, jp, i6), i8ptr)])
-        r = b.load(_jf(b, jp, i2), name="res")
-        b.call(close_fn, [b.load(_jf(b, jp, i4), name="prc")])
-        b.call(close_fn, [b.load(_jf(b, jp, i5), name="pwc")])
-        b.call(free_fn, [b.bitcast(jp, i8ptr)])
-        b.ret(r)
-
-        # saw_blocking_sleep(ms) -> ms: a real thread-blocking sleep that returns its
-        # argument — the reference blocking primitive for the offload path + tests.
-        b = ir.IRBuilder(blocking_sleep.append_basic_block("entry"))
-        b.call(self.functions["__saw_rt_sleep_ms"], [blocking_sleep.args[0]])
-        b.ret(blocking_sleep.args[0])
+        # (the blocking-extern offload seams — offload_start/done/pipe_fd/take +
+        # blocking_sleep — and the offload thread thunk relocated to
+        # sawc/rt/common/offload.saw + shim.c [DF-113b, the thunk calls a raw C
+        # function pointer] — design 113b.)
 
     def _create_string_literal_global(self, value: str) -> ir.GlobalVariable:
         """Create (or reuse) an immortal Saw String literal block.
