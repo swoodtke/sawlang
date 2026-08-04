@@ -136,6 +136,15 @@ inlined (the `.build/scratch` probes are gitignored).
   the WHOLE .saw corpus (zero mismatches = bar), LOC/perf metrics, DF-116
   findings as the explicit product. Full rewrite DEFERRED (user, Aug 4) until
   design churn slows; surface-area growth is the chosen mechanism. [116]
+- **Design 119 — lexer-pilot follow-ups (queued; dispatch AFTER 118
+  integrates; user-authorized Aug 4).** Closes the remaining 116 findings:
+  (A) radix-aware overflow-checked string->int parse unified with to_int() +
+  integer min/max bounds (DF-116b); (B) StringBuilder.append_scalar UTF-8
+  encoding (DF-116c); (C) unbalanced-interpolation-brace diagnostic at the
+  brace, BOTH lexers same commit — error positions are lexdiff contract
+  (DF-116d); (D) restore Token.suffix + the dump's 4th column in both dumpers
+  (the DF-116a stopped unit; 116a itself fixed Aug 4). Brief:
+  designs/119-lexer-pilot-followups.md. [119]
 - **Design 117 — runtime ABI v2 minimization. LANDED (Aug 4).** Errno
   accessors DELETED; the reactor is INSTANCE-based and relocated to Saw
   (DF-113d dissolved); the thread surface is spawn/join. Per-unit commits:
