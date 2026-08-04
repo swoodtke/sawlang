@@ -30,18 +30,14 @@ items need a probe before being treated as real work.
     `sawc/rt/ABI.md` (reactor one-shot rearm, design-91 token = parked frame
     wake-word addr, design-102 cancel-wake, poll timeout, offload discipline,
     the four intended implementations). CLAUDE.md repo map updated.
-  - **DEFERRED — physical relocation (bodies out of codegen into a linked
-    per-host runtime), pending a PIN DECISION.** The brief pins the runtime
-    "WRITTEN IN SAW". Standing it up surfaced that the core seams depend on
-    exactly the C-interop primitives Saw deliberately does NOT surface — which
-    is *why* they were compiler shims. A pure-Saw runtime is not currently
-    expressible; the choices are (a) accept a documented C/asm shim tier now
-    (the brief's sanctioned exception, but here it would cover a large fraction
-    of the seams, materially at odds with the "written in Saw" spirit), or
-    (b) first add the three language features below so the runtime CAN be pure
-    Saw, then relocate. This fork wants a user/lead call (the no-Rust-rewrite /
-    dogfood-Saw preference makes a C-heavy runtime a decision, not a default).
-    The ABI being frozen, the split is stable whichever way it goes.
+  - **Physical relocation: RESOLVED (user, Aug 4) → design 113b (queued).**
+    The `saw_*` export reservation gets LOOSENED under a new runtime-build
+    compile mode so the ABI symbols can be authored in Saw (the same wall made
+    design 112's sos/kernel/rt.c C); relocation proceeds maximal-Saw with a
+    three-symbol C shim covering exactly DF-113a/b/c until the three FFI
+    features land (each queued as a future design below). Brief:
+    designs/113b-rt-in-saw.md; it inherits the remaining-scope list at the
+    bottom of this entry. DF-findings stay open as language gaps:
     - **DF-113a — no extern C global.** `__saw_rt_write`/`_panic` need the libc
       `stdout` FILE* (`__stdoutp` macOS / `stdout` Linux) for the `fwrite +
       fflush` that keeps `print` ordered against the still-`printf` Float path.
@@ -73,6 +69,17 @@ items need a probe before being treated as real work.
       auto-linked — needs a test-harness symbol-inspection directive, which
       doesn't exist yet, and only bites once hosted auto-links); `sawc/rt/`
       module-dir layout selected by target triple. [113]
+- **Design 113b — runtime layer in Saw (queued Aug 4).** Runtime-build mode
+  (reservation loosening for the exact frozen ABI set, seam-declaration
+  suppression, sync-only), maximal-Saw relocation + 3-symbol shim.c, rt
+  build/cache/link machinery, freestanding negative test. Dispatch AFTER 112
+  integrates; 114/115 queue behind it. [113b]
+- **Future designs — FFI gaps blocking a pure-Saw runtime** (from DF-113a/b/c;
+  each shrinks 113b's shim.c when it lands): (1) extern C globals
+  (`extern static stdout: ...`); (2) a bare C function-pointer type (closures
+  are fat pointers; pthread_create/offload thunks need thin ones); (3) variadic
+  extern declarations (fcntl-class arm64 ABI requirement). General C-interop
+  value beyond the runtime. [113]
 - **Design 114 — intrinsic scoping + naming.** Bare yield_now/io_wait
   gated stdlib-internal; public std.task.yield_now() (import required, not
   prelude); rename all compiler-recognized double-underscore names to
