@@ -48,11 +48,10 @@ extern "C" {
     // IoError.from_errno for the file/directory/env modules (design 117).
     func __saw_rt_last_syserror() -> Int
 
-    // The reactor register seam (compiler-defined). `__saw_rt_reactor_register`
-    // is emitted by the `io_wait` intrinsic lowering, so it must be a namespace-
-    // visible symbol; the reactor INSTANCE is supplied by codegen (design 117).
-    // `token` (design 91) is the parked frame's `__wake`-word address.
-    func __saw_rt_reactor_register(fd: Int, write: Int, token: Int)
+    // design 118 stage 3: the `io_wait` intrinsic lowering now emits the Saw
+    // executor entry point `__saw_exec_io_register` (std/taskgroup.saw), which arms
+    // the reactor through the `Reactor` trait — so net no longer declares the raw
+    // `__saw_rt_reactor_register` seam (it is called only from taskgroup.saw).
     func __saw_rt_set_nonblocking(fd: Int) -> Int
 
     // design 89-c: the cooperative op-count budget seam (codegen/core.py). Each io

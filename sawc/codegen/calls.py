@@ -36,21 +36,11 @@ class CallsMixin:
         _generate_enum_init: Generate code for enum variant initialization
     """
 
-    # design 117: the reactor ABI seams that take the reactor INSTANCE as their
-    # first argument. Saw/coro/executor call sites spell them at the pre-instance
-    # arity; codegen injects `__saw_reactor()` at the call.
-    _REACTOR_INSTANCE_SEAMS = frozenset({
-        "__saw_rt_reactor_register",
-        "__saw_rt_reactor_poll",
-        "__saw_rt_reactor_wake",
-    })
-
-    def _reactor_instance(self):
-        """design 117: the process-global reactor instance (`__saw_reactor()`),
-        created lazily + race-safely by the compiler-synthesized getter. Injected
-        as the first argument at every reactor seam call site."""
-        return self.builder.call(self.functions["__saw_reactor"], [],
-                                 name="reactor")
+    # design 118 stage 3: the reactor-instance injection is retired — the executor
+    # threads the instance explicitly through `SystemReactor` (std/taskgroup.saw),
+    # consuming the reactor through the `Reactor` trait. (design 117's
+    # `_REACTOR_INSTANCE_SEAMS` / `_reactor_instance` / the synthesized
+    # `__saw_reactor()` getter are all gone.)
 
     def _fill_func_defaults(self, args, key):
         """Design 53: append default-value arguments for a free-function call
@@ -409,12 +399,9 @@ class CallsMixin:
             args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
             # Fill omitted trailing arguments from their default expressions (design 53).
             self._fill_func_defaults(args, defaults_key)
-        # design 117: the reactor seams take the reactor INSTANCE as their first
-        # argument. Every Saw/coro/executor call site spells them at the pre-117
-        # arity (no instance); codegen injects the process-global instance here,
-        # so the instance stays executor/compiler policy the callers never name.
-        if expr.name in self._REACTOR_INSTANCE_SEAMS:
-            args = [self._reactor_instance()] + args
+        # design 118 stage 3: the compiler no longer injects the reactor instance —
+        # the executor threads it explicitly through `SystemReactor` (std/taskgroup.saw),
+        # so every reactor seam call site already passes the instance as arg 0.
         result = self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
 
         # Wrap result in optional for extern functions that return nullable pointers

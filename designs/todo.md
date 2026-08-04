@@ -2513,6 +2513,19 @@ zero xfails throughout.
   CPU (a subset); boot.S/rt.c are assembled `rv32imac_zicsr` and link
   cleanly. If a kernel needs mul/div/atomics inline (not libcalls), sawc
   needs a `--target-features` surface — future work, not M0-blocking.
+- **DF-118a (design-118 stage-3 discovery, FIXED in that brief — sawc touch):**
+  the IO reactor seams (`__saw_rt_reactor_create/register/poll/wake/destroy`) were
+  declared with a hardcoded `i64` in `codegen/core.py::_declare_io_runtime`, but
+  they carry `Int` (platform word). Latent since design 117 — freestanding never
+  referenced a reactor seam (the compiler-synthesized `__saw_reactor()` getter was
+  `internal` + unreachable → stripped before the width mattered). Design 118 stage 3
+  moved the reactor singleton into the prelude std (`__saw_host_reactor()` /
+  `SystemReactor` in taskgroup.saw), so the seams are now CALLED from Saw and their
+  IR is generated on the freestanding riscv32 target too — where `Int` is i32,
+  producing an invalid `cmpxchg i32 … i64` against the `Atomic<Int>` cell (IR
+  parse error). Fixed to `self.int_type` (platform word) — byte-identical on the
+  64-bit hosted targets, correct i32 on riscv32 (same class as DF-112a). The
+  sos_runner (freestanding riscv32 QEMU) is the regression test.
 - **F5.** `Once`/`Lazy<T>`, `PerCpu<T>`, UnsafeCell-equivalent story.
 - **F6.** dtoa/Float printing under freestanding. [20]
 - ~~**T1f.** Debug info (line tables → backtraces).~~ DONE (design 69):

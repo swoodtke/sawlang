@@ -1139,22 +1139,32 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # design 117: the reactor is INSTANCE-based. `reactor_create() -> ptr`
         # returns an opaque instance (kqueue/epoll fd + self-wake pipe + poll
-        # buffer policy); register/poll/wake/destroy take it. The process-global
-        # singleton is executor policy — a compiler-synthesized `__saw_reactor()`
-        # lazy getter below — so the ABI functions carry no hidden global state.
-        create = ir.Function(self.module, ir.FunctionType(i64, []),
+        # buffer policy); register/poll/wake/destroy take it. design 118 stage 3:
+        # the process-global singleton + the `Reactor` trait that consumes it are
+        # now fully in Saw (`__saw_host_reactor()` / `SystemReactor`); these are just
+        # the extern declarations the Saw executor links against.
+        # design 118 stage 3: the reactor seams carry the instance/fd/token/count as
+        # `Int` (platform word) and are now CALLED from Saw (`SystemReactor` +
+        # `__saw_host_reactor` in the prelude std/taskgroup.saw, so they are generated
+        # even on the freestanding riscv32 target where `Int` is i32). Declare them at
+        # the platform WORD width, not a hardcoded i64 — byte-identical on the 64-bit
+        # hosted targets, and it stops the riscv32 cmpxchg-type mismatch that a
+        # hardcoded i64 return produced against an i32 `Atomic<Int>` cell (DF-112a
+        # class: platform-width the seam args, per design 47).
+        word = self.int_type
+        create = ir.Function(self.module, ir.FunctionType(word, []),
                              name="__saw_rt_reactor_create")
-        reg = ir.Function(self.module, ir.FunctionType(void, [i64, i64, i64, i64]),
+        reg = ir.Function(self.module, ir.FunctionType(void, [word, word, word, word]),
                           name="__saw_rt_reactor_register")
-        poll = ir.Function(self.module, ir.FunctionType(i64, [i64, i64]),
+        poll = ir.Function(self.module, ir.FunctionType(word, [word, word]),
                            name="__saw_rt_reactor_poll")
         # design 102 item 2: the reactor self-wake seam. `reactor_wake(r)` writes
         # one byte to the instance's self-pipe whose read end the reactor poll
         # registers, so a `cancel()` on an already-io-parked task makes the blocked
         # poll return promptly (else an idle-fd park would never observe the cancel).
-        wake = ir.Function(self.module, ir.FunctionType(void, [i64]),
+        wake = ir.Function(self.module, ir.FunctionType(void, [word]),
                            name="__saw_rt_reactor_wake")
-        destroy = ir.Function(self.module, ir.FunctionType(void, [i64]),
+        destroy = ir.Function(self.module, ir.FunctionType(void, [word]),
                               name="__saw_rt_reactor_destroy")
         setnb = ir.Function(self.module, ir.FunctionType(i64, [i64]),
                             name="__saw_rt_set_nonblocking")
@@ -1240,60 +1250,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         for fn in io_fns:
             fn.linkage = "external"
 
-        # design 117: the process-global reactor INSTANCE is executor POLICY, not
-        # runtime state. Synthesize `__saw_reactor()` — a lazy, race-safe getter
-        # holding the singleton in the slot the reactor fd used to occupy. It
-        # `reactor_create()`s on first use, publishes it via cmpxchg, and a loser
-        # `reactor_destroy()`s its spare. Every reactor seam CALL site (the io_wait
-        # lowering, the entry executor, the ambient scheduler) is handed this
-        # instance by codegen, so the Saw seam callers stay instance-agnostic. A
-        # `--runtime-build` module never calls the seams by their ABI names, so it
-        # needs no getter.
-        if not self.runtime_build:
-            self._synthesize_reactor_instance_getter(create, destroy)
-
-    def _synthesize_reactor_instance_getter(self, create, destroy):
-        """design 117: the process-global reactor instance getter `__saw_reactor()`.
-
-        The reactor ABI is instance-based (register/poll/wake/destroy take an
-        opaque instance from `reactor_create`); the compiler keeps the ONE
-        process-global instance as executor policy in an internal global, created
-        lazily and race-safely — exactly the CAS the pre-117 synthesized reactor
-        used to publish its kqueue/epoll fd, now publishing the whole instance.
-        Codegen injects the result at every reactor seam call site.
-        """
-        i64 = ir.IntType(64)
-        inst_g = ir.GlobalVariable(self.module, i64, name="__saw_reactor_instance")
-        inst_g.linkage = "internal"
-        inst_g.initializer = ir.Constant(i64, 0)
-
-        getter = ir.Function(self.module, ir.FunctionType(i64, []),
-                             name="__saw_reactor")
-        getter.linkage = "internal"
-        self.functions["__saw_reactor"] = getter
-        entry = getter.append_basic_block("entry")
-        have_bb = getter.append_basic_block("have")
-        make_bb = getter.append_basic_block("make")
-        won_bb = getter.append_basic_block("won")
-        lost_bb = getter.append_basic_block("lost")
-        b = ir.IRBuilder(entry)
-        cur = b.load(inst_g, name="cur")
-        cur.ordering = "monotonic"; cur.align = 8
-        b.cbranch(b.icmp_signed("!=", cur, ir.Constant(i64, 0)), have_bb, make_bb)
-        b = ir.IRBuilder(have_bb)
-        b.ret(cur)
-        b = ir.IRBuilder(make_bb)
-        newp = b.call(create, [], name="new_reactor")
-        # cmpxchg __saw_reactor_instance : 0 -> newp (publish); on failure a peer won.
-        cx = b.cmpxchg(inst_g, ir.Constant(i64, 0), newp, "seq_cst", "monotonic")
-        old = b.extract_value(cx, 0, name="cx_old")
-        ok = b.extract_value(cx, 1, name="cx_ok")
-        b.cbranch(ok, won_bb, lost_bb)
-        b = ir.IRBuilder(won_bb)
-        b.ret(newp)
-        b = ir.IRBuilder(lost_bb)
-        b.call(destroy, [newp])          # discard our spare; use the winner's
-        b.ret(old)
+        # design 118 stage 3: the process-global reactor instance singleton is now
+        # fully in Saw — `__saw_host_reactor()` (std/taskgroup.saw) does the lazy
+        # `reactor_create` + CAS-publish over an `Atomic<Int>` static, and returns
+        # the hosted `SystemReactor` (the `Reactor` trait impl the executor consumes).
+        # The compiler no longer synthesizes a `__saw_reactor()` getter nor injects
+        # an instance at seam call sites; `create`/`destroy` are called from Saw.
 
     def _create_string_literal_global(self, value: str) -> ir.GlobalVariable:
         """Create (or reuse) an immortal Saw String literal block.

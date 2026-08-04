@@ -45,27 +45,92 @@ extern "C" {
     func pthread_mutex_unlock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int
 
-    // design 76 (A4): the IO reactor's poll seam (kqueue/epoll, compiler-defined
-    // in codegen/core.py). Blocks up to `timeout_ms` (< 0 = forever) and returns
-    // the ready-event count; the executor then wakes all io-parked tasks.
-    func __saw_rt_reactor_poll(timeout_ms: Int) -> Int
-
-    // design 76 / 91: arm one-shot readiness interest on `fd` (write==0 => read).
-    // `token` is the parked frame's `__wake`-word address (precise routing). Called
-    // via `__saw_exec_io_register` below. Declared at the pre-instance (3-arg) arity;
-    // codegen injects the process-global reactor instance as the first arg (design
-    // 117), exactly as it does for `__saw_rt_reactor_poll`/`_wake`.
-    func __saw_rt_reactor_register(fd: Int, write: Int, token: Int)
-
-    // design 102 item 2: rouse a blocked reactor poll by writing one byte to the
-    // reactor's self-wake pipe. `cancel()` calls this so an ALREADY-io-parked
-    // task's poll returns promptly and the scheduler can re-check its cancel flag.
-    func __saw_rt_reactor_wake()
+    // design 117 / 118 stage 3: the INSTANCE-based IO reactor seams (kqueue on
+    // macOS, epoll on Linux; bodies in sawc/rt/host_*/reactor.saw). All take the
+    // opaque reactor instance `r` (from `__saw_rt_reactor_create`) as their first
+    // argument — the executor threads it explicitly now (the compiler no longer
+    // injects a process-global instance; the singleton is the Saw
+    // `__saw_host_reactor()` below). The `SystemReactor` type wraps these as the
+    // hosted `Reactor` trait impl.
+    func __saw_rt_reactor_create() -> Int
+    func __saw_rt_reactor_destroy(r: Int)
+    // Arm one-shot readiness on `fd` in `r` (write==0 => read). `token` is the
+    // parked frame's `__wake`-word address (design 91 precise routing).
+    func __saw_rt_reactor_register(r: Int, fd: Int, write: Int, token: Int)
+    // Block up to `timeout_ms` (< 0 = forever); latch each ready token; return the
+    // ready-event count.
+    func __saw_rt_reactor_poll(r: Int, timeout_ms: Int) -> Int
+    // design 102 item 2: rouse a blocked poll by writing one byte to `r`'s self-wake
+    // pipe, so an ALREADY-io-parked task's poll returns and the scheduler re-checks
+    // its cancel flag.
+    func __saw_rt_reactor_wake(r: Int)
 
     // design 45 / 118: the host timer seam. `__saw_exec_sleep` (below) wraps it as
     // the executor's OWN (non-suspending) blocking sleep — used to honour a task's
     // sleep wake reason and to nap between MT-worker re-scans.
     func __saw_rt_sleep_ms(ms: Int)
+}
+
+// =============================================================================
+// The Reactor trait (design 118 stage 3)
+// =============================================================================
+// The executor's ONLY interface to IO readiness — register / poll / wake, token-
+// based (design 91: the token is the parked frame's `__wake`-word address, latched
+// to 0 when its (fd, direction) fires). The hosted concrete impl `SystemReactor`
+// wraps the design-117 `__saw_rt_reactor_*` instance seams (kqueue/epoll behind the
+// ABI); a future SOS-hosted runtime implements the SAME trait over its syscalls
+// (the kernel Waiter's word-sized key maps 1:1 onto the token). Kept internal to the
+// executor module (not `public`), so no user-facing `Reactor`/`SystemReactor` name
+// collision (design 82).
+trait Reactor {
+    func register(&self, fd: Int, dir: Int, token: Int)
+    func poll(&self, timeout_ms: Int) -> Int
+    func wake(&self)
+}
+
+// The hosted reactor: a trivial value wrapping the process-global reactor INSTANCE
+// (the opaque pointer from `__saw_rt_reactor_create`). Host divergence (kqueue vs
+// epoll) lives in the rt/ bodies behind the seams, so ONE wrapper serves both hosts
+// — the design's "per-host KqueueReactor/EpollReactor" split already exists at the
+// seam layer; two identical Saw wrappers would be duplication. Consumed by static
+// dispatch through the `Reactor` conformance (no per-call boxing — the reactor impl
+// is selected at link/compile time, so an `any Reactor` existential would add an
+// allocation with no runtime-swap benefit; the trait is the source-level contract
+// the SOS runtime implements as its own conforming type).
+struct SystemReactor {
+    instance: Int
+}
+
+extension SystemReactor: Reactor {
+    func register(&self, fd: Int, dir: Int, token: Int) {
+        __saw_rt_reactor_register(self.instance, fd, dir, token)
+    }
+    func poll(&self, timeout_ms: Int) -> Int {
+        __saw_rt_reactor_poll(self.instance, timeout_ms)
+    }
+    func wake(&self) {
+        __saw_rt_reactor_wake(self.instance)
+    }
+}
+
+// The process-global reactor instance, lazily created + race-safely published in
+// Saw (design 117 policy, now fully in the executor — the compiler-synthesized
+// `__saw_reactor()` getter + its call-site injection are retired). Create on first
+// use; publish via CAS; a loser destroys its spare and uses the winner's. The
+// instance is process-lifetime (never destroyed). Returns the hosted `Reactor`.
+static __saw_reactor_instance: Atomic<Int> = Atomic(0)
+
+func __saw_host_reactor() -> SystemReactor {
+    let cur = __saw_reactor_instance.load()
+    if cur != 0 {
+        return SystemReactor(instance: cur)
+    }
+    let newp = __saw_rt_reactor_create()
+    if __saw_reactor_instance.compare_exchange(0, newp) {
+        return SystemReactor(instance: newp)
+    }
+    __saw_rt_reactor_destroy(newp)
+    SystemReactor(instance: __saw_reactor_instance.load())
 }
 
 // design 118 stage 2: the executor's timer park, promoted from a codegen
@@ -90,7 +155,7 @@ func __saw_exec_park(wake: Int) {
     if wake > 0 {
         __saw_exec_sleep(wake)
     } else if wake < 0 {
-        let _ = __saw_rt_reactor_poll(-1)
+        let _ = __saw_host_reactor().poll(-1)
     }
 }
 
@@ -102,14 +167,14 @@ func __saw_exec_park(wake: Int) {
 // any synthesized call site. `dir` is the direction word (0 = read); `token` is the
 // parked frame's `__wake`-word address (design 91 precise routing).
 func __saw_exec_io_register(fd: Int, dir: Int, token: Int) {
-    __saw_rt_reactor_register(fd, dir, token)
+    __saw_host_reactor().register(fd, dir, token)
 }
 
 // design 118 stage 2: the reactor self-wake entry point `cancel()` calls to rouse a
 // blocked poll (design 102 item 2). A thin Saw wrapper over the seam today; stage 3
 // routes it through the `Reactor` trait.
 func __saw_exec_reactor_wake() {
-    __saw_rt_reactor_wake()
+    __saw_host_reactor().wake()
 }
 
 // design 89: the per-thread AMBIENT cooperative scheduler. A single intrusive
@@ -409,7 +474,7 @@ func __saw_exec_worker(addr: Int) {
                             tmo = 50
                         }
                         let _ = pthread_mutex_unlock(lk)
-                        let events = __saw_rt_reactor_poll(tmo)
+                        let events = __saw_host_reactor().poll(tmo)
                         pthread_mutex_lock(lk)
                         var k = 0
                         while k < n {
@@ -876,7 +941,7 @@ func __saw_exec_run(term_group: Int, term_slot: Int) {
                 // self-wake) — wake it now instead of blocking in poll on an idle fd.
                 __saw_exec_wake_io(1, deadline)
             } else {
-                let events = __saw_rt_reactor_poll(deadline)
+                let events = __saw_host_reactor().poll(deadline)
                 __saw_exec_wake_io(events, deadline)
             }
         } else {

@@ -27,10 +27,10 @@ Two symbol tiers exist (design 113); only the first is this ABI:
 - **`__saw_*` — compiler-internal synthesized helpers (NOT this ABI).** Emitted
   as IR bodies by codegen, carry no host-OS knowledge, and a runtime must NOT
   provide them: string retain/release/alloc/from_bytes/len (`__saw_string_*`),
-  the Arc/Channel atomic helpers (`__saw_atomic_*`), integer print
-  (`__saw_print_int`), and the process-global reactor-instance getter
-  `__saw_reactor` (design 117 — see the reactor section: the SINGLETON is
-  executor policy, not runtime state).
+  the Arc/Channel atomic helpers (`__saw_atomic_*`), and integer print
+  (`__saw_print_int`). (Design 118 stage 3 RETIRED the compiler's last reactor
+  helper — the `__saw_reactor` instance getter — into the Saw executor's
+  `__saw_host_reactor()`; codegen no longer emits any reactor-instance code.)
 
 Widths follow design 47. `word` below = the platform `Int`/`UInt` width
 (pointer-width: 64-bit on x86-64/aarch64, 32-bit on riscv32). The stdlib types
@@ -219,14 +219,15 @@ STACK array Saw could not express): the reactor now lives in Saw
 (`rt/host_macos/reactor.saw` kqueue, `rt/host_linux/reactor.saw` epoll) and each
 poll heap-allocates its own event buffer.
 
-**The process-global singleton is EXECUTOR policy, not runtime state.** The
-compiler synthesizes `__saw_reactor()` (a `__saw_*` internal helper, NOT this ABI)
-holding the instance in an internal global — created lazily and race-safely
-(`reactor_create` on first use, published via a CAS; a loser `reactor_destroy`s
-its spare — exactly the CAS v1 used to publish the reactor fd, now publishing the
-whole instance). Codegen INJECTS this instance as the first argument at every
-reactor seam call site (the `io_wait` lowering, the entry executor, the ambient
-scheduler), so the Saw seam callers stay instance-agnostic.
+**The process-global singleton is EXECUTOR policy, not runtime state.** _Design 118
+stage 3 moved this fully into Saw:_ the singleton is `__saw_host_reactor()`
+(std/taskgroup.saw) — a lazy, race-safe getter over an `Atomic<Int>` static
+(`reactor_create` on first use, published via `compare_exchange`; a loser
+`reactor_destroy`s its spare) that returns the `SystemReactor` value conforming to
+the Saw `Reactor` trait. The executor threads the instance EXPLICITLY (each seam
+call passes `self.instance`), so the reactor seams are plain externs and there is no
+compiler-injected instance. (Through design 117 this was the compiler-synthesized
+`__saw_reactor()` getter + a per-call-site instance injection; both are retired.)
 
 **Concurrency (design 117 pin — match v1 observable semantics exactly).** MT
 TaskGroups poll from several worker threads concurrently. v1's poll used a
@@ -410,12 +411,14 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
   — control block `{tid, env, result}`, a per-site `i8*(i8*)` trampoline, and a
   `__saw_rt_thread_spawn(tramp, cb)` launch. Task join/deinit (`std/task.saw`,
   Saw) call `__saw_rt_thread_join`.
-- **`__saw_reactor()`** — the process-global reactor-instance getter + its
-  `__saw_reactor_instance` global (design 117); codegen injects its result as
-  the first arg at the three `__saw_rt_reactor_*` seam call sites
-  (`_REACTOR_INSTANCE_SEAMS`).
-- **Intrinsic lowerings** (`codegen/calls.py`): `__saw_exec_sleep`→`__saw_rt_sleep_ms`;
-  `io_wait` outside a frame → register+poll(-1) blocking; `cancelled()`→false,
+- ~~**`__saw_reactor()`** reactor-instance getter + injection~~ — RETIRED (design
+  118 stage 3). The process-global reactor singleton is now the Saw
+  `__saw_host_reactor()` (lazy CAS over an `Atomic<Int>` static in
+  std/taskgroup.saw) returning the `SystemReactor` `Reactor` impl; the reactor seams
+  are plain externs the executor calls at full arity.
+- **Intrinsic lowerings** (`codegen/calls.py`): `sleep`→`__saw_rt_sleep_ms`;
+  `io_wait` outside a frame → `__saw_exec_io_register` + `__saw_exec_park(-1)`
+  (design 118 stage 2/3, routed through the trait); `cancelled()`→false,
   `yield_now`/`__saw_io_park`→no-op outside a frame; `__saw_box_data`,
   `__saw_forget`.
 
@@ -475,12 +478,34 @@ instance), without touching a single synthesized call site.
   them untouched is what preserves byte-identical behavior (adding a park would be
   a behavior change, not a relocation). The reactor is still consumed via the
   direct externs (funnelled through the stage-2 `__saw_exec_*` wrappers).
-- **Stage 3 (reactor trait):** define `Reactor` (register/poll/wake, token =
-  parked frame's `__wake`-word address — design 91) + per-host `KqueueReactor`/
-  `EpollReactor` over the design-117 instance seams; make `__saw_exec_io_register`/
-  `__saw_exec_reactor_wake`/`__saw_exec_run`'s poll call the trait; the executor owns
-  the singleton `any Reactor` (retiring the compiler-injected instance). Resolve
-  the deferred design-114 `io_wait`-gating question here.
+- **Stage 3 (reactor trait) — LANDED:** the `Reactor` trait (`register`/`poll`/
+  `wake`, token = the parked frame's `__wake`-word address, design 91) is defined in
+  std/taskgroup.saw, with `SystemReactor { instance: Int }` conforming over the
+  design-117 `__saw_rt_reactor_*` instance seams. Every executor reactor touch —
+  `__saw_exec_io_register`, `__saw_exec_reactor_wake`, `__saw_exec_park`'s poll, the
+  `__saw_exec_run` sweep poll, and the MT-worker poll — now goes through the trait
+  via `__saw_host_reactor()`, a Saw lazy-CAS singleton over an `Atomic<Int>` static
+  (create-on-first-use, publish via `compare_exchange`, loser destroys its spare).
+  The compiler-synthesized `__saw_reactor()` getter AND its per-seam instance
+  injection are RETIRED — the executor threads the instance explicitly, so the
+  reactor seams are now plain externs the Saw executor calls at full arity.
+  DEVIATIONS (recorded, rationale in taskgroup.saw): (1) ONE `SystemReactor` wrapper,
+  not two `KqueueReactor`/`EpollReactor` — the host divergence (kqueue vs epoll)
+  already lives in the rt/ bodies behind the seams, so two Saw wrappers would be
+  identical duplication. (2) STATIC dispatch through the `Reactor` conformance, not a
+  singleton `any Reactor` existential — a per-call `Box<any Reactor>` would add an
+  allocation (behavior-profile change) with no benefit, since the reactor impl is
+  selected at LINK/compile time, not runtime; the trait is the source-level contract
+  the SOS runtime implements as its own conforming type + `__saw_host_reactor()`.
+  IO_WAIT-GATING RESOLUTION (deferred design-114 question): `io_wait` stays a
+  std-INTERNAL suspension intrinsic — it is not prelude, and the raw net primitives
+  it partners (`tcp_try_read`/`net_buffer`/…) require an explicit
+  `import std.net.{…}`, so it is already gated out of ordinary user code. The
+  white-box reactor tests (`net_precise_*`, the `io_wait` echo examples) REMAIN the
+  reactor's contract regression suite in examples/ (the only test harness) — they
+  now exercise exactly the `(fd, direction, token)` semantics `SystemReactor` wraps,
+  so they ARE the `Reactor`-contract unit tests. No harder gating was added (that
+  would need a new visibility mechanism — out of scope; a follow-up if wanted).
 - **Stage 4 (threads/MT/offload):** a `Thread` (spawn/join) surface behind the
   `spawn{}` engine + `__drain_mt`; offload parking through the same surface.
   Send checks + design-103 semantics unchanged.
