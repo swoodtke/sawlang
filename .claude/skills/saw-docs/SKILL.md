@@ -3,11 +3,10 @@ name: saw-docs
 description: |
   Writing user-facing Saw documentation — README, LANGUAGE_SPEC prose,
   docstrings, website/tutorial content, release notes. Load BEFORE writing or
-  editing any of these. Combines de-LLM'd prose rules (distilled from the
-  humanizer skill) with Saw's terminology, voice, and code-example
-  conventions so docs read consistent and human. NOT for code comments
-  (match surrounding style) or design briefs/tracker entries (dense
-  lead-voice is correct there).
+  editing any of these. Combines de-LLM'd prose rules with Saw's terminology,
+  voice, and code-example conventions so docs read consistent and human. NOT
+  for code comments (match surrounding style) or design briefs/tracker
+  entries (dense lead-voice is correct there).
 ---
 
 # Writing Saw documentation
@@ -18,7 +17,7 @@ reference material — never inject marketing, enthusiasm, or filler. Tutorials
 may address the reader as "you" and use imperatives ("Run `make test`");
 reference material states facts.
 
-## Prose rules (the de-LLM core, distilled from the humanizer)
+## Prose rules (the de-LLM core)
 
 1. **No significance inflation.** Banned framings: "marks a pivotal", "plays a
    crucial/vital role", "underscores/highlights the importance", "testament
@@ -36,7 +35,8 @@ reference material states facts.
    (verb), utilize, crucial, pivotal, foster, streamline, seamlessly,
    intricate, landscape/tapestry (abstract), interplay, enhance, additionally
    (sentence-initial — use "also" or restructure), furthermore, moreover,
-   "it's worth noting", "importantly".
+   "it's worth noting", "importantly", honest/honestly (as praise for one's
+   own text or examples — describe what the thing does instead).
 5. **Kill filler openers and hedges.** "It should be noted that", "In order
    to" (→ "To"), "As mentioned earlier", "essentially", "simply", "just",
    "easy/easily" (if it were easy the sentence wouldn't be needed).
@@ -86,7 +86,7 @@ spec section instead.
 - Minimal but real: prefer the actual std API over pseudo-code; no `foo`/
   `bar` when a domain word is available; no magic numbers (named statics —
   the saw-lang skill's style rule applies inside examples).
-- Show failure honestly: examples of fallible APIs handle the `Result` (or
+- Show failure: examples of fallible APIs handle the `Result` (or
   visibly `try!` with a comment saying why that's acceptable there) — never
   swallow an error to shorten a snippet.
 - Show output when it teaches: a `// prints: ...` comment beats prose
@@ -110,7 +110,7 @@ spec section instead.
 ## Structure conventions
 
 - README: what it is (two sentences, checkable claims), install/build, one
-  honest example, where the full docs live. No feature laundry lists.
+  working example, where the full docs live. No feature laundry lists.
 - Tutorial pages: task-oriented headings, runnable steps, expected output
   after each step.
 - Reference pages: signature first, prose second, example last. Consistent
