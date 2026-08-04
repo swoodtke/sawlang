@@ -11,6 +11,25 @@ items need a probe before being treated as real work.
 - **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
   "blink" from a Saw kernel on the P4. See sos/spec.md.
 
+## Queued briefs (Aug 4) — awaiting dispatch
+- **Design 112 — SOS M0: QEMU riscv32 target in the build.** Boot shim +
+  virt.ld + UART hello in Saw + sifive_test clean exit + tools/sos_runner.py
+  harness (make sos-test) + CI. Covers F7/F8/F9. QEMU decided a HOST
+  prerequisite, not Blade-managed. May run concurrent with 113 (disjoint
+  trees). [112]
+- **Design 113 — runtime extraction.** Freeze the runtime seams as a
+  documented ABI (rename: __saw_rt_* = runtime-implemented, __saw_* =
+  compiler-internal), delete codegen's host-OS body synthesis
+  (kqueue/epoll, pthreads, offload, sockaddr layout), link a per-host
+  runtime WRITTEN IN SAW (sawc/rt/host_macos, host_linux) instead.
+  Freestanding already externs the seams; SOS runtimes become a link-time
+  swap. [113]
+- **Design 114 — intrinsic scoping + naming.** Bare yield_now/io_wait
+  gated stdlib-internal; public std.task.yield_now() (import required, not
+  prelude); rename all compiler-recognized double-underscore names to
+  __saw_* (deinit_in_place, suspend, io_park, blk_*, drive...). AFTER 113
+  lands (shared intrinsic surface). [114]
+
 ## Doc-sync audit findings (Aug 3) — two DECIDE items
 Surfaced by the four-source consistency audit (README / spec / skill /
 CLAUDE.md digest vs code); docs were updated to match the implementation,
@@ -22,6 +41,8 @@ these two need a design call:
   is structs + distinct aliases only). Decide whether INT `.` IDENT should lex
   as a method call, or whether `(7).method()` is the blessed spelling
   (README's Type Extensions example now uses a binding meanwhile). [57]
+  **PUNTED (user, Aug 4):** stays an error for now; `(7).method()` is the
+  workaround spelling. Revisit on demand.
 - **LANDED (design 110): plain assignment through `&var` — unified permissive.**
   Whole-referent replacement `x = v` through a `&var T` function/method param and
   `self = v` in a `&var self` method are now legal (RHS `move` + `self = v` both
@@ -57,6 +78,8 @@ these two need a design call:
   AND runs at depth 1 and depth 2 (probes `.build/scratch/probe_two_suspends*.
   saw`, Aug 3). The failing shape, if real, is more specific — extract the
   exact repro from the agent transcript before treating as work. [104, 96]
+  **Deferred (user, Aug 4):** revisit only if it reproduces during the SOS
+  work (design 112 onward flags suspending-shape oddities on discovery).
 - **Future work: suspension mid-chain.** Supporting a suspending hop inside a
   postfix or `?.` chain means lowering the chain to a resumable multi-state
   expression (frame-resident intermediates, short-circuit resume paths). The
@@ -2092,8 +2115,9 @@ zero xfails throughout.
 ## App-2 / freestanding path
 - **F7** remainder: assembly boot shim + wiring (compiler surface DONE
   — @export/@section/Never, design 58). **F8** linker scripts. **F9**
-  QEMU riscv32 smoke ("blink") + CI. **F10** fence/barrier primitives
-  for DMA ordering. [20, 46, 58]
+  QEMU riscv32 smoke ("blink") + CI. F7/F8/F9 queued as design 112
+  (Aug 4). **F10** fence/barrier primitives for DMA ordering.
+  [20, 46, 58, 112]
 - ISR conventions; riscv32 target completion (i32 word landed, 47).
 - **F5.** `Once`/`Lazy<T>`, `PerCpu<T>`, UnsafeCell-equivalent story.
 - **F6.** dtoa/Float printing under freestanding. [20]
