@@ -62,8 +62,8 @@ func main() {
     bs.append_char(123 as Int8)     // {
     bs.append_char(125 as Int8)     // }
     let br = toks(bs.build())
-    assert(kind(&br, 0) == TokenKind.LBrace, "{")
-    assert(kind(&br, 1) == TokenKind.RBrace, "}")
+    assert(kind(&br, 0) == TokenKind.LBrace, "lbrace")
+    assert(kind(&br, 1) == TokenKind.RBrace, "rbrace")
     var lb_exp = StringBuilder()
     lb_exp.append("LBRACE\t1:1\t")
     lb_exp.append_char(123 as Int8)

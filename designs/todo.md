@@ -83,6 +83,25 @@ inlined (the `.build/scratch` probes are gitignored).
   WANTED: track the interpolation-open position and report there ("unterminated
   interpolation, opened at L:C").
 
+- **DF-116e — sawc/lexer.py BUG (spec-vs-implementation disagreement): a
+  MULTI-LINE string token gets the END line with the START column.** In
+  `Lexer.tokenize` the `"` arm captures `start_col` BEFORE `read_string()` but
+  builds the token with `self.line` AFTER it — and `read_string`/the
+  interpolation copy advance `self.line` over every newline they consume. So a
+  string literal that spans lines (a literal newline in the content, or a
+  multi-line interpolation) is emitted at `(end_line, start_col)` — an
+  inconsistent position. Minimal repro (`a` / `"{` / `}"` / `b` on four lines):
+  the Python lexer reports the INTERP_STRING at `3:1`; the `"` is on line 2. The
+  spec (LANGUAGE_SPEC.md: "`#line` → the 1-based line of the token") makes a
+  token's line its START, so the Saw port uses the start line (`2:1`) — it is
+  CORRECT where Python is buggy. Per the brief this is flagged rather than
+  silently matched: the port does NOT reproduce the bug. The whole tracked corpus
+  (1109 files) has zero multi-line string literals, so lexdiff stays green; the
+  disagreement only manifests on a constructed multi-line string. FIX (in sawc):
+  use the pre-read line for the string token (capture `start_line` alongside
+  `start_col`). Until then the two lexers differ on this one rare construct by
+  design.
+
 ## Milestones
 - **App-1 Blade: DONE** (design 64 + 67; real resolver/lock/git/
   incremental/self-hosting bootstrap; `make blade-bootstrap`).
