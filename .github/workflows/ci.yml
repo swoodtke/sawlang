@@ -62,6 +62,34 @@ jobs:
           BLADE="$(pwd)/.build/blade_ci"
           (cd libs/semver && "$BLADE" test)
           (cd libs/toml && "$BLADE" test)
+          # Design 116: the Saw lexer port ships its own blade test suite.
+          (cd selfhost/lexer && "$BLADE" test)
+
+  # Differential lexer harness (design 116): build the Saw lexer port
+  # (selfhost/lexer) and diff its canonical token dump against sawc's Python
+  # lexer over every tracked .saw file. Zero mismatches is the bar.
+  lexdiff:
+    name: lexdiff (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # sawc links the Saw lexer binary with clang.
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Install llvmlite
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r sawc/requirements.txt
+
+      - name: Differential lexer sweep (make lexdiff)
+        run: make lexdiff
 
   # SOS M0 (design 112): build the freestanding riscv32 kernel and run it under
   # QEMU `virt`, asserting the UART banner + emulator exit status. Ubuntu only —
