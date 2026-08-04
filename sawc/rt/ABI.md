@@ -262,13 +262,72 @@ The `argv` main received.
    (a reactor built on interrupts/WFI, its own allocator, etc.). This is already
    the freestanding contract today.
 
-## Implementation status (design 113)
+## Authoring a runtime in Saw (design 113b)
 
-- **Landed:** the ABI is FROZEN and the symbols are renamed to this uniform
-  scheme (both tiers). The hosted bodies are still synthesized by
-  `sawc/codegen/core.py` for now.
-- **Follow-up:** relocate the bodies into per-host runtime sources under
-  `sawc/rt/host_macos/`, `sawc/rt/host_linux/`, `sawc/rt/common/`, built +
-  cached under `.build/rt/` and linked automatically for hosted builds; delete
-  the IR synthesis. See `designs/todo.md` for the language-gap findings that
-  shape whether each body is Saw or a documented C/asm shim.
+The hosted runtime is **authored in Saw** under `sawc/rt/`, compiled with a
+dedicated compile mode, plus one small C shim for the three bodies a Saw FFI gap
+blocks. Layout:
+
+```
+sawc/rt/
+  common/       OS-independent seam bodies (alloc, sleep, op-budget, pthread
+                mutex/cond/join, offload)
+  host_macos/   kqueue/macOS specifics (clocks, errno, sin_set_family)
+  host_linux/   epoll/Linux specifics (clocks, errno, sin_set_family)
+  shim.c        the three FFI-blocked bodies (below)
+```
+
+**The `--runtime-build` compile mode.** A runtime source is compiled with
+`sawc <file>.saw --runtime-build`. Under it:
+
+- `@export("__saw_rt_<name>")` is allowed for EXACTLY the frozen ABI set above —
+  the compiler validates against the list it declares, so a misspelled / non-ABI
+  `__saw_rt_*` export is a clean error naming the valid set. Every OTHER reserved
+  name (`main`, `saw_*`, the `__saw_*` compiler-internal helpers) stays rejected,
+  in this mode and out.
+- The compiler emits the seams as external DECLARATIONS (never synthesized
+  bodies); a module's own `@export` of a seam collapses into the declaration
+  (the design-58 declaration/definition unify), so the runtime provides the body.
+- The module is **sync-only** — every seam is an `@export` function, which the
+  effect system already treats as a sync context, so a suspending seam body
+  (`yield_now`, a blocking extern, a channel/TaskGroup op) is a clean error. A
+  runtime sits BELOW the machinery that suspends.
+- Only `builtin.saw` is loaded (no std): a runtime declares its own libc externs
+  and uses only the core builtins (UnsafePointer/Atomic/Optional/…).
+- Composes with the hosted target here; the freestanding profile (SOS) will
+  author its own seams the same way.
+
+The runtime objects are built + cached under `.build/rt/<key>/` (key = a hash of
+every rt source + the target triple), flock-guarded for parallel builds, and
+added to hosted link lines automatically (`sawc -v` lists them). A build failure
+is a hard, named error. The freestanding profile links NO runtime — it EXTERNS
+the seams for the kernel/environment to supply (verified by the
+`freestanding_seams_extern_no_runtime` negative test).
+
+**The `shim.c` exceptions.** Three bodies cannot be authored in Saw today; each
+is a tracked language gap (a future design shrinks the shim to zero):
+
+- `__saw_rt_write` / `__saw_rt_panic` — **DF-113a (no extern C global).** They
+  route through libc's `stdout` FILE* (`fwrite` + `fflush`, keeping `print`
+  ordered against the printf Float path). Saw cannot name an extern global.
+- `__saw_rt_pthread_create` + the offload thread thunk — **DF-113b (no C
+  function-pointer type).** Both pass/call a raw C function pointer (the start
+  routine / the `long(long)` blocking extern). Saw's surface has no bare C
+  function-pointer type (closures are fat pointers).
+- `__saw_rt_set_nonblocking` — **DF-113c (no variadic extern).** It calls the
+  variadic `fcntl(fd, F_SETFL, ...)` (an arm64 ABI requirement). Saw extern
+  declarations have no `...`.
+
+## Implementation status (design 113 / 113b)
+
+- **Landed:** the ABI is FROZEN and renamed (both tiers). All seam bodies are
+  relocated to Saw under `sawc/rt/` + the three-body `shim.c`, built + cached
+  under `.build/rt/` and linked automatically for hosted builds — the IR
+  synthesis is deleted — EXCEPT the **IO reactor** (`__saw_rt_reactor_register`
+  / `_poll` / `_wake`), which stays compiler-synthesized: the reactor's poll
+  needs a per-call, MT-safe stack event buffer (`kevent`/`epoll_event`[64]) that
+  Saw cannot express today (no uninitialized locals, no `[expr; N]` array-repeat
+  initializer), and register/poll/wake share the reactor's fd globals so they
+  cannot be split from poll. Recorded as a DF-finding in `designs/todo.md`; the
+  reactor graduates to Saw when that gap (or a per-call heap buffer decision)
+  lands, riding a later brief.

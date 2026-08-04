@@ -15,10 +15,14 @@ sawc/              # Compiler: Python + llvmlite
   codegen/         # LLVM IR generation (mixin classes)
   coro_transform.py# Source-level coroutine transform
   builtin.saw      # Built-in traits; std/ = stdlib (.saw)
-  rt/              # Runtime ABI (design 113): rt/ABI.md freezes the
-                   # __saw_rt_* seam contract; per-host runtime bodies
-                   # (host_macos/host_linux/common, cached under .build/rt/)
-                   # are a follow-up — see designs/todo.md #113
+  rt/              # Runtime ABI (design 113/113b): rt/ABI.md freezes the
+                   # __saw_rt_* seam contract; the seam bodies are AUTHORED IN
+                   # SAW here — common/ + host_macos/ + host_linux/ (.saw,
+                   # compiled with `--runtime-build`) + shim.c (3 FFI-blocked
+                   # bodies: write/panic, pthread_create+offload thunk,
+                   # set_nonblocking). Built + cached under .build/rt/, auto-
+                   # linked for hosted builds. Only the IO reactor is still
+                   # compiler-synthesized (poll buffer gap — see todo.md #113).
 examples/          # Compiler test suite programs (test_runner.py)
 blade/             # Blade package manager (written in Saw)
 libs/              # Real Saw library packages (semver, toml)
@@ -42,9 +46,14 @@ activated first.
 ```bash
 ./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
     [--emit-ir] [--emit-ast] [-O0] [--module-path NAME=DIR]
+    [--freestanding] [--runtime-build]
 ```
 Default pipeline is O1-style. `--module-path` maps a package name to a
-module dir (Blade uses this per dependency).
+module dir (Blade uses this per dependency). `--runtime-build` (design
+113b) compiles a Saw runtime that `@export`s the frozen `__saw_rt_*` ABI
+(sync-only, object output) — used to build `sawc/rt/`; the hosted runtime
+objects are built + cached under `.build/rt/` and auto-linked (delete
+`.build/rt/` to force a rebuild; `-v` lists the linked objects).
 
 ## Testing
 - `make test` (venv active) or `./.venv/bin/python test_runner.py` —

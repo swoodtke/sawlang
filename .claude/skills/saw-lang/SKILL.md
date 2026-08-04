@@ -452,8 +452,15 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
 (volatile, RO/WO markers); `@export("sym")`/`@section(".s")` on
 top-level func/static (C ABI, whitelist: fixed-width ints, Int/UInt,
 Float, UnsafePointer, Void/Never — no Bool/String/aggregates by
-value); `static_assert(sizeof<T>() == N, "msg")`; struct layout =
-declaration-order natural ABI (documented rule). Unsafety is
+value; an exported return may not be optional — a seam returns a raw
+`UnsafePointer<T>`, the `?`-wrapping is the caller's `extern` decl).
+`@export` of a reserved runtime symbol (`main`, `saw_*`, `__saw_*`) is an
+error — EXCEPT under `sawc --runtime-build` (design 113b), which lets the
+per-host runtime under `sawc/rt/` export exactly the frozen `__saw_rt_*`
+ABI (sync-only; a non-ABI `__saw_rt_*` name / a suspending body is a clean
+error). You only touch this when authoring `sawc/rt/`. `static_assert(
+sizeof<T>() == N, "msg")`; struct layout = declaration-order natural ABI
+(documented rule) — a Saw struct can mirror a C struct for FFI. Unsafety is
 TYPE-carried (Unsafe* prefix), not region-carried — no unsafe blocks.
 **`unsafe` marker (design 81):** an expression prefix, required where a raw
 pointer flows INVISIBLY in a function whose signature carries no `Unsafe*`

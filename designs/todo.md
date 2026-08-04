@@ -27,14 +27,11 @@ items need a probe before being treated as real work.
     `sawc/rt/ABI.md` (reactor one-shot rearm, design-91 token = parked frame
     wake-word addr, design-102 cancel-wake, poll timeout, offload discipline,
     the four intended implementations). CLAUDE.md repo map updated.
-  - **Physical relocation: RESOLVED (user, Aug 4) → design 113b (queued).**
-    The `saw_*` export reservation gets LOOSENED under a new runtime-build
-    compile mode so the ABI symbols can be authored in Saw (the same wall made
-    design 112's sos/kernel/rt.c C); relocation proceeds maximal-Saw with a
-    three-symbol C shim covering exactly DF-113a/b/c until the three FFI
-    features land (each queued as a future design below). Brief:
-    designs/113b-rt-in-saw.md; it inherits the remaining-scope list at the
-    bottom of this entry. DF-findings stay open as language gaps:
+  - **Physical relocation: LANDED via design 113b (Aug 4).** The `saw_*` export
+    reservation was loosened under `--runtime-build` and the seam bodies moved
+    to `sawc/rt/` (Saw) + `shim.c` (the DF-113a/b/c bodies) — all seams except
+    the IO reactor (DF-113d, see the 113b entry below). See designs/113b-rt-in-
+    saw.md. DF-findings stay open as language gaps:
     - **DF-113a — no extern C global.** `__saw_rt_write`/`_panic` need the libc
       `stdout` FILE* (`__stdoutp` macOS / `stdout` Linux) for the `fwrite +
       fflush` that keeps `print` ordered against the still-`printf` Float path.
@@ -66,17 +63,40 @@ items need a probe before being treated as real work.
       auto-linked — needs a test-harness symbol-inspection directive, which
       doesn't exist yet, and only bites once hosted auto-links); `sawc/rt/`
       module-dir layout selected by target triple. [113]
-- **Design 113b — runtime layer in Saw (queued Aug 4).** Runtime-build mode
-  (reservation loosening for the exact frozen ABI set, seam-declaration
-  suppression, sync-only), maximal-Saw relocation + 3-symbol shim.c, rt
-  build/cache/link machinery, freestanding negative test. Dispatch AFTER 112
-  integrates; 114/115 queue behind it. [113b]
-- **Future designs — FFI gaps blocking a pure-Saw runtime** (from DF-113a/b/c;
-  each shrinks 113b's shim.c when it lands): (1) extern C globals
-  (`extern static stdout: ...`); (2) a bare C function-pointer type (closures
-  are fat pointers; pthread_create/offload thunks need thin ones); (3) variadic
-  extern declarations (fcntl-class arm64 ABI requirement). General C-interop
-  value beyond the runtime. [113]
+- **Design 113b — runtime layer in Saw. LANDED (Aug 4)** except the reactor.
+  Runtime-build mode (`--runtime-build`: reservation loosening for the exact
+  frozen ABI set with a typo-checked valid-name error, seam-declaration
+  suppression via the design-58 unify, sync-only via the `@export`-is-sync-
+  context check, builtin-only load, internalize+globaldce) + error tests.
+  Relocated to `sawc/rt/` (Saw) + `shim.c` (the 3 sanctioned DF bodies):
+  alloc/dealloc/sleep/clocks, errno family, sin_set_family, op-budget, pthread
+  mutex/cond/join, the blocking-extern offload (start/done/pipe_fd/take +
+  blocking_sleep); shim.c holds write/panic (DF-113a), pthread_create + the
+  offload thread thunk (DF-113b), set_nonblocking (DF-113c). rt build/cache/link
+  machinery (`.build/rt/<hash>/`, flock-guarded, auto-linked, `-v` lists them,
+  hard error on rt build failure). Freestanding negative test via a new
+  `EXPECT: object` + `EXPECT-SYMBOL-UNDEFINED:` harness directive. Full suite
+  (997) + bootstrap + sos green at every commit.
+  - **NOT relocated — the IO reactor** (`__saw_rt_reactor_register`/`_poll`/
+    `_wake`): stays compiler-synthesized. **DF-113d — no per-call stack event
+    buffer.** The reactor's poll needs an uninitialized (or `[expr; N]`
+    array-repeat-initialized) 64-element `kevent`/`epoll_event` stack buffer per
+    call (MT-safe: each poller thread needs its own). Saw has neither
+    uninitialized locals nor an array-repeat literal, so the buffer can't be a
+    stack local; a per-call heap `malloc`/`free` would work but regresses the
+    hot poll path off the stack. register/poll/wake share the reactor's fd
+    globals, so they can't be split from poll. Graduates to Saw when DF-113d
+    lands (an array-repeat/uninitialized-local feature) or a heap-buffer poll is
+    accepted — rides a later brief. [113b]
+- **Future designs — language gaps blocking a pure-Saw runtime** (each removes a
+  113b shim body or unblocks the reactor when it lands): (1) extern C globals
+  (`extern static stdout: ...`) — DF-113a, shrinks shim.c; (2) a bare C
+  function-pointer type (closures are fat pointers; pthread_create/offload thunk
+  need thin ones) — DF-113b; (3) variadic extern declarations (fcntl-class arm64
+  ABI requirement) — DF-113c; (4) an uninitialized local or `[expr; N]`
+  array-repeat initializer — DF-113d, needed for the reactor's per-call MT-safe
+  poll event buffer (the only seam still compiler-synthesized). General
+  C-interop / low-level value beyond the runtime. [113/113b]
 - **Design 114 — intrinsic scoping + naming.** Bare yield_now/io_wait
   gated stdlib-internal; public std.task.yield_now() (import required, not
   prelude); rename all compiler-recognized double-underscore names to

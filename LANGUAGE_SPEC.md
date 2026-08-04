@@ -3508,7 +3508,14 @@ it alive.
 
 **Symbol hygiene.** Two exports resolving to the same symbol are an error (an
 unmangled C symbol must be unique); colliding with a reserved runtime symbol
-(`main`, `saw_*`, `__saw_*`) is an error. `@export` composes with overloading
+(`main`, `saw_*`, `__saw_*`) is an error. **Exception — the runtime-build mode
+(design 113b):** the per-host Saw runtime under `sawc/rt/` implements the
+`__saw_rt_*` ABI (`sawc/rt/ABI.md`). Compiling it with `sawc --runtime-build`
+loosens the reservation for EXACTLY the frozen `__saw_rt_*` ABI names (a
+misspelled/non-ABI `__saw_rt_*` export is a clean error naming the valid set; a
+suspending seam body is rejected — the runtime is sync-only); every other
+reserved name stays rejected, and an ordinary compile keeps the full reservation.
+`@export` composes with overloading
 (the exact-match model): an exported function's *name* may be overloaded
 Saw-side, but only **one** overload may carry `@export` without an explicit
 symbol name — otherwise both would claim the same unmangled symbol. `public` is
