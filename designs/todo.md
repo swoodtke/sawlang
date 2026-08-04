@@ -8,15 +8,12 @@ items need a probe before being treated as real work.
 ## Milestones
 - **App-1 Blade: DONE** (design 64 + 67; real resolver/lock/git/
   incremental/self-hosting bootstrap; `make blade-bootstrap`).
-- **App-2 SOS kernel (ESP32-P4, riscv32): NEXT.** Milestone: UART
-  "blink" from a Saw kernel on the P4. See sos/spec.md.
+- **App-2 SOS kernel (ESP32-P4, riscv32): IN PROGRESS.** M0 DONE (design
+  112): Saw kernel boots + prints a UART banner + exits cleanly under
+  QEMU `virt` riscv32 (`make sos-test`). Ultimate milestone: UART "blink"
+  on real P4 hardware. See sos/spec.md §5b (M0 recap) + designs/112.
 
 ## Queued briefs (Aug 4) — awaiting dispatch
-- **Design 112 — SOS M0: QEMU riscv32 target in the build.** Boot shim +
-  virt.ld + UART hello in Saw + sifive_test clean exit + tools/sos_runner.py
-  harness (make sos-test) + CI. Covers F7/F8/F9. QEMU decided a HOST
-  prerequisite, not Blade-managed. May run concurrent with 113 (disjoint
-  trees). [112]
 - **Design 113 — runtime extraction. IN PROGRESS (Aug 4).**
   - **LANDED — ABI freeze + rename (the time-critical, irreversible piece).**
     Both symbol tiers renamed to the uniform scheme: `__saw_rt_*` =
@@ -2177,12 +2174,39 @@ zero xfails throughout.
   TaskGroup) — unification unscheduled. [21b, 52b]
 
 ## App-2 / freestanding path
-- **F7** remainder: assembly boot shim + wiring (compiler surface DONE
-  — @export/@section/Never, design 58). **F8** linker scripts. **F9**
-  QEMU riscv32 smoke ("blink") + CI. F7/F8/F9 queued as design 112
-  (Aug 4). **F10** fence/barrier primitives for DMA ordering.
-  [20, 46, 58, 112]
+- ~~**F7** remainder: assembly boot shim + wiring. **F8** linker scripts.
+  **F9** QEMU riscv32 smoke ("blink") + CI.~~ DONE (design 112, Aug 4):
+  `sos/kernel/` boot.S + virt.ld + rt.c runtime seams + `main.saw` (UART
+  driver over `UnsafeMemory<_, Device>`); boots under `qemu-system-riscv32
+  -M virt -bios none`, prints a banner, exits 0 via `sifive_test`; trap
+  stub + freestanding panic seam both FAIL the run (never hang);
+  `make sos-test` (tools/sos_runner.py) + ubuntu CI job. **F10** fence/
+  barrier primitives for DMA ordering. [20, 46, 58, 112]
 - ISR conventions; riscv32 target completion (i32 word landed, 47).
+- **DF-112a (design-112 discovery, FIXED in this brief — sawc touch, flag
+  for the lead vs concurrent design 113):** two freestanding-riscv32
+  blockers surfaced on first bare-metal use. (1) An ICE — `_generate_spawn`
+  (codegen/calls.py) hardcoded `i64` for the `saw_alloc` seam args instead
+  of `self.int_type`, so ANY freestanding riscv32 compile ICE'd ("i32 !=
+  i64") because codegen emits every loaded stdlib method incl. a spawn-using
+  one (last un-migrated design-47 site; closures were already migrated).
+  Fixed to platform-width. (2) Dead-code strip — codegen emits every loaded
+  stdlib method + its closure/vtable descriptors + backend constant pools
+  regardless of reachability, and freestanding still loads channel/mutex/
+  task/float-print methods referencing pthread/snprintf/float/atomic
+  symbols a bare-metal target can't satisfy. Added a freestanding-only
+  post-pass (`_apply_freestanding_sections`) that internalizes non-`@export`
+  defs (so O1 `globaldce` deletes everything unreachable from `kmain` +
+  `@llvm.used` — the primary mechanism, reaches fused constant pools that
+  IR-level sections cannot) + per-symbol sections for `--gc-sections`.
+  Host suite 993/993 green (freestanding-guarded, hosted byte-identical).
+- **DF-112b (pin deviation, design 112):** the pinned ISA was
+  `rv32imac_zicsr`, but llvmlite emits `rv32i` (base, ilp32 soft-float)
+  for the `riscv32-unknown-none-elf` triple — sawc exposes no CLI feature
+  string to request imac. rv32i runs fine on QEMU's default `virt` rv32
+  CPU (a subset); boot.S/rt.c are assembled `rv32imac_zicsr` and link
+  cleanly. If a kernel needs mul/div/atomics inline (not libcalls), sawc
+  needs a `--target-features` surface — future work, not M0-blocking.
 - **F5.** `Once`/`Lazy<T>`, `PerCpu<T>`, UnsafeCell-equivalent story.
 - **F6.** dtoa/Float printing under freestanding. [20]
 - ~~**T1f.** Debug info (line tables → backtraces).~~ DONE (design 69):

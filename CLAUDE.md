@@ -24,7 +24,9 @@ blade/             # Blade package manager (written in Saw)
 libs/              # Real Saw library packages (semver, toml)
 tools/blade_bootstrap.py  # Self-hosting bootstrap loop
 designs/           # Design briefs + todo.md tracker
-sos/               # SOS kernel design notes (App-2)
+sos/               # SOS kernel: spec.md notes + kernel/ (M0 riscv32 QEMU
+                   #   target: boot.S/virt.ld/rt.c + main.saw) + tests/.
+                   #   `make sos-test` (tools/sos_runner.py) boots it under QEMU
 ```
 
 ## Python environment
