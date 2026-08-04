@@ -1,19 +1,55 @@
-// OS-divergent socket helpers (design 84/90 / 113b) — Linux.
+// OS-divergent socket helpers (design 84/90/117) — Linux.
 //
-// The errno family reads the calling thread's errno (behind `__errno_location()`
-// on Linux) and classifies it; `sin_set_family` stamps the OS-divergent prefix
-// of `struct sockaddr_in`. The errno VALUES and the sockaddr layout are
-// Linux-specific.
+// design 117: the errno accessors are gone from the ABI; the host errno ->
+// portable SysError mapping lives behind `__saw_rt_last_syserror()` (reads errno
+// behind `__errno_location()` on Linux, returns the portable SysError TAG). See
+// host_macos/net_os.saw for the shared rationale. The errno VALUES and the
+// sockaddr layout are Linux-specific.
 
 extern "C" {
     // errno lives behind __errno_location() on Linux (returns `int*`).
     func __errno_location() -> UnsafePointer<Int32>
 }
 
+// The portable SysError tag space (ABI.md). A failing op returns the NEGATED tag.
+static SYS_WOULD_BLOCK: Int = 1
+static SYS_IN_PROGRESS: Int = 2
+static SYS_IS_CONNECTED: Int = 3
+static SYS_INTERRUPTED: Int = 4
+static SYS_CONN_RESET: Int = 5
+static SYS_CONN_REFUSED: Int = 6
+static SYS_CONN_ABORTED: Int = 7
+static SYS_BROKEN_PIPE: Int = 8
+static SYS_NOT_CONNECTED: Int = 9
+static SYS_NOT_FOUND: Int = 10
+static SYS_PERMISSION_DENIED: Int = 11
+static SYS_EXISTS: Int = 12
+static SYS_ADDR_IN_USE: Int = 13
+static SYS_INVALID: Int = 14
+static SYS_EXHAUSTED: Int = 15
+static SYS_OTHER: Int = 16
+
+// Linux errno numbers.
+static EPERM: Int = 1
+static ENOENT: Int = 2
+static EINTR: Int = 4
+static ENOMEM: Int = 12
+static EACCES: Int = 13
+static EEXIST: Int = 17
+static EINVAL: Int = 22
+static ENFILE: Int = 23
+static EMFILE: Int = 24
+static ENOSPC: Int = 28
+static EPIPE: Int = 32
 static EAGAIN: Int = 11        // == EWOULDBLOCK
-static EINPROGRESS: Int = 115
+static EADDRINUSE: Int = 98
+static ECONNABORTED: Int = 103
+static ECONNRESET: Int = 104
 static EISCONN: Int = 106
+static ENOTCONN: Int = 107
+static ECONNREFUSED: Int = 111
 static EALREADY: Int = 114
+static EINPROGRESS: Int = 115
 
 // sockaddr_in prefix (Linux): { u16 sin_family = AF_INET } (bytes 0-1, LE).
 static AF_INET_LO: Int8 = 2
@@ -23,26 +59,42 @@ func errno_value() -> Int {
     unsafe __errno_location()[0] as Int
 }
 
-@export("__saw_rt_errno")
-func rt_errno() -> Int {
-    errno_value()
-}
-
-@export("__saw_rt_errno_would_block")
-func rt_errno_would_block() -> Int {
+// design 117: map the current errno to a portable SysError tag.
+@export("__saw_rt_last_syserror")
+func rt_last_syserror() -> Int {
     let e = errno_value()
-    if e == EAGAIN || e == EINPROGRESS { 1 } else { 0 }
-}
-
-@export("__saw_rt_errno_connect_state")
-func rt_errno_connect_state() -> Int {
-    let e = errno_value()
-    if e == EISCONN {
-        0
+    if e == EAGAIN {
+        SYS_WOULD_BLOCK
     } else if e == EINPROGRESS || e == EALREADY {
-        1
+        SYS_IN_PROGRESS
+    } else if e == EISCONN {
+        SYS_IS_CONNECTED
+    } else if e == EINTR {
+        SYS_INTERRUPTED
+    } else if e == ECONNRESET {
+        SYS_CONN_RESET
+    } else if e == ECONNREFUSED {
+        SYS_CONN_REFUSED
+    } else if e == ECONNABORTED {
+        SYS_CONN_ABORTED
+    } else if e == EPIPE {
+        SYS_BROKEN_PIPE
+    } else if e == ENOTCONN {
+        SYS_NOT_CONNECTED
+    } else if e == ENOENT {
+        SYS_NOT_FOUND
+    } else if e == EACCES || e == EPERM {
+        SYS_PERMISSION_DENIED
+    } else if e == EEXIST {
+        SYS_EXISTS
+    } else if e == EADDRINUSE {
+        SYS_ADDR_IN_USE
+    } else if e == EINVAL {
+        SYS_INVALID
+    } else if e == EMFILE || e == ENFILE || e == ENOMEM || e == ENOSPC {
+        SYS_EXHAUSTED
     } else {
-        2
+        SYS_OTHER
     }
 }
 

@@ -1158,16 +1158,29 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                               name="__saw_rt_reactor_destroy")
         setnb = ir.Function(self.module, ir.FunctionType(i64, [i64]),
                             name="__saw_rt_set_nonblocking")
-        ewb = ir.Function(self.module, ir.FunctionType(i64, []),
-                          name="__saw_rt_errno_would_block")
-        errno_fn = ir.Function(self.module, ir.FunctionType(i64, []),
-                               name="__saw_rt_errno")
         setfam = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
                              name="__saw_rt_sin_set_family")
-        # design 90: classify a nonblocking-connect completion errno (OS-divergent
-        # EISCONN/EINPROGRESS/EALREADY values live here, like saw_errno_would_block).
-        connst = ir.Function(self.module, ir.FunctionType(i64, []),
-                             name="__saw_rt_errno_connect_state")
+        # design 117: the three errno ACCESSORS (errno / errno_would_block /
+        # errno_connect_state) are gone. The host errno -> portable SysError tag
+        # mapping is behind one seam; the OS ops carry their own status.
+        last_err = ir.Function(self.module, ir.FunctionType(i64, []),
+                               name="__saw_rt_last_syserror")
+        # design 117: status-carrying network ops (>= 0 success/count, -tag on
+        # failure). Read/write take (fd, buf, len); the rest take Int args.
+        tcp_listen = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+                                 name="__saw_rt_tcp_listen")
+        tcp_local_port = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+                                     name="__saw_rt_tcp_local_port")
+        tcp_accept = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+                                 name="__saw_rt_tcp_accept")
+        tcp_connect_start = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+                                        name="__saw_rt_tcp_connect_start")
+        tcp_connect_check = ir.Function(self.module, ir.FunctionType(i64, [i64, i64]),
+                                        name="__saw_rt_tcp_connect_check")
+        tcp_read = ir.Function(self.module, ir.FunctionType(i64, [i64, i8ptr, i64]),
+                               name="__saw_rt_tcp_read")
+        tcp_write = ir.Function(self.module, ir.FunctionType(i64, [i64, i8ptr, i64]),
+                                name="__saw_rt_tcp_write")
         # design 89-c: the cooperative op-count budget seam. `saw_op_budget_tick()`
         # decrements the process-global work budget and returns 1 (with a reset to
         # the default) when it is exhausted — the caller then force-yields — else 0.
@@ -1192,9 +1205,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                                    name="__saw_rt_offload_take")
         blocking_sleep = ir.Function(self.module, ir.FunctionType(i64, [i64]),
                                      name="__saw_rt_blocking_sleep")
-        io_fns = (create, reg, poll, wake, destroy, setnb, ewb, errno_fn,
-                  setfam, connst, budtick, budreset, offload_start, offload_done,
-                  offload_fd, offload_take, blocking_sleep)
+        io_fns = (create, reg, poll, wake, destroy, setnb, setfam, last_err,
+                  tcp_listen, tcp_local_port, tcp_accept, tcp_connect_start,
+                  tcp_connect_check, tcp_read, tcp_write, budtick, budreset,
+                  offload_start, offload_done, offload_fd, offload_take,
+                  blocking_sleep)
         for fn in io_fns:
             self.functions[fn.name] = fn
         # design 113b/117: every io seam body now lives in Saw + shim.c under

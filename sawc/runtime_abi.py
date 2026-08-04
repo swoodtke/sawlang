@@ -25,13 +25,20 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_sleep_ms",
     "__saw_rt_clock_monotonic_nanos",
     "__saw_rt_unix_timestamp_secs",
-    # errno family
-    "__saw_rt_errno",
-    "__saw_rt_errno_would_block",
-    "__saw_rt_errno_connect_state",
+    # Errors (design 117: the errno accessors are gone; the host errno ->
+    # portable SysError tag mapping lives behind this one seam)
+    "__saw_rt_last_syserror",
     # Sockets
     "__saw_rt_set_nonblocking",
     "__saw_rt_sin_set_family",
+    # Status-carrying network ops (design 117)
+    "__saw_rt_tcp_listen",
+    "__saw_rt_tcp_local_port",
+    "__saw_rt_tcp_accept",
+    "__saw_rt_tcp_connect_start",
+    "__saw_rt_tcp_connect_check",
+    "__saw_rt_tcp_read",
+    "__saw_rt_tcp_write",
     # Cooperative-scheduler fairness (design 89-c)
     "__saw_rt_op_budget_tick",
     "__saw_rt_op_budget_reset",

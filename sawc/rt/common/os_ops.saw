@@ -1,0 +1,183 @@
+// Status-carrying OS operations (design 117), authored in Saw.
+//
+// design 117 deletes the errno accessors from the ABI. Every OS operation std
+// used to pair with an errno read is now a runtime function that does the syscall
+// and, on failure, returns the NEGATED portable SysError tag (>= 0 = success /
+// count; < 0 = -tag). The tag is captured IMMEDIATELY after the failing syscall
+// via the host `__saw_rt_last_syserror()` seam — nothing runs between, so errno
+// is never clobbered — so std never sees a raw errno again.
+//
+// These bodies are OS-INDEPENDENT (identical libc calls on macOS + Linux); only
+// the host errno->tag mapping (net_os.saw) and `sin_set_family` diverge. Hosted-
+// only (libc socket/fs syscalls); a kernel/sos runtime authors its own.
+
+extern "C" {
+    func socket(domain: Int32, ty: Int32, protocol: Int32) -> Int32
+    func bind(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
+    func listen(fd: Int32, backlog: Int32) -> Int32
+    func accept(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
+    func connect(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
+    func getsockname(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
+    // host seams: the nonblocking-socket helper (shim.c), the sockaddr prefix
+    // stamp, and the errno -> portable SysError tag mapper (net_os.saw).
+    func __saw_rt_set_nonblocking(fd: Int) -> Int
+    func __saw_rt_sin_set_family(buf: UnsafePointer<Int8>)
+    func __saw_rt_last_syserror() -> Int
+}
+
+// SysError tags this file branches on (the full space is documented in ABI.md).
+static SYS_WOULD_BLOCK: Int = 1
+static SYS_IN_PROGRESS: Int = 2
+static SYS_IS_CONNECTED: Int = 3
+
+static AF_INET: Int32 = 2
+static SOCK_STREAM: Int32 = 1
+static PROTO_DEFAULT: Int32 = 0
+static LISTEN_BACKLOG: Int32 = 16
+static SOCKADDR_IN_LEN: Int32 = 16
+static LOOPBACK_BE: UInt32 = 0x0100007f   // 127.0.0.1, network byte order (LE)
+
+// A typed stack stand-in for `struct sockaddr_in` (16 bytes, natural ABI).
+struct SockAddrIn {
+    family: UInt16
+    port: UInt16
+    addr: UInt32
+    zero: UInt64
+}
+
+// host-order port -> network byte order (htons). Targets are little-endian.
+func htons(port: Int) -> UInt16 {
+    (((port & 0xff) << 8) | ((port >> 8) & 0xff)) as UInt16
+}
+
+// network byte order UInt16 -> host-order port (ntohs).
+func ntohs(net: UInt16) -> Int {
+    let v = net as Int
+    ((v & 0xff) << 8) | ((v >> 8) & 0xff)
+}
+
+// A 127.0.0.1:port sockaddr with the OS-correct family prefix.
+func loopback_sockaddr(port: Int) -> SockAddrIn {
+    var sa = SockAddrIn(family: 0 as UInt16, port: htons(port), addr: LOOPBACK_BE, zero: 0 as UInt64)
+    __saw_rt_sin_set_family((&sa) as UnsafePointer<Int8>)
+    sa
+}
+
+// Open a nonblocking listening TCP socket bound to 127.0.0.1:port (0 = ephemeral).
+// Returns the listen fd (>= 0) or -tag. errno is captured BEFORE close(), which
+// would otherwise clobber it.
+@export("__saw_rt_tcp_listen")
+func rt_tcp_listen(port: Int) -> Int {
+    let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
+    if fd < (0 as Int32) {
+        return -__saw_rt_last_syserror()
+    }
+    let _ = __saw_rt_set_nonblocking(fd as Int)
+    var sa = loopback_sockaddr(port)
+    let ap = (&sa) as UnsafePointer<Int8>
+    if bind(fd, ap, SOCKADDR_IN_LEN) != (0 as Int32) {
+        let e = __saw_rt_last_syserror()
+        let _ = close(fd)
+        return -e
+    }
+    if listen(fd, LISTEN_BACKLOG) != (0 as Int32) {
+        let e = __saw_rt_last_syserror()
+        let _ = close(fd)
+        return -e
+    }
+    fd as Int
+}
+
+// The actual local port a (possibly ephemeral) listen fd is bound to.
+@export("__saw_rt_tcp_local_port")
+func rt_tcp_local_port(fd: Int) -> Int {
+    var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
+    let ap = (&sa) as UnsafePointer<Int8>
+    var len: Int32 = SOCKADDR_IN_LEN
+    let lp = (&len) as UnsafePointer<Int32>
+    let _ = getsockname(fd as Int32, ap, lp)
+    ntohs(sa.port)
+}
+
+// Nonblocking accept: a nonblocking connection fd (>= 0), or -tag
+// (-SYS_WOULD_BLOCK when no client is waiting).
+@export("__saw_rt_tcp_accept")
+func rt_tcp_accept(listen_fd: Int) -> Int {
+    var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
+    let ap = (&sa) as UnsafePointer<Int8>
+    var len: Int32 = SOCKADDR_IN_LEN
+    let lp = (&len) as UnsafePointer<Int32>
+    let c = accept(listen_fd as Int32, ap, lp)
+    if c >= (0 as Int32) {
+        let _ = __saw_rt_set_nonblocking(c as Int)
+        return c as Int
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+// Start a nonblocking connect to 127.0.0.1:port. Returns a connecting fd (>= 0;
+// including the EINPROGRESS "wait for writable" case) or -tag on a real failure.
+@export("__saw_rt_tcp_connect_start")
+func rt_tcp_connect_start(port: Int) -> Int {
+    let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
+    if fd < (0 as Int32) {
+        return -__saw_rt_last_syserror()
+    }
+    let _ = __saw_rt_set_nonblocking(fd as Int)
+    var sa = loopback_sockaddr(port)
+    let ap = (&sa) as UnsafePointer<Int8>
+    let r = connect(fd, ap, SOCKADDR_IN_LEN)
+    if r == (0 as Int32) {
+        return fd as Int
+    }
+    let e = __saw_rt_last_syserror()
+    if e == SYS_WOULD_BLOCK || e == SYS_IN_PROGRESS {
+        return fd as Int
+    }
+    let _ = close(fd)
+    return 0 - e
+}
+
+// Re-issue the nonblocking connect() to learn the true completion state (design
+// 90). Returns 0 = connected, -SYS_IN_PROGRESS = still connecting (re-park), or
+// -tag = a real failure.
+@export("__saw_rt_tcp_connect_check")
+func rt_tcp_connect_check(fd: Int, port: Int) -> Int {
+    var sa = loopback_sockaddr(port)
+    let ap = (&sa) as UnsafePointer<Int8>
+    let r = connect(fd as Int32, ap, SOCKADDR_IN_LEN)
+    if r == (0 as Int32) {
+        return 0
+    }
+    let e = __saw_rt_last_syserror()
+    if e == SYS_IS_CONNECTED {
+        return 0
+    }
+    if e == SYS_IN_PROGRESS || e == SYS_WOULD_BLOCK {
+        return -SYS_IN_PROGRESS
+    }
+    return 0 - e
+}
+
+// Nonblocking read: byte count (0 = EOF), or -tag (-SYS_WOULD_BLOCK on a would-block).
+@export("__saw_rt_tcp_read")
+func rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
+    let n = read(fd as Int32, buf, len)
+    if n >= 0 {
+        return n
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+// Nonblocking write: bytes written (may be < len), or -tag.
+@export("__saw_rt_tcp_write")
+func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
+    let n = write(fd as Int32, buf, len)
+    if n >= 0 {
+        return n
+    }
+    return 0 - __saw_rt_last_syserror()
+}

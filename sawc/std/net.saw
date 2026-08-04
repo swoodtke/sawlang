@@ -29,37 +29,31 @@
 // is the ergonomic follow-up.
 
 extern "C" {
-    // POSIX socket calls (identical prototypes on macOS + Linux; the OS-divergent
-    // bits — O_NONBLOCK, the EAGAIN/EINPROGRESS errno values, the sockaddr_in
-    // family/len layout — live in the saw_* shims below).
-    func socket(domain: Int32, ty: Int32, protocol: Int32) -> Int32
-    func bind(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
-    func listen(fd: Int32, backlog: Int32) -> Int32
-    func accept(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
-    func connect(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
-    func getsockname(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
-    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
-    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    // A couple of raw socket calls std.net still spells directly (no errno branch):
+    // the AF_UNIX test pair and fd close.
     func close(fd: Int32) -> Int32
     func socketpair(domain: Int32, ty: Int32, protocol: Int32, fds: UnsafePointer<Int32>) -> Int32
 
-    // OS-divergent socket helpers + the reactor register seam (compiler-defined,
-    // codegen/core.py). `__saw_rt_reactor_register` is emitted by the `io_wait`
-    // intrinsic lowering, so it must be a namespace-visible symbol. `token`
-    // (design 91) is the parked frame's `__wake`-word address, carried as the
-    // event's user-data so the reactor wakes EXACTLY this frame on readiness.
+    // design 117: the status-carrying network ops (rt/common/os_ops.saw). Each
+    // does its syscall and returns >= 0 on success/count or the NEGATED portable
+    // SysError tag on failure (rt/ABI.md) — the errno accessors are gone.
+    func __saw_rt_tcp_listen(port: Int) -> Int
+    func __saw_rt_tcp_local_port(fd: Int) -> Int
+    func __saw_rt_tcp_accept(listen_fd: Int) -> Int
+    func __saw_rt_tcp_connect_start(port: Int) -> Int
+    func __saw_rt_tcp_connect_check(fd: Int, port: Int) -> Int
+    func __saw_rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
+    func __saw_rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
+    // The host errno -> portable SysError tag mapper (rt/*/net_os.saw); backs
+    // IoError.from_errno for the file/directory/env modules (design 117).
+    func __saw_rt_last_syserror() -> Int
+
+    // The reactor register seam (compiler-defined). `__saw_rt_reactor_register`
+    // is emitted by the `io_wait` intrinsic lowering, so it must be a namespace-
+    // visible symbol; the reactor INSTANCE is supplied by codegen (design 117).
+    // `token` (design 91) is the parked frame's `__wake`-word address.
     func __saw_rt_reactor_register(fd: Int, write: Int, token: Int)
     func __saw_rt_set_nonblocking(fd: Int) -> Int
-    func __saw_rt_errno_would_block() -> Int
-    // design 90: classify a re-issued nonblocking connect()'s errno —
-    // 0 = connected (EISCONN), 1 = still connecting (EINPROGRESS/EALREADY),
-    // 2 = failed. Lets connect() re-park on a spurious reactor wake.
-    func __saw_rt_errno_connect_state() -> Int
-    func __saw_rt_errno() -> Int
-    // The ONLY OS-divergent piece of sockaddr_in: the sin_len/sin_family prefix
-    // (macOS byte layout differs from Linux). Everything else is uniform
-    // network-order data filled by `SockAddrIn` below.
-    func __saw_rt_sin_set_family(buf: UnsafePointer<Int8>)
 
     // design 89-c: the cooperative op-count budget seam (codegen/core.py). Each io
     // op that completes WITHOUT parking charges the budget; `__saw_rt_op_budget_tick()`
@@ -73,55 +67,28 @@ extern "C" {
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
 }
 
-// Named socket constants (same values on macOS + Linux). Reactor interest
-// directions for `io_wait(fd, dir)`: 0 = read, 1 = write.
-static AF_INET: Int32 = 2
+// Constants for the AF_UNIX test pair (the only raw socket call left in this
+// file). The IP socket setup moved into rt/common/os_ops.saw (design 117).
 static AF_UNIX: Int32 = 1
 static SOCK_STREAM: Int32 = 1
 static PROTO_DEFAULT: Int32 = 0
-static LISTEN_BACKLOG: Int32 = 16
-static SOCKADDR_IN_LEN: Int32 = 16
-static READ_CHUNK: Int = 4096        // TcpStream.read stack-buffer chunk size
+static READ_CHUNK: Int = 4096        // TcpStream.read chunk size
 static WOULD_BLOCK: Int = -2         // the `tcp_try_*` would-block sentinel
 static NET_ERROR: Int = -1           // the `tcp_*` error sentinel
-static LOOPBACK_BE: UInt32 = 0x0100007f   // 127.0.0.1, network byte order (LE)
 
-// `SockAddrIn` is a typed stack stand-in for `struct sockaddr_in`
-// (declaration-order natural-ABI layout, design 58: 16 bytes, align 8 from the
-// UInt64 — exceeds sockaddr_in's real requirement of 4). Its address is passed to
-// bind/accept/connect/getsockname via the design-42 reference->pointer cast, so
-// the socket paths allocate NOTHING per call. `port`/`addr` are stored in NETWORK
-// byte order directly in Saw (see `htons`); the OS-divergent `family` prefix is
-// stamped by `__saw_rt_sin_set_family`. FdPair is the 8-byte `int[2]` for socketpair.
-struct SockAddrIn {
-    family: UInt16    // OS-divergent prefix, stamped by __saw_rt_sin_set_family
-    port: UInt16      // network byte order
-    addr: UInt32      // network byte order (127.0.0.1 = 0x0100007F on LE)
-    zero: UInt64      // padding
-}
+// design 117: the portable SysError tags std.net branches on (the full space is
+// documented in rt/ABI.md). A failing rt op returns the NEGATED tag; the raw
+// `tcp_try_*` primitives translate that back to the WOULD_BLOCK/NET_ERROR
+// sentinels their callers expect, while the owning types keep the tag for IoError.
+static SYS_WOULD_BLOCK: Int = 1
+static SYS_IN_PROGRESS: Int = 2
+static SYS_INTERRUPTED: Int = 4
+static SYS_OTHER: Int = 16
 
+// FdPair is the 8-byte `int[2]` socketpair fills.
 struct FdPair {
     a: Int32
     b: Int32
-}
-
-// host-order port -> network byte order (htons) as a native UInt16 whose bytes
-// are [hi, lo]. Targets are little-endian (x86-64 / aarch64).
-func htons(port: Int) -> UInt16 {
-    (((port & 0xff) << 8) | ((port >> 8) & 0xff)) as UInt16
-}
-
-// network byte order UInt16 -> host-order port (ntohs).
-func ntohs(net: UInt16) -> Int {
-    let v = net as Int
-    ((v & 0xff) << 8) | ((v >> 8) & 0xff)
-}
-
-// A stack `SockAddrIn` for 127.0.0.1:port with the OS-correct family prefix.
-func net_sockaddr(port: Int) -> SockAddrIn {
-    var sa = SockAddrIn(family: 0 as UInt16, port: htons(port), addr: LOOPBACK_BE, zero: 0 as UInt64)
-    __saw_rt_sin_set_family((&sa) as UnsafePointer<Int8>)
-    sa
 }
 
 // True for the would-block sentinel returned by the `tcp_try_*` primitives.
@@ -148,125 +115,73 @@ func net_bytes_to_string(buf: UnsafePointer<Int8>, len: Int) -> String {
     __saw_string_from_bytes(buf, len)
 }
 
+// design 117: the raw `tcp_*` layer is now a thin translation over the status-
+// carrying rt ops (rt/common/os_ops.saw). The rt ops return >= 0 on success or a
+// NEGATED SysError tag; these wrappers map that back to the legacy WOULD_BLOCK
+// (-2) / NET_ERROR (-1) sentinels the internal std.net callers and the white-box
+// tests expect. The owning TcpListener/TcpStream types call the rt ops DIRECTLY
+// so they keep the tag for a precise IoError.
+
+// Fold an rt-op result into the legacy count / WOULD_BLOCK / NET_ERROR contract.
+func net_sentinel(r: Int) -> Int {
+    if r >= 0 {
+        r
+    } else if r == -SYS_WOULD_BLOCK {
+        WOULD_BLOCK
+    } else {
+        NET_ERROR
+    }
+}
+
 // Open a nonblocking listening TCP socket bound to 127.0.0.1:port. `port == 0`
 // requests an ephemeral port (read it back with `tcp_local_port`). Returns the
 // listen fd (>= 0) or -1.
 func tcp_listen(port: Int) -> Int {
-    let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
-    if fd < 0 {
-        return NET_ERROR
-    }
-    let _ = __saw_rt_set_nonblocking(fd as Int)
-    var sa = net_sockaddr(port)
-    let ap = (&sa) as UnsafePointer<Int8>
-    if bind(fd, ap, SOCKADDR_IN_LEN) != 0 {
-        let _ = close(fd)
-        return NET_ERROR
-    }
-    if listen(fd, LISTEN_BACKLOG) != 0 {
-        let _ = close(fd)
-        return NET_ERROR
-    }
-    fd as Int
+    net_sentinel(__saw_rt_tcp_listen(port))
 }
 
-// The actual local port a (possibly ephemeral) listen fd is bound to. -1 on error.
+// The actual local port a (possibly ephemeral) listen fd is bound to.
 func tcp_local_port(fd: Int) -> Int {
-    var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
-    let ap = (&sa) as UnsafePointer<Int8>
-    var len: Int32 = SOCKADDR_IN_LEN
-    let lp = (&len) as UnsafePointer<Int32>
-    let _ = getsockname(fd as Int32, ap, lp)
-    ntohs(sa.port)
+    __saw_rt_tcp_local_port(fd)
 }
 
 // Nonblocking accept: a nonblocking connection fd (>= 0), the would-block
-// sentinel (-2) when no client is waiting, or -1 on error. Pair with
-// `io_wait(listen_fd, 0)` on a would-block.
+// sentinel (-2) when no client is waiting, or -1 on error.
 func tcp_try_accept(listen_fd: Int) -> Int {
-    var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
-    let ap = (&sa) as UnsafePointer<Int8>
-    var len: Int32 = SOCKADDR_IN_LEN
-    let lp = (&len) as UnsafePointer<Int32>
-    let c = accept(listen_fd as Int32, ap, lp)
-    if c >= 0 {
-        let _ = __saw_rt_set_nonblocking(c as Int)
-        return c as Int
-    }
-    if __saw_rt_errno_would_block() == 1 {
-        return WOULD_BLOCK
-    }
-    NET_ERROR
+    net_sentinel(__saw_rt_tcp_accept(listen_fd))
 }
 
 // Start a nonblocking connect to 127.0.0.1:port. Returns a connecting fd (>= 0)
 // or -1. Then `io_wait(fd, 1)` until writable and `tcp_connect_check(fd)`.
 func tcp_connect_start(port: Int) -> Int {
-    let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
-    if fd < 0 {
-        return NET_ERROR
-    }
-    let _ = __saw_rt_set_nonblocking(fd as Int)
-    var sa = net_sockaddr(port)
-    let ap = (&sa) as UnsafePointer<Int8>
-    let r = connect(fd, ap, SOCKADDR_IN_LEN)
-    if r == 0 {
-        return fd as Int              // connected immediately (common on loopback)
-    }
-    if __saw_rt_errno_would_block() == 1 {
-        return fd as Int              // EINPROGRESS: wait for writability
-    }
-    let _ = close(fd)
-    NET_ERROR
+    let r = __saw_rt_tcp_connect_start(port)
+    if r < 0 { NET_ERROR } else { r }
 }
 
-// Re-issue the nonblocking connect() to learn the true completion state (the
-// reactor wakes ALL io-parked frames on any event, so a connect park can be woken
-// BEFORE its own socket is writable — design 90). Returns 0 = connected, the
-// would-block sentinel (-2) = still connecting (re-park), or -1 = failed. A
-// re-connect returns EISCONN once the handshake completed, EINPROGRESS/EALREADY
-// while still pending — far more reliable than trusting a single spurious wake.
+// Re-issue the nonblocking connect() to learn the true completion state
+// (design 90). Returns 0 = connected, the would-block sentinel (-2) = still
+// connecting (re-park), or -1 = failed.
 func tcp_connect_check(fd: Int, port: Int) -> Int {
-    var sa = net_sockaddr(port)
-    let ap = (&sa) as UnsafePointer<Int8>
-    let r = connect(fd as Int32, ap, SOCKADDR_IN_LEN)
+    let r = __saw_rt_tcp_connect_check(fd, port)
     if r == 0 {
-        return 0                          // connected on this call
+        0
+    } else if r == -SYS_IN_PROGRESS {
+        WOULD_BLOCK
+    } else {
+        NET_ERROR
     }
-    let st = __saw_rt_errno_connect_state()
-    if st == 0 {
-        return 0                          // EISCONN — handshake complete
-    }
-    if st == 1 {
-        return WOULD_BLOCK                // EINPROGRESS/EALREADY — keep waiting
-    }
-    NET_ERROR                             // a real connect failure
 }
 
 // Nonblocking read: byte count (0 = peer closed / EOF), the would-block sentinel
-// (-2), or -1 on error. Pair with `io_wait(fd, 0)` on a would-block.
+// (-2), or -1 on error.
 func tcp_try_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
-    let n = read(fd as Int32, buf, len)
-    if n >= 0 {
-        return n
-    }
-    if __saw_rt_errno_would_block() == 1 {
-        return WOULD_BLOCK
-    }
-    NET_ERROR
+    net_sentinel(__saw_rt_tcp_read(fd, buf, len))
 }
 
 // Nonblocking write: bytes written (may be < len), the would-block sentinel (-2),
-// or -1 on error. Pair with `io_wait(fd, 1)` on a would-block.
+// or -1 on error.
 func tcp_try_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
-    let n = write(fd as Int32, buf, len)
-    if n >= 0 {
-        return n
-    }
-    if __saw_rt_errno_would_block() == 1 {
-        return WOULD_BLOCK
-    }
-    NET_ERROR
+    net_sentinel(__saw_rt_tcp_write(fd, buf, len))
 }
 
 // Close a socket fd.
@@ -294,55 +209,86 @@ func tcp_socketpair() -> (Int, Int) {
 static INVALID_FD: Int32 = -1
 
 // One nonblocking read of up to READ_CHUNK bytes into a scratch buffer, appended
-// to `into` (grows as needed). Returns the byte count (0 = peer closed / EOF), the
-// would-block sentinel (-2), or -1 on error. The pointer work is confined here
-// (raw layer); TcpStream.read drives it behind an io_wait park.
+// to `into` (grows as needed). Returns the byte count (0 = peer closed / EOF) or
+// a NEGATED SysError tag (design 117): the owning types keep the tag for a
+// precise IoError. The pointer work is confined here (raw layer); TcpStream.read
+// drives it behind an io_wait park.
 func net_read_once(fd: Int, into: &var Data) -> Int {
     if let ptr = unsafe GlobalAllocator().alloc(READ_CHUNK, 1) {
-        let r = tcp_try_read(fd, ptr, READ_CHUNK)
+        let r = __saw_rt_tcp_read(fd, ptr, READ_CHUNK)
         if r > 0 {
             into.append_bytes(ptr, r)
         }
         GlobalAllocator().dealloc(ptr, READ_CHUNK, 1)
         return r
     }
-    NET_ERROR
+    return 0 - SYS_OTHER
 }
 
 // One nonblocking write of the tail of `s` starting at `off`. Returns bytes
-// written (may be < remaining), the would-block sentinel (-2), or -1 on error.
+// written (may be < remaining) or a NEGATED SysError tag (design 117).
 func net_write_str_once(fd: Int, s: String, off: Int) -> Int {
     let ptr = s as UnsafePointer<Int8>
-    tcp_try_write(fd, unsafe ptr + off, s.len() - off)
+    __saw_rt_tcp_write(fd, unsafe ptr + off, s.len() - off)
 }
 
 // One nonblocking write of the tail of `bytes` starting at `off`.
 func net_write_data_once(fd: Int, bytes: &Data, off: Int) -> Int {
     let ptr = unsafe bytes.byte_ptr()
-    tcp_try_write(fd, unsafe ptr + off, bytes.len() - off)
+    __saw_rt_tcp_write(fd, unsafe ptr + off, bytes.len() - off)
 }
 
 // =============================================================================
 // IoError — errno-shaped error conforming to `Error` (design 56 / 84)
 // =============================================================================
 
-// Carries the failing syscall name plus its errno; prints via the `Error`
-// (Printable) vtable, e.g. "io error: connect failed (errno 61)".
+// Carries the failing syscall name plus its portable SysError tag (design 117 —
+// no longer a raw errno); prints via the `Error` (Printable) vtable, e.g.
+// "io error: connect failed (connection refused)".
 public struct IoError {
     syscall: String
     code: Int
 }
 
+// The human name of a portable SysError tag (rt/ABI.md), for IoError.format.
+func sys_error_name(tag: Int) -> String {
+    match tag {
+        case 0 -> "ok",
+        case 1 -> "would block",
+        case 2 -> "in progress",
+        case 3 -> "already connected",
+        case 4 -> "interrupted",
+        case 5 -> "connection reset",
+        case 6 -> "connection refused",
+        case 7 -> "connection aborted",
+        case 8 -> "broken pipe",
+        case 9 -> "not connected",
+        case 10 -> "not found",
+        case 11 -> "permission denied",
+        case 12 -> "already exists",
+        case 13 -> "address in use",
+        case 14 -> "invalid argument",
+        case 15 -> "resources exhausted",
+        case _ -> "other error"
+    }
+}
+
 extension IoError {
+    // The portable SysError tag of the failure (design 117; rt/ABI.md).
     public func errno(&self) -> Int {
         self.code
     }
 
-    // Public factory capturing the current C errno — the cross-module way for
-    // other hosted std modules (file/directory/env, design 92) to build an
-    // IoError, since the fields and the `io_error` helper are module-private.
+    // Public factory capturing the current failure as a portable SysError tag —
+    // the cross-module way for other hosted std modules (file/directory/env,
+    // design 92) to build an IoError right after a failing libc call.
     public func from_errno(syscall: String) -> IoError {
-        IoError(syscall: syscall, code: __saw_rt_errno())
+        IoError(syscall: syscall, code: __saw_rt_last_syserror())
+    }
+
+    // Build an IoError from a syscall name + a portable SysError tag.
+    public func of(syscall: String, tag: Int) -> IoError {
+        IoError(syscall: syscall, code: tag)
     }
 }
 
@@ -350,14 +296,14 @@ extension IoError: Error {
     public func format(&self, into: &var StringBuilder) {
         into.append("io error: ")
         into.append(self.syscall)
-        into.append(" failed (errno ")
-        into.append(self.code)
+        into.append(" failed (")
+        into.append(sys_error_name(self.code))
         into.append(")")
     }
 }
 
-func io_error(syscall: String) -> IoError {
-    IoError(syscall: syscall, code: __saw_rt_errno())
+func io_error(syscall: String, tag: Int) -> IoError {
+    IoError(syscall: syscall, code: tag)
 }
 
 // =============================================================================
@@ -376,9 +322,9 @@ extension TcpListener {
     // Bind + listen on 127.0.0.1:port (port 0 = an ephemeral port; read it back
     // with `local_port`). Returns the owning listener or an IoError.
     public func listen(port: Int) -> Result<TcpListener, IoError> {
-        let fd = tcp_listen(port)
+        let fd = __saw_rt_tcp_listen(port)
         if fd < 0 {
-            return io_error("listen")
+            return io_error("listen", -fd)
         }
         return TcpListener(fd: fd)
     }
@@ -396,14 +342,14 @@ extension TcpListener {
     public func accept(&self) -> Result<TcpStream, IoError> {
         while {
             if cancelled() {
-                return io_error("accept")          // cancelled before a connection
+                return io_error("accept", SYS_INTERRUPTED)   // cancelled before a connection
             }
-            let c = tcp_try_accept(self.fd)
-            if net_would_block(c) {
+            let c = __saw_rt_tcp_accept(self.fd)
+            if c == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 0)                // park until a client arrives
                 __saw_rt_op_budget_reset()             // design 89-c: parked, budget reset
             } else if c < 0 {
-                return io_error("accept")          // a real accept error
+                return io_error("accept", -c)      // a real accept error
             } else {
                 if __saw_rt_op_budget_tick() != 0 {     // design 89-c: fairness backstop
                     yield_now()                    // ran the budget out without parking
@@ -438,9 +384,9 @@ extension TcpStream {
     // Connect to 127.0.0.1:port. COOPERATIVE: parks until the socket is writable
     // (connected). Returns the owning stream or an IoError.
     public func connect(host: String, port: Int) -> Result<TcpStream, IoError> {
-        let fd = tcp_connect_start(port)
+        let fd = __saw_rt_tcp_connect_start(port)
         if fd < 0 {
-            return io_error("connect")
+            return io_error("connect", -fd)
         }
         // Park until the connect completes, RE-VERIFYING each wake: the reactor's
         // coarse wake-all can rouse this park before our own socket is writable
@@ -450,15 +396,15 @@ extension TcpStream {
         while {
             if cancelled() {
                 tcp_close(fd)              // design 102: cancelled while connecting
-                return io_error("connect")
+                return io_error("connect", SYS_INTERRUPTED)
             }
-            let check = tcp_connect_check(fd, port)
-            if net_would_block(check) {
+            let check = __saw_rt_tcp_connect_check(fd, port)
+            if check == -SYS_IN_PROGRESS {
                 io_wait(fd, 1)             // still connecting — park until writable
                 __saw_rt_op_budget_reset()      // design 89-c: parked, budget reset
             } else if check < 0 {
                 tcp_close(fd)
-                return io_error("connect")
+                return io_error("connect", -check)
             } else {
                 break                         // connected
             }
@@ -491,14 +437,14 @@ extension TcpStream {
         var out = Data()
         while {
             if cancelled() {
-                return io_error("read")        // design 102: peer-cancelled at the park
+                return io_error("read", SYS_INTERRUPTED)   // design 102: peer-cancelled at the park
             }
             let r = net_read_once(self.fd, &var out)
-            if net_would_block(r) {
+            if r == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 0)            // park until readable
                 __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
             } else if r < 0 {
-                return io_error("read")        // a real read error, not EOF
+                return io_error("read", -r)    // a real read error, not EOF
             } else {
                 break                          // r >= 0: bytes read (0 = EOF)
             }
@@ -524,7 +470,7 @@ extension TcpStream {
         var count = 0
         while {
             if cancelled() {
-                return io_error("read")                // design 102: cancelled at park
+                return io_error("read", SYS_INTERRUPTED)   // design 102: cancelled at park
             }
             // Design 106: FORWARD the held `&var into` straight to the raw-layer
             // helper (`net_read_once` owns the scratch buffer + the append). The
@@ -534,11 +480,11 @@ extension TcpStream {
             // buffer management here. (Pre-106 this had to inline net_read_once's
             // body — a reference param could not be the operand of `&var`.)
             let r = net_read_once(self.fd, &var into)
-            if net_would_block(r) {
+            if r == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 0)                    // park until readable
                 __saw_rt_op_budget_reset()                  // design 89-c: parked, reset
             } else if r < 0 {
-                return io_error("read")                // a real read error, not EOF
+                return io_error("read", -r)            // a real read error, not EOF
             } else {
                 count = r                              // r >= 0: bytes read (0 = EOF)
                 break
@@ -559,14 +505,14 @@ extension TcpStream {
         let total = bytes.len()
         while off < total {
             if cancelled() {
-                return io_error("write")       // design 102: cancelled at the park
+                return io_error("write", SYS_INTERRUPTED)   // design 102: cancelled at the park
             }
             let w = net_write_data_once(self.fd, &bytes, off)
-            if net_would_block(w) {
+            if w == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 1)            // park until writable
                 __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
             } else if w < 0 {
-                return io_error("write")
+                return io_error("write", -w)
             } else {
                 off = off + w
             }
@@ -587,14 +533,14 @@ extension TcpStream {
         let total = bytes.len()
         while off < total {
             if cancelled() {
-                return io_error("write")       // design 102: cancelled at the park
+                return io_error("write", SYS_INTERRUPTED)   // design 102: cancelled at the park
             }
             let w = net_write_data_once(self.fd, &bytes, off)
-            if net_would_block(w) {
+            if w == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 1)            // park until writable
                 __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
             } else if w < 0 {
-                return io_error("write")
+                return io_error("write", -w)
             } else {
                 off = off + w
             }
