@@ -51,6 +51,19 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   `\0` is an interior NUL that `len()` counts. Any other escape is a lex
   error (no silent drop). Strings are immutable UTF-8, refcounted.
 - Comments `//`. No semicolons. `not` for logical negation.
+- Doc comments (design 121): `///` documents the declaration that FOLLOWS it
+  (top-level func/struct/enum/trait/extension/type/static, struct fields, enum
+  cases, extension methods + inits, trait methods); a run of `///` lines is one
+  block, and a `public` modifier or `@attribute` line in between is fine. `//!`
+  documents the FILE and is legal only ahead of every declaration. Only a
+  line-leading comment counts — `////` (4+) and a `///` trailing code stay
+  ordinary. One space after the marker is stripped; body text is opaque
+  (Markdown by convention). A block that documents nothing is a clean error
+  ("doc comment is not followed by a documentable declaration"), never a silent
+  drop. `sawc <entry> --emit-docs` emits the whole surface as JSON (signatures,
+  suspending-vs-sync effect, self borrows/consumes, conformances) for the entry
+  module plus every module it imports; write user-facing doc text per the
+  saw-docs skill.
 - Shadowing (design 100/107): a `let`/`var`/`for`-var that shadows an ENCLOSING
   binding (an outer local/param/capture/loop-var or a module `static`) is a
   compile ERROR unless its initializer MENTIONS the shadowed name —

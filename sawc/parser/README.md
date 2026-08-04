@@ -41,6 +41,9 @@ Main `Parser` class with:
 | `self.tokens` | `List[Token]` | Token stream from lexer |
 | `self.pos` | `int` | Current position in token stream |
 | `self.allow_trailing_closure` | `bool` | Whether trailing closures are allowed (disabled in conditions) |
+| `self.doc_blocks` | `List[DocBlock]` | Doc-comment blocks from the lexer's trivia (design 121) |
+| `self._doc_at_token` | `Dict[int, int]` | Token index → the doc block that precedes it |
+| `self._doc_taken` | `List[bool]` | Which blocks a declaration claimed; the rest are reported |
 
 #### Core Utility Methods
 | Method | Purpose |
@@ -54,6 +57,20 @@ Main `Parser` class with:
 | `match_ident(value)` | Check for context-sensitive keyword |
 | `expect_ident(value)` | Expect context-sensitive keyword |
 | `error(msg)` | Raise syntax error with location |
+| `_take_doc(kind)` | Claim the `///` block in front of the current token (design 121) |
+| `_take_module_docs()` | Claim the file's leading `//!` blocks for `Program.module_doc` |
+| `_release_doc(block)` | Un-claim a block the caller could not attach |
+| `_unattached_doc_errors()` | One message per doc block no declaration claimed |
+
+#### Doc comments (design 121)
+
+The lexer records `///` / `//!` lines as out-of-band trivia; `group_doc_comments`
+turns the contiguous runs into `DocBlock`s, and `_index_doc_blocks` keys each
+block on the first non-NEWLINE token that starts on a later line. Every
+declaration parser calls `_take_doc()` at the member's first token and writes the
+text onto the node's `doc` field. `parse()` claims the module doc up front and,
+at the end, turns every unclaimed block into a parse error — a doc comment is
+never silently dropped.
 
 ### `types.py` (146 lines)
 Type annotation parsing.

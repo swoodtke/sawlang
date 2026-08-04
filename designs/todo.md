@@ -220,6 +220,33 @@ inlined (the `.build/scratch` probes are gitignored).
   worker's, or self-wake the reactor whenever a poller latches a token it does
   not own. [design 91 / 102 / 118]
 
+## Design 121 — DF-findings (doc comments + --emit-docs)
+
+- **DF-121a — OPEN (discovered design 121, Aug 4; limitation, not a bug).** A
+  call's argument list cannot span lines: a newline anywhere inside the
+  parentheses is a parse error, so a long call has to be split into extra
+  bindings or run past any line-width convention. Hit while writing the
+  `selfhost/lexer` doc-comment test (an `assert(cond, "message")` whose two
+  arguments did not fit on one line). Repro:
+  ```saw
+  func add(a: Int, b: Int) -> Int { a + b }
+
+  func main() {
+      let x = add(
+          a: 1,
+          b: 2)
+      print(x)
+  }
+  // error: Parse error at 4:17: Unexpected token: NEWLINE
+  ```
+  WANTED: the parser suppresses NEWLINE tokens between `(` and the matching `)`
+  of a call / parameter list (the usual "newlines are insignificant inside
+  brackets" rule), so the repro above compiles and prints `3`. Same question
+  applies to `[` `]` and generic `<` `>` argument lists; a decision should cover
+  all of them at once, and interacts with the statement-terminating role
+  NEWLINE plays elsewhere. Worked around in the test by hoisting the condition
+  into a `let` — recorded rather than silently accommodated.
+
 ## Milestones
 - **App-1 Blade: DONE** (design 64 + 67; real resolver/lock/git/
   incremental/self-hosting bootstrap; `make blade-bootstrap`).
@@ -229,17 +256,20 @@ inlined (the `.build/scratch` probes are gitignored).
   on real P4 hardware. See sos/spec.md §5b (M0 recap) + designs/112.
 - **Docs website (sawlang.com): VISION (user, Aug 4) — "eventually", not
   scheduled.** A complete site: installation, usage/tutorial, stdlib API
-  reference extracted from source. Component designs to brief when
-  scheduled: (1) doc comments — `///`-style attached to the following
-  decl (+ a module-doc form), lexed as trivia in BOTH lexers (lexdiff
-  parity contract), parser attaches to AST; (2) `--emit-docs` compiler
-  mode walking the TYPECHECKED namespace → JSON (real signatures,
-  conformances; design-80 visibility = document exactly the public
-  surface); (3) `sawdoc` — the JSON→HTML generator WRITTEN IN SAW
-  (surface-area strategy: markdown/string/file-IO heavy dogfood);
-  (4) std docstring-writing pass (per-module content work, agent-friendly);
-  (5) site shell + hosting (static; README "Building from a fresh clone"
-  section is the near-term precursor). [website]
+  reference extracted from source. Component (1) doc comments and (2)
+  `--emit-docs` are **DONE** (design 121, Aug 4): `///`/`//!` are lexed as
+  trivia in both lexers under the lexdiff parity contract, the parser attaches
+  them, and `sawc <entry> --emit-docs` writes the typechecked surface as JSON
+  (signatures, conformances, suspending-vs-sync effect, self ownership;
+  design-80 gate on members). The pipeline is proven end to end on std.task +
+  std.time. Remaining component designs to brief when scheduled:
+  (3) `sawdoc` — the JSON→HTML generator WRITTEN IN SAW (surface-area strategy:
+  markdown/string/file-IO heavy dogfood); (4) the std docstring pass across the
+  rest of std (per-module content work, agent-friendly, follow the saw-docs
+  skill); (5) site shell + hosting (static; README "Building from a fresh
+  clone" section is the near-term precursor). Open questions for (3)/(4):
+  Markdown validation and doc-example testing (`sawdoc test`?), and whether
+  blade/libs sources join the documented set. [website]
 
 ## Queued briefs (Aug 4) — awaiting dispatch
 - **Design 116 — self-hosting pilot: the lexer in Saw (dispatched Aug 4).**
@@ -258,17 +288,29 @@ inlined (the `.build/scratch` probes are gitignored).
   (DF-116d); (D) restore Token.suffix + the dump's 4th column in both dumpers
   (the DF-116a stopped unit; 116a itself fixed Aug 4). Brief:
   designs/119-lexer-pilot-followups.md. [119]
-- **Design 121 — doc comments + --emit-docs (queued; dispatch AFTER 119
-  integrates; user-authorized Aug 4; may run concurrent with 120).** The
-  sawlang.com pipeline foundation: `///` (following decl) + `//!` (module)
-  captured as trivia in BOTH lexers (default dump format unchanged; new
-  --docs dump + lexdiff sweep), parser/AST attachment with clean
-  unattached-doc errors, `--emit-docs` JSON from the TYPECHECKED namespace
-  (public-only per design 80; signatures/effect/ownership from resolved
-  types), std.task + std.time docstringed as the end-to-end sample. The new
-  `.claude/skills/saw-docs` writing skill (humanizer distilled + Saw
-  terminology/example/docstring conventions) is the mandatory style guide
-  for all user-facing doc text. Brief: designs/121-doc-comments.md. [121]
+- **Design 121 — doc comments + --emit-docs. LANDED (Aug 4).** The sawlang.com
+  pipeline foundation. Per-unit commits, full suite green each:
+  (A) `///`/`//!` captured as TRIVIA in both lexers — the default token dump is
+  byte-identical, a new `--docs` dump emits `DOC<TAB>line:col<TAB>kind<TAB>text`
+  from `tools/dump_tokens.py --docs` and `sawlex --docs`, and `tools/lexdiff.py`
+  runs both sweeps (`--mode tokens|docs|both`, default both);
+  (B) parser attachment — a `doc` field on every documentable node,
+  `Program.module_doc`, blocks keyed by the first real token after them (so a
+  `public` prefix or `@export` line between changes nothing), and a clean
+  "doc comment is not followed by a documentable declaration" for any block
+  nobody claims;
+  (C) `--emit-docs` / `--emit-docs-all` JSON (schema_version 1) from the checked
+  program — rendered signatures off resolved types, conformances off the
+  namespace, effect (suspending|sync) off the effect graph, self
+  borrows/borrows-var/consumes + `&var` params; entry module plus every imported
+  module, std included, so a driver file selects what to document. Members
+  follow the design-80 gate; top-level items are not gated by the compiler so
+  they are all listed with their declared visibility. Test runner gained
+  `// EXPECT: docs` (golden: examples/doc_emit_json.saw);
+  (D) std.task + std.time docstringed end to end.
+  Brief: designs/121-doc-comments.md. NOT done here (out of scope, see the
+  Milestones entry): the `sawdoc` HTML generator, the full std docstring pass,
+  Markdown validation / doc-example testing, doc comments in blade/libs. [121]
 - **Design 117 — runtime ABI v2 minimization. LANDED (Aug 4).** Errno
   accessors DELETED; the reactor is INSTANCE-based and relocated to Saw
   (DF-113d dissolved); the thread surface is spawn/join. Per-unit commits:

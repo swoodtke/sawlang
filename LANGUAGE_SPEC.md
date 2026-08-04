@@ -660,6 +660,59 @@ source line and the user function's name, not the transformed coroutine frame's.
 `#` introduces one of these three directives *only*; any other `#name` is a clean
 "unknown directive" lex error.
 
+### Doc comments
+
+**Status: implemented** (design 121). Two comment forms carry documentation.
+Everything else about comments is unchanged: `//` runs to end of line and means
+nothing to the compiler.
+
+- **`///` documents the declaration that follows it.** A run of `///` lines with
+  nothing between them is one doc comment; it attaches to the next
+  `func`/`struct`/`enum`/`trait`/`extension`/`type`/`static`, to a struct field,
+  an enum case, an extension method or `init`, or a trait method. A `public`
+  modifier or an attribute line between the comment and the declaration makes no
+  difference.
+- **`//!` documents the file it appears in.** It is legal only ahead of every
+  declaration, so it belongs at the top.
+- A doc comment must start its line. `//// four slashes` is an ordinary comment
+  (banner lines keep working), and so is a `///` written after code on the same
+  line.
+
+One space after the marker is dropped; the rest of the line is kept verbatim.
+The compiler treats the text as opaque — Markdown is the convention, not a rule.
+
+```saw
+//! Monotonic and wall-clock time.
+
+/// A span of time, held as whole nanoseconds.
+struct Duration {
+    /// Nanoseconds in the span.
+    public nanos: Int64
+}
+```
+
+A doc comment that documents nothing is an error rather than a silent drop:
+
+```saw
+/// Displaced from `main` by the block below.
+
+/// Prints zero.
+func main() { print(0) }
+// error: Parse error at 1:1: doc comment is not followed by a documentable
+// declaration
+```
+
+`sawc <entry.saw> --emit-docs` type-checks the program and writes a JSON
+description of it instead of code (to `-o`, else stdout). It covers the entry
+file's module and every module the program imports, `std` included, so a file
+that imports what you want documented is the whole driver. Each item carries its
+rendered signature, visibility, generic parameters and bounds, parameters and
+return type, trait conformances, doc text, and source line — plus the two things
+a signature does not show: whether the function **suspends**, and whether a
+method **borrows, mutably borrows, or consumes** `self`. Private fields,
+methods, and inits are left out; `--emit-docs-all` keeps them. Ordering is
+fixed, so the output is diffable.
+
 ### Composite Types
 
 ```saw
@@ -3895,6 +3948,11 @@ sawc <source.saw> [options]
   -v           Verbose output (pipeline stages)
   --emit-ir    Emit LLVM IR only, don't compile
   --emit-ast   Dump the typed AST (debugging)
+  --emit-docs  Type-check and emit documentation JSON instead of code, for the
+               entry module and every module it imports (see Doc comments).
+               Writes to -o, else stdout.
+  --emit-docs-all
+               Same, keeping private fields, methods and inits.
   -O0          Disable optimization passes (raw codegen; default is an O1-style
                pipeline: entry-block allocas + mem2reg and friends)
 ```
