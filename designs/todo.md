@@ -12,7 +12,20 @@ NO workarounds — an unambiguous compiler bug STOPS the affected unit + is
 recorded here; a limitation is recorded with the wanted spelling. Repros are
 inlined (the `.build/scratch` probes are gitignored).
 
-- **DF-116a — MISCOMPILE (headline): an `Optional<String>` held in a named
+- **DF-116a — FIXED (lead, Aug 4, same-day).** Root cause:
+  `_needs_copy_for_struct_init` (codegen/resources.py) gated copy-on-init on
+  the field type's LEAF conformance being ImplicitCopy, so an owning AGGREGATE
+  with no whole-type copy() (`Optional<String>`, owning tuples/structs/enums)
+  fell through to a bitwise copy with no payload retain. Fix: the gate now also
+  fires when `_needs_cleanup(field_type)` (excluding NoCopy — typechecker-gated
+  to `move` anyway); `_generate_copy` already dispatched such aggregates to the
+  design-65 `_deep_copy_value` retain path. Regression test
+  examples/optional_field_store_retain.saw covers the struct-field shape, the
+  bare `v.push(opt)` call-path shape, and local-still-valid-after-copy. Suite
+  999 green, bootstrap ok. FOLLOW-UP now unblocked: restore the `suffix` field
+  + dump 4th column in selfhost/lexer (the design-116 stopped unit).
+  Original finding follows:
+  **MISCOMPILE (headline): an `Optional<String>` held in a named
   local loses its payload when copied into a struct field whose struct is pushed
   into a `Vector`.** The stored copy is not retained; the local's end-of-scope
   release then frees the buffer → the Vector element reads empty/garbage (often
@@ -83,7 +96,12 @@ inlined (the `.build/scratch` probes are gitignored).
   WANTED: track the interpolation-open position and report there ("unterminated
   interpolation, opened at L:C").
 
-- **DF-116e — sawc/lexer.py BUG (spec-vs-implementation disagreement): a
+- **DF-116e — FIXED (lead, Aug 4, same-day):** sawc/lexer.py now captures
+  `start_line` before `read_string()` and stamps the STRING/INTERP_STRING
+  token with it (probe: a multi-line interpolated string dumps at its start
+  line; lexdiff parity with the Saw port holds, 0 mismatches). Original
+  finding follows:
+  **sawc/lexer.py BUG (spec-vs-implementation disagreement): a
   MULTI-LINE string token gets the END line with the START column.** In
   `Lexer.tokenize` the `"` arm captures `start_col` BEFORE `read_string()` but
   builds the token with `self.line` AFTER it — and `read_string`/the
