@@ -351,6 +351,133 @@ Everything else (alloc/dealloc/write/panic, sleep, clocks, set_nonblocking,
 sin_set_family, op-budget, mutex/cond init, the offload family, get_argc/argv) is
 unchanged from v1.
 
+## The compiler → executor entry-point boundary (design 118, stage 1: map + carve)
+
+This section pins the SECOND boundary design 118 works against: not the
+`__saw_rt_*` runtime ABI above (Saw ↔ host OS), but the seam between
+**compiler-synthesized IR** (coroutine frames + the transform) and the
+**cooperative executor**. Design 118 relocates the executor fully into Saw
+behind `Reactor`/`Thread` traits; this map is the doc commit that fixes the
+boundary shape BEFORE any code moves (per the staging plan). It is descriptive
+of the code as it stands at stage-1 start plus the carve it proposes; the
+symbols marked NEW do not exist yet.
+
+### Three tiers, not two
+
+The design-113 intro names two symbol tiers. There is in fact a third, and
+design 118 is about making it a clean, small, Saw-authored boundary:
+
+1. **`__saw_rt_*`** — the runtime ABI (Saw ↔ host OS), documented above.
+2. **`__saw_*` compiler-internal helpers** — string/atomic/box/print glue and
+   the `__saw_reactor` instance getter. Emitted as IR bodies by codegen.
+3. **The executor** — the cooperative scheduler, run queue, park/wake, MT
+   engine. **Most of it is ALREADY Saw** (designs 89/75/91/102 put it in
+   `std/taskgroup.saw` + `std/task.saw`); design 118 relocates the last
+   synthesized pieces and routes reactor/thread access through traits.
+
+### What the compiler still synthesizes (stage-1 inventory)
+
+Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
+
+- **Frame layout + transform** (KEPT synthesized — a non-goal to move): per
+  suspending fn/method a `__Frame_<f>` struct with fields, in order,
+  `__state:Int`, `__wake:Int`, `__io_tok:Int`, `__cancel:Bool`,
+  `__result:R?` (omitted for a `Void` body); the `resume() -> __Poll`
+  state machine; the `__wake_reason()->Int` and `__is_cancelled()->Bool`
+  read accessors; the `Resumable` conformance (vtable for `Box<any Resumable>`
+  erasure). A suspension is just `__wake=<reason>; __state=<n>; return Pending`
+  — no executor call. Wake reason: `>0` sleep-ms, `0` yield/ready, `-1`
+  (`IO_PARK_WAKE`) io-parked.
+- **Entry executor** — a suspending `main` is replaced by a synthesized `main`:
+  - no spawns → `_make_entry_executor`: an INLINE drive loop over main's own
+    stack frame that on `Pending` calls `__saw_exec_sleep(ms)` (wake>0) or
+    `__saw_rt_reactor_poll(-1)` (wake<0) or resumes at once (wake==0).
+  - spawns → `_make_ambient_entry_executor`: box main erased, call
+    `__exec_run_root(box)` (Saw).
+- **Drivers** `__saw_drive_<f>` / `__saw_drive_steps_<f>` (design 44/45,
+  test-only) — an INLINE resume loop over a stack frame, same park inline as
+  the single-frame entry executor, then reads `__f.__result`.
+- **Spawn helper** `__spawn_<f>(&group, args) -> TaskHandle<T>|VoidTaskHandle`
+  — builds the frame, `Box<any Resumable>.make`, captures `__result`/`__cancel`
+  slot pointers, calls `group.__enqueue(move box)`, returns the handle.
+- **io park lowering** (inside `resume`, both the `io_wait` primitive and the
+  design-103 offload park loop) — emits a direct
+  `__saw_rt_reactor_register(fd, dir, self.__io_tok)` then suspends `IO_PARK_WAKE`.
+- **Offload lowering** — `let x = slow(arg)` (blocking extern) desugars to
+  `__saw_blk_start` + an `io_wait` park loop on the job pipe + `__saw_blk_take`;
+  codegen lowers `__saw_blk_*` to the `__saw_rt_offload_*` seams.
+- **`spawn { } -> Task<T>` thread engine** (`codegen/calls.py::_generate_spawn`)
+  — control block `{tid, env, result}`, a per-site `i8*(i8*)` trampoline, and a
+  `__saw_rt_thread_spawn(tramp, cb)` launch. Task join/deinit (`std/task.saw`,
+  Saw) call `__saw_rt_thread_join`.
+- **`__saw_reactor()`** — the process-global reactor-instance getter + its
+  `__saw_reactor_instance` global (design 117); codegen injects its result as
+  the first arg at the three `__saw_rt_reactor_*` seam call sites
+  (`_REACTOR_INSTANCE_SEAMS`).
+- **Intrinsic lowerings** (`codegen/calls.py`): `__saw_exec_sleep`→`__saw_rt_sleep_ms`;
+  `io_wait` outside a frame → register+poll(-1) blocking; `cancelled()`→false,
+  `yield_now`/`__saw_io_park`→no-op outside a frame; `__saw_box_data`,
+  `__saw_forget`.
+
+### What is ALREADY Saw (the executor proper)
+
+`std/taskgroup.saw` + `std/task.saw`: the `TaskGroup` run queue (parallel
+`tasks`/`done`/`remaining`/`active` vectors), the ambient scheduler
+`__ambient_run(term_group, term_slot)` + its sweep helpers, `__enqueue`,
+`__exec_run_root`, the MT fork-join drain `__drain_mt`/`__tg_worker`,
+`TaskHandle`/`VoidTaskHandle` `join`/`cancel`/`cancel_addr`, `yield_now`, and
+the `Task<T>` join/deinit. These call the reactor externs
+(`__saw_rt_reactor_poll`, `__saw_rt_reactor_wake`) and `__saw_exec_sleep`
+DIRECTLY today — those direct calls are exactly what stage 3 routes through the
+`Reactor` trait.
+
+### The proposed entry-point boundary (spawn / enqueue / drive / park / wake / join)
+
+The minimal set of Saw-authored executor entry points the synthesized IR calls
+by name. The compiler emits calls; the Saw executor implements them. After the
+carve, synthesized IR contains NO scheduler-loop or park-policy body — only
+frame code + these calls.
+
+| concern  | entry point (shape)                                   | status |
+|----------|-------------------------------------------------------|--------|
+| enqueue  | `__enqueue(&var TaskGroup, box: Box<any Resumable>) -> Int` | exists (Saw) |
+| drive    | `__exec_run_root(box: Box<any Resumable>)`            | exists (Saw) |
+| join     | `__ambient_run(term_group: Int, term_slot: Int)`      | exists (Saw) |
+| drive/park (single-frame) | `__exec_park(wake: Int)`             | **NEW** — carve `_make_entry_executor` + `__saw_drive_*` inline `Pending` bodies into this one Saw call (wake>0 → sleep; wake<0 → reactor poll -1; 0 → return) |
+| park (io) | `__exec_io_register(fd: Int, dir: Int, token: Int)`  | **NEW** — Saw wrapper the `io_wait`/offload park lowerings call instead of the raw `__saw_rt_reactor_register` extern |
+| wake     | `__exec_reactor_wake()`                                | **NEW** — Saw wrapper over `__saw_rt_reactor_wake` (today `TaskHandle.cancel` calls the extern directly) |
+| sleep    | `__exec_sleep(ms: Int)`                                | **NEW** — promote the `__saw_exec_sleep` codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ms` |
+
+`spawn` itself stays the synthesized `__spawn_<f>` helper (frame-shaped, cannot
+be generic-erased) whose only executor touch is `__enqueue`. The `Task<T>`
+thread engine's only executor touch is `__saw_rt_thread_spawn`/`_join`
+(stage 4 routes these through a `Thread` surface).
+
+**Why these:** every reactor/timer touch by synthesized IR OR by the existing
+Saw executor is funnelled through `__exec_park` / `__exec_io_register` /
+`__exec_reactor_wake` / `__exec_sleep` and the poll inside `__ambient_run`. Stage
+3 then swaps ONLY those bodies to dispatch through a `Reactor` trait object held
+as the executor's singleton (replacing the compiler-injected `__saw_reactor()`
+instance), without touching a single synthesized call site.
+
+### Stage carve plan (each lands suite-green)
+
+- **Stage 2 (ST core):** add `__exec_park`/`__exec_sleep` in Saw; rewrite
+  `_make_entry_executor` and `_make_driver` so their `Pending` arm calls
+  `__exec_park(oc.wake)` instead of inlining sleep/poll; unify the single-frame
+  main onto a boxed `__exec_run_root`-style drive (or a lighter Saw
+  `__exec_run_single(box)`) so the compiler stops emitting a scheduler loop. The
+  reactor is still consumed via the direct externs.
+- **Stage 3 (reactor trait):** define `Reactor` (register/poll/wake, token =
+  parked frame's `__wake`-word address — design 91) + per-host `KqueueReactor`/
+  `EpollReactor` over the design-117 instance seams; make `__exec_io_register`/
+  `__exec_reactor_wake`/`__ambient_run`'s poll call the trait; the executor owns
+  the singleton `any Reactor` (retiring the compiler-injected instance). Resolve
+  the deferred design-114 `io_wait`-gating question here.
+- **Stage 4 (threads/MT/offload):** a `Thread` (spawn/join) surface behind the
+  `spawn{}` engine + `__drain_mt`; offload parking through the same surface.
+  Send checks + design-103 semantics unchanged.
+
 ## The four intended implementations
 
 1. **host_macos** — kqueue reactor, libSystem pthreads, macOS errno/clock ids,
