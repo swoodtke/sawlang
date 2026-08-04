@@ -1,0 +1,29 @@
+// Design 120: a suspending call as a function ARGUMENT — single, argument-of-
+// argument, labeled, and multiple suspending args. Each argument's suspending
+// call is hoisted to a temp in evaluation order before the outer call.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// 12
+// 10
+// 10
+// XFAIL: design 120 pending
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+func twice(x: Int) -> Int { x * 2 }
+func add(a: Int, b: Int) -> Int { a + b }
+
+func single() -> Int { twice(s(10)) }          // 20
+func nested() -> Int { twice(twice(s(3))) }    // twice(6) = 12
+func labeled() -> Int { twice(x: s(5)) }       // 10
+func multi() -> Int { add(s(4), s(6)) }        // 10
+
+func main() {
+    print(__saw_drive(single()))    // 20
+    print(__saw_drive(nested()))    // 12
+    print(__saw_drive(labeled()))   // 10
+    print(__saw_drive(multi()))     // 10
+}

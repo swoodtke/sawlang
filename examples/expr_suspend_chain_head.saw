@@ -1,0 +1,32 @@
+// Design 120: a suspending call at the HEAD of a method chain — `a().b()` where
+// `a` suspends and `b` is a sync method. The buried suspending call is the
+// receiver of a further sync hop; the ANF hoist lifts it to a temp
+// (`let __t = fresh(10); __t.get()`) and the existing embedding drives it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 6
+// XFAIL: design 120 pending
+
+struct Cell { v: Int }
+extension Cell {
+    func get(&self) -> Int { self.v }
+    func bump(&self) -> Cell { Cell(v: self.v + 1) }
+}
+func fresh(n: Int) -> Cell {
+    __saw_suspend()
+    Cell(v: n)
+}
+
+func head_method() -> Int {
+    fresh(10).get()          // head suspends, `.get()` sync
+}
+
+func head_then_hops() -> Int {
+    fresh(5).bump().get()    // head suspends, two sync hops
+}
+
+func main() {
+    print(__saw_drive(head_method()))       // 10
+    print(__saw_drive(head_then_hops()))    // 6
+}

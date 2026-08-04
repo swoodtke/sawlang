@@ -1,0 +1,23 @@
+// Design 120: a suspending call as a struct-literal field value — `T(x: f())`.
+// Each field's suspending call is hoisted in field order before the struct is
+// constructed.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// XFAIL: design 120 pending
+
+struct Point { x: Int, y: Int }
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func build() -> Int {
+    let p = Point(x: s(3), y: s(4))
+    p.x + p.y                           // 7
+}
+
+func main() {
+    print(__saw_drive(build()))         // 7
+}

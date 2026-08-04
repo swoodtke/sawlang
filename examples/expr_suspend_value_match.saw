@@ -1,0 +1,27 @@
+// Design 120, stage 2: a suspending call in a value-position `match` arm —
+// `let x = match k { case 0 -> s(10), case _ -> s(20) }`. The match lowers to
+// the branch shape, then each arm's suspending call is hoisted; only the taken
+// arm's suspension runs.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 20
+// XFAIL: design 120 pending
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func pick(k: Int) -> Int {
+    let x = match k {
+        case 0 -> s(10),
+        case _ -> s(20)
+    }
+    x
+}
+
+func main() {
+    print(__saw_drive(pick(0)))     // 10
+    print(__saw_drive(pick(1)))     // 20
+}

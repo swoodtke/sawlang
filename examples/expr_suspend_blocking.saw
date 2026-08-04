@@ -1,0 +1,29 @@
+// Design 120, pinned semantics 6: a blocking-extern call (design 103) buried in
+// an argument and in a binary operand. The ANF hoist lifts it to its own
+// statement, where the offload lowering already works. Rides along IF the hoist
+// lifts it for free; otherwise this stays a recorded carve-out.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 61
+// 61
+// XFAIL: design 120 pending
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+func inc(x: Int) -> Int { x + 1 }
+
+func arg_worker() -> Int {
+    inc(__saw_rt_blocking_sleep(60))        // blocking call buried in an argument
+}
+func operand_worker() -> Int {
+    1 + __saw_rt_blocking_sleep(60)         // blocking call buried in an operand
+}
+
+func main() {
+    var group = TaskGroup()
+    let h1 = group.spawn(arg_worker())
+    print(h1.join())        // 60 + 1 = 61
+    let h2 = group.spawn(operand_worker())
+    print(h2.join())        // 1 + 60 = 61
+}

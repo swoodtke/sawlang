@@ -1,0 +1,28 @@
+// Design 120: every hop of a chain suspends — `a().b().c()` with all three
+// suspending. Each is hoisted to its own evaluation-ordered temp and embedded
+// as a driven sub-frame; values flow through the temps left to right.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// XFAIL: design 120 pending
+
+struct Cell { v: Int }
+extension Cell {
+    func susp(&self) -> Cell {
+        __saw_suspend()
+        Cell(v: self.v + 1)
+    }
+    func get(&self) -> Int { self.v }
+}
+func fresh(n: Int) -> Cell {
+    __saw_suspend()
+    Cell(v: n)
+}
+
+func every_hop() -> Int {
+    fresh(1).susp().susp().get()    // fresh(1)=1 -> susp 2 -> susp 3 -> get 3
+}
+
+func main() {
+    print(__saw_drive(every_hop()))     // 3
+}

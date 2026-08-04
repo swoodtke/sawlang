@@ -1,0 +1,23 @@
+// Design 120: a suspending Result call buried under `try!` inside a larger
+// expression — `dbl(try! sr(10))`. The `try!` over a suspending call is hoisted
+// (the design-92 try hoist generalized to a buried position).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// XFAIL: design 120 pending
+
+func sr(n: Int) -> Result<Int, Box<any Error>> {
+    __saw_suspend()
+    n
+}
+func dbl(x: Int) -> Int { x * 2 }
+
+func work() -> Result<Int, Box<any Error>> {
+    let y = dbl(try! sr(10))    // try! buried in an argument position
+    return y
+}
+
+func main() {
+    let r = __saw_drive(work())
+    print(try! r)               // 20
+}

@@ -1,0 +1,33 @@
+// Design 120: a suspending call buried in a RETURN expression — `return f().g()`
+// (chain) and `return 1 + f()` (operand). The tail expression is normalized and
+// its buried suspending calls are hoisted before the return.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 6
+// XFAIL: design 120 pending
+
+struct Cell { v: Int }
+extension Cell {
+    func get(&self) -> Int { self.v }
+}
+func fresh(n: Int) -> Cell {
+    __saw_suspend()
+    Cell(v: n)
+}
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func ret_chain() -> Int {
+    return fresh(10).get()      // 10
+}
+func ret_operand() -> Int {
+    return 1 + s(5)             // 6
+}
+
+func main() {
+    print(__saw_drive(ret_chain()))     // 10
+    print(__saw_drive(ret_operand()))   // 6
+}

@@ -1,0 +1,26 @@
+// Design 120, stage 2 (closes the design-111 suspending-hop carve-out): a `?.`
+// chain with a suspending method hop — `o?.susp()`. The hop runs only when the
+// optional head is non-None; the result flattens to `Int?`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// -1
+// XFAIL: design 120 pending
+
+struct Cell { v: Int }
+extension Cell {
+    func susp(&self) -> Int {
+        __saw_suspend()
+        self.v + 1
+    }
+}
+
+func chain(o: Cell?) -> Int {
+    let r: Int? = o?.susp()
+    r ?? -1
+}
+
+func main() {
+    print(__saw_drive(chain(Cell(v: 5))))   // 6
+    print(__saw_drive(chain(None)))         // -1 (short-circuit, hop skipped)
+}

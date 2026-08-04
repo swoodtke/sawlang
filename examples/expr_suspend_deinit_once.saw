@@ -1,0 +1,32 @@
+// Design 120, pinned semantics 2: a hoisted chain intermediate dies at STATEMENT
+// end (not scope end). `makeT(42)` is a Deinit-carrying intermediate hoisted to a
+// temp for the suspending `.susp()` hop; it must deinit exactly once, at the end
+// of its own statement — BEFORE the trailing suspension and the function result.
+// The deinit prints 42 once; the printed order (42 before 143) proves timing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 143
+// XFAIL: design 120 pending
+
+struct Tracker { id: Int }
+extension Tracker: Deinit {
+    func deinit(&var self) { print(self.id) }
+}
+extension Tracker {
+    func susp(&self) -> Int {
+        __saw_suspend()
+        self.id + 1
+    }
+}
+func makeT(id: Int) -> Tracker { Tracker(id: id) }
+
+func work() -> Int {
+    let r = makeT(42).susp()    // Tracker(42) hoisted; dies at this statement's end
+    __saw_suspend()             // a later suspension: r survives, temp already gone
+    r + 100                     // 43 + 100 = 143
+}
+
+func main() {
+    print(__saw_drive(work()))  // 42 (deinit, once, at statement end), then 143
+}

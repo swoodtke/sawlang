@@ -1,0 +1,39 @@
+// Design 120, stage 2: a suspending call as the RHS of `&&` / `||` — evaluated
+// only when the LHS does not short-circuit (pinned semantics 3). The counter
+// proves the RHS side effect is skipped on the short-circuit path.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 0
+// 1
+// 1
+// 1
+// 1
+// 2
+// XFAIL: design 120 pending
+
+static CALLS: Atomic<Int> = Atomic(0)
+
+func sb(b: Bool) -> Bool {
+    CALLS.fetch_add(1)
+    __saw_suspend()
+    b
+}
+
+func andRhs(c: Bool) -> Bool { c && sb(true) }
+func orRhs(c: Bool) -> Bool { c || sb(false) }
+
+func main() {
+    // `&&`: RHS skipped when LHS is false
+    if __saw_drive(andRhs(false)) { print(1) } else { print(0) }   // 0
+    print(CALLS.load())                                            // 0
+    // `&&`: RHS runs when LHS is true
+    if __saw_drive(andRhs(true)) { print(1) } else { print(0) }    // 1
+    print(CALLS.load())                                            // 1
+    // `||`: RHS skipped when LHS is true
+    if __saw_drive(orRhs(true)) { print(1) } else { print(0) }     // 1
+    print(CALLS.load())                                            // 1 (unchanged)
+    // `||`: RHS runs when LHS is false
+    let _ = __saw_drive(orRhs(false))
+    print(CALLS.load())                                            // 2
+}

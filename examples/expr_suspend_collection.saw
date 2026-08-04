@@ -1,0 +1,29 @@
+// Design 120: a suspending call as a collection-literal element — a Vector
+// literal and a Map value. Each element/value's suspending call is hoisted in
+// element order before the collection is built.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 7
+// XFAIL: design 120 pending
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func vector_elems() -> Int {
+    let v: Vector<Int> = [s(1), s(2), s(3)]
+    v.get(0) + v.get(1) + v.get(2)      // 6
+}
+
+func map_value() -> Int {
+    let m: Map<String, Int> = {"k": s(7)}
+    if let x = m.get("k") { return x }
+    return -1                            // 7
+}
+
+func main() {
+    print(__saw_drive(vector_elems()))   // 6
+    print(__saw_drive(map_value()))      // 7
+}

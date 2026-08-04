@@ -1,0 +1,29 @@
+// Design 120, stage 2: a suspending call as the RHS of `??` — evaluated only on
+// the None path (pinned semantics 3: conditional positions stay conditional).
+// The counter proves the RHS side effect is skipped when the LHS is present.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 0
+// 5
+// 1
+// XFAIL: design 120 pending
+
+static CALLS: Atomic<Int> = Atomic(0)
+
+func s(n: Int) -> Int {
+    CALLS.fetch_add(1)
+    __saw_suspend()
+    n
+}
+
+func coalesce(o: Int?) -> Int {
+    o ?? s(5)
+}
+
+func main() {
+    print(__saw_drive(coalesce(42)))    // 42 (RHS skipped)
+    print(CALLS.load())                 // 0
+    print(__saw_drive(coalesce(None)))  // 5 (RHS ran)
+    print(CALLS.load())                 // 1
+}

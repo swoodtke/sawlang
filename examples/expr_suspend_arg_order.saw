@@ -1,0 +1,27 @@
+// Design 120, pinned semantics 1: evaluation order preserved exactly. Multiple
+// suspending arguments run left-to-right; each prints its id before it suspends,
+// so the order of prints proves the hoist keeps argument evaluation order.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 456
+// XFAIL: design 120 pending
+
+func se(id: Int, val: Int) -> Int {
+    print(id)          // side effect, ordered
+    __saw_suspend()
+    val
+}
+func combine(a: Int, b: Int, c: Int) -> Int {
+    a * 100 + b * 10 + c
+}
+
+func ordered() -> Int {
+    combine(se(1, 4), se(2, 5), se(3, 6))   // prints 1,2,3; result 456
+}
+
+func main() {
+    print(__saw_drive(ordered()))
+}

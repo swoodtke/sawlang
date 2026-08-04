@@ -1,0 +1,24 @@
+// Design 120, stage 2: a suspending call in a value-position `if` —
+// `let x = if c { s(10) } else { s(20) }`. The if-expression lowers to the
+// branch shape first, then the suspending call is hoisted within each arm;
+// only the taken branch's suspension runs (pinned semantics 3).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 20
+// XFAIL: design 120 pending
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func pick(c: Bool) -> Int {
+    let x = if c { s(10) } else { s(20) }
+    x
+}
+
+func main() {
+    print(__saw_drive(pick(true)))      // 10
+    print(__saw_drive(pick(false)))     // 20
+}

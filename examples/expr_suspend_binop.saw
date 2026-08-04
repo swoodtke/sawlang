@@ -1,0 +1,24 @@
+// Design 120: a suspending call as a binary operand — `1 + f()`, `f() + g()`
+// (both operands suspend), and a comparison operand. Each operand's suspending
+// call is hoisted to a temp before the operator is applied.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 5
+// 1
+// XFAIL: design 120 pending
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func lit_plus() -> Int { 1 + s(10) }        // 11
+func both() -> Int { s(2) + s(3) }          // 5
+func cmp() -> Bool { s(1) < s(2) }          // true
+
+func main() {
+    print(__saw_drive(lit_plus()))          // 11
+    print(__saw_drive(both()))              // 5
+    if __saw_drive(cmp()) { print(1) } else { print(0) }   // 1
+}

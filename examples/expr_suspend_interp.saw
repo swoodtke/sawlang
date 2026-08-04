@@ -1,0 +1,26 @@
+// Design 120: a suspending call inside a string interpolation — `print("{f()}")`.
+// The interpolation argument's buried suspending call is hoisted to a temp.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// v=7
+// a=1 b=2
+// XFAIL: design 120 pending
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func interp_one() -> Int {
+    print("v={s(7)}")
+    0
+}
+func interp_two() -> Int {
+    print("a={s(1)} b={s(2)}")
+    0
+}
+
+func main() {
+    let _ = __saw_drive(interp_one())
+    let _ = __saw_drive(interp_two())
+}

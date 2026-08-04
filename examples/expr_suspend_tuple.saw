@@ -1,0 +1,26 @@
+// Design 120: a suspending call as a tuple-literal element — `(f(), 2)` and
+// `(f(), g())`. Each element's suspending call is hoisted in element order.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 3
+// XFAIL: design 120 pending
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func mixed() -> Int {
+    let t = (s(1), 2)
+    t.0 + t.1                   // 3
+}
+func both() -> Int {
+    let t = (s(1), s(2))
+    t.0 + t.1                   // 3
+}
+
+func main() {
+    print(__saw_drive(mixed()))     // 3
+    print(__saw_drive(both()))      // 3
+}

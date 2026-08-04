@@ -1,0 +1,32 @@
+// Design 120: a suspending call at a LATER hop — `x.b().c` (field) and
+// `x.b().c()` (method) where `b` suspends. The suspending method call is the
+// receiver of a further projection; the ANF hoist lifts it to a temp.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 6
+// XFAIL: design 120 pending
+
+struct Cell { v: Int }
+extension Cell {
+    func susp(&self) -> Cell {
+        __saw_suspend()
+        Cell(v: self.v + 1)
+    }
+    func get(&self) -> Int { self.v }
+}
+
+func hop_field() -> Int {
+    let x = Cell(v: 5)
+    x.susp().v               // suspending hop, then a copyable field projection
+}
+
+func hop_method() -> Int {
+    let x = Cell(v: 5)
+    x.susp().get()           // suspending hop, then a sync method
+}
+
+func main() {
+    print(__saw_drive(hop_field()))     // 6
+    print(__saw_drive(hop_method()))    // 6
+}
