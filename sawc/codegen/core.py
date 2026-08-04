@@ -1971,7 +1971,77 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # design 58: anchor `@export`ed symbols against DCE.
         self._emit_llvm_used()
 
+        # design 112: in the freestanding profile, place every function in its
+        # own `.text.<name>` section so a kernel linker (`ld.lld --gc-sections`)
+        # can garbage-collect the unreachable stdlib methods. Codegen emits EVERY
+        # loaded extension method regardless of reachability, and freestanding
+        # still loads channel/mutex/task/float-print methods — which reference
+        # pthread/snprintf/float libcalls. Without per-function sections they all
+        # fuse into one `.text` that a single reachable call pins whole, so the
+        # link pulls in symbols a bare-metal target can't satisfy. Per-function
+        # sections + `--gc-sections` keeps only the transitively-reachable set
+        # (entry + `@llvm.used`). Guarded by `freestanding`: hosted builds are
+        # byte-identical to before.
+        if self.freestanding:
+            self._apply_freestanding_sections()
+
         return str(self.module)
+
+    def _apply_freestanding_sections(self):
+        """Prepare the freestanding module for dead-code-free linking (design 112).
+
+        Codegen emits EVERY loaded stdlib method (and its closure/vtable
+        descriptor globals + backend constant pools) regardless of reachability,
+        and the freestanding profile still loads channel/mutex/task/float-print
+        methods — which reference pthread/snprintf/float/atomic symbols a
+        bare-metal target cannot satisfy. Two composing mechanisms strip them so a
+        kernel links only what it uses:
+
+        1. INTERNALIZE every definition that is not an `@export` keep-root (nor the
+           C `main`). With external linkage the O1 `globaldce` must treat each as a
+           root; internal linkage lets it delete everything unreachable from the
+           exported entry (`kmain`) + `@llvm.used`. This is the primary mechanism
+           and removes the dead methods' fused backend constant pools too — the
+           part per-section splitting alone cannot reach (llvmlite exposes no
+           backend function/data-sections knob).
+        2. PER-SYMBOL SECTIONS (`.text.<n>` / `.rodata.<n>` / `.data.<n>`) so a
+           `ld.lld --gc-sections` link trims any residue (and covers `-O0`, where
+           globaldce does not run). Only definitions without an explicit
+           `@section` are placed; declarations and `llvm.*` anchors are left alone.
+
+        Guarded by `freestanding`, so hosted builds are byte-identical.
+        """
+        # Keep-roots: the exported functions/statics (already anchored in
+        # `@llvm.used`) plus the C `main` if present. Everything else internalizes.
+        keep = {g.name for g in self._exported_llvm_globals}
+        keep.add("main")
+
+        for fn in self.module.functions:
+            if not fn.blocks:
+                continue  # declaration / intrinsic — nothing to place
+            if fn.name.startswith('llvm.'):
+                continue
+            if fn.name not in keep:
+                fn.linkage = "internal"
+            if not getattr(fn, 'section', None):
+                fn.section = f".text.{fn.name}"
+
+        for gv in self.module.global_values:
+            if not isinstance(gv, ir.GlobalVariable):
+                continue  # functions handled above
+            if gv.initializer is None:
+                continue  # external declaration — no storage here
+            if gv.name.startswith('llvm.'):
+                continue  # llvm.used / metadata anchors stay put
+            if gv.name not in keep:
+                gv.linkage = "internal"
+            if not getattr(gv, 'section', None):
+                # Constants (incl. relro tables of function pointers, resolved at
+                # link time in a static kernel) → `.rodata.<name>`; mutable data →
+                # `.data.<name>`. The kernel linker script catches `.rodata.*` and
+                # `.data.*`; `--gc-sections` drops the unreferenced ones.
+                prefix = ".rodata" if gv.global_constant else ".data"
+                gv.section = f"{prefix}.{gv.name}"
 
     # ---- design 53: static_assert compile-time evaluation ----
 
