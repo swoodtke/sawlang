@@ -2898,7 +2898,7 @@ def _make_ambient_entry_executor(fb: _FrameBuilder, fbs):
     uses the cooperative scheduler (spawns). Instead of the design-45 single-frame
     loop (which drives ONLY main's frame — parking the whole thread while a spawned
     sibling starves), main's frame is boxed erased and handed to the std ambient
-    entry executor `__exec_run_root`, which enqueues it as the root member of the
+    entry executor `__saw_exec_run_root`, which enqueues it as the root member of the
     shared scheduler and drives main AND every task it spawns to completion. This is
     what makes a spawn run eagerly whenever main parks (the core design-89 fix). A
     suspending main with NO spawn keeps the lighter single-frame executor above."""
@@ -2908,7 +2908,7 @@ def _make_ambient_entry_executor(fb: _FrameBuilder, fbs):
         object=Identifier(name="Box", type_args=[box_ty]),
         method_name="make",
         arguments=[Argument(name=None, value=frame_init)])
-    call = FunctionCall(name="__exec_run_root",
+    call = FunctionCall(name="__saw_exec_run_root",
                         arguments=[Argument(name=None, value=box_make)])
     return Function(name="main", parameters=[], return_type=SawType(TypeKind.VOID),
                     body=Block(statements=[ExpressionStatement(expression=call)],

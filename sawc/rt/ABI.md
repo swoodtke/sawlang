@@ -393,7 +393,7 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
     stack frame that on `Pending` calls `__saw_exec_sleep(ms)` (wake>0) or
     `__saw_rt_reactor_poll(-1)` (wake<0) or resumes at once (wake==0).
   - spawns → `_make_ambient_entry_executor`: box main erased, call
-    `__exec_run_root(box)` (Saw).
+    `__saw_exec_run_root(box)` (Saw).
 - **Drivers** `__saw_drive_<f>` / `__saw_drive_steps_<f>` (design 44/45,
   test-only) — an INLINE resume loop over a stack frame, same park inline as
   the single-frame entry executor, then reads `__f.__result`.
@@ -423,8 +423,8 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
 
 `std/taskgroup.saw` + `std/task.saw`: the `TaskGroup` run queue (parallel
 `tasks`/`done`/`remaining`/`active` vectors), the ambient scheduler
-`__ambient_run(term_group, term_slot)` + its sweep helpers, `__enqueue`,
-`__exec_run_root`, the MT fork-join drain `__drain_mt`/`__tg_worker`,
+`__saw_exec_run(term_group, term_slot)` + its sweep helpers, `__enqueue`,
+`__saw_exec_run_root`, the MT fork-join drain `__drain_mt`/`__saw_exec_worker`,
 `TaskHandle`/`VoidTaskHandle` `join`/`cancel`/`cancel_addr`, `yield_now`, and
 the `Task<T>` join/deinit. These call the reactor externs
 (`__saw_rt_reactor_poll`, `__saw_rt_reactor_wake`) and `__saw_exec_sleep`
@@ -441,12 +441,12 @@ frame code + these calls.
 | concern  | entry point (shape)                                   | status |
 |----------|-------------------------------------------------------|--------|
 | enqueue  | `__enqueue(&var TaskGroup, box: Box<any Resumable>) -> Int` | exists (Saw) |
-| drive    | `__exec_run_root(box: Box<any Resumable>)`            | exists (Saw) |
-| join     | `__ambient_run(term_group: Int, term_slot: Int)`      | exists (Saw) |
-| drive/park (single-frame) | `__exec_park(wake: Int)`             | **NEW** — carve `_make_entry_executor` + `__saw_drive_*` inline `Pending` bodies into this one Saw call (wake>0 → sleep; wake<0 → reactor poll -1; 0 → return) |
-| park (io) | `__exec_io_register(fd: Int, dir: Int, token: Int)`  | **NEW** — Saw wrapper the `io_wait`/offload park lowerings call instead of the raw `__saw_rt_reactor_register` extern |
-| wake     | `__exec_reactor_wake()`                                | **NEW** — Saw wrapper over `__saw_rt_reactor_wake` (today `TaskHandle.cancel` calls the extern directly) |
-| sleep    | `__exec_sleep(ms: Int)`                                | **NEW** — promote the `__saw_exec_sleep` codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ms` |
+| drive    | `__saw_exec_run_root(box: Box<any Resumable>)`            | exists (Saw) |
+| join     | `__saw_exec_run(term_group: Int, term_slot: Int)`     | exists (Saw) |
+| drive/park (single-frame) | `__saw_exec_park(wake: Int)`             | **NEW** — carve `_make_entry_executor` + `__saw_drive_*` inline `Pending` bodies into this one Saw call (wake>0 → sleep; wake<0 → reactor poll -1; 0 → return) |
+| park (io) | `__saw_exec_io_register(fd: Int, dir: Int, token: Int)`  | **NEW** — Saw wrapper the `io_wait`/offload park lowerings call instead of the raw `__saw_rt_reactor_register` extern |
+| wake     | `__saw_exec_reactor_wake()`                                | **NEW** — Saw wrapper over `__saw_rt_reactor_wake` (today `TaskHandle.cancel` calls the extern directly) |
+| sleep    | `__saw_exec_sleep(ms: Int)`                                | **NEW** — promote the `__saw_exec_sleep` codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ms` |
 
 `spawn` itself stays the synthesized `__spawn_<f>` helper (frame-shaped, cannot
 be generic-erased) whose only executor touch is `__enqueue`. The `Task<T>`
@@ -454,24 +454,24 @@ thread engine's only executor touch is `__saw_rt_thread_spawn`/`_join`
 (stage 4 routes these through a `Thread` surface).
 
 **Why these:** every reactor/timer touch by synthesized IR OR by the existing
-Saw executor is funnelled through `__exec_park` / `__exec_io_register` /
-`__exec_reactor_wake` / `__exec_sleep` and the poll inside `__ambient_run`. Stage
+Saw executor is funnelled through `__saw_exec_park` / `__saw_exec_io_register` /
+`__saw_exec_reactor_wake` / `__saw_exec_sleep` and the poll inside `__saw_exec_run`. Stage
 3 then swaps ONLY those bodies to dispatch through a `Reactor` trait object held
 as the executor's singleton (replacing the compiler-injected `__saw_reactor()`
 instance), without touching a single synthesized call site.
 
 ### Stage carve plan (each lands suite-green)
 
-- **Stage 2 (ST core):** add `__exec_park`/`__exec_sleep` in Saw; rewrite
+- **Stage 2 (ST core):** add `__saw_exec_park`/`__saw_exec_sleep` in Saw; rewrite
   `_make_entry_executor` and `_make_driver` so their `Pending` arm calls
-  `__exec_park(oc.wake)` instead of inlining sleep/poll; unify the single-frame
-  main onto a boxed `__exec_run_root`-style drive (or a lighter Saw
-  `__exec_run_single(box)`) so the compiler stops emitting a scheduler loop. The
+  `__saw_exec_park(oc.wake)` instead of inlining sleep/poll; unify the single-frame
+  main onto a boxed `__saw_exec_run_root`-style drive (or a lighter Saw
+  `__saw_exec_run_single(box)`) so the compiler stops emitting a scheduler loop. The
   reactor is still consumed via the direct externs.
 - **Stage 3 (reactor trait):** define `Reactor` (register/poll/wake, token =
   parked frame's `__wake`-word address — design 91) + per-host `KqueueReactor`/
-  `EpollReactor` over the design-117 instance seams; make `__exec_io_register`/
-  `__exec_reactor_wake`/`__ambient_run`'s poll call the trait; the executor owns
+  `EpollReactor` over the design-117 instance seams; make `__saw_exec_io_register`/
+  `__saw_exec_reactor_wake`/`__saw_exec_run`'s poll call the trait; the executor owns
   the singleton `any Reactor` (retiring the compiler-injected instance). Resolve
   the deferred design-114 `io_wait`-gating question here.
 - **Stage 4 (threads/MT/offload):** a `Thread` (spawn/join) surface behind the

@@ -60,7 +60,7 @@ extern "C" {
 // list of every live single-threaded TaskGroup, threaded through each group's
 // `next` field; `__saw_exec_head` holds the head group's address (0 = empty).
 // Every drive point — the entry executor (a suspending `main`), `TaskHandle.join`,
-// and a group's `Deinit` — sweeps this ONE list (`__ambient_run`), so a task that
+// and a group's `Deinit` — sweeps this ONE list (`__saw_exec_run`), so a task that
 // parks (sleep / io / channel-yield) cedes to EVERY sibling across ALL groups, not
 // just its own. `spawn` therefore runs eagerly whenever the scheduler runs, not
 // only at join. A TaskGroup is now a membership+lifetime SCOPE over this shared
@@ -206,7 +206,7 @@ extension TaskGroup {
 
     // Multi-threaded drain entry (design 75). Single-threaded groups no longer
     // have a per-group executor: they route every drive through the AMBIENT
-    // scheduler (`__ambient_run`, below) so siblings across ALL groups interleave.
+    // scheduler (`__saw_exec_run`, below) so siblings across ALL groups interleave.
     // This method now serves ONLY the MT fork-join drain (workers >= 2), called by
     // an MT group's `join`/`Deinit`. Idempotent (a fully-drained group is a no-op).
     func __run_all(&var self) {
@@ -218,7 +218,7 @@ extension TaskGroup {
     }
 
     // design 75 (A2): the multi-threaded fork-join drain. Spawn `workers` OS
-    // threads (via the 21b engine), each running `__tg_worker` over this group's
+    // threads (via the 21b engine), each running `__saw_exec_worker` over this group's
     // SHARED run queue, then join them all — the join is a full barrier, so every
     // frame's `__result` is visible to the caller afterward. Idempotent: a group
     // with no live tasks spawns nothing (so a second `join()` or Deinit after a
@@ -241,7 +241,7 @@ extension TaskGroup {
         var handles = Vector<Task<Void>>()
         var i = 0
         while i < self.workers {
-            var t = spawn { __tg_worker(addr) }
+            var t = spawn { __saw_exec_worker(addr) }
             handles.push(move t)
             i = i + 1
         }
@@ -261,7 +261,7 @@ extension TaskGroup {
 // distinct frames run in parallel while a claimed frame is owned by exactly one
 // worker (D6). Returns `Void` — a `Void` spawn body (design 102 item 1) needs no
 // result slot, so the old dummy-`Int` return is gone.
-func __tg_worker(addr: Int) {
+func __saw_exec_worker(addr: Int) {
     let g = addr as UnsafePointer<TaskGroup>
     // `g[0]` derefs the shared group through a raw pointer (this free function
     // gets the group's ADDRESS across the `spawn` boundary as a Send `Int`); each
@@ -429,7 +429,7 @@ extension TaskGroup: Deinit {
             // meanwhile), then unlink from the ambient list. Frames still alive
             // elsewhere (other groups) are untouched; we drop only our own boxes.
             let me = (&self) as UnsafePointer<TaskGroup> as Int
-            __ambient_run(me, -1)
+            __saw_exec_run(me, -1)
             self.__unregister()
         }
         // Tear each child frame down explicitly: pop the box and let it drop, so
@@ -484,7 +484,7 @@ extension TaskHandle<T> {
             // done. Reentrancy-safe — if the joining task is itself running on the
             // scheduler (task joins task), the sweep skips frames active on the C
             // stack and never re-enters a live coroutine.
-            __ambient_run(self.group_ptr as Int, self.slot)
+            __saw_exec_run(self.group_ptr as Int, self.slot)
         }
         let r = self.result_ptr[0]!
         __saw_forget(self.result_ptr[0])
@@ -543,7 +543,7 @@ extension VoidTaskHandle {
         if self.group_ptr[0].workers >= 2 {
             self.group_ptr[0].__run_all()
         } else {
-            __ambient_run(self.group_ptr as Int, self.slot)
+            __saw_exec_run(self.group_ptr as Int, self.slot)
         }
     }
 
@@ -575,7 +575,7 @@ extension VoidTaskHandle: NoCopy {
 // spanning ALL groups and skipping frames active on the C stack (reentrancy).
 
 // Any not-done, not-active, ready (remaining == 0) frame anywhere in the list?
-func __ambient_any_ready() -> Bool {
+func __saw_exec_any_ready() -> Bool {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
@@ -596,7 +596,7 @@ func __ambient_any_ready() -> Bool {
 }
 
 // Does the group at `gaddr` still have a not-done frame?
-func __group_has_live(gaddr: Int) -> Bool {
+func __saw_exec_group_has_live(gaddr: Int) -> Bool {
     let g = gaddr as UnsafePointer<TaskGroup>
     let n = unsafe g[0].tasks.len()
     var i = 0
@@ -613,18 +613,18 @@ func __group_has_live(gaddr: Int) -> Bool {
 // Termination predicate. term_group == 0 -> ALL (no live frame anywhere);
 // term_group != 0 & term_slot < 0 -> GROUP (no live frame in that group);
 // term_group != 0 & term_slot >= 0 -> FRAME (that group's slot is done).
-func __ambient_should_stop(term_group: Int, term_slot: Int) -> Bool {
+func __saw_exec_should_stop(term_group: Int, term_slot: Int) -> Bool {
     if term_group != 0 {
         let g = term_group as UnsafePointer<TaskGroup>
         if term_slot >= 0 {
             let d = unsafe g[0].done.get(term_slot)!
             return d
         }
-        return not __group_has_live(term_group)
+        return not __saw_exec_group_has_live(term_group)
     }
     var cur = __saw_exec_head.load()
     while cur != 0 {
-        if __group_has_live(cur) {
+        if __saw_exec_group_has_live(cur) {
             return false
         }
         let g = cur as UnsafePointer<TaskGroup>
@@ -640,7 +640,7 @@ func __ambient_should_stop(term_group: Int, term_slot: Int) -> Bool {
 // >= 0 — a frame still parked (word == -1) stays parked (no thundering herd, and
 // no reliance on every op re-verifying). If the poll TIMED OUT (events == 0),
 // advance sleepers by the elapsed deadline. Skips frames active on the C stack.
-func __ambient_wake_io(events: Int, deadline: Int) {
+func __saw_exec_wake_io(events: Int, deadline: Int) {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
@@ -679,11 +679,11 @@ func __ambient_wake_io(events: Int, deadline: Int) {
 // design 102 item 2: is any io-parked frame cancelled? A peer cancels a task via
 // `cancel_addr` — it sets the frame's `__cancel` word directly, WITHOUT a reactor
 // self-wake — so in the single-threaded scheduler this pre-poll scan is what keeps
-// `__ambient_run` from blocking forever in `__saw_rt_reactor_poll` on a permanently-idle
+// `__saw_exec_run` from blocking forever in `__saw_rt_reactor_poll` on a permanently-idle
 // fd: if a parked frame is cancelled, wake it (it re-checks cancelled() at its park
 // loop top and bails) instead of polling. (`cancel()` additionally self-wakes the
 // reactor so an MT worker blocked in poll returns promptly rather than at its cap.)
-func __ambient_any_cancelled_io() -> Bool {
+func __saw_exec_any_cancelled_io() -> Bool {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
@@ -710,7 +710,7 @@ func __ambient_any_cancelled_io() -> Bool {
 
 // Pure-sleep advance: subtract the parked deadline from every sleeper so the
 // shortest wakes first. Skips frames active on the C stack.
-func __ambient_advance_sleep(deadline: Int) {
+func __saw_exec_advance_sleep(deadline: Int) {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
@@ -736,15 +736,15 @@ func __ambient_advance_sleep(deadline: Int) {
 }
 
 // The scheduler sweep. Drives ready frames round-robin across every registered
-// single-threaded group until `__ambient_should_stop`, honoring sleep/io parks.
+// single-threaded group until `__saw_exec_should_stop`, honoring sleep/io parks.
 // Reentrancy-safe: a frame currently `active` on the C stack is skipped, so a
 // nested drive (task joins task; a nested group's Deinit) never re-enters a live
 // coroutine nor nests a second loop — it yields to the ONE scheduler.
-func __ambient_run(term_group: Int, term_slot: Int) {
-    while not __ambient_should_stop(term_group, term_slot) {
+func __saw_exec_run(term_group: Int, term_slot: Int) {
+    while not __saw_exec_should_stop(term_group, term_slot) {
         // Phase 1: resume every ready frame across all groups until none is ready
         // (re-checked from the head each pass, so a just-spawned frame is caught).
-        while __ambient_any_ready() {
+        while __saw_exec_any_ready() {
             var cur = __saw_exec_head.load()
             while cur != 0 {
                 let g = cur as UnsafePointer<TaskGroup>
@@ -768,7 +768,7 @@ func __ambient_run(term_group: Int, term_slot: Int) {
                         } else {
                             unsafe g[0].remaining.set(i, oc.wake)
                         }
-                        if __ambient_should_stop(term_group, term_slot) {
+                        if __saw_exec_should_stop(term_group, term_slot) {
                             return
                         }
                     }
@@ -778,7 +778,7 @@ func __ambient_run(term_group: Int, term_slot: Int) {
                 cur = nx
             }
         }
-        if __ambient_should_stop(term_group, term_slot) {
+        if __saw_exec_should_stop(term_group, term_slot) {
             return
         }
         // Phase 2: nothing ready. Scan all groups for the earliest sleep deadline
@@ -815,19 +815,19 @@ func __ambient_run(term_group: Int, term_slot: Int) {
             return
         }
         if io {
-            if __ambient_any_cancelled_io() {
+            if __saw_exec_any_cancelled_io() {
                 // A parked frame was cancelled by a peer (via cancel_addr, no
                 // self-wake) — wake it now instead of blocking in poll on an idle fd.
-                __ambient_wake_io(1, deadline)
+                __saw_exec_wake_io(1, deadline)
             } else {
                 let events = __saw_rt_reactor_poll(deadline)
-                __ambient_wake_io(events, deadline)
+                __saw_exec_wake_io(events, deadline)
             }
         } else {
             if deadline > 0 {
                 __saw_exec_sleep(deadline)
             }
-            __ambient_advance_sleep(deadline)
+            __saw_exec_advance_sleep(deadline)
         }
     }
 }
@@ -837,8 +837,8 @@ func __ambient_run(term_group: Int, term_slot: Int) {
 // lives for the whole program; the ambient sweep then drives main AND every task
 // it spawns (across every group) to completion. `root`'s Deinit at return drains
 // any straggler and drops main's box exactly once.
-func __exec_run_root(rootbox: Box<any Resumable>) {
+func __saw_exec_run_root(rootbox: Box<any Resumable>) {
     var root = TaskGroup()
     let _ = root.__enqueue(move rootbox)
-    __ambient_run(0, -1)
+    __saw_exec_run(0, -1)
 }
