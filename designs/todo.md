@@ -61,7 +61,22 @@ inlined (the `.build/scratch` probes are gitignored).
   suffix attribute is not surfaced until this is fixed. Token positions/kinds/
   boundaries (the lexer's core) are unaffected.
 
-- **DF-116b — no bignum and no checked integer parse forces digit-string
+- **DF-116b — CLOSED (design 119 Part A, Aug 4).** Added the checked unsigned
+  parse `String.to_uint() -> UInt?` / `to_uint(radix: Int) -> UInt?`
+  (sawc/std/string.saw): whole-string, no-trimming, panic-free, overflow past
+  `UInt.max` → `None`, detected with wrapping arithmetic + divide-back (multiply)
+  and carry (add) checks — the unsigned mirror of the existing `_parse_int`. The
+  integer bounds the WANTED note asked for already exist as compiler builtins
+  (`UInt.max`, `Int8.max` … `UInt64.max`, design 53); no new bounds surface was
+  needed. selfhost/lexer's `literal_fits` now parses with `to_uint(base)` and
+  compares against the width's unsigned max — the digit-count + lexicographic
+  `fits_u64`/`capped_fits`/`str_greater`/`strip_leading_zeros` workaround is
+  deleted. Landing this required fixing an unrelated codegen bug (unsigned `<`/
+  `>`/`<=`/`>=` used `icmp_signed`; see DF-119 below). Tests:
+  examples/int_parse_to_uint.saw (radixes 2/8/10/16, the u64 ceiling + overflow,
+  rejections) and the lexer's tests/literals.saw + `make lexdiff` (0 mismatches).
+  Original finding follows:
+  **no bignum and no checked integer parse forces digit-string
   magnitude comparison for literal range checks.** `sawc/lexer.py` computes
   `int(digit_str, base)` (arbitrary precision) and compares to `2**64-1` /
   `2**width-1`. Saw `Int`/`UInt` are 64-bit and arithmetic PANICS on overflow, so
@@ -119,6 +134,43 @@ inlined (the `.build/scratch` probes are gitignored).
   use the pre-read line for the string token (capture `start_line` alongside
   `start_col`). Until then the two lexers differ on this one rare construct by
   design.
+
+## Design 119 — DF-findings (lexer-pilot follow-ups)
+
+- **DF-119a — FIXED (design 119 Part A, Aug 4).** Unsigned integer relational
+  comparisons (`<` `>` `<=` `>=`) lowered with `icmp_signed`, so a `UInt` with
+  the high bit set read as negative: `UInt.max > 1` was `false`, and any
+  magnitude check against a `UInt` bound was wrong above `2^63`. codegen bug in
+  `_generate_binary_op` (codegen/operators.py): the integer-compare path always
+  used `icmp_signed`. Fix: split on operand signedness via `_int_is_signed`
+  (`icmp_unsigned` for the `UINT*` kinds), mirroring the udiv/sdiv split already
+  present for `/` and `%`; `Int` and raw pointers stay signed. Test
+  examples/int_parse_unsigned_compare.saw. (Blocker for Part A — the ported
+  lexer's `literal_fits` and `to_uint`'s overflow check both need unsigned
+  compares. Note for integration: this touches codegen/operators.py, which
+  overlaps design 120's declared area; the change is a single call site.)
+
+- **DF-119b — OPEN (discovered design 119 Part A; flagged, not fixed).** A
+  full-width `UInt`/`UInt64` value with the high bit set (`>= 2^63`) misformats
+  under `print` / string interpolation: `print(UInt.max)` emits `-1`, not
+  `18446744073709551615`. `__saw_print_int` (codegen/core.py) formats every
+  integer as SIGNED (`neg = icmp_signed('<', n, 0)` then a `-` prefix); the
+  print/interpolation call site only zero-extends narrower-than-word unsigned
+  values, so a same-width `UInt64` reaches the signed formatter unchanged. Values
+  below `2^63` (incl. every narrower unsigned type after zext) print correctly,
+  so this surfaced only now that `to_uint`/`UInt.max` make `2^63..2^64-1` values
+  routine. Repro:
+  ```saw
+  func main() { print(UInt.max) }   // prints -1; want 18446744073709551615
+  ```
+  WANTED: an unsigned formatting path — either a second `__saw_print_int`-shaped
+  runtime that skips the sign logic (magnitude = the value, unsigned udiv/urem
+  digits) selected when the operand kind is one of the `UINT*` kinds, threaded
+  through BOTH the `print` call site (codegen/calls.py) and the interpolation
+  `_value_to_string` path (codegen/core.py). NOT fixed here: it lives in
+  codegen/core.py + calls.py (design 120's concurrent area) and is orthogonal to
+  the pilot (the lexer never prints a `UInt`; design 119's tests assert through
+  comparisons). Non-blocking.
 
 ## Milestones
 - **App-1 Blade: DONE** (design 64 + 67; real resolver/lock/git/

@@ -525,7 +525,11 @@ construct in the owner and lend `&driver` down.
   `swap_out(i, v)` to move a slot out; `with_ref`/`with_var_ref(i, body)`
   for scoped in-place (NoCopy) access (design 81; `ref_at` was removed).
 - String `chars()` yields Int scalars (no Char type).
-- `to_int()`/`to_float()` are whole-string, no trimming → Optional.
+- `to_int()`/`to_int(radix:)`/`to_float()` are whole-string, no trimming →
+  Optional; `to_uint()`/`to_uint(radix:)` (design 119) are the unsigned
+  companions (→ `UInt?`), reaching the `2^63..2^64-1` range signed parsing
+  can't (overflow past `UInt.max` → `None`). Integer bounds are the builtins
+  `Int.max`/`Int.min`, `UInt.max`/`UInt.min`, `Int8.max`…`UInt64.max`.
 - std.time/std.process/std.file/std.net are HOSTED-only (link libc).
   `Command(program:).arg(..).run() -> Result<Int32, ProcessError>`: Ok(code) =
   launched + exited (signal death = 128+signum, never a bogus 0); Err = could not

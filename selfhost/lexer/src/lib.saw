@@ -460,7 +460,7 @@ public func format_error(e: &LexError) -> String {
 }
 
 // =============================================================================
-// Integer-literal range checking (no bignum, no overflow: magnitude by digits)
+// Integer-literal range checking (design 119: via the std checked parse)
 // =============================================================================
 
 // Bit width for a fixed-width suffix, or 0 if the string is not a valid suffix.
@@ -478,63 +478,27 @@ func suffix_width(s: String) -> Int {
     }
 }
 
-// The strip of leading '0' bytes from a digit string (all-zero -> "").
-func strip_leading_zeros(s: String) -> String {
-    let n = s.len()
-    var i = 0
-    while i < n && ubyte(&s, i) == B_D0 {
-        i = i + 1
-    }
-    s.substring(i, n)
-}
-
-// Does the (already underscore-stripped) digit string in the given base fit in
-// 2**64 - 1? Decided by digit count, with an equal-length lexicographic compare
-// at the exact boundary — no arbitrary-precision arithmetic needed.
-func fits_u64(digits: String, base: Int) -> Bool {
-    let s = strip_leading_zeros(digits)
-    let n = s.len()
-    if base == 16 { return n <= 16 }
-    if base == 2 { return n <= 64 }
-    if base == 8 {
-        if n < 22 { return true }
-        if n > 22 { return false }
-        return not str_greater(s, "1777777777777777777777")
-    }
-    // base 10
-    if n < 20 { return true }
-    if n > 20 { return false }
-    not str_greater(s, "18446744073709551615")
-}
-
-func str_greater(a: String, b: String) -> Bool {
-    match a.compare(b) {
-        case Greater -> true,
-        case _ -> false
-    }
-}
-
-// Does the digit string in the given base fit in `bound`? For small bounds
-// (<= 2**32 - 1) a capped accumulation stays well within Int range.
-func capped_fits(digits: String, base: Int, bound: Int) -> Bool {
-    let n = digits.len()
-    var acc = 0
-    var i = 0
-    while i < n {
-        let d = hex_value(ubyte(&digits, i))
-        acc = acc * base + d
-        if acc > bound { return false }
-        i = i + 1
-    }
-    true
-}
-
-// Does `digits` (base `base`) fit in a `width`-bit unsigned field?
+// Does the (already underscore-stripped, unsigned) digit string in `base`
+// (2/8/10/16) fit in a `width`-bit field? Parses with the std checked unsigned
+// parse (`String.to_uint`, design 119) — a value past 2^64-1 comes back None —
+// then compares against the width's unsigned max via the integer-bound builtins.
+// A literal is non-negative (unary minus is a separate token), so the legal
+// range is the bit pattern 0..2^width-1, matching the Python lexer. This
+// replaced the digit-count + lexicographic magnitude workaround (DF-116b).
 func literal_fits(digits: String, base: Int, width: Int) -> Bool {
-    if width == 8 { return capped_fits(digits, base, 255) }
-    if width == 16 { return capped_fits(digits, base, 65535) }
-    if width == 32 { return capped_fits(digits, base, 4294967295) }
-    fits_u64(digits, base)
+    if let v = digits.to_uint(base) {
+        if width == 8 {
+            v <= (UInt8.max as UInt)
+        } else if width == 16 {
+            v <= (UInt16.max as UInt)
+        } else if width == 32 {
+            v <= (UInt32.max as UInt)
+        } else {
+            true                // width 64: fitting in UInt IS the ceiling check
+        }
+    } else {
+        false                   // overflowed 64 bits (or a non-base digit slipped in)
+    }
 }
 
 // =============================================================================

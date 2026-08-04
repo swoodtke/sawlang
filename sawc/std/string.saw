@@ -553,6 +553,66 @@ extension String {
         self._parse_int(radix)
     }
 
+    // Parse the whole string as an UNSIGNED integer in `radix`, accumulating into
+    // a UInt. This reaches the 2^63..2^64-1 range a signed `Int` cannot hold
+    // (`UInt.max == 2**64 - 1`), the companion to `_parse_int`. Overflow past
+    // `UInt.max` at any step returns None, detected with WRAPPING arithmetic plus
+    // a divide-back (multiply) and carry (add) check — panic-free, and correct at
+    // any platform UInt width without needing the bound as a literal.
+    func _parse_uint(&self, radix: Int) -> UInt? {
+        let len = self.len()
+        if len == 0 {
+            return None
+        }
+        var i = 0
+        let first = self._ubyte_at(0)
+        if first == 43 {            // '+'
+            i = 1
+        } else if first == 45 {     // '-'
+            return None             // an unsigned value is never negative
+        }
+        if i >= len {
+            return None             // a lone sign is not a number
+        }
+        let r = radix as UInt
+        var acc: UInt = 0
+        while i < len {
+            let d = self._digit_value(self._ubyte_at(i))
+            if d < 0 || d >= radix {
+                return None         // invalid digit / trailing junk
+            }
+            let m = acc &* r
+            if acc != (0 as UInt) && m / r != acc {
+                return None         // multiply overflowed past UInt.max
+            }
+            let n = m &+ (d as UInt)
+            if n < m {
+                return None         // add carried past UInt.max
+            }
+            acc = n
+            i = i + 1
+        }
+        return acc
+    }
+
+    // Parse the whole string as a base-10 UNSIGNED integer, or None (design 119).
+    // The unsigned companion to `to_int`, closing the DF-116b gap: it covers the
+    // full 0..UInt.max range (a `UInt64.max` magnitude a signed parse rejects).
+    // Same whole-string, no-trimming, panic-free contract — overflow is None.
+    public func to_uint(&self) -> UInt? {
+        self._parse_uint(10)
+    }
+
+    // Parse the whole string in an explicit radix (2..=36) as UNSIGNED, or None
+    // (overload of `to_uint`, mirroring `to_int(radix:)`). No `0x`/`0b` prefix
+    // handling — the caller strips it.
+    public func to_uint(&self, radix: Int) -> UInt? {
+        if radix < 2 || radix > 36 {
+            return None
+        }
+        self._parse_uint(radix)
+    }
+
     // Single decimal digit (0..9) as a Float — Saw has no Int->Float cast yet,
     // and `to_float` only ever converts one digit at a time, so a small match
     // suffices.

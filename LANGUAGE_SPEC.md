@@ -586,17 +586,25 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   cannot leak. The closure returns `Void`; a result is produced by
   borrow-capturing an enclosing variable
   (`s.withCString { [&var n] ptr in n = strlen(ptr) }`).
-- **Number parsing** (`designs/57`). Three optional-returning methods parse the
-  **whole** string (no trimming — the caller trims with `trim`; empty → `None`;
-  any trailing/leading junk → `None`). Parse failure is *data*, so these never
-  panic: `to_int() -> Int?` (base 10), `to_int(radix: Int) -> Int?`
-  (a design-55 overload, radix 2..=36, digits `0-9a-zA-Z`, no `0x` prefix — the
-  caller strips it), and `to_float() -> Float?`
+- **Number parsing** (`designs/57`, `designs/119`). Optional-returning methods
+  parse the **whole** string (no trimming — the caller trims with `trim`;
+  empty → `None`; any trailing/leading junk → `None`). Parse failure is *data*,
+  so these never panic: `to_int() -> Int?` (base 10),
+  `to_int(radix: Int) -> Int?` (a design-55 overload, radix 2..=36, digits
+  `0-9a-zA-Z`, no `0x` prefix — the caller strips it), and `to_float() -> Float?`
   (`[+-]?digits[.digits][e[+-]digits]`). Overflow returns `None`: the integer
   parser accumulates a **non-positive magnitude** with wrapping arithmetic and
   divide-back checks (portable across Int widths, no `Int.max` constant needed;
   `Int.min` round-trips). `to_float` is naive accumulation — fine for typical
   input, but **not** a correctly-rounded `strtod` (the last ULP may differ).
+  `to_uint() -> UInt?` and `to_uint(radix: Int) -> UInt?` are the unsigned
+  companions (design 119). They accept an optional leading `+`, reject a leading
+  `-`, and reach the full `0..UInt.max` range — the `2^63..2^64-1` magnitudes
+  a signed `to_int` returns `None` for. Overflow past `UInt.max` is `None`,
+  detected with the same wrapping-arithmetic carry and divide-back checks. The
+  fixed-width and platform integer bounds used to range-check a parsed value are
+  the built-in `Int.max`/`Int.min`, `UInt.max`/`UInt.min`, and the per-type
+  `Int8.max` … `UInt64.max` constants (design 53).
 - **The refcount is atomic** (platform-word `isize`), from day one. This is a deliberate cost
   paid up front so `String` is `Send`-ready before multithreading lands, so the
   concurrency milestone does not have to relitigate the memory model. The
