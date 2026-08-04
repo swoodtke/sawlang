@@ -31,7 +31,7 @@ struct Box<T, A: Allocator = GlobalAllocator> {
 extension Box<T, A: Allocator = GlobalAllocator> {
     // MakeBox — the infallible constructor. Allocates one `T`-sized chunk through
     // `A`, placement-moves `value` into it, and wraps it. On allocator failure it
-    // PANICS (design 19 three-tier model, infallible tier): a kernel's `saw_panic`
+    // PANICS (design 19 three-tier model, infallible tier): a kernel's `__saw_rt_panic`
     // handler decides the policy (oops / kill-task / reboot).
     public func make(value: T) -> Box<T, A> {
         let size = sizeof<T>()
@@ -47,7 +47,7 @@ extension Box<T, A: Allocator = GlobalAllocator> {
         }
         // Allocation failed: the infallible tier panics deterministically via the
         // `panic(...)` builtin (design 49 item 1), which routes through the
-        // saw_panic seam — a kernel's handler decides the policy (oops /
+        // __saw_rt_panic seam — a kernel's handler decides the policy (oops /
         // kill-task / reboot). `panic` returns Never, so control never continues
         // past it and no return value is needed on this path.
         panic("allocation failed")

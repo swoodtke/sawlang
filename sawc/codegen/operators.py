@@ -56,7 +56,7 @@ class OperatorsMixin:
         zero = ir.Constant(ir.IntType(32), 0)
         panic_ptr = self.builder.gep(panic_global, [zero, zero], inbounds=True)
         # saw_panic takes a platform-width length (design 47).
-        self.builder.call(self.functions["saw_panic"],
+        self.builder.call(self.functions["__saw_rt_panic"],
                           [panic_ptr, ir.Constant(self.int_type, n)])
         self.builder.unreachable()
 

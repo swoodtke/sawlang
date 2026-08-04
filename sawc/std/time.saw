@@ -12,14 +12,14 @@
 // =============================================================================
 //
 // The macOS/Linux CLOCK_MONOTONIC constant difference and the `struct timespec`
-// layout live inside these compiler shims (the saw_sleep_ms precedent), so this
+// layout live inside these compiler shims (the __saw_rt_sleep_ms precedent), so this
 // module stays pure Saw.
 extern "C" {
     // Monotonic clock, nanoseconds since an arbitrary epoch (only differences
     // are meaningful). Backs `Instant.now()`.
-    func saw_clock_monotonic_nanos() -> Int64
+    func __saw_rt_clock_monotonic_nanos() -> Int64
     // Wall clock, seconds since the Unix epoch. Backs `unix_timestamp()`.
-    func saw_unix_timestamp_secs() -> Int64
+    func __saw_rt_unix_timestamp_secs() -> Int64
 }
 
 // =============================================================================
@@ -113,12 +113,12 @@ struct Instant {
 extension Instant {
     // The current monotonic instant. Static: `Instant.now()`.
     public func now() -> Instant {
-        Instant(nanos: saw_clock_monotonic_nanos())
+        Instant(nanos: __saw_rt_clock_monotonic_nanos())
     }
 
     // Time elapsed since this instant (now - self).
     public func elapsed(&self) -> Duration {
-        Duration(nanos: saw_clock_monotonic_nanos() - self.nanos)
+        Duration(nanos: __saw_rt_clock_monotonic_nanos() - self.nanos)
     }
 
     // Duration from an earlier instant to this one (self - earlier).
@@ -133,5 +133,5 @@ extension Instant {
 
 // Seconds since the Unix epoch (1970-01-01T00:00:00Z), from the realtime clock.
 func unix_timestamp() -> Int64 {
-    saw_unix_timestamp_secs()
+    __saw_rt_unix_timestamp_secs()
 }

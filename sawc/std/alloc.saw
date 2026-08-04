@@ -3,7 +3,7 @@
 //
 // This is the alloc-layer allocation surface. Alloc-layer containers (Vector,
 // Map, Arc, ...) route every allocation through the `Allocator` trait rather
-// than calling the `saw_alloc`/`saw_dealloc` seams directly. As of stage 4
+// than calling the `__saw_rt_alloc`/`__saw_rt_dealloc` seams directly. As of stage 4
 // (brief 37) the allocator is a PUBLIC type parameter with a default —
 // `Vector<T, A: Allocator = GlobalAllocator>`, `Map<K, V, A = GlobalAllocator>` — so hosted code
 // omits it (`Vector<T>` fills `A = GlobalAllocator`) while a custom allocator is a
@@ -21,8 +21,8 @@
 // files are merged into one namespace, these declarations are shared with the
 // alloc-layer container modules — they no longer declare the seams themselves.
 extern "C" {
-    func saw_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
-    func saw_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
+    func __saw_rt_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
+    func __saw_rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
 }
 
 // =============================================================================
@@ -43,7 +43,7 @@ trait Allocator {
 // =============================================================================
 
 // A zero-field unit struct: it carries no state (its "storage" is whatever the
-// saw_alloc seam is bound to at link time). Being zero-sized, `GlobalAllocator()` is a
+// __saw_rt_alloc seam is bound to at link time). Being zero-sized, `GlobalAllocator()` is a
 // zero-size placeholder and `GlobalAllocator().alloc(...)` monomorphizes to a direct
 // call into the seam with no allocator value materialized at runtime — the
 // zero-cost static dispatch that design 19 option C relies on.
@@ -51,11 +51,11 @@ struct GlobalAllocator {}
 
 extension GlobalAllocator: Allocator {
     public func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
-        saw_alloc(size, align)
+        __saw_rt_alloc(size, align)
     }
 
     public func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
-        saw_dealloc(ptr, size, align)
+        __saw_rt_dealloc(ptr, size, align)
     }
 }
 

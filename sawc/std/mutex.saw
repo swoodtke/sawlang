@@ -2,7 +2,7 @@
 // Part of the Saw standard library (design 21 item 4).
 //
 // NoCopy + Deinit. The hosted engine backs it with a pthread_mutex_t stored
-// inside a saw_alloc'd block laid out as { pthread_mutex_t, T payload }.
+// inside a __saw_rt_alloc'd block laid out as { pthread_mutex_t, T payload }.
 //
 // pthread opaque-buffer size: pthread_mutex_t is 64 bytes on macOS (arm64 and
 // x86_64), 40 on glibc/x86_64, 48 on glibc/aarch64. We reserve a conservative
@@ -15,7 +15,7 @@
 
 extern "C" {
     // Thin wrapper (codegen) that calls pthread_mutex_init(m, NULL).
-    func __saw_pthread_mutex_init_default(m: UnsafePointer<Int8>)
+    func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<Int8>)
     func pthread_mutex_lock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_unlock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int
@@ -32,7 +32,7 @@ extension Mutex<T> {
     public init(value: T) -> Mutex<T> {
         let size = 64 + sizeof<T>()
         if let block = unsafe GlobalAllocator().alloc(size, 16) {
-            __saw_pthread_mutex_init_default(block)
+            __saw_rt_pthread_mutex_init_default(block)
             let payload_ptr = (block + 64) as UnsafePointer<T>
             unsafe payload_ptr[0] = value
             Mutex<T>(block: block)

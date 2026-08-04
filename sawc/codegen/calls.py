@@ -206,9 +206,9 @@ class CallsMixin:
             # design 91: no frame here (blocking-thread path), so no wake word to
             # route to — register with a null token. The poll skips null udata and
             # simply returns when the fd is ready, giving correct blocking semantics.
-            self.builder.call(self.functions["saw_reactor_register"],
+            self.builder.call(self.functions["__saw_rt_reactor_register"],
                               [fd, direction, ir.Constant(self.int_type, 0)])
-            self.builder.call(self.functions["saw_reactor_poll"],
+            self.builder.call(self.functions["__saw_rt_reactor_poll"],
                               [ir.Constant(self.int_type, -1)])
             return None
         # design 103 (A6): the blocking-extern offload intrinsics, emitted by the
@@ -224,19 +224,19 @@ class CallsMixin:
             fn = self.functions[inner.name]
             fnptr = self.builder.ptrtoint(fn, self.int_type, name="blkfn")
             argv = self._generate_expression(inner.arguments[0].value)
-            return self.builder.call(self.functions["saw_offload_start"],
+            return self.builder.call(self.functions["__saw_rt_offload_start"],
                                      [fnptr, argv], name="blkjob")
         if expr.name in ("__blk_done", "__blk_pipe_fd", "__blk_take"):
-            shim = {"__blk_done": "saw_offload_done",
-                    "__blk_pipe_fd": "saw_offload_pipe_fd",
-                    "__blk_take": "saw_offload_take"}[expr.name]
+            shim = {"__blk_done": "__saw_rt_offload_done",
+                    "__blk_pipe_fd": "__saw_rt_offload_pipe_fd",
+                    "__blk_take": "__saw_rt_offload_take"}[expr.name]
             job = self._generate_expression(expr.arguments[0].value)
             return self.builder.call(self.functions[shim], [job], name="blkr")
         # `__exec_sleep(ms)` is the executor's OWN (non-suspending) timer call,
         # generated into the entry executor to honour a task's sleep wake reason.
         if expr.name in ("sleep", "__exec_sleep"):
             ms = self._generate_expression(expr.arguments[0].value)
-            self.builder.call(self.functions["saw_sleep_ms"], [ms])
+            self.builder.call(self.functions["__saw_rt_sleep_ms"], [ms])
             return None
 
         if expr.name == "__forget":
@@ -436,7 +436,7 @@ class CallsMixin:
         Both paths share C stdio in the hosted profile, so mixed int/float print
         output keeps its exact order and formatting.
         """
-        saw_write = self.functions["saw_write"]
+        saw_write = self.functions["__saw_rt_write"]
         # print() is a Void builtin, but it is frequently the tail expression of
         # an if/match branch; the conditional lowering unifies branch values with
         # a phi. The old printf path yielded an i32, so keep returning an i32 (a
@@ -548,7 +548,7 @@ class CallsMixin:
             dst = self.builder.gep(buf, [offset], name="panic_seg")
             self.builder.call(memcpy_fn, [dst, seg_ptr, seg_len])
             offset = self.builder.add(offset, seg_len, name="panic_off")
-        self.builder.call(self.functions["saw_panic"], [buf, total])
+        self.builder.call(self.functions["__saw_rt_panic"], [buf, total])
         self.builder.unreachable()
 
     def _panic_location_prefix(self, line: int) -> str:
@@ -1307,7 +1307,7 @@ class CallsMixin:
         cb_ty = ir.LiteralStructType([i8ptr, i8ptr, slot_llvm])
         cb_size = cb_ty.get_abi_size(self.target_data)
         raw = self.builder.call(
-            self.functions["saw_alloc"],
+            self.functions["__saw_rt_alloc"],
             [ir.Constant(i64, cb_size), ir.Constant(i64, 16)], name="task_cb_raw")
         cb = self.builder.bitcast(raw, ir.PointerType(cb_ty), name="task_cb")
         # Store the env pointer at slot 1.
@@ -1323,7 +1323,7 @@ class CallsMixin:
             cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)],
             name="task_tid_slot")
         tid_i8 = self.builder.bitcast(tid_slot, i8ptr, name="task_tid_i8")
-        self.builder.call(self.functions["__saw_pthread_create"],
+        self.builder.call(self.functions["__saw_rt_pthread_create"],
                           [tid_i8, tramp, raw])
 
         # Build the Task<T> value { handle: Some(raw), joined: false }.

@@ -1,4 +1,4 @@
-// design 103 (A6): a REAL blocking FFI call (`saw_blocking_sleep`, a genuine
+// design 103 (A6): a REAL blocking FFI call (`__saw_rt_blocking_sleep`, a genuine
 // thread-blocking sleep) inside a SPAWNED task is OFFLOADED to a worker thread, so
 // the task PARKS cooperatively instead of wedging the single reactor thread. Proof
 // of interleave: main prints 0,1,2 (its own sleep-loop) WHILE the worker is blocked
@@ -16,11 +16,11 @@
 // 61
 
 extern "C" {
-    blocking func saw_blocking_sleep(ms: Int) -> Int
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
 }
 
 func worker() -> Int {
-    let r = saw_blocking_sleep(60)   // offloads + parks; main runs meanwhile
+    let r = __saw_rt_blocking_sleep(60)   // offloads + parks; main runs meanwhile
     return r + 1                     // round-trip: 60 -> 61
 }
 

@@ -1890,7 +1890,7 @@ class _FrameBuilder:
                 # its parent at each drive, so an `io_wait` buried in a sub-frame still
                 # routes the wake to the root frame the scheduler schedules.
                 self._emit([ExpressionStatement(expression=FunctionCall(
-                    name="saw_reactor_register",
+                    name="__saw_rt_reactor_register",
                     arguments=[Argument(name=None, value=fd_a),
                                Argument(name=None, value=dir_a),
                                Argument(name=None, value=_self_field("__io_tok"))]))])
@@ -2238,7 +2238,7 @@ class _FrameBuilder:
         fd = FunctionCall(name="__blk_pipe_fd",
                           arguments=[Argument(name=None, value=_self_field(job))])
         self._emit([ExpressionStatement(expression=FunctionCall(
-            name="saw_reactor_register",
+            name="__saw_rt_reactor_register",
             arguments=[Argument(name=None, value=fd),
                        Argument(name=None, value=_int(0)),
                        Argument(name=None, value=_self_field("__io_tok"))]))])
@@ -2865,7 +2865,7 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
         condition=BinaryOp(op="<", left=MemberAccess(
             object=Identifier(name="__f"), member="__wake"), right=_int(0)),
         then_branch=Block(statements=[ExpressionStatement(expression=FunctionCall(
-            name="saw_reactor_poll",
+            name="__saw_rt_reactor_poll",
             arguments=[Argument(name=None, value=_int(-1))]))],
             final_expr=None)))], final_expr=None)
     pending_body = Block(statements=[ExpressionStatement(expression=IfExpr(

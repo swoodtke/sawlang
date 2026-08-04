@@ -247,7 +247,7 @@ class ClosuresMixin:
                 i64 = self.int_type  # design 47: saw_alloc size/align are platform-width
                 env_size = env_struct_type.get_abi_size(self.target_data)
                 raw = self.builder.call(
-                    self.functions["saw_alloc"],
+                    self.functions["__saw_rt_alloc"],
                     [ir.Constant(i64, env_size), ir.Constant(i64, 16)],
                     name="env_raw")
                 env_alloca = self.builder.bitcast(
@@ -372,7 +372,7 @@ class ClosuresMixin:
                      ir.Constant(ir.IntType(32), i + cap_off)],
                     name=f"env_drop_{i}")
                 self._emit_drop_at(field_ptr, cap_saw)
-        b.call(self.functions["saw_dealloc"],
+        b.call(self.functions["__saw_rt_dealloc"],
                [fn.args[0], ir.Constant(i64, env_size), ir.Constant(i64, 16)])
         b.ret_void()
         self.builder = saved_builder

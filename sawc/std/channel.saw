@@ -5,7 +5,7 @@
 // same queue; the last handle to drop drains and frees it. `T: Send` is required
 // on the type itself, so only thread-safe payloads can be enqueued.
 //
-// Shared block layout (allocated via saw_alloc, 16-aligned):
+// Shared block layout (allocated via __saw_rt_alloc, 16-aligned):
 //     [0,   64)  pthread_mutex_t   (conservative 64-byte slot; see mutex.saw)
 //     [64, 128)  pthread_cond_t    (conservative 64-byte slot; real max 48)
 //     [128,136)  refcount : i64    (handle count; ImplicitCopy/Deinit)
@@ -14,7 +14,7 @@
 //     [152,160)  tail     : i8*    (last node;  valid only while count > 0)
 // Total 160 bytes.
 //
-// Node layout (saw_alloc'd per send):
+// Node layout (__saw_rt_alloc'd per send):
 //     [0, 8)              next  : i8*   (valid only for non-tail nodes)
 //     [8, 8+sizeof(T))    value : T
 //
@@ -33,8 +33,8 @@ extern "C" {
     func __saw_atomic_fence_acquire()
 
     // pthread primitives (resolve from libSystem/libc; init wrappers in codegen).
-    func __saw_pthread_mutex_init_default(m: UnsafePointer<Int8>)
-    func __saw_pthread_cond_init_default(c: UnsafePointer<Int8>)
+    func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<Int8>)
+    func __saw_rt_pthread_cond_init_default(c: UnsafePointer<Int8>)
     func pthread_mutex_lock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_unlock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int
@@ -52,9 +52,9 @@ extension Channel<T: Send> {
     // Create a fresh empty channel (refcount = 1, count = 0).
     public init() -> Channel<T> {
         if let block = unsafe GlobalAllocator().alloc(160, 16) {
-            __saw_pthread_mutex_init_default(block)
+            __saw_rt_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
-            __saw_pthread_cond_init_default(cond)
+            __saw_rt_pthread_cond_init_default(cond)
             let refcount = (block + 128) as UnsafePointer<Int>
             unsafe refcount[0] = 1
             let count = (block + 136) as UnsafePointer<Int>

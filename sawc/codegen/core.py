@@ -122,7 +122,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self._explicit_target = target_triple is not None
 
         # Create module
-        self.module = ir.Module(name="saw_module")
+        self.module = ir.Module(name="__saw_module")
         self.module.triple = self.triple
 
         # Create target data for sizeof calculations
@@ -516,20 +516,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         void = ir.VoidType()
 
         saw_alloc = ir.Function(self.module, ir.FunctionType(i8ptr, [i64, i64]),
-                                name="saw_alloc")
+                                name="__saw_rt_alloc")
         saw_dealloc = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64, i64]),
-                                  name="saw_dealloc")
+                                  name="__saw_rt_dealloc")
         saw_write = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64]),
-                                name="saw_write")
+                                name="__saw_rt_write")
         saw_panic = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64]),
-                                name="saw_panic")
+                                name="__saw_rt_panic")
         saw_panic.attributes.add("noreturn")
         # design 45: the cooperative executor's timer seam. `saw_sleep_ms(ms)`
         # parks the current OS thread for `ms` milliseconds (the simplest correct
         # hosted timer). Behind `sleep(ms)` and the entry executor's timed waits;
         # freestanding supplies its own (a WFI/hardware-timer wait).
         saw_sleep_ms = ir.Function(self.module, ir.FunctionType(void, [i64]),
-                                   name="saw_sleep_ms")
+                                   name="__saw_rt_sleep_ms")
         # design 57 (std.time): the monotonic + wall-clock seams. Both return
         # i64. `saw_clock_monotonic_nanos` reads a monotonic clock as nanoseconds
         # since an arbitrary epoch (behind Instant.now()); `saw_unix_timestamp_secs`
@@ -538,17 +538,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # variance INSIDE the shim (like saw_sleep_ms) is what lets std.time stay
         # pure Saw. Hosted-only (std.time is never imported freestanding).
         saw_clock_monotonic_nanos = ir.Function(
-            self.module, ir.FunctionType(i64, []), name="saw_clock_monotonic_nanos")
+            self.module, ir.FunctionType(i64, []), name="__saw_rt_clock_monotonic_nanos")
         saw_unix_timestamp_secs = ir.Function(
-            self.module, ir.FunctionType(i64, []), name="saw_unix_timestamp_secs")
+            self.module, ir.FunctionType(i64, []), name="__saw_rt_unix_timestamp_secs")
 
-        self.functions["saw_alloc"] = saw_alloc
-        self.functions["saw_dealloc"] = saw_dealloc
-        self.functions["saw_write"] = saw_write
-        self.functions["saw_panic"] = saw_panic
-        self.functions["saw_sleep_ms"] = saw_sleep_ms
-        self.functions["saw_clock_monotonic_nanos"] = saw_clock_monotonic_nanos
-        self.functions["saw_unix_timestamp_secs"] = saw_unix_timestamp_secs
+        self.functions["__saw_rt_alloc"] = saw_alloc
+        self.functions["__saw_rt_dealloc"] = saw_dealloc
+        self.functions["__saw_rt_write"] = saw_write
+        self.functions["__saw_rt_panic"] = saw_panic
+        self.functions["__saw_rt_sleep_ms"] = saw_sleep_ms
+        self.functions["__saw_rt_clock_monotonic_nanos"] = saw_clock_monotonic_nanos
+        self.functions["__saw_rt_unix_timestamp_secs"] = saw_unix_timestamp_secs
         self.saw_write = saw_write
         self.saw_panic = saw_panic
 
@@ -642,9 +642,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             total = bb.add(bb.mul(sec, ir.Constant(i64, 1000000000)), nsec)
             bb.ret(total)
 
-        _emit_clock_shim(self.functions["saw_clock_monotonic_nanos"],
+        _emit_clock_shim(self.functions["__saw_rt_clock_monotonic_nanos"],
                          monotonic_id, to_nanos=True)
-        _emit_clock_shim(self.functions["saw_unix_timestamp_secs"],
+        _emit_clock_shim(self.functions["__saw_rt_unix_timestamp_secs"],
                          0, to_nanos=False)
 
     def _is_apple_triple(self) -> bool:
@@ -717,7 +717,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         startp = b.select(neg, signp, newwritep, name="startp")
         # saw_write takes a platform-width length (design 47), so measure at iw.
         length = b.sub(b.ptrtoint(endp, iw), b.ptrtoint(startp, iw), name="len")
-        b.call(self.functions["saw_write"], [startp, length])
+        b.call(self.functions["__saw_rt_write"], [startp, length])
         b.ret_void()
 
     def _declare_string_runtime(self):
@@ -746,8 +746,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # String buffers now route through the seams (design 20 item 1) rather
         # than libc malloc/free directly. memcpy stays a libc/compiler builtin
         # (it is not a seam and is available freestanding via compiler-rt).
-        saw_alloc_fn = self.functions["saw_alloc"]
-        saw_dealloc_fn = self.functions["saw_dealloc"]
+        saw_alloc_fn = self.functions["__saw_rt_alloc"]
+        saw_dealloc_fn = self.functions["__saw_rt_dealloc"]
         memcpy_fn = self._libc_func("memcpy", i8ptr, [i8ptr, i8ptr, word])
         align16 = ir.Constant(word, 16)
 
@@ -889,15 +889,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # ---- __saw_get_argc() -> i32 ----------------------------------------
         fn = ir.Function(self.module, ir.FunctionType(i32, []),
-                         name="__saw_get_argc")
-        self.functions["__saw_get_argc"] = fn
+                         name="__saw_rt_get_argc")
+        self.functions["__saw_rt_get_argc"] = fn
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         b.ret(b.load(argc_g, name="argc"))
 
         # ---- __saw_get_argv() -> char** -------------------------------------
         fn = ir.Function(self.module, ir.FunctionType(i8ptrptr, []),
-                         name="__saw_get_argv")
-        self.functions["__saw_get_argv"] = fn
+                         name="__saw_rt_get_argv")
+        self.functions["__saw_rt_get_argv"] = fn
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         b.ret(b.load(argv_g, name="argv"))
 
@@ -1118,8 +1118,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # __saw_pthread_mutex_init_default(m): pthread_mutex_init(m, NULL)
         pmi = self._libc_func("pthread_mutex_init", i64, [i8ptr, i8ptr])
         fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
-                         name="__saw_pthread_mutex_init_default")
-        self.functions["__saw_pthread_mutex_init_default"] = fn
+                         name="__saw_rt_pthread_mutex_init_default")
+        self.functions["__saw_rt_pthread_mutex_init_default"] = fn
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         b.call(pmi, [fn.args[0], null])
         b.ret_void()
@@ -1131,8 +1131,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # platform struct, exactly as the mutex path does.
         pci = self._libc_func("pthread_cond_init", i64, [i8ptr, i8ptr])
         fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
-                         name="__saw_pthread_cond_init_default")
-        self.functions["__saw_pthread_cond_init_default"] = fn
+                         name="__saw_rt_pthread_cond_init_default")
+        self.functions["__saw_rt_pthread_cond_init_default"] = fn
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         b.call(pci, [fn.args[0], null])
         b.ret_void()
@@ -1149,8 +1149,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                                   [i8ptr, i8ptr, tramp_ptr_ty, i8ptr])
         fn = ir.Function(self.module,
                          ir.FunctionType(void, [i8ptr, tramp_ptr_ty, i8ptr]),
-                         name="__saw_pthread_create")
-        self.functions["__saw_pthread_create"] = fn
+                         name="__saw_rt_pthread_create")
+        self.functions["__saw_rt_pthread_create"] = fn
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         b.call(pcreate, [fn.args[0], null, fn.args[1], fn.args[2]])
         b.ret_void()
@@ -1159,8 +1159,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         #   pthread_join(*(pthread_t*)tid, NULL)
         pjoin = self._libc_func("pthread_join", i32, [i8ptr, i8ptr])
         fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
-                         name="__saw_pthread_join")
-        self.functions["__saw_pthread_join"] = fn
+                         name="__saw_rt_pthread_join")
+        self.functions["__saw_rt_pthread_join"] = fn
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         tid_slot = b.bitcast(fn.args[0], i8ptr.as_pointer(), name="tid_slot")
         tid_val = b.load(tid_slot, name="tid")
@@ -1214,35 +1214,35 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         apple = self._is_apple_triple()
 
         reg = ir.Function(self.module, ir.FunctionType(void, [i64, i64, i64]),
-                          name="saw_reactor_register")
+                          name="__saw_rt_reactor_register")
         poll = ir.Function(self.module, ir.FunctionType(i64, [i64]),
-                           name="saw_reactor_poll")
+                           name="__saw_rt_reactor_poll")
         # design 102 item 2: the reactor self-wake seam. `saw_reactor_wake()` writes
         # one byte to a process-global self-pipe whose read end the reactor poll
         # registers, so a `cancel()` on an already-io-parked task makes the blocked
         # poll return promptly (else an idle-fd park would never observe the cancel).
         wake = ir.Function(self.module, ir.FunctionType(void, []),
-                           name="saw_reactor_wake")
+                           name="__saw_rt_reactor_wake")
         setnb = ir.Function(self.module, ir.FunctionType(i64, [i64]),
-                            name="saw_set_nonblocking")
+                            name="__saw_rt_set_nonblocking")
         ewb = ir.Function(self.module, ir.FunctionType(i64, []),
-                          name="saw_errno_would_block")
+                          name="__saw_rt_errno_would_block")
         errno_fn = ir.Function(self.module, ir.FunctionType(i64, []),
-                               name="saw_errno")
+                               name="__saw_rt_errno")
         setfam = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
-                             name="saw_sin_set_family")
+                             name="__saw_rt_sin_set_family")
         # design 90: classify a nonblocking-connect completion errno (OS-divergent
         # EISCONN/EINPROGRESS/EALREADY values live here, like saw_errno_would_block).
         connst = ir.Function(self.module, ir.FunctionType(i64, []),
-                             name="saw_errno_connect_state")
+                             name="__saw_rt_errno_connect_state")
         # design 89-c: the cooperative op-count budget seam. `saw_op_budget_tick()`
         # decrements the process-global work budget and returns 1 (with a reset to
         # the default) when it is exhausted — the caller then force-yields — else 0.
         # `saw_op_budget_reset()` restores the default (called on a genuine park).
         budtick = ir.Function(self.module, ir.FunctionType(i64, []),
-                              name="saw_op_budget_tick")
+                              name="__saw_rt_op_budget_tick")
         budreset = ir.Function(self.module, ir.FunctionType(void, []),
-                               name="saw_op_budget_reset")
+                               name="__saw_rt_op_budget_reset")
         # design 103 (A6): the blocking-extern offload shims. `saw_offload_start(fn,
         # arg)` spawns a thread-per-call that runs the extern and signals a self-pipe;
         # `saw_offload_done`/`saw_offload_pipe_fd`/`saw_offload_take` poll / expose the
@@ -1250,15 +1250,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # blocking primitive (a real thread-blocking sleep returning its argument) the
         # offload path and its tests exercise via a `blocking func` extern declaration.
         offload_start = ir.Function(self.module, ir.FunctionType(i64, [i64, i64]),
-                                    name="saw_offload_start")
+                                    name="__saw_rt_offload_start")
         offload_done = ir.Function(self.module, ir.FunctionType(i64, [i64]),
-                                   name="saw_offload_done")
+                                   name="__saw_rt_offload_done")
         offload_fd = ir.Function(self.module, ir.FunctionType(i64, [i64]),
-                                 name="saw_offload_pipe_fd")
+                                 name="__saw_rt_offload_pipe_fd")
         offload_take = ir.Function(self.module, ir.FunctionType(i64, [i64]),
-                                   name="saw_offload_take")
+                                   name="__saw_rt_offload_take")
         blocking_sleep = ir.Function(self.module, ir.FunctionType(i64, [i64]),
-                                     name="saw_blocking_sleep")
+                                     name="__saw_rt_blocking_sleep")
         io_fns = (reg, poll, wake, setnb, ewb, errno_fn, setfam, connst, budtick,
                   budreset, offload_start, offload_done, offload_fd, offload_take,
                   blocking_sleep)
@@ -1762,7 +1762,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b = ir.IRBuilder(offload_start.append_basic_block("entry"))
         jsize = b.ptrtoint(b.gep(ir.Constant(job_pp, None), [ir.Constant(i32, 1)]),
                            i64, name="jsz")
-        jp = b.bitcast(b.call(self.functions["saw_alloc"], [jsize, ir.Constant(i64, 8)]),
+        jp = b.bitcast(b.call(self.functions["__saw_rt_alloc"], [jsize, ir.Constant(i64, 8)]),
                        job_pp, name="job")
         b.store(offload_start.args[0], _jf(b, jp, i0))
         b.store(offload_start.args[1], _jf(b, jp, i1))
@@ -1770,7 +1770,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.store(ir.Constant(i64, 0), _jf(b, jp, i3))
         # pipe() writes fds[0]/fds[1] into the adjacent i32 pipe_r/pipe_w fields.
         b.call(pipe_fn, [_jf(b, jp, i4)])
-        b.call(self.functions["__saw_pthread_create"],
+        b.call(self.functions["__saw_rt_pthread_create"],
                [b.bitcast(_jf(b, jp, i6), i8ptr), tramp, b.bitcast(jp, i8ptr)])
         b.ret(b.ptrtoint(jp, i64))
 
@@ -1787,7 +1787,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # saw_offload_take(job) -> result. Join (full barrier) -> read -> close -> free.
         b = ir.IRBuilder(offload_take.append_basic_block("entry"))
         jp = b.inttoptr(offload_take.args[0], job_pp)
-        b.call(self.functions["__saw_pthread_join"], [b.bitcast(_jf(b, jp, i6), i8ptr)])
+        b.call(self.functions["__saw_rt_pthread_join"], [b.bitcast(_jf(b, jp, i6), i8ptr)])
         r = b.load(_jf(b, jp, i2), name="res")
         b.call(close_fn, [b.load(_jf(b, jp, i4), name="prc")])
         b.call(close_fn, [b.load(_jf(b, jp, i5), name="pwc")])
@@ -1797,7 +1797,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # saw_blocking_sleep(ms) -> ms: a real thread-blocking sleep that returns its
         # argument — the reference blocking primitive for the offload path + tests.
         b = ir.IRBuilder(blocking_sleep.append_basic_block("entry"))
-        b.call(self.functions["saw_sleep_ms"], [blocking_sleep.args[0]])
+        b.call(self.functions["__saw_rt_sleep_ms"], [blocking_sleep.args[0]])
         b.ret(blocking_sleep.args[0])
 
     def _create_string_literal_global(self, value: str) -> ir.GlobalVariable:

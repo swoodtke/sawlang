@@ -1,5 +1,5 @@
 // design 103 (A6) + design 102: cancellation of a task PARKED on an offload job.
-// The worker parks inside the offloaded blocking call (`saw_blocking_sleep`); a
+// The worker parks inside the offloaded blocking call (`__saw_rt_blocking_sleep`); a
 // sibling task sets the cancel word (via `cancel_addr`) while it is parked. Design
 // 102's pre-poll cancelled scan wakes the parked frame, the offload park loop
 // re-checks `__cancel` at its loop top and bails, and take() joins the worker
@@ -14,7 +14,7 @@
 // deinits=1
 
 extern "C" {
-    blocking func saw_blocking_sleep(ms: Int) -> Int
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
 }
 
 static DEINITS: Atomic<Int> = Atomic(0)
@@ -25,7 +25,7 @@ extension Res: NoCopy {}
 
 func worker() -> Int {
     let _held = Res(id: 1)           // deinit oracle: drops exactly once on exit
-    let r = saw_blocking_sleep(40)   // parks; the sibling cancels it while parked
+    let r = __saw_rt_blocking_sleep(40)   // parks; the sibling cancels it while parked
     if cancelled() {
         return 0 - 1                 // cooperative early return on cancel
     }

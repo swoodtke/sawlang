@@ -44,30 +44,30 @@ extern "C" {
     func socketpair(domain: Int32, ty: Int32, protocol: Int32, fds: UnsafePointer<Int32>) -> Int32
 
     // OS-divergent socket helpers + the reactor register seam (compiler-defined,
-    // codegen/core.py). `saw_reactor_register` is emitted by the `io_wait`
+    // codegen/core.py). `__saw_rt_reactor_register` is emitted by the `io_wait`
     // intrinsic lowering, so it must be a namespace-visible symbol. `token`
     // (design 91) is the parked frame's `__wake`-word address, carried as the
     // event's user-data so the reactor wakes EXACTLY this frame on readiness.
-    func saw_reactor_register(fd: Int, write: Int, token: Int)
-    func saw_set_nonblocking(fd: Int) -> Int
-    func saw_errno_would_block() -> Int
+    func __saw_rt_reactor_register(fd: Int, write: Int, token: Int)
+    func __saw_rt_set_nonblocking(fd: Int) -> Int
+    func __saw_rt_errno_would_block() -> Int
     // design 90: classify a re-issued nonblocking connect()'s errno —
     // 0 = connected (EISCONN), 1 = still connecting (EINPROGRESS/EALREADY),
     // 2 = failed. Lets connect() re-park on a spurious reactor wake.
-    func saw_errno_connect_state() -> Int
-    func saw_errno() -> Int
+    func __saw_rt_errno_connect_state() -> Int
+    func __saw_rt_errno() -> Int
     // The ONLY OS-divergent piece of sockaddr_in: the sin_len/sin_family prefix
     // (macOS byte layout differs from Linux). Everything else is uniform
     // network-order data filled by `SockAddrIn` below.
-    func saw_sin_set_family(buf: UnsafePointer<Int8>)
+    func __saw_rt_sin_set_family(buf: UnsafePointer<Int8>)
 
     // design 89-c: the cooperative op-count budget seam (codegen/core.py). Each io
-    // op that completes WITHOUT parking charges the budget; `saw_op_budget_tick()`
+    // op that completes WITHOUT parking charges the budget; `__saw_rt_op_budget_tick()`
     // returns non-zero when the budget is exhausted (and resets it), signalling the
-    // primitive to force a fairness `yield_now()`. `saw_op_budget_reset()` restores
+    // primitive to force a fairness `yield_now()`. `__saw_rt_op_budget_reset()` restores
     // the budget after a genuine park (the task already ceded to the scheduler).
-    func saw_op_budget_tick() -> Int
-    func saw_op_budget_reset()
+    func __saw_rt_op_budget_tick() -> Int
+    func __saw_rt_op_budget_reset()
 
     // Bytes -> owned refcounted String (compiler runtime; see codegen/core.py).
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
@@ -92,9 +92,9 @@ static LOOPBACK_BE: UInt32 = 0x0100007f   // 127.0.0.1, network byte order (LE)
 // bind/accept/connect/getsockname via the design-42 reference->pointer cast, so
 // the socket paths allocate NOTHING per call. `port`/`addr` are stored in NETWORK
 // byte order directly in Saw (see `htons`); the OS-divergent `family` prefix is
-// stamped by `saw_sin_set_family`. FdPair is the 8-byte `int[2]` for socketpair.
+// stamped by `__saw_rt_sin_set_family`. FdPair is the 8-byte `int[2]` for socketpair.
 struct SockAddrIn {
-    family: UInt16    // OS-divergent prefix, stamped by saw_sin_set_family
+    family: UInt16    // OS-divergent prefix, stamped by __saw_rt_sin_set_family
     port: UInt16      // network byte order
     addr: UInt32      // network byte order (127.0.0.1 = 0x0100007F on LE)
     zero: UInt64      // padding
@@ -120,7 +120,7 @@ func ntohs(net: UInt16) -> Int {
 // A stack `SockAddrIn` for 127.0.0.1:port with the OS-correct family prefix.
 func net_sockaddr(port: Int) -> SockAddrIn {
     var sa = SockAddrIn(family: 0 as UInt16, port: htons(port), addr: LOOPBACK_BE, zero: 0 as UInt64)
-    saw_sin_set_family((&sa) as UnsafePointer<Int8>)
+    __saw_rt_sin_set_family((&sa) as UnsafePointer<Int8>)
     sa
 }
 
@@ -156,7 +156,7 @@ func tcp_listen(port: Int) -> Int {
     if fd < 0 {
         return NET_ERROR
     }
-    let _ = saw_set_nonblocking(fd as Int)
+    let _ = __saw_rt_set_nonblocking(fd as Int)
     var sa = net_sockaddr(port)
     let ap = (&sa) as UnsafePointer<Int8>
     if bind(fd, ap, SOCKADDR_IN_LEN) != 0 {
@@ -190,10 +190,10 @@ func tcp_try_accept(listen_fd: Int) -> Int {
     let lp = (&len) as UnsafePointer<Int32>
     let c = accept(listen_fd as Int32, ap, lp)
     if c >= 0 {
-        let _ = saw_set_nonblocking(c as Int)
+        let _ = __saw_rt_set_nonblocking(c as Int)
         return c as Int
     }
-    if saw_errno_would_block() == 1 {
+    if __saw_rt_errno_would_block() == 1 {
         return WOULD_BLOCK
     }
     NET_ERROR
@@ -206,14 +206,14 @@ func tcp_connect_start(port: Int) -> Int {
     if fd < 0 {
         return NET_ERROR
     }
-    let _ = saw_set_nonblocking(fd as Int)
+    let _ = __saw_rt_set_nonblocking(fd as Int)
     var sa = net_sockaddr(port)
     let ap = (&sa) as UnsafePointer<Int8>
     let r = connect(fd, ap, SOCKADDR_IN_LEN)
     if r == 0 {
         return fd as Int              // connected immediately (common on loopback)
     }
-    if saw_errno_would_block() == 1 {
+    if __saw_rt_errno_would_block() == 1 {
         return fd as Int              // EINPROGRESS: wait for writability
     }
     let _ = close(fd)
@@ -233,7 +233,7 @@ func tcp_connect_check(fd: Int, port: Int) -> Int {
     if r == 0 {
         return 0                          // connected on this call
     }
-    let st = saw_errno_connect_state()
+    let st = __saw_rt_errno_connect_state()
     if st == 0 {
         return 0                          // EISCONN — handshake complete
     }
@@ -250,7 +250,7 @@ func tcp_try_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
     if n >= 0 {
         return n
     }
-    if saw_errno_would_block() == 1 {
+    if __saw_rt_errno_would_block() == 1 {
         return WOULD_BLOCK
     }
     NET_ERROR
@@ -263,7 +263,7 @@ func tcp_try_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
     if n >= 0 {
         return n
     }
-    if saw_errno_would_block() == 1 {
+    if __saw_rt_errno_would_block() == 1 {
         return WOULD_BLOCK
     }
     NET_ERROR
@@ -282,8 +282,8 @@ func tcp_socketpair() -> (Int, Int) {
     if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, fp) == 0 {
         let a = unsafe fp[0]
         let b = unsafe fp[1]
-        let _ = saw_set_nonblocking(a as Int)
-        let _ = saw_set_nonblocking(b as Int)
+        let _ = __saw_rt_set_nonblocking(a as Int)
+        let _ = __saw_rt_set_nonblocking(b as Int)
         return (a as Int, b as Int)
     }
     (NET_ERROR, NET_ERROR)
@@ -342,7 +342,7 @@ extension IoError {
     // other hosted std modules (file/directory/env, design 92) to build an
     // IoError, since the fields and the `io_error` helper are module-private.
     public func from_errno(syscall: String) -> IoError {
-        IoError(syscall: syscall, code: saw_errno())
+        IoError(syscall: syscall, code: __saw_rt_errno())
     }
 }
 
@@ -357,7 +357,7 @@ extension IoError: Error {
 }
 
 func io_error(syscall: String) -> IoError {
-    IoError(syscall: syscall, code: saw_errno())
+    IoError(syscall: syscall, code: __saw_rt_errno())
 }
 
 // =============================================================================
@@ -401,11 +401,11 @@ extension TcpListener {
             let c = tcp_try_accept(self.fd)
             if net_would_block(c) {
                 io_wait(self.fd, 0)                // park until a client arrives
-                saw_op_budget_reset()             // design 89-c: parked, budget reset
+                __saw_rt_op_budget_reset()             // design 89-c: parked, budget reset
             } else if c < 0 {
                 return io_error("accept")          // a real accept error
             } else {
-                if saw_op_budget_tick() != 0 {     // design 89-c: fairness backstop
+                if __saw_rt_op_budget_tick() != 0 {     // design 89-c: fairness backstop
                     yield_now()                    // ran the budget out without parking
                 }
                 return TcpStream(fd: c)            // got a connection
@@ -455,7 +455,7 @@ extension TcpStream {
             let check = tcp_connect_check(fd, port)
             if net_would_block(check) {
                 io_wait(fd, 1)             // still connecting — park until writable
-                saw_op_budget_reset()      // design 89-c: parked, budget reset
+                __saw_rt_op_budget_reset()      // design 89-c: parked, budget reset
             } else if check < 0 {
                 tcp_close(fd)
                 return io_error("connect")
@@ -463,7 +463,7 @@ extension TcpStream {
                 break                         // connected
             }
         }
-        if saw_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+        if __saw_rt_op_budget_tick() != 0 {         // design 89-c: fairness backstop
             yield_now()
         }
         return TcpStream(fd: fd)
@@ -496,14 +496,14 @@ extension TcpStream {
             let r = net_read_once(self.fd, &var out)
             if net_would_block(r) {
                 io_wait(self.fd, 0)            // park until readable
-                saw_op_budget_reset()          // design 89-c: parked, budget reset
+                __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
             } else if r < 0 {
                 return io_error("read")        // a real read error, not EOF
             } else {
                 break                          // r >= 0: bytes read (0 = EOF)
             }
         }
-        if saw_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+        if __saw_rt_op_budget_tick() != 0 {         // design 89-c: fairness backstop
             yield_now()                        // always-ready read: cede periodically
         }
         return move out
@@ -536,7 +536,7 @@ extension TcpStream {
             let r = net_read_once(self.fd, &var into)
             if net_would_block(r) {
                 io_wait(self.fd, 0)                    // park until readable
-                saw_op_budget_reset()                  // design 89-c: parked, reset
+                __saw_rt_op_budget_reset()                  // design 89-c: parked, reset
             } else if r < 0 {
                 return io_error("read")                // a real read error, not EOF
             } else {
@@ -544,7 +544,7 @@ extension TcpStream {
                 break
             }
         }
-        if saw_op_budget_tick() != 0 {                 // design 89-c: fairness backstop
+        if __saw_rt_op_budget_tick() != 0 {                 // design 89-c: fairness backstop
             yield_now()
         }
         return count
@@ -564,14 +564,14 @@ extension TcpStream {
             let w = net_write_data_once(self.fd, &bytes, off)
             if net_would_block(w) {
                 io_wait(self.fd, 1)            // park until writable
-                saw_op_budget_reset()          // design 89-c: parked, budget reset
+                __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
             } else if w < 0 {
                 return io_error("write")
             } else {
                 off = off + w
             }
         }
-        if saw_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+        if __saw_rt_op_budget_tick() != 0 {         // design 89-c: fairness backstop
             yield_now()
         }
         return
@@ -592,14 +592,14 @@ extension TcpStream {
             let w = net_write_data_once(self.fd, &bytes, off)
             if net_would_block(w) {
                 io_wait(self.fd, 1)            // park until writable
-                saw_op_budget_reset()          // design 89-c: parked, budget reset
+                __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
             } else if w < 0 {
                 return io_error("write")
             } else {
                 off = off + w
             }
         }
-        if saw_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+        if __saw_rt_op_budget_tick() != 0 {         // design 89-c: fairness backstop
             yield_now()
         }
         return
