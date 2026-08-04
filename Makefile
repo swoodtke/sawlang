@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff
 
 # Default target
 all: test
@@ -28,6 +28,12 @@ blade-bootstrap:
 # for them and prints install hints if missing).
 sos-test:
 	@python3 tools/sos_runner.py
+
+# Differential lexer harness (design 116): build the Saw lexer, then diff its
+# canonical token dump against sawc's Python lexer over every tracked .saw file.
+# Zero mismatches is the acceptance bar.
+lexdiff:
+	@python3 tools/lexdiff.py
 
 # Clean build artifacts
 clean:
