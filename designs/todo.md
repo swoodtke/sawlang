@@ -14,6 +14,16 @@ items need a probe before being treated as real work.
   on real P4 hardware. See sos/spec.md §5b (M0 recap) + designs/112.
 
 ## Queued briefs (Aug 4) — awaiting dispatch
+- **Design 116 — self-hosting pilot: the lexer in Saw (dispatched Aug 4).**
+  First permanent stage1 module + rewrite-decision instrument: `selfhost/lexer`
+  Blade package mirroring sawc/lexer.py's token model, canonical token-dump
+  format, `tools/dump_tokens.py` + `tools/lexdiff.py` differential harness over
+  the WHOLE .saw corpus (zero mismatches = bar), LOC/perf metrics, DF-116
+  findings as the explicit product. Full rewrite DEFERRED (user, Aug 4) until
+  design churn slows; surface-area growth is the chosen mechanism. Proposed
+  ABI-v2-minimization + executor-in-Saw briefs (errno accessors out, reactor/
+  thread as trait objects, minimal `__saw_rt_*` floor) are DISCUSSED, numbers
+  117/118 reserved, awaiting user go. [116]
 - **Design 113 — runtime extraction. IN PROGRESS (Aug 4).**
   - **LANDED — ABI freeze + rename (the time-critical, irreversible piece).**
     Both symbol tiers renamed to the uniform scheme: `__saw_rt_*` =
