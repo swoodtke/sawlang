@@ -468,6 +468,25 @@ carries a raw pointer, OR a `self`-method of a struct with a pointer field
 assignment, looser than every operator (`unsafe p[0] = 5` marks the store).
 For scoped no-copy element access use `Vector.with_ref`/`with_var_ref` (a
 non-escaping `&T`/`&var T` borrow, invalidation-proof) — this REPLACED `ref_at`.
+**MMIO driver idiom (blessed, design 112 — use for EVERY memory-mapped
+device):** two structs per device — a register-block struct that IS the
+hardware layout (declaration-order ABI; `ReadOnly<T>` for read-only registers)
+and a driver struct owning the mapped block, with extension methods as the
+device API:
+```saw
+struct UartRegs { thr: UInt8, ..., lsr: ReadOnly<UInt8>, ... }
+struct Uart16550 { regs: UnsafeMemory<UartRegs, Device> }
+extension Uart16550 {
+    init(at: Int) -> Uart16550 { Uart16550(regs: UnsafeMemory<UartRegs, Device>(at)) }
+    func write_byte(&self, b: UInt8) { /* poll lsr, write thr */ }
+}
+```
+Don't drive registers through free functions constructing `UnsafeMemory` per
+call, and don't extend the raw block type. The driver struct keeps `regs`
+private (design 80), its `self`-methods are already the design-81 marked
+domain (clean call sites), and it has room for device state. No singleton
+`static` drivers yet (statics need const inits — Once/Lazy is tracker F5):
+construct in the owner and lend `&driver` down.
 
 ## Gotchas
 - An escaping closure (bound/returned/stored/`spawn`) is **ImplicitCopy**
