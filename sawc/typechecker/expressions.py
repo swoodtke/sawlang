@@ -2257,13 +2257,6 @@ class ExpressionsMixin:
                         expr.line, expr.column)
             self._effect_direct_source("sleep", expr.line)
             return SawType(TypeKind.VOID)
-        if expr.name == "__saw_exec_sleep":
-            # design 45: the entry executor's own timer call — parks the thread
-            # for the task's requested milliseconds. NOT an effect source (the
-            # executor itself never suspends). Compiler-generated only.
-            if len(expr.arguments) == 1:
-                self._check_expression(expr.arguments[0].value)
-            return SawType(TypeKind.VOID)
         if expr.name == "__saw_box_data":
             # design 52b item 2: extract the data word (i8*) of a `Box<any T>` fat
             # pointer — the address of the erased heap payload. The synthesized

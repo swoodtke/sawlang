@@ -1890,7 +1890,7 @@ class _FrameBuilder:
                 # its parent at each drive, so an `io_wait` buried in a sub-frame still
                 # routes the wake to the root frame the scheduler schedules.
                 self._emit([ExpressionStatement(expression=FunctionCall(
-                    name="__saw_rt_reactor_register",
+                    name="__saw_exec_io_register",
                     arguments=[Argument(name=None, value=fd_a),
                                Argument(name=None, value=dir_a),
                                Argument(name=None, value=_self_field("__io_tok"))]))])
@@ -2238,7 +2238,7 @@ class _FrameBuilder:
         fd = FunctionCall(name="__saw_blk_pipe_fd",
                           arguments=[Argument(name=None, value=_self_field(job))])
         self._emit([ExpressionStatement(expression=FunctionCall(
-            name="__saw_rt_reactor_register",
+            name="__saw_exec_io_register",
             arguments=[Argument(name=None, value=fd),
                        Argument(name=None, value=_int(0)),
                        Argument(name=None, value=_self_field("__io_tok"))]))])
@@ -2856,26 +2856,19 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
     ]
     resume_call = MethodCall(object=Identifier(name="__f"), method_name="resume",
                              arguments=[])
-    wake = MemberAccess(object=Identifier(name="__f"), member="__wake")
-    # design 76 (A4): a single-frame entry executor. wake > 0 => sleep; wake < 0
-    # (IO-park) => block in the reactor until an fd is ready (there is no other
-    # task or timer to honour, so the poll timeout is infinite / -1); wake == 0
-    # (yield) => resume at once.
-    io_poll = Block(statements=[ExpressionStatement(expression=IfExpr(
-        condition=BinaryOp(op="<", left=MemberAccess(
-            object=Identifier(name="__f"), member="__wake"), right=_int(0)),
-        then_branch=Block(statements=[ExpressionStatement(expression=FunctionCall(
-            name="__saw_rt_reactor_poll",
-            arguments=[Argument(name=None, value=_int(-1))]))],
-            final_expr=None)))], final_expr=None)
-    pending_body = Block(statements=[ExpressionStatement(expression=IfExpr(
-        condition=BinaryOp(op=">", left=wake, right=_int(0)),
-        then_branch=Block(statements=[ExpressionStatement(expression=FunctionCall(
-            name="__saw_exec_sleep",
-            arguments=[Argument(name=None, value=MemberAccess(
-                object=Identifier(name="__f"), member="__wake"))]))],
-            final_expr=None),
-        else_branch=io_poll))], final_expr=None)
+    # design 118 stage 2: the single-frame entry executor keeps its trivial
+    # resume-until-done loop synthesized (the lead-pinned design-45 allocation-free
+    # fast path — no box, no scheduler list), but the PARK POLICY is carved into the
+    # Saw `__saw_exec_park(wake)` (std/taskgroup.saw): wake > 0 => sleep; wake < 0
+    # (io-park) => block in the reactor until the fd is ready; wake == 0 (yield) =>
+    # resume at once. After the carve this executor emits zero park body — only
+    # `resume` + one `__saw_exec_park` call. (A monomorphized generic
+    # `__saw_exec_run_single(box)` that removes even this loop is the DEFERRED
+    # option recorded in ABI.md.)
+    pending_body = Block(statements=[ExpressionStatement(expression=FunctionCall(
+        name="__saw_exec_park",
+        arguments=[Argument(name=None, value=MemberAccess(
+            object=Identifier(name="__f"), member="__wake"))]))], final_expr=None)
     done_body = Block(statements=[AssignStatement(
         target=Identifier(name="__done"), value=BoolLiteral(value=True))],
         final_expr=None)

@@ -443,10 +443,10 @@ frame code + these calls.
 | enqueue  | `__enqueue(&var TaskGroup, box: Box<any Resumable>) -> Int` | exists (Saw) |
 | drive    | `__saw_exec_run_root(box: Box<any Resumable>)`            | exists (Saw) |
 | join     | `__saw_exec_run(term_group: Int, term_slot: Int)`     | exists (Saw) |
-| drive/park (single-frame) | `__saw_exec_park(wake: Int)`             | **NEW** — carve `_make_entry_executor` + `__saw_drive_*` inline `Pending` bodies into this one Saw call (wake>0 → sleep; wake<0 → reactor poll -1; 0 → return) |
-| park (io) | `__saw_exec_io_register(fd: Int, dir: Int, token: Int)`  | **NEW** — Saw wrapper the `io_wait`/offload park lowerings call instead of the raw `__saw_rt_reactor_register` extern |
-| wake     | `__saw_exec_reactor_wake()`                                | **NEW** — Saw wrapper over `__saw_rt_reactor_wake` (today `TaskHandle.cancel` calls the extern directly) |
-| sleep    | `__saw_exec_sleep(ms: Int)`                                | **NEW** — promote the `__saw_exec_sleep` codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ms` |
+| drive/park (single-frame) | `__saw_exec_park(wake: Int)`             | stage 2 ✓ — carved the `_make_entry_executor` `Pending` body into this one Saw call (wake>0 → sleep; wake<0 → reactor poll -1; 0 → return). The trivial resume-until-done loop STAYS synthesized (lead pin: the design-45 allocation-free fast path is contract, and post-carve the loop carries zero policy). |
+| park (io) | `__saw_exec_io_register(fd: Int, dir: Int, token: Int)`  | stage 2 ✓ — Saw wrapper the `io_wait`/offload park lowerings + the outside-frame `io_wait` codegen path call instead of the raw `__saw_rt_reactor_register` extern |
+| wake     | `__saw_exec_reactor_wake()`                                | stage 2 ✓ — Saw wrapper over `__saw_rt_reactor_wake` (`TaskHandle`/`VoidTaskHandle.cancel` call it) |
+| sleep    | `__saw_exec_sleep(ms: Int)`                                | stage 2 ✓ — promoted from a codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ms` |
 
 `spawn` itself stays the synthesized `__spawn_<f>` helper (frame-shaped, cannot
 be generic-erased) whose only executor touch is `__enqueue`. The `Task<T>`
@@ -462,12 +462,19 @@ instance), without touching a single synthesized call site.
 
 ### Stage carve plan (each lands suite-green)
 
-- **Stage 2 (ST core):** add `__saw_exec_park`/`__saw_exec_sleep` in Saw; rewrite
-  `_make_entry_executor` and `_make_driver` so their `Pending` arm calls
-  `__saw_exec_park(oc.wake)` instead of inlining sleep/poll; unify the single-frame
-  main onto a boxed `__saw_exec_run_root`-style drive (or a lighter Saw
-  `__saw_exec_run_single(box)`) so the compiler stops emitting a scheduler loop. The
-  reactor is still consumed via the direct externs.
+- **Stage 2 (ST core) — LANDED:** added `__saw_exec_park`/`__saw_exec_sleep` (Saw);
+  `_make_entry_executor`'s `Pending` arm now calls `__saw_exec_park(__f.__wake)`;
+  the resume-until-done loop STAYS synthesized (lead pin — do NOT box main onto
+  `__saw_exec_run_root`; the design-45 allocation-free fast path is part of the
+  byte-identical behavior contract, and after the carve the residual loop carries
+  zero policy). A monomorphized generic `__saw_exec_run_single(box)` that removes
+  even the loop (no box, per-frame instantiation) is the DEFERRED option if the
+  synthesized loop is ever unwanted. REFINEMENT of the stage-1 map: the
+  `__saw_drive_*` drivers have an EMPTY `Pending` body (design-44 test-only
+  busy-resume — they never park), so there is no park body to carve there; leaving
+  them untouched is what preserves byte-identical behavior (adding a park would be
+  a behavior change, not a relocation). The reactor is still consumed via the
+  direct externs (funnelled through the stage-2 `__saw_exec_*` wrappers).
 - **Stage 3 (reactor trait):** define `Reactor` (register/poll/wake, token =
   parked frame's `__wake`-word address — design 91) + per-host `KqueueReactor`/
   `EpollReactor` over the design-117 instance seams; make `__saw_exec_io_register`/

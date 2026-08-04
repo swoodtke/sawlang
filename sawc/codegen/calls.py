@@ -219,17 +219,18 @@ class CallsMixin:
         if expr.name == "io_wait":
             fd = self._generate_expression(expr.arguments[0].value)
             direction = self._generate_expression(expr.arguments[1].value)
-            # design 91: no frame here (blocking-thread path), so no wake word to
-            # route to — register with a null token. The poll skips null udata and
-            # simply returns when the fd is ready, giving correct blocking semantics.
-            # design 117: the reactor is instance-based; codegen supplies the
-            # process-global instance (`__saw_reactor()`) at every seam call.
-            self.builder.call(self.functions["__saw_rt_reactor_register"],
-                              [self._reactor_instance(), fd, direction,
-                               ir.Constant(self.int_type, 0)])
-            self.builder.call(self.functions["__saw_rt_reactor_poll"],
-                              [self._reactor_instance(),
-                               ir.Constant(self.int_type, -1)])
+            # design 118 stage 2: route the blocking-thread fallback (io_wait reached
+            # OUTSIDE a coroutine frame, no executor to hand back to) through the SAME
+            # Saw executor entry points the coroutine transform's io_wait lowering uses
+            # — `__saw_exec_io_register` then `__saw_exec_park(-1)` — so stage 3 swaps
+            # the reactor to the `Reactor` trait in ONE place, never at a synthesized
+            # call site. design 91: no frame here, so register with a null token (the
+            # poll skips null udata and returns when the fd is ready). The reactor
+            # instance is injected inside the wrappers (design 117).
+            self.builder.call(self.functions["__saw_exec_io_register"],
+                              [fd, direction, ir.Constant(self.int_type, 0)])
+            self.builder.call(self.functions["__saw_exec_park"],
+                              [ir.Constant(self.int_type, -1)])
             return None
         # design 103 (A6): the blocking-extern offload intrinsics, emitted by the
         # coro transform when it lowers a `let x = slow(arg)` blocking-extern call.
@@ -252,9 +253,12 @@ class CallsMixin:
                     "__saw_blk_take": "__saw_rt_offload_take"}[expr.name]
             job = self._generate_expression(expr.arguments[0].value)
             return self.builder.call(self.functions[shim], [job], name="blkr")
-        # `__saw_exec_sleep(ms)` is the executor's OWN (non-suspending) timer call,
-        # generated into the entry executor to honour a task's sleep wake reason.
-        if expr.name in ("sleep", "__saw_exec_sleep"):
+        # The design-45 `sleep(ms)` primitive reached as a plain (non-suspending)
+        # call — no executor to hand back to, so park the OS thread for real via the
+        # timer seam. (design 118 stage 2: `__saw_exec_sleep` is no longer an
+        # intrinsic here — it is a real Saw function in std/taskgroup.saw over this
+        # same seam, so it resolves through the ordinary call path.)
+        if expr.name == "sleep":
             ms = self._generate_expression(expr.arguments[0].value)
             self.builder.call(self.functions["__saw_rt_sleep_ms"], [ms])
             return None

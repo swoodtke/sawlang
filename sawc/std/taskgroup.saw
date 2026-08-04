@@ -50,10 +50,66 @@ extern "C" {
     // the ready-event count; the executor then wakes all io-parked tasks.
     func __saw_rt_reactor_poll(timeout_ms: Int) -> Int
 
+    // design 76 / 91: arm one-shot readiness interest on `fd` (write==0 => read).
+    // `token` is the parked frame's `__wake`-word address (precise routing). Called
+    // via `__saw_exec_io_register` below. Declared at the pre-instance (3-arg) arity;
+    // codegen injects the process-global reactor instance as the first arg (design
+    // 117), exactly as it does for `__saw_rt_reactor_poll`/`_wake`.
+    func __saw_rt_reactor_register(fd: Int, write: Int, token: Int)
+
     // design 102 item 2: rouse a blocked reactor poll by writing one byte to the
     // reactor's self-wake pipe. `cancel()` calls this so an ALREADY-io-parked
     // task's poll returns promptly and the scheduler can re-check its cancel flag.
     func __saw_rt_reactor_wake()
+
+    // design 45 / 118: the host timer seam. `__saw_exec_sleep` (below) wraps it as
+    // the executor's OWN (non-suspending) blocking sleep — used to honour a task's
+    // sleep wake reason and to nap between MT-worker re-scans.
+    func __saw_rt_sleep_ms(ms: Int)
+}
+
+// design 118 stage 2: the executor's timer park, promoted from a codegen
+// intrinsic to a real Saw function over the `__saw_rt_sleep_ms` seam. The
+// single-frame entry executor (`__saw_exec_park`), the MT worker back-off, and
+// the pure-sleep clock advance all call it. NOT a suspension source — the
+// executor itself never suspends; it blocks the OS thread for real.
+func __saw_exec_sleep(ms: Int) {
+    __saw_rt_sleep_ms(ms)
+}
+
+// design 118 stage 2: the single-frame drive's park POLICY, carved out of the
+// synthesized entry executor (`_make_entry_executor`) so the compiler emits no
+// park body — only `resume` + this one call. Given a just-returned frame's
+// `__wake` reason: a positive value is a sleep-ms deadline (there is no other
+// task or timer to honour in a single-frame drive, so park the thread that
+// long); a negative value is an io-park (block in the reactor until the fd the
+// frame registered is ready — infinite timeout, again nothing else to honour);
+// zero is a plain yield (resume at once). Stage 3 routes the reactor poll here
+// through the `Reactor` trait.
+func __saw_exec_park(wake: Int) {
+    if wake > 0 {
+        __saw_exec_sleep(wake)
+    } else if wake < 0 {
+        let _ = __saw_rt_reactor_poll(-1)
+    }
+}
+
+// design 118 stage 2: the reactor-arm entry point the coroutine transform's io_wait
+// / offload park lowerings (and the outside-frame `io_wait` codegen path) call, in
+// place of emitting a raw `__saw_rt_reactor_register` into synthesized IR.
+// Synthesized IR cannot do Saw trait dispatch, so funnelling the arm through this
+// Saw function is what lets stage 3 route it to the `Reactor` trait without touching
+// any synthesized call site. `dir` is the direction word (0 = read); `token` is the
+// parked frame's `__wake`-word address (design 91 precise routing).
+func __saw_exec_io_register(fd: Int, dir: Int, token: Int) {
+    __saw_rt_reactor_register(fd, dir, token)
+}
+
+// design 118 stage 2: the reactor self-wake entry point `cancel()` calls to rouse a
+// blocked poll (design 102 item 2). A thin Saw wrapper over the seam today; stage 3
+// routes it through the `Reactor` trait.
+func __saw_exec_reactor_wake() {
+    __saw_rt_reactor_wake()
 }
 
 // design 89: the per-thread AMBIENT cooperative scheduler. A single intrusive
@@ -498,7 +554,7 @@ extension TaskHandle<T> {
         self.cancel_ptr[0] = true
         // design 102 item 2: rouse a blocked reactor poll so an ALREADY-io-parked
         // target observes the cancel now (not only at its pre-park check).
-        __saw_rt_reactor_wake()
+        __saw_exec_reactor_wake()
     }
 
     // design 75 (A2): the cancel word's ADDRESS as a Send `Int`. A `TaskHandle` is
@@ -550,7 +606,7 @@ extension VoidTaskHandle {
     public func cancel(&self) {
         self.cancel_ptr[0] = true
         // design 102 item 2: rouse a blocked reactor poll (see TaskHandle.cancel).
-        __saw_rt_reactor_wake()
+        __saw_exec_reactor_wake()
     }
 
     public func cancel_addr(&self) -> Int {
