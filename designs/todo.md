@@ -145,6 +145,17 @@ inlined (the `.build/scratch` probes are gitignored).
   (DF-116d); (D) restore Token.suffix + the dump's 4th column in both dumpers
   (the DF-116a stopped unit; 116a itself fixed Aug 4). Brief:
   designs/119-lexer-pilot-followups.md. [119]
+- **Design 120 — suspension in expression position (queued; dispatch AFTER
+  118 integrates; user-authorized Aug 4; may run concurrent with 119).**
+  Suspending calls anywhere an expression appears — chains a().b().c(),
+  args, receivers, operands, literals, value-position if/match, ?? / && / ||
+  / ?. conditional positions — via an ANF hoist in coro_transform reusing the
+  96/101/104 statement embedding. STAGE 0 = the full known-unsupported
+  matrix as XFAIL tests (tests-first, user-directed); success = every marker
+  flipped or an explicit recorded carve-out, zero XPASS. Deletes the
+  buried-suspension error class (104 list, 111 suspending-hop carve, the
+  suspension-mid-chain future-work item). Brief:
+  designs/120-expression-suspension.md. [120]
 - **Design 117 — runtime ABI v2 minimization. LANDED (Aug 4).** Errno
   accessors DELETED; the reactor is INSTANCE-based and relocated to Saw
   (DF-113d dissolved); the thread surface is spawn/join. Per-unit commits:
