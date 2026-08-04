@@ -1,0 +1,1113 @@
+// sawlex — the Saw language lexer, ported to Saw (design 116, the self-hosting
+// pilot). This is a faithful port of `sawc/lexer.py`: same token kinds, same
+// token boundaries, same 1-based line:col positions, same lex-error positions.
+//
+// The port lexes over the source's UTF-8 BYTES while counting columns by
+// Unicode code points (a column advances once per non-continuation byte). That
+// reproduces the Python lexer's per-code-point column counting exactly while
+// letting token text be assembled from raw bytes — no scalar re-encoding needed
+// except for `\u{...}` escapes, which are UTF-8-encoded here.
+//
+// See README.md for the canonical dump format and the kind-name mapping table.
+
+// =============================================================================
+// ASCII byte constants (named, per the no-magic-numbers style rule)
+// =============================================================================
+
+static B_TAB: Int = 9
+static B_NL: Int = 10
+static B_CR: Int = 13
+static B_SPACE: Int = 32
+static B_EXCLAIM: Int = 33
+static B_QUOTE: Int = 34
+static B_HASH: Int = 35
+static B_DOLLAR: Int = 36
+static B_PERCENT: Int = 37
+static B_AMP: Int = 38
+static B_LPAREN: Int = 40
+static B_RPAREN: Int = 41
+static B_STAR: Int = 42
+static B_PLUS: Int = 43
+static B_COMMA: Int = 44
+static B_MINUS: Int = 45
+static B_DOT: Int = 46
+static B_SLASH: Int = 47
+static B_D0: Int = 48
+static B_D1: Int = 49
+static B_D7: Int = 55
+static B_D9: Int = 57
+static B_COLON: Int = 58
+static B_SEMI: Int = 59
+static B_LT: Int = 60
+static B_EQ: Int = 61
+static B_GT: Int = 62
+static B_QUESTION: Int = 63
+static B_AT: Int = 64
+static B_UP_A: Int = 65
+static B_UP_B: Int = 66
+static B_UP_F: Int = 70
+static B_UP_O: Int = 79
+static B_UP_X: Int = 88
+static B_UP_Z: Int = 90
+static B_LBRACKET: Int = 91
+static B_BACKSLASH: Int = 92
+static B_RBRACKET: Int = 93
+static B_CARET: Int = 94
+static B_UNDERSCORE: Int = 95
+static B_LO_A: Int = 97
+static B_LO_B: Int = 98
+static B_LO_F: Int = 102
+static B_LO_I: Int = 105
+static B_LO_N: Int = 110
+static B_LO_O: Int = 111
+static B_LO_R: Int = 114
+static B_LO_T: Int = 116
+static B_LO_U: Int = 117
+static B_LO_X: Int = 120
+static B_LO_Z: Int = 122
+static B_LBRACE: Int = 123
+static B_PIPE: Int = 124
+static B_RBRACE: Int = 125
+static B_TILDE: Int = 126
+static B_DEL: Int = 127
+static B_CONT_LO: Int = 128
+static B_CONT_HI: Int = 191
+static B_ONE_TWENTY_SEVEN: Int = 127
+static B_MARKER: Int = 1     // 0x01 escaped-brace sentinel (mirrors the Python lexer)
+
+// =============================================================================
+// Byte helpers
+// =============================================================================
+
+// Unsigned byte value (0..255) at byte index `i` of `s`, or -1 past the end.
+func ubyte(s: &String, i: Int) -> Int {
+    if i < 0 || i >= s.len() {
+        return -1
+    }
+    let x = s.byte_at(i) as Int
+    if x < 0 { x + 256 } else { x }
+}
+
+// Turn an unsigned byte value (0..255) into the Int8 with the same bit pattern,
+// so it can be appended to a StringBuilder without an out-of-range cast panic.
+func to_i8(u: Int) -> Int8 {
+    if u >= 128 { (u - 256) as Int8 } else { u as Int8 }
+}
+
+func is_digit(b: Int) -> Bool { b >= B_D0 && b <= B_D9 }
+
+func is_alpha(b: Int) -> Bool {
+    (b >= B_UP_A && b <= B_UP_Z) || (b >= B_LO_A && b <= B_LO_Z)
+}
+
+func is_alnum(b: Int) -> Bool { is_digit(b) || is_alpha(b) }
+
+func is_hex(b: Int) -> Bool {
+    is_digit(b) || (b >= B_LO_A && b <= B_LO_F) || (b >= B_UP_A && b <= B_UP_F)
+}
+
+// Value 0..15 of a hex digit byte (caller guarantees `is_hex(b)`).
+func hex_value(b: Int) -> Int {
+    if is_digit(b) { b - B_D0 }
+    else if b >= B_LO_A && b <= B_LO_F { b - B_LO_A + 10 }
+    else { b - B_UP_A + 10 }
+}
+
+// One lowercase hex digit for a nibble 0..15.
+func hex_digit(n: Int) -> String { "0123456789abcdef".substring(n, n + 1) }
+
+// A one-byte String from an unsigned byte value.
+func char_str(u: Int) -> String {
+    var sb = StringBuilder()
+    sb.append_char(to_i8(u))
+    sb.build()
+}
+
+// =============================================================================
+// Token model — mirrors sawc/lexer.py's TokenType. Payload-free (auto-Equatable).
+// The dump name for each case matches Python's TokenType.name; see kind_name.
+// =============================================================================
+
+public enum TokenKind {
+    case IntLit,
+    case FloatLit,
+    case StringLit,
+    case InterpString,
+    case BoolLit,
+    case Ident,
+    case Func,
+    case Let,
+    case Var,
+    case If,
+    case Else,
+    case Guard,
+    case Return,
+    case True_,
+    case False_,
+    case Struct,
+    case Extension,
+    case SelfKw,
+    case Init,
+    case NoneKw,
+    case Enum,
+    case Case,
+    case Match,
+    case While,
+    case Break,
+    case Continue,
+    case Trait,
+    case For,
+    case In,
+    case TypeKw,
+    case Extern,
+    case As,
+    case Try,
+    case Catch,
+    case Static,
+    case Module,
+    case Import,
+    case Public,
+    case Export,
+    case Package,
+    case Parent,
+    case Plus,
+    case Minus,
+    case Star,
+    case Slash,
+    case Percent,
+    case Eq,
+    case Neq,
+    case Lt,
+    case Gt,
+    case Lte,
+    case Gte,
+    case And,
+    case Or,
+    case Ampersand,
+    case Pipe,
+    case Caret,
+    case Tilde,
+    case WrapAdd,
+    case WrapSub,
+    case WrapMul,
+    case Not_,
+    case Move_,
+    case Unsafe_,
+    case Assign,
+    case PlusAssign,
+    case MinusAssign,
+    case StarAssign,
+    case SlashAssign,
+    case PercentAssign,
+    case AmpAssign,
+    case PipeAssign,
+    case CaretAssign,
+    case ShlAssign,
+    case ShrAssign,
+    case Question,
+    case DoubleQuestion,
+    case Exclaim,
+    case QuestionDot,
+    case DotDot,
+    case DotDotEq,
+    case Ellipsis,
+    case LParen,
+    case RParen,
+    case LBrace,
+    case RBrace,
+    case LBracket,
+    case RBracket,
+    case Comma,
+    case Colon,
+    case Semicolon,
+    case Arrow,
+    case Dot,
+    case At,
+    case HashDirective,
+    case DollarParam,
+    case Newline,
+    case Eof
+}
+
+// A lexed token. `value` holds the token's canonical text (decoded, for strings;
+// underscores stripped, for numbers).
+//
+// NOTE (DF-116a): sawc/lexer.py's Token carries a fixed-width integer `suffix`
+// (e.g. "u8"). Mirroring it here is BLOCKED by a compiler miscompile — an
+// `Optional<String>` local copied into a struct field stored in a `Vector` loses
+// its payload (see designs/todo.md DF-116a for the minimal repro). Per the
+// no-workaround policy the suffix field is omitted from the model and the dump
+// until that is fixed. Suffixed literals are still lexed as a single INT token
+// with the correct boundary/value and are range-checked; only the suffix
+// attribute is not surfaced.
+public struct Token {
+    public kind: TokenKind
+    public value: String
+    public line: Int
+    public col: Int
+}
+
+// A lex error, positioned at 1-based line:col. Message prose is informational
+// (differential testing compares position + the ERROR tag, not the prose).
+public struct LexError {
+    public line: Int
+    public col: Int
+    public message: String
+}
+
+// =============================================================================
+// Keyword table (mirrors sawc/lexer.py KEYWORDS). Note: module/import/export/
+// package/parent are NOT keywords — the Python parser treats them specially, so
+// they lex as IDENT here too.
+// =============================================================================
+
+func keyword_kind(s: String) -> TokenKind {
+    match s {
+        case "func" -> TokenKind.Func,
+        case "let" -> TokenKind.Let,
+        case "var" -> TokenKind.Var,
+        case "if" -> TokenKind.If,
+        case "else" -> TokenKind.Else,
+        case "guard" -> TokenKind.Guard,
+        case "return" -> TokenKind.Return,
+        case "true" -> TokenKind.True_,
+        case "false" -> TokenKind.False_,
+        case "struct" -> TokenKind.Struct,
+        case "extension" -> TokenKind.Extension,
+        case "self" -> TokenKind.SelfKw,
+        case "init" -> TokenKind.Init,
+        case "None" -> TokenKind.NoneKw,
+        case "enum" -> TokenKind.Enum,
+        case "while" -> TokenKind.While,
+        case "break" -> TokenKind.Break,
+        case "continue" -> TokenKind.Continue,
+        case "case" -> TokenKind.Case,
+        case "match" -> TokenKind.Match,
+        case "trait" -> TokenKind.Trait,
+        case "for" -> TokenKind.For,
+        case "in" -> TokenKind.In,
+        case "type" -> TokenKind.TypeKw,
+        case "extern" -> TokenKind.Extern,
+        case "not" -> TokenKind.Not_,
+        case "move" -> TokenKind.Move_,
+        case "unsafe" -> TokenKind.Unsafe_,
+        case "as" -> TokenKind.As,
+        case "try" -> TokenKind.Try,
+        case "catch" -> TokenKind.Catch,
+        case "static" -> TokenKind.Static,
+        case "public" -> TokenKind.Public,
+        case _ -> TokenKind.Ident
+    }
+}
+
+// The dump KIND name for a kind (matches Python's TokenType.name exactly).
+public func kind_name(k: TokenKind) -> String {
+    match k {
+        case IntLit -> "INT",
+        case FloatLit -> "FLOAT",
+        case StringLit -> "STRING",
+        case InterpString -> "INTERP_STRING",
+        case BoolLit -> "BOOL",
+        case Ident -> "IDENT",
+        case Func -> "FUNC",
+        case Let -> "LET",
+        case Var -> "VAR",
+        case If -> "IF",
+        case Else -> "ELSE",
+        case Guard -> "GUARD",
+        case Return -> "RETURN",
+        case True_ -> "TRUE",
+        case False_ -> "FALSE",
+        case Struct -> "STRUCT",
+        case Extension -> "EXTENSION",
+        case SelfKw -> "SELF",
+        case Init -> "INIT",
+        case NoneKw -> "NONE",
+        case Enum -> "ENUM",
+        case Case -> "CASE",
+        case Match -> "MATCH",
+        case While -> "WHILE",
+        case Break -> "BREAK",
+        case Continue -> "CONTINUE",
+        case Trait -> "TRAIT",
+        case For -> "FOR",
+        case In -> "IN",
+        case TypeKw -> "TYPE",
+        case Extern -> "EXTERN",
+        case As -> "AS",
+        case Try -> "TRY",
+        case Catch -> "CATCH",
+        case Static -> "STATIC",
+        case Module -> "MODULE",
+        case Import -> "IMPORT",
+        case Public -> "PUBLIC",
+        case Export -> "EXPORT",
+        case Package -> "PACKAGE",
+        case Parent -> "PARENT",
+        case Plus -> "PLUS",
+        case Minus -> "MINUS",
+        case Star -> "STAR",
+        case Slash -> "SLASH",
+        case Percent -> "PERCENT",
+        case Eq -> "EQ",
+        case Neq -> "NEQ",
+        case Lt -> "LT",
+        case Gt -> "GT",
+        case Lte -> "LTE",
+        case Gte -> "GTE",
+        case And -> "AND",
+        case Or -> "OR",
+        case Ampersand -> "AMPERSAND",
+        case Pipe -> "PIPE",
+        case Caret -> "CARET",
+        case Tilde -> "TILDE",
+        case WrapAdd -> "WRAP_ADD",
+        case WrapSub -> "WRAP_SUB",
+        case WrapMul -> "WRAP_MUL",
+        case Not_ -> "NOT",
+        case Move_ -> "MOVE",
+        case Unsafe_ -> "UNSAFE",
+        case Assign -> "ASSIGN",
+        case PlusAssign -> "PLUS_ASSIGN",
+        case MinusAssign -> "MINUS_ASSIGN",
+        case StarAssign -> "STAR_ASSIGN",
+        case SlashAssign -> "SLASH_ASSIGN",
+        case PercentAssign -> "PERCENT_ASSIGN",
+        case AmpAssign -> "AMP_ASSIGN",
+        case PipeAssign -> "PIPE_ASSIGN",
+        case CaretAssign -> "CARET_ASSIGN",
+        case ShlAssign -> "SHL_ASSIGN",
+        case ShrAssign -> "SHR_ASSIGN",
+        case Question -> "QUESTION",
+        case DoubleQuestion -> "DOUBLE_QUESTION",
+        case Exclaim -> "EXCLAIM",
+        case QuestionDot -> "QUESTION_DOT",
+        case DotDot -> "DOTDOT",
+        case DotDotEq -> "DOTDOT_EQ",
+        case Ellipsis -> "ELLIPSIS",
+        case LParen -> "LPAREN",
+        case RParen -> "RPAREN",
+        case LBrace -> "LBRACE",
+        case RBrace -> "RBRACE",
+        case LBracket -> "LBRACKET",
+        case RBracket -> "RBRACKET",
+        case Comma -> "COMMA",
+        case Colon -> "COLON",
+        case Semicolon -> "SEMICOLON",
+        case Arrow -> "ARROW",
+        case Dot -> "DOT",
+        case At -> "AT",
+        case HashDirective -> "HASH_DIRECTIVE",
+        case DollarParam -> "DOLLAR_PARAM",
+        case Newline -> "NEWLINE",
+        case Eof -> "EOF"
+    }
+}
+
+// =============================================================================
+// Canonical dump formatting (shared by the CLI and the unit tests)
+// =============================================================================
+
+// Escape a token's byte payload for the one-line dump: backslash, the four named
+// control escapes, NUL, and any other control byte as \xHH; every other byte
+// (including raw UTF-8 >= 0x80) is emitted verbatim. tools/dump_tokens.py applies
+// the identical byte-level scheme so the two dumps compare byte-for-byte.
+public func escape_text(s: String) -> String {
+    var out = StringBuilder()
+    let n = s.len()
+    var i = 0
+    while i < n {
+        let u = ubyte(&s, i)
+        if u == B_BACKSLASH { out.append("\\\\") }
+        else if u == B_NL { out.append("\\n") }
+        else if u == B_TAB { out.append("\\t") }
+        else if u == B_CR { out.append("\\r") }
+        else if u == 0 { out.append("\\0") }
+        else if u < B_SPACE || u == B_DEL {
+            out.append("\\x")
+            out.append(hex_digit(u / 16))
+            out.append(hex_digit(u % 16))
+        }
+        else { out.append_char(to_i8(u)) }
+        i = i + 1
+    }
+    out.build()
+}
+
+// One canonical record: KIND<TAB>line:col<TAB>escaped-text[<TAB>suffix].
+public func format_token(t: &Token) -> String {
+    var out = StringBuilder()
+    out.append(kind_name(t.kind))
+    out.append("\t")
+    out.append(t.line)
+    out.append(":")
+    out.append(t.col)
+    out.append("\t")
+    out.append(escape_text(t.value))
+    out.build()
+}
+
+// One canonical error record: ERROR<TAB>line:col<TAB>message.
+public func format_error(e: &LexError) -> String {
+    var out = StringBuilder()
+    out.append("ERROR\t")
+    out.append(e.line)
+    out.append(":")
+    out.append(e.col)
+    out.append("\t")
+    out.append(e.message)
+    out.build()
+}
+
+// =============================================================================
+// Integer-literal range checking (no bignum, no overflow: magnitude by digits)
+// =============================================================================
+
+// Bit width for a fixed-width suffix, or 0 if the string is not a valid suffix.
+func suffix_width(s: String) -> Int {
+    match s {
+        case "i8" -> 8,
+        case "i16" -> 16,
+        case "i32" -> 32,
+        case "i64" -> 64,
+        case "u8" -> 8,
+        case "u16" -> 16,
+        case "u32" -> 32,
+        case "u64" -> 64,
+        case _ -> 0
+    }
+}
+
+// The strip of leading '0' bytes from a digit string (all-zero -> "").
+func strip_leading_zeros(s: String) -> String {
+    let n = s.len()
+    var i = 0
+    while i < n && ubyte(&s, i) == B_D0 {
+        i = i + 1
+    }
+    s.substring(i, n)
+}
+
+// Does the (already underscore-stripped) digit string in the given base fit in
+// 2**64 - 1? Decided by digit count, with an equal-length lexicographic compare
+// at the exact boundary — no arbitrary-precision arithmetic needed.
+func fits_u64(digits: String, base: Int) -> Bool {
+    let s = strip_leading_zeros(digits)
+    let n = s.len()
+    if base == 16 { return n <= 16 }
+    if base == 2 { return n <= 64 }
+    if base == 8 {
+        if n < 22 { return true }
+        if n > 22 { return false }
+        return not str_greater(s, "1777777777777777777777")
+    }
+    // base 10
+    if n < 20 { return true }
+    if n > 20 { return false }
+    not str_greater(s, "18446744073709551615")
+}
+
+func str_greater(a: String, b: String) -> Bool {
+    match a.compare(b) {
+        case Greater -> true,
+        case _ -> false
+    }
+}
+
+// Does the digit string in the given base fit in `bound`? For small bounds
+// (<= 2**32 - 1) a capped accumulation stays well within Int range.
+func capped_fits(digits: String, base: Int, bound: Int) -> Bool {
+    let n = digits.len()
+    var acc = 0
+    var i = 0
+    while i < n {
+        let d = hex_value(ubyte(&digits, i))
+        acc = acc * base + d
+        if acc > bound { return false }
+        i = i + 1
+    }
+    true
+}
+
+// Does `digits` (base `base`) fit in a `width`-bit unsigned field?
+func literal_fits(digits: String, base: Int, width: Int) -> Bool {
+    if width == 8 { return capped_fits(digits, base, 255) }
+    if width == 16 { return capped_fits(digits, base, 65535) }
+    if width == 32 { return capped_fits(digits, base, 4294967295) }
+    fits_u64(digits, base)
+}
+
+// =============================================================================
+// The lexer
+// =============================================================================
+
+struct Lexer {
+    src: String
+    slen: Int
+    pos: Int
+    line: Int
+    col: Int
+}
+
+extension Lexer {
+    func peek(&self) -> Int { ubyte(&self.src, self.pos) }
+    func peek1(&self) -> Int { ubyte(&self.src, self.pos + 1) }
+    func peek2(&self) -> Int { ubyte(&self.src, self.pos + 2) }
+
+    // Consume and return the byte at `pos`, updating line/col. Column advances
+    // once per code point: a UTF-8 continuation byte (0x80..0xBF) does not bump
+    // the column, so multi-byte characters count as a single column (matching
+    // the Python lexer's per-code-point counting).
+    func advance(&var self) -> Int {
+        let b = ubyte(&self.src, self.pos)
+        self.pos = self.pos + 1
+        if b == B_NL {
+            self.line = self.line + 1
+            self.col = 1
+        } else if b < B_CONT_LO || b > B_CONT_HI {
+            self.col = self.col + 1
+        }
+        b
+    }
+
+    func err(&self, msg: String) -> LexError {
+        LexError(line: self.line, col: self.col, message: msg)
+    }
+
+    func err_at(&self, msg: String, l: Int, c: Int) -> LexError {
+        LexError(line: l, col: c, message: msg)
+    }
+
+    // A token at the CURRENT position (used before advancing over operators).
+    func tok(&self, kind: TokenKind, value: String) -> Token {
+        Token(kind: kind, value: value, line: self.line, col: self.col)
+    }
+
+    func skip_whitespace(&var self) {
+        while self.peek() == B_SPACE || self.peek() == B_TAB || self.peek() == B_CR {
+            let _ = self.advance()
+        }
+    }
+
+    func skip_comment(&var self) {
+        if self.peek() == B_SLASH && self.peek1() == B_SLASH {
+            while self.peek() != -1 && self.peek() != B_NL {
+                let _ = self.advance()
+            }
+        }
+    }
+
+    // Read the tail of a `\u{XXXX}` escape (the `\u` already consumed) and append
+    // the scalar's UTF-8 bytes to `out`. Surrogates and values > 0x10FFFF are
+    // rejected so string literals stay valid UTF-8.
+    func read_unicode_escape(&var self, out: &var StringBuilder) -> Result<Void, LexError> {
+        if self.peek() != B_LBRACE {
+            return self.err("expected an opening brace after backslash-u in a Unicode escape")
+        }
+        let _ = self.advance()  // consume '{'
+        var hex = StringBuilder()
+        var count = 0
+        var ok = true
+        while self.peek() != -1 && self.peek() != B_RBRACE {
+            let d = self.advance()
+            hex.append_char(to_i8(d))
+            count = count + 1
+            if not is_hex(d) { ok = false }
+        }
+        if self.peek() != B_RBRACE {
+            return self.err("unterminated Unicode escape")
+        }
+        let _ = self.advance()  // consume '}'
+        if count < 1 || count > 6 || not ok {
+            return self.err("Unicode escape must contain 1-6 hexadecimal digits")
+        }
+        let hex_str = hex.build()
+        var cp = 0
+        var i = 0
+        while i < hex_str.len() {
+            cp = cp * 16 + hex_value(ubyte(&hex_str, i))
+            i = i + 1
+        }
+        if cp > 1114111 {
+            return self.err("Unicode escape is greater than the maximum scalar 0x10FFFF")
+        }
+        if cp >= 55296 && cp <= 57343 {
+            return self.err("Unicode escape is a surrogate code point")
+        }
+        encode_utf8(cp, &var out)
+        return
+    }
+
+    // Read a string literal, detecting interpolation markers. Escapes are decoded
+    // exactly as in the Python lexer; escaped braces store a 0x01 sentinel byte;
+    // interpolation braces are preserved raw. Returns the token.
+    func read_string(&var self) -> Result<Token, LexError> {
+        let start_line = self.line
+        let start_col = self.col
+        let _ = self.advance()  // consume opening quote
+        var out = StringBuilder()
+        var has_interp = false
+
+        while self.peek() != -1 && self.peek() != B_QUOTE {
+            if self.peek() == B_BACKSLASH {
+                let _ = self.advance()
+                let ch = self.advance()
+                if ch == B_LO_N { out.append_char(to_i8(B_NL)) }
+                else if ch == B_LO_T { out.append_char(to_i8(B_TAB)) }
+                else if ch == B_LO_R { out.append_char(to_i8(B_CR)) }
+                else if ch == B_D0 { out.append_char(to_i8(0)) }
+                else if ch == B_QUOTE { out.append_char(to_i8(B_QUOTE)) }
+                else if ch == B_BACKSLASH { out.append_char(to_i8(B_BACKSLASH)) }
+                else if ch == B_LBRACE {
+                    out.append_char(to_i8(B_MARKER))
+                    out.append_char(to_i8(B_LBRACE))
+                }
+                else if ch == B_RBRACE {
+                    out.append_char(to_i8(B_MARKER))
+                    out.append_char(to_i8(B_RBRACE))
+                }
+                else if ch == B_LO_U {
+                    try self.read_unicode_escape(&var out)
+                }
+                else {
+                    return self.err("unknown escape in a string literal")
+                }
+            } else if self.peek() == B_LBRACE {
+                has_interp = true
+                out.append_char(to_i8(self.advance()))  // keep '{'
+                var depth = 1
+                while self.peek() != -1 && depth > 0 {
+                    let c = self.peek()
+                    if c == B_LBRACE { depth = depth + 1 }
+                    else if c == B_RBRACE { depth = depth - 1 }
+                    out.append_char(to_i8(self.advance()))
+                }
+                if depth > 0 {
+                    return self.err("Unterminated interpolation in string")
+                }
+            } else {
+                out.append_char(to_i8(self.advance()))
+            }
+        }
+
+        if self.peek() == -1 {
+            return self.err("Unterminated string")
+        }
+        let _ = self.advance()  // consume closing quote
+        let kind = if has_interp { TokenKind.InterpString } else { TokenKind.StringLit }
+        Token(kind: kind, value: out.build(), line: start_line, col: start_col)
+    }
+
+    // Positioned just after an integer's digits, tentatively read a fixed-width
+    // suffix (e.g. `u8`). Returns the suffix and consumes it, or returns None and
+    // consumes nothing when the following bytes are not a clean suffix.
+    func try_read_int_suffix(&var self) -> String? {
+        let ch = self.peek()
+        if ch != B_LO_I && ch != B_LO_U {
+            return None
+        }
+        var j = self.pos + 1
+        var digits = StringBuilder()
+        while j < self.slen && is_digit(ubyte(&self.src, j)) {
+            digits.append_char(to_i8(ubyte(&self.src, j)))
+            j = j + 1
+        }
+        var cand = StringBuilder()
+        cand.append_char(to_i8(ch))
+        cand.append(digits.build())
+        let cand_str = cand.build()
+        if suffix_width(cand_str) == 0 {
+            return None
+        }
+        // A trailing identifier byte means this was not a bare suffix.
+        if j < self.slen {
+            let nb = ubyte(&self.src, j)
+            if is_alnum(nb) || nb == B_UNDERSCORE {
+                return None
+            }
+        }
+        var k = 0
+        while k < cand_str.len() {
+            let _ = self.advance()
+            k = k + 1
+        }
+        cand_str
+    }
+
+    func read_number(&var self) -> Result<Token, LexError> {
+        let start_line = self.line
+        let start_col = self.col
+        let n = self.peek1()
+
+        // Based integer literals: 0x / 0b / 0o (prefix char case-insensitive).
+        if self.peek() == B_D0 && (n == B_LO_X || n == B_UP_X || n == B_LO_B || n == B_UP_B || n == B_LO_O || n == B_UP_O) {
+            let base = if n == B_LO_X || n == B_UP_X { 16 } else if n == B_LO_B || n == B_UP_B { 2 } else { 8 }
+            let prefix_str = if base == 16 { "x" } else if base == 2 { "b" } else { "o" }
+            let _ = self.advance()  // '0'
+            let _ = self.advance()  // base char
+            var digits = StringBuilder()
+            while in_base_set(self.peek(), base) {
+                let d = self.advance()
+                if d != B_UNDERSCORE { digits.append_char(to_i8(d)) }
+            }
+            let digit_str = digits.build()
+            if digit_str.is_empty() {
+                return self.err("integer literal has no digits after the base prefix")
+            }
+            let suffix = self.try_read_int_suffix()
+            if let sfx = suffix {
+                if not literal_fits(digit_str, base, suffix_width(sfx)) {
+                    return self.err_at("integer literal out of range for its suffix", start_line, start_col)
+                }
+            } else {
+                if not literal_fits(digit_str, base, 64) {
+                    return self.err_at("integer literal out of range for a 64-bit integer", start_line, start_col)
+                }
+            }
+            var vb = StringBuilder()
+            vb.append("0")
+            vb.append(prefix_str)
+            vb.append(digit_str)
+            return Token(kind: TokenKind.IntLit, value: vb.build(), line: start_line, col: start_col)
+        }
+
+        // Decimal integer or float, with underscore digit separators.
+        var val = StringBuilder()
+        var is_float = false
+        var going = true
+        while going {
+            let c = self.peek()
+            if is_digit(c) {
+                val.append_char(to_i8(self.advance()))
+            } else if c == B_DOT {
+                if self.peek1() == B_DOT {
+                    going = false           // range operator `..` — leave the dot
+                } else if is_float {
+                    going = false
+                } else {
+                    is_float = true
+                    val.append_char(to_i8(self.advance()))
+                }
+            } else if c == B_UNDERSCORE {
+                let _ = self.advance()      // strip underscore separators
+            } else {
+                going = false
+            }
+        }
+        let value = val.build()
+        if is_float {
+            return Token(kind: TokenKind.FloatLit, value: value, line: start_line, col: start_col)
+        }
+        let suffix = self.try_read_int_suffix()
+        if let sfx = suffix {
+            if not literal_fits(value, 10, suffix_width(sfx)) {
+                return self.err_at("integer literal out of range for its suffix", start_line, start_col)
+            }
+        } else {
+            if not literal_fits(value, 10, 64) {
+                return self.err_at("integer literal out of range for a 64-bit integer", start_line, start_col)
+            }
+        }
+        Token(kind: TokenKind.IntLit, value: value, line: start_line, col: start_col)
+    }
+
+    func read_hash_directive(&var self) -> Result<Token, LexError> {
+        let start_line = self.line
+        let start_col = self.col
+        let _ = self.advance()  // consume '#'
+        var name = StringBuilder()
+        while is_alnum(self.peek()) || self.peek() == B_UNDERSCORE {
+            name.append_char(to_i8(self.advance()))
+        }
+        let name_str = name.build()
+        if name_str.is_empty() {
+            return self.err_at("expected a directive name after `#`", start_line, start_col)
+        }
+        let known = name_str.equals("file") || name_str.equals("line") || name_str.equals("function")
+        if not known {
+            return self.err_at("unknown directive after `#`", start_line, start_col)
+        }
+        Token(kind: TokenKind.HashDirective, value: name_str, line: start_line, col: start_col)
+    }
+
+    func read_identifier(&var self) -> Token {
+        let start_line = self.line
+        let start_col = self.col
+        var sb = StringBuilder()
+        while is_alnum(self.peek()) || self.peek() == B_UNDERSCORE {
+            sb.append_char(to_i8(self.advance()))
+        }
+        let value = sb.build()
+        Token(kind: keyword_kind(value), value: value, line: start_line, col: start_col)
+    }
+
+    func read_dollar(&var self) -> Result<Token, LexError> {
+        let start_line = self.line
+        let start_col = self.col
+        let _ = self.advance()  // consume '$'
+        if not is_digit(self.peek()) {
+            return self.err("Expected number after `$` for shorthand closure parameter")
+        }
+        var num = StringBuilder()
+        num.append_char(to_i8(B_DOLLAR))
+        while is_digit(self.peek()) {
+            num.append_char(to_i8(self.advance()))
+        }
+        Token(kind: TokenKind.DollarParam, value: num.build(), line: start_line, col: start_col)
+    }
+
+    func tokenize(&var self) -> Result<Vector<Token>, LexError> {
+        var tokens = Vector<Token>()
+        while self.pos < self.slen {
+            self.skip_whitespace()
+            self.skip_comment()
+            if self.pos >= self.slen {
+                break
+            }
+            let ch = self.peek()
+
+            if ch == B_NL {
+                tokens.push(self.tok(TokenKind.Newline, "\n"))
+                let _ = self.advance()
+            } else if ch == B_QUOTE {
+                tokens.push(try self.read_string())
+            } else if is_digit(ch) {
+                tokens.push(try self.read_number())
+            } else if is_alpha(ch) || ch == B_UNDERSCORE {
+                tokens.push(self.read_identifier())
+            } else if ch == B_PLUS {
+                if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.PlusAssign, "+="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Plus, "+"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_MINUS {
+                if self.peek1() == B_GT {
+                    tokens.push(self.tok(TokenKind.Arrow, "->"))
+                    self.advance2()
+                } else if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.MinusAssign, "-="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Minus, "-"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_STAR {
+                if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.StarAssign, "*="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Star, "*"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_SLASH {
+                if self.peek1() == B_SLASH {
+                    self.skip_comment()
+                } else if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.SlashAssign, "/="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Slash, "/"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_PERCENT {
+                if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.PercentAssign, "%="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Percent, "%"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_AMP {
+                if self.peek1() == B_AMP {
+                    tokens.push(self.tok(TokenKind.And, "&&"))
+                    self.advance2()
+                } else if self.peek1() == B_PLUS {
+                    tokens.push(self.tok(TokenKind.WrapAdd, "&+"))
+                    self.advance2()
+                } else if self.peek1() == B_MINUS {
+                    tokens.push(self.tok(TokenKind.WrapSub, "&-"))
+                    self.advance2()
+                } else if self.peek1() == B_STAR {
+                    tokens.push(self.tok(TokenKind.WrapMul, "&*"))
+                    self.advance2()
+                } else if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.AmpAssign, "&="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Ampersand, "&"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_PIPE {
+                if self.peek1() == B_PIPE {
+                    tokens.push(self.tok(TokenKind.Or, "||"))
+                    self.advance2()
+                } else if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.PipeAssign, "|="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Pipe, "|"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_CARET {
+                if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.CaretAssign, "^="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Caret, "^"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_TILDE {
+                tokens.push(self.tok(TokenKind.Tilde, "~"))
+                let _ = self.advance()
+            } else if ch == B_EQ {
+                if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.Eq, "=="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Assign, "="))
+                    let _ = self.advance()
+                }
+            } else if ch == B_EXCLAIM {
+                if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.Neq, "!="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Exclaim, "!"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_QUESTION {
+                if self.peek1() == B_QUESTION {
+                    tokens.push(self.tok(TokenKind.DoubleQuestion, "??"))
+                    self.advance2()
+                } else if self.peek1() == B_DOT {
+                    tokens.push(self.tok(TokenKind.QuestionDot, "?."))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Question, "?"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_LT {
+                if self.peek1() == B_LT && self.peek2() == B_EQ {
+                    tokens.push(self.tok(TokenKind.ShlAssign, "<<="))
+                    self.advance3()
+                } else if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.Lte, "<="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Lt, "<"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_GT {
+                if self.peek1() == B_GT && self.peek2() == B_EQ {
+                    tokens.push(self.tok(TokenKind.ShrAssign, ">>="))
+                    self.advance3()
+                } else if self.peek1() == B_EQ {
+                    tokens.push(self.tok(TokenKind.Gte, ">="))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Gt, ">"))
+                    let _ = self.advance()
+                }
+            } else if ch == B_LPAREN {
+                tokens.push(self.tok(TokenKind.LParen, "("))
+                let _ = self.advance()
+            } else if ch == B_RPAREN {
+                tokens.push(self.tok(TokenKind.RParen, ")"))
+                let _ = self.advance()
+            } else if ch == B_LBRACE {
+                tokens.push(self.tok(TokenKind.LBrace, char_str(B_LBRACE)))
+                let _ = self.advance()
+            } else if ch == B_RBRACE {
+                tokens.push(self.tok(TokenKind.RBrace, char_str(B_RBRACE)))
+                let _ = self.advance()
+            } else if ch == B_LBRACKET {
+                tokens.push(self.tok(TokenKind.LBracket, "["))
+                let _ = self.advance()
+            } else if ch == B_RBRACKET {
+                tokens.push(self.tok(TokenKind.RBracket, "]"))
+                let _ = self.advance()
+            } else if ch == B_SEMI {
+                tokens.push(self.tok(TokenKind.Semicolon, ";"))
+                let _ = self.advance()
+            } else if ch == B_COMMA {
+                tokens.push(self.tok(TokenKind.Comma, ","))
+                let _ = self.advance()
+            } else if ch == B_COLON {
+                tokens.push(self.tok(TokenKind.Colon, ":"))
+                let _ = self.advance()
+            } else if ch == B_DOT {
+                if self.peek1() == B_DOT && self.peek2() == B_DOT {
+                    tokens.push(self.tok(TokenKind.Ellipsis, "..."))
+                    self.advance3()
+                } else if self.peek1() == B_DOT && self.peek2() == B_EQ {
+                    tokens.push(self.tok(TokenKind.DotDotEq, "..="))
+                    self.advance3()
+                } else if self.peek1() == B_DOT {
+                    tokens.push(self.tok(TokenKind.DotDot, ".."))
+                    self.advance2()
+                } else {
+                    tokens.push(self.tok(TokenKind.Dot, "."))
+                    let _ = self.advance()
+                }
+            } else if ch == B_AT {
+                tokens.push(self.tok(TokenKind.At, "@"))
+                let _ = self.advance()
+            } else if ch == B_HASH {
+                tokens.push(try self.read_hash_directive())
+            } else if ch == B_DOLLAR {
+                tokens.push(try self.read_dollar())
+            } else {
+                return self.err("Unexpected character")
+            }
+        }
+        tokens.push(self.tok(TokenKind.Eof, ""))
+        move tokens
+    }
+
+    func advance2(&var self) {
+        let _ = self.advance()
+        let _ = self.advance()
+    }
+
+    func advance3(&var self) {
+        let _ = self.advance()
+        let _ = self.advance()
+        let _ = self.advance()
+    }
+}
+
+func in_base_set(b: Int, base: Int) -> Bool {
+    if b == B_UNDERSCORE { return true }
+    if base == 16 { return is_hex(b) }
+    if base == 2 { return b == B_D0 || b == B_D1 }
+    b >= B_D0 && b <= B_D7
+}
+
+// Encode a Unicode scalar as UTF-8 into `out`.
+func encode_utf8(cp: Int, out: &var StringBuilder) {
+    if cp < 128 {
+        out.append_char(to_i8(cp))
+    } else if cp < 2048 {
+        out.append_char(to_i8(192 + (cp / 64)))
+        out.append_char(to_i8(128 + (cp % 64)))
+    } else if cp < 65536 {
+        out.append_char(to_i8(224 + (cp / 4096)))
+        out.append_char(to_i8(128 + ((cp / 64) % 64)))
+        out.append_char(to_i8(128 + (cp % 64)))
+    } else {
+        out.append_char(to_i8(240 + (cp / 262144)))
+        out.append_char(to_i8(128 + ((cp / 4096) % 64)))
+        out.append_char(to_i8(128 + ((cp / 64) % 64)))
+        out.append_char(to_i8(128 + (cp % 64)))
+    }
+}
+
+// Tokenize `source` into a Vector of tokens (terminated by an EOF token), or
+// return the first lex error. Mirrors sawc/lexer.py's observable output.
+public func lex(source: String) -> Result<Vector<Token>, LexError> {
+    var lexer = Lexer(src: source, slen: source.len(), pos: 0, line: 1, col: 1)
+    lexer.tokenize()
+}
