@@ -84,7 +84,7 @@ long __saw_rt_set_nonblocking(long fd) {
  * PUBLISH `done` (atomic release) after the store, then write one byte to the
  * job's self-pipe. `__saw_offload_thread_ptr` hands the Saw `offload_start` the
  * thunk's address (Saw cannot name a C function pointer either), which it
- * forwards to __saw_rt_pthread_create.
+ * forwards to __saw_rt_thread_spawn.
  *
  * The struct layout MUST match `struct Job` in offload.saw (sizeof == 48, guarded
  * by a static_assert there): { i64 fn, arg, result, done; i32 pipe_r, pipe_w;
@@ -112,7 +112,7 @@ static void *__saw_offload_thread(void *jobp) {
 }
 
 /* The offload thunk's address as an opaque pointer (Saw has no C function-
- * pointer type). offload_start forwards it to __saw_rt_pthread_create. */
+ * pointer type). offload_start forwards it to __saw_rt_thread_spawn. */
 void *__saw_offload_thread_ptr(void) {
     return (void *)__saw_offload_thread;
 }
