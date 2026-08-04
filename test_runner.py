@@ -8,6 +8,14 @@ Test expectations are specified via comments in the source files:
     // EXPECT: success        - Should compile and run without error
     // EXPECT: error          - Should fail to compile
     // EXPECT: panic          - Should compile but panic at runtime
+    // EXPECT: object         - Should compile to an object file; do NOT run it
+                                (for --freestanding / -c compiles). Inspect the
+                                object's symbols with EXPECT-SYMBOL-UNDEFINED.
+    // EXPECT-SYMBOL-UNDEFINED: sym  - `nm` shows `sym` as an UNDEFINED (external)
+                                symbol in the compiled object — never a local
+                                definition. Used to prove the freestanding profile
+                                still EXTERNS the runtime seams and links no runtime
+                                (design 113 / 113b negative test).
     // EXPECT: skip           - Skip this file (library modules, etc.)
     // EXPECT-OUTPUT:         - Next lines are expected stdout (until next directive or code)
     // some output
@@ -38,6 +46,7 @@ class ExpectType(Enum):
     SUCCESS = "success"
     ERROR = "error"
     PANIC = "panic"  # Runtime panic (compiles but aborts at runtime)
+    OBJECT = "object"  # Compile to a .o and inspect symbols; do not run
 
 
 class TestStatus(Enum):
@@ -64,6 +73,7 @@ class TestCase:
     expected_panic_contains: List[str]  # For panic tests
     xfail_reason: Optional[str] = None  # Set by '// XFAIL: reason'
     compile_flags: List[str] = None  # Extra sawc flags from '// COMPILE-FLAGS:'
+    expected_undefined_symbols: List[str] = None  # '// EXPECT-SYMBOL-UNDEFINED:'
 
 
 class Colors:
@@ -96,6 +106,7 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
     expected_panic_contains = []
     xfail_reason = None
     compile_flags = []
+    expected_undefined_symbols = []
 
     with open(file_path, 'r') as f:
         in_output_block = False
@@ -115,8 +126,16 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
                     expect_type = ExpectType.ERROR
                 elif directive == 'panic':
                     expect_type = ExpectType.PANIC
+                elif directive == 'object':
+                    expect_type = ExpectType.OBJECT
                 elif directive == 'skip':
                     return None  # Skip this file entirely
+                in_output_block = False
+
+            elif '// EXPECT-SYMBOL-UNDEFINED:' in line:
+                sym = line.split('// EXPECT-SYMBOL-UNDEFINED:')[1].strip()
+                if sym:
+                    expected_undefined_symbols.append(sym)
                 in_output_block = False
 
             elif '// EXPECT-OUTPUT:' in line:
@@ -166,7 +185,8 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
         expected_error_contains=expected_error_contains,
         expected_panic_contains=expected_panic_contains,
         xfail_reason=xfail_reason,
-        compile_flags=compile_flags
+        compile_flags=compile_flags,
+        expected_undefined_symbols=expected_undefined_symbols
     )
 
 
@@ -276,6 +296,8 @@ def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
         return False, "Error test must have at least one '// EXPECT-ERROR-CONTAINS:' directive"
     if test.expect_type == ExpectType.PANIC and not test.expected_panic_contains:
         return False, "Panic test must have at least one '// EXPECT-PANIC-CONTAINS:' directive"
+    if test.expect_type == ExpectType.OBJECT and not test.expected_undefined_symbols:
+        return False, "Object test must have at least one '// EXPECT-SYMBOL-UNDEFINED:' directive"
 
     with tempfile.TemporaryDirectory() as tmpdir:
         exe_path = Path('.build') / test.name
@@ -316,6 +338,51 @@ def run_test(test: TestCase, verbose: bool = False) -> tuple[bool, str]:
                     return False, f"Panic message should contain '{expected_text}'\nGot: {combined_output[:300]}"
 
             return True, "Panicked as expected"
+
+        elif test.expect_type == ExpectType.OBJECT:
+            # Compile to an object file (e.g. --freestanding / -c) and inspect its
+            # symbol table with `nm`; never run it. Proves the compiled object
+            # EXTERNS the given symbols (undefined references) rather than defining
+            # them — the design-113/113b freestanding-still-externs negative test.
+            if not compile_success:
+                return False, f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
+
+            # sawc appends `.o` for -c / --freestanding output paths.
+            obj = exe_path if exe_path.suffix == '.o' else Path(str(exe_path) + '.o')
+            if not obj.exists():
+                return False, f"Expected object file not found: {obj}"
+
+            nm = subprocess.run(["nm", str(obj)], capture_output=True, text=True)
+            if nm.returncode != 0:
+                return False, f"`nm` failed on {obj}:\n{nm.stderr[:300]}"
+
+            # Parse `nm` lines: "<addr?> <type> <name>". A `U` type is undefined
+            # (an external reference); any other type is a local definition.
+            undefined = set()
+            defined = set()
+            for ln in nm.stdout.splitlines():
+                parts = ln.split()
+                if len(parts) < 2:
+                    continue
+                sym_type, name = parts[-2], parts[-1]
+                (undefined if sym_type in ('U', 'u') else defined).add(name)
+
+            def _present(sym, names):
+                # macOS nm prefixes C symbols with `_`; match either spelling.
+                return sym in names or ('_' + sym) in names or ('__' + sym) in names
+
+            for sym in test.expected_undefined_symbols:
+                if _present(sym, defined):
+                    return False, (f"Symbol `{sym}` is DEFINED in {obj.name} but was "
+                                   f"expected to be an undefined external reference "
+                                   f"(the freestanding profile must not bake in a "
+                                   f"runtime body).")
+                if not _present(sym, undefined):
+                    return False, (f"Symbol `{sym}` is neither undefined nor defined "
+                                   f"in {obj.name} — expected an undefined external "
+                                   f"reference. `nm` output:\n{nm.stdout[:400]}")
+
+            return True, "Object symbols as expected"
 
         else:  # ExpectType.SUCCESS
             # Should compile successfully

@@ -1,0 +1,26 @@
+// design 113 / 113b negative test: a `--freestanding` compile still EXTERNS the
+// runtime `__saw_rt_*` seams (declarations, resolved by the kernel/environment)
+// and auto-links NO runtime — the Saw runtime under `sawc/rt/` is a HOSTED-only
+// convenience. Proven by inspecting the object's symbol table: the seams appear
+// as UNDEFINED external references, never local definitions.
+//
+// (Targets an ELF triple: the freestanding profile places per-symbol
+// `.text.<name>` sections for `--gc-sections`, which the mach-O host rejects —
+// freestanding is always a cross-compile to an ELF target.)
+// COMPILE-FLAGS: --freestanding --target x86_64-unknown-linux-gnu
+// EXPECT: object
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_alloc
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write
+
+@export("kmain")
+func kmain() {
+    // print(...) routes through __saw_rt_write; the Vector allocation routes
+    // through __saw_rt_alloc — so both seams are referenced (and, freestanding,
+    // left as undefined externals for the kernel to supply).
+    let v: Vector<Int> = [1, 2, 3]
+    var total = 0
+    for x in v.iter() {
+        total = total + x
+    }
+    print(total)
+}
