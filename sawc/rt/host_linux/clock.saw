@@ -1,0 +1,32 @@
+// std.time clock seams (design 57 / 113b) — Linux.
+//
+// `clock_gettime(clk_id, &timespec)`; on the 64-bit hosted targets
+// `struct timespec` is { Int64 tv_sec; Int64 tv_nsec }. OS-divergent:
+// CLOCK_MONOTONIC is 1 on Linux (6 on macOS); CLOCK_REALTIME is 0 on both.
+
+extern "C" {
+    func clock_gettime(clk_id: Int32, tp: UnsafePointer<Int8>) -> Int32
+}
+
+struct Timespec {
+    tv_sec: Int64
+    tv_nsec: Int64
+}
+
+// CLOCK_MONOTONIC (Linux) / CLOCK_REALTIME.
+static CLOCK_MONOTONIC: Int32 = 1
+static CLOCK_REALTIME: Int32 = 0
+
+@export("__saw_rt_clock_monotonic_nanos")
+func rt_clock_monotonic_nanos() -> Int64 {
+    var ts = Timespec(tv_sec: 0, tv_nsec: 0)
+    clock_gettime(CLOCK_MONOTONIC, (&ts) as UnsafePointer<Int8>)
+    ts.tv_sec &* (1000000000 as Int64) &+ ts.tv_nsec
+}
+
+@export("__saw_rt_unix_timestamp_secs")
+func rt_unix_timestamp_secs() -> Int64 {
+    var ts = Timespec(tv_sec: 0, tv_nsec: 0)
+    clock_gettime(CLOCK_REALTIME, (&ts) as UnsafePointer<Int8>)
+    ts.tv_sec
+}

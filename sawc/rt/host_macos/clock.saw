@@ -1,0 +1,34 @@
+// std.time clock seams (design 57 / 113b) — macOS.
+//
+// `clock_gettime(clk_id, &timespec)`; on the 64-bit hosted targets
+// `struct timespec` is { Int64 tv_sec; Int64 tv_nsec } (declared here as a Saw
+// struct — declaration-order natural ABI). OS-divergent: CLOCK_MONOTONIC is 6
+// on macOS (1 on Linux); CLOCK_REALTIME is 0 on both — this constant is exactly
+// what makes these host-runtime material.
+
+extern "C" {
+    func clock_gettime(clk_id: Int32, tp: UnsafePointer<Int8>) -> Int32
+}
+
+struct Timespec {
+    tv_sec: Int64
+    tv_nsec: Int64
+}
+
+// CLOCK_MONOTONIC (macOS) / CLOCK_REALTIME.
+static CLOCK_MONOTONIC: Int32 = 6
+static CLOCK_REALTIME: Int32 = 0
+
+@export("__saw_rt_clock_monotonic_nanos")
+func rt_clock_monotonic_nanos() -> Int64 {
+    var ts = Timespec(tv_sec: 0, tv_nsec: 0)
+    clock_gettime(CLOCK_MONOTONIC, (&ts) as UnsafePointer<Int8>)
+    ts.tv_sec &* (1000000000 as Int64) &+ ts.tv_nsec
+}
+
+@export("__saw_rt_unix_timestamp_secs")
+func rt_unix_timestamp_secs() -> Int64 {
+    var ts = Timespec(tv_sec: 0, tv_nsec: 0)
+    clock_gettime(CLOCK_REALTIME, (&ts) as UnsafePointer<Int8>)
+    ts.tv_sec
+}

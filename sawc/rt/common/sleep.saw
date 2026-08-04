@@ -1,0 +1,19 @@
+// The thread-park timer seam (design 45 / 113b), authored in Saw.
+//
+// `__saw_rt_sleep_ms(ms)` parks the current OS thread for `ms` milliseconds
+// (behind `sleep(ms)` and the executor's timed waits). A non-positive request
+// returns at once. Hosted default: usleep(ms * 1000). `usleep` takes
+// microseconds as a 32-bit unsigned; the multiply + narrowing truncate exactly
+// as the pre-113 synthesized seam did (wrapping `&*`, truncating `as Int32`).
+
+extern "C" {
+    func usleep(us: Int32) -> Int32
+}
+
+@export("__saw_rt_sleep_ms")
+func rt_sleep_ms(ms: Int) {
+    if ms > 0 {
+        let us = ms &* 1000
+        usleep(us as Int32)
+    }
+}

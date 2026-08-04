@@ -1,0 +1,24 @@
+// The global allocation seams (design 113 / 113b), authored in Saw.
+//
+// `__saw_rt_alloc`/`__saw_rt_dealloc` are the hosted default allocator: thin
+// wrappers over libc malloc/free. `align` is ignored — malloc guarantees an
+// alignment of at least alignof(max_align_t) (>= 16 on the hosted targets),
+// which covers every Saw allocation. The seams return/free a RAW `i8*` (NULL on
+// failure); the optional-wrapping (`UnsafePointer<Int8>?`) is added at the Saw
+// call site by std/alloc.saw's `extern` declaration, so the ABI symbol itself
+// is a plain pointer (an `@export` return cannot be optional).
+
+extern "C" {
+    func malloc(size: Int) -> UnsafePointer<Int8>
+    func free(ptr: UnsafePointer<Int8>)
+}
+
+@export("__saw_rt_alloc")
+func rt_alloc(size: Int, align: Int) -> UnsafePointer<Int8> {
+    malloc(size)
+}
+
+@export("__saw_rt_dealloc")
+func rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+    free(ptr)
+}

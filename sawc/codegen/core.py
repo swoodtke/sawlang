@@ -569,101 +569,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         _seams = (saw_alloc, saw_dealloc, saw_write, saw_panic, saw_sleep_ms,
                   saw_clock_monotonic_nanos, saw_unix_timestamp_secs)
-        if self._seams_external_only:
-            # Declarations only; the environment (freestanding) or the linked Saw
-            # runtime (hosted, design 113b) supplies the definitions. Under
-            # --runtime-build a `@export` of the same name collapses into the
-            # declaration (design-58 unify), so the runtime provides the body.
-            for fn in _seams:
-                fn.linkage = "external"
-            return
-
-        # ---- hosted weak definitions ----------------------------------------
+        # design 113b: these seam BODIES are now authored in Saw + shim.c under
+        # `sawc/rt/` (common/mem.saw, common/sleep.saw, host_*/clock.saw,
+        # shim.c) and linked into hosted builds by rt_build.py; the compiler only
+        # DECLARES them (external), exactly as the freestanding profile always
+        # did. A user program links the runtime; a `--runtime-build` module's
+        # `@export` of the same name collapses into the declaration (design-58
+        # unify). No profile synthesizes these bodies in IR anymore.
         for fn in _seams:
-            fn.linkage = "weak"
-
-        malloc_fn = self._libc_func("malloc", i8ptr, [i64])
-        free_fn = self._libc_func("free", void, [i8ptr])
-
-        # saw_alloc: malloc(size). `align` is ignored: malloc guarantees an
-        # alignment of at least alignof(max_align_t) (>= 16 on the targets we
-        # support), which covers every Saw allocation today.
-        b = ir.IRBuilder(saw_alloc.append_basic_block("entry"))
-        b.ret(b.call(malloc_fn, [saw_alloc.args[0]]))
-
-        # saw_dealloc: free(ptr). `size`/`align` are ignored by the libc default.
-        b = ir.IRBuilder(saw_dealloc.append_basic_block("entry"))
-        b.call(free_fn, [saw_dealloc.args[0]])
-        b.ret_void()
-
-        # saw_write: fwrite(ptr, 1, len, stdout). Routing through C stdio (rather
-        # than a raw write(2)) keeps print output on the same buffered stream as
-        # the printf-based Float path, so interleaved int/float prints keep their
-        # program order and flush semantics byte-for-byte.
-        fwrite_fn = self._libc_func("fwrite", i64, [i8ptr, i64, i64, i8ptr])
-        stdout_sym = "__stdoutp" if self._is_apple_triple() else "stdout"
-        stdout_g = ir.GlobalVariable(self.module, i8ptr, name=stdout_sym)
-        stdout_g.linkage = "external"
-        b = ir.IRBuilder(saw_write.append_basic_block("entry"))
-        stream = b.load(stdout_g, name="stdout")
-        b.call(fwrite_fn, [saw_write.args[0], ir.Constant(i64, 1),
-                           saw_write.args[1], stream])
-        b.call(self._libc_func("fflush", ir.IntType(32), [i8ptr]), [stream])
-        b.ret_void()
-
-        # saw_panic: saw_write(msg, len) then abort(). Marked noreturn.
-        abort_fn = self.abort
-        b = ir.IRBuilder(saw_panic.append_basic_block("entry"))
-        b.call(saw_write, [saw_panic.args[0], saw_panic.args[1]])
-        b.call(abort_fn, [])
-        b.unreachable()
-
-        # saw_sleep_ms: usleep(ms * 1000). `usleep` takes microseconds as a 32-bit
-        # unsigned; a non-positive request returns at once (no wait).
-        i32 = ir.IntType(32)
-        usleep_fn = self._libc_func("usleep", i32, [i32])
-        b = ir.IRBuilder(saw_sleep_ms.append_basic_block("entry"))
-        ms = saw_sleep_ms.args[0]
-        pos = b.icmp_signed(">", ms, ir.Constant(i64, 0))
-        do_bb = saw_sleep_ms.append_basic_block("do")
-        ret_bb = saw_sleep_ms.append_basic_block("ret")
-        b.cbranch(pos, do_bb, ret_bb)
-        b = ir.IRBuilder(do_bb)
-        us = b.mul(ms, ir.Constant(i64, 1000))
-        b.call(usleep_fn, [b.trunc(us, i32)])
-        b.branch(ret_bb)
-        b = ir.IRBuilder(ret_bb)
-        b.ret_void()
-
-        # ---- std.time clock seams (design 57) -------------------------------
-        # clock_gettime(clockid_t clk_id, struct timespec *tp): on the 64-bit
-        # hosted targets `struct timespec` is { i64 tv_sec; i64 tv_nsec }. The
-        # CLOCK_MONOTONIC id differs by OS (macOS 6, Linux 1); CLOCK_REALTIME is
-        # 0 on both. Both shims stack-allocate a two-word timespec, call
-        # clock_gettime, and fold the result to a single i64.
-        clock_gettime_fn = self._libc_func("clock_gettime", i32, [i32, i8ptr])
-        ts_ty = ir.ArrayType(i64, 2)
-        monotonic_id = 6 if self._is_apple_triple() else 1
-
-        def _emit_clock_shim(fn, clock_id, to_nanos):
-            bb = ir.IRBuilder(fn.append_basic_block("entry"))
-            ts = bb.alloca(ts_ty, name="ts")
-            ts_i8 = bb.bitcast(ts, i8ptr)
-            bb.call(clock_gettime_fn, [ir.Constant(i32, clock_id), ts_i8])
-            sec_ptr = bb.gep(ts, [ir.Constant(i64, 0), ir.Constant(i64, 0)])
-            sec = bb.load(sec_ptr, name="tv_sec")
-            if not to_nanos:
-                bb.ret(sec)
-                return
-            nsec_ptr = bb.gep(ts, [ir.Constant(i64, 0), ir.Constant(i64, 1)])
-            nsec = bb.load(nsec_ptr, name="tv_nsec")
-            total = bb.add(bb.mul(sec, ir.Constant(i64, 1000000000)), nsec)
-            bb.ret(total)
-
-        _emit_clock_shim(self.functions["__saw_rt_clock_monotonic_nanos"],
-                         monotonic_id, to_nanos=True)
-        _emit_clock_shim(self.functions["__saw_rt_unix_timestamp_secs"],
-                         0, to_nanos=False)
+            fn.linkage = "external"
 
     def _is_apple_triple(self) -> bool:
         t = (self.triple or "").lower()
