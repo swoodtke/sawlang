@@ -1,0 +1,50 @@
+// sawlex — the CLI front end for the Saw lexer (design 116).
+//
+// Usage: sawlex <file.saw>
+//
+// Emits the canonical token dump (one record per line):
+//   KIND<TAB>line:col<TAB>escaped-text[<TAB>suffix]
+// On a lex error it emits a single record
+//   ERROR<TAB>line:col<TAB>message
+// and exits nonzero. See README.md for the format contract.
+
+import src.lib.*
+import std.file.{File}
+import std.path.{Path}
+import std.env.{Env}
+
+func main() -> Int {
+    let args = Env.args()
+    if args.len() < 2 {
+        print("usage: sawlex <file.saw>")
+        return 2
+    }
+    let path = args.get(1) ?? ""
+
+    guard var f = File.open(Path(s: path)) else {
+        print("sawlex: cannot open {path}")
+        return 2
+    }
+    guard let data = f.read() else {
+        print("sawlex: cannot read {path}")
+        return 2
+    }
+    let source = data.to_string()
+
+    match lex(source) {
+        case Ok(tokens) -> {
+            var i = 0
+            while i < tokens.len() {
+                if let t = tokens.get(i) {
+                    print(format_token(&t))
+                }
+                i = i + 1
+            }
+            0
+        },
+        case Err(e) -> {
+            print(format_error(&e))
+            1
+        }
+    }
+}
