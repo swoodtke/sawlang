@@ -143,6 +143,7 @@ class DeclarationsMixin:
 
         fields = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
+            field_doc = self.doc_text(self._take_doc())
             # Member visibility (design 80): an optional `public` /
             # `public(package)` / `public(parent)` modifier precedes the field
             # name; omitted means private-by-default outside the defining module.
@@ -153,7 +154,8 @@ class DeclarationsMixin:
             fields.append(StructField(name=field_name_token.value, type=field_type,
                                       visibility=field_visibility,
                                       line=field_name_token.line,
-                                      column=field_name_token.column))
+                                      column=field_name_token.column,
+                                      doc=field_doc))
 
             self.skip_newlines()
             # Allow optional comma
@@ -190,6 +192,7 @@ class DeclarationsMixin:
 
         variants = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
+            variant_doc = self.doc_text(self._take_doc())
             self.expect(TokenType.CASE, "Expected 'case' keyword for enum variant")
 
             variant_name_token = self.expect(TokenType.IDENT, "Expected variant name")
@@ -216,7 +219,9 @@ class DeclarationsMixin:
 
                 self.expect(TokenType.RPAREN)
 
-            variants.append(EnumVariant(name=variant_name, associated_types=associated_types))
+            variants.append(EnumVariant(name=variant_name,
+                                        associated_types=associated_types,
+                                        doc=variant_doc))
 
             self.skip_newlines()
             # Allow optional comma
@@ -267,12 +272,17 @@ class DeclarationsMixin:
         methods = []
         associated_types = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
+            member_doc = self._take_doc()
             if self.match(TokenType.TYPE):
                 # Parse associated type: type Item
                 assoc_type = self.parse_associated_type()
                 associated_types.append(assoc_type)
+                if member_doc is not None:
+                    # Associated types carry no doc slot; report rather than drop.
+                    self._release_doc(member_doc)
             elif self.match(TokenType.FUNC):
                 method = self.parse_trait_method()
+                method.doc = self.doc_text(member_doc)
                 methods.append(method)
             else:
                 self.error(f"Expected 'type' or 'func' in trait, got {self.current().type.name}")
@@ -411,10 +421,14 @@ class DeclarationsMixin:
         methods = []
         type_assignments = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
+            member_doc = self._take_doc()
             if self.match(TokenType.TYPE):
                 # Parse type assignment: type Item = Int
                 type_assign = self.parse_type_assignment()
                 type_assignments.append(type_assign)
+                if member_doc is not None:
+                    # Type assignments carry no doc slot; report rather than drop.
+                    self._release_doc(member_doc)
             elif self.match(TokenType.PUBLIC):
                 # Member visibility (design 80): a `public` / `public(package)` /
                 # `public(parent)` modifier on an extension method (incl. init +
@@ -424,9 +438,11 @@ class DeclarationsMixin:
                     self.error("Expected 'func' or 'init' after visibility modifier "
                                "in extension")
                 method = self.parse_method(method_visibility)
+                method.doc = self.doc_text(member_doc)
                 methods.append(method)
             elif self.match(TokenType.FUNC, TokenType.INIT):
                 method = self.parse_method()
+                method.doc = self.doc_text(member_doc)
                 methods.append(method)
             elif self.match(TokenType.AT):
                 # Attributes (design 58) are only legal on top-level func/static.

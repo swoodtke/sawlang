@@ -35,7 +35,8 @@ def parse_source(source: str, source_path: str, verbose: bool = False):
 
     # Parsing
     try:
-        parser = Parser(tokens, source_file=source_path)
+        parser = Parser(tokens, source_file=source_path,
+                        doc_comments=lexer.doc_comments)
         return parser.parse()
     except SyntaxError as e:
         print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
@@ -1121,7 +1122,7 @@ Examples:
         try:
             lexer = Lexer(source)
             tokens = lexer.tokenize()
-            parser_obj = Parser(tokens)
+            parser_obj = Parser(tokens, doc_comments=lexer.doc_comments)
             user_ast = parser_obj.parse()
         except SyntaxError as e:
             print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)

@@ -1219,6 +1219,9 @@ class StructField:
     visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
+    # Doc comment (design 121): the `///` block immediately preceding the field,
+    # markers stripped and lines joined with "\n". None when undocumented.
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -1231,6 +1234,7 @@ class Struct(ASTNode):
     line: int = 0
     column: int = 0
     source_file: str = ""
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -1238,6 +1242,7 @@ class EnumVariant:
     """A variant in an enum declaration."""
     name: str
     associated_types: List[tuple[str, SawType]]  # [(param_name, type), ...]
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -1250,6 +1255,7 @@ class Enum(ASTNode):
     line: int = 0
     column: int = 0
     source_file: str = ""
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -1267,6 +1273,7 @@ class TraitMethod(ASTNode):
     body: Optional['Block'] = None
     line: int = 0
     column: int = 0
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -1289,6 +1296,7 @@ class Trait(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -1317,6 +1325,7 @@ class Extension(ASTNode):
     line: int = 0
     column: int = 0
     source_file: str = ""
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -1351,6 +1360,7 @@ class Method(ASTNode):
     line: int = 0
     column: int = 0
     source_file: str = ""
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -1421,6 +1431,7 @@ class Function(ASTNode):
     line: int = 0
     column: int = 0
     source_file: str = ""
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -1431,6 +1442,7 @@ class TypeDefinition(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     line: int = 0
     column: int = 0
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -1452,6 +1464,7 @@ class StaticDecl(ASTNode):
     line: int = 0
     column: int = 0
     source_file: str = ""
+    doc: Optional[str] = None
 
 
 @dataclass
@@ -1495,5 +1508,8 @@ class Program(ASTNode):
     static_asserts: List['StaticAssert'] = field(default_factory=list)  # design 53
     source_path: Optional[str] = None      # Path to source file
     module_path: Optional[List[str]] = None  # Fully qualified module path
+    # Module doc comment (design 121): the `//!` block(s) at the top of the file,
+    # markers stripped and lines joined with "\n". None when undocumented.
+    module_doc: Optional[str] = None
     line: int = 0
     column: int = 0

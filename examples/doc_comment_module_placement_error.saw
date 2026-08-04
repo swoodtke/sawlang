@@ -1,0 +1,11 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 11:1: module doc comment (`//!`) must appear before the first declaration in the file
+// `//!` documents the file it appears in, so it is legal only ahead of every
+// declaration.
+
+/// Prints zero.
+func main() {
+    print(0)
+}
+
+//! Too late — a declaration has already appeared.

@@ -30,14 +30,146 @@ from .statements import StatementsMixin
 from .expressions import ExpressionsMixin
 
 
+class DocBlock:
+    """A run of contiguous doc-comment lines (design 121).
+
+    `kind` is 'doc' (a `///` run, documenting the declaration that follows) or
+    'module' (a `//!` run, documenting the file). `text` is the run's bodies
+    joined with newlines. A blank line, an ordinary comment, or a change of kind
+    ends the run — all three show up as a gap in the lexer's line numbering.
+    """
+    __slots__ = ("kind", "text", "line", "column", "end_line")
+
+    def __init__(self, kind, text, line, column, end_line):
+        self.kind = kind
+        self.text = text
+        self.line = line
+        self.column = column
+        self.end_line = end_line
+
+
+def group_doc_comments(doc_comments) -> List[DocBlock]:
+    """Group the lexer's per-line doc trivia into blocks, in source order."""
+    blocks: List[DocBlock] = []
+    lines: List[str] = []
+    cur = None
+    for dc in doc_comments or []:
+        if cur is not None and dc.kind == cur.kind and dc.line == cur.end_line + 1:
+            lines.append(dc.text)
+            cur.end_line = dc.line
+            continue
+        if cur is not None:
+            cur.text = "\n".join(lines)
+        cur = DocBlock(dc.kind, "", dc.line, dc.column, dc.line)
+        lines = [dc.text]
+        blocks.append(cur)
+    if cur is not None:
+        cur.text = "\n".join(lines)
+    return blocks
+
+
 class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMixin):
-    def __init__(self, tokens: List[Token], source_file: str = ""):
+    # Program lists whose last element is the declaration a top-level `///` block
+    # documents (design 121). Imports, exports, module declarations, extern
+    # blocks and static_asserts are deliberately absent — they are not
+    # documentable, so a `///` in front of one is an unattached-doc error.
+    DOC_DECL_LISTS = ("functions", "structs", "enums", "traits", "extensions",
+                      "type_definitions", "statics")
+
+    def __init__(self, tokens: List[Token], source_file: str = "",
+                 doc_comments=None):
         self.tokens = tokens
         self.pos = 0
         # Flag to control trailing closure parsing (disabled in if/while/guard conditions)
         self.allow_trailing_closure = True
         # Track source file for error reporting
         self.source_file = source_file
+        # Doc-comment trivia (design 121). Blocks are indexed by the token they
+        # precede; a block nobody claims is reported after the parse.
+        self.doc_blocks = group_doc_comments(doc_comments)
+        self._doc_taken = [False] * len(self.doc_blocks)
+        self._doc_at_token = self._index_doc_blocks()
+
+    def _index_doc_blocks(self) -> dict:
+        """Map token index -> doc block index: each block belongs to the first
+        non-NEWLINE token that starts on a later line than the block's last line.
+
+        Two blocks separated by a blank line resolve to the SAME token; the later
+        (adjacent) one wins, which is what leaves the detached earlier block
+        unclaimed and therefore reported.
+        """
+        index = {}
+        n = len(self.tokens)
+        cursor = 0
+        for b, block in enumerate(self.doc_blocks):
+            while cursor < n and (self.tokens[cursor].type == TokenType.NEWLINE
+                                  or self.tokens[cursor].line <= block.end_line):
+                cursor += 1
+            if cursor < n:
+                index[cursor] = b
+        return index
+
+    def _take_doc(self, kind: str = "doc") -> Optional[DocBlock]:
+        """Claim the doc block attached to the token at the parse position, if it
+        is of `kind`. Claiming marks it used; an unclaimed block is an error."""
+        b = self._doc_at_token.get(self.pos)
+        if b is None:
+            return None
+        block = self.doc_blocks[b]
+        if block.kind != kind or self._doc_taken[b]:
+            return None
+        self._doc_taken[b] = True
+        return block
+
+    def _take_module_docs(self) -> Optional[str]:
+        """Claim the `//!` blocks at the very top of the file and join them.
+
+        A module doc is legal only ahead of every declaration, so the leading run
+        of `module` blocks qualifies exactly while it ends before the file's first
+        real token. Blocks separated by a blank line join with a blank line; a
+        `//!` anywhere else stays unclaimed and is reported.
+        """
+        first = None
+        for tok in self.tokens:
+            if tok.type != TokenType.NEWLINE:
+                first = tok
+                break
+        texts = []
+        for b, block in enumerate(self.doc_blocks):
+            if block.kind != "module":
+                break
+            if first is None or first.line <= block.end_line:
+                break
+            self._doc_taken[b] = True
+            texts.append(block.text)
+        return "\n\n".join(texts) if texts else None
+
+    def _release_doc(self, block: DocBlock):
+        """Un-claim a block the caller could not attach, so the post-parse sweep
+        reports it as an unattached doc comment."""
+        for b, other in enumerate(self.doc_blocks):
+            if other is block:
+                self._doc_taken[b] = False
+                return
+
+    @staticmethod
+    def doc_text(block: Optional[DocBlock]) -> Optional[str]:
+        return block.text if block is not None else None
+
+    def _unattached_doc_errors(self) -> List[str]:
+        """One message per doc block no declaration claimed, in source order."""
+        errors = []
+        for b, block in enumerate(self.doc_blocks):
+            if self._doc_taken[b]:
+                continue
+            if block.kind == "module":
+                msg = ("module doc comment (`//!`) must appear before the first "
+                       "declaration in the file")
+            else:
+                msg = ("doc comment is not followed by a documentable "
+                       "declaration")
+            errors.append(f"Parse error at {block.line}:{block.column}: {msg}")
+        return errors
 
     def error(self, msg: str):
         token = self.current()
@@ -216,6 +348,26 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             first = False
 
     def _parse_toplevel_decl(self, p: Program):
+        """Parse ONE top-level declaration, attaching the `///` block in front of
+        it (design 121). The declaration itself is parsed by
+        `_dispatch_toplevel_decl`; the doc lands on whichever declaration list
+        grew, so attributes and a `public` prefix between the doc and the item
+        make no difference. A doc in front of a non-documentable declaration
+        (import/export/module/extern/static_assert) is released and reported.
+        """
+        block = self._take_doc()
+        if block is None:
+            return self._dispatch_toplevel_decl(p)
+        before = [len(getattr(p, name)) for name in self.DOC_DECL_LISTS]
+        self._dispatch_toplevel_decl(p)
+        for i, name in enumerate(self.DOC_DECL_LISTS):
+            decls = getattr(p, name)
+            if len(decls) > before[i]:
+                decls[-1].doc = block.text
+                return
+        self._release_doc(block)
+
+    def _dispatch_toplevel_decl(self, p: Program):
         """Parse ONE top-level declaration at the current token and append it to
         the matching list of `p` (design 40 item 8 — the dispatch shared by the
         file-level `parse()` loop and inline-module bodies, so it lives in one
@@ -329,6 +481,10 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         program = Program(structs=[], functions=[])
         errors = []  # collected syntax error messages (batched recovery)
         self.skip_newlines()
+        # `//!` module doc (design 121): legal only at the very top, so it is
+        # claimed here, before the first declaration is parsed. A `//!` anywhere
+        # else stays unclaimed and is reported by the sweep below.
+        program.module_doc = self._take_module_docs()
 
         while not self.match(TokenType.EOF):
             try:
@@ -342,6 +498,12 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                     break
                 self._synchronize()
             self.skip_newlines()
+
+        # Doc comments never silently vanish: a block no declaration claimed is
+        # reported alongside any syntax errors (design 121). Skipped when the
+        # parse already failed, since recovery skips over declarations.
+        if not errors:
+            errors.extend(self._unattached_doc_errors())
 
         if errors:
             # Surface all collected errors. A single error reproduces the exact

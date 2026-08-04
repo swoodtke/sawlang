@@ -1,0 +1,20 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 10:1: doc comment is not followed by a documentable declaration
+// EXPECT-ERROR-CONTAINS: Parse error at 13:1: doc comment is not followed by a documentable declaration
+// EXPECT-ERROR-CONTAINS: Parse error at 20:1: doc comment is not followed by a documentable declaration
+// A `///` block documents the declaration that follows it, and is an error when
+// nothing documentable does. Here the first block sits in front of an import,
+// the second is displaced by the block that follows it, and the third trails at
+// end of file.
+
+/// In front of an import, which carries no documentation.
+import std.time
+
+/// Displaced from `main` by the block below.
+
+/// Prints zero.
+func main() {
+    print(0)
+}
+
+/// Trailing at end of file, documenting nothing.
