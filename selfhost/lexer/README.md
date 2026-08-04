@@ -131,4 +131,5 @@ The port lexes over the source's UTF-8 **bytes** while counting columns by code
 point (a column advances once per non-continuation byte). That reproduces the
 Python lexer's per-code-point column counting exactly while letting token text be
 assembled from raw bytes. The only place a scalar is re-encoded is a `\u{...}`
-escape (see `encode_utf8` — DF-116c notes the missing `append_scalar` affordance).
+escape, which goes through the std `StringBuilder.append_scalar` (design 119
+closed DF-116c; the port's hand-rolled `encode_utf8` is gone).

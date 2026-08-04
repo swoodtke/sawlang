@@ -524,7 +524,10 @@ construct in the owner and lend `&driver` down.
 - `Vector.get(i)` returns a COPY (needs copyable element); use
   `swap_out(i, v)` to move a slot out; `with_ref`/`with_var_ref(i, body)`
   for scoped in-place (NoCopy) access (design 81; `ref_at` was removed).
-- String `chars()` yields Int scalars (no Char type).
+- String `chars()` yields Int scalars (no Char type); the inverse is
+  `StringBuilder.append_scalar(scalar: Int) -> Int?` (design 119) — UTF-8
+  encodes + appends a scalar, returns the byte count (1..4), `None` (appends
+  nothing) for an invalid scalar (negative / surrogate / > 0x10FFFF).
 - `to_int()`/`to_int(radix:)`/`to_float()` are whole-string, no trimming →
   Optional; `to_uint()`/`to_uint(radix:)` (design 119) are the unsigned
   companions (→ `UInt?`), reaching the `2^63..2^64-1` range signed parsing

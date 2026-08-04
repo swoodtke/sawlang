@@ -577,6 +577,12 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   itself *is* `Comparable` (byte-lexicographic ordering, design 48). Each iterator
   holds its OWN retain on the source string, so iterating a temporary
   (`for c in makeString().chars()`) is safe.
+- **Encoding a scalar** (`designs/119`). `StringBuilder.append_scalar(scalar:
+  Int) -> Int?` is the inverse of `chars()`: it UTF-8-encodes one Unicode scalar
+  and appends it, returning the byte count (1..4). An invalid scalar — negative,
+  a UTF-16 surrogate (`0xD800..0xDFFF`), or greater than `0x10FFFF` — returns
+  `None` and appends nothing (never a silent drop). Because `chars()` yields only
+  valid scalars, an encode/decode round-trip is the identity on that domain.
 - **FFI: `withCString`.** `s.withCString { ptr in ... }` hands a closure an
   `UnsafePointer<Int8>` to the string's NUL-terminated bytes, valid for the
   duration of the call. The payload is already NUL-terminated, so the pointer is

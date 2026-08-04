@@ -1,0 +1,86 @@
+// StringBuilder.append_scalar — UTF-8 encode a Unicode scalar (design 119,
+// closing DF-116c). Returns the byte count (1..4), or None for an invalid
+// scalar (negative, surrogate, or > 0x10FFFF), appending nothing. The encoding
+// inverse of String.chars(), so an encode/decode round-trip is the identity on
+// every valid scalar. Boundaries at each UTF-8 length transition.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// n_7f: 1
+// n_80: 2
+// n_7ff: 2
+// n_800: 3
+// n_ffff: 3
+// n_10000: 4
+// n_10ffff: 4
+// rt_7f: true
+// rt_80: true
+// rt_7ff: true
+// rt_800: true
+// rt_ffff: true
+// rt_10000: true
+// rt_10ffff: true
+// bytes_80: true
+// surrogate_none: true
+// over_none: true
+// neg_none: true
+
+// Bytes appended for `scalar`, or -1 if invalid.
+func nbytes(scalar: Int) -> Int {
+    var sb = StringBuilder()
+    if let n = sb.append_scalar(scalar) { n } else { -1 }
+}
+
+// Encode then decode back through chars(): true iff the single scalar survives
+// intact and the built byte length matches the reported count.
+func roundtrip(scalar: Int) -> Bool {
+    var sb = StringBuilder()
+    if let n = sb.append_scalar(scalar) {
+        let s = sb.build()
+        if s.len() != n { return false }
+        var got = -1
+        var count = 0
+        for c in s.chars() {
+            got = c
+            count = count + 1
+        }
+        count == 1 && got == scalar
+    } else {
+        false
+    }
+}
+
+func is_none(scalar: Int) -> Bool {
+    var sb = StringBuilder()
+    if let _ = sb.append_scalar(scalar) { false } else { true }
+}
+
+func main() {
+    print("n_7f: {nbytes(127)}")          // 0x7F
+    print("n_80: {nbytes(128)}")          // 0x80
+    print("n_7ff: {nbytes(2047)}")        // 0x7FF
+    print("n_800: {nbytes(2048)}")        // 0x800
+    print("n_ffff: {nbytes(65535)}")      // 0xFFFF
+    print("n_10000: {nbytes(65536)}")     // 0x10000
+    print("n_10ffff: {nbytes(1114111)}")  // 0x10FFFF
+
+    print("rt_7f: {roundtrip(127)}")
+    print("rt_80: {roundtrip(128)}")
+    print("rt_7ff: {roundtrip(2047)}")
+    print("rt_800: {roundtrip(2048)}")
+    print("rt_ffff: {roundtrip(65535)}")
+    print("rt_10000: {roundtrip(65536)}")
+    print("rt_10ffff: {roundtrip(1114111)}")
+
+    // 0x80 encodes to the two bytes 0xC2 0x80.
+    var sb = StringBuilder()
+    let _ = sb.append_scalar(128)
+    let s = sb.build()
+    let b0 = (s.byte_at(0) as Int) & 255
+    let b1 = (s.byte_at(1) as Int) & 255
+    print("bytes_80: {b0 == 194 && b1 == 128}")
+
+    // Invalid scalars: append nothing, return None.
+    print("surrogate_none: {is_none(55296)}")   // 0xD800
+    print("over_none: {is_none(1114112)}")       // 0x110000
+    print("neg_none: {is_none(-1)}")
+}

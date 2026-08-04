@@ -89,7 +89,19 @@ inlined (the `.build/scratch` probes are gitignored).
   blocking (the magnitude approach is correct), but it is a hand-roll the obvious
   spelling can't replace.
 
-- **DF-116c — no scalar→UTF-8 / `StringBuilder.append_scalar` affordance.**
+- **DF-116c — CLOSED (design 119 Part B, Aug 4).** Added
+  `StringBuilder.append_scalar(scalar: Int) -> Int?` (sawc/std/stringbuilder.saw):
+  UTF-8-encodes one Unicode scalar and appends it, returning the byte count
+  (1..4); an invalid scalar (negative, surrogate 0xD800..0xDFFF, or > 0x10FFFF)
+  returns None and appends nothing (never a silent drop — the failure surface is
+  an Optional per the never-hide-errors rule; the byte count is the Some payload).
+  It is the encoding inverse of chars(), so an encode/decode round-trip is the
+  identity on valid scalars. selfhost/lexer's hand-rolled `encode_utf8` is deleted
+  in favor of it. Docs: LANGUAGE_SPEC String section + saw-lang skill. Test:
+  examples/string_append_scalar.saw (the length-transition boundaries 0x7F/0x80/
+  0x7FF/0x800/0xFFFF/0x10000/0x10FFFF via round-trip + byte count, plus the
+  invalid cases). Original finding follows:
+  **no scalar→UTF-8 / `StringBuilder.append_scalar` affordance.**
   `String.chars()` DECODES UTF-8 to `Int` scalars, but there is no inverse:
   nothing appends a Unicode scalar (an `Int` code point) to a `StringBuilder` or
   builds a String from one. A `\u{...}` escape whose scalar is >= 0x80 therefore

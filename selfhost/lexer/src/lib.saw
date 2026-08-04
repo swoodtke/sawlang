@@ -598,7 +598,9 @@ extension Lexer {
         if cp >= 55296 && cp <= 57343 {
             return self.err("Unicode escape is a surrogate code point")
         }
-        encode_utf8(cp, &var out)
+        // `cp` is already validated (<= 0x10FFFF, not a surrogate) above, so the
+        // std encoder always succeeds here; the byte count is discarded.
+        let _ = out.append_scalar(cp)
         return
     }
 
@@ -1048,25 +1050,6 @@ func in_base_set(b: Int, base: Int) -> Bool {
     if base == 16 { return is_hex(b) }
     if base == 2 { return b == B_D0 || b == B_D1 }
     b >= B_D0 && b <= B_D7
-}
-
-// Encode a Unicode scalar as UTF-8 into `out`.
-func encode_utf8(cp: Int, out: &var StringBuilder) {
-    if cp < 128 {
-        out.append_char(to_i8(cp))
-    } else if cp < 2048 {
-        out.append_char(to_i8(192 + (cp / 64)))
-        out.append_char(to_i8(128 + (cp % 64)))
-    } else if cp < 65536 {
-        out.append_char(to_i8(224 + (cp / 4096)))
-        out.append_char(to_i8(128 + ((cp / 64) % 64)))
-        out.append_char(to_i8(128 + (cp % 64)))
-    } else {
-        out.append_char(to_i8(240 + (cp / 262144)))
-        out.append_char(to_i8(128 + ((cp / 4096) % 64)))
-        out.append_char(to_i8(128 + ((cp / 64) % 64)))
-        out.append_char(to_i8(128 + (cp % 64)))
-    }
 }
 
 // Tokenize `source` into a Vector of tokens (terminated by an EOF token), or
