@@ -1653,6 +1653,19 @@ class CallsMixin:
             return self._get_member_pointer(expr)
         if isinstance(expr, ArrayIndex):
             return self._get_element_pointer(expr)
+        if isinstance(expr, ForceUnwrap):
+            # `opt!.field = v` — a write THROUGH a force-unwrapped optional lvalue.
+            # Optionals lower to `{ i1 is_some, T payload }`, so address the
+            # underlying optional and GEP to the payload slot (the `&(opt!)` path,
+            # None-check included). Without this the fallback below materialized a
+            # throwaway copy and the store was SILENTLY DROPPED — both for a plain
+            # `var o: Point? = ...; o!.x = 99` and for an opt-encoded coroutine
+            # frame local (`_rewrite_node` turns a bare `p` into `self.p!`, so
+            # `p.field = v` across a suspend lost the write).
+            return self._generate_reference_expr(
+                ReferenceExpr(expr=expr, mutable=True,
+                              line=getattr(expr, 'line', 0),
+                              column=getattr(expr, 'column', 0)))
         # Fallback: materialize a temporary (won't propagate changes back).
         base_val = self._generate_expression(expr)
         base_ptr = self._entry_alloca(base_val.type, name="lvalue_temp")
