@@ -230,21 +230,17 @@ public enum TokenKind {
 }
 
 // A lexed token. `value` holds the token's canonical text (decoded, for strings;
-// underscores stripped, for numbers).
-//
-// NOTE (DF-116a): sawc/lexer.py's Token carries a fixed-width integer `suffix`
-// (e.g. "u8"). Mirroring it here is BLOCKED by a compiler miscompile — an
-// `Optional<String>` local copied into a struct field stored in a `Vector` loses
-// its payload (see designs/todo.md DF-116a for the minimal repro). Per the
-// no-workaround policy the suffix field is omitted from the model and the dump
-// until that is fixed. Suffixed literals are still lexed as a single INT token
-// with the correct boundary/value and are range-checked; only the suffix
-// attribute is not surfaced.
+// underscores stripped, for numbers). `suffix` is the fixed-width integer suffix
+// (one of i8/i16/i32/i64/u8/u16/u32/u64) when the literal was written `255u8` /
+// `0xFF_u8`, mirroring sawc/lexer.py's Token; None for every non-suffixed token.
+// (Restored once DF-116a — the Optional<String>-into-Vector-field miscompile that
+// had stopped this unit — was fixed; design 119 Part D.)
 public struct Token {
     public kind: TokenKind
     public value: String
     public line: Int
     public col: Int
+    public suffix: String?
 }
 
 // A lex error, positioned at 1-based line:col. Message prose is informational
@@ -434,7 +430,9 @@ public func escape_text(s: String) -> String {
     out.build()
 }
 
-// One canonical record: KIND<TAB>line:col<TAB>escaped-text[<TAB>suffix].
+// One canonical record: KIND<TAB>line:col<TAB>escaped-text[<TAB>suffix]. The
+// 4th column is present only for a suffixed integer literal (e.g. `255u8` dumps
+// `INT<TAB>1:1<TAB>255<TAB>u8`); every other token stops at the escaped text.
 public func format_token(t: &Token) -> String {
     var out = StringBuilder()
     out.append(kind_name(t.kind))
@@ -444,6 +442,10 @@ public func format_token(t: &Token) -> String {
     out.append(t.col)
     out.append("\t")
     out.append(escape_text(t.value))
+    if let sfx = t.suffix {
+        out.append("\t")
+        out.append(sfx)
+    }
     out.build()
 }
 
@@ -543,8 +545,9 @@ extension Lexer {
     }
 
     // A token at the CURRENT position (used before advancing over operators).
+    // Never a suffixed literal, so `suffix` is None.
     func tok(&self, kind: TokenKind, value: String) -> Token {
-        Token(kind: kind, value: value, line: self.line, col: self.col)
+        Token(kind: kind, value: value, line: self.line, col: self.col, suffix: None)
     }
 
     func skip_whitespace(&var self) {
@@ -681,7 +684,7 @@ extension Lexer {
         }
         let _ = self.advance()  // consume closing quote
         let kind = if has_interp { TokenKind.InterpString } else { TokenKind.StringLit }
-        Token(kind: kind, value: out.build(), line: start_line, col: start_col)
+        Token(kind: kind, value: out.build(), line: start_line, col: start_col, suffix: None)
     }
 
     // Positioned just after an integer's digits, tentatively read a fixed-width
@@ -754,7 +757,7 @@ extension Lexer {
             vb.append("0")
             vb.append(prefix_str)
             vb.append(digit_str)
-            return Token(kind: TokenKind.IntLit, value: vb.build(), line: start_line, col: start_col)
+            return Token(kind: TokenKind.IntLit, value: vb.build(), line: start_line, col: start_col, suffix: suffix)
         }
 
         // Decimal integer or float, with underscore digit separators.
@@ -782,7 +785,7 @@ extension Lexer {
         }
         let value = val.build()
         if is_float {
-            return Token(kind: TokenKind.FloatLit, value: value, line: start_line, col: start_col)
+            return Token(kind: TokenKind.FloatLit, value: value, line: start_line, col: start_col, suffix: None)
         }
         let suffix = self.try_read_int_suffix()
         if let sfx = suffix {
@@ -794,7 +797,7 @@ extension Lexer {
                 return self.err_at("integer literal out of range for a 64-bit integer", start_line, start_col)
             }
         }
-        Token(kind: TokenKind.IntLit, value: value, line: start_line, col: start_col)
+        Token(kind: TokenKind.IntLit, value: value, line: start_line, col: start_col, suffix: suffix)
     }
 
     func read_hash_directive(&var self) -> Result<Token, LexError> {
@@ -813,7 +816,7 @@ extension Lexer {
         if not known {
             return self.err_at("unknown directive after `#`", start_line, start_col)
         }
-        Token(kind: TokenKind.HashDirective, value: name_str, line: start_line, col: start_col)
+        Token(kind: TokenKind.HashDirective, value: name_str, line: start_line, col: start_col, suffix: None)
     }
 
     func read_identifier(&var self) -> Token {
@@ -824,7 +827,7 @@ extension Lexer {
             sb.append_char(to_i8(self.advance()))
         }
         let value = sb.build()
-        Token(kind: keyword_kind(value), value: value, line: start_line, col: start_col)
+        Token(kind: keyword_kind(value), value: value, line: start_line, col: start_col, suffix: None)
     }
 
     func read_dollar(&var self) -> Result<Token, LexError> {
@@ -839,7 +842,7 @@ extension Lexer {
         while is_digit(self.peek()) {
             num.append_char(to_i8(self.advance()))
         }
-        Token(kind: TokenKind.DollarParam, value: num.build(), line: start_line, col: start_col)
+        Token(kind: TokenKind.DollarParam, value: num.build(), line: start_line, col: start_col, suffix: None)
     }
 
     func tokenize(&var self) -> Result<Vector<Token>, LexError> {

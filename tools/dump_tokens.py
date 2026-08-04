@@ -61,12 +61,16 @@ def escape_text(value: str) -> bytes:
 
 
 def format_token(tok) -> bytes:
-    # NOTE (DF-116a): the Python Token also carries a fixed-width integer `suffix`,
-    # but the Saw port cannot surface it (an Optional<String> miscompile — see
-    # designs/todo.md DF-116a). To keep the two dumps comparable, BOTH omit the
-    # suffix column; suffixed literals still compare on kind/position/value.
+    # The 4th column is the fixed-width integer suffix (e.g. `u8` for `255u8`),
+    # present only for a suffixed integer literal; every other token stops at the
+    # escaped text. The Saw port's `format_token` emits the identical shape (the
+    # DF-116a miscompile that had stopped the suffix unit is fixed — design 119
+    # Part D).
     head = ("%s\t%d:%d\t" % (tok.type.name, tok.line, tok.column)).encode("ascii")
-    return head + escape_text(tok.value)
+    rec = head + escape_text(tok.value)
+    if getattr(tok, "suffix", None) is not None:
+        rec += ("\t%s" % tok.suffix).encode("ascii")
+    return rec
 
 
 def dump(path: str):

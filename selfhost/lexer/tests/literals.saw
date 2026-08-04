@@ -29,13 +29,14 @@ func main() {
     assert(at(&a, 5).equals("FLOAT\t1:27\t3.14"), "float")
 
     // Width-suffixed literals lex as a single INT with the digits as the value
-    // (the suffix attribute is withheld — DF-116a). 255u8 is in range (no error).
+    // and the suffix as the dump's 4th column (design 119 Part D). 255u8 is in
+    // range (no error).
     let b = toks("255u8 65535u16 1_000i32")
-    assert(at(&b, 0).equals("INT\t1:1\t255"), "255u8 -> INT 255")
-    assert(at(&b, 1).equals("INT\t1:7\t65535"), "65535u16 -> INT 65535")
-    assert(at(&b, 2).equals("INT\t1:16\t1000"), "1_000i32 -> INT 1000")
+    assert(at(&b, 0).equals("INT\t1:1\t255\tu8"), "255u8 -> INT 255 u8")
+    assert(at(&b, 1).equals("INT\t1:7\t65535\tu16"), "65535u16 -> INT 65535 u16")
+    assert(at(&b, 2).equals("INT\t1:16\t1000\ti32"), "1_000i32 -> INT 1000 i32")
 
-    // `5abc` stays INT + IDENT (no bogus suffix); `0xFace` reads as hex.
+    // `5abc` stays INT + IDENT (no bogus suffix, no 4th column); `0xFace` is hex.
     let c = toks("5abc 0xFace")
     assert(at(&c, 0).equals("INT\t1:1\t5"), "5abc: INT")
     assert(at(&c, 1).equals("IDENT\t1:2\tabc"), "5abc: IDENT")

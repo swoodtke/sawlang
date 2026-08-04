@@ -32,7 +32,7 @@ or via Blade (`blade build` / `blade test`) like the `libs/` packages.
 `sawlex <file.saw>` emits one record per token, newline-separated:
 
 ```
-KIND<TAB>line:col<TAB>escaped-text
+KIND<TAB>line:col<TAB>escaped-text[<TAB>suffix]
 ```
 
 * `KIND` — the token kind name (see the mapping table below); identical to the
@@ -43,6 +43,9 @@ KIND<TAB>line:col<TAB>escaped-text
   level: `\\` for backslash, `\n` `\t` `\r` for those controls, `\0` for NUL, any
   other control byte (`< 0x20` or `0x7F`) as `\xHH`, and every other byte —
   including raw UTF-8 `>= 0x80` — verbatim.
+* `suffix` — a 4th column, present **only** for a fixed-width-suffixed integer
+  literal: one of `i8`/`i16`/`i32`/`i64`/`u8`/`u16`/`u32`/`u64`. `255u8` dumps as
+  `INT<TAB>1:1<TAB>255<TAB>u8`; every other token stops at the escaped text.
 
 On a lex error the CLI emits a single record and exits nonzero:
 
@@ -56,17 +59,6 @@ Error **positions and kinds** match the Python lexer; message **prose does not**
 `tools/dump_tokens.py` emits the byte-identical format from the Python lexer;
 `tools/lexdiff.py` (`make lexdiff`) diffs the two dumps over every tracked `.saw`
 file. Zero mismatches over the corpus is the acceptance bar.
-
-### Suffix omission (DF-116a)
-
-`sawc/lexer.py`'s `Token` carries a fixed-width integer `suffix` (e.g. `u8` for
-`255u8`). The Saw port does **not** surface it: storing an `Optional<String>`
-through a local into a `Token` field held in a `Vector` hits a compiler
-miscompile that drops the payload (designs/todo.md **DF-116a**). Per the pilot's
-no-workaround policy that unit is stopped — the dump omits the suffix column in
-**both** dumpers. Suffixed literals are still lexed as a single `INT` token with
-the correct boundary and value, and are range-checked; only the suffix attribute
-is withheld until the miscompile is fixed.
 
 ## Kind-name mapping (TokenKind case → dump name)
 

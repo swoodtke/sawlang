@@ -22,9 +22,13 @@ inlined (the `.build/scratch` probes are gitignored).
   design-65 `_deep_copy_value` retain path. Regression test
   examples/optional_field_store_retain.saw covers the struct-field shape, the
   bare `v.push(opt)` call-path shape, and local-still-valid-after-copy. Suite
-  999 green, bootstrap ok. FOLLOW-UP now unblocked: restore the `suffix` field
-  + dump 4th column in selfhost/lexer (the design-116 stopped unit).
-  Original finding follows:
+  999 green, bootstrap ok. FOLLOW-UP DONE (design 119 Part D, Aug 4): the
+  `suffix` field is restored on selfhost/lexer's `Token` (populated from
+  `try_read_int_suffix`, None elsewhere) and the canonical dump's 4th column is
+  emitted by BOTH dumpers (tools/dump_tokens.py + `format_token` in lib.saw) —
+  `255u8` dumps `INT<TAB>1:1<TAB>255<TAB>u8`; README format section updated;
+  `make lexdiff` re-swept 0 mismatches; tests/literals.saw asserts the suffix
+  column. Original finding follows:
   **MISCOMPILE (headline): an `Optional<String>` held in a named
   local loses its payload when copied into a struct field whose struct is pushed
   into a `Vector`.** The stored copy is not retained; the local's end-of-scope
