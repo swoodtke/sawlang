@@ -44,7 +44,7 @@ from ast_nodes import (
     EnumPattern,
     StringInterpolation, ArrayLiteral, MapLiteral, SetLiteral, StructInit,
     TupleLiteral, UnsafeExpr, NilCoalesce, OptionalChain, BindOptional,
-    OptionalEvalExpr, OptionalChainAssign,
+    OptionalEvalExpr, OptionalChainAssign, OptionalWrap,
 )
 
 
@@ -863,6 +863,8 @@ class _FrameBuilder:
             expr.expr = do(expr.expr)
         elif isinstance(expr, UnsafeExpr):
             expr.expression = do(expr.expression)
+        elif isinstance(expr, OptionalWrap):
+            expr.value = do(expr.value)
 
     def _is_suspending_call_node(self, expr):
         """True if `expr` is a suspending call node the transform can lift to a
@@ -902,8 +904,79 @@ class _FrameBuilder:
     # `if let` a `??` lowers to).
 
     def _is_value_conditional(self, e):
-        return (isinstance(e, (IfExpr, MatchExpr, NilCoalesce))
-                or (isinstance(e, BinaryOp) and e.op in ("&&", "||", "and", "or")))
+        if isinstance(e, (IfExpr, MatchExpr, NilCoalesce)):
+            return True
+        if isinstance(e, BinaryOp) and e.op in ("&&", "||", "and", "or"):
+            return True
+        # A `?.` chain (design 111) whose hop suspends: lowered to an `if let` here
+        # so the suspending hop lands in the some-branch. A multi-hop chain is
+        # peeled one hop at a time by `_vc_chain_prefix_hoist`.
+        if isinstance(e, OptionalEvalExpr):
+            return self._count_bindopts(e.expr) >= 1
+        return False
+
+    def _count_bindopts(self, spine):
+        """Number of `?.` unwrap points (BindOptional) in an OptionalEvalExpr's
+        receiver spine (not descending into call arguments — hops only nest through
+        the receiver chain)."""
+        n = 0
+        node = spine
+        while True:
+            if isinstance(node, BindOptional):
+                n += 1
+                node = node.expr
+            elif isinstance(node, MethodCall):
+                node = node.object
+            elif isinstance(node, (MemberAccess, ForceUnwrap)):
+                node = node.expr if isinstance(node, ForceUnwrap) else node.object
+            elif isinstance(node, (ArrayIndex, TupleIndex)):
+                node = node.array_expr if isinstance(node, ArrayIndex) else node.tuple_expr
+            else:
+                return n
+
+    def _outermost_bindopt(self, spine):
+        """The LAST-evaluated `?.` hop of a chain — the BindOptional nearest the top
+        of the receiver spine (the walk descends from the outermost postfix node)."""
+        node = spine
+        while True:
+            if isinstance(node, BindOptional):
+                return node
+            if isinstance(node, MethodCall):
+                node = node.object
+            elif isinstance(node, MemberAccess):
+                node = node.object
+            elif isinstance(node, ForceUnwrap):
+                node = node.expr
+            elif isinstance(node, ArrayIndex):
+                node = node.array_expr
+            elif isinstance(node, TupleIndex):
+                node = node.tuple_expr
+            else:
+                return None
+
+    def _replace_bindopt(self, node, replacement, found):
+        """Return `node` with its single BindOptional (the `?.` hop) replaced by
+        `replacement`, recording the hop's receiver in `found`. Walks only the
+        receiver spine."""
+        if isinstance(node, BindOptional):
+            found.append(node.expr)
+            return replacement
+        if isinstance(node, MethodCall):
+            node.object = self._replace_bindopt(node.object, replacement, found)
+            return node
+        if isinstance(node, MemberAccess):
+            node.object = self._replace_bindopt(node.object, replacement, found)
+            return node
+        if isinstance(node, ForceUnwrap):
+            node.expr = self._replace_bindopt(node.expr, replacement, found)
+            return node
+        if isinstance(node, ArrayIndex):
+            node.array_expr = self._replace_bindopt(node.array_expr, replacement, found)
+            return node
+        if isinstance(node, TupleIndex):
+            node.tuple_expr = self._replace_bindopt(node.tuple_expr, replacement, found)
+            return node
+        return node
 
     def _lower_value_conditionals(self):
         self._vc_ctr = 0
@@ -939,6 +1012,62 @@ class _FrameBuilder:
         elif isinstance(s, GuardLetStatement):
             self._vc_block(s.else_branch)
 
+    # The sub-expression each value-conditional evaluates UNCONDITIONALLY before it
+    # branches — the one position where a suspension is NOT skippable.
+    _VC_HEAD_FIELD = {IfExpr: "condition", MatchExpr: "matched_expr",
+                      NilCoalesce: "expr", BinaryOp: "left"}
+
+    def _vc_hoist_to_temp(self, expr, out):
+        """Emit `let __vchN = <expr>` (lowered in turn, so a conditional there gets
+        the same treatment) and return an Identifier reading the temp."""
+        tmp = f"__vch{self._vc_ctr}"
+        self._vc_ctr += 1
+        t = getattr(expr, 'resolved_type', None)
+        line, col = getattr(expr, 'line', 0), getattr(expr, 'column', 0)
+        self._extra_frame_locals.append((tmp, t))
+        out.extend(self._vc_stmt(LetStatement(
+            name=tmp, type_annotation=t, value=expr, mutable=True,
+            line=line, column=col)))
+        ref = Identifier(name=tmp, line=line, column=col)
+        ref.resolved_type = t
+        return ref
+
+    def _vc_head_hoist(self, cond, out):
+        """Lift a value-conditional nested in `cond`'s unconditional HEAD position
+        into a preceding `let __vchN = <head>` (itself lowered, recursively), so
+        composed conditionals nest as STATEMENTS rather than as an `if let` inside
+        an `if let` — the shape the CFG split cannot express. `o?.tick() ?? -1` is
+        the common one: the `?.` chain is the `??`'s LHS."""
+        self._vc_chain_prefix_hoist(cond, out)
+        field = self._VC_HEAD_FIELD.get(type(cond))
+        if field is None:
+            return
+        head = getattr(cond, field)
+        if not (self._is_value_conditional(head)
+                and self._spans_suspension(head)):
+            return
+        setattr(cond, field, self._vc_hoist_to_temp(head, out))
+
+    def _vc_chain_prefix_hoist(self, cond, out):
+        """Peel a MULTI-hop `?.` chain down to a single hop: everything left of the
+        last hop becomes `let __vchN = <prefix chain>` (recursively peeled, and
+        lowered too if it also suspends), leaving `__vchN?.<last hop>` — a
+        single-hop chain `_cond_to_branch` turns into one `if let`. A prefix that
+        does not suspend just stays an ordinary chain expression in its temp, so
+        `a?.b?.susp()` short-circuits at `a` exactly as before."""
+        if not isinstance(cond, OptionalEvalExpr):
+            return
+        if self._count_bindopts(cond.expr) <= 1:
+            return
+        bo = self._outermost_bindopt(cond.expr)
+        prefix = OptionalEvalExpr(expr=bo.expr, line=getattr(bo, 'line', 0),
+                                  column=getattr(bo, 'column', 0))
+        t = getattr(bo.expr, 'resolved_type', None)
+        if t is not None and t.kind != TypeKind.OPTIONAL:
+            t = SawType(TypeKind.OPTIONAL, inner_type=t)
+        prefix.resolved_type = t
+        bo.expr = self._vc_hoist_to_temp(prefix, out)
+
     def _vc_stmt(self, s):
         """Rewrite a leaf statement whose value is a suspension-spanning
         value-position conditional into the branch shape assigning a result sink."""
@@ -955,7 +1084,9 @@ class _FrameBuilder:
                 return AssignStatement(target=Identifier(name=name, line=line,
                                                          column=col),
                                        value=v, line=line, column=col)
-            return [self._cond_to_branch(cond, sink)]
+            pre = []
+            self._vc_head_hoist(cond, pre)
+            return pre + [self._cond_to_branch(cond, sink)]
         if (isinstance(s, AssignStatement) and self._is_value_conditional(s.value)
                 and self._spans_suspension(s.value)):
             cond = s.value
@@ -965,7 +1096,9 @@ class _FrameBuilder:
             def sink(v):
                 return AssignStatement(target=_copy.deepcopy(tgt), value=v,
                                        line=line, column=col)
-            return [self._cond_to_branch(cond, sink)]
+            pre = []
+            self._vc_head_hoist(cond, pre)
+            return pre + [self._cond_to_branch(cond, sink)]
         if (isinstance(s, ReturnStatement) and s.value is not None
                 and self._is_value_conditional(s.value)
                 and self._spans_suspension(s.value)):
@@ -974,8 +1107,78 @@ class _FrameBuilder:
 
             def sink(v):
                 return ReturnStatement(value=v, line=line, column=col)
-            return [self._cond_to_branch(cond, sink)]
+            pre = []
+            self._vc_head_hoist(cond, pre)
+            return pre + [self._cond_to_branch(cond, sink)]
+        # A chained assignment `x?.y = v` whose RHS suspends (design 111 +
+        # design 120): lower to a None-guarded in-place write so the RHS runs only
+        # when every hop is non-None. Statement-discard position (its `Void?`
+        # result is dropped).
+        if (isinstance(s, ExpressionStatement)
+                and isinstance(s.expression, OptionalChainAssign)
+                and self._spans_suspension(s.expression)):
+            lowered = self._lower_optchain_assign(s.expression)
+            if lowered is not None:
+                return [lowered]
         return [s]
+
+    def _lower_optchain_assign(self, oca):
+        """Lower `recv?.field = value` (single-hop, statement position) to a
+        None-guarded read-modify-writeback:
+
+            if let _ = recv {
+                var __wpN = recv!           // copy the payload out
+                __wpN.field = value         // mutate the copy (value may suspend)
+                recv = __wpN                // write the whole payload back (Some)
+            }
+
+        Writing the payload out and back — rather than mutating `recv!.field`
+        directly — keeps the mutation on a plain struct local, which the ANF hoist
+        then splits around the suspending RHS as any other statement. On a None
+        head the guard skips the write AND the RHS (short-circuit). Requires a
+        COPYABLE payload (the `recv!` read); a NoCopy payload or a multi-hop chain
+        is left un-lowered, so it still rejects cleanly — never a silent
+        miscompile."""
+        import copy as _copy
+        line, col = oca.line, oca.column
+        spine = oca.target.expr if isinstance(oca.target, OptionalEvalExpr) else None
+        if spine is None or self._count_bindopts(spine) != 1:
+            return None
+        recv_probe = []
+        self._replace_bindopt(_copy.deepcopy(spine), None, recv_probe)
+        receiver = recv_probe[0]
+        rt = getattr(receiver, 'resolved_type', None)
+        if rt is None or rt.kind != TypeKind.OPTIONAL or rt.inner_type is None:
+            return None
+        payload_t = rt.inner_type
+        wp = f"__wp{self._vc_ctr}"
+        self._vc_ctr += 1
+
+        def wp_ident():
+            i = Identifier(name=wp, line=line, column=col)
+            i.resolved_type = payload_t
+            return i
+        # var __wpN = recv!
+        fu = ForceUnwrap(expr=_copy.deepcopy(receiver), line=line, column=col)
+        fu.resolved_type = payload_t
+        copy_out = LetStatement(name=wp, type_annotation=None, value=fu,
+                                mutable=True, line=line, column=col)
+        # __wpN.field... = value   (spine with the `?.` hop -> __wpN)
+        write_target = self._replace_bindopt(spine, wp_ident(), [])
+        mutate = AssignStatement(target=write_target, value=oca.value,
+                                 line=line, column=col)
+        # recv = OptionalWrap(__wpN)   (whole-payload writeback, auto-Some)
+        writeback = AssignStatement(
+            target=_copy.deepcopy(receiver),
+            value=OptionalWrap(value=wp_ident(), target_type=rt,
+                               line=line, column=col),
+            line=line, column=col)
+        guard = IfLetExpr(
+            name="_", optional_expr=_copy.deepcopy(receiver), mutable=False,
+            then_branch=Block(statements=[copy_out, mutate, writeback],
+                              final_expr=None),
+            else_branch=None, line=line, column=col)
+        return ExpressionStatement(expression=guard)
 
     def _attach_sink_block(self, block, sink):
         """Replace a value-yielding block's tail with `sink(tail)`; a diverging
@@ -1025,6 +1228,37 @@ class _FrameBuilder:
             else_blk = Block(statements=[sink(else_val)], final_expr=None)
             return ExpressionStatement(expression=IfExpr(
                 condition=cond.left, then_branch=then_blk, else_branch=else_blk,
+                line=cond.line, column=cond.column))
+        if isinstance(cond, OptionalEvalExpr):
+            # A single-hop `?.` chain -> `if let __vcN = recv { sink(Some(spine))
+            # } else { sink(None) }`; the suspending hop lives in the some-branch,
+            # short-circuiting to None when the receiver is None.
+            spine = cond.expr
+            tmp = f"__vc{self._vc_ctr}"
+            self._vc_ctr += 1
+            bind = Identifier(name=tmp, line=cond.line, column=cond.column)
+            found = []
+            some_expr = self._replace_bindopt(spine, bind, found)
+            receiver = found[0]
+            rt = getattr(receiver, 'resolved_type', None)
+            bind.resolved_type = (rt.inner_type if rt is not None
+                                  and rt.kind == TypeKind.OPTIONAL else None)
+            result_t = getattr(cond, 'resolved_type', None)
+            # Flattening (design 111): a some-value that is already optional is not
+            # re-wrapped (never `U??`); otherwise wrap the payload to `U?`.
+            se_t = getattr(some_expr, 'resolved_type', None)
+            if se_t is not None and se_t.kind == TypeKind.OPTIONAL:
+                some_val = some_expr
+            else:
+                some_val = OptionalWrap(value=some_expr, target_type=result_t,
+                                        line=cond.line, column=cond.column)
+            none_val = NoneLiteral(line=cond.line, column=cond.column)
+            none_val.resolved_type = result_t
+            then_blk = Block(statements=[sink(some_val)], final_expr=None)
+            else_blk = Block(statements=[sink(none_val)], final_expr=None)
+            return ExpressionStatement(expression=IfLetExpr(
+                name=tmp, optional_expr=receiver, mutable=False,
+                then_branch=then_blk, else_branch=else_blk,
                 line=cond.line, column=cond.column))
         # Unreachable: `_is_value_conditional` gates the callers.
         raise CoroTransformError(

@@ -1,0 +1,31 @@
+// Design 120 closes the design-111 suspending-hop carve-out: a SUSPENDING method
+// inside an optional chain used to be a clean buried-suspension error (this file
+// lived under examples/errors/ and asserted it). It now lowers — the `?.` chain
+// becomes an `if let` whose some-branch holds the hop, so the hop runs only when
+// the head is non-None and its suspension is driven normally. Composed with `??`
+// the chain hoists to its own statement first, so the two conditionals nest as
+// statements rather than as an `if let` inside an `if let`. Exercised on a real
+// spawned task (a cooperative `yield_now` inside the hop), not just `__saw_drive`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// -1
+
+import std.task
+struct S { n: Int }
+extension S {
+    func tick(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+func run(o: S?) -> Int { o?.tick() ?? -1 }
+
+func main() {
+    var g = TaskGroup()
+    let some = g.spawn(run(S(n: 5)))
+    let none = g.spawn(run(None))
+    print(some.join())   // 5  — the hop ran
+    print(none.join())   // -1 — short-circuit, the hop was skipped
+}

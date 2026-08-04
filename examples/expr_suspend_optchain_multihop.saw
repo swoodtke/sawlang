@@ -1,0 +1,59 @@
+// Design 120, stage 2: a MULTI-hop `?.` chain with a suspending hop, at the last
+// hop and at an earlier one. The chain is peeled a hop at a time — everything
+// left of the last hop is hoisted into its own temp — so each suspending hop
+// lands in exactly one `if let` some-branch instead of nesting `if let` inside
+// `if let` (the shape the state split cannot express). Short-circuit is intact:
+// a None anywhere left of a hop skips the hop and its side effects, which the
+// counter pins.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// -1
+// -1
+// 1
+// 9
+// -1
+// -1
+// 3
+
+static CALLS: Atomic<Int> = Atomic(0)
+
+struct Inner { v: Int }
+extension Inner {
+    func susp(&self) -> Int {
+        CALLS.fetch_add(1)
+        __saw_suspend()
+        self.v + 1
+    }
+}
+struct Outer { i: Inner? }
+extension Outer {
+    func susp_inner(&self) -> Inner? {
+        CALLS.fetch_add(1)
+        __saw_suspend()
+        self.i
+    }
+}
+
+// suspend at the LAST hop
+func last(o: Outer?) -> Int {
+    let r: Int? = o?.i?.susp()
+    r ?? -1
+}
+
+// suspend at an EARLIER hop; the trailing hop is sync
+func early(o: Outer?) -> Int {
+    let r: Int? = o?.susp_inner()?.v
+    r ?? -1
+}
+
+func main() {
+    print(__saw_drive(last(Outer(i: Inner(v: 5)))))    // 6
+    print(__saw_drive(last(Outer(i: None))))           // -1 (skips at `i`)
+    print(__saw_drive(last(None)))                     // -1 (skips at the head)
+    print(CALLS.load())                                // 1 — `susp` ran once
+    print(__saw_drive(early(Outer(i: Inner(v: 9)))))   // 9
+    print(__saw_drive(early(Outer(i: None))))          // -1 (hop ran, gave None)
+    print(__saw_drive(early(None)))                    // -1 (skips at the head)
+    print(CALLS.load())                                // 3 — `susp_inner` ran twice
+}
