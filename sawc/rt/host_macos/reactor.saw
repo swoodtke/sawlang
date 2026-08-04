@@ -1,0 +1,146 @@
+// The IO reactor (designs 76 / 91 / 102 / 117) — macOS (kqueue), authored in Saw.
+//
+// design 117: the reactor is an INSTANCE created through the ABI, not a process
+// global inside the runtime. `__saw_rt_reactor_create` allocates a Reactor
+// owning its kqueue fd + a nonblocking self-wake pipe; register/poll/wake/destroy
+// take the instance. The process-global singleton is now EXECUTOR policy (a
+// compiler-synthesized lazy getter), not runtime state — which is what dissolves
+// the DF-113d blocker: the poll event buffer is no longer a per-call STACK array
+// Saw cannot express; each poll heap-allocates its own buffer (malloc/free), so
+// concurrent polls (MT groups) stay independent exactly as the pre-117 per-call
+// stack buffers were — no shared buffer, no poll mutex.
+//
+// The design-91 token contract, one-shot rearm, and the design-102 self-wake pipe
+// are preserved byte-for-byte from the pre-117 synthesized reactor.
+
+extern "C" {
+    func kqueue() -> Int32
+    func kevent(kq: Int32, changelist: UnsafePointer<Int8>, nchanges: Int32, eventlist: UnsafePointer<Int8>, nevents: Int32, timeout: UnsafePointer<Int8>) -> Int32
+    func pipe(fds: UnsafePointer<Int8>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
+    func malloc(size: Int) -> UnsafePointer<Int8>
+    func free(ptr: UnsafePointer<Int8>)
+    // The nonblocking-socket seam (shim.c — DF-113c, variadic fcntl).
+    func __saw_rt_set_nonblocking(fd: Int) -> Int
+}
+
+// The reactor instance: kqueue fd + the self-wake pipe (design 102 item 2).
+struct Reactor {
+    fd: Int
+    wake_r: Int
+    wake_w: Int
+}
+
+// pipe() writes fds[0]=read, fds[1]=write into two adjacent Int32s.
+struct PipeFds {
+    r: Int32
+    w: Int32
+}
+
+// struct kevent { uintptr ident; i16 filter; u16 flags; u32 fflags; intptr data;
+//                 void* udata; } — 32 bytes, natural ABI (design 58 layout).
+struct KEvent {
+    ident: Int
+    filter: Int16
+    flags: UInt16
+    fflags: UInt32
+    data: Int
+    udata: Int
+}
+
+// struct timespec { time_t tv_sec; long tv_nsec; } — 16 bytes.
+struct TimeSpec {
+    sec: Int
+    nsec: Int
+}
+
+// EV_ADD (0x0001) | EV_ONESHOT (0x0010). EVFILT_READ = -1, EVFILT_WRITE = -2.
+static EV_ADD_ONESHOT: UInt16 = 0x0011
+static POLL_EVENTS: Int = 64
+
+@export("__saw_rt_reactor_create")
+func rt_reactor_create() -> Int {
+    let kfd = kqueue()
+    var fds = PipeFds(r: 0 as Int32, w: 0 as Int32)
+    pipe((&fds) as UnsafePointer<Int8>)
+    let _ = __saw_rt_set_nonblocking(fds.r as Int)
+    let _ = __saw_rt_set_nonblocking(fds.w as Int)
+    let raw = unsafe malloc(sizeof<Reactor>())
+    let rp = raw as UnsafePointer<Reactor>
+    unsafe rp[0].fd = kfd as Int
+    unsafe rp[0].wake_r = fds.r as Int
+    unsafe rp[0].wake_w = fds.w as Int
+    raw as Int
+}
+
+// Arm one-shot readiness on `fd` for read (w==0) or write (w!=0). `token` is the
+// parked frame's `__wake`-word ADDRESS (design 91), carried as kevent.udata.
+@export("__saw_rt_reactor_register")
+func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) {
+    let rp = r as UnsafePointer<Reactor>
+    let kfd = unsafe rp[0].fd
+    let filt: Int16 = if w != 0 { -2 } else { -1 }
+    var kev = KEvent(ident: fd, filter: filt, flags: EV_ADD_ONESHOT, fflags: 0 as UInt32, data: 0, udata: token)
+    let nullp = 0 as UnsafePointer<Int8>
+    kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp)
+}
+
+// Block in kevent up to `timeout_ms` (< 0 = forever); latch each ready event's
+// udata token word to 0 (ready) — precise per-frame wake (design 91) — then drain
+// the self-wake pipe. Returns the ready-event count. A per-call heap event buffer
+// keeps concurrent polls independent (design 117).
+@export("__saw_rt_reactor_poll")
+func rt_reactor_poll(r: Int, timeout_ms: Int) -> Int {
+    let rp = r as UnsafePointer<Reactor>
+    let kfd = unsafe rp[0].fd
+    let wr = unsafe rp[0].wake_r
+    // Register the self-wake pipe read end one-shot (token 0 -> latch loop skips
+    // it, no frame falsely woken) so a `wake()` byte returns this poll promptly.
+    rt_reactor_register(r, wr, 0, 0)
+    let buf = unsafe malloc(POLL_EVENTS * sizeof<KEvent>())
+    var ts = TimeSpec(sec: timeout_ms / 1000, nsec: (timeout_ms % 1000) * 1000000)
+    let tsp = if timeout_ms < 0 { 0 as UnsafePointer<Int8> } else { (&ts) as UnsafePointer<Int8> }
+    let n = kevent(kfd as Int32, 0 as UnsafePointer<Int8>, 0, buf, POLL_EVENTS as Int32, tsp)
+    let evs = buf as UnsafePointer<KEvent>
+    var i = 0
+    while i < (n as Int) {
+        let ud = unsafe evs[i].udata
+        if ud != 0 {
+            let tokptr = ud as UnsafePointer<Int>
+            unsafe tokptr[0] = 0
+        }
+        i = i + 1
+    }
+    // Drain the self-wake pipe (nonblocking) so a level of readiness doesn't
+    // busy-fire the next poll. Reuse `buf` as the drain scratch, then free it.
+    var draining = true
+    while draining {
+        let rn = read(wr as Int32, buf, 64)
+        if rn <= 0 {
+            draining = false
+        }
+    }
+    free(buf)
+    n as Int
+}
+
+// design 102 item 2: rouse a blocked poll by writing one byte to the self-wake
+// pipe write end.
+@export("__saw_rt_reactor_wake")
+func rt_reactor_wake(r: Int) {
+    let rp = r as UnsafePointer<Reactor>
+    let ww = unsafe rp[0].wake_w
+    var byte: Int8 = 1
+    write(ww as Int32, (&byte) as UnsafePointer<Int8>, 1)
+}
+
+@export("__saw_rt_reactor_destroy")
+func rt_reactor_destroy(r: Int) {
+    let rp = r as UnsafePointer<Reactor>
+    close(unsafe rp[0].fd as Int32)
+    close(unsafe rp[0].wake_r as Int32)
+    close(unsafe rp[0].wake_w as Int32)
+    free(r as UnsafePointer<Int8>)
+}

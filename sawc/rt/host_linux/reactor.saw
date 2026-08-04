@@ -1,0 +1,137 @@
+// The IO reactor (designs 76 / 91 / 102 / 117) — Linux (epoll), authored in Saw.
+//
+// design 117: instance-based reactor (see host_macos/reactor.saw for the shared
+// rationale). This is the epoll mirror of the macOS kqueue reactor: same instance
+// shape (epoll fd + self-wake pipe), same design-91 token contract, one-shot
+// rearm (EPOLLONESHOT, EPOLL_CTL_MOD on EEXIST), design-102 self-wake pipe, and a
+// per-call heap event buffer so concurrent polls stay independent.
+//
+// `struct epoll_event` is `__attribute__((packed))` (12 bytes: u32 events @0,
+// u64 data @4) — NOT a natural-ABI layout — so the event is stamped/read via raw
+// byte-offset pointer writes rather than a typed Saw struct.
+
+extern "C" {
+    func epoll_create1(flags: Int32) -> Int32
+    func epoll_ctl(epfd: Int32, op: Int32, fd: Int32, event: UnsafePointer<Int8>) -> Int32
+    func epoll_wait(epfd: Int32, events: UnsafePointer<Int8>, maxevents: Int32, timeout: Int32) -> Int32
+    func pipe(fds: UnsafePointer<Int8>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
+    func malloc(size: Int) -> UnsafePointer<Int8>
+    func free(ptr: UnsafePointer<Int8>)
+    func __saw_rt_set_nonblocking(fd: Int) -> Int
+}
+
+// The reactor instance: epoll fd + the self-wake pipe (design 102 item 2).
+struct Reactor {
+    fd: Int
+    wake_r: Int
+    wake_w: Int
+}
+
+// pipe() writes fds[0]=read, fds[1]=write into two adjacent Int32s.
+struct PipeFds {
+    r: Int32
+    w: Int32
+}
+
+// A 16-byte stack vehicle for the 12-byte packed epoll_event: events (u32) is
+// written at byte 0 and data (u64) at byte 4 via raw offset pointers below.
+struct EpollEv {
+    lo: Int
+    hi: Int
+}
+
+// EPOLLIN (0x001) | EPOLLONESHOT (0x40000000); EPOLLOUT (0x004) | EPOLLONESHOT.
+static EV_IN_ONESHOT: UInt32 = 0x40000001
+static EV_OUT_ONESHOT: UInt32 = 0x40000004
+static EPOLL_CTL_ADD: Int32 = 1
+static EPOLL_CTL_MOD: Int32 = 3
+static EPOLL_EVENT_SIZE: Int = 12
+static POLL_EVENTS: Int = 64
+
+@export("__saw_rt_reactor_create")
+func rt_reactor_create() -> Int {
+    let epfd = epoll_create1(0 as Int32)
+    var fds = PipeFds(r: 0 as Int32, w: 0 as Int32)
+    pipe((&fds) as UnsafePointer<Int8>)
+    let _ = __saw_rt_set_nonblocking(fds.r as Int)
+    let _ = __saw_rt_set_nonblocking(fds.w as Int)
+    let raw = unsafe malloc(sizeof<Reactor>())
+    let rp = raw as UnsafePointer<Reactor>
+    unsafe rp[0].fd = epfd as Int
+    unsafe rp[0].wake_r = fds.r as Int
+    unsafe rp[0].wake_w = fds.w as Int
+    raw as Int
+}
+
+// Arm one-shot readiness on `fd` for read (w==0) or write (w!=0). `token` is the
+// parked frame's `__wake`-word ADDRESS (design 91), stored as epoll_event.data.
+@export("__saw_rt_reactor_register")
+func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) {
+    let rp = r as UnsafePointer<Reactor>
+    let epfd = unsafe rp[0].fd
+    var ev = EpollEv(lo: 0, hi: 0)
+    let evp = (&ev) as UnsafePointer<Int8>
+    let events: UInt32 = if w != 0 { EV_OUT_ONESHOT } else { EV_IN_ONESHOT }
+    unsafe (evp as UnsafePointer<UInt32>)[0] = events           // events @ byte 0
+    let datap = unsafe (evp + 4) as UnsafePointer<Int>          // data @ byte 4
+    unsafe datap[0] = token
+    // EPOLL_CTL_ADD; on EEXIST (already known) re-arm with EPOLL_CTL_MOD.
+    let r0 = epoll_ctl(epfd as Int32, EPOLL_CTL_ADD, fd as Int32, evp)
+    if r0 != (0 as Int32) {
+        epoll_ctl(epfd as Int32, EPOLL_CTL_MOD, fd as Int32, evp)
+    }
+}
+
+// Block in epoll_wait up to `timeout_ms` (< 0 = forever); latch each ready
+// event's data token word to 0 (ready) — precise per-frame wake (design 91) —
+// then drain the self-wake pipe. Returns the ready-event count. Per-call heap
+// event buffer keeps concurrent polls independent (design 117).
+@export("__saw_rt_reactor_poll")
+func rt_reactor_poll(r: Int, timeout_ms: Int) -> Int {
+    let rp = r as UnsafePointer<Reactor>
+    let epfd = unsafe rp[0].fd
+    let wr = unsafe rp[0].wake_r
+    rt_reactor_register(r, wr, 0, 0)
+    let buf = unsafe malloc(POLL_EVENTS * EPOLL_EVENT_SIZE)
+    let to: Int32 = if timeout_ms < 0 { -1 } else { timeout_ms as Int32 }
+    let n = epoll_wait(epfd as Int32, buf, POLL_EVENTS as Int32, to)
+    var i = 0
+    while i < (n as Int) {
+        let datap = unsafe (buf + (i * EPOLL_EVENT_SIZE + 4)) as UnsafePointer<Int>
+        let ud = unsafe datap[0]
+        if ud != 0 {
+            let tokptr = ud as UnsafePointer<Int>
+            unsafe tokptr[0] = 0
+        }
+        i = i + 1
+    }
+    var draining = true
+    while draining {
+        let rn = read(wr as Int32, buf, 64)
+        if rn <= 0 {
+            draining = false
+        }
+    }
+    free(buf)
+    n as Int
+}
+
+@export("__saw_rt_reactor_wake")
+func rt_reactor_wake(r: Int) {
+    let rp = r as UnsafePointer<Reactor>
+    let ww = unsafe rp[0].wake_w
+    var byte: Int8 = 1
+    write(ww as Int32, (&byte) as UnsafePointer<Int8>, 1)
+}
+
+@export("__saw_rt_reactor_destroy")
+func rt_reactor_destroy(r: Int) {
+    let rp = r as UnsafePointer<Reactor>
+    close(unsafe rp[0].fd as Int32)
+    close(unsafe rp[0].wake_r as Int32)
+    close(unsafe rp[0].wake_w as Int32)
+    free(r as UnsafePointer<Int8>)
+}

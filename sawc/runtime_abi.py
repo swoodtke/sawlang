@@ -35,10 +35,12 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     # Cooperative-scheduler fairness (design 89-c)
     "__saw_rt_op_budget_tick",
     "__saw_rt_op_budget_reset",
-    # The IO reactor (designs 76 / 91 / 102)
+    # The IO reactor (designs 76 / 91 / 102; instance-based by design 117)
+    "__saw_rt_reactor_create",
     "__saw_rt_reactor_register",
     "__saw_rt_reactor_poll",
     "__saw_rt_reactor_wake",
+    "__saw_rt_reactor_destroy",
     # Threads (design 21; consolidated to spawn/join by design 117)
     "__saw_rt_thread_spawn",
     "__saw_rt_thread_join",

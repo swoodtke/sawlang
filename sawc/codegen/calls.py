@@ -36,6 +36,22 @@ class CallsMixin:
         _generate_enum_init: Generate code for enum variant initialization
     """
 
+    # design 117: the reactor ABI seams that take the reactor INSTANCE as their
+    # first argument. Saw/coro/executor call sites spell them at the pre-instance
+    # arity; codegen injects `__saw_reactor()` at the call.
+    _REACTOR_INSTANCE_SEAMS = frozenset({
+        "__saw_rt_reactor_register",
+        "__saw_rt_reactor_poll",
+        "__saw_rt_reactor_wake",
+    })
+
+    def _reactor_instance(self):
+        """design 117: the process-global reactor instance (`__saw_reactor()`),
+        created lazily + race-safely by the compiler-synthesized getter. Injected
+        as the first argument at every reactor seam call site."""
+        return self.builder.call(self.functions["__saw_reactor"], [],
+                                 name="reactor")
+
     def _fill_func_defaults(self, args, key):
         """Design 53: append default-value arguments for a free-function call
         that omitted trailing arguments. The default expressions are evaluated
@@ -206,10 +222,14 @@ class CallsMixin:
             # design 91: no frame here (blocking-thread path), so no wake word to
             # route to — register with a null token. The poll skips null udata and
             # simply returns when the fd is ready, giving correct blocking semantics.
+            # design 117: the reactor is instance-based; codegen supplies the
+            # process-global instance (`__saw_reactor()`) at every seam call.
             self.builder.call(self.functions["__saw_rt_reactor_register"],
-                              [fd, direction, ir.Constant(self.int_type, 0)])
+                              [self._reactor_instance(), fd, direction,
+                               ir.Constant(self.int_type, 0)])
             self.builder.call(self.functions["__saw_rt_reactor_poll"],
-                              [ir.Constant(self.int_type, -1)])
+                              [self._reactor_instance(),
+                               ir.Constant(self.int_type, -1)])
             return None
         # design 103 (A6): the blocking-extern offload intrinsics, emitted by the
         # coro transform when it lowers a `let x = slow(arg)` blocking-extern call.
@@ -385,6 +405,12 @@ class CallsMixin:
             args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
             # Fill omitted trailing arguments from their default expressions (design 53).
             self._fill_func_defaults(args, defaults_key)
+        # design 117: the reactor seams take the reactor INSTANCE as their first
+        # argument. Every Saw/coro/executor call site spells them at the pre-117
+        # arity (no instance); codegen injects the process-global instance here,
+        # so the instance stays executor/compiler policy the callers never name.
+        if expr.name in self._REACTOR_INSTANCE_SEAMS:
+            args = [self._reactor_instance()] + args
         result = self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
 
         # Wrap result in optional for extern functions that return nullable pointers
