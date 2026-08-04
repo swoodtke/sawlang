@@ -245,7 +245,7 @@ class ClosuresMixin:
         if captures and env_struct_type:
             if escapes:
                 i64 = self.int_type  # design 47: saw_alloc size/align are platform-width
-                env_size = env_struct_type.get_abi_size(self.target_data)
+                env_size = self._abi_size(env_struct_type)
                 raw = self.builder.call(
                     self.functions["__saw_rt_alloc"],
                     [ir.Constant(i64, env_size), ir.Constant(i64, 16)],
@@ -350,7 +350,7 @@ class ClosuresMixin:
         i8ptr = i8.as_pointer()
         i64 = self.int_type  # design 47: saw_dealloc size/align are platform-width
         void = ir.VoidType()
-        env_size = env_struct_type.get_abi_size(self.target_data)
+        env_size = self._abi_size(env_struct_type)
 
         fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
                          name=f"{closure_name}_env_dtor")

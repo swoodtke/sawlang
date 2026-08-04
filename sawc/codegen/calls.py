@@ -626,7 +626,7 @@ class CallsMixin:
         # `sizeof<Void>()` is 0 (Void is the zero-size type; it reaches here via a
         # Void-result Task control block, design 77 item 1). LLVM has no ABI size
         # for `void`, so fold it directly.
-        size = 0 if isinstance(llvm_type, ir.VoidType) else llvm_type.get_abi_size(self.target_data)
+        size = 0 if isinstance(llvm_type, ir.VoidType) else self._abi_size(llvm_type)
         return ir.Constant(self.int_type, size)  # sizeof<T>() -> platform Int
 
     def _generate_alignof(self, expr: FunctionCall):
@@ -645,7 +645,7 @@ class CallsMixin:
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name in self.type_param_context:
             saw_type = self.type_param_context[saw_type.struct_name]
         llvm_type = self._get_llvm_type(saw_type)
-        align = llvm_type.get_abi_alignment(self.target_data)
+        align = self._abi_align(llvm_type)
         return ir.Constant(self.int_type, align)  # alignof<T>() -> platform Int
 
     def _generate_method_call(self, expr: MethodCall, receiver_ptr=None):
@@ -1262,13 +1262,13 @@ class CallsMixin:
         if method == "len":
             view_saw = self._um_view_type(expr.object)  # [N x E]
             view_llvm = self._get_llvm_type(view_saw)
-            size = view_llvm.get_abi_size(self.target_data)
+            size = self._abi_size(view_llvm)
             return ir.Constant(self.int_type, size)  # len() -> platform Int
 
         if method == "end":
             view_saw = self._um_view_type(expr.object)
             view_llvm = self._get_llvm_type(view_saw)
-            size = view_llvm.get_abi_size(self.target_data)
+            size = self._abi_size(view_llvm)
             end_addr = self.builder.add(base_addr, ir.Constant(self.int_type, size),
                                         name="um_end_addr")
             return self.builder.inttoptr(end_addr, i8ptr, name="um_end")
@@ -1305,7 +1305,7 @@ class CallsMixin:
 
         # Control block: { pthread_t tid (i8*), i8* env, T result }.
         cb_ty = ir.LiteralStructType([i8ptr, i8ptr, slot_llvm])
-        cb_size = cb_ty.get_abi_size(self.target_data)
+        cb_size = self._abi_size(cb_ty)
         # design 47: __saw_rt_alloc's size/align are platform-width (i32 on
         # riscv32). Use the target word type, not a hardcoded i64, or the seam
         # call ICEs on a 32-bit target (the last un-migrated alloc site —

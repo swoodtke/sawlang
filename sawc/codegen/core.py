@@ -136,8 +136,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.triple = target_triple or binding.get_default_triple()
         self._explicit_target = target_triple is not None
 
-        # Create module
-        self.module = ir.Module(name="__saw_module")
+        # Create module in a FRESH llvmlite context (not the process-global one).
+        # llvmlite's `ir.Module` defaults to a module-level singleton
+        # `context.global_context`, whose `identified_types` registry caches
+        # every named struct type (`get_identified_type`) for the life of the
+        # process. In a one-shot `sawc` invocation that is harmless, but a
+        # long-lived process that compiles more than once in-process (the design
+        # 115 persistent test-worker; a future compile-server/LSP) would hit
+        # "<StructName> is already defined" on the SECOND compile when it
+        # re-registers a builtin/std identified type (e.g. `Device`). Isolating
+        # each compile in its own `ir.Context` makes the identified-type registry
+        # per-compile, so re-entrant compiles are independent.
+        self.module = ir.Module(name="__saw_module", context=ir.Context())
         self.module.triple = self.triple
 
         # Create target data for sizeof calculations
@@ -1834,6 +1844,25 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             self._reject_const(expr, sa, "this member access")
         self._reject_const(expr, sa, type(expr).__name__)
 
+    # ---------------------------------------------------------------------
+    # ABI layout queries (design 115 re-entrancy).
+    #
+    # `ir.Type.get_abi_size`/`get_abi_alignment` compute layout by rendering the
+    # type into a THROWAWAY module and parsing it. Called with no `context=`,
+    # llvmlite builds that module in its process-GLOBAL context, whose
+    # identified-type registry does NOT contain the struct bodies this compile
+    # registered in its own fresh `ir.Context()` (see `__init__`) — so an
+    # identified struct type renders as an undefined-type reference and the parse
+    # fails ("use of undefined type named ..."). Passing this compile's OWN
+    # module context makes the throwaway module self-contained. Route every ABI
+    # query through these helpers so the per-compile context stays correct.
+    def _abi_size(self, llvm_type) -> int:
+        return llvm_type.get_abi_size(self.target_data, context=self.module.context)
+
+    def _abi_align(self, llvm_type) -> int:
+        return llvm_type.get_abi_alignment(self.target_data,
+                                           context=self.module.context)
+
     def _const_type_metric(self, expr, sa, which):
         if not expr.type_args or len(expr.type_args) != 1:
             self._reject_const(expr, sa, f"`{expr.name}` needs one type argument")
@@ -1843,8 +1872,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             saw_type = self.type_param_context[saw_type.struct_name]
         llvm_type = self._get_llvm_type(saw_type)
         if which == 'size':
-            return llvm_type.get_abi_size(self.target_data)
-        return llvm_type.get_abi_alignment(self.target_data)
+            return self._abi_size(llvm_type)
+        return self._abi_align(llvm_type)
 
     def _const_int_limit(self, limit):
         type_name, which = limit
@@ -2036,7 +2065,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     # or an `Int8` before a wide field — undersizes `[N x i8]` and
                     # both TRUNCATES the aggregate on construction and reads OOB on
                     # extraction (design 65, L17 symptom 2).
-                    size = variant_struct.get_abi_size(self.target_data)
+                    size = self._abi_size(variant_struct)
                     max_payload_size = max(max_payload_size, size)
 
         # Create LLVM type for enum

@@ -155,8 +155,8 @@ class ExistentialsMixin:
         self.type_param_context = {}  # concrete type: no type params in scope
         try:
             concrete_llvm = self._get_llvm_type(concrete_saw)
-            size = concrete_llvm.get_abi_size(self.target_data)
-            align = concrete_llvm.get_abi_alignment(self.target_data)
+            size = self._abi_size(concrete_llvm)
+            align = self._abi_align(concrete_llvm)
             dtor = self._get_vtable_dtor(concrete_saw)
             type_id = self._type_id_for(concrete_saw)
             elems = [dtor, ir.Constant(self.int_type, size),
@@ -316,10 +316,8 @@ class ExistentialsMixin:
         propagation edge (design 56). OOM panics (the infallible tier)."""
         i8 = self._i8ptr()
         concrete_llvm = self._get_llvm_type(concrete_saw)
-        size = ir.Constant(self.int_type,
-                           concrete_llvm.get_abi_size(self.target_data))
-        align = ir.Constant(self.int_type,
-                            concrete_llvm.get_abi_alignment(self.target_data))
+        size = ir.Constant(self.int_type, self._abi_size(concrete_llvm))
+        align = ir.Constant(self.int_type, self._abi_align(concrete_llvm))
 
         # Allocate through A().alloc(size, align) -> UnsafePointer<Int8>? = {i1,i8*}.
         alloc_fn = self.functions[mangle_method(mangle_type(alloc_saw), "alloc")]
