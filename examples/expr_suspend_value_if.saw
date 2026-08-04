@@ -6,7 +6,6 @@
 // EXPECT-OUTPUT:
 // 10
 // 20
-// XFAIL: design 120 pending
 
 func s(n: Int) -> Int {
     __saw_suspend()

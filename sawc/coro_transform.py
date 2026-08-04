@@ -757,7 +757,10 @@ class _FrameBuilder:
         elif isinstance(s, AssignStatement):
             if isinstance(s.value, self._ANF_CONDITIONAL):
                 return [s]
-            s.value = self._anf(s.value, out, lift_self=False)
+            # An assignment RHS has no top-level supported form (unlike `let x =
+            # call()` / `return call()`), so a suspending-call RHS is lifted too:
+            # `x = s()` becomes `let __anfN = s(); x = __anfN`.
+            s.value = self._anf(s.value, out, lift_self=True)
         elif isinstance(s, ReturnStatement):
             if s.value is not None and not isinstance(s.value, self._ANF_CONDITIONAL):
                 s.value = self._anf(s.value, out, lift_self=False)
@@ -881,6 +884,153 @@ class _FrameBuilder:
         operator / literal is a temporary and must be hoisted first."""
         return isinstance(expr, (Identifier, MemberAccess, ArrayIndex,
                                  SelfExpr, TupleIndex))
+
+    # ------------------------------------------------------------------ #
+    # design 120 stage 2: suspension in a CONDITIONAL expression position
+    # ------------------------------------------------------------------ #
+    #
+    # A value-position `if`/`match`, a `??` RHS, and a `&&`/`||` RHS all evaluate
+    # their spanning sub-expression CONDITIONALLY — a suspend there may not be
+    # hoisted above the guard (pinned semantics 3). Lower each to the branch shape
+    # FIRST (the design-104 CFG pattern: a value-position construct becomes a
+    # statement-position `if`/`match` that assigns a result temp per arm), so the
+    # suspend lands unconditionally inside one arm, where the stage-1 ANF hoist and
+    # the existing CFG split handle it. The short-circuit skip is automatic: an arm
+    # that is not taken never runs, so its suspending call (and its side effects)
+    # never execute. Runs BEFORE the ANF hoist (which then lifts the arm-value
+    # suspends) and BEFORE `_mark_optional_binding_splits` (which splits the
+    # `if let` a `??` lowers to).
+
+    def _is_value_conditional(self, e):
+        return (isinstance(e, (IfExpr, MatchExpr, NilCoalesce))
+                or (isinstance(e, BinaryOp) and e.op in ("&&", "||", "and", "or")))
+
+    def _lower_value_conditionals(self):
+        self._vc_ctr = 0
+        self._extra_frame_locals = []
+        self._vc_block(self.func.body)
+
+    def _vc_block(self, block):
+        new_stmts = []
+        for s in block.statements:
+            new_stmts.extend(self._vc_stmt(s))
+        block.statements = new_stmts
+        for s in block.statements:
+            self._vc_recurse(s)
+
+    def _vc_recurse(self, s):
+        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        if isinstance(ctrl, IfExpr):
+            self._vc_block(ctrl.then_branch)
+            if ctrl.else_branch is not None:
+                self._vc_block(ctrl.else_branch)
+        elif isinstance(ctrl, IfLetExpr):
+            self._vc_block(ctrl.then_branch)
+            if ctrl.else_branch is not None:
+                self._vc_block(ctrl.else_branch)
+        elif isinstance(ctrl, WhileExpr):
+            self._vc_block(ctrl.body)
+        elif isinstance(ctrl, MatchExpr):
+            for arm in ctrl.arms:
+                if isinstance(arm.body, Block):
+                    self._vc_block(arm.body)
+        elif isinstance(s, ForLoop):
+            self._vc_block(s.body)
+        elif isinstance(s, GuardLetStatement):
+            self._vc_block(s.else_branch)
+
+    def _vc_stmt(self, s):
+        """Rewrite a leaf statement whose value is a suspension-spanning
+        value-position conditional into the branch shape assigning a result sink."""
+        import copy as _copy
+        if (isinstance(s, LetStatement) and self._is_value_conditional(s.value)
+                and self._spans_suspension(s.value)):
+            cond = s.value
+            t = getattr(cond, 'resolved_type', None) or s.type_annotation
+            self._extra_frame_locals.append((s.name, t))
+            name = s.name
+            line, col = s.line, s.column
+
+            def sink(v):
+                return AssignStatement(target=Identifier(name=name, line=line,
+                                                         column=col),
+                                       value=v, line=line, column=col)
+            return [self._cond_to_branch(cond, sink)]
+        if (isinstance(s, AssignStatement) and self._is_value_conditional(s.value)
+                and self._spans_suspension(s.value)):
+            cond = s.value
+            tgt = s.target
+            line, col = s.line, s.column
+
+            def sink(v):
+                return AssignStatement(target=_copy.deepcopy(tgt), value=v,
+                                       line=line, column=col)
+            return [self._cond_to_branch(cond, sink)]
+        if (isinstance(s, ReturnStatement) and s.value is not None
+                and self._is_value_conditional(s.value)
+                and self._spans_suspension(s.value)):
+            cond = s.value
+            line, col = s.line, s.column
+
+            def sink(v):
+                return ReturnStatement(value=v, line=line, column=col)
+            return [self._cond_to_branch(cond, sink)]
+        return [s]
+
+    def _attach_sink_block(self, block, sink):
+        """Replace a value-yielding block's tail with `sink(tail)`; a diverging
+        block (no tail value — it returns/breaks) is left as-is."""
+        if block.final_expr is not None:
+            block.statements.append(sink(block.final_expr))
+            block.final_expr = None
+
+    def _cond_to_branch(self, cond, sink):
+        if isinstance(cond, IfExpr):
+            self._attach_sink_block(cond.then_branch, sink)
+            if cond.else_branch is not None:
+                self._attach_sink_block(cond.else_branch, sink)
+            return ExpressionStatement(expression=cond)
+        if isinstance(cond, MatchExpr):
+            for arm in cond.arms:
+                if isinstance(arm.body, Block):
+                    self._attach_sink_block(arm.body, sink)
+                else:
+                    arm.body = Block(statements=[sink(arm.body)], final_expr=None)
+            return ExpressionStatement(expression=cond)
+        if isinstance(cond, NilCoalesce):
+            # `a ?? b` -> `if let __vcN = a { sink(__vcN) } else { sink(b) }`; the
+            # RHS `b` runs only on the None path, so its suspend/side-effects skip.
+            tmp = f"__vc{self._vc_ctr}"
+            self._vc_ctr += 1
+            ot = getattr(cond.expr, 'resolved_type', None)
+            inner = ot.inner_type if (ot is not None
+                                      and ot.kind == TypeKind.OPTIONAL) else None
+            bind = Identifier(name=tmp, line=cond.line, column=cond.column)
+            bind.resolved_type = inner
+            then_blk = Block(statements=[sink(bind)], final_expr=None)
+            else_blk = Block(statements=[sink(cond.default)], final_expr=None)
+            return ExpressionStatement(expression=IfLetExpr(
+                name=tmp, optional_expr=cond.expr, mutable=False,
+                then_branch=then_blk, else_branch=else_blk,
+                line=cond.line, column=cond.column))
+        if isinstance(cond, BinaryOp) and cond.op in ("&&", "||", "and", "or"):
+            # `a && b` -> `if a { sink(b) } else { sink(false) }`
+            # `a || b` -> `if a { sink(true) } else { sink(b) }`; the RHS `b` runs
+            # only when `a` does not short-circuit, so its suspend/side-effects skip.
+            if cond.op in ("&&", "and"):
+                then_val, else_val = cond.right, BoolLiteral(value=False)
+            else:
+                then_val, else_val = BoolLiteral(value=True), cond.right
+            then_blk = Block(statements=[sink(then_val)], final_expr=None)
+            else_blk = Block(statements=[sink(else_val)], final_expr=None)
+            return ExpressionStatement(expression=IfExpr(
+                condition=cond.left, then_branch=then_blk, else_branch=else_blk,
+                line=cond.line, column=cond.column))
+        # Unreachable: `_is_value_conditional` gates the callers.
+        raise CoroTransformError(
+            f"coroutine transform: unsupported value-position conditional in "
+            f"`{self.name}`", getattr(cond, 'line', 0), getattr(cond, 'column', 0),
+            source_file=self.src_file)
 
     # ------------------------------------------------------------------ #
     # design 104 item 1: CFG-split `if let`/`guard let` bodies that suspend
@@ -1099,6 +1249,13 @@ class _FrameBuilder:
                 walk_block(s.body)
 
         walk_block(self.func.body)
+        # design 120 stage 2: a value-position conditional lowered to branch form
+        # replaced its `let x = <cond>` with a branch assigning `x` per arm, so the
+        # normal `let` walk no longer sees `x`. It IS assigned across resume states
+        # (different arms in different blocks) and read after, so it must be
+        # frame-resident: fold in the temps the value-conditional lowering recorded.
+        for name, t in getattr(self, '_extra_frame_locals', []):
+            add(name, t, self.func.line, self.func.column)
         return locals_
 
     def _destructure_leaf_types(self, pattern, src_type):
@@ -1485,6 +1642,14 @@ class _FrameBuilder:
         # the callee's internal `io_wait` park blocks the thread instead of yielding
         # — a `match stream.read() {...}` worker hangs (even at nesting depth 1).
         self._hoist_suspending_match()
+        # design 120 stage 2: lower a suspension-spanning value-position
+        # conditional (`let x = if c { s() } else { … }`, a value `match`, a `??`
+        # RHS, a `&&`/`||` RHS) to the branch shape — a statement-position
+        # `if`/`match` that assigns a result temp per arm — so a suspend that was
+        # in a CONDITIONAL position lands unconditionally inside one arm. Runs
+        # before the ANF hoist (which lifts the arm-value suspend) and before
+        # `_mark_optional_binding_splits` (which splits the `if let` a `??` forms).
+        self._lower_value_conditionals()
         # design 120: the general ANF hoist. Lift any BURIED suspending call (an
         # argument, receiver, operand, literal element, interpolation, or a `try!`
         # over a suspend) out of an unconditional expression position into

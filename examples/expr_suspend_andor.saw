@@ -10,7 +10,6 @@
 // 1
 // 1
 // 2
-// XFAIL: design 120 pending
 
 static CALLS: Atomic<Int> = Atomic(0)
 
