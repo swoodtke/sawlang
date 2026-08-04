@@ -1,0 +1,79 @@
+// Doc comments (`///`, `//!`) are captured as trivia: they never enter the token
+// stream, and `lex_all` reports them separately (design 121).
+import src.lib.*
+
+func recs(s: String) -> Vector<String> {
+    var out = Vector<String>()
+    match lex_all(s) {
+        case Ok(r) -> {
+            var i = 0
+            while i < r.docs.len() {
+                if let d = r.docs.get(i) { out.push(format_doc(&d)) }
+                i = i + 1
+            }
+        },
+        case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
+    }
+    move out
+}
+
+func at(rs: &Vector<String>, i: Int) -> String {
+    if let r = rs.get(i) { r } else { panic("no doc record at index {i}") }
+}
+
+// The token stream must be identical whether or not doc comments are present.
+func kinds(s: String) -> String {
+    var out = StringBuilder()
+    match lex(s) {
+        case Ok(ts) -> {
+            var i = 0
+            while i < ts.len() {
+                if let t = ts.get(i) { out.append(format_token(&t)) }
+                out.append("|")
+                i = i + 1
+            }
+        },
+        case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
+    }
+    out.build()
+}
+
+func main() {
+    // `///` documents the following declaration; one leading space is stripped.
+    let a = recs("/// Returns the answer.\nfunc answer() -> Int { 42 }\n")
+    assert(a.len() == 1, "one doc record")
+    assert(at(&a, 0).equals("DOC\t1:1\tdoc\tReturns the answer."), "doc record")
+
+    // `//!` documents the enclosing module.
+    let b = recs("//! The module.\n")
+    assert(at(&b, 0).equals("DOC\t1:1\tmodule\tThe module."), "module-doc record")
+
+    // Exactly one leading space is stripped; further indentation is body text.
+    let c = recs("///  two spaces\n///no space\n")
+    assert(at(&c, 0).equals("DOC\t1:1\tdoc\t two spaces"), "second space kept")
+    assert(at(&c, 1).equals("DOC\t2:1\tdoc\tno space"), "no space to strip")
+
+    // An empty `///` line is a record with empty text (paragraph break).
+    let d = recs("/// one\n///\n/// two\n")
+    assert(d.len() == 3, "blank doc line is its own record")
+    assert(at(&d, 1).equals("DOC\t2:1\tdoc\t"), "empty doc body")
+
+    // Four or more slashes is an ordinary comment; so is a `///` after code.
+    let e = recs("//// banner\nlet x = 1 /// trailing\n")
+    assert(e.len() == 0, "banner and trailing comments are ordinary")
+
+    // Indented doc comments record the column of the leading slash.
+    let f = recs("struct S \{\n    /// The value.\n    value: Int\n\}\n")
+    assert(at(&f, 0).equals("DOC\t2:5\tdoc\tThe value."), "indented doc column")
+
+    // Tabs and backslashes in a doc body use the canonical escaping.
+    let g = recs("/// a\tb\\c\n")
+    assert(at(&g, 0).equals("DOC\t1:1\tdoc\ta\\tb\\\\c"), "escaped doc body")
+
+    // The token stream is unchanged by doc trivia. The two comments below are the
+    // same width, so even the NEWLINE columns match record-for-record.
+    let same = kinds("/// x\nlet y = 1\n").equals(kinds("//  x\nlet y = 1\n"))
+    assert(same, "doc comments leave the token stream untouched")
+
+    print("doc_comments: ok")
+}

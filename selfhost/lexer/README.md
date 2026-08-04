@@ -13,7 +13,7 @@ The Python lexer's **observable output** is the correctness reference;
 ```
 selfhost/lexer/
   Saw.toml          # Blade package manifest (name = "sawlex")
-  src/lib.saw       # token model (TokenKind enum + Token) + `lex` + dump format
+  src/lib.saw       # token model (TokenKind enum + Token) + `lex`/`lex_all` + dump format
   src/main.saw      # the `sawlex` CLI
   tests/*.saw       # blade unit tests, one per token family
 ```
@@ -59,6 +59,29 @@ Error **positions and kinds** match the Python lexer; message **prose does not**
 `tools/dump_tokens.py` emits the byte-identical format from the Python lexer;
 `tools/lexdiff.py` (`make lexdiff`) diffs the two dumps over every tracked `.saw`
 file. Zero mismatches over the corpus is the acceptance bar.
+
+## Doc-comment trivia dump
+
+`sawlex --docs <file.saw>` emits the documentation comments instead of the token
+stream, one record per captured line:
+
+```
+DOC<TAB>line:col<TAB>kind<TAB>escaped-text
+```
+
+* `kind` — `doc` for a `///` line, `module` for a `//!` line.
+* `line:col` — 1-based, at the leading `/`.
+* `escaped-text` — the line body with the `///`/`//!` marker and one following
+  space stripped, escaped by the same byte-level scheme as a token's text.
+
+Doc comments are **trivia**: `lex` skips them exactly as it skips `//` comments,
+so the token dump above is unaffected. `lex_all` returns the tokens and the doc
+records together. Only a comment that starts its line is a doc comment; `////`
+(four or more slashes) and a `///` trailing code on the same line are ordinary
+comments.
+
+`tools/dump_tokens.py --docs` emits the same records from the Python lexer, and
+`make lexdiff` sweeps both dumps over the corpus (`--mode tokens|docs` picks one).
 
 ## Kind-name mapping (TokenKind case → dump name)
 

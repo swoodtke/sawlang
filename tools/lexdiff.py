@@ -12,8 +12,13 @@ rejects) are compared on the tag + position only — message prose is not requir
 to match (design 116 bar). ZERO mismatches over the whole corpus is the
 acceptance bar.
 
+Two sweeps run by default (design 121): the canonical TOKEN dump, and the
+doc-comment TRIVIA dump (`--docs` on both dumpers). Pick one with
+`--mode tokens|docs`.
+
 Usage:
-    python tools/lexdiff.py [--saw-bin PATH] [--no-build] [-v]
+    python tools/lexdiff.py [--mode tokens|docs|both] [--saw-bin PATH]
+                            [--no-build] [-v]
 
 By default the Saw lexer is compiled to `.build/sawlex` first (delete it or pass
 a fresh --saw-bin to force a rebuild). `make lexdiff` wires this up.
@@ -51,14 +56,16 @@ def tracked_saw_files() -> list:
     return files
 
 
-def python_dump(path: str):
+def python_dump(path: str, docs: bool = False):
     """(records, is_error) from the Python lexer, in-process."""
-    records, code = dump_tokens.dump(path)
+    records, code = (dump_tokens.dump_docs(path) if docs
+                     else dump_tokens.dump(path))
     return records, code != 0
 
 
-def saw_dump(saw_bin: str, path: str):
-    r = subprocess.run([saw_bin, path], capture_output=True)
+def saw_dump(saw_bin: str, path: str, docs: bool = False):
+    argv = [saw_bin, "--docs", path] if docs else [saw_bin, path]
+    r = subprocess.run(argv, capture_output=True)
     out = r.stdout
     records = out.split(b"\n")
     if records and records[-1] == b"":
@@ -80,8 +87,43 @@ def records_match(py_recs, saw_recs) -> bool:
     return True
 
 
+def sweep(saw_bin: str, files: list, docs: bool, verbose: bool) -> int:
+    """Diff one dump mode over the corpus. Returns the mismatch count."""
+    label = "docs" if docs else "tokens"
+    mismatches = []
+    n_error_files = 0
+    n_doc_records = 0
+    t0 = time.time()
+    for rel in files:
+        path = os.path.join(REPO, rel)
+        py_recs, py_err = python_dump(path, docs)
+        saw_recs, saw_err = saw_dump(saw_bin, path, docs)
+        if py_err:
+            n_error_files += 1
+        elif docs:
+            n_doc_records += len(py_recs)
+        if not records_match(py_recs, saw_recs):
+            mismatches.append((rel, py_recs, saw_recs, py_err, saw_err))
+            if verbose:
+                print("MISMATCH [%s]: %s" % (label, rel))
+                _show_first_diff(py_recs, saw_recs)
+    dt = time.time() - t0
+
+    extra = (", %d doc record(s)" % n_doc_records) if docs else ""
+    print("lexdiff[%s]: swept %d tracked .saw files (%d rejected by the Python "
+          "lexer%s)" % (label, len(files), n_error_files, extra))
+    print("lexdiff[%s]: %d mismatch(es), %.1fs" % (label, len(mismatches), dt))
+    for rel, py_recs, saw_recs, py_err, saw_err in mismatches[:20]:
+        print("  - %s  (py_err=%s saw_err=%s, %d vs %d records)"
+              % (rel, py_err, saw_err, len(py_recs), len(saw_recs)))
+    return len(mismatches)
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--mode", choices=("tokens", "docs", "both"), default="both",
+                    help="which dump to diff: the canonical token stream, the "
+                         "design-121 doc trivia, or both (default)")
     ap.add_argument("--saw-bin", default=os.path.join(REPO, ".build", "sawlex"))
     ap.add_argument("--no-build", action="store_true",
                     help="use an existing --saw-bin without rebuilding")
@@ -95,29 +137,12 @@ def main():
         sys.exit("lexdiff: Saw lexer binary not found: %s" % args.saw_bin)
 
     files = tracked_saw_files()
-    mismatches = []
-    n_error_files = 0
-    t0 = time.time()
-    for rel in files:
-        path = os.path.join(REPO, rel)
-        py_recs, py_err = python_dump(path)
-        saw_recs, saw_err = saw_dump(args.saw_bin, path)
-        if py_err:
-            n_error_files += 1
-        if not records_match(py_recs, saw_recs):
-            mismatches.append((rel, py_recs, saw_recs, py_err, saw_err))
-            if args.verbose:
-                print("MISMATCH: %s" % rel)
-                _show_first_diff(py_recs, saw_recs)
-    dt = time.time() - t0
-
-    print("lexdiff: swept %d tracked .saw files (%d rejected by the Python lexer)"
-          % (len(files), n_error_files))
-    print("lexdiff: %d mismatch(es), %.1fs" % (len(mismatches), dt))
-    if mismatches:
-        for rel, py_recs, saw_recs, py_err, saw_err in mismatches[:20]:
-            print("  - %s  (py_err=%s saw_err=%s, %d vs %d records)"
-                  % (rel, py_err, saw_err, len(py_recs), len(saw_recs)))
+    total = 0
+    if args.mode in ("tokens", "both"):
+        total += sweep(args.saw_bin, files, False, args.verbose)
+    if args.mode in ("docs", "both"):
+        total += sweep(args.saw_bin, files, True, args.verbose)
+    if total:
         sys.exit(1)
     print("lexdiff: OK — zero mismatches over the corpus")
 

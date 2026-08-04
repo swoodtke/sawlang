@@ -1,10 +1,13 @@
 // sawlex — the CLI front end for the Saw lexer (design 116).
 //
-// Usage: sawlex <file.saw>
+// Usage: sawlex [--docs] <file.saw>
 //
 // Emits the canonical token dump (one record per line):
 //   KIND<TAB>line:col<TAB>escaped-text[<TAB>suffix]
-// On a lex error it emits a single record
+// With `--docs` it instead emits the doc-comment trivia (design 121), one per
+// captured `///`/`//!` line:
+//   DOC<TAB>line:col<TAB>kind<TAB>escaped-text
+// On a lex error either mode emits a single record
 //   ERROR<TAB>line:col<TAB>message
 // and exits nonzero. See README.md for the format contract.
 
@@ -15,11 +18,23 @@ import std.env.{Env}
 
 func main() -> Int {
     let args = Env.args()
-    if args.len() < 2 {
-        print("usage: sawlex <file.saw>")
+    // Parse an optional leading `--docs` flag, then the file path.
+    var docs_mode = false
+    var path = ""
+    var i = 1
+    while i < args.len() {
+        let a = args.get(i) ?? ""
+        if a.equals("--docs") {
+            docs_mode = true
+        } else {
+            path = a
+        }
+        i = i + 1
+    }
+    if path.equals("") {
+        print("usage: sawlex [--docs] <file.saw>")
         return 2
     }
-    let path = args.get(1) ?? ""
 
     guard var f = File.open(Path(s: path)) else {
         print("sawlex: cannot open {path}")
@@ -31,20 +46,39 @@ func main() -> Int {
     }
     let source = data.to_string()
 
-    match lex(source) {
-        case Ok(tokens) -> {
-            var i = 0
-            while i < tokens.len() {
-                if let t = tokens.get(i) {
-                    print(format_token(&t))
+    if docs_mode {
+        match lex_all(source) {
+            case Ok(r) -> {
+                var j = 0
+                while j < r.docs.len() {
+                    if let d = r.docs.get(j) {
+                        print(format_doc(&d))
+                    }
+                    j = j + 1
                 }
-                i = i + 1
+                0
+            },
+            case Err(e) -> {
+                print(format_error(&e))
+                1
             }
-            0
-        },
-        case Err(e) -> {
-            print(format_error(&e))
-            1
+        }
+    } else {
+        match lex(source) {
+            case Ok(tokens) -> {
+                var j = 0
+                while j < tokens.len() {
+                    if let t = tokens.get(j) {
+                        print(format_token(&t))
+                    }
+                    j = j + 1
+                }
+                0
+            },
+            case Err(e) -> {
+                print(format_error(&e))
+                1
+            }
         }
     }
 }

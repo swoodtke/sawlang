@@ -251,6 +251,33 @@ public struct LexError {
     public message: String
 }
 
+// A captured documentation-comment LINE (design 121). Doc comments are lexed as
+// TRIVIA: they never enter the token stream (the default dump stays identical),
+// they are recorded here. A `///` line is `kind = "doc"` (documents the following
+// declaration); a `//!` line is `kind = "module"` (documents the enclosing
+// module). `text` is the line body with the `///`/`//!` prefix (and one following
+// space, if present) stripped; `line`/`col` are 1-based at the leading `/`.
+public struct DocComment {
+    public kind: String
+    public text: String
+    public line: Int
+    public col: Int
+}
+
+// The full output of a lex: the token stream plus the doc-comment trivia. `lex`
+// returns just the tokens (the common path); `lex_all` returns both so the CLI's
+// `--docs` mode and the differential harness can dump the trivia.
+public struct LexResult {
+    public tokens: Vector<Token>
+    public docs: Vector<DocComment>
+}
+
+extension LexResult: NoCopy {
+    public func deinit(var self) {
+        // The two Vectors clean up their own storage.
+    }
+}
+
 // =============================================================================
 // Keyword table (mirrors sawc/lexer.py KEYWORDS). Note: module/import/export/
 // package/parent are NOT keywords — the Python parser treats them specially, so
@@ -449,6 +476,23 @@ public func format_token(t: &Token) -> String {
     out.build()
 }
 
+// One canonical doc-trivia record (design 121), one per captured `///`/`//!`
+// line: DOC<TAB>line:col<TAB>kind<TAB>escaped-text, where kind is `doc` (`///`)
+// or `module` (`//!`). tools/dump_tokens.py's `format_doc` emits the identical
+// shape; `tools/lexdiff.py --docs` diffs the two over the corpus.
+public func format_doc(d: &DocComment) -> String {
+    var out = StringBuilder()
+    out.append("DOC\t")
+    out.append(d.line)
+    out.append(":")
+    out.append(d.col)
+    out.append("\t")
+    out.append(d.kind)
+    out.append("\t")
+    out.append(escape_text(d.text))
+    out.build()
+}
+
 // One canonical error record: ERROR<TAB>line:col<TAB>message.
 public func format_error(e: &LexError) -> String {
     var out = StringBuilder()
@@ -556,8 +600,52 @@ extension Lexer {
         }
     }
 
-    func skip_comment(&var self) {
+    // True if only whitespace precedes the current position on this line — the
+    // comment about to be read is the first thing on its line. Doc comments are
+    // recognized only at line start; a `///` trailing live code is ordinary
+    // (design 121; mirrors the Python lexer's `_at_line_start`).
+    func at_line_start(&self) -> Bool {
+        var i = self.pos - 1
+        while i >= 0 {
+            let c = ubyte(&self.src, i)
+            if c == B_NL { return true }
+            if c != B_SPACE && c != B_TAB && c != B_CR { return false }
+            i = i - 1
+        }
+        true
+    }
+
+    // Skip a `//` comment. A doc comment is captured into `docs` instead of being
+    // discarded; the trivia vector is owned by `tokenize`'s caller so nothing about
+    // the token stream changes.
+    func skip_comment(&var self, docs: &var Vector<DocComment>) {
         if self.peek() == B_SLASH && self.peek1() == B_SLASH {
+            // Design 121 doc-comment trivia. A line-leading `///` (exactly three
+            // slashes) is a doc comment; a line-leading `//!` is a module-doc
+            // comment. `////` (4+) and any comment trailing live code is ordinary.
+            let third = self.peek2()
+            let at_start = self.at_line_start()
+            let is_doc = at_start && third == B_SLASH && ubyte(&self.src, self.pos + 3) != B_SLASH
+            let is_module = at_start && third == B_EXCLAIM
+            if is_doc || is_module {
+                let start_line = self.line
+                let start_col = self.col
+                self.advance3()               // consume '///' or '//!'
+                if self.peek() == B_SPACE {
+                    let _ = self.advance()    // strip one leading space
+                }
+                var text = StringBuilder()
+                while self.peek() != -1 && self.peek() != B_NL {
+                    text.append_char(to_i8(self.advance()))
+                }
+                var body = text.build()
+                if body.len() > 0 && ubyte(&body, body.len() - 1) == B_CR {
+                    body = body.substring(0, body.len() - 1)   // strip trailing CR
+                }
+                let kind = if is_module { "module" } else { "doc" }
+                docs.push(DocComment(kind: kind, text: body, line: start_line, col: start_col))
+                return
+            }
             while self.peek() != -1 && self.peek() != B_NL {
                 let _ = self.advance()
             }
@@ -845,11 +933,13 @@ extension Lexer {
         Token(kind: TokenKind.DollarParam, value: num.build(), line: start_line, col: start_col, suffix: None)
     }
 
-    func tokenize(&var self) -> Result<Vector<Token>, LexError> {
+    // Run the lexer to EOF. Doc-comment trivia is appended to `docs` (design 121);
+    // the returned token stream is exactly what it was before doc comments existed.
+    func tokenize(&var self, docs: &var Vector<DocComment>) -> Result<Vector<Token>, LexError> {
         var tokens = Vector<Token>()
         while self.pos < self.slen {
             self.skip_whitespace()
-            self.skip_comment()
+            self.skip_comment(&var docs)
             if self.pos >= self.slen {
                 break
             }
@@ -893,7 +983,7 @@ extension Lexer {
                 }
             } else if ch == B_SLASH {
                 if self.peek1() == B_SLASH {
-                    self.skip_comment()
+                    self.skip_comment(&var docs)
                 } else if self.peek1() == B_EQ {
                     tokens.push(self.tok(TokenKind.SlashAssign, "/="))
                     self.advance2()
@@ -1079,5 +1169,15 @@ func in_base_set(b: Int, base: Int) -> Bool {
 // return the first lex error. Mirrors sawc/lexer.py's observable output.
 public func lex(source: String) -> Result<Vector<Token>, LexError> {
     var lexer = Lexer(src: source, slen: source.len(), pos: 0, line: 1, col: 1)
-    lexer.tokenize()
+    var docs = Vector<DocComment>()
+    lexer.tokenize(&var docs)
+}
+
+// Tokenize AND capture doc-comment trivia (design 121). Returns both the token
+// stream and the doc records in source order, or the first lex error.
+public func lex_all(source: String) -> Result<LexResult, LexError> {
+    var lexer = Lexer(src: source, slen: source.len(), pos: 0, line: 1, col: 1)
+    var docs = Vector<DocComment>()
+    let toks = try lexer.tokenize(&var docs)
+    LexResult(tokens: move toks, docs: move docs)
 }

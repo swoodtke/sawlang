@@ -143,6 +143,24 @@ class Token:
     suffix: Optional[str] = None
 
 
+@dataclass
+class DocComment:
+    """A captured documentation comment LINE (design 121).
+
+    Doc comments are lexed as TRIVIA — they never enter the token stream (the
+    default dump stays byte-identical), they are recorded out-of-band here. A
+    `///` line is `kind='doc'` and documents the following declaration; a `//!`
+    line is `kind='module'` and documents the enclosing module. `text` is the
+    line body with the `///`/`//!` prefix (and exactly one following space, if
+    present) stripped. `line`/`column` are 1-based at the leading `/`. The
+    parser groups contiguous same-kind lines into blocks and attaches them.
+    """
+    kind: str          # 'doc' or 'module'
+    text: str
+    line: int
+    column: int
+
+
 KEYWORDS = {
     'func': TokenType.FUNC,
     'let': TokenType.LET,
@@ -199,6 +217,9 @@ class Lexer:
         self.line = 1
         self.column = 1
         self.tokens: List[Token] = []
+        # Doc-comment trivia (design 121), captured in source order. Out of band:
+        # never enters `self.tokens`, so the token stream is unchanged.
+        self.doc_comments: List[DocComment] = []
 
     def error(self, msg: str):
         raise SyntaxError(f"Lexer error at {self.line}:{self.column}: {msg}")
@@ -223,8 +244,46 @@ class Lexer:
         while self.peek() and self.peek() in ' \t\r':
             self.advance()
 
+    def _at_line_start(self) -> bool:
+        """True if only whitespace precedes the current position on this line —
+        i.e. the token/comment about to be read is the first thing on its line.
+        Doc comments (`///`/`//!`) are recognized only at line start; a `///`
+        trailing live code is an ordinary comment (design 121)."""
+        i = self.pos - 1
+        while i >= 0:
+            c = self.source[i]
+            if c == '\n':
+                return True
+            if c not in ' \t\r':
+                return False
+            i -= 1
+        return True
+
     def skip_comment(self):
         if self.peek() == '/' and self.peek(1) == '/':
+            # Design 121 doc-comment trivia. A line-leading `///` (exactly three
+            # slashes) is a doc comment; a line-leading `//!` is a module-doc
+            # comment. `////` (4+) and any comment trailing live code is ordinary.
+            third = self.peek(2)
+            at_start = self._at_line_start()
+            is_doc = at_start and third == '/' and self.peek(3) != '/'
+            is_module = at_start and third == '!'
+            if is_doc or is_module:
+                start_line, start_col = self.line, self.column
+                self.advance(); self.advance(); self.advance()  # '///' or '//!'
+                # Strip exactly one leading space, if present.
+                if self.peek() == ' ':
+                    self.advance()
+                chars = []
+                while self.peek() is not None and self.peek() != '\n':
+                    chars.append(self.advance())
+                text = ''.join(chars)
+                if text.endswith('\r'):
+                    text = text[:-1]
+                self.doc_comments.append(DocComment(
+                    kind='module' if is_module else 'doc',
+                    text=text, line=start_line, column=start_col))
+                return
             while self.peek() and self.peek() != '\n':
                 self.advance()
 
