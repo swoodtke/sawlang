@@ -1327,9 +1327,15 @@ class CallsMixin:
         tid_slot = self.builder.gep(
             cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)],
             name="task_tid_slot")
-        tid_i8 = self.builder.bitcast(tid_slot, i8ptr, name="task_tid_i8")
-        self.builder.call(self.functions["__saw_rt_pthread_create"],
-                          [tid_i8, tramp, raw])
+        # design 117: __saw_rt_thread_spawn(entry, env) RETURNS the OS thread
+        # handle (pthread_t word); store it into the control block's first slot
+        # (byte 0), where Task.join/Task.deinit read it back. Byte-identical
+        # control-block layout to the pre-117 pthread_create-writes-the-slot form.
+        handle = self.builder.call(self.functions["__saw_rt_thread_spawn"],
+                                   [tramp, raw], name="task_handle")
+        tid_word_slot = self.builder.bitcast(
+            tid_slot, self.int_type.as_pointer(), name="task_tid_word")
+        self.builder.store(handle, tid_word_slot)
 
         # Build the Task<T> value { handle: Some(raw), joined: false }.
         task_saw = SawType(TypeKind.STRUCT, struct_name="Task", type_args=[result_saw])

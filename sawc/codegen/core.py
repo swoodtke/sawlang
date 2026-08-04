@@ -1041,13 +1041,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         pthread symbols resolve from libSystem on macOS and libc/libpthread on
         Linux; clang's default link line pulls them in.
 
-        Task launch (design 21b item 5): `__saw_pthread_create` supplies the NULL
-        attr and takes the trampoline as a `i8*(i8*)` start routine;
-        `__saw_pthread_join` treats the 8-byte `pthread_t` opaquely — it lives in
-        the task control block's first slot, is loaded pointer-sized, and passed
-        BY VALUE (pthread_t is pointer-sized on both macOS and glibc).
-        `__saw_pthread_create` is called by spawn codegen (which holds the
-        trampoline `ir.Function`); `__saw_pthread_join` is called from
+        Task launch (design 21b item 5; consolidated by design 117):
+        `__saw_rt_thread_spawn` supplies the NULL attr, takes the trampoline as
+        a `i8*(i8*)` start routine plus its env arg, and RETURNS the OS thread
+        handle (pointer-sized `pthread_t`). `__saw_rt_thread_join` takes that
+        handle BY VALUE (pthread_t is pointer-sized on both macOS and glibc).
+        `__saw_rt_thread_spawn` is called by spawn codegen (which holds the
+        trampoline `ir.Function`) — it stores the returned handle into the task
+        control block's first slot; `__saw_rt_thread_join` is called from
         `Task.join`/`Task.deinit` in std/task.saw.
         """
         i8ptr = ir.IntType(8).as_pointer()
@@ -1058,25 +1059,32 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.pthread_tramp_type = ir.FunctionType(i8ptr, [i8ptr])
         tramp_ptr_ty = self.pthread_tramp_type.as_pointer()
 
-        # design 113b: the pthread seam BODIES are authored in Saw + shim.c
-        # (common/pthread.saw for mutex/cond init + join; shim.c for
-        # pthread_create — DF-113b, a raw C function pointer). The compiler only
+        # design 113b/117: the thread seam BODIES are authored in Saw + shim.c
+        # (common/pthread.saw for mutex/cond init + thread_join; shim.c for
+        # thread_spawn — DF-113b, a raw C function pointer). The compiler only
         # DECLARES them (external) and links the runtime; a `--runtime-build`
         # module's `@export` collapses into the declaration (design-58 unify).
         #
-        # `__saw_rt_pthread_create`'s start-routine param: in a user program the
+        # `__saw_rt_thread_spawn`'s start-routine param: in a user program the
         # spawn codegen passes a real trampoline `ir.Function` (the fn-ptr type);
         # in the runtime-build offload body (offload.saw) the shim's thunk address
         # arrives as a plain `i8*`. Both are pointer-identical at the C ABI (the
         # shim declares `void*(*)(void*)`); pick the param type that matches the
         # caller in this compilation so llvmlite's strict type check is satisfied.
         start_ty = i8ptr if self.runtime_build else tramp_ptr_ty
+        word = self.int_type
+        # design 117: the thread surface is consolidated to spawn/join.
+        # `__saw_rt_thread_spawn(entry, env) -> handle` returns the OS thread
+        # handle (a pointer-sized `pthread_t` word) rather than writing a
+        # caller slot; `__saw_rt_thread_join(handle)` takes that handle by value.
+        # The control-block layout is unchanged — spawn codegen stores the
+        # returned handle into the same 8-byte slot pthread_create wrote before.
         decls = [
             ("__saw_rt_pthread_mutex_init_default", ir.FunctionType(void, [i8ptr])),
             ("__saw_rt_pthread_cond_init_default", ir.FunctionType(void, [i8ptr])),
-            ("__saw_rt_pthread_create",
-             ir.FunctionType(void, [i8ptr, start_ty, i8ptr])),
-            ("__saw_rt_pthread_join", ir.FunctionType(void, [i8ptr])),
+            ("__saw_rt_thread_spawn",
+             ir.FunctionType(word, [start_ty, i8ptr])),
+            ("__saw_rt_thread_join", ir.FunctionType(void, [word])),
         ]
         for name, fty in decls:
             fn = ir.Function(self.module, fty, name=name)

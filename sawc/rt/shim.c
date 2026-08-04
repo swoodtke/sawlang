@@ -42,16 +42,21 @@ void __saw_rt_panic(const char *msg, size_t len) {
 }
 
 /* ---- DF-113b: no C function-pointer type -------------------------------
- * `__saw_rt_pthread_create` passes a raw C function pointer (the spawn/offload
+ * `__saw_rt_thread_spawn` passes a raw C function pointer (the spawn/offload
  * start routine, `void *(*)(void *)`) to pthread_create. Saw's surface has no
  * bare C function-pointer type (closures are fat pointers), so the start
- * routine cannot be forwarded from a Saw body. `tid` points at the task control
- * block's 8-byte pthread_t slot; `arg` is the routine's argument. The NULL attr
- * is what the wrapper exists to supply (Saw has no null-pointer literal at the
- * `pthread_t*`/attr level either). The mutex/cond-init + join wrappers ARE Saw
- * (sawc/rt/common/pthread.saw) — only this fn-pointer body stays here. */
-void __saw_rt_pthread_create(void *tid, void *(*start)(void *), void *arg) {
-    pthread_create((pthread_t *)tid, NULL, start, arg);
+ * routine cannot be forwarded from a Saw body. `entry` is the start routine,
+ * `env` its argument; the NULL attr is what the wrapper exists to supply (Saw
+ * has no null-pointer literal at the attr level either). design 117: RETURN the
+ * OS thread handle (`pthread_t`, pointer-sized on both hosts) as a word — spawn
+ * codegen stores it into the control block's 8-byte slot, and
+ * `__saw_rt_thread_join` takes it back by value. The mutex/cond-init + join
+ * wrappers ARE Saw (sawc/rt/common/pthread.saw) — only this fn-pointer body
+ * stays here. */
+long __saw_rt_thread_spawn(void *(*entry)(void *), void *env) {
+    pthread_t t;
+    pthread_create(&t, NULL, entry, env);
+    return (long)t;
 }
 
 /* ---- DF-113c: no variadic extern ---------------------------------------

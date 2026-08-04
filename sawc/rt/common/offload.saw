@@ -14,9 +14,9 @@ extern "C" {
     func free(ptr: UnsafePointer<Int8>)
     func pipe(fds: UnsafePointer<Int8>) -> Int32
     func close(fd: Int32) -> Int32
-    // pthread wrappers (mutex/cond/join are Saw; create is shim — DF-113b).
-    func __saw_rt_pthread_create(tid: UnsafePointer<Int8>, start: UnsafePointer<Int8>, arg: UnsafePointer<Int8>)
-    func __saw_rt_pthread_join(tid: UnsafePointer<Int8>)
+    // thread wrappers (design 117: join is Saw; spawn is shim — DF-113b).
+    func __saw_rt_thread_spawn(entry: UnsafePointer<Int8>, env: UnsafePointer<Int8>) -> Int
+    func __saw_rt_thread_join(handle: Int)
     func __saw_rt_sleep_ms(ms: Int)
     // The offload thread thunk's address (shim). Saw cannot name a C function
     // pointer, so the shim exposes it as an opaque pointer for pthread_create.
@@ -42,10 +42,6 @@ struct PipeFds {
     w: Int32
 }
 
-// offsetof(Job, thread) — the pthread_t slot pthread_create writes and
-// pthread_join reads. The total size is asserted below to catch layout drift.
-static THREAD_OFFSET: Int = 40
-
 static_assert(sizeof<Job>() == 48, "offload Job layout must match shim.c")
 
 @export("__saw_rt_offload_start")
@@ -61,10 +57,9 @@ func rt_offload_start(fn: Int, arg: Int) -> Int {
     pipe((&fds) as UnsafePointer<Int8>)
     unsafe p[0].pipe_r = fds.r
     unsafe p[0].pipe_w = fds.w
-    // Spawn the C thunk on the job's own thread slot (&job.thread).
-    let thread_slot = unsafe raw + THREAD_OFFSET
+    // Spawn the C thunk; store the returned OS thread handle in the job (design 117).
     let thunk = unsafe __saw_offload_thread_ptr()
-    __saw_rt_pthread_create(thread_slot, thunk, raw)
+    unsafe p[0].thread = __saw_rt_thread_spawn(thunk, raw)
     raw as Int
 }
 
@@ -84,9 +79,8 @@ func rt_offload_pipe_fd(job: Int) -> Int {
 func rt_offload_take(job: Int) -> Int {
     let raw = job as UnsafePointer<Int8>
     let p = job as UnsafePointer<Job>
-    let thread_slot = unsafe raw + THREAD_OFFSET
     // Join (full barrier -> the thread's stores are visible) then read + free.
-    __saw_rt_pthread_join(thread_slot)
+    __saw_rt_thread_join(unsafe p[0].thread)
     let result = unsafe p[0].result
     close(unsafe p[0].pipe_r)
     close(unsafe p[0].pipe_w)

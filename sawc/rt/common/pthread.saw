@@ -30,12 +30,9 @@ func rt_pthread_cond_init_default(c: UnsafePointer<Int8>) {
     pthread_cond_init(c, 0 as UnsafePointer<Int8>)
 }
 
-// Load the 8-byte pthread_t at `tid` (the task control block's first slot) and
-// pthread_join(t, NULL). `tid` is a pointer param, so this is the marked unsafe
-// domain — the pointer reinterpret + load need no `unsafe` marker.
-@export("__saw_rt_pthread_join")
-func rt_pthread_join(tid: UnsafePointer<Int8>) {
-    let slot = tid as UnsafePointer<Int>
-    let t = slot[0]
-    pthread_join(t, 0 as UnsafePointer<Int8>)
+// design 117: join an OS thread by its handle VALUE (the pointer-sized
+// pthread_t returned by `__saw_rt_thread_spawn`), passing a NULL retval.
+@export("__saw_rt_thread_join")
+func rt_thread_join(handle: Int) {
+    pthread_join(handle, 0 as UnsafePointer<Int8>)
 }

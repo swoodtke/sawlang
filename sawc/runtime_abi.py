@@ -39,9 +39,9 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_reactor_register",
     "__saw_rt_reactor_poll",
     "__saw_rt_reactor_wake",
-    # Threads (pthread wrappers, design 21)
-    "__saw_rt_pthread_create",
-    "__saw_rt_pthread_join",
+    # Threads (design 21; consolidated to spawn/join by design 117)
+    "__saw_rt_thread_spawn",
+    "__saw_rt_thread_join",
     "__saw_rt_pthread_mutex_init_default",
     "__saw_rt_pthread_cond_init_default",
     # Blocking-extern offload (design 103)

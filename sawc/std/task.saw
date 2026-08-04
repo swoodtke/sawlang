@@ -6,9 +6,10 @@
 //
 // Control block (allocated by spawn codegen), laid out as:
 //     { pthread_t tid (8 bytes), i8* env, T result }
-// The pthread_t lives at byte 0 (joined via __saw_rt_pthread_join, which loads it),
-// the closure's heap environment pointer at byte 8, and the task's result at
-// byte 16 (written by the trampoline after the body returns).
+// The pthread_t lives at byte 0 (design 117: spawn codegen stores the handle
+// __saw_rt_thread_spawn returns there; join loads it and passes it by value to
+// __saw_rt_thread_join), the closure's heap environment pointer at byte 8, and
+// the task's result at byte 16 (written by the trampoline after the body returns).
 //
 // Structured by default: a task's lifetime is a value's lifetime. Dropping an
 // unjoined Task JOINS it (deinit below), so a task cannot outlive its handle.
@@ -21,8 +22,8 @@
 // without a consuming receiver.
 
 extern "C" {
-    // Wrapper (codegen): pthread_join(*(pthread_t*)tid, NULL).
-    func __saw_rt_pthread_join(tid: UnsafePointer<Int8>)
+    // design 117: join an OS thread by its handle value (pthread_t word).
+    func __saw_rt_thread_join(handle: Int)
 }
 
 struct Task<T> {
@@ -42,7 +43,7 @@ extension Task<T> {
             panic("Task.join: task already joined")
         } else {
             if let h = self.handle {
-                __saw_rt_pthread_join(h)
+                __saw_rt_thread_join((h as UnsafePointer<Int>)[0])
                 let result_ptr = (h + 16) as UnsafePointer<T>
                 let result = result_ptr[0]
                 GlobalAllocator().dealloc(h, 16 + sizeof<T>(), 16)
@@ -63,7 +64,7 @@ extension Task<T>: Deinit {
         // unclaimed result dropped, and the control block freed.
         if not self.joined {
             if let h = self.handle {
-                __saw_rt_pthread_join(h)
+                __saw_rt_thread_join((h as UnsafePointer<Int>)[0])
                 let result_ptr = (h + 16) as UnsafePointer<T>
                 __saw_deinit_in_place(result_ptr)
                 GlobalAllocator().dealloc(h, 16 + sizeof<T>(), 16)
