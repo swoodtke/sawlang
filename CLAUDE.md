@@ -15,6 +15,10 @@ sawc/              # Compiler: Python + llvmlite
   codegen/         # LLVM IR generation (mixin classes)
   coro_transform.py# Source-level coroutine transform
   builtin.saw      # Built-in traits; std/ = stdlib (.saw)
+  rt/              # Runtime ABI (design 113): rt/ABI.md freezes the
+                   # __saw_rt_* seam contract; per-host runtime bodies
+                   # (host_macos/host_linux/common, cached under .build/rt/)
+                   # are a follow-up — see designs/todo.md #113
 examples/          # Compiler test suite programs (test_runner.py)
 blade/             # Blade package manager (written in Saw)
 libs/              # Real Saw library packages (semver, toml)

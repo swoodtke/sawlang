@@ -17,13 +17,62 @@ items need a probe before being treated as real work.
   harness (make sos-test) + CI. Covers F7/F8/F9. QEMU decided a HOST
   prerequisite, not Blade-managed. May run concurrent with 113 (disjoint
   trees). [112]
-- **Design 113 — runtime extraction.** Freeze the runtime seams as a
-  documented ABI (rename: __saw_rt_* = runtime-implemented, __saw_* =
-  compiler-internal), delete codegen's host-OS body synthesis
-  (kqueue/epoll, pthreads, offload, sockaddr layout), link a per-host
-  runtime WRITTEN IN SAW (sawc/rt/host_macos, host_linux) instead.
-  Freestanding already externs the seams; SOS runtimes become a link-time
-  swap. [113]
+- **Design 113 — runtime extraction. IN PROGRESS (Aug 4).**
+  - **LANDED — ABI freeze + rename (the time-critical, irreversible piece).**
+    Both symbol tiers renamed to the uniform scheme: `__saw_rt_*` =
+    runtime-implemented (reactor register/poll/wake, pthread create/join/
+    mutex_init/cond_init, offload start/done/pipe_fd/take + blocking_sleep,
+    clocks, sleep, errno family, set_nonblocking, sin_set_family, op-budget,
+    alloc/dealloc/write/panic, get_argc/argv); `__saw_*` = compiler-internal
+    (string, atomic, print_int — unchanged). Renamed across codegen, stdlib
+    `.saw`, and the offload example tests; LLVM module id → `__saw_module`.
+    Full suite green (993). The full symbol contract is documented in
+    `sawc/rt/ABI.md` (reactor one-shot rearm, design-91 token = parked frame
+    wake-word addr, design-102 cancel-wake, poll timeout, offload discipline,
+    the four intended implementations). CLAUDE.md repo map updated.
+  - **DEFERRED — physical relocation (bodies out of codegen into a linked
+    per-host runtime), pending a PIN DECISION.** The brief pins the runtime
+    "WRITTEN IN SAW". Standing it up surfaced that the core seams depend on
+    exactly the C-interop primitives Saw deliberately does NOT surface — which
+    is *why* they were compiler shims. A pure-Saw runtime is not currently
+    expressible; the choices are (a) accept a documented C/asm shim tier now
+    (the brief's sanctioned exception, but here it would cover a large fraction
+    of the seams, materially at odds with the "written in Saw" spirit), or
+    (b) first add the three language features below so the runtime CAN be pure
+    Saw, then relocate. This fork wants a user/lead call (the no-Rust-rewrite /
+    dogfood-Saw preference makes a C-heavy runtime a decision, not a default).
+    The ABI being frozen, the split is stable whichever way it goes.
+    - **DF-113a — no extern C global.** `__saw_rt_write`/`_panic` need the libc
+      `stdout` FILE* (`__stdoutp` macOS / `stdout` Linux) for the `fwrite +
+      fflush` that keeps `print` ordered against the still-`printf` Float path.
+      Saw has no `extern static` / extern-global syntax, so the body can't be
+      Saw. (Switching to `write(2)` would reorder against buffered float text —
+      not byte-identical.)
+    - **DF-113b — no C function-pointer type.** `__saw_rt_pthread_create` and
+      the offload thunk (`word(word)`) pass a raw C function pointer to
+      `pthread_create`. Saw's surface has no bare C function-pointer type
+      (closures are fat pointers), so threads + offload can't be Saw bodies.
+    - **DF-113c — no variadic extern.** `__saw_rt_set_nonblocking` must call
+      `fcntl(fd, F_SETFL, ...)`, which is variadic in C (an arm64 ABI
+      requirement — a fixed-arity decl reads the flag off the stack). Saw
+      extern decls have no `...`, so the reactor's nonblocking-socket path
+      can't be a pure-Saw body.
+    - **Expressible in Saw today** (for the eventual relocation): alloc/dealloc
+      (malloc/free), sleep_ms (usleep), the clocks (clock_gettime + a Saw
+      timespec struct), the errno family (extern `__error`/`__errno_location`
+      returning `UnsafePointer<Int32>` + `unsafe` deref), sin_set_family (byte
+      stores), op-budget + reactor init CAS (`Atomic<Int>.compare_exchange` —
+      seq_cst, i.e. stronger ordering than the synthesized monotonic; observably
+      equivalent), and the kevent/epoll structs (Saw structs, natural ABI). The
+      reactor's `set_nonblocking` dependency (DF-113c) is the only gap in an
+      otherwise-Saw reactor.
+    - Remaining scope when unblocked: build/cache/link machinery
+      (`.build/rt/`, keyed on source hash, auto-linked for hosted builds, `-v`
+      shows the objects, clear error if the rt fails to build); delete the IR
+      synthesis; the negative test (freestanding still externs, no runtime
+      auto-linked — needs a test-harness symbol-inspection directive, which
+      doesn't exist yet, and only bites once hosted auto-links); `sawc/rt/`
+      module-dir layout selected by target triple. [113]
 - **Design 114 — intrinsic scoping + naming.** Bare yield_now/io_wait
   gated stdlib-internal; public std.task.yield_now() (import required, not
   prelude); rename all compiler-recognized double-underscore names to
