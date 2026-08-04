@@ -5,6 +5,84 @@ Open items ONLY. Landed work lives in `designs/NN-*.md` + git history
 landed recaps). Conventions: cite source designs in [brackets]; VERIFY
 items need a probe before being treated as real work.
 
+## Design 116 — DF-findings (self-hosting lexer pilot, IN PROGRESS)
+The lexer port (`selfhost/lexer`) is the pilot's measurement instrument;
+language pain hit while writing it is the explicit product. Policy (user, Aug 4):
+NO workarounds — an unambiguous compiler bug STOPS the affected unit + is
+recorded here; a limitation is recorded with the wanted spelling. Repros are
+inlined (the `.build/scratch` probes are gitignored).
+
+- **DF-116a — MISCOMPILE (headline): an `Optional<String>` held in a named
+  local loses its payload when copied into a struct field whose struct is pushed
+  into a `Vector`.** The stored copy is not retained; the local's end-of-scope
+  release then frees the buffer → the Vector element reads empty/garbage (often
+  aliasing a later allocation). A PLAIN `String` local in the same position is
+  fine, and an INLINE `sb.build()` (fresh temp) is fine — the bug is specific to
+  an `Optional`-of-ImplicitCopy value that is (a) a named local and (b) copied
+  (not moved) into the aggregate. Minimal repro:
+  ```saw
+  struct Tok { value: String, suffix: String? }
+  func lexy() -> Vector<Tok> {
+      var v = Vector<Tok>()
+      var sb = StringBuilder(); sb.append("u8")
+      let opt: String? = sb.build()          // Optional<String> local
+      v.push(Tok(value: "x", suffix: opt))    // copied into a struct-in-Vector
+      move v
+  }
+  func main() -> Int {
+      let toks = lexy()
+      if let b = toks.get(0) { if let s = b.suffix { print("suffix=[{s}]") } }
+      0                                        // prints "suffix=[]" (should be [u8])
+  }
+  ```
+  Contrast (both correct): `let plain: String = sb.build(); Tok(value: plain,...)`
+  works; `Tok(value: "x", suffix: sb.build())` (inline, moved) works. Likely the
+  copy-into-aggregate path for an `Optional<ImplicitCopy>` field emits a bitwise
+  copy without the payload retain (compare the design-67 read-out-of-container
+  double-free class). IMPACT ON THE PILOT: this is exactly the shape of the
+  integer-literal-suffix path (`let suffix = self.try_read_int_suffix()` → stored
+  in the `Token`). Per the no-workaround policy the suffix-in-the-token unit is
+  STOPPED: the Saw `Token` omits the `suffix` field and the canonical dump omits
+  the 4th suffix column (both dumpers), so suffixed literals are still lexed as a
+  single INT token with the correct boundary/value and range-checked, but the
+  suffix attribute is not surfaced until this is fixed. Token positions/kinds/
+  boundaries (the lexer's core) are unaffected.
+
+- **DF-116b — no bignum and no checked integer parse forces digit-string
+  magnitude comparison for literal range checks.** `sawc/lexer.py` computes
+  `int(digit_str, base)` (arbitrary precision) and compares to `2**64-1` /
+  `2**width-1`. Saw `Int`/`UInt` are 64-bit and arithmetic PANICS on overflow, so
+  the widest legal literal (`UInt64.max == 2**64-1`) cannot be accumulated to be
+  compared. The port instead range-checks by digit COUNT + an equal-length
+  lexicographic compare at the boundary (and a capped accumulation for the small
+  8/16/32-bit widths). WANTED: a checked/overflow-returning parse in std, e.g.
+  `UInt64.parse(s: String, radix: Int) -> UInt64?` (None on overflow) or checked
+  arithmetic (`a.checked_mul(b) -> Int?`), plus a `UInt.max` constant. Non-
+  blocking (the magnitude approach is correct), but it is a hand-roll the obvious
+  spelling can't replace.
+
+- **DF-116c — no scalar→UTF-8 / `StringBuilder.append_scalar` affordance.**
+  `String.chars()` DECODES UTF-8 to `Int` scalars, but there is no inverse:
+  nothing appends a Unicode scalar (an `Int` code point) to a `StringBuilder` or
+  builds a String from one. A `\u{...}` escape whose scalar is >= 0x80 therefore
+  needs a hand-rolled UTF-8 encoder in the lexer (`encode_utf8` in lib.saw).
+  WANTED: `sb.append_scalar(cp: Int)` (or `String.from_scalar(cp) -> String?`,
+  None on an invalid scalar) as the mirror of `chars()`. Non-blocking (encoding a
+  code point is arguably lexer work), but the asymmetry is a real std gap the
+  pilot surfaces.
+
+- **DF-116d — diagnostic quality: an unbalanced interpolation `{` in a string
+  literal reports "Unterminated string" at EOF, not at the offending brace.**
+  Writing `"...{..."` (a stray `{`, meaning interpolation, with no matching `}`)
+  makes the lexer consume the rest of the file — the error surfaces as
+  `Lexer error at <lastline+1>:1: Unterminated string`, pointing at EOF with no
+  hint of where the `{` was. Hit while writing an error-message string literal
+  that contained a bare `{`. (A literal brace is spelled `\{`, which works
+  correctly and does NOT leak the internal 0x01 marker into the runtime string —
+  verified. So this is purely a diagnostic-locality nit, not a correctness bug.)
+  WANTED: track the interpolation-open position and report there ("unterminated
+  interpolation, opened at L:C").
+
 ## Milestones
 - **App-1 Blade: DONE** (design 64 + 67; real resolver/lock/git/
   incremental/self-hosting bootstrap; `make blade-bootstrap`).
