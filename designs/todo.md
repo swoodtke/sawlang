@@ -29,6 +29,14 @@ items need a probe before being treated as real work.
   prelude); rename all compiler-recognized double-underscore names to
   __saw_* (deinit_in_place, suspend, io_park, blk_*, drive...). AFTER 113
   lands (shared intrinsic surface). [114]
+- **Design 115 — test runner: persistent compile workers.** Amortize the
+  measured ~250 ms/test fixed compiler-bootstrap overhead (python +
+  llvmlite/sawc imports + builtin namespace) via N long-lived worker
+  processes compiling in-process; binaries still run as isolated
+  subprocesses; identical pass/fail/xfail set both modes. Merged-binary
+  consolidation REJECTED (user, Aug 4) — breaks error tests, abort tests,
+  per-test EXPECT/COMPILE-FLAGS, attribution. AFTER 113 (re-entrancy
+  audit depends on its codegen shape). [115]
 
 ## Doc-sync audit findings (Aug 3) — two DECIDE items
 Surfaced by the four-source consistency audit (README / spec / skill /
