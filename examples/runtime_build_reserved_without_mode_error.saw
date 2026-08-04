@@ -1,0 +1,10 @@
+// design 113b: an ORDINARY compile (no `--runtime-build`) still fully reserves
+// the `__saw_rt_*` runtime namespace — a program cannot hijack a runtime seam.
+// Only `--runtime-build` loosens this, for the frozen ABI names.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: collides with a reserved runtime symbol
+
+@export("__saw_rt_alloc")
+func my_alloc(size: Int, align: Int) -> Int { size }
+
+func main() { print(1) }

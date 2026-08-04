@@ -1,0 +1,12 @@
+// design 113b: a `--runtime-build` module is SYNC-ONLY — it implements the
+// suspension machinery, so it must sit below it. A seam body that suspends
+// (here `yield_now()`) is rejected: every seam is an `@export` function, which
+// the effect system treats as a sync context.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in an `@export` function
+// COMPILE-FLAGS: --runtime-build
+
+@export("__saw_rt_sleep_ms")
+func rt_sleep(ms: Int) {
+    yield_now()
+}

@@ -98,7 +98,8 @@ _install_volatile_ir_support()
 
 class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, ExistentialsMixin, TypesMixin, ResourcesMixin, DebugInfoMixin):
     def __init__(self, namespace: Namespace, target_triple: Optional[str] = None,
-                 freestanding: bool = False, source_path: Optional[str] = None):
+                 freestanding: bool = False, source_path: Optional[str] = None,
+                 runtime_build: bool = False):
         # Unified namespace from type checker (Phase 0 of module system)
         self.namespace = namespace
 
@@ -106,6 +107,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # declarations only (no hosted libc-backed defaults) and gates hosted
         # facilities (Float printing, hosted std modules).
         self.freestanding = freestanding
+
+        # Runtime-build mode (design 113b): this module IS a per-host runtime —
+        # it `@export`s the `__saw_rt_*` seam bodies. So the compiler emits the
+        # seams as DECLARATIONS only (the module's own `@export` definitions
+        # collapse into them via the design-58 declaration/definition unify), and
+        # every non-exported definition is internalized so the runtime object
+        # carries only its exported seams (+ their private helpers) — no
+        # duplicate `__saw_string_*`/argv symbols across the runtime + the user
+        # program at link time.
+        self.runtime_build = runtime_build
+        # The seams are declaration-only whenever the compiler is NOT the one
+        # providing their bodies: the freestanding profile (environment supplies
+        # them) and the runtime-build mode (the Saw runtime provides them).
+        self._seams_external_only = freestanding or runtime_build
 
         # LLVM core init is automatic; targets still need explicit registration.
         # Registering ALL targets (not just the native one) is what lets
@@ -554,8 +569,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         _seams = (saw_alloc, saw_dealloc, saw_write, saw_panic, saw_sleep_ms,
                   saw_clock_monotonic_nanos, saw_unix_timestamp_secs)
-        if self.freestanding:
-            # Declarations only; the environment supplies the definitions.
+        if self._seams_external_only:
+            # Declarations only; the environment (freestanding) or the linked Saw
+            # runtime (hosted, design 113b) supplies the definitions. Under
+            # --runtime-build a `@export` of the same name collapses into the
+            # declaration (design-58 unify), so the runtime provides the body.
             for fn in _seams:
                 fn.linkage = "external"
             return
@@ -1115,6 +1133,34 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         void = ir.VoidType()
         null = ir.Constant(i8ptr, None)
 
+        # Trampoline type: void* start_routine(void* arg). Spawn codegen shapes
+        # its trampolines to this; it must exist in every mode, so set it before
+        # the declaration-only early-out.
+        self.pthread_tramp_type = ir.FunctionType(i8ptr, [i8ptr])
+
+        if self.runtime_build:
+            # design 113b: the runtime module DEFINES these seams (via @export)
+            # or references them across runtime objects; either way emit them as
+            # external declarations so the @export definitions collapse in and
+            # cross-object references resolve at the final link. (mutex/cond
+            # init + join are authored in Saw; pthread_create stays in shim.c —
+            # DF-113b, a raw C function pointer.)
+            tramp_ptr_ty = self.pthread_tramp_type.as_pointer()
+            decls = [
+                ("__saw_rt_pthread_mutex_init_default",
+                 ir.FunctionType(void, [i8ptr])),
+                ("__saw_rt_pthread_cond_init_default",
+                 ir.FunctionType(void, [i8ptr])),
+                ("__saw_rt_pthread_create",
+                 ir.FunctionType(void, [i8ptr, tramp_ptr_ty, i8ptr])),
+                ("__saw_rt_pthread_join", ir.FunctionType(void, [i8ptr])),
+            ]
+            for name, fty in decls:
+                fn = ir.Function(self.module, fty, name=name)
+                fn.linkage = "external"
+                self.functions[name] = fn
+            return
+
         # __saw_pthread_mutex_init_default(m): pthread_mutex_init(m, NULL)
         pmi = self._libc_func("pthread_mutex_init", i64, [i8ptr, i8ptr])
         fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
@@ -1265,7 +1311,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         for fn in io_fns:
             self.functions[fn.name] = fn
 
-        if self.freestanding:
+        if self._seams_external_only:
             for fn in io_fns:
                 fn.linkage = "external"
             return
@@ -1984,11 +2030,25 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # byte-identical to before.
         if self.freestanding:
             self._apply_freestanding_sections()
+        elif self.runtime_build:
+            # design 113b: a runtime-build object keeps ONLY its `@export`ed
+            # seams external; every other definition (String/atomic/print/argv
+            # helpers pulled in with the prelude, the runtime's own private
+            # globals) is internalized so it never collides with the user
+            # program's copies at link time, and globaldce drops the unused. No
+            # per-symbol `.text.<name>` sectioning: this object is linked by
+            # clang on the HOST (mach-O rejects that ELF section spelling), and
+            # -O1 globaldce already strips the unreferenced internal defs.
+            self._apply_freestanding_sections(place_sections=False)
 
         return str(self.module)
 
-    def _apply_freestanding_sections(self):
+    def _apply_freestanding_sections(self, place_sections: bool = True):
         """Prepare the freestanding module for dead-code-free linking (design 112).
+
+        `place_sections=False` (design 113b runtime-build): internalize only, with
+        NO per-symbol section assignment — the object is host-linked by clang and
+        the mach-O host rejects the ELF `.text.<name>` spelling.
 
         Codegen emits EVERY loaded stdlib method (and its closure/vtable
         descriptor globals + backend constant pools) regardless of reachability,
@@ -2023,7 +2083,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 continue
             if fn.name not in keep:
                 fn.linkage = "internal"
-            if not getattr(fn, 'section', None):
+            if place_sections and not getattr(fn, 'section', None):
                 fn.section = f".text.{fn.name}"
 
         for gv in self.module.global_values:
@@ -2035,7 +2095,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 continue  # llvm.used / metadata anchors stay put
             if gv.name not in keep:
                 gv.linkage = "internal"
-            if not getattr(gv, 'section', None):
+            if place_sections and not getattr(gv, 'section', None):
                 # Constants (incl. relro tables of function pointers, resolved at
                 # link time in a static kernel) → `.rodata.<name>`; mutable data →
                 # `.data.<name>`. The kernel linker script catches `.rodata.*` and

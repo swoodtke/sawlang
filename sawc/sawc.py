@@ -77,11 +77,18 @@ IMPORT_REQUIRED_STD_SYMBOLS = {
 }
 
 
-def load_builtins(verbose: bool = False, freestanding: bool = False):
+def load_builtins(verbose: bool = False, freestanding: bool = False,
+                  runtime_build: bool = False):
     """Load and parse the builtin.saw file and all std/*.saw files.
 
     In the freestanding profile the hosted-only std modules (file, process, env,
     directory) are not loaded, so their libc/OS externs are never compiled in.
+
+    In runtime-build mode (design 113b) NO std module is loaded: a runtime sits
+    BELOW the stdlib (it implements the seams the stdlib rests on), declares its
+    own libc externs, and uses only the core builtins (UnsafePointer/Atomic/
+    Optional/…). Skipping std also avoids clashing with std's own extern
+    declarations of libc symbols (e.g. `malloc`).
     """
     from ast_nodes import Program
 
@@ -97,9 +104,11 @@ def load_builtins(verbose: bool = False, freestanding: bool = False):
             print("  Loading builtins...")
         combined_ast = parse_source(builtin_source, builtin_path, verbose)
 
-    # Load all files from std/ directory
+    # Load all files from std/ directory (skipped entirely in runtime-build).
     std_dir = os.path.join(sawc_dir, 'std')
-    if os.path.isdir(std_dir):
+    if runtime_build:
+        std_dir = None
+    if std_dir and os.path.isdir(std_dir):
         std_files = sorted([f for f in os.listdir(std_dir) if f.endswith('.saw')])
         if freestanding:
             std_files = [f for f in std_files
@@ -234,7 +243,8 @@ def topological_sort_modules(module_map):
     return result
 
 
-def build_builtin_namespace(verbose: bool = False, freestanding: bool = False):
+def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
+                            runtime_build: bool = False):
     """Load, parse, and type-check the builtins once, returning
     ``(builtin_ast, builtin_ns)``.
 
@@ -245,12 +255,13 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False):
     is marked directly accessible so modules can use ``String``/``Vector``/
     ``Result`` etc. without an explicit import.
     """
-    builtin_ast = load_builtins(verbose, freestanding)
+    builtin_ast = load_builtins(verbose, freestanding, runtime_build)
 
     # Check the builtins with a throwaway reporter so their (absent) errors
     # never pollute user diagnostics. require_main=False: builtins are a library.
     builtin_reporter = ErrorReporter("", "builtins")
-    builtin_tc = TypeChecker(builtin_reporter, freestanding=freestanding)
+    builtin_tc = TypeChecker(builtin_reporter, freestanding=freestanding,
+                             runtime_build=runtime_build)
     builtin_tc.namespace.allow_all_access = True
     # design 82 Part B: mark this as the builtin/std check so the prelude gate and
     # the hidden-std shadow allowance are BOTH disabled while std checks itself
@@ -472,7 +483,7 @@ def run_codegen(codegen, ast):
         sys.exit(1)
 
 
-def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None):
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False):
     """Resolve modules, load builtins, and type-check the whole program.
 
     This is the single front half of the compile pipeline: a plain single file
@@ -661,7 +672,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                     sys.exit(1)
 
     # Load builtins and build the (type-checked) builtin namespace once.
-    builtin_ast, builtin_ns = build_builtin_namespace(verbose, freestanding)
+    builtin_ast, builtin_ns = build_builtin_namespace(verbose, freestanding,
+                                                      runtime_build)
 
     # Helper to recursively collect all inline module bodies from an AST
     def collect_inline_module_bodies(ast):
@@ -722,7 +734,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # Add imported module sources for proper error context
     for mod_path, mod_source in module_sources.items():
         reporter.add_source(mod_path, mod_source)
-    typechecker = TypeChecker(reporter, freestanding=freestanding)
+    typechecker = TypeChecker(reporter, freestanding=freestanding,
+                              runtime_build=runtime_build)
     # design 84: carry the pre-computed suspending std (struct, method) set (std is
     # checked under a separate builtin typechecker, so the main one cannot infer it)
     # so the coroutine transform can embed nested suspending std methods.
@@ -807,6 +820,20 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         reporter.print_all()
         sys.exit(1)
 
+    # design 113b: enforce the runtime-build sync-only discipline. Every seam is
+    # an `@export` function, which the design-22 effect system already treats as
+    # a sync context (an `@export`ed body has no Saw caller to drive it across a
+    # coroutine boundary), so a suspending seam body — a `yield_now`, a blocking
+    # extern, `__io_park`, a TaskGroup/channel op — is reported as a clean sync
+    # violation. The entry module was checked with is_entry=False (object_only
+    # suppresses the main() requirement), so the whole-program effect fixpoint
+    # has not run yet — run it now, then surface any violation.
+    if runtime_build:
+        typechecker.finalize_effects()
+        if reporter.has_errors():
+            reporter.print_all()
+            sys.exit(1)
+
     if verbose:
         print("    Type check passed")
 
@@ -872,7 +899,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                 print("  Applied coroutine transform; re-checking...")
             return _prepare_codegen(source_path, entry_ast, entry_source, verbose,
                                     object_only, target_triple, freestanding,
-                                    module_paths)
+                                    module_paths, runtime_build)
 
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns
@@ -880,12 +907,13 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     if verbose:
         print("  Building code generator...")
     codegen = CodeGenerator(typechecker.namespace, target_triple=target_triple,
-                            freestanding=freestanding, source_path=source_path)
+                            freestanding=freestanding, source_path=source_path,
+                            runtime_build=runtime_build)
     return codegen, merged_ast
 
 
 def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
-                 object_only: bool, optimize: bool):
+                 object_only: bool, optimize: bool, freestanding: bool = False):
     """Write the module's IR sidecar, compile to an object file, and (for
     executables) link it. Shared output tail for the compile pipeline."""
     llvm_ir = codegen.emit_ir(optimize=False)
@@ -913,11 +941,27 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
         obj_path = output_path + ".o"
         codegen.compile_to_object(obj_path, optimize=optimize)
 
-        # Link with system linker (clang handles libc linking automatically)
+        # Link with system linker (clang handles libc linking automatically).
+        # design 113b: a hosted executable also links the per-host Saw runtime
+        # (the __saw_rt_* seam bodies), built + cached under `.build/rt/`.
         if verbose:
             print("  Linking...")
 
-        link_cmd = ["clang", obj_path, "-o", output_path]
+        rt_objects = []
+        try:
+            from rt_build import build_runtime, RuntimeBuildError
+            rt_objects = build_runtime(codegen.triple, verbose=verbose)
+        except RuntimeBuildError as e:
+            print(f"\033[1;31merror\033[0m: the Saw runtime failed to build "
+                  f"(needed to link a hosted binary):\n{e}", file=sys.stderr)
+            sys.exit(1)
+
+        if verbose and rt_objects:
+            print("  Runtime objects:")
+            for o in rt_objects:
+                print(f"    {o}")
+
+        link_cmd = ["clang", obj_path, *rt_objects, "-o", output_path]
 
         try:
             result = subprocess.run(link_cmd, capture_output=True, text=True)
@@ -937,7 +981,7 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
         print(f"Compiled {source_path} -> {output_path}")
 
 
-def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None):
+def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False):
     """Compile a Saw source file to an executable or object file.
 
     A single file is just a module graph of size one, so there is one pipeline:
@@ -955,8 +999,9 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
         freestanding: If True, emit for the freestanding profile (seams as
             declarations only, hosted std modules excluded, unlinked object output)
     """
-    # Freestanding always emits an unlinked object file; the user owns linking.
-    if freestanding:
+    # Freestanding and runtime-build both emit an unlinked object file; the
+    # user (or the runtime-build cache machinery) owns linking.
+    if freestanding or runtime_build:
         object_only = True
 
     # Read source file
@@ -978,7 +1023,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
 
     codegen, merged_ast = _prepare_codegen(
         source_path, entry_ast, source, verbose, object_only, target_triple,
-        freestanding, module_paths)
+        freestanding, module_paths, runtime_build)
 
     if verbose:
         print("  Generating LLVM IR...")
@@ -986,7 +1031,8 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
     if verbose:
         print("  Generated LLVM IR")
 
-    _emit_object(codegen, source_path, output_path, verbose, object_only, optimize)
+    _emit_object(codegen, source_path, output_path, verbose, object_only,
+                 optimize, freestanding=freestanding)
 
 
 def main():
@@ -1015,6 +1061,11 @@ Examples:
                         help="Freestanding profile: runtime seams as declarations only, "
                              "no hosted std modules (file/process/env/directory), "
                              "no Float printing, unlinked object output")
+    parser.add_argument("--runtime-build", action="store_true", dest="runtime_build",
+                        help="Runtime-build mode (design 113b): compile a Saw runtime "
+                             "that `@export`s the frozen `__saw_rt_*` ABI. Sync-only, "
+                             "suppresses seam auto-declaration for exported seams, "
+                             "unlinked object output. Used to build sawc/rt/.")
     parser.add_argument("--module-path", metavar="NAME=DIR", action="append",
                         default=[], dest="module_path",
                         help="Map package NAME to source directory DIR "
@@ -1102,7 +1153,8 @@ Examples:
         codegen, merged_ast = _prepare_codegen(
             args.input, entry_ast, source, verbose=args.verbose,
             object_only=args.c, target_triple=args.target,
-            freestanding=args.freestanding, module_paths=module_paths)
+            freestanding=args.freestanding, module_paths=module_paths,
+            runtime_build=args.runtime_build)
         run_codegen(codegen, merged_ast)
         llvm_ir = codegen.emit_ir(optimize=not args.no_optimize)
 
@@ -1111,14 +1163,15 @@ Examples:
             f.write(llvm_ir)
         print(f"Emitted IR to {ir_output}")
     else:
-        # -c and --freestanding both emit an unlinked object file; ensure the
-        # output path ends with .o so it is not mistaken for an executable.
-        if (args.c or args.freestanding) and not output_path.endswith('.o'):
+        # -c, --freestanding, and --runtime-build all emit an unlinked object
+        # file; ensure the output path ends with .o so it is not mistaken for an
+        # executable.
+        if (args.c or args.freestanding or args.runtime_build) and not output_path.endswith('.o'):
             output_path = output_path + '.o'
         compile_saw(args.input, output_path, verbose=args.verbose,
                     object_only=args.c, optimize=not args.no_optimize,
                     target_triple=args.target, freestanding=args.freestanding,
-                    module_paths=module_paths)
+                    module_paths=module_paths, runtime_build=args.runtime_build)
 
 
 if __name__ == "__main__":

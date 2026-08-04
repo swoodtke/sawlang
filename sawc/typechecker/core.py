@@ -76,11 +76,17 @@ class Scope:
 class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin):
     """Type checks a Saw program."""
 
-    def __init__(self, reporter: ErrorReporter, freestanding: bool = False):
+    def __init__(self, reporter: ErrorReporter, freestanding: bool = False,
+                 runtime_build: bool = False):
         self.reporter = reporter
         # Freestanding profile (design 19/20): gates hosted-only facilities such
         # as Float formatting in print (dtoa is not available without libc).
         self.freestanding = freestanding
+        # Runtime-build mode (design 113b): the module IS a runtime — it may
+        # `@export` the frozen `__saw_rt_*` ABI set, and it is sync-only (it sits
+        # below the machinery that suspends). Loosens the `@export` reservation
+        # for exactly those names; every other reserved name stays rejected.
+        self.runtime_build = runtime_build
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
         self.current_method: Optional['Method'] = None  # Track current method for 'self'
@@ -676,15 +682,41 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         exported-symbol detection across the whole compilation unit."""
         src = getattr(node, 'source_file', None)
         if sym == "main" or sym.startswith("saw_") or sym.startswith("__saw_"):
-            self.reporter.error(
-                ErrorKind.TYPE_MISMATCH,
-                f"`@export` symbol `{sym}` collides with a reserved runtime "
-                f"symbol (`main`, `saw_*`, `__saw_*`)",
-                node.line, node.column,
-                hint="choose a different exported symbol name via "
-                     "`@export(\"other_name\")`",
-                source_file=src)
-            return
+            # Runtime-build mode (design 113b): a runtime AUTHORED IN SAW exports
+            # the frozen `__saw_rt_*` ABI (sawc/rt/ABI.md). Allow exactly those
+            # names here; a non-ABI `__saw_rt_*` export is a typo (the accepted
+            # set is named), and every other reserved name stays rejected even in
+            # this mode — a runtime must not hijack `main`/`saw_*`/the `__saw_*`
+            # compiler-internal helpers.
+            from runtime_abi import RUNTIME_ABI_SYMBOLS, valid_export_names_message
+            if getattr(self, 'runtime_build', False) and sym in RUNTIME_ABI_SYMBOLS:
+                pass  # a valid runtime-ABI export
+            elif getattr(self, 'runtime_build', False) and sym.startswith("__saw_rt_"):
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`@export` symbol `{sym}` is not part of the frozen "
+                    f"`__saw_rt_*` runtime ABI",
+                    node.line, node.column,
+                    hint="under `--runtime-build` only the frozen ABI names may "
+                         "be exported; valid names are: "
+                         f"{valid_export_names_message()}",
+                    source_file=src)
+                return
+            else:
+                hint = ("choose a different exported symbol name via "
+                        "`@export(\"other_name\")`")
+                if sym.startswith("__saw_rt_"):
+                    hint = ("`__saw_rt_*` names are the runtime ABI — a runtime "
+                            "authored in Saw exports them under `--runtime-build`; "
+                            "an ordinary program must choose a different name")
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`@export` symbol `{sym}` collides with a reserved runtime "
+                    f"symbol (`main`, `saw_*`, `__saw_*`)",
+                    node.line, node.column,
+                    hint=hint,
+                    source_file=src)
+                return
         prev = self._export_symbol_table.get(sym)
         if prev is not None:
             pname, pline, _pcol, _pfile = prev
