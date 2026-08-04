@@ -1,0 +1,52 @@
+// DF-116a regression (design 116 discovery): an `Optional<String>` held in a
+// NAMED local and copied (not moved) into a struct field must retain its
+// payload when the struct is pushed into a Vector. Before the fix the copy was
+// bitwise (no payload retain), so the local's scope-exit release freed the
+// buffer under the stored element — the read back printed empty/garbage.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// local still=[u8]
+// suffix=[u8]
+// direct=[u32]
+
+struct Tok { value: String, suffix: String? }
+
+func lexy() -> Vector<Tok> {
+    var v = Vector<Tok>()
+    var sb = StringBuilder()
+    sb.append("u8")
+    let opt: String? = sb.build()
+    v.push(Tok(value: "x", suffix: opt))
+    // The local must remain valid after the copy (retain, not steal) — read it
+    // again to pin that, then let it drop at scope exit (release-once).
+    if let s = opt {
+        print("local still=[{s}]")
+    }
+    move v
+}
+
+// Contrast shape: pushing a bare Optional local straight into a Vector of
+// Optionals (no struct wrapper) exercises the call-argument transfer path.
+func direct() -> Vector<String?> {
+    var v = Vector<String?>()
+    var sb = StringBuilder()
+    sb.append("u32")
+    let opt: String? = sb.build()
+    v.push(opt)
+    move v
+}
+
+func main() {
+    let toks = lexy()
+    if let t = toks.get(0) {
+        if let s = t.suffix {
+            print("suffix=[{s}]")
+        }
+    }
+    let d = direct()
+    if let o = d.get(0) {
+        if let s = o {
+            print("direct=[{s}]")
+        }
+    }
+}

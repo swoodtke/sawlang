@@ -1107,9 +1107,19 @@ class ResourcesMixin:
         - Literals (they don't have existing ownership)
         - Move expressions (ownership is transferred)
         """
-        # Check if the field type implements ImplicitCopy
+        # A field type is copy-on-init when it implements ImplicitCopy — OR when
+        # it is an aggregate with no whole-type copy() that still OWNS
+        # cleanup-needing payloads (an `Optional<String>`, an owning-payload
+        # tuple/struct/enum): initializing such a field from an existing binding
+        # is a DUPLICATION, and without the recursive retain the stored copy
+        # aliases the binding's buffers, which the binding's scope-exit release
+        # then frees under the aggregate (DF-116a use-after-free).
+        # `_generate_copy` dispatches these to `_deep_copy_value`. NoCopy and
+        # ExplicitCopy sources never reach here as bare identifiers (the
+        # typechecker forces `move`/`.copy()` first).
         behavior = self._get_cleanup_behavior(field_type)
-        if behavior != "implicit_copy":
+        if behavior != "implicit_copy" and not (
+                behavior != "no_copy" and self._needs_cleanup(field_type)):
             return False
 
         # Check if the value comes from an existing binding that needs copying
