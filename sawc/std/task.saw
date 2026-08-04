@@ -1,3 +1,15 @@
+//! Task handles and the cooperative yield.
+//!
+//! `spawn { ... }` hands back a `Task<T>`. A task's lifetime is its handle's:
+//! dropping an unjoined handle joins the task, so a task cannot outlive the
+//! scope that spawned it. Nothing exposes the underlying thread.
+//!
+//! `yield_now` is the explicit cede. A task that only computes never parks on
+//! I/O, so it never gives another task a turn on its own; one call per pass
+//! through such a loop is enough.
+//!
+//! Requires `import std.task`.
+
 // Task<T> - the handle to a spawned task (design 21 item 5, design 21b).
 //
 // `spawn { ... } -> Task<T>` launches the closure on a fresh pthread (hosted
@@ -55,6 +67,11 @@ extension PosixThread: Thread {
     }
 }
 
+/// The handle to a spawned task, carrying the result type `T`.
+///
+/// `spawn { ... }` returns one. Take the result with `join`; a handle that goes
+/// out of scope unjoined joins the task itself and drops the result. The handle
+/// cannot be copied, so exactly one place owns the task.
 struct Task<T> {
     // Points at the task control block (`None` only on the inert OOM path).
     handle: UnsafePointer<Int8>?
@@ -62,9 +79,13 @@ struct Task<T> {
     joined: Bool
 }
 
+/// Taking a task's result.
 extension Task<T> {
-    // Block until the task finishes and take its result. Joining a Task twice is
-    // a program bug; the `joined` flag guards against a double-join/free.
+    /// Waits for the task to finish and returns its result.
+    ///
+    /// Blocks the calling thread. A task yields its result once: joining a
+    /// second time, or joining a handle whose task was already joined at scope
+    /// exit, panics.
     public func join(&var self) -> T {
         if self.joined {
             // Already joined (or inert): no result to hand back. Misuse —
@@ -87,7 +108,10 @@ extension Task<T> {
 
 // Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
 // requirement is already satisfied.
+/// A handle joins its task when it goes out of scope.
 extension Task<T>: Deinit {
+    /// Joins the task unless `join` already did, drops the unclaimed result, and
+    /// frees the control block.
     public func deinit(&var self) {
         // An unjoined task is joined at scope exit (structured concurrency), its
         // unclaimed result dropped, and the control block freed.
@@ -102,6 +126,7 @@ extension Task<T>: Deinit {
     }
 }
 
+/// A task handle is not copyable — one owner, one join.
 extension Task<T>: NoCopy {
 }
 
@@ -112,6 +137,11 @@ extension Task<T>: NoCopy {
 // `yield_now` cooperative-yield intrinsic; the bare intrinsic name is gated to
 // std bodies, so user code reaches the yield only through this wrapper. Requires
 // `import std.task` (design-82 prelude discipline — not auto-visible).
+/// Hands control back to the scheduler, ready to run again immediately.
+///
+/// Suspends, so the caller must itself be driven by the scheduler. A loop that
+/// only computes has no other place to yield, and starves every other task on
+/// the thread until it calls this.
 public func yield_now() {
     yield_now()
 }
