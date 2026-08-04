@@ -161,5 +161,10 @@ arithmetic, or binding a pointer produced by a call — in a function whose
 signature carries no `Unsafe*` type (a pointer-naming cast, a
 pointer param/return/field, or a `self`-method of a pointer-field struct is
 already the marked domain); `Vector.with_ref`/`with_var_ref` (scoped,
-invalidation-proof element borrow) replaced `ref_at`. Blade (package manager
+invalidation-proof element borrow) replaced `ref_at`. Doc comments (121):
+`///` (following decl) + `//!` (module) lexed as trivia in BOTH lexers
+(lexdiff parity, `--docs` dump), parser-attached with unattached-doc
+errors, `--emit-docs` JSON of the typechecked surface (design-80 gate on
+members); std.task + std.time docstringed; the saw-docs skill is the
+style guide for all user-facing doc text. Blade (package manager
 in Saw) is self-hosting. License: Apache-2.0 WITH LLVM-exception.
