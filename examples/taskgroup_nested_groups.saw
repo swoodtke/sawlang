@@ -9,6 +9,7 @@
 // EXPECT-OUTPUT:
 // 124
 
+import std.task
 func leaf(n: Int) -> Int {
     yield_now()
     return n * 2

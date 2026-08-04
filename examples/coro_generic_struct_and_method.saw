@@ -12,6 +12,7 @@
 // 21
 // 22
 
+import std.task
 trait Tagged {
     func tag(&self) -> Int
 }

@@ -97,11 +97,6 @@ items need a probe before being treated as real work.
   array-repeat initializer — DF-113d, needed for the reactor's per-call MT-safe
   poll event buffer (the only seam still compiler-synthesized). General
   C-interop / low-level value beyond the runtime. [113/113b]
-- **Design 114 — intrinsic scoping + naming.** Bare yield_now/io_wait
-  gated stdlib-internal; public std.task.yield_now() (import required, not
-  prelude); rename all compiler-recognized double-underscore names to
-  __saw_* (deinit_in_place, suspend, io_park, blk_*, drive...). AFTER 113
-  lands (shared intrinsic surface). [114]
 - **DECIDE: infinite loops should type as `Never` (probe Aug 4, lead).**
   `func f() -> Never` is satisfiable ONLY by ending in a Never-typed
   EXPRESSION (`panic(...)` / a Never call); a no-`break` infinite loop —
@@ -114,6 +109,55 @@ items need a probe before being treated as real work.
   is `!`); whether the literal `while true { }` joins it is part of the
   call. Rider: the diagnostic leaks the internal kind spelling `NEVER`
   (should say `Never`). [49, 58, 112]
+- **Design 114 — intrinsic scoping + naming. Part A LANDED (Aug 4); Part B
+  LANDED (Aug 4); io_wait gating DEFERRED (see FLAG).**
+  - **Part A (yield_now) — LANDED.** `std/task.saw` gained a public
+    `func yield_now()`; `import std.task` (already an import-required module —
+    it owns `Task`) un-gates it. The bare `yield_now` name stays the
+    compiler-recognized cooperative-yield intrinsic but is GATED: allowed only
+    in std bodies (`_checking_builtins`), synthesized coro output,
+    `--runtime-build` (no std loaded), or when `std.task` has been imported
+    (name in `directly_accessible`). A bare un-imported call is a clean
+    `UNDEFINED_FUNCTION` error naming the import.
+    - **WRAPPER MECHANISM (decision recorded per brief):** chose the
+      *intrinsic-preserving gate* (brief's fallback: "typechecker-recognizing
+      the qualified name") over the *real suspending wrapper the embedding
+      machinery drives* (brief's primary). Reason: the real-suspension effect
+      LABEL and the coro-closure / main-suspend detection are recorded at the
+      DIRECT call site under the ENTRY typechecker, which never analyzes std
+      bodies (this is exactly why `_std_suspending_methods` has to be
+      cross-carried for methods). Routing yield_now through a std free-function
+      wrapper would drop the real-suspension signal at the entry boundary
+      (main wouldn't auto-wrap; nested embedding wouldn't trigger). The gate
+      keeps the user call site the exact same intrinsic node it is today, so
+      lowering is byte-identical and every embedding position (statement,
+      nested if/loop, MT TaskGroup, spawned+nested) works unchanged. The
+      `public func yield_now()` body is a transparent `{ yield_now() }` — it
+      exists solely as the importable name anchor (never actually called: the
+      recognizer intercepts the call before function resolution).
+    - Migration: 43 example files gained `import std.task`
+      (`source_location_suspending` EXPECT-OUTPUT line numbers bumped +1).
+      New negative test `examples/errors/yield_now_bare_gated.saw`.
+  - **FLAG (brief premise wrong — io_wait gating DEFERRED, needs lead
+    decision).** The brief's Aug-4 audit stated io_wait is "used by std.net"
+    (internal only) and budgeted NO io_wait migration. FALSE: **11 example
+    programs call `io_wait(...)` directly** — white-box reactor tests that
+    drive the FULL raw private seam (`tcp_socketpair`/`tcp_try_read`/
+    `tcp_try_write`/`net_buffer`/`net_would_block`/`io_wait`) with controlled
+    socketpairs to exercise park/precise-wakeup/cancel/deinit-across-parks at
+    the reactor level: `net_io_main_entry`, `net_threads_io`,
+    `net_loopback_echo`, `net_socketpair_echo`, `net_io_sleep_interleave`,
+    `net_deinit_across_parks`, `net_nested_parks_roundtrip`, `net_io_cancel`,
+    `net_precise_wakeup`, `net_precise_n_readers`, `net_three_park_sequence`,
+    `net_cancel_parked_mt`. Gating io_wait to std bodies would break all of
+    them; there is no public-API equivalent that still tests io_wait itself
+    (the public TcpStream examples exercise the seam only indirectly). So
+    honoring "io_wait outside std errors" requires a COVERAGE decision the
+    brief did not authorize: either DELETE these 11 white-box reactor tests
+    (relying on the public-API net tests for regression coverage) or KEEP
+    io_wait ungated. Left io_wait exactly as-is (ungated) pending that
+    decision; the yield_now gate is independent and complete.
+  - **Part B (__saw_ rename) — LANDED.** See the Part B commit.
 - **Design 115 — test runner: persistent compile workers. LANDED (Aug 4).**
   Amortize the measured ~250 ms/test fixed compiler-bootstrap overhead (python
   + llvmlite/sawc imports + builtin namespace) via N long-lived worker

@@ -145,8 +145,10 @@ discipline (design 82): only a curated core is auto-visible
 (primitives, Vector/Map/Set, Optional/Result/Box/Arc/Allocator, the
 trait vocabulary, the builtins + concurrency primitives,
 StringBuilder); File/Data/Channel/Mutex/net/IoError/Utf8Error/process/
-env/time need `import std.<module>` — so a user type named `IoError`/
-`File` no longer collides. Unsafe surface (design 81):
+env/time — and `yield_now` (std.task, design 114; the cooperative-yield
+wrapper over the now stdlib-internal intrinsic) — need
+`import std.<module>` — so a user type named `IoError`/`File` no longer
+collides. Unsafe surface (design 81):
 unsafety is type-carried, plus an `unsafe` expression marker required
 wherever a raw pointer flows invisibly — a deref/index/write, pointer
 arithmetic, or binding a pointer produced by a call — in a function whose

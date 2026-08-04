@@ -4,6 +4,7 @@
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: buried suspending method call
 
+import std.task
 struct S { n: Int }
 extension S {
     func tick(&self) -> Int {

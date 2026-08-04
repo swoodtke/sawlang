@@ -2531,7 +2531,12 @@ Observable rules:
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately
 re-ready) and `sleep(ms)` (suspend with a timed wake). Both are inferred
-suspension points. When `main` transitively reaches one, the compiler infers
+suspension points. **`yield_now` requires `import std.task`** (design 114): it is
+std.task's public `func yield_now()`, the one explicit cede a pure-compute task
+loop needs; a task doing I/O yields implicitly when it parks, so most code never
+names it. The bare name is a stdlib-internal intrinsic — user code that calls
+`yield_now()` without importing std.task gets a clean error naming the import.
+(`sleep` stays in the prelude.) When `main` transitively reaches one, the compiler infers
 `main` suspending and auto-wraps it in an **entry executor** with no user-visible
 plumbing: `main` becomes a frame + `resume`, and the generated entry drives it to
 completion on a single cooperative run, parking the thread for each `sleep` wake
@@ -2698,6 +2703,7 @@ producer.join()
 ```saw
 // The cooperative multi-task engine (design 52b). Tasks are stackless coroutine
 // frames driven on the current thread — no OS threads, no thread identity.
+import std.task                  // design 114: `yield_now` lives in std.task
 
 func worker(base: Int) -> Int {
     print(base)
@@ -3273,13 +3279,13 @@ Not all of std is auto-visible. The **prelude** — the names usable without an
 - core traits (the Copy family, `Deinit`, `Iterator`, `Equatable`, `Comparable`,
   `Hashable`, `Printable`, `Error`, `Send`, `Sync`);
 - the builtins (`print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`) and
-  the concurrency primitives (`TaskGroup`, `yield_now`, `sleep`, `spawn`,
-  `cancelled`); `StringBuilder` (common enough to stay bare).
+  the concurrency primitives (`TaskGroup`, `sleep`, `spawn`, `cancelled`);
+  `StringBuilder` (common enough to stay bare).
 
 Everything else in std is **import-required**: `File`, `Directory`, `Path`,
 `Data`, `Channel`, `Mutex`, `Duration`, `Instant`, `IoError`, `Utf8Error`, the
-whole `net` surface (`TcpListener`/`TcpStream`), and the `process`/`env`/`time`
-contents. These stay compiler-known for codegen but are not injected into a
+whole `net` surface (`TcpListener`/`TcpStream`), `yield_now` (std.task —
+design 114), and the `process`/`env`/`time` contents. These stay compiler-known for codegen but are not injected into a
 user namespace without `import std.<module>`. A bare reference to one is a clean
 error ("`TcpStream` is not in the prelude and must be imported") naming the
 import that supplies it. Because a non-imported std module is not even compiled

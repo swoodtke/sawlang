@@ -6,6 +6,7 @@
 // 4
 // 64
 
+import std.task
 import std.channel.{Channel}
 func producer(ch: Channel<Int>) -> Int {
     var i = 0

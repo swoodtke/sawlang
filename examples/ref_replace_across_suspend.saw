@@ -6,6 +6,7 @@
 // EXPECT-OUTPUT: spawn result=42
 // EXPECT-OUTPUT: driver local=99
 
+import std.task
 func across(p: &var Int, v: Int) {
     yield_now()          // suspend while holding the &var reference
     p = v                // replacement must write the real caller slot

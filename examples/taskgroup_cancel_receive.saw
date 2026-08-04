@@ -7,6 +7,7 @@
 // 30
 // 55
 
+import std.task
 import std.channel.{Channel}
 struct Res { id: Int }
 extension Res: Deinit { func deinit(&var self) { print(self.id) } }

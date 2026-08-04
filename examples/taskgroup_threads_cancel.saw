@@ -10,6 +10,7 @@
 // EXPECT-OUTPUT:
 // 77
 
+import std.task
 func victim() -> Int {
     var spins = 0
     while not cancelled() {

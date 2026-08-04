@@ -247,6 +247,7 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
 
 ## Concurrency (colorless)
 ```saw
+import std.task                                   // design 114: `yield_now` lives here
 func work(n: Int) -> Int { yield_now(); n * n }  // any call may suspend
 func main() {
     var group = TaskGroup()
@@ -321,7 +322,8 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   not a separate executor; nested groups compose by construction; a task joining
   another yields to the one scheduler (no nested loop). Suspending calls yield
   IMPLICITLY when they park (a task doing I/O never needs `yield_now`); `yield_now`
-  is only for a CPU loop that makes no parking calls. Fairness backstop (design
+  (design 114: `import std.task` — no longer prelude) is only for a CPU loop that
+  makes no parking calls. Fairness backstop (design
   89-c): a task that keeps completing suspending io ops WITHOUT ever parking (an
   always-ready socket) does NOT starve siblings — every 128 non-parking io ops the
   primitive force-yields once (op-count budget, not wall-clock), so a busy reader
@@ -418,11 +420,12 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   `Allocator`/`GlobalAllocator`, the Copy family + `Deinit`/`Iterator`/
   `Equatable`/`Comparable`/`Hashable`/`Printable`/`Error`/`Send`/`Sync`,
   `print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`, `TaskGroup`/
-  `yield_now`/`sleep`/`spawn`/`cancelled`, `StringBuilder`. IMPORT-REQUIRED:
+  `sleep`/`spawn`/`cancelled`, `StringBuilder`. IMPORT-REQUIRED:
   `File`/`Directory`/`Path` (std.file/directory/path), `Data` (std.data),
   `Channel` (std.channel), `Mutex` (std.mutex), `Duration`/`Instant` (std.time),
   `IoError`/`TcpListener`/`TcpStream` (std.net), `Utf8Error` (std.string),
-  `Command` (std.process), `Env` (std.env). A bare non-prelude name is a clean
+  `yield_now` (std.task — design 114; the wrapper over the stdlib-internal
+  cooperative-yield intrinsic), `Command` (std.process), `Env` (std.env). A bare non-prelude name is a clean
   error ("`X` is not in the prelude and must be imported") — add the import.
   A std import exposes names BARE (no `mod.Name` qualifier). Because a
   non-imported std module isn't compiled in, you may define your OWN `IoError`/

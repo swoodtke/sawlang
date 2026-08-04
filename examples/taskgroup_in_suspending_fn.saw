@@ -8,6 +8,7 @@
 // EXPECT-OUTPUT:
 // 42
 
+import std.task
 func child(n: Int) -> Int {
     yield_now()
     return n * 2

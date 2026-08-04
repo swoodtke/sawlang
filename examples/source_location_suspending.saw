@@ -5,9 +5,10 @@
 // points still names its own source line and its own bare function name.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// source_location_suspending.saw:13:worker
-// done 22
+// source_location_suspending.saw:14:worker
+// done 23
 
+import std.task
 func worker(n: Int) -> String {
     yield_now()
     let loc = "{#file}:{#line}:{#function}"

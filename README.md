@@ -266,6 +266,8 @@ and cooperative (`handle.cancel()`).
 at every spawn; the default stays single-threaded and deterministic.
 
 ```saw
+import std.task          // `yield_now` lives in std.task
+
 func work(n: Int) -> Int {
     yield_now()          // cooperative suspension point
     n * n

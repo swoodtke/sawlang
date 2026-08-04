@@ -2148,6 +2148,30 @@ class ExpressionsMixin:
             # `__suspend`, it is an effect source and a transform state boundary,
             # but it carries a "ready" wake reason (the executor reschedules it at
             # once). Takes no arguments; returns Void.
+            #
+            # design 114: the bare `yield_now` name is a stdlib-INTERNAL intrinsic.
+            # std bodies (channel/net/taskgroup — checked with `_checking_builtins`)
+            # and synthesized coro output reach it directly. User code reaches the
+            # yield only through std.task's `public func yield_now()` wrapper, which
+            # is un-gated by `import std.task` (its name then sits in
+            # `directly_accessible`); a call to that wrapper lands HERE with the
+            # name accessible, so it lowers to the exact same intrinsic (no extra
+            # frame — the wrapper is transparent). A bare, un-imported use is a clean
+            # error naming the replacement.
+            # `--runtime-build` (design 113b) loads NO std, so std.task does not
+            # exist to import — the bare intrinsic stays reachable there (a seam
+            # body that suspends is caught by the separate `@export`-suspend rule).
+            if not (getattr(self, '_checking_builtins', False)
+                    or getattr(self, 'runtime_build', False)
+                    or self._in_synthesized_context()
+                    or "yield_now" in self.namespace.directly_accessible):
+                self._error(
+                    ErrorKind.UNDEFINED_FUNCTION,
+                    "`yield_now` is a stdlib-internal cooperative-yield intrinsic "
+                    "and cannot be called bare",
+                    expr.line, expr.column,
+                    hint="add `import std.task` and call its public `yield_now()`")
+                return SawType(TypeKind.VOID)
             if len(expr.arguments) != 0:
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,

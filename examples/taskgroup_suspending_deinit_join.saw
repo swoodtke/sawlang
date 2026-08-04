@@ -11,6 +11,7 @@
 // 7
 // 99
 
+import std.task
 struct Log { id: Int }
 extension Log: Deinit { func deinit(&var self) { print(self.id) } }
 extension Log: NoCopy {}

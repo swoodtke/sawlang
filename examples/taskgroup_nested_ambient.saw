@@ -11,6 +11,7 @@
 // 20
 // 21
 
+import std.task
 func leaf(id: Int) -> Int {
     yield_now()
     print(id)

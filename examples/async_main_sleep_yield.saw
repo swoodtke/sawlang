@@ -10,6 +10,7 @@
 // 2
 // 3
 
+import std.task
 func main() {
     print(1)
     sleep(5)        // real timed suspension: executor parks 5ms, then resumes

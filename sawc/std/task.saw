@@ -74,3 +74,14 @@ extension Task<T>: Deinit {
 
 extension Task<T>: NoCopy {
 }
+
+// design 114: the public cooperative-yield primitive. `yield_now()` hands
+// control back to the scheduler and is immediately re-ready — the one explicit
+// cede a PURE-compute task loop needs (a task doing I/O yields implicitly when
+// it parks on the reactor). This is a thin surface over the stdlib-internal
+// `yield_now` cooperative-yield intrinsic; the bare intrinsic name is gated to
+// std bodies, so user code reaches the yield only through this wrapper. Requires
+// `import std.task` (design-82 prelude discipline — not auto-visible).
+public func yield_now() {
+    yield_now()
+}

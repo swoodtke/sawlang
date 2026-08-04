@@ -12,6 +12,7 @@
 // 22
 // 30
 
+import std.task
 func counter(base: Int) -> Int {
     print(base)
     yield_now()
