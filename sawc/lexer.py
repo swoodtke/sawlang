@@ -487,10 +487,15 @@ class Lexer:
                 self.add_token(TokenType.NEWLINE, '\n')
                 self.advance()
             elif ch == '"':
+                # DF-116e: capture the START line too — read_string advances
+                # self.line over a multi-line interpolation, and a token's line
+                # is its start (the spec's #line rule; the design-116 Saw port
+                # agrees).
+                start_line = self.line
                 start_col = self.column
                 value, has_interpolation = self.read_string()
                 token_type = TokenType.INTERP_STRING if has_interpolation else TokenType.STRING
-                self.tokens.append(Token(token_type, value, self.line, start_col))
+                self.tokens.append(Token(token_type, value, start_line, start_col))
             elif ch.isdigit():
                 self.tokens.append(self.read_number())
             elif ch.isalpha() or ch == '_':
