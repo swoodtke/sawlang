@@ -2374,8 +2374,8 @@ multi-task `TaskGroup` — designs 44/45/52/52b, below).
   `T: Send` is enforced on the type at construction.
 
 The atomic-ordering runtime (`__saw_atomic_*`, per the String protocol) is
-shared by `Arc` and `Channel`; the `pthread_create`/`join` and condvar wrappers
-back `spawn`/`Task` and `Channel`. Under the cooperative engine the channel wait
+shared by `Arc` and `Channel`; the thread-spawn/join (`__saw_rt_thread_spawn`/
+`_join`, design 117) and condvar wrappers back `spawn`/`Task` and `Channel`. Under the cooperative engine the channel wait
 is the suspending `receive()` twin — `recv()` remains the blocking
 thread-engine call; `lock`'s
 critical section stays synchronous (a `sync` closure cannot suspend), which is

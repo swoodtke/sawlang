@@ -15,14 +15,16 @@ sawc/              # Compiler: Python + llvmlite
   codegen/         # LLVM IR generation (mixin classes)
   coro_transform.py# Source-level coroutine transform
   builtin.saw      # Built-in traits; std/ = stdlib (.saw)
-  rt/              # Runtime ABI (design 113/113b): rt/ABI.md freezes the
-                   # __saw_rt_* seam contract; the seam bodies are AUTHORED IN
-                   # SAW here — common/ + host_macos/ + host_linux/ (.saw,
-                   # compiled with `--runtime-build`) + shim.c (3 FFI-blocked
-                   # bodies: write/panic, pthread_create+offload thunk,
-                   # set_nonblocking). Built + cached under .build/rt/, auto-
-                   # linked for hosted builds. Only the IO reactor is still
-                   # compiler-synthesized (poll buffer gap — see todo.md #113).
+  rt/              # Runtime ABI (design 113/113b, v2 by 117): rt/ABI.md freezes
+                   # the __saw_rt_* seam contract; the seam bodies are AUTHORED
+                   # IN SAW here — common/ (os_ops.saw = status-carrying tcp/fs/
+                   # env ops) + host_macos/ + host_linux/ (reactor.saw kqueue/
+                   # epoll, net_os.saw errno->SysError) (.saw, --runtime-build)
+                   # + shim.c (3 FFI-blocked bodies: write/panic, thread_spawn+
+                   # offload thunk, set_nonblocking). Built + cached under
+                   # .build/rt/, auto-linked for hosted builds. Design 117: the
+                   # reactor is now Saw too (instance-based); the compiler only
+                   # synthesizes the process-global __saw_reactor getter.
 examples/          # Compiler test suite programs (test_runner.py)
 blade/             # Blade package manager (written in Saw)
 libs/              # Real Saw library packages (semver, toml)
