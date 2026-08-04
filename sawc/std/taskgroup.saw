@@ -829,6 +829,40 @@ func __saw_exec_any_cancelled_io() -> Bool {
     false
 }
 
+// Lost-wakeup guard: is any io-parked frame's `__wake` word ALREADY latched
+// (>= 0)? A one-shot kevent can be consumed by a poll that is not the scheduler
+// sweep — an outside-frame blocking `io_wait` (a sync connect wait) polls the
+// same reactor inline and latches whatever fired, including a PARKED sibling's
+// event. The event is then gone (EV_ONESHOT deletes on delivery), so the
+// sweep's own `poll(-1)` would block forever and `__saw_exec_wake_io` — the
+// only reader of the latch — would never run. This pre-poll scan is what makes
+// the design-91 "persistent latch word" promise hold in the single-threaded
+// sweep (the MT worker gets the same guarantee from its bounded 50 ms poll).
+func __saw_exec_any_latched_io() -> Bool {
+    var cur = __saw_exec_head.load()
+    while cur != 0 {
+        let g = cur as UnsafePointer<TaskGroup>
+        let n = unsafe g[0].tasks.len()
+        var i = 0
+        while i < n {
+            let done_i = unsafe g[0].done.get(i)!
+            let active_i = unsafe g[0].active.get(i)!
+            if (not done_i) && (not active_i) {
+                let r = unsafe g[0].remaining.get(i)!
+                if r < 0 {
+                    let latched = unsafe g[0].tasks.with_var_ref<Bool>(i, { f in f.__wake_reason() >= 0 })
+                    if latched {
+                        return true
+                    }
+                }
+            }
+            i = i + 1
+        }
+        cur = unsafe g[0].next
+    }
+    false
+}
+
 // Pure-sleep advance: subtract the parked deadline from every sleeper so the
 // shortest wakes first. Skips frames active on the C stack.
 func __saw_exec_advance_sleep(deadline: Int) {
@@ -936,9 +970,11 @@ func __saw_exec_run(term_group: Int, term_slot: Int) {
             return
         }
         if io {
-            if __saw_exec_any_cancelled_io() {
-                // A parked frame was cancelled by a peer (via cancel_addr, no
-                // self-wake) — wake it now instead of blocking in poll on an idle fd.
+            if __saw_exec_any_latched_io() || __saw_exec_any_cancelled_io() {
+                // A parked frame's event was already latched (consumed by an
+                // inline poll — see __saw_exec_any_latched_io) or a peer
+                // cancelled it (via cancel_addr, no self-wake) — wake it now
+                // instead of blocking in poll on an event that will never come.
                 __saw_exec_wake_io(1, deadline)
             } else {
                 let events = __saw_host_reactor().poll(deadline)

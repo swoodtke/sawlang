@@ -199,6 +199,27 @@ inlined (the `.build/scratch` probes are gitignored).
   the pilot (the lexer never prints a `UInt`; design 119's tests assert through
   comparisons). Non-blocking.
 
+## Executor — open items
+
+- **EXEC-1 — VERIFY (flagged during the ST lost-wakeup fix, Aug 4, lead).**
+  Cross-poller one-shot consumption beyond the fixed case: every poller of the
+  process-global reactor (an MT group's workers; a 21b `spawn {}` OS thread
+  whose body runs its own cooperative io; the ambient ST sweep) can consume +
+  latch a one-shot event belonging to a frame parked by a DIFFERENT poller's
+  scheduler. The ST sweep now recovers via its pre-poll latched scan
+  (`__saw_exec_any_latched_io`), but only for latches that land while it is
+  scanning — a latch that fires while the sweep is already blocked in
+  `poll(-1)` (only possible if another OS thread polls concurrently) would
+  still wedge it: the event is consumed, the sweep's poll never returns, the
+  latch is never read. The MT worker is bounded (50 ms) so it always re-scans;
+  the ST sweep is not. NEEDS A PROBE to establish whether the window is
+  reachable today (is a concurrent poll possible while the main thread is in
+  the ST sweep's poll? MT drains block the main thread; a 21b OS-thread task
+  doing reactor io concurrently with main-thread ST io looks like the
+  candidate). If reachable: either bound the ST sweep's poll like the MT
+  worker's, or self-wake the reactor whenever a poller latches a token it does
+  not own. [design 91 / 102 / 118]
+
 ## Milestones
 - **App-1 Blade: DONE** (design 64 + 67; real resolver/lock/git/
   incremental/self-hosting bootstrap; `make blade-bootstrap`).
