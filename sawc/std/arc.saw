@@ -67,7 +67,7 @@ extension Arc<T>: Deinit {
                 // thread's final payload reads before we tear it down.
                 __saw_atomic_fence_acquire()
                 let payload_ptr = (block + 16) as UnsafePointer<T>
-                __deinit_in_place(payload_ptr)
+                __saw_deinit_in_place(payload_ptr)
                 // Release the strong refs' collective weak count.
                 let weak_ptr = (block + 8) as UnsafePointer<Int>
                 let wold = __saw_atomic_sub_i64_release(weak_ptr, 1)

@@ -17,13 +17,13 @@ extension Fast: Seed { func seed(&self) -> Int { self.m } }
 
 func run<T: Seed>(w: T) -> Int {
     let base = w.seed()
-    __suspend()
+    __saw_suspend()
     base + 1
 }
 
 func main() {
     let s = Slow(n: 10)
-    print(__drive(run(move s)))    // 11  (T inferred = Slow)
+    print(__saw_drive(run(move s)))    // 11  (T inferred = Slow)
     let f = Fast(m: 20)
-    print(__drive(run(move f)))    // 21  (T inferred = Fast)
+    print(__saw_drive(run(move f)))    // 21  (T inferred = Fast)
 }

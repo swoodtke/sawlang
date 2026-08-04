@@ -11,19 +11,19 @@
 
 func run(base: Int) -> Int {
     let f: () -> Int = { base + 1 }   // captures `base` (a frame-resident param)
-    __suspend()
+    __saw_suspend()
     f()                                // called in a later state
 }
 
 func two(base: Int) -> Int {
     let f: () -> Int = { base * 2 }
-    __suspend()
+    __saw_suspend()
     let g: () -> Int = { base + 6 }   // a second closure, after the suspend
-    __suspend()
+    __saw_suspend()
     f() + g()                          // 40 + 26 = 66 for base = 20
 }
 
 func main() {
-    print(__drive(run(10)))            // 11
-    print(__drive(two(20)))            // 66
+    print(__saw_drive(run(10)))            // 11
+    print(__saw_drive(two(20)))            // 66
 }

@@ -2,7 +2,7 @@
 // diagnostic, through the whole-program inference — no annotations on f/g.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
-// EXPECT-ERROR-CONTAINS: `f` → `g` → __test_suspend
+// EXPECT-ERROR-CONTAINS: `f` → `g` → __saw_test_suspend
 // EXPECT-ERROR-CONTAINS: `g` suspends at line
 
 func handler() sync {
@@ -14,7 +14,7 @@ func f() {
 }
 
 func g() {
-    __test_suspend()
+    __saw_test_suspend()
 }
 
 func main() {}

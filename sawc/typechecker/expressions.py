@@ -957,7 +957,7 @@ class ExpressionsMixin:
 
     def _drive_generic_struct_method(self, inner, struct_name, recv_type, mode, expr):
         """design 74 (A5-rest, shape 2): drive a suspending method on a GENERIC
-        struct for a concrete receiver (`__drive(b.run())`, `b: Holder<Int>`).
+        struct for a concrete receiver (`__saw_drive(b.run())`, `b: Holder<Int>`).
         Monomorphize the method over the struct's type params (T->Int), queue the
         clone+re-check for effect harvest, record the concrete driven-method root,
         and rewrite the call so the coroutine transform's Part-0c method driving
@@ -2124,15 +2124,15 @@ class ExpressionsMixin:
                         expr.arguments[1].value.line, expr.arguments[1].value.column
                     )
             return SawType(TypeKind.VOID)
-        if expr.name in ("__test_suspend", "__suspend"):
-            # design 22: `__test_suspend` — compiler-known synthetic suspension
+        if expr.name in ("__saw_test_suspend", "__saw_suspend"):
+            # design 22: `__saw_test_suspend` — compiler-known synthetic suspension
             # point, effect-only (feeds the suspendability inference; codegen is a
             # no-op; NO state-machine transform — that is design-22's scope guard).
-            # design 44: `__suspend` — the coroutine-transform state boundary. It
+            # design 44: `__saw_suspend` — the coroutine-transform state boundary. It
             # is ALSO an effect source, but inside a DRIVEN function (reached from
-            # a `__drive` site) the transform splits the body at it. Outside any
-            # driven closure it lowers to the same no-op, so a lone `__suspend`
-            # behaves exactly like `__test_suspend` (effect-suspending, runs).
+            # a `__saw_drive` site) the transform splits the body at it. Outside any
+            # driven closure it lowers to the same no-op, so a lone `__saw_suspend`
+            # behaves exactly like `__saw_test_suspend` (effect-suspending, runs).
             # Both take no arguments and return Void.
             if len(expr.arguments) != 0:
                 self._error(
@@ -2145,7 +2145,7 @@ class ExpressionsMixin:
         if expr.name == "yield_now":
             # design 45 item 4: cooperative yield — a real suspension point that
             # hands control back to the executor and is immediately re-ready. Like
-            # `__suspend`, it is an effect source and a transform state boundary,
+            # `__saw_suspend`, it is an effect source and a transform state boundary,
             # but it carries a "ready" wake reason (the executor reschedules it at
             # once). Takes no arguments; returns Void.
             #
@@ -2179,7 +2179,7 @@ class ExpressionsMixin:
                     f"were given", expr.line, expr.column)
             self._effect_direct_source("yield_now", expr.line)
             return SawType(TypeKind.VOID)
-        if expr.name == "__io_park":
+        if expr.name == "__saw_io_park":
             # design 76 (A4): the IO reactor's suspension boundary. Like
             # `yield_now`, a suspension point + transform state boundary, but it
             # carries an IO-PARK wake reason (a negative sentinel): the executor
@@ -2189,9 +2189,9 @@ class ExpressionsMixin:
             if len(expr.arguments) != 0:
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"`__io_park` takes no arguments, but {len(expr.arguments)} "
+                    f"`__saw_io_park` takes no arguments, but {len(expr.arguments)} "
                     f"were given", expr.line, expr.column)
-            self._effect_direct_source("__io_park", expr.line)
+            self._effect_direct_source("__saw_io_park", expr.line)
             return SawType(TypeKind.VOID)
         if expr.name == "io_wait":
             # design 76 (A4): the user-facing IO suspension point. `io_wait(fd,
@@ -2215,7 +2215,7 @@ class ExpressionsMixin:
                             expr.line, expr.column)
             self._effect_direct_source("io_wait", expr.line)
             return SawType(TypeKind.VOID)
-        if expr.name == "__blk_start":
+        if expr.name == "__saw_blk_start":
             # design 103 (A6): the blocking-extern offload START intrinsic, emitted
             # by the coro transform. Its argument is syntactically a call to the
             # blocking extern (`slow(arg)`), but the offload does NOT call it inline —
@@ -2230,10 +2230,10 @@ class ExpressionsMixin:
                 for a in getattr(inner, 'arguments', []):
                     self._check_expression(a.value)
             return SawType(TypeKind.INT)
-        if expr.name in ("__blk_done", "__blk_pipe_fd", "__blk_take"):
+        if expr.name in ("__saw_blk_done", "__saw_blk_pipe_fd", "__saw_blk_take"):
             # design 103 (A6): the offload done-poll / pipe-fd / join+take intrinsics.
             # Each takes the job handle (Int) and returns an Int (a flag, an fd, or —
-            # for `__blk_take` — the v1 `(Int) -> Int` extern's result). None is a
+            # for `__saw_blk_take` — the v1 `(Int) -> Int` extern's result). None is a
             # suspension source. Compiler-generated only.
             if len(expr.arguments) == 1:
                 self._check_expression(expr.arguments[0].value)
@@ -2257,14 +2257,14 @@ class ExpressionsMixin:
                         expr.line, expr.column)
             self._effect_direct_source("sleep", expr.line)
             return SawType(TypeKind.VOID)
-        if expr.name == "__exec_sleep":
+        if expr.name == "__saw_exec_sleep":
             # design 45: the entry executor's own timer call — parks the thread
             # for the task's requested milliseconds. NOT an effect source (the
             # executor itself never suspends). Compiler-generated only.
             if len(expr.arguments) == 1:
                 self._check_expression(expr.arguments[0].value)
             return SawType(TypeKind.VOID)
-        if expr.name == "__box_data":
+        if expr.name == "__saw_box_data":
             # design 52b item 2: extract the data word (i8*) of a `Box<any T>` fat
             # pointer — the address of the erased heap payload. The synthesized
             # `__spawn_<f>` uses it to point a `TaskHandle` at the boxed frame's
@@ -2286,10 +2286,10 @@ class ExpressionsMixin:
                     f"`cancelled` takes no arguments, but {len(expr.arguments)} "
                     f"were given", expr.line, expr.column)
             return SawType(TypeKind.BOOL)
-        if expr.name in ("__drive", "__drive_steps"):
-            # design 44: the test-only executor entry. `__drive(f(args))` creates
+        if expr.name in ("__saw_drive", "__saw_drive_steps"):
+            # design 44: the test-only executor entry. `__saw_drive(f(args))` creates
             # a frame for the suspending call `f(args)`, drives it to completion,
-            # and yields f's result; `__drive_steps(f(args))` yields the number of
+            # and yields f's result; `__saw_drive_steps(f(args))` yields the number of
             # suspensions observed (an Int). It ABSORBS the callee's suspension —
             # the enclosing function does NOT become suspending — which is how a
             # non-suspending `main` can drive a coroutine with no executor yet.
@@ -2312,7 +2312,7 @@ class ExpressionsMixin:
                     expr.line, expr.column
                 )
                 return None
-            mode = "value" if expr.name == "__drive" else "steps"
+            mode = "value" if expr.name == "__saw_drive" else "steps"
             # Type-check the inner call inside an absorbing scope so its suspend
             # edge does not taint the caller. This also stamps inner.resolved_type
             # and validates the argument types.
@@ -2382,7 +2382,7 @@ class ExpressionsMixin:
                         inner.type_args = None
                 else:
                     self._effect_record_driven(inner.name, mode)
-            if expr.name == "__drive_steps":
+            if expr.name == "__saw_drive_steps":
                 return SawType(TypeKind.INT)
             return inner_type if inner_type is not None else SawType(TypeKind.VOID)
         if expr.name == "spawn":
@@ -2429,7 +2429,7 @@ class ExpressionsMixin:
             if resolved_type is None:
                 return None
             return SawType(TypeKind.INT)
-        if expr.name == "__deinit_in_place":
+        if expr.name == "__saw_deinit_in_place":
             # Compiler-internal drop intrinsic for stdlib container code: run the
             # cleanup (drop glue) for the value at an UnsafePointer<T>, in place.
             # Manual `deinit()` calls are banned language-wide; this escape hatch
@@ -2440,7 +2440,7 @@ class ExpressionsMixin:
             if cur is None or getattr(cur, 'name', None) != "deinit":
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
-                    "`__deinit_in_place` is a compiler-internal intrinsic usable "
+                    "`__saw_deinit_in_place` is a compiler-internal intrinsic usable "
                     "only inside a `deinit` method body",
                     expr.line, expr.column
                 )
@@ -2448,7 +2448,7 @@ class ExpressionsMixin:
             if len(expr.arguments) != 1:
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"`__deinit_in_place` takes exactly one pointer argument, but "
+                    f"`__saw_deinit_in_place` takes exactly one pointer argument, but "
                     f"{len(expr.arguments)} were given",
                     expr.line, expr.column
                 )
@@ -2459,12 +2459,12 @@ class ExpressionsMixin:
                 if arg_underlying.kind != TypeKind.POINTER:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
-                        f"`__deinit_in_place` expects an `UnsafePointer<T>` argument, "
+                        f"`__saw_deinit_in_place` expects an `UnsafePointer<T>` argument, "
                         f"got `{arg_type}`",
                         expr.line, expr.column
                     )
             return SawType(TypeKind.VOID)
-        if expr.name == "__forget":
+        if expr.name == "__saw_forget":
             # design 45 (Part 0a): compiler-internal clear-without-drop for an
             # optional lvalue. Overwrites the optional's `is_some` discriminant to
             # None WITHOUT running the inner value's drop glue — the frame-resident
@@ -2476,7 +2476,7 @@ class ExpressionsMixin:
             if len(expr.arguments) != 1:
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"`__forget` takes exactly one argument, but "
+                    f"`__saw_forget` takes exactly one argument, but "
                     f"{len(expr.arguments)} were given",
                     expr.line, expr.column
                 )

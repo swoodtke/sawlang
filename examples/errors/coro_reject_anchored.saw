@@ -7,7 +7,7 @@
 // EXPECT-ERROR-CONTAINS: coro_reject_anchored.saw:15:17
 
 func slow(n: Int) -> Int {
-    __suspend()
+    __saw_suspend()
     n * 2
 }
 
@@ -17,5 +17,5 @@ func outer(x: Int) -> Int {
 }
 
 func main() {
-    print(__drive(outer(5)))
+    print(__saw_drive(outer(5)))
 }

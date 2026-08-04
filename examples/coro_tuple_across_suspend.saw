@@ -10,11 +10,11 @@
 
 func work() -> Int {
     let pair = (10, 20)     // tuple frame-local, lives across the suspend
-    __suspend()
+    __saw_suspend()
     pair.0 + pair.1         // 30 (pair survived)
 }
 
 func main() {
-    print(__drive(work()))        // 30
-    print(__drive_steps(work()))  // 1 suspension
+    print(__saw_drive(work()))        // 30
+    print(__saw_drive_steps(work()))  // 1 suspension
 }

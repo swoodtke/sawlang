@@ -3,11 +3,11 @@
 // async-mutex deadlock class, ruled out by construction — design 18).
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot suspend in a `sync` closure context
-// EXPECT-ERROR-CONTAINS: __test_suspend
+// EXPECT-ERROR-CONTAINS: __saw_test_suspend
 
 import std.mutex.{Mutex}
 func block_forever() {
-    __test_suspend()
+    __saw_test_suspend()
 }
 
 func main() {

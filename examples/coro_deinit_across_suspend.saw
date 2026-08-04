@@ -16,11 +16,11 @@ extension Tracker: Deinit {
 
 func work() -> Int {
     let t = Tracker(id: 42)     // Deinit local, lives across the suspend
-    __suspend()
+    __saw_suspend()
     let n = t.id + 1            // t survived; read it
     n
 }
 
 func main() {
-    print(__drive(work()))      // frame dies -> 42 (once), then result 43
+    print(__saw_drive(work()))      // frame dies -> 42 (once), then result 43
 }

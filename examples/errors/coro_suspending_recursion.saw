@@ -6,10 +6,10 @@
 // EXPECT-ERROR-CONTAINS: loop -> loop
 
 func loop(n: Int) -> Int {
-    __suspend()
+    __saw_suspend()
     loop(n + 1)
 }
 
 func main() {
-    print(__drive(loop(0)))
+    print(__saw_drive(loop(0)))
 }

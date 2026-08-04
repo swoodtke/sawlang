@@ -19,7 +19,7 @@ extension Tracker: Deinit {
 
 func work(early: Bool) -> Int {
     let t = Tracker(id: 1)
-    __suspend()
+    __saw_suspend()
     if early {
         return 100                // early: t dropped once, result 100
     }
@@ -28,7 +28,7 @@ func work(early: Bool) -> Int {
 }
 
 func main() {
-    print(__drive(work(true)))
+    print(__saw_drive(work(true)))
     print(999)
-    print(__drive(work(false)))
+    print(__saw_drive(work(false)))
 }

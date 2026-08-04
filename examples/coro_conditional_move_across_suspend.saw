@@ -1,7 +1,7 @@
 // design 45 Part 0a: a conditional `move` of a cleanup-needing frame local
 // across a suspension. The local `t` is frame-resident (opt-encoded); moving it
 // on the `early` branch clears its frame drop flag WITHOUT dropping (the
-// `__forget` clear-without-drop), so the frame's own Deinit drops `t` on exactly
+// `__saw_forget` clear-without-drop), so the frame's own Deinit drops `t` on exactly
 // the path that did NOT move it. Deinit oracle proves exactly-once on both paths.
 // EXPECT: success
 // EXPECT-OUTPUT:
@@ -22,7 +22,7 @@ func sink(t: Tracker) -> Int {
 
 func work(early: Bool) -> Int {
     let t = Tracker(id: 5)
-    __suspend()
+    __saw_suspend()
     if early {
         return sink(move t)    // moved: sink drops t (5), result 5
     }
@@ -30,7 +30,7 @@ func work(early: Bool) -> Int {
 }
 
 func main() {
-    print(__drive(work(true)))   // sink deinit 5, then result 5
+    print(__saw_drive(work(true)))   // sink deinit 5, then result 5
     print(999)
-    print(__drive(work(false)))  // frame death 5, then result 6
+    print(__saw_drive(work(false)))  // frame death 5, then result 6
 }

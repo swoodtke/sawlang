@@ -197,7 +197,7 @@ extension Channel<T: Send>: Deinit {
                 while count[0] > 0 {
                     let node = head_slot[0]
                     let val_slot = (node + 8) as UnsafePointer<T>
-                    __deinit_in_place(val_slot)
+                    __saw_deinit_in_place(val_slot)
                     count[0] = count[0] - 1
                     if count[0] > 0 {
                         let node_next = node as UnsafePointer<UnsafePointer<Int8>>

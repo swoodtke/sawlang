@@ -15,12 +15,12 @@ extension Res: Deinit {
 
 func touch(r: &var Res) -> Int {
     r.id = r.id + 1
-    __suspend()
+    __saw_suspend()
     r.id
 }
 
 func main() {
     var r = Res(id: 41)
-    print(__drive(touch(&var r)))   // 42
+    print(__saw_drive(touch(&var r)))   // 42
     print(999)
 }                                    // deinit 42 — exactly once

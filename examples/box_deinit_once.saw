@@ -1,7 +1,7 @@
 // Box of a Deinit payload (design 42 item 1): the payload's `deinit` runs
 // EXACTLY once, when the Box dies. Box is NoCopy — there is no silent duplicate
 // to double-free — and its deinit releases the single live payload in place
-// (`__deinit_in_place`) before freeing the chunk. The deinit-printing payload is
+// (`__saw_deinit_in_place`) before freeing the chunk. The deinit-printing payload is
 // the double-free / leak oracle: exactly one "gone 5".
 // EXPECT: success
 // EXPECT-OUTPUT:

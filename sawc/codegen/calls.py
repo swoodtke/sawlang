@@ -118,14 +118,14 @@ class CallsMixin:
         Handles regular functions, generic functions, closures, struct
         initialization, and built-in functions.
         """
-        # design 22: `__test_suspend()` is a synthetic suspension point for the
+        # design 22: `__saw_test_suspend()` is a synthetic suspension point for the
         # effect system. It has no runtime behavior — lower it to a no-op so
         # programs that use it still compile and run.
-        # design 44: `__suspend()` is the coroutine-transform state boundary. Any
-        # `__suspend` reaching codegen is one OUTSIDE a driven closure (the
+        # design 44: `__saw_suspend()` is the coroutine-transform state boundary. Any
+        # `__saw_suspend` reaching codegen is one OUTSIDE a driven closure (the
         # transform rewrites the driven ones before codegen), so it too is a
-        # no-op here — a lone `__suspend` behaves like `__test_suspend`.
-        if expr.name in ("__test_suspend", "__suspend"):
+        # no-op here — a lone `__saw_suspend` behaves like `__saw_test_suspend`.
+        if expr.name in ("__saw_test_suspend", "__saw_suspend"):
             return None
 
         # Atomic construction (design 41 item 4): `Atomic(<int>)` builds the
@@ -166,12 +166,12 @@ class CallsMixin:
         if expr.name == "alignof":
             return self._generate_alignof(expr)
 
-        # Handle the compiler-internal drop intrinsic __deinit_in_place(ptr).
+        # Handle the compiler-internal drop intrinsic __saw_deinit_in_place(ptr).
         # `ptr` is an UnsafePointer<T>; run drop glue for the T value it
         # addresses, in place. Used by stdlib container deinits (Vector/Map) to
         # release live elements before freeing the backing buffer. The
         # typechecker gates this to `deinit` bodies.
-        if expr.name == "__deinit_in_place":
+        if expr.name == "__saw_deinit_in_place":
             arg = expr.arguments[0].value
             ptr_val = self._generate_expression(arg)
             ptr_type = self._expr_type(arg)
@@ -180,7 +180,7 @@ class CallsMixin:
                 self._emit_drop_at(ptr_val, elem_type)
             return None
 
-        # design 45 (Part 0a): __forget(optional_place) — clear an optional
+        # design 45 (Part 0a): __saw_forget(optional_place) — clear an optional
         # lvalue's `is_some` discriminant to None WITHOUT dropping its inner
         # value. The coroutine transform emits this after a conditional `move` of
         # a cleanup-needing frame local so the frame's own Deinit (which drops the
@@ -193,7 +193,7 @@ class CallsMixin:
         # boundaries). `yield_now()` is then a no-op; `sleep(ms)` still parks the
         # thread for real via the timer seam, so a hosted script's `sleep` is
         # honoured even without an executor.
-        if expr.name in ("yield_now", "__io_park"):
+        if expr.name in ("yield_now", "__saw_io_park"):
             return None
         # design 76 (A4): `io_wait(fd, dir)` reached OUTSIDE a coroutine frame (the
         # transform rewrites it to register+park inside a driven/spawned body).
@@ -213,33 +213,33 @@ class CallsMixin:
             return None
         # design 103 (A6): the blocking-extern offload intrinsics, emitted by the
         # coro transform when it lowers a `let x = slow(arg)` blocking-extern call.
-        # `__blk_start(slow(arg))` resolves the extern's ir.Function (a function
+        # `__saw_blk_start(slow(arg))` resolves the extern's ir.Function (a function
         # address is not expressible in Saw), bitcasts it to an i64, evaluates the
         # single Int arg, and hands both to the offload runtime — which spawns the
         # worker thread. The other three are thin one-arg wrappers over the runtime
         # shims (done-poll / pipe fd / join+take). All non-suspending: the SUSPENSION
         # is the `io_wait` on the job's pipe the transform emits between start and take.
-        if expr.name == "__blk_start":
+        if expr.name == "__saw_blk_start":
             inner = expr.arguments[0].value          # FunctionCall to the blocking extern
             fn = self.functions[inner.name]
             fnptr = self.builder.ptrtoint(fn, self.int_type, name="blkfn")
             argv = self._generate_expression(inner.arguments[0].value)
             return self.builder.call(self.functions["__saw_rt_offload_start"],
                                      [fnptr, argv], name="blkjob")
-        if expr.name in ("__blk_done", "__blk_pipe_fd", "__blk_take"):
-            shim = {"__blk_done": "__saw_rt_offload_done",
-                    "__blk_pipe_fd": "__saw_rt_offload_pipe_fd",
-                    "__blk_take": "__saw_rt_offload_take"}[expr.name]
+        if expr.name in ("__saw_blk_done", "__saw_blk_pipe_fd", "__saw_blk_take"):
+            shim = {"__saw_blk_done": "__saw_rt_offload_done",
+                    "__saw_blk_pipe_fd": "__saw_rt_offload_pipe_fd",
+                    "__saw_blk_take": "__saw_rt_offload_take"}[expr.name]
             job = self._generate_expression(expr.arguments[0].value)
             return self.builder.call(self.functions[shim], [job], name="blkr")
-        # `__exec_sleep(ms)` is the executor's OWN (non-suspending) timer call,
+        # `__saw_exec_sleep(ms)` is the executor's OWN (non-suspending) timer call,
         # generated into the entry executor to honour a task's sleep wake reason.
-        if expr.name in ("sleep", "__exec_sleep"):
+        if expr.name in ("sleep", "__saw_exec_sleep"):
             ms = self._generate_expression(expr.arguments[0].value)
             self.builder.call(self.functions["__saw_rt_sleep_ms"], [ms])
             return None
 
-        if expr.name == "__forget":
+        if expr.name == "__saw_forget":
             place = expr.arguments[0].value
             opt_ptr = self._get_lvalue_pointer(place)
             if opt_ptr is not None:
@@ -250,11 +250,11 @@ class CallsMixin:
                 self.builder.store(ir.Constant(ir.IntType(1), 0), flag_ptr)
             return None
 
-        # design 52b item 2: `__box_data(&box)` — the data word (i8*) of a
+        # design 52b item 2: `__saw_box_data(&box)` — the data word (i8*) of a
         # `Box<any T>` fat pointer, i.e. the address of the erased heap payload.
         # `_generate_expression(&box)` is a pointer to the `{ i8* data, i8* vt }`
         # value; GEP field 0 and load it.
-        if expr.name == "__box_data":
+        if expr.name == "__saw_box_data":
             i32 = ir.IntType(32)
             box_ptr = self._generate_expression(expr.arguments[0].value)
             data_slot = self.builder.gep(

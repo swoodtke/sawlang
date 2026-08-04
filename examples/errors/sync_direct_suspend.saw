@@ -2,10 +2,10 @@
 // by the design-22 effect check.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
-// EXPECT-ERROR-CONTAINS: __test_suspend
+// EXPECT-ERROR-CONTAINS: __saw_test_suspend
 
 func suspends() {
-    __test_suspend()
+    __saw_test_suspend()
 }
 
 func handler() sync {

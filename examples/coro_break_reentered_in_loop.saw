@@ -16,7 +16,7 @@ func count_break(limit: Int) -> Int {
     var n = 0
     while {
         n = n + 1
-        __suspend()
+        __saw_suspend()
         if n >= limit {
             break
         }
@@ -31,7 +31,7 @@ func count_break_elseif(limit: Int) -> Int {
     while {
         n = n + 1
         if n < limit {
-            __suspend()
+            __saw_suspend()
         } else if n > 100 {
             return -1
         } else {
@@ -64,6 +64,6 @@ func driver_elseif() -> Int {
 }
 
 func main() {
-    print(__drive(driver()))          // 2 + 2 = 4
-    print(__drive(driver_elseif()))   // 2 + 2 + 2 = 6
+    print(__saw_drive(driver()))          // 2 + 2 = 4
+    print(__saw_drive(driver_elseif()))   // 2 + 2 + 2 = 6
 }

@@ -1,9 +1,9 @@
 // design 44 (governing rule): `deinit` stays a `sync` context — suspending in a
-// destructor breaks deterministic destruction. A `__suspend()` in a deinit body
+// destructor breaks deterministic destruction. A `__saw_suspend()` in a deinit body
 // is a compile error via the design-22 effect check (no transform involved).
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot suspend in `deinit` context
-// EXPECT-ERROR-CONTAINS: __suspend
+// EXPECT-ERROR-CONTAINS: __saw_suspend
 
 struct Resource {
     value: Int
@@ -11,7 +11,7 @@ struct Resource {
 
 extension Resource: Deinit {
     func deinit(&var self) {
-        __suspend()
+        __saw_suspend()
     }
 }
 

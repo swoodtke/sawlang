@@ -30,10 +30,10 @@ func run_free(x: Int) -> Int {
 
 func main() {
     // amplify<Lo>(5) = 105, amplify<Hi>(6) = 106 => 211
-    print(__drive(run_free(5)))
+    print(__saw_drive(run_free(5)))
     // A cross-module generic struct's suspending method, driven at two types.
     var c1 = Cell<Lo>(item: Lo(n: 7))
     var c2 = Cell<Hi>(item: Hi(m: 8))
-    print(__drive(c1.charge()))   // 207
-    print(__drive(c2.charge()))   // 208
+    print(__saw_drive(c1.charge()))   // 207
+    print(__saw_drive(c2.charge()))   // 208
 }

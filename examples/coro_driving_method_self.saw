@@ -13,7 +13,7 @@ struct Counter { value: Int }
 extension Counter {
     func climb(&var self) -> Int {
         self.value = self.value + 1   // state 0: 10 -> 11
-        __suspend()
+        __saw_suspend()
         self.value = self.value + 1   // state 1: 11 -> 12 (self survived)
         self.value                    // result 12
     }
@@ -21,7 +21,7 @@ extension Counter {
 
 func main() {
     var c = Counter(value: 10)
-    let r = __drive(c.climb())        // drives the method; mutates c through &var self
+    let r = __saw_drive(c.climb())        // drives the method; mutates c through &var self
     print(r)                          // 12
     print(c.value)                    // 12 — the caller's value was mutated
 }

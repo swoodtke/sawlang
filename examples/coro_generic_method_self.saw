@@ -17,7 +17,7 @@ struct Counter { value: Int }
 extension Counter {
     func absorb<T: Seed>(&var self, w: T) -> Int {
         self.value = self.value + w.seed()   // state 0
-        __suspend()
+        __saw_suspend()
         self.value = self.value + 1          // state 1 (self survived)
         self.value
     }
@@ -26,7 +26,7 @@ extension Counter {
 func main() {
     var c = Counter(value: 100)
     let s = Slow(n: 5)
-    let r = __drive(c.absorb<Slow>(move s))
+    let r = __saw_drive(c.absorb<Slow>(move s))
     print(r)          // 106
     print(c.value)    // 106 — mutation observed through &var self
 }

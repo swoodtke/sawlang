@@ -1,17 +1,17 @@
 """design 44 — the source-level coroutine transform.
 
 Post-typecheck, pre-codegen AST rewrite. A function that is DRIVEN (reached from
-a `__drive(...)` / `__drive_steps(...)` site — design 44's test-only executor
+a `__saw_drive(...)` / `__saw_drive_steps(...)` site — design 44's test-only executor
 entry) is rewritten into an ordinary synthesized Saw struct (the *frame*: params
 + across-suspension locals + a state Int [+ drop-flag Bools + a result slot]) and
 a `resume` method that dispatches on the state field and runs the body split at
-`__suspend()` boundaries. Both are then compiled by the EXISTING codegen/deinit
+`__saw_suspend()` boundaries. Both are then compiled by the EXISTING codegen/deinit
 machinery — nothing here emits IR.
 
 Governing rules honoured (all decided upstream, do NOT re-open):
   * Colorless: which functions suspend is effect-inferred (design 22 graph).
   * The transform is OFF by construction for non-driven code — if a program has
-    no `__drive` site, `transform_program` is never called (the pipeline skips
+    no `__saw_drive` site, `transform_program` is never called (the pipeline skips
     it), so the whole existing suite takes the byte-identical path.
   * No forced destroy: there are no per-suspension-point destroy paths. Cleanup
     is normal control flow only; a frame dies by its own code reaching an exit.
@@ -19,7 +19,7 @@ Governing rules honoured (all decided upstream, do NOT re-open):
 Staging (this file grows across the brief's items):
   * v1 (landed): straight-line driven bodies over POD (Int/Bool/fixed-width)
     params, across-suspend locals, and result. State split at top-level
-    `__suspend()`; the driver loops `resume` to Done.
+    `__saw_suspend()`; the driver loops `resume` to Done.
   * later: cleanup-needing locals via frame-resident drop flags + flag-aware
     frame Deinit; nested driven calls embedded by value; suspending-recursion
     diagnostic; control flow (if/while/match) spanning a suspension.
@@ -87,9 +87,9 @@ def _poll(variant):
     return EnumInit(enum_name="__Poll", variant_name=variant, arguments=[])
 
 
-# The suspension-boundary intrinsics: `__suspend` (test-only synthetic), and the
+# The suspension-boundary intrinsics: `__saw_suspend` (test-only synthetic), and the
 # real primitives `yield_now()` (immediately re-ready) and `sleep(ms)` (timed).
-_SUSPEND_CALLS = ("__suspend", "yield_now", "sleep", "__io_park", "io_wait")
+_SUSPEND_CALLS = ("__saw_suspend", "yield_now", "sleep", "__saw_io_park", "io_wait")
 
 # design 76 (A4): the IO-park wake reason. A negative sentinel distinct from the
 # `sleep(ms)` (>0) and yield/channel-retry (0) reasons: the executor parks in the
@@ -107,18 +107,18 @@ def _suspend_call_name(stmt):
 
 def _is_suspend_stmt(stmt):
     """True for a bare suspension-point statement — a state boundary. Covers the
-    synthetic `__suspend()` and the real `yield_now()`/`sleep(ms)` primitives."""
+    synthetic `__saw_suspend()` and the real `yield_now()`/`sleep(ms)` primitives."""
     return _suspend_call_name(stmt) is not None
 
 
 def _wake_expr(stmt):
     """The wake reason a suspension carries, stored in the frame's `__wake` field
     and read by the executor after a Pending: milliseconds for `sleep(ms)`, else
-    0 (`__suspend`/`yield_now` — immediately re-ready)."""
+    0 (`__saw_suspend`/`yield_now` — immediately re-ready)."""
     fc = stmt.expression
     if fc.name == "sleep":
         return fc.arguments[0].value
-    if fc.name == "__io_park":
+    if fc.name == "__saw_io_park":
         return _int(IO_PARK_WAKE)
     return _int(0)
 
@@ -270,7 +270,7 @@ def _enc_unwraps(enc):
 
 def _enc_cleanup(enc):
     """True for an encoding whose field carries a drop flag (None/Some): a move
-    out must `__forget` it, and its initial (not-yet-live) value is `None`."""
+    out must `__saw_forget` it, and its initial (not-yet-live) value is `None`."""
     return enc in ("opt", "self_opt", "opt_closure")
 
 
@@ -413,7 +413,7 @@ class _FrameBuilder:
         # design 52b item 2: a spawn-root frame forces its `__result` opt-encoded
         # even for a POD return, so `TaskHandle<T>` uniformly holds a
         # `UnsafePointer<T?>` and `join` takes the value with the same
-        # force-unwrap + `__forget` handoff regardless of T.
+        # force-unwrap + `__saw_forget` handoff regardless of T.
         self.force_opt_result = force_opt_result
         # `func` is a Function (free-function root) or a Method (driven method,
         # Part 0c). For a method, `struct_name` is the receiver struct: the frame
@@ -603,7 +603,7 @@ class _FrameBuilder:
         # payload (e.g. a NoCopy `TcpStream`/`Data` in the Ok), and try!/try/try?
         # transfer that payload OUT — so the temp must be forgotten, not dropped
         # again at scope/frame teardown (a double-close/double-free). `move`
-        # reuses the existing move + drop-flag/__forget machinery on both the
+        # reuses the existing move + drop-flag/__saw_forget machinery on both the
         # direct and coroutine-frame paths, instead of a try-specific special case.
         mv = MoveExpr(variable=tmp, line=inner.line, column=inner.column)
         # Carry the callee's Result type so the driven-call classification and the
@@ -975,7 +975,7 @@ class _FrameBuilder:
     # ------------------------------------------------------------------ #
     def _spans_suspension(self, node):
         """True if `node` (a Block/Statement/Expression subtree) transitively
-        contains a suspension point: a suspend primitive (`__suspend`/`yield_now`/
+        contains a suspension point: a suspend primitive (`__saw_suspend`/`yield_now`/
         `sleep`) or a call to a suspending function in the driven closure. Decides
         whether a control-flow construct must be CFG-split into states or can be
         lowered in place unchanged."""
@@ -1586,7 +1586,7 @@ class _FrameBuilder:
                 f"`{sname}.{mc.method_name}(...)` inside driven `{self.name}` is not "
                 f"yet supported (design 74 A5-rest, shape 1: method sub-frame "
                 f"embedding). Drive the method directly with "
-                f"`__drive(recv.{mc.method_name}(...))`, or wrap the call in a "
+                f"`__saw_drive(recv.{mc.method_name}(...))`, or wrap the call in a "
                 f"nested free function and call that.",
                 mc.line, mc.column, source_file=self.src_file)
 
@@ -1790,7 +1790,7 @@ class _FrameBuilder:
         # Every frame conforms to the builtin `Resumable` trait (design 52b item
         # 1): the conformance is what lets a frame be erased into
         # `Box<any Resumable>` for the heterogeneous run queue. Concrete drives
-        # (nested sub-frames, the entry executor, `__drive_*`) still bind `resume`
+        # (nested sub-frames, the entry executor, `__saw_drive_*`) still bind `resume`
         # statically — conformance only synthesizes a vtable at an erasure site.
         resume_ext = Extension(struct_name=self.frame_name,
                                methods=[resume, wake_reason, is_cancelled],
@@ -2198,9 +2198,9 @@ class _FrameBuilder:
     def _emit_blk_call(self, bc):
         """design 103 (A6): lower a blocking-extern call to the offload sequence,
         parking on the job's pipe like any socket read. The desugar is
-        `self.__blkjobN = __blk_start(slow(arg))` then a park loop
-        `while __blk_done(job) == 0 { io_wait(__blk_pipe_fd(job), read) }` then
-        `<target> = __blk_take(job)` — start spawns the worker thread, the io_wait
+        `self.__blkjobN = __saw_blk_start(slow(arg))` then a park loop
+        `while __saw_blk_done(job) == 0 { io_wait(__saw_blk_pipe_fd(job), read) }` then
+        `<target> = __saw_blk_take(job)` — start spawns the worker thread, the io_wait
         registers the job's readable pipe fd with the reactor (precise wake token +
         budget reset-on-park apply unchanged), and take joins the thread + frees the
         job. The park loop ALSO bails on `__cancel` (design 102 compose: a peer
@@ -2215,7 +2215,7 @@ class _FrameBuilder:
                       for a in fc.arguments]
         inner = FunctionCall(name=fc.name, arguments=inner_args,
                              line=fc.line, column=fc.column)
-        start = FunctionCall(name="__blk_start",
+        start = FunctionCall(name="__saw_blk_start",
                              arguments=[Argument(name=None, value=inner)])
         self._emit(self._forgets(forgets))
         self._emit([AssignStatement(target=_self_field(job), value=start)])
@@ -2230,12 +2230,12 @@ class _FrameBuilder:
         # check: the worker finished -> take; else park on the job's pipe.
         self.cur = check
         done = BinaryOp(op="!=", left=FunctionCall(
-            name="__blk_done",
+            name="__saw_blk_done",
             arguments=[Argument(name=None, value=_self_field(job))]), right=_int(0))
         self._branch(done, after, park)
         # park: register the readable pipe fd + suspend (io-park), retry on wake.
         self.cur = park
-        fd = FunctionCall(name="__blk_pipe_fd",
+        fd = FunctionCall(name="__saw_blk_pipe_fd",
                           arguments=[Argument(name=None, value=_self_field(job))])
         self._emit([ExpressionStatement(expression=FunctionCall(
             name="__saw_rt_reactor_register",
@@ -2245,7 +2245,7 @@ class _FrameBuilder:
         self._suspend_to(_int(IO_PARK_WAKE), header)
         # after: take the result (joins the worker thread + frees the job).
         self.cur = after
-        take = FunctionCall(name="__blk_take",
+        take = FunctionCall(name="__saw_blk_take",
                             arguments=[Argument(name=None, value=_self_field(job))])
         if bc['ret']:
             self._done(take)
@@ -2329,7 +2329,7 @@ class _FrameBuilder:
                     target=_self_field("__result"), value=res))
                 if _enc_cleanup(callee_fb.result_enc):
                     done_body.append(ExpressionStatement(expression=FunctionCall(
-                        name="__forget", arguments=[Argument(name=None,
+                        name="__saw_forget", arguments=[Argument(name=None,
                             value=MemberAccess(object=_self_field(sub),
                                                member="__result"))])))
             done_lit = _int(0)  # patched to the done-state marker after assembly
@@ -2346,7 +2346,7 @@ class _FrameBuilder:
                     target=_self_field(target), value=res))
                 if _enc_cleanup(callee_fb.result_enc):
                     done_body.append(ExpressionStatement(expression=FunctionCall(
-                        name="__forget", arguments=[Argument(name=None,
+                        name="__saw_forget", arguments=[Argument(name=None,
                             value=MemberAccess(object=_self_field(sub),
                                                member="__result"))])))
             done_body.append(AssignStatement(
@@ -2434,13 +2434,13 @@ class _FrameBuilder:
     # control-flow construct) for the resume method without splitting states:
     #   * `let`/`var` of a frame-resident local -> assignment to `self.<name>`;
     #   * identifier reads -> `self.<field>`; a `move <frame local>` -> the field
-    #     read plus a `__forget(self.f)` clearing the frame drop flag (Part 0a);
+    #     read plus a `__saw_forget(self.f)` clearing the frame drop flag (Part 0a);
     #   * `return X` -> the end-of-coroutine done sequence;
     #   * nested non-spanning if/while/for/match blocks lowered in place.
 
     def _forget_stmt(self, name):
         return ExpressionStatement(expression=FunctionCall(
-            name="__forget", arguments=[Argument(name=None, value=_self_field(name))]))
+            name="__saw_forget", arguments=[Argument(name=None, value=_self_field(name))]))
 
     def _forgets(self, names):
         return [self._forget_stmt(n) for n in names]
@@ -2667,7 +2667,7 @@ class _FrameBuilder:
         # A control-flow expression may appear as a bare statement (a user
         # `while`/`if`/`match`) or wrapped in an ExpressionStatement (driver-
         # generated). Handle both; lower nested blocks so a nested `return`,
-        # `move`+`__forget`, or nested-suspension diagnostic reaches them.
+        # `move`+`__saw_forget`, or nested-suspension diagnostic reaches them.
         ctrl = s.expression if isinstance(s, ExpressionStatement) else s
         # design 62 G2: a non-spanning `if let`/`guard let` (its suspending
         # condition, if any, was hoisted out in `prepare`). Rewrite the optional
@@ -2743,7 +2743,7 @@ class _FrameBuilder:
     def _done_seq(self, value, forgets):
         """End the coroutine at an explicit `return value`: store the result, run
         any drop-flag clears for locals moved into the result, mark done, signal
-        Done. The result store loads the value first, so the following `__forget`
+        Done. The result store loads the value first, so the following `__saw_forget`
         clears the source flag without disturbing the moved value."""
         seq = []
         if value is not None and not self.is_void:
@@ -2844,7 +2844,7 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
     """Synthesize the entry executor that replaces a suspending `main` (design 45
     item 1). It builds main's frame and drives it to completion on a single
     cooperative run: each Pending consults the frame's `__wake` reason and, for a
-    `sleep(ms)`, parks the thread that long (`__exec_sleep`) before resuming; a
+    `sleep(ms)`, parks the thread that long (`__saw_exec_sleep`) before resuming; a
     `yield_now` (wake 0) resumes at once. `main` may thus suspend with no
     user-visible executor.
     """
@@ -2871,7 +2871,7 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
     pending_body = Block(statements=[ExpressionStatement(expression=IfExpr(
         condition=BinaryOp(op=">", left=wake, right=_int(0)),
         then_branch=Block(statements=[ExpressionStatement(expression=FunctionCall(
-            name="__exec_sleep",
+            name="__saw_exec_sleep",
             arguments=[Argument(name=None, value=MemberAccess(
                 object=Identifier(name="__f"), member="__wake"))]))],
             final_expr=None),
@@ -2920,8 +2920,8 @@ def _make_ambient_entry_executor(fb: _FrameBuilder, fbs):
 def _make_driver(fb: _FrameBuilder, mode, fbs):
     """Synthesize the driver function that steps a frame to completion.
 
-    value: `func __drive_<f>(<params>) -> R { var __f = <frame>; loop resume; __f.__result }`
-    steps: `func __drive_steps_<f>(<params>) -> Int { ...; count Pendings; __n }`
+    value: `func __saw_drive_<f>(<params>) -> R { var __f = <frame>; loop resume; __f.__result }`
+    steps: `func __saw_drive_steps_<f>(<params>) -> Int { ...; count Pendings; __n }`
     """
     params = fb.params
     # A method driver takes the receiver first, as an `UnsafePointer<Struct>`
@@ -2963,11 +2963,11 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
     stmts.append(ExpressionStatement(expression=loop))
 
     if mode == "steps":
-        driver_name = f"__drive_steps_{fb.name}"
+        driver_name = f"__saw_drive_steps_{fb.name}"
         ret = SawType(TypeKind.INT)
         final = Identifier(name="__n")
     else:
-        driver_name = f"__drive_{fb.name}"
+        driver_name = f"__saw_drive_{fb.name}"
         ret = fb.ret
         if fb.is_void:
             # design 102 item 1: a `Void` driven body has no `__result` slot —
@@ -3026,7 +3026,7 @@ def _reject_spawn_frame_refs(fb: _FrameBuilder, fbs):
                 f"it, so a reference into the spawner's stack could dangle — "
                 f"references are confined to their own task (D6). Pass an owned "
                 f"value (`move`), or share via `Arc`/`Mutex`/`Channel`. (Driving the "
-                f"function in place with `__drive` DOES allow a held reference; a "
+                f"function in place with `__saw_drive` DOES allow a held reference; a "
                 f"reference to a task-LOCAL inside the spawned body is also fine.)",
                 getattr(p, 'line', 0) or fb.func.line,
                 getattr(p, 'column', 0) or fb.func.column,
@@ -3108,7 +3108,7 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
 
         func __spawn_f(__group: UnsafePointer<TaskGroup>, <params>) -> TaskHandle<T> {
             var __box = Box<any Resumable>.make(__Frame_f(<params>...))
-            let __data = __box_data(&__box)
+            let __data = __saw_box_data(&__box)
             let __fp   = __data as UnsafePointer<__Frame_f>
             let __rp   = (&__fp[0].__result) as UnsafePointer<T?>
             let __cp   = (&__fp[0].__cancel) as UnsafePointer<Bool>
@@ -3117,7 +3117,7 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
         }
 
     The frame is a spawn root, so its `__result` is opt-encoded — `result_ptr` is
-    `UnsafePointer<T?>` uniformly, and `join` takes with force-unwrap + `__forget`.
+    `UnsafePointer<T?>` uniformly, and `join` takes with force-unwrap + `__saw_forget`.
     """
     from ast_nodes import StructInit
     T = fb.ret
@@ -3145,7 +3145,7 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
     stmts = [
         LetStatement(name="__box", type_annotation=None, value=box_make, mutable=True),
         LetStatement(name="__data", type_annotation=None, mutable=False,
-                     value=FunctionCall(name="__box_data", arguments=[Argument(
+                     value=FunctionCall(name="__saw_box_data", arguments=[Argument(
                          name=None, value=ReferenceExpr(
                              expr=Identifier(name="__box"), mutable=False))])),
         LetStatement(name="__fp", type_annotation=None, mutable=False,
@@ -3260,13 +3260,13 @@ def _ref_arg_to_ptr(arg):
 
 
 def _rewrite_drive_sites(node, roots):
-    """Rewrite `__drive(f(args))` -> `__drive_f(args)` and
-    `__drive_steps(f(args))` -> `__drive_steps_f(args)` in place, everywhere."""
-    if isinstance(node, FunctionCall) and node.name in ("__drive", "__drive_steps"):
+    """Rewrite `__saw_drive(f(args))` -> `__saw_drive_f(args)` and
+    `__saw_drive_steps(f(args))` -> `__saw_drive_steps_f(args)` in place, everywhere."""
+    if isinstance(node, FunctionCall) and node.name in ("__saw_drive", "__saw_drive_steps"):
         inner = node.arguments[0].value  # validated in the typechecker
-        prefix = "__drive_steps_" if node.name == "__drive_steps" else "__drive_"
+        prefix = "__saw_drive_steps_" if node.name == "__saw_drive_steps" else "__saw_drive_"
         if isinstance(inner, MethodCall):
-            # Part 0c: `__drive(recv.m(args))` -> `__drive_Struct_m((&var recv) as
+            # Part 0c: `__saw_drive(recv.m(args))` -> `__saw_drive_Struct_m((&var recv) as
             # UnsafePointer<Struct>, args)`. The receiver is passed as a raw
             # pointer into its own storage (design 42's &T->pointer bridge); the
             # frame mutates the caller's value through it (D6).
@@ -3580,7 +3580,7 @@ def transform_program(program, typechecker, imported_ast=None):
     # The driven closure: every suspending entry-module free function reachable
     # from a driven root through suspending-call edges. Each becomes a frame +
     # resume method; a nested suspending call embeds the callee's frame by value
-    # and drives it (Part 0b). Only the roots themselves also get __drive_*
+    # and drives it (Part 0b). Only the roots themselves also get __saw_drive_*
     # drivers. Promoted nested-generic instantiations (shape 3) are seeded
     # directly — the effect edges reference the TEMPLATE, so the walk alone would
     # not reach them.
@@ -3786,7 +3786,7 @@ def transform_program(program, typechecker, imported_ast=None):
     removed.update(closure)
     if main_suspends:
         # `main` keeps its name but becomes the entry executor driving its own
-        # frame (not a __drive_* driver). It is in `removed` (the original body is
+        # frame (not a __saw_drive_* driver). It is in `removed` (the original body is
         # now __Frame_main.resume), so the executor is re-added under `main`.
         # design 89: if the program ALSO spawns, route through the ambient scheduler
         # (main becomes the root member) so a spawned sibling runs whenever main
@@ -3863,7 +3863,7 @@ def transform_program(program, typechecker, imported_ast=None):
             new_functions.append(_make_driver(mfb, mode, fbs))
         removed_methods.append((ext, method_ast))
 
-    # Rewrite all `__drive(...)` sites across the entry module's function and
+    # Rewrite all `__saw_drive(...)` sites across the entry module's function and
     # method bodies to call the synthesized drivers.
     for f in program.functions:
         _rewrite_drive_sites(f.body, roots)

@@ -14,7 +14,7 @@ trait Worker { func step(&var self) -> Int }
 struct Slow { n: Int }
 extension Slow: Worker {
     func step(&var self) -> Int {
-        __suspend()
+        __saw_suspend()
         self.n
     }
 }

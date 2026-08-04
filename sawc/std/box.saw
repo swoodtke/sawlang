@@ -78,7 +78,7 @@ extension Box<T, A: Allocator = GlobalAllocator>: Deinit {
         // Release the LIVE payload in place (its own drop glue), THEN free the
         // chunk through THIS box's own allocator `A` — a Box<T, TaskSlab> frees
         // through the slab, never GlobalAllocator. Exactly one release of the payload.
-        __deinit_in_place(self.ptr)
+        __saw_deinit_in_place(self.ptr)
         let raw = self.ptr as UnsafePointer<Int8>
         A().dealloc(raw, sizeof<T>(), alignof<T>())
     }

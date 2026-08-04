@@ -10,13 +10,13 @@
 func total() -> Int {
     var sum = 0
     for i in 0..5 {
-        __suspend()      // suspends inside the for body
+        __saw_suspend()      // suspends inside the for body
         sum = sum + i    // sum and i both survive the suspension
     }
     sum                  // 10
 }
 
 func main() {
-    print(__drive(total()))        // 10
-    print(__drive_steps(total()))  // 5 suspensions (one per iteration)
+    print(__saw_drive(total()))        // 10
+    print(__saw_drive_steps(total()))  // 5 suspensions (one per iteration)
 }

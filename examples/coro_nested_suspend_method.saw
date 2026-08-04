@@ -12,7 +12,7 @@ struct Counter { value: Int }
 extension Counter {
     func step(&var self) -> Int {
         self.value = self.value + 1
-        __suspend()
+        __saw_suspend()
         self.value = self.value + 1
         self.value
     }
@@ -25,5 +25,5 @@ func outer(start: Int) -> Int {
 }
 
 func main() {
-    print(__drive(outer(10)))   // 10 -> 11 -> (suspend) -> 12; 12 + 1000 = 1012
+    print(__saw_drive(outer(10)))   // 10 -> 11 -> (suspend) -> 12; 12 + 1000 = 1012
 }

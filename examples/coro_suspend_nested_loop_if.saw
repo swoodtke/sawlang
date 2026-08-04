@@ -13,7 +13,7 @@ func evens() -> Int {
     var hits = 0
     while i < 6 {
         if i % 2 == 0 {
-            __suspend()          // suspends inside the if inside the while
+            __saw_suspend()          // suspends inside the if inside the while
             hits = hits + 1
         }
         i = i + 1
@@ -22,6 +22,6 @@ func evens() -> Int {
 }
 
 func main() {
-    print(__drive(evens()))        // 3
-    print(__drive_steps(evens()))  // 3 suspensions (one per even)
+    print(__saw_drive(evens()))        // 3
+    print(__saw_drive_steps(evens()))  // 3 suspensions (one per even)
 }

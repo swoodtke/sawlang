@@ -3,7 +3,7 @@
 // suspension path anchored at the method.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` method
-// EXPECT-ERROR-CONTAINS: __test_suspend
+// EXPECT-ERROR-CONTAINS: __saw_test_suspend
 
 struct Sensor {
     id: Int
@@ -11,7 +11,7 @@ struct Sensor {
 
 extension Sensor {
     func poll(&self) sync -> Int {
-        __test_suspend()
+        __saw_test_suspend()
         self.id
     }
 }

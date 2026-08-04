@@ -7,7 +7,7 @@
 trait Counter {
     func base(&self) -> Int
     func stepped(&self) sync -> Int {
-        __test_suspend()   // suspends inside a sync default -> violation
+        __saw_test_suspend()   // suspends inside a sync default -> violation
         self.base() + 1
     }
 }

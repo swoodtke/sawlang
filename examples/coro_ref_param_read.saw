@@ -7,11 +7,11 @@
 struct Rec { n: Int }
 
 func peek(d: &Rec) -> Int {
-    __suspend()
+    __saw_suspend()
     d.n + 100        // reads the caller's value after resuming
 }
 
 func main() {
     var a = Rec(n: 7)
-    print(__drive(peek(&a)))   // 7 + 100 = 107
+    print(__saw_drive(peek(&a)))   // 7 + 100 = 107
 }

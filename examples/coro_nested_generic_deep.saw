@@ -15,14 +15,14 @@ extension Fast: Seed { func seed(&self) -> Int { self.m } }
 
 func inner<T: Seed>(w: T) -> Int {
     let v = w.seed()
-    __suspend()
+    __saw_suspend()
     v + 1
 }
 
 func middle<T: Seed>(w: T) -> Int {
     let base = w.seed()
     let a = inner<Fast>(Fast(m: base))   // nested generic call inside a generic instantiation
-    __suspend()
+    __saw_suspend()
     a + 10
 }
 
@@ -33,5 +33,5 @@ func top(x: Int) -> Int {
 
 func main() {
     // inner<Fast>(5)=6, middle<Slow>: 6+10=16, top: 16+100=116
-    print(__drive(top(5)))
+    print(__saw_drive(top(5)))
 }

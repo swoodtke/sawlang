@@ -2,7 +2,7 @@
 // a destructor breaks deterministic destruction). Suspension is a compile error.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot suspend in `deinit` context
-// EXPECT-ERROR-CONTAINS: __test_suspend
+// EXPECT-ERROR-CONTAINS: __saw_test_suspend
 
 struct Resource {
     value: Int
@@ -10,7 +10,7 @@ struct Resource {
 
 extension Resource: Deinit {
     func deinit(&var self) {
-        __test_suspend()
+        __saw_test_suspend()
     }
 }
 

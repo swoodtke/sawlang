@@ -5,7 +5,7 @@
 // scope at the end of main, after the `100` marker.
 //
 // Brief 17 item 3: Vector's deinit now runs each live element's deinit (via the
-// `__deinit_in_place` intrinsic) before freeing the buffer, so the pushed R
+// `__saw_deinit_in_place` intrinsic) before freeing the buffer, so the pushed R
 // prints `7` when `v` is dropped at the end of main, after the `100` marker.
 // EXPECT: success
 // EXPECT-OUTPUT:

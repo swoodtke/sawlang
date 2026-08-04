@@ -410,7 +410,7 @@ class ResourcesMixin:
         """Release every element of the fixed array at `array_ptr`, in REVERSE
         index order (design 33). The array is laid out `[N x T]`; each element is
         dropped through `_emit_drop_at` so Deinit/String/nested-aggregate elements
-        run their own cleanup. Composes with `__deinit_in_place` (arrays nested in
+        run their own cleanup. Composes with `__saw_deinit_in_place` (arrays nested in
         structs/enums reach here via `_emit_field_cleanup_at` /
         `_emit_enum_cleanup_at`).
         """

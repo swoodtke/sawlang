@@ -2,7 +2,7 @@
 // DRIVEN at two instantiations. Each is monomorphized to a concrete function
 // (keyed by its mangled symbol) whose effects are re-inferred, then the
 // coroutine transform builds a frame PER instantiation. `T` parameterizes data;
-// suspension is a lowerable `__suspend()` boundary.
+// suspension is a lowerable `__saw_suspend()` boundary.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 11
@@ -18,13 +18,13 @@ extension Fast: Seed { func seed(&self) -> Int { self.m } }
 
 func run<T: Seed>(w: T) -> Int {
     let base = w.seed()
-    __suspend()
+    __saw_suspend()
     base + 1
 }
 
 func main() {
     let s = Slow(n: 10)
-    print(__drive(run<Slow>(move s)))    // 11
+    print(__saw_drive(run<Slow>(move s)))    // 11
     let f = Fast(m: 20)
-    print(__drive(run<Fast>(move f)))    // 21
+    print(__saw_drive(run<Fast>(move f)))    // 21
 }

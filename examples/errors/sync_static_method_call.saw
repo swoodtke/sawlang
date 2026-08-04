@@ -10,7 +10,7 @@ struct Reader {
 
 extension Reader {
     func load() -> Int {
-        __test_suspend()
+        __saw_test_suspend()
         7
     }
 }

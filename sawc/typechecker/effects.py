@@ -8,7 +8,7 @@ marker sits on the rare side: `sync` is a checked negative effect. A
 function / method / closure "suspends" iff its body transitively reaches a
 suspension source:
 
-  * the `__test_suspend()` intrinsic (synthetic suspension point),
+  * the `__saw_test_suspend()` intrinsic (synthetic suspension point),
   * a call to an `extern blocking func` (unbounded FFI),
   * a call to a suspending function/method (transitive), or
   * a call THROUGH a non-`sync` function-typed value (conservative — this is
@@ -17,7 +17,7 @@ suspension source:
 A `sync` context — a `sync func`, a `deinit` body, or a value whose target
 type is a `sync (...)` function type (e.g. `Mutex.lock`'s closure parameter) —
 must be transitively suspension-free. A violation is reported with the full
-suspension PATH: `... closure calls f -> g -> __test_suspend (g suspends at
+suspension PATH: `... closure calls f -> g -> __saw_test_suspend (g suspends at
 line N)`.
 
 Implementation strategy: the call graph is collected DURING type checking
@@ -26,7 +26,7 @@ instance state on the TypeChecker. After all bodies are checked, a single
 iterate-to-fixpoint pass computes each node's `suspends` bit (SCC-correct for
 mutual recursion), then every sync context is checked and diagnosed.
 
-Scope guard: no executor, no state machines, no async/await. `__test_suspend`
+Scope guard: no executor, no state machines, no async/await. `__saw_test_suspend`
 codegens to a no-op; this pass is pure typechecker machinery.
 """
 
@@ -69,7 +69,7 @@ def _subst_ast_value(val, type_map):
 @dataclass
 class SuspendSource:
     """A place where a node suspends without going through another node."""
-    label: str   # e.g. "__test_suspend", "blocking extern `read`"
+    label: str   # e.g. "__saw_test_suspend", "blocking extern `read`"
     line: int
 
 
@@ -111,8 +111,8 @@ class EffectsMixin:
         # and id(ClosureExpr) for closures.
         self._suspend_nodes: Dict[Any, SuspendNode] = {}
         self._suspend_stack: List[SuspendNode] = []
-        # design 44: free-function names driven by a `__drive(...)` /
-        # `__drive_steps(...)` site, mapped to the set of driver modes requested
+        # design 44: free-function names driven by a `__saw_drive(...)` /
+        # `__saw_drive_steps(...)` site, mapped to the set of driver modes requested
         # ({"value", "steps"}). A driven root and its suspending callees are the
         # closure the coroutine transform rewrites into frames + resume methods.
         self._driven_roots: Dict[str, set] = {}
@@ -124,7 +124,7 @@ class EffectsMixin:
         # (`group.spawn(f(args))`), name -> f's return SawType. A spawn root gets a
         # frame + `Resumable` conformance like a driven root, plus a synthesized
         # `__spawn_<f>` helper (boxes the frame, enqueues it, returns
-        # `TaskHandle<T>`) — but no `__drive_*` driver.
+        # `TaskHandle<T>`) — but no `__saw_drive_*` driver.
         self._spawn_roots: Dict[str, Any] = {}
         # design 75 (A2): spawn roots spawned into a MULTI-THREADED group
         # (`TaskGroup(threads: N)`). Their frames cross OS-thread boundaries, so the
@@ -148,7 +148,7 @@ class EffectsMixin:
         self._pending_method_mono: List[Any] = []
         # design 74 (A5-rest, shape 2): pristine methods on GENERIC-struct
         # extensions, keyed by (struct_name, method_name) -> (Method, Extension).
-        # A driven `__drive(b.run())` with `b: Holder<Int>` monomorphizes the
+        # A driven `__saw_drive(b.run())` with `b: Holder<Int>` monomorphizes the
         # method over the struct's type params and records the concrete driven
         # method here (keyed by a per-instantiation mono method name), carrying the
         # concrete receiver SawType (`Holder<Int>`) the frame's `__recv` needs.
@@ -177,7 +177,7 @@ class EffectsMixin:
         # design 95: key a driven method by its resolved-signature FRAME KEY, so two
         # overloads of the same method name driven directly each get their own frame
         # (a name-only key collapsed them). `resolved_symbol` is the design-55
-        # overload-mangled symbol on the `__drive`d MethodCall (None for a
+        # overload-mangled symbol on the `__saw_drive`d MethodCall (None for a
         # non-overloaded method / a monomorphized generic clone → plain key). The
         # value carries the struct/method/symbol the coroutine transform needs plus
         # the accumulated drive modes.
@@ -191,9 +191,9 @@ class EffectsMixin:
 
     def _effect_absorb_scope(self):
         """A context manager-ish pair: push a throwaway suspend node so effect
-        edges recorded while checking a `__drive` argument attach to it (and are
+        edges recorded while checking a `__saw_drive` argument attach to it (and are
         discarded) rather than to the enclosing function — the driver ABSORBS the
-        callee's suspension (like `block_on`), so `__drive`'s caller does not
+        callee's suspension (like `block_on`), so `__saw_drive`'s caller does not
         become suspending. Returns the sentinel to pass back to `_effect_unabsorb`.
         """
         sentinel = SuspendNode(key=None, short="<driver>", desc="<driver>",
@@ -664,11 +664,11 @@ class EffectsMixin:
         # real cooperative primitive (`yield_now`/`sleep`) -- so the pipeline wraps
         # it in the entry executor. Gated to the real primitives, NOT the broader
         # `suspends` bit: the conservative "call through a non-`sync` function
-        # value" source (any closure call) and the test-only `__suspend` (used
-        # only with explicit `__drive`) must NOT auto-wrap main.
-        # design 76: `__io_park` (IO reactor) and blocking-extern offload are also
+        # value" source (any closure call) and the test-only `__saw_suspend` (used
+        # only with explicit `__saw_drive`) must NOT auto-wrap main.
+        # design 76: `__saw_io_park` (IO reactor) and blocking-extern offload are also
         # REAL suspensions that must wrap `main` in the entry executor.
-        real_labels = ("yield_now", "sleep", "__io_park", "io_wait")
+        real_labels = ("yield_now", "sleep", "__saw_io_park", "io_wait")
 
         def _is_real(s):
             return s.label in real_labels or s.label.startswith("blocking extern")

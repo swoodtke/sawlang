@@ -5,7 +5,7 @@
 // EXPECT-ERROR-CONTAINS: cannot suspend in `sync func`
 
 func slow() -> Int {
-    __test_suspend()
+    __saw_test_suspend()
     5
 }
 

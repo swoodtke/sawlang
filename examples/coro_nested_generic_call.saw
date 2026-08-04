@@ -16,7 +16,7 @@ extension Fast: Seed { func seed(&self) -> Int { self.m } }
 
 func leaf<T: Seed>(w: T) -> Int {   // suspending generic
     let b = w.seed()
-    __suspend()
+    __saw_suspend()
     b + 100
 }
 
@@ -33,5 +33,5 @@ func outer(x: Int) -> Int {
 
 func main() {
     // leaf<Slow>(5)=105, plain<Fast>(3)=6, leaf<Fast>(6)=106 => 217
-    print(__drive(outer(5)))
+    print(__saw_drive(outer(5)))
 }

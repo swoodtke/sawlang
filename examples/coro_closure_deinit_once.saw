@@ -2,7 +2,7 @@
 // across a suspension in a driven frame, and its env is released EXACTLY ONCE.
 // The closure captures the Arc by value (materialized `.copy()` + `move` into the
 // env), so the env holds one retained reference alongside the frame's own. When
-// `__drive` completes and the frame is torn down, the closure env is released,
+// `__saw_drive` completes and the frame is torn down, the closure env is released,
 // then the frame's Arc field — dropping the last reference so the payload deinits
 // exactly once (during the drive, before the result print). Verified clean under
 // libgmalloc.
@@ -20,12 +20,12 @@ extension Res: Deinit {
 func run() -> Int {
     let box = Arc<Res>(value: Res(id: 7))      // Arc frame-local
     let f: () -> Int = { box.strong_count() }  // closure captures it (env retain)
-    __suspend()
+    __saw_suspend()
     box.strong_count() + f()                   // 2 (frame + env) + 2 = 4
 }
 
 func build() {
-    let r = __drive(run())     // frame torn down here -> "deinit 7" once
+    let r = __saw_drive(run())     // frame torn down here -> "deinit 7" once
     print(r)                   // 4
 }
 

@@ -1,4 +1,4 @@
-// Acceptance: a program whose main line suspends (`__test_suspend` via
+// Acceptance: a program whose main line suspends (`__saw_test_suspend` via
 // background) can still contain `sync` regions. `critical` is a `sync func`
 // calling only pure code, so it type-checks even though `main` itself is
 // (inferred) suspending. Colorless calls: no annotation is needed on `main`.
@@ -7,7 +7,7 @@
 // 42
 
 func background() {
-    __test_suspend()
+    __saw_test_suspend()
 }
 
 func critical() sync -> Int {

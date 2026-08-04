@@ -361,7 +361,7 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   the worker before the task takes its cancel path.
 - Generic suspending functions/methods work (design 70 + 74): effect is
   re-inferred PER instantiation, so `f<A>` may suspend while `f<B>` is
-  sync. You can `__drive` / `group.spawn` a generic instantiation, drive a
+  sync. You can `__saw_drive` / `group.spawn` a generic instantiation, drive a
   generic `&var self` method, drive a suspending method on a generic STRUCT
   (`Holder<Int>`, design 74 shape 2), make NESTED suspending generic
   calls from a driven body (design 74 shape 3), and drive/nest generic templates
@@ -384,7 +384,7 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   (rename the inner binding); and a NESTED generic call whose template suspends
   UNCONDITIONALLY without calling a type-param method (`func g<T>(x: T) -> T {
   yield_now(); x }` called nested) — its instantiation's effect node is not built,
-  so drive it directly with `__drive`/`spawn` instead (this is a same-module limit,
+  so drive it directly with `__saw_drive`/`spawn` instead (this is a same-module limit,
   not a cross-module one). A method that is BOTH struct-generic AND method-generic
   (`Dual<T>.mix<U>`) now drives (design 104 item 3): the frame is keyed by both
   instantiations (`Dual_mix$2$T$U`), so 2 struct × 2 method insts are 4 distinct

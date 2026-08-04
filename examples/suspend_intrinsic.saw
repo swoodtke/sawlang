@@ -1,6 +1,6 @@
-// design 44 item 1: `__suspend()` is the coroutine-transform suspension point
-// and, like `__test_suspend`, an effect source feeding the design-22
-// suspendability inference. OUTSIDE any `__drive` closure it is a no-op, so a
+// design 44 item 1: `__saw_suspend()` is the coroutine-transform suspension point
+// and, like `__saw_test_suspend`, an effect source feeding the design-22
+// suspendability inference. OUTSIDE any `__saw_drive` closure it is a no-op, so a
 // program that merely mentions it (never driven) compiles and runs unchanged —
 // the transform is OFF by construction until something is driven.
 // EXPECT: success
@@ -9,7 +9,7 @@
 
 func work() -> Int {
     let a = 3
-    __suspend()
+    __saw_suspend()
     let b = 4
     a + b
 }

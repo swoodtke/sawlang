@@ -1,12 +1,12 @@
-// `__deinit_in_place` is a compiler-internal drop intrinsic usable only inside a
+// `__saw_deinit_in_place` is a compiler-internal drop intrinsic usable only inside a
 // `deinit` method body. Calling it from ordinary code must produce a clean type
 // error. Previously this handler referenced a nonexistent `ErrorKind.TYPE_ERROR`
 // and crashed the compiler with an AttributeError instead of reporting the error
 // (same typo family as the sizeof handler, brief 20/25).
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: `__deinit_in_place` is a compiler-internal intrinsic
+// EXPECT-ERROR-CONTAINS: `__saw_deinit_in_place` is a compiler-internal intrinsic
 
 func main() {
-    __deinit_in_place(0)
+    __saw_deinit_in_place(0)
     print(0)
 }

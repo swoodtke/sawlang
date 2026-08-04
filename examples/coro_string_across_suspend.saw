@@ -9,14 +9,14 @@
 
 func greet() -> String {
     let g = "hello"
-    __suspend()
+    __saw_suspend()
     g
 }
 
 func main() {
     var i = 0
     while i < 50000 {
-        let r = __drive(greet())
+        let r = __saw_drive(greet())
         i = i + 1
     }
     print("done")

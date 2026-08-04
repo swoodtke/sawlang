@@ -1,7 +1,7 @@
 // design 44 item 2/4: the source-level coroutine transform. A driven suspending
 // function's locals live across suspension points — they are frame-resident, so
-// their values are correct after each resume. `__drive` steps the frame to
-// completion and yields the result; `__drive_steps` yields the suspension count,
+// their values are correct after each resume. `__saw_drive` steps the frame to
+// completion and yields the result; `__saw_drive_steps` yields the suspension count,
 // proving the body really split into states (not run straight through).
 // EXPECT: success
 // EXPECT-OUTPUT:
@@ -10,14 +10,14 @@
 
 func chain(base: Int) -> Int {
     let a = base          // set in state 0, read in the final state
-    __suspend()
+    __saw_suspend()
     let b = a + 1         // set in state 1 (a survived the suspend)
-    __suspend()
+    __saw_suspend()
     let c = b + 1         // set in state 2 (b survived the suspend)
     a + b + c
 }
 
 func main() {
-    print(__drive(chain(10)))        // 10 + 11 + 12
-    print(__drive_steps(chain(10)))  // two suspensions
+    print(__saw_drive(chain(10)))        // 10 + 11 + 12
+    print(__saw_drive_steps(chain(10)))  // two suspensions
 }

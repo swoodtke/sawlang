@@ -68,7 +68,7 @@ extension Mutex<T>: Deinit {
     public func deinit(&var self) {
         if let block = self.block {
             let payload_ptr = (block + 64) as UnsafePointer<T>
-            __deinit_in_place(payload_ptr)
+            __saw_deinit_in_place(payload_ptr)
             pthread_mutex_destroy(block)
             GlobalAllocator().dealloc(block, 64 + sizeof<T>(), 16)
         }

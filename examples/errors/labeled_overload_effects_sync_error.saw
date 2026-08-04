@@ -6,7 +6,7 @@
 
 func work(fast: Int) -> Int { fast }
 func work(slow: Int) -> Int {
-    __test_suspend()
+    __saw_test_suspend()
     slow
 }
 

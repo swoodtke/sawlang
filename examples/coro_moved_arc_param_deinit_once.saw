@@ -1,5 +1,5 @@
-// Rider (design 77 item 4 note, flagged pre-existing): `__drive(f(move arc))`
-// DOUBLE-FREED the moved owning param — the synthesized `__drive_<f>` wrapper
+// Rider (design 77 item 4 note, flagged pre-existing): `__saw_drive(f(move arc))`
+// DOUBLE-FREED the moved owning param — the synthesized `__saw_drive_<f>` wrapper
 // built the frame from the param without transferring ownership, so the wrapper
 // param kept its drop flag AND the frame dropped its field (a use-after-free on
 // the refcounted payload; deterministic SIGSEGV under libgmalloc). Fix: the
@@ -21,7 +21,7 @@ extension Res: Deinit {
 }
 
 func run(a: Arc<Res>) -> Int {
-    __suspend()
+    __saw_suspend()
     a.strong_count()          // 3 (a's moved-in ref + k1 + k2)
 }
 
@@ -29,7 +29,7 @@ func build() {
     let a = Arc<Res>(value: Res(id: 7))   // strong = 1
     let k1 = a.copy()                      // strong = 2
     let k2 = a.copy()                      // strong = 3
-    let r = __drive(run(move a))           // frame owns the moved ref, drops it: 3 -> 2
+    let r = __saw_drive(run(move a))           // frame owns the moved ref, drops it: 3 -> 2
     print(r)                               // 3
     print(k1.strong_count())               // 2 (correct); 1 if the moved param double-drops
 }                                          // k1, k2 drop here -> Res deinits exactly once

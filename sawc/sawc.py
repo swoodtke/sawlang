@@ -824,7 +824,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # an `@export` function, which the design-22 effect system already treats as
     # a sync context (an `@export`ed body has no Saw caller to drive it across a
     # coroutine boundary), so a suspending seam body — a `yield_now`, a blocking
-    # extern, `__io_park`, a TaskGroup/channel op — is reported as a clean sync
+    # extern, `__saw_io_park`, a TaskGroup/channel op — is reported as a clean sync
     # violation. The entry module was checked with is_entry=False (object_only
     # suppresses the main() requirement), so the whole-program effect fixpoint
     # has not run yet — run it now, then surface any violation.
@@ -867,9 +867,9 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         sys.exit(1)
 
     # design 44: the source-level coroutine transform. If the program drove any
-    # suspending function (`__drive(...)` recorded roots during the effect
+    # suspending function (`__saw_drive(...)` recorded roots during the effect
     # analysis above), rewrite those roots into frame structs + resume methods on
-    # the entry AST and re-run this front half. The rewrite deletes the `__drive`
+    # the entry AST and re-run this front half. The rewrite deletes the `__saw_drive`
     # sites, so the recursive pass finds NO driven roots and proceeds straight to
     # codegen — a natural base case. Non-driven programs never enter this branch,
     # so the transform is OFF by construction and their path is unchanged.

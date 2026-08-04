@@ -65,7 +65,7 @@ extension Task<T>: Deinit {
             if let h = self.handle {
                 __saw_rt_pthread_join(h)
                 let result_ptr = (h + 16) as UnsafePointer<T>
-                __deinit_in_place(result_ptr)
+                __saw_deinit_in_place(result_ptr)
                 GlobalAllocator().dealloc(h, 16 + sizeof<T>(), 16)
             }
         }

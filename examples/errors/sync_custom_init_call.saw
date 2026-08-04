@@ -11,7 +11,7 @@ struct Widget {
 
 extension Widget {
     init(seed: Int) -> Widget {
-        __test_suspend()
+        __saw_test_suspend()
         Widget(v: seed)
     }
 }

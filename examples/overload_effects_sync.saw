@@ -7,7 +7,7 @@
 // 0
 
 func work(x: Int) {
-    __test_suspend()   // this overload suspends
+    __saw_test_suspend()   // this overload suspends
 }
 
 func work(x: String) {

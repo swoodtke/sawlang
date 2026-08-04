@@ -10,23 +10,23 @@
 
 func inner(a: Int) -> Int {
     let x = a + 1        // set in state 0
-    __suspend()
+    __saw_suspend()
     x + 1                // a survived; result a + 2
 }
 
 func mid(b: Int) -> Int {
     let y = inner(b)     // nested suspending call (embedded inner frame)
-    __suspend()
+    __saw_suspend()
     y + 1                // result inner(b) + 1 = (b + 2) + 1 = b + 3
 }
 
 func outer() -> Int {
     let z = mid(3)       // nested suspending call (embedded mid frame)
-    __suspend()
+    __saw_suspend()
     z                    // mid(3) = 3 + 3 = 6
 }
 
 func main() {
-    print(__drive(outer()))   // 6  (outer -> mid -> inner, two deep)
-    print(__drive(mid(10)))   // 13 (mid drives its embedded inner: 10 + 3)
+    print(__saw_drive(outer()))   // 6  (outer -> mid -> inner, two deep)
+    print(__saw_drive(mid(10)))   // 13 (mid drives its embedded inner: 10 + 3)
 }

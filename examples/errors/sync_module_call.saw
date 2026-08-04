@@ -3,11 +3,11 @@
 // rejected, with the full suspension PATH crossing the module boundary.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
-// EXPECT-ERROR-CONTAINS: `blockingRead` → __test_suspend
+// EXPECT-ERROR-CONTAINS: `blockingRead` → __saw_test_suspend
 
 module io {
     public func blockingRead() -> Int {
-        __test_suspend()
+        __saw_test_suspend()
         42
     }
 }

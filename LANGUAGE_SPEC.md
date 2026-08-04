@@ -2484,15 +2484,15 @@ Observable rules:
   suspension-free, and the two coexist, each inferred independently. The
   coroutine transform accepts a suspending instantiation by monomorphizing it to
   a concrete function/method (name = mangled symbol) *before* frame synthesis, so
-  a generic instantiation can be `__drive`n, `TaskGroup.spawn`ed, or driven as a
+  a generic instantiation can be `__saw_drive`n, `TaskGroup.spawn`ed, or driven as a
   `&var self` method through the ordinary (non-generic) machinery. A `sync`
   context that calls an instantiation which suspends is the normal sync
   violation, reported **at the call site**, naming the instantiation and the full
-  suspension path (e.g. `run$1$Slow → Slow.step → __suspend`). Trait-object
+  suspension path (e.g. `run$1$Slow → Slow.step → __saw_suspend`). Trait-object
   (`any Trait`) dispatch is unaffected: its effect follows the **declared** trait
   method signature (a `sync` trait method stays sync-callable through `any`), not
   a per-instantiation re-inference — erasure has no concrete `T` to re-infer.
-  Driven methods on *generic structs* (`__drive(b.run())` for `b: Holder<Int>`,
+  Driven methods on *generic structs* (`__saw_drive(b.run())` for `b: Holder<Int>`,
   design 74 shape 2) and *nested suspending generic calls* from a driven body
   (design 74 shape 3) are also supported: a generic-struct method is monomorphized
   over the struct's type params so the frame's receiver pointer gets a concrete
@@ -2523,7 +2523,7 @@ Observable rules:
   *re-binds* the bound name (rename the inner binding); a **nested** generic call
   whose template suspends *unconditionally* without calling a type-param method
   (`func g<T>(x: T) -> T { yield_now(); x }` called nested — its instantiation's
-  effect node is not built; drive it directly with `__drive`/`spawn` instead — a
+  effect node is not built; drive it directly with `__saw_drive`/`spawn` instead — a
   same-module limit, orthogonal to the module boundary); a suspension inside a `for`
   over a non-range iterable; and a value-producing `break` out of a suspension-spanning
   loop.
@@ -2552,7 +2552,7 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
 `Vector<Box<any Resumable>>`.
 
 - **`TaskGroup`** is a local nursery. `group.spawn(f(args)) -> TaskHandle<T>`
-  lowers like `__drive`: `f` becomes a spawnable root (frame + `Resumable`
+  lowers like `__saw_drive`: `f` becomes a spawnable root (frame + `Resumable`
   conformance), and a synthesized `__spawn_f` helper builds the frame, erases it
   into a `Box<any Resumable>`, enqueues it, and returns a typed handle. A `Void`
   task is fine too: it returns a result-less `VoidTaskHandle` (design 102 item 1).
@@ -2671,9 +2671,9 @@ restrictions — a spawned function had to be non-`Void`, a nested suspending
 *method* was not embeddable, an `if let`/`guard let` body could not span a
 suspension — were lifted (designs 102 item 1, 84/101, and 104 item 1).
 
-The transform is also still exercisable through a test-only entry: `__suspend()`
-marks a synthetic suspension point and `__drive(f(args))` / `__drive_steps(f(args))`
-/ `__drive(recv.m(args))` create a frame and step it to completion. A function or
+The transform is also still exercisable through a test-only entry: `__saw_suspend()`
+marks a synthetic suspension point and `__saw_drive(f(args))` / `__saw_drive_steps(f(args))`
+/ `__saw_drive(recv.m(args))` create a frame and step it to completion. A function or
 method is transformed only when it is driven (or is a suspending `main`); code
 that drives nothing is compiled exactly as before.
 

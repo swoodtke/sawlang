@@ -284,7 +284,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 // owns elements that must be destroyed.
 //
 // Manual `deinit()` calls are banned language-wide, so element cleanup uses the
-// compiler-internal `__deinit_in_place` intrinsic (usable only inside a deinit
+// compiler-internal `__saw_deinit_in_place` intrinsic (usable only inside a deinit
 // body). Elements popped/moved out first decrement `length`, so the loop below
 // never touches them and cannot double-free.
 extension Vector<T, A: Allocator = GlobalAllocator>: Deinit {
@@ -292,7 +292,7 @@ extension Vector<T, A: Allocator = GlobalAllocator>: Deinit {
         if let buf = self.buffer {
             var i = 0
             while i < self.length {
-                __deinit_in_place(buf + i)
+                __saw_deinit_in_place(buf + i)
                 i = i + 1
             }
             let raw_ptr = buf as UnsafePointer<Int8>

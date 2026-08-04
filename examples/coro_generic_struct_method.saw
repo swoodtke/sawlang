@@ -16,7 +16,7 @@ extension Slot<T> {
     func settle(&var self) -> T {
         let snapshot = self.value      // T (concrete per instantiation), lives across the suspend
         self.ticks = self.ticks + 1
-        __suspend()
+        __saw_suspend()
         self.ticks = self.ticks + 1
         snapshot
     }
@@ -24,12 +24,12 @@ extension Slot<T> {
 
 func main() {
     var a = Slot<Int>(value: 42, ticks: 0)
-    let ra = __drive(a.settle())
+    let ra = __saw_drive(a.settle())
     print(ra)          // 42
     print(a.ticks)     // 2 — state survived the suspend, mutation observed
 
     var b = Slot<Bool>(value: true, ticks: 10)
-    let rb = __drive(b.settle())
+    let rb = __saw_drive(b.settle())
     if rb { print(1) } else { print(0) }   // 1
     print(b.ticks)     // 12
 }

@@ -11,7 +11,7 @@ public trait Seed { func seed(&self) -> Int }
 // suspend), driven as a nested sub-frame from module B at two instantiations.
 public func amplify<T: Seed>(w: T) -> Int {
     let b = w.seed()
-    __suspend()
+    __saw_suspend()
     b + 100
 }
 
@@ -22,7 +22,7 @@ public struct Cell<T: Seed> { public item: T }
 public extension Cell<T: Seed> {
     public func charge(&self) -> Int {
         let b = self.item.seed()
-        __suspend()
+        __saw_suspend()
         b + 200
     }
 }

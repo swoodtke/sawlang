@@ -1158,7 +1158,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             if getattr(ext, 'type_params', None):
                 # design 74 (A5-rest, shape 2): an extension on a GENERIC struct
                 # (`extension Holder<T>`). Snapshot every method (not just
-                # method-level generics): driving `__drive(b.run())` for a concrete
+                # method-level generics): driving `__saw_drive(b.run())` for a concrete
                 # receiver `Holder<Int>` monomorphizes the method over the STRUCT's
                 # type params so the coroutine frame's `__recv` gets a concrete
                 # layout. Keyed by (struct, method); the ext carries the struct's

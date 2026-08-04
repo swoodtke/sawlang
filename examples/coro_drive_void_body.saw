@@ -1,5 +1,5 @@
-// `__drive` on a suspending body that returns Void (design 102 item 1 sweep). A
-// driven Void frame has no `__result` slot, so the `__drive_<f>` helper must NOT
+// `__saw_drive` on a suspending body that returns Void (design 102 item 1 sweep). A
+// driven Void frame has no `__result` slot, so the `__saw_drive_<f>` helper must NOT
 // read `__f.__result` — it loops to completion and returns Void. This ICE'd
 // ("struct __Frame_work has no field __result") before the fix.
 // EXPECT: success
@@ -16,6 +16,6 @@ func work(n: Int) {
 }
 
 func main() {
-    __drive(work(2))   // adds 2 then 1
+    __saw_drive(work(2))   // adds 2 then 1
     print(COUNTER.load())
 }

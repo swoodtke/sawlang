@@ -13,19 +13,19 @@
 func pick(hi: Bool) -> Int {
     var r = 0
     if hi {
-        __suspend()
+        __saw_suspend()
         r = 11
     } else {
-        __suspend()
-        __suspend()
+        __saw_suspend()
+        __saw_suspend()
         r = 22
     }
     r                    // merge state: r set on whichever branch ran
 }
 
 func main() {
-    print(__drive(pick(true)))         // 11
-    print(__drive_steps(pick(true)))   // 1 suspension (then-branch)
-    print(__drive(pick(false)))        // 22
-    print(__drive_steps(pick(false)))  // 2 suspensions (else-branch)
+    print(__saw_drive(pick(true)))         // 11
+    print(__saw_drive_steps(pick(true)))   // 1 suspension (then-branch)
+    print(__saw_drive(pick(false)))        // 22
+    print(__saw_drive_steps(pick(false)))  // 2 suspensions (else-branch)
 }

@@ -38,8 +38,8 @@ func main() {
     var d2 = Dual<A>(value: A())
     var d3 = Dual<B>(value: B())
     var d4 = Dual<B>(value: B())
-    print(__drive(d1.mix<A>(A())))  // 11
-    print(__drive(d2.mix<B>(B())))  // 12
-    print(__drive(d3.mix<A>(A())))  // 21
-    print(__drive(d4.mix<B>(B())))  // 22
+    print(__saw_drive(d1.mix<A>(A())))  // 11
+    print(__saw_drive(d2.mix<B>(B())))  // 12
+    print(__saw_drive(d3.mix<A>(A())))  // 21
+    print(__saw_drive(d4.mix<B>(B())))  // 22
 }
