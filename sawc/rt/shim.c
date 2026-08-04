@@ -14,6 +14,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 
 /* ---- DF-113a: no extern C global ---------------------------------------
  * `__saw_rt_write`/`_panic` route through C stdio's `stdout` FILE* (spelled
@@ -36,4 +37,17 @@ __attribute__((noreturn))
 void __saw_rt_panic(const char *msg, size_t len) {
     __saw_rt_write(msg, len);
     abort();
+}
+
+/* ---- DF-113b: no C function-pointer type -------------------------------
+ * `__saw_rt_pthread_create` passes a raw C function pointer (the spawn/offload
+ * start routine, `void *(*)(void *)`) to pthread_create. Saw's surface has no
+ * bare C function-pointer type (closures are fat pointers), so the start
+ * routine cannot be forwarded from a Saw body. `tid` points at the task control
+ * block's 8-byte pthread_t slot; `arg` is the routine's argument. The NULL attr
+ * is what the wrapper exists to supply (Saw has no null-pointer literal at the
+ * `pthread_t*`/attr level either). The mutex/cond-init + join wrappers ARE Saw
+ * (sawc/rt/common/pthread.saw) — only this fn-pointer body stays here. */
+void __saw_rt_pthread_create(void *tid, void *(*start)(void *), void *arg) {
+    pthread_create((pthread_t *)tid, NULL, start, arg);
 }

@@ -1040,92 +1040,30 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         trampoline `ir.Function`); `__saw_pthread_join` is called from
         `Task.join`/`Task.deinit` in std/task.saw.
         """
-        i8 = ir.IntType(8)
-        i8ptr = i8.as_pointer()
-        i32 = ir.IntType(32)
-        i64 = ir.IntType(64)
+        i8ptr = ir.IntType(8).as_pointer()
         void = ir.VoidType()
-        null = ir.Constant(i8ptr, None)
 
         # Trampoline type: void* start_routine(void* arg). Spawn codegen shapes
-        # its trampolines to this; it must exist in every mode, so set it before
-        # the declaration-only early-out.
+        # its trampolines to this and hands them to __saw_rt_pthread_create.
         self.pthread_tramp_type = ir.FunctionType(i8ptr, [i8ptr])
+        tramp_ptr_ty = self.pthread_tramp_type.as_pointer()
 
-        if self.runtime_build:
-            # design 113b: the runtime module DEFINES these seams (via @export)
-            # or references them across runtime objects; either way emit them as
-            # external declarations so the @export definitions collapse in and
-            # cross-object references resolve at the final link. (mutex/cond
-            # init + join are authored in Saw; pthread_create stays in shim.c —
-            # DF-113b, a raw C function pointer.)
-            tramp_ptr_ty = self.pthread_tramp_type.as_pointer()
-            decls = [
-                ("__saw_rt_pthread_mutex_init_default",
-                 ir.FunctionType(void, [i8ptr])),
-                ("__saw_rt_pthread_cond_init_default",
-                 ir.FunctionType(void, [i8ptr])),
-                ("__saw_rt_pthread_create",
-                 ir.FunctionType(void, [i8ptr, tramp_ptr_ty, i8ptr])),
-                ("__saw_rt_pthread_join", ir.FunctionType(void, [i8ptr])),
-            ]
-            for name, fty in decls:
-                fn = ir.Function(self.module, fty, name=name)
-                fn.linkage = "external"
-                self.functions[name] = fn
-            return
-
-        # __saw_pthread_mutex_init_default(m): pthread_mutex_init(m, NULL)
-        pmi = self._libc_func("pthread_mutex_init", i64, [i8ptr, i8ptr])
-        fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
-                         name="__saw_rt_pthread_mutex_init_default")
-        self.functions["__saw_rt_pthread_mutex_init_default"] = fn
-        b = ir.IRBuilder(fn.append_basic_block("entry"))
-        b.call(pmi, [fn.args[0], null])
-        b.ret_void()
-
-        # __saw_pthread_cond_init_default(c): pthread_cond_init(c, NULL)
-        # (design 21 item 6). pthread_cond_t is 48 bytes on macOS and on glibc
-        # (x86_64 and aarch64); std/channel.saw reserves a conservative 64-byte
-        # slot and initializes within it via this wrapper — never a hardcoded
-        # platform struct, exactly as the mutex path does.
-        pci = self._libc_func("pthread_cond_init", i64, [i8ptr, i8ptr])
-        fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
-                         name="__saw_rt_pthread_cond_init_default")
-        self.functions["__saw_rt_pthread_cond_init_default"] = fn
-        b = ir.IRBuilder(fn.append_basic_block("entry"))
-        b.call(pci, [fn.args[0], null])
-        b.ret_void()
-
-        # Trampoline type: void* start_routine(void* arg).
-        tramp_ty = ir.FunctionType(i8ptr, [i8ptr])
-        tramp_ptr_ty = tramp_ty.as_pointer()
-        self.pthread_tramp_type = tramp_ty  # spawn codegen shapes trampolines to this
-
-        # __saw_pthread_create(tid, start, arg):
-        #   pthread_create((pthread_t*)tid, NULL, start, arg)
-        # `tid` points at the control block's 8-byte pthread_t slot.
-        pcreate = self._libc_func("pthread_create", i32,
-                                  [i8ptr, i8ptr, tramp_ptr_ty, i8ptr])
-        fn = ir.Function(self.module,
-                         ir.FunctionType(void, [i8ptr, tramp_ptr_ty, i8ptr]),
-                         name="__saw_rt_pthread_create")
-        self.functions["__saw_rt_pthread_create"] = fn
-        b = ir.IRBuilder(fn.append_basic_block("entry"))
-        b.call(pcreate, [fn.args[0], null, fn.args[1], fn.args[2]])
-        b.ret_void()
-
-        # __saw_pthread_join(tid): load the 8-byte pthread_t and join it.
-        #   pthread_join(*(pthread_t*)tid, NULL)
-        pjoin = self._libc_func("pthread_join", i32, [i8ptr, i8ptr])
-        fn = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
-                         name="__saw_rt_pthread_join")
-        self.functions["__saw_rt_pthread_join"] = fn
-        b = ir.IRBuilder(fn.append_basic_block("entry"))
-        tid_slot = b.bitcast(fn.args[0], i8ptr.as_pointer(), name="tid_slot")
-        tid_val = b.load(tid_slot, name="tid")
-        b.call(pjoin, [tid_val, null])
-        b.ret_void()
+        # design 113b: the pthread seam BODIES are authored in Saw + shim.c
+        # (common/pthread.saw for mutex/cond init + join; shim.c for
+        # pthread_create — DF-113b, a raw C function pointer). The compiler only
+        # DECLARES them (external) and links the runtime; a `--runtime-build`
+        # module's `@export` collapses into the declaration (design-58 unify).
+        decls = [
+            ("__saw_rt_pthread_mutex_init_default", ir.FunctionType(void, [i8ptr])),
+            ("__saw_rt_pthread_cond_init_default", ir.FunctionType(void, [i8ptr])),
+            ("__saw_rt_pthread_create",
+             ir.FunctionType(void, [i8ptr, tramp_ptr_ty, i8ptr])),
+            ("__saw_rt_pthread_join", ir.FunctionType(void, [i8ptr])),
+        ]
+        for name, fty in decls:
+            fn = ir.Function(self.module, fty, name=name)
+            fn.linkage = "external"
+            self.functions[name] = fn
 
     def _declare_io_runtime(self):
         """Emit the design-76 IO reactor + nonblocking-socket helper seams.

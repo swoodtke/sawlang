@@ -1,0 +1,41 @@
+// The pthread wrapper seams (design 21 / 113b), authored in Saw.
+//
+// Thin wrappers so the stdlib never has to spell a NULL attr pointer at the Saw
+// level. `mutex_init`/`cond_init`/`join` are pure Saw (they pass NULL as
+// `0 as UnsafePointer<Int8>` and treat `pthread_t` as an opaque pointer-sized
+// word). `pthread_create` stays in shim.c — DF-113b: it takes a raw C function
+// pointer (the start routine), which Saw's surface cannot name (closures are fat
+// pointers). pthread symbols resolve from libSystem (macOS) / libc+libpthread
+// (Linux); the default clang link line pulls them in.
+
+extern "C" {
+    func pthread_mutex_init(m: UnsafePointer<Int8>, attr: UnsafePointer<Int8>) -> Int32
+    func pthread_cond_init(c: UnsafePointer<Int8>, attr: UnsafePointer<Int8>) -> Int32
+    // pthread_t is pointer-sized on macOS and glibc and is passed BY VALUE; model
+    // it as a platform word (`Int`). retval is NULL (we discard the thread result).
+    func pthread_join(thread: Int, retval: UnsafePointer<Int8>) -> Int32
+}
+
+// pthread_mutex_init(m, NULL). The Saw side reserves a conservative slot
+// (pthread_mutex_t <= 64 bytes on the hosted targets) and inits within it.
+@export("__saw_rt_pthread_mutex_init_default")
+func rt_pthread_mutex_init_default(m: UnsafePointer<Int8>) {
+    pthread_mutex_init(m, 0 as UnsafePointer<Int8>)
+}
+
+// pthread_cond_init(c, NULL). pthread_cond_t is 48 bytes on macOS and glibc;
+// std reserves 64.
+@export("__saw_rt_pthread_cond_init_default")
+func rt_pthread_cond_init_default(c: UnsafePointer<Int8>) {
+    pthread_cond_init(c, 0 as UnsafePointer<Int8>)
+}
+
+// Load the 8-byte pthread_t at `tid` (the task control block's first slot) and
+// pthread_join(t, NULL). `tid` is a pointer param, so this is the marked unsafe
+// domain — the pointer reinterpret + load need no `unsafe` marker.
+@export("__saw_rt_pthread_join")
+func rt_pthread_join(tid: UnsafePointer<Int8>) {
+    let slot = tid as UnsafePointer<Int>
+    let t = slot[0]
+    pthread_join(t, 0 as UnsafePointer<Int8>)
+}
