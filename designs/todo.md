@@ -156,12 +156,15 @@ a wrong offset fails on ANY host. REMAINING: design 92 is half-applied in
 std.file/std.directory — `open`/`read`/`write` still return cause-erasing
 Optionals.
 
-**P3 — docs debt (20 findings):** README lags at design 111 (needs
-119/120/121); spec still carries pre-110 "is rejected" text for `a = b`
-through `&var`, wrong `-o` default (also in --help); README calls CLAUDE.md
-"authoritative always-current" while CLAUDE.md exempts itself and its digest
-header still says 109. Skill was fully current. Convention decision needed:
-does README join the docs-update contract?
+**P3 — docs debt (20 findings): CLOSED (design 125, Aug 4).** 18 of the 20
+were doc fixes and all landed; findings 3 (`--emit-docs` effect field) and 5
+(`print(UInt)` renders signed) are compiler bugs the docs describe correctly,
+owned by design 122 units E and G. README is current through 121 and now joins
+the docs-update convention (CLAUDE.md workflow section); "no hidden
+allocations" names its two exceptions. Appendix A picked up two names the
+review missed (`deinit`, `Self` were listed reserved and are not). Left
+untouched on purpose: the op-budget claim (127) and the `panic at FILE:LINE:`
+claim (122 unit I), both being made true rather than softened.
 
 **Follow-up filed by design 130:** decompose the oversized functions the
 unsafe migration marks wholly-unsafe — `__saw_exec_worker` (~150 lines), the
@@ -193,6 +196,20 @@ at-spawn, zero-alloc suspend, pinned frames — the design-91 wake token and
 design-88 interior pointers need frames that never move, which rules out a
 DYNAMIC grow/shrink frame stack unless chunked). Companion to design 44's
 noted live-range packing of locals; do both in one sizing brief.
+
+- **DF-125a — design-120 short-circuit nesting limit (found by design 125, Aug
+  4; NEW, needs a user call).** A suspending call in a `??`/`&&`/`||` operand
+  transforms only when the short-circuit operator is the OUTERMOST expression
+  of its statement. `let x = a ?? slow()`, `return a ?? slow()` and a tail
+  `a ?? slow()` all work; `return 1 + (a ?? slow())`, `f(a ?? slow())` and
+  `not (a && slow())` hit "appears in a nested/expression position". Same for a
+  blocking extern, with its own diagnostic. Errors cleanly and never blocks
+  silently, so this is a capability gap, not a correctness bug — design 125
+  documented the limit on both the spec and the skill rather than paper over
+  it. Repros: `.build/scratch/d125_120_return.saw`, `d125_120_return2.saw`,
+  `d125_120_shortcircuit.saw`, `d125_blocking_sc.saw` (gitignored; the shapes
+  are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
+  lift a nested short-circuit.
 
 ## Design 116 — DF-findings (self-hosting lexer pilot, IN PROGRESS)
 The lexer port (`selfhost/lexer`) is the pilot's measurement instrument;
