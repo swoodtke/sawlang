@@ -502,6 +502,38 @@ inlined (the `.build/scratch` probes are gitignored).
   NEWLINE plays elsewhere. Worked around in the test by hoisting the condition
   into a `let` — recorded rather than silently accommodated.
 
+## Design 126 — findings (pre-port AST contract)
+
+- **DF-126a — RC-2 is LATENT, not a live bug (measured, Aug 4).** The pre-port
+  review called the un-substituted grafted annotations "a live bug, not just a
+  port hazard": `substitute_ast_types` walks `dataclasses.fields()`, so while
+  `resolved_type` and the ~50 other annotations were grafted at runtime, the
+  monomorphizer could not see them, and every `SawType`-valued one was carried
+  into an instantiation stale. R1 declares them, so the substituter sees them —
+  but the claimed miscompile could not be reproduced. Repro method (kept here
+  because it is the way to re-test this cheaply): make the loop at
+  `typechecker/effects.py:51` skip `resolved_type` and every field whose
+  metadata carries `saw_annotation`, i.e. reproduce exactly what the grafts hid,
+  then run the suite. Result: **1034/1034 pass**, including
+  `examples/coro_generic_mono_type_subst.saw`, which was written specifically to
+  exercise the path (a driven generic-struct method at three instantiations,
+  with a `match` over a `T`-parameterized enum and a `Vector<T>` literal live
+  across the suspension). So the corpus cannot currently reach a shape where the
+  stale annotation changes the emitted code. WANTED: either a shape that does
+  distinguish (then it becomes a real regression test), or acceptance that R1's
+  value here is contract correctness for the port rather than a bug fix. Do NOT
+  describe RC-2 as a fixed miscompile without such a shape.
+
+- **DF-126b — reproducible builds were broken; two causes fixed, no guard yet
+  (Aug 4).** Compiling one unchanged source twice produced different IR
+  (`examples/hello.saw` differed by thousands of lines). Causes: a `set` of type
+  names seeding the codegen topological sort, and a `set` of capture names
+  fixing closure environment field order. Both fixed under design 126 R2, and
+  `make irdet` now guards a corpus sample. Note the general hazard remains
+  unpoliced: any future `set`-of-`str` iteration that reaches emission order
+  reintroduces this class silently, because Python randomizes string hashing per
+  process and a single run always looks self-consistent.
+
 ## Milestones
 - **App-1 Blade: DONE** (design 64 + 67; real resolver/lock/git/
   incremental/self-hosting bootstrap; `make blade-bootstrap`).

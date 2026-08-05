@@ -48,6 +48,10 @@ def substitute_ast_types(node, type_map):
     from ast_nodes import SawType
     if not dataclasses.is_dataclass(node) or isinstance(node, (SawType, type)):
         return
+    # NOTE (design 126 R1): this deliberately walks `dataclasses.fields()`, not
+    # `structural_fields()`. The typechecker's annotations carry SawTypes too, and
+    # monomorphization must substitute those as well -- while they were runtime
+    # grafts this walker could not see them at all.
     for f in dataclasses.fields(node):
         setattr(node, f.name, _subst_ast_value(getattr(node, f.name), type_map))
 

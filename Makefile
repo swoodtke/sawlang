@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff irdet
 
 # Default target
 all: test
@@ -34,6 +34,12 @@ sos-test:
 # Zero mismatches is the acceptance bar.
 lexdiff:
 	@python3 tools/lexdiff.py
+
+# Compiler output determinism (design 126 R2): compile a corpus sample twice,
+# in fresh processes under differing PYTHONHASHSEED, and require byte-identical
+# IR. Zero non-reproducible files is the acceptance bar.
+irdet:
+	@python3 tools/irdet.py
 
 # Clean build artifacts
 clean:
