@@ -3673,7 +3673,8 @@ rather than being fenced off in a lexical region.
 **The visibility rule (design 81).** The type-carried principle gains one
 refinement: *where a raw pointer would flow **invisibly** — with no `Unsafe*`
 type spelled at that exact site — the `unsafe` expression marker is required
-there.* `unsafe` is a contextual keyword that prefixes an expression; it sits
+there.* `unsafe` is a reserved word (a lexer keyword, so it is never an
+identifier) that prefixes an expression; it sits
 just below assignment and looser than every operator (`unsafe base + n` marks
 the whole arithmetic; `unsafe p[0] = 5` marks the whole store — the marker
 lifts off the lvalue onto the assignment). This keeps every entry to the raw
@@ -4012,8 +4013,15 @@ word `not` (there is no `and`/`or` — use `&&`/`||`), and the empty optional is
 The `dyn` reservation is RETIRED — type-erased dynamic dispatch is spelled
 `any Trait` (a contextual keyword in type position, so `any` is still a valid
 identifier). The opaque/static-dispatch counterpart, when it lands, will use the
-provisional keyword `generic`. `sync`, `escaping`, and `any` are all contextual
-(recognized only in specific positions), so they are not reserved words.
+provisional keyword `generic`.
+
+**Reserved means lexed as a keyword.** The first list below is exactly the
+lexer's keyword table (`sawc/lexer.py`); those words cannot be used as
+identifiers anywhere. Everything in the second list is recognized by the parser
+or the typechecker in one specific position and is an ordinary identifier
+everywhere else, so `let module = 3` and a method named `parent` both compile.
+The module-system words are deliberately in that second group — reserving them
+would collide with user code for no gain.
 
 The `loop` and `ref` reservations are RETIRED (design 55): `loop` was redundant
 with `while { }` (the infinite-loop idiom), and `ref` never had a design — a
@@ -4022,19 +4030,20 @@ are freed as ordinary identifiers. `do` and `defer` stay reserved (cheap
 insurance for plausible futures).
 
 ```
-Implemented:
-as       break    case     catch    continue deinit   else     enum
-extension extern  false    for      func     guard    if       import
-in       init     let      match    module   move     None     not
-package  parent   public   return   self     Self     static   struct
-trait    true     try      type     var      while
+Reserved (lexer keywords — never usable as identifiers):
+as       break    case     catch    continue else     enum     extension
+extern   false    for      func     guard    if       in       init
+let      match    move     None     not      public   return   self
+static   struct   trait    true     try      type     unsafe   var
+while
 
-Contextual (recognized only in type/effect positions; still valid identifiers):
-any      escaping sync
+Contextual (parser- or typechecker-recognized in one position; still valid
+identifiers):
+any      deinit   escaping export   import   module   package  parent
+Self     sync
 
 Planned / reserved:
-and  const  defer  do  generic  macro  none  or
-some  unsafe  where
+and  const  defer  do  generic  macro  none  or  some  where
 ```
 
 `async` and `await` are deliberately **absent** — Saw is colorless and will
