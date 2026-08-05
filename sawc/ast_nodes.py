@@ -401,16 +401,33 @@ class ExportDecl:
     column: int = 0
 
 
-# Base AST Node - no default values to avoid inheritance issues
-@dataclass
+# Base AST Node (design 126 R1). Every node carries its source position and its
+# identity. The base is `kw_only` so these fields never occupy a positional slot:
+# subclasses keep declaring their own payload fields positionally, exactly as
+# before, and `line=`/`column=`/`node_id=` are always passed by keyword.
+#
+# `node_id` (design 126 R2) is a monotonic per-parse identifier assigned at
+# construction. It is the compiler's ONLY node identity: nothing may key a map or
+# derive a generated name from Python's `id()`, which is neither stable across
+# runs nor expressible in the eventual Saw port.
+@dataclass(kw_only=True)
 class ASTNode:
-    pass
+    line: int = 0
+    column: int = 0
+    node_id: int = 0
 
 
 # Expressions
-@dataclass
+#
+# `resolved_type` is the typechecker's annotation chokepoint output
+# (`_check_expression` stamps it on every expression). Declaring it here rather
+# than grafting it at runtime is what lets `dataclasses.fields()`-driven walkers
+# -- above all `substitute_ast_types`, the monomorphizer -- actually SEE it, so a
+# generic template's types are substituted into its instantiation instead of
+# surviving stale (design 126 R1; the RC-2 bug).
+@dataclass(kw_only=True)
 class Expression(ASTNode):
-    pass
+    resolved_type: Optional['SawType'] = None
 
 
 @dataclass
@@ -427,8 +444,6 @@ class Argument:
 @dataclass
 class IntLiteral(Expression):
     value: int
-    line: int = 0
-    column: int = 0
     # Fixed-width suffix (design 53): one of i8/i16/i32/i64/u8/u16/u32/u64 when
     # the literal was written `255u8`; None means a platform `Int` literal.
     suffix: Optional[str] = None
@@ -437,22 +452,16 @@ class IntLiteral(Expression):
 @dataclass
 class FloatLiteral(Expression):
     value: float
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
 class BoolLiteral(Expression):
     value: bool
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
 class StringLiteral(Expression):
     value: str
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -464,16 +473,12 @@ class StringInterpolation(Expression):
     """
     parts: List[str]           # String literals between expressions
     expressions: List['Expression']  # Interpolated expressions
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
 class Identifier(Expression):
     name: str
     type_args: Optional[List['SawType']] = None  # For generic type access: Option<Int>
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -481,16 +486,12 @@ class BinaryOp(Expression):
     op: str
     left: Expression
     right: Expression
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
 class UnaryOp(Expression):
     op: str
     operand: Expression
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -506,8 +507,6 @@ class MoveExpr(Expression):
     """
     variable: str  # The root binding name being moved
     path: Optional['Expression'] = None  # Projected lvalue for a partial move
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -523,8 +522,6 @@ class ReferenceExpr(Expression):
     expr: Expression
     mutable: bool = False  # True for &var, False for &
     in_argument_position: bool = False  # Set by the parser for call arguments
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -532,8 +529,6 @@ class CastExpr(Expression):
     """Type cast expression: expr as Type."""
     expr: Expression
     target_type: 'SawType'
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -548,8 +543,6 @@ class UnsafeExpr(Expression):
     tighter than assignment (`unsafe p[0] = 5` marks the whole store — the parser
     lifts the marker off the lvalue onto the assignment)."""
     expression: Expression
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -558,8 +551,6 @@ class FunctionCall(Expression):
     name: str
     arguments: List[Argument]
     type_args: Optional[List['SawType']] = None  # For generic calls: identity<Int>(x)
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -567,15 +558,11 @@ class IfExpr(Expression):
     condition: Expression
     then_branch: 'Block'
     else_branch: Optional['Block'] = None
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
 class TupleLiteral(Expression):
     elements: List[Expression]
-    line: int = 0
-    column: int = 0
     # Field labels for a NAMED tuple literal (design 63): `(x: 3, y: 4)`. None
     # for a positional literal; all-or-nothing (the parser rejects a mix).
     field_names: Optional[List[str]] = None
@@ -585,8 +572,6 @@ class TupleLiteral(Expression):
 class TupleIndex(Expression):
     tuple_expr: Expression
     index: int
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -598,8 +583,6 @@ class ArrayLiteral(Expression):
     the typechecker stamps `vector_container_type` and it builds a Vector
     instead (design 54 Part 4)."""
     elements: List[Expression]
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -609,8 +592,6 @@ class MapLiteral(Expression):
     Lowers to a Map construction + one insert per entry, in source order
     (duplicate keys: last wins). `{:}` (no entries) requires an expected type."""
     entries: List[tuple]  # [(key_expr, value_expr), ...]
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -620,8 +601,6 @@ class SetLiteral(Expression):
 
     Lowers to a Set construction + one insert per element, in source order."""
     elements: List[Expression]
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -629,8 +608,6 @@ class ArrayIndex(Expression):
     """Array indexing: arr[i]"""
     array_expr: Expression
     index: Expression  # Can be any expression that evaluates to Int
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -638,8 +615,6 @@ class MemberAccess(Expression):
     """Access a member/field of an expression."""
     object: Expression
     member: str
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -648,8 +623,6 @@ class StructInit(Expression):
     struct_name: str
     field_inits: List[tuple[str, Expression]]  # [(field_name, value), ...]
     type_args: Optional[List['SawType']] = None  # For generic structs: Box<Int> has type_args=[Int]
-    line: int = 0
-    column: int = 0
     # Resolution metadata (filled in by type checker)
     resolved_init_params: Optional[List[str]] = None  # None = field init, List = custom init params
 
@@ -657,9 +630,7 @@ class StructInit(Expression):
 @dataclass
 class NoneLiteral(Expression):
     """The None literal for optionals."""
-    line: int = 0
-    column: int = 0
-    resolved_type: Optional['SawType'] = None  # Filled in by typechecker
+    pass
 
 
 @dataclass
@@ -681,20 +652,15 @@ class SourceLocationLiteral(Expression):
     cannot distort it; codegen emits it as a plain Int/String literal."""
     kind: str = 'file'                       # 'file' | 'line' | 'function'
     source_file: Optional[str] = None
-    line: int = 0
-    column: int = 0
     resolved_kind: Optional[str] = None      # 'int' | 'string' (set by typechecker)
     resolved_int: int = 0
     resolved_str: Optional[str] = None
-    resolved_type: Optional['SawType'] = None
 
 
 @dataclass
 class ForceUnwrap(Expression):
     """Force unwrap: expr!"""
     expr: Expression
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -702,8 +668,6 @@ class NilCoalesce(Expression):
     """Nil coalescing: expr ?? default"""
     expr: Expression
     default: Expression
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -713,8 +677,6 @@ class OptionalChain(Expression):
     Kept for back-compat of imports; its visitors are unreachable."""
     expr: Expression
     member: str
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -724,8 +686,6 @@ class BindOptional(Expression):
     short-circuits the enclosing OptionalEvalExpr to None otherwise. Types to the
     payload type U (the object of the following `.member`/`.method()` segment)."""
     expr: Expression
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -735,8 +695,6 @@ class OptionalEvalExpr(Expression):
     marked by BindOptional. Types to `U?` where U is the spine's type, flattening
     an already-optional U (never `U??`)."""
     expr: Expression
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -747,8 +705,6 @@ class OptionalChainAssign(Expression):
     Some(unit) = written); silently discardable in statement position."""
     target: Expression
     value: Expression
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -759,12 +715,10 @@ class OptionalWrap(Expression):
     """
     value: Expression
     target_type: Optional['SawType'] = None  # The full T? type
-    line: int = 0
-    column: int = 0
-    # Synthesized by the typechecker, so it never flows through the
-    # _check_expression chokepoint; carry its type explicitly for codegen.
-    resolved_type: Optional['SawType'] = None
 
+    # Synthesized by the typechecker, so it never flows through the
+    # _check_expression chokepoint: default the inherited `resolved_type` from
+    # the target type so codegen still sees one.
     def __post_init__(self):
         if self.resolved_type is None:
             self.resolved_type = self.target_type
@@ -778,12 +732,9 @@ class ResultOkWrap(Expression):
     """
     value: Expression
     result_type: Optional['SawType'] = None  # The full Result<T, E> type
-    line: int = 0
-    column: int = 0
-    # Synthesized by the typechecker (bypasses the _check_expression
-    # chokepoint); carry its type explicitly for codegen.
-    resolved_type: Optional['SawType'] = None
 
+    # Synthesized by the typechecker (bypasses the _check_expression
+    # chokepoint); default the inherited `resolved_type` for codegen.
     def __post_init__(self):
         if self.resolved_type is None:
             self.resolved_type = self.result_type
@@ -797,12 +748,9 @@ class ResultErrWrap(Expression):
     """
     value: Expression
     result_type: Optional['SawType'] = None  # The full Result<T, E> type
-    line: int = 0
-    column: int = 0
-    # Synthesized by the typechecker (bypasses the _check_expression
-    # chokepoint); carry its type explicitly for codegen.
-    resolved_type: Optional['SawType'] = None
 
+    # Synthesized by the typechecker (bypasses the _check_expression
+    # chokepoint); default the inherited `resolved_type` for codegen.
     def __post_init__(self):
         if self.resolved_type is None:
             self.resolved_type = self.result_type
@@ -823,9 +771,6 @@ class ErasedErrWrap(Expression):
     concrete_err: Optional['SawType'] = None   # E
     trait_name: str = "Error"
     allocator: Optional['SawType'] = None      # Global by default
-    line: int = 0
-    column: int = 0
-    resolved_type: Optional['SawType'] = None
 
     def __post_init__(self):
         if self.resolved_type is None:
@@ -844,8 +789,6 @@ class TryExpr(Expression):
     expr: Expression
     variant: str  # "propagate", "optional", or "force"
     catch_block: Optional['Block'] = None  # For inline catch: try expr catch { ... }
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -861,8 +804,6 @@ class TryCatchExpr(Expression):
     try_block: 'Block'
     catch_block: 'Block'
     error_binding: Optional[str] = None  # Optional name for caught error (default: "error")
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -879,15 +820,11 @@ class MethodCall(Expression):
     # when the call supplies none. Inference is future work, so a generic method
     # requires these to be written explicitly.
     type_args: Optional[List['SawType']] = None
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
 class SelfExpr(Expression):
     """The 'self' keyword"""
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -901,8 +838,6 @@ class IfLetExpr(Expression):
     mutable: bool  # True for 'if var', False for 'if let'
     then_branch: 'Block'
     else_branch: Optional['Block'] = None
-    line: int = 0
-    column: int = 0
     pattern: Optional['Pattern'] = None
 
 
@@ -916,8 +851,6 @@ class GuardLetStatement(ASTNode):
     optional_expr: Expression
     mutable: bool  # True for 'guard var', False for 'guard let'
     else_branch: 'Block'  # Must contain early exit (return, break, etc.)
-    line: int = 0
-    column: int = 0
     pattern: Optional['Pattern'] = None
 
 
@@ -934,8 +867,6 @@ class EnumInit(Expression):
     arguments: List[Argument]
     type_args: Optional[List['SawType']] = None  # For generic enums: Option<Int> has type_args=[Int]
     enum_symbol: Optional[Any] = None  # For module-qualified enums: direct symbol reference
-    line: int = 0
-    column: int = 0
 
 
 # ===== Patterns (design 63 T1d) =====
@@ -946,8 +877,7 @@ class EnumInit(Expression):
 # untouched; the new pattern forms flow through MatchArm.pattern instead.
 @dataclass
 class Pattern(ASTNode):
-    line: int = 0
-    column: int = 0
+    pass
 
 
 @dataclass
@@ -1007,8 +937,6 @@ class MatchArm(ASTNode):
     variant_name: str
     bindings: List[str]  # Variable names to bind associated values to
     body: Expression  # Can be an expression or a Block
-    line: int = 0
-    column: int = 0
     pattern: Optional['Pattern'] = None
     guard: Optional['Expression'] = None
 
@@ -1018,8 +946,6 @@ class MatchExpr(Expression):
     """Match expression: match value { case Variant1 -> expr1, case Variant2 -> expr2 }"""
     matched_expr: Expression
     arms: List[MatchArm]
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -1029,8 +955,6 @@ class RangeExpr(Expression):
     iterator, never to a `start..(end + 1)` desugar."""
     start: Expression
     end: Expression
-    line: int = 0
-    column: int = 0
     is_inclusive: bool = False
 
 
@@ -1086,8 +1010,6 @@ class ClosureExpr(Expression):
     escapes: bool = False  # Filled by type checker (design 21b E1): the closure
                            # value outlives its creating frame (bound/returned/
                            # passed to spawn), so its env is heap-allocated.
-    line: int = 0
-    column: int = 0
 
 
 # Statements
@@ -1102,8 +1024,6 @@ class LetStatement(Statement):
     type_annotation: Optional[SawType]
     value: Expression
     mutable: bool = False
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -1116,16 +1036,12 @@ class DestructuringLet(Statement):
     pattern: 'Pattern'
     value: Expression
     mutable: bool = False
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
 class AssignStatement(Statement):
     target: Expression  # Can be Identifier or MemberAccess
     value: Expression
-    line: int = 0
-    column: int = 0
     # design 81: `unsafe p[0] = v` — the marker was lifted off the lvalue onto
     # the whole store, satisfying the pointer-write marker requirement.
     is_unsafe: bool = False
@@ -1137,8 +1053,6 @@ class CompoundAssignStatement(Statement):
     target: Expression  # Can be Identifier, MemberAccess, or ArrayIndex
     op: str  # '+', '-', '*', '/', '%'
     value: Expression
-    line: int = 0
-    column: int = 0
     # design 81: `unsafe p[0] += v` marks the whole read-modify-write.
     is_unsafe: bool = False
 
@@ -1146,37 +1060,28 @@ class CompoundAssignStatement(Statement):
 @dataclass
 class ReturnStatement(Statement):
     value: Optional[Expression]
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
 class ExpressionStatement(Statement):
     expression: Expression
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
 class WhileExpr(Expression):
     condition: Optional[Expression]  # None for infinite loop
     body: 'Block'
-    line: int = 0
-    column: int = 0
     result_type: Optional['SawType'] = None  # Set by typechecker for expression context
 
 
 @dataclass
 class BreakStatement(Statement):
     value: Optional[Expression] = None  # Optional break value
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
 class ContinueStatement(Statement):
-    line: int = 0
-    column: int = 0
+    pass
 
 
 @dataclass
@@ -1185,8 +1090,6 @@ class ForLoop(Statement):
     variable: str
     iterable: Expression  # Usually a RangeExpr
     body: 'Block'
-    line: int = 0
-    column: int = 0
     result_type: Optional['SawType'] = None  # Set by typechecker for expression context
     element_type: Optional['SawType'] = None  # Loop-variable type (design 65: drop owning loop var per iteration)
 
@@ -1195,8 +1098,6 @@ class ForLoop(Statement):
 class Block(ASTNode):
     statements: List[Statement]
     final_expr: Optional[Expression] = None
-    line: int = 0
-    column: int = 0
 
 
 # Declarations
@@ -1231,8 +1132,6 @@ class Struct(ASTNode):
     fields: List[StructField]
     type_params: List['TypeParameter'] = field(default_factory=list)
     visibility: 'Visibility' = Visibility.PRIVATE
-    line: int = 0
-    column: int = 0
     source_file: str = ""
     doc: Optional[str] = None
 
@@ -1252,8 +1151,6 @@ class Enum(ASTNode):
     variants: List[EnumVariant]
     type_params: List['TypeParameter'] = field(default_factory=list)
     visibility: 'Visibility' = Visibility.PRIVATE
-    line: int = 0
-    column: int = 0
     source_file: str = ""
     doc: Optional[str] = None
 
@@ -1271,8 +1168,6 @@ class TraitMethod(ASTNode):
     # body is a default. Conformers may omit it (the compiler synthesizes a
     # per-conformer Method from this body) or override it. None = required method.
     body: Optional['Block'] = None
-    line: int = 0
-    column: int = 0
     doc: Optional[str] = None
 
 
@@ -1281,8 +1176,6 @@ class AssociatedType(ASTNode):
     """Associated type declaration in a trait: type Item"""
     name: str
     bounds: List[str] = field(default_factory=list)  # Trait bounds (future)
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -1294,8 +1187,6 @@ class Trait(ASTNode):
     type_params: List[TypeParameter] = field(default_factory=list)
     parent_traits: List[str] = field(default_factory=list)  # Inherited traits
     visibility: 'Visibility' = Visibility.PRIVATE
-    line: int = 0
-    column: int = 0
     source_file: str = ""
     doc: Optional[str] = None
 
@@ -1305,8 +1196,6 @@ class TypeAssignment(ASTNode):
     """Type assignment in an extension: type Item = Int"""
     name: str  # Associated type name
     assigned_type: 'SawType'  # The concrete type
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -1323,8 +1212,6 @@ class Extension(ASTNode):
     conformances: List[str] = field(default_factory=list)  # Trait names
     type_assignments: List[TypeAssignment] = field(default_factory=list)  # Associated type assignments
     visibility: 'Visibility' = Visibility.PRIVATE
-    line: int = 0
-    column: int = 0
     source_file: str = ""
     doc: Optional[str] = None
 
@@ -1358,8 +1245,6 @@ class Method(ASTNode):
     # Compiler-synthesized (design 80): coroutine-transform-generated methods
     # (frame `resume`/`__wake_reason`) are exempt from the member-visibility gate.
     is_synthesized: bool = False
-    line: int = 0
-    column: int = 0
     source_file: str = ""
     doc: Optional[str] = None
 
@@ -1375,8 +1260,6 @@ class Attribute(ASTNode):
     """
     name: str
     arg: Optional[str] = None
-    line: int = 0
-    column: int = 0
 
 
 # Known attribute names (design 58 v1). Used for the unknown-name diagnostic.
@@ -1429,8 +1312,6 @@ class Function(ASTNode):
     # construction, so their member access is EXEMPT from the visibility gate —
     # the gate enforces source-level access only.
     is_synthesized: bool = False
-    line: int = 0
-    column: int = 0
     source_file: str = ""
     doc: Optional[str] = None
 
@@ -1441,8 +1322,6 @@ class TypeDefinition(ASTNode):
     name: str
     defined_type: 'SawType'
     visibility: 'Visibility' = Visibility.PRIVATE
-    line: int = 0
-    column: int = 0
     source_file: str = ""
     doc: Optional[str] = None
 
@@ -1463,8 +1342,6 @@ class StaticDecl(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     # Declaration attributes (design 58): `@export` / `@section(...)` lines.
     attributes: List['Attribute'] = field(default_factory=list)
-    line: int = 0
-    column: int = 0
     source_file: str = ""
     doc: Optional[str] = None
 
@@ -1480,8 +1357,6 @@ class ExternFunction(ASTNode):
     # prototype it is simply a suspension source; the pool-offload machinery
     # (hosted) / freestanding-hazard handling is future work.
     is_blocking: bool = False
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -1489,8 +1364,6 @@ class ExternBlock(ASTNode):
     """extern "C" { ... } block for FFI declarations."""
     abi: str  # "C" for now
     functions: List[ExternFunction]
-    line: int = 0
-    column: int = 0
 
 
 @dataclass
@@ -1513,5 +1386,3 @@ class Program(ASTNode):
     # Module doc comment (design 121): the `//!` block(s) at the top of the file,
     # markers stripped and lines joined with "\n". None when undocumented.
     module_doc: Optional[str] = None
-    line: int = 0
-    column: int = 0
