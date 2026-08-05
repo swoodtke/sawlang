@@ -157,6 +157,39 @@ class ExpressionsMixin:
             return getattr(self.current_function, 'name', None) or "<module>"
         return "<module>"
 
+    # The types `print` and string interpolation render without a `Printable`
+    # conformance. Everything else has to have one; design 132 unit D routes both
+    # sites through `_check_renderable_operand` so they agree.
+    _RENDERABLE_BUILTIN_KINDS = frozenset({
+        TypeKind.INT, TypeKind.UINT, TypeKind.FLOAT, TypeKind.BOOL, TypeKind.STRING,
+        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
+    })
+
+    def _check_renderable_operand(self, expr_type, sub_expr, verb: str,
+                                  where: str = "") -> bool:
+        """Whether a value of `expr_type` can be rendered, reporting if not.
+
+        `print(o)` on an `Int?` used to reach codegen and die there with
+        `internal compiler error: Cannot print type: {i1, i64}`, while
+        interpolating the same value already gave the clean not-`Printable`
+        error (DF-128d / DF-129a, found independently by two agents). Both
+        callers now ask the same question, so `print(v.get(0))` — the easy way
+        to meet this by accident, since `Vector.get` returns `T?` — is a
+        diagnostic rather than a crash.
+        """
+        if expr_type.kind in self._RENDERABLE_BUILTIN_KINDS:
+            return True
+        # A `T: Printable` bound satisfies this inside a generic body.
+        if self._bound_satisfied(expr_type, "Printable"):
+            return True
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"{verb} value of type `{expr_type}`{where}: it is not `Printable`",
+            getattr(sub_expr, 'line', 0), getattr(sub_expr, 'column', 0),
+            hint=f"conform it with `extension {self._type_display_name(expr_type)}: Printable {{ ... }}`")
+        return False
+
     def visit_StringInterpolation(self, expr: StringInterpolation) -> Optional[SawType]:
         """Type check string interpolation expressions (design 56).
 
@@ -164,26 +197,12 @@ class ExpressionsMixin:
         lowering. Any other type must be Printable: it is streamed into the
         interpolation builder via its `format`/`to_string`. A non-Printable type
         is a clean error naming the type and the trait."""
-        builtin_kinds = {
-            TypeKind.INT, TypeKind.UINT, TypeKind.FLOAT, TypeKind.BOOL, TypeKind.STRING,
-            TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
-            TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
-        }
         for sub_expr in expr.expressions:
             expr_type = self._check_expression(sub_expr)
             if expr_type is None:
                 return None
-            if expr_type.kind in builtin_kinds:
-                continue
-            # Non-builtin: require Printable (a `T: Printable` bound satisfies it
-            # inside a generic body).
-            if not self._bound_satisfied(expr_type, "Printable"):
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"cannot interpolate value of type `{expr_type}` in a string: "
-                    f"it is not `Printable`",
-                    getattr(sub_expr, 'line', 0), getattr(sub_expr, 'column', 0),
-                    hint=f"conform it with `extension {self._type_display_name(expr_type)}: Printable {{ ... }}`")
+            if not self._check_renderable_operand(
+                    expr_type, sub_expr, "cannot interpolate", " in a string"):
                 return None
         return SawType(TypeKind.STRING)
 
@@ -2056,6 +2075,13 @@ class ExpressionsMixin:
                         "freestanding `print` supports integers, Bool, and String only",
                         arg.value.line, arg.value.column
                     )
+                # design 132 unit D: the same renderability question interpolation
+                # asks. Codegen can lower a builtin or a Printable `to_string()`
+                # and nothing else, so anything else was an ICE here (DF-128d /
+                # DF-129a).
+                elif arg_type is not None:
+                    self._check_renderable_operand(arg_type, arg.value,
+                                                   "cannot print")
             return SawType(TypeKind.VOID)
         if expr.name == "panic":
             # design 49 item 1: panic(message: String) -> Never. Emits `message`

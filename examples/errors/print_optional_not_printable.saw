@@ -1,0 +1,19 @@
+// `print` asks the same renderability question string interpolation asks
+// (design 132 unit D). Codegen can lower a builtin or a `Printable` value's
+// `to_string()` and nothing else, so `print(o)` on an optional used to reach
+// codegen and die there with `internal compiler error: Cannot print type:
+// {i1, i64}` (DF-128d / DF-129a). `Vector.get` returns `T?`, which is the easy
+// way to meet this by accident.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot print value of type `Int?`: it is not `Printable`
+// EXPECT-ERROR-CONTAINS: extension Int?: Printable
+// EXPECT-ERROR-CONTAINS: cannot interpolate value of type `Int?` in a string: it is not `Printable`
+
+func main() {
+    let o: Int? = 5
+    print(o)
+
+    let v: Vector<Int> = [1, 2, 3]
+    print(v.get(0))
+    print("{v.get(0)}")
+}

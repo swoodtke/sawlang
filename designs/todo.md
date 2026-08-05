@@ -706,8 +706,20 @@ noted live-range packing of locals; do both in one sizing brief.
   copy classification everywhere and wants its own unit rather than a drive-by in
   128. Repro inlined above.
 
-- **DF-128d — `print` of an optional is an internal compiler error (found by
-  design 128, Aug 5; PRE-EXISTING).** Three lines, no generics:
+- **DF-128d — FIXED (design 132 unit D, Aug 5), together with its duplicate
+  DF-129a.** `print` now asks the renderability question interpolation asks:
+  both call `_check_renderable_operand` (typechecker/expressions.py), which
+  passes a builtin kind or a `Printable` conformance (a `T: Printable` bound
+  included) and otherwise reports at the argument. `print(o)` on an `Int?` gives
+  `cannot print value of type `Int?`: it is not `Printable``, with the same
+  `extension Int?: Printable` hint interpolation already gave; the verb is the
+  only difference between the two messages, so the interpolation text is
+  unchanged. The open design question — whether `T?` should BE Printable at all
+  (Swift renders `Optional(5)` / `nil`) — is untouched and still open; this only
+  makes the refusal a diagnostic instead of a crash. Test
+  `examples/errors/print_optional_not_printable.saw` covers the bare optional,
+  the `v.get(0)` shape both findings hit, and the interpolation twin.
+  Original finding follows: three lines, no generics:
 
   ```saw
   func main() {
@@ -1218,7 +1230,8 @@ inlined (the `.build/scratch` probes are gitignored).
 
 ## Design 129 — DF-findings (newlines in brackets)
 
-- **DF-129a — OPEN (found design 129, Aug 5; PRE-EXISTING, unrelated to 129).**
+- **DF-129a — FIXED (design 132 unit D, Aug 5).** Same bug as DF-128d, found
+  independently; see that entry for the fix. Original finding follows.
   `print(x)` where `x` is an Optional ICEs instead of producing the clean
   "not `Printable`" error that string interpolation of the same value gives.
   Reproduced identically on the pre-129 parser, so it is not a regression:
