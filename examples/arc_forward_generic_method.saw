@@ -1,0 +1,61 @@
+// Wrapper payload-method forwarding reaches a METHOD-GENERIC payload method
+// (design 133 unit A, closing DF-123c). Before the fix the forward mangled the
+// non-generic callee symbol — a name the method-generic monomorphizer never
+// emits — so `internal compiler error: 'Cell$1$Int_apply'` killed every such
+// call. Covered here: two distinct instantiations of one method, inferred and
+// explicit type args, a generic and a non-generic payload struct, forwarding
+// through Box as well as Arc, and a forward whose method type arg is the
+// ENCLOSING generic's parameter (so codegen must substitute before mangling).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// v21
+// 5
+// HELLO
+// 3
+// tag=saw
+// 22
+// n21
+
+struct Cell<T> {
+    value: T
+}
+
+extension Cell<T> {
+    func apply<R>(&self, body: (T) sync -> R) -> R {
+        body(self.value)
+    }
+}
+
+struct Tag {
+    name: String
+}
+
+extension Tag {
+    func map<R>(&self, body: (String) sync -> R) -> R {
+        body(self.name)
+    }
+}
+
+// The method's type argument is this function's own type parameter: codegen
+// substitutes `R` against the active monomorphization context, then mangles.
+func run<R>(cell: Arc<Cell<Int>>, body: (Int) sync -> R) -> R {
+    cell.apply(body)
+}
+
+func main() {
+    let ints = Arc<Cell<Int>>(value: Cell<Int>(value: 21))
+    print(ints.apply({ n in n * 2 }))            // inferred R = Int
+    print(ints.apply<String>({ n in "v{n}" }))   // explicit R = String
+
+    let words = Arc<Cell<String>>(value: Cell<String>(value: "hello"))
+    print(words.apply({ s in s.len() }))
+    print(words.apply({ s in s.to_uppercase() }))
+
+    let tag = Box<Tag>.make(Tag(name: "saw"))
+    print(tag.map({ s in s.len() }))
+    print(tag.map({ s in "tag={s}" }))
+
+    print(run(ints, { n in n + 1 }))
+    print(run(ints, { n in "n{n}" }))
+}

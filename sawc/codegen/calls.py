@@ -1455,13 +1455,33 @@ class CallsMixin:
             payload_i8, ir.PointerType(payload_llvm), name="arc_payload_ptr")
         self_val = self.builder.load(payload_ptr, name="arc_payload")
 
-        mangled = self._mangle_method_name(
-            self._type_method_base(payload_type), expr.method_name)
+        mangled = self._forward_target_symbol(expr, payload_type)
         method_func = self.functions[mangled]
         args = [self_val]
         for arg in expr.arguments:
             args.append(self._gen_transfer_value(arg.value))
         return self.builder.call(method_func, args, name="arc_forward_call")
+
+    def _forward_target_symbol(self, expr: MethodCall, payload_type) -> str:
+        """Mangled symbol for a wrapper payload-method forward (Arc / Box).
+
+        A METHOD-GENERIC payload method (`func pick<R>(&self, ...)`) is only
+        specialized at its call site, exactly as the ordinary method path does
+        it — the type args the typechecker resolved (explicit or inferred) are
+        substituted against the active monomorphization context, the monomorph
+        is requested, and the symbol composes those args. Without this the
+        forward looked up the NON-generic name and ICE'd on a symbol the
+        monomorphizer never emits (DF-123c).
+        """
+        base = self._type_method_base(payload_type)
+        method_type_args = None
+        if expr.type_args:
+            method_type_args = [self._substitute_saw_type(a, self.type_param_context)
+                                for a in expr.type_args]
+            self._ensure_monomorphized_generic_method(
+                base, payload_type, expr.method_name, method_type_args)
+        return self._mangle_method_name(base, expr.method_name,
+                                        method_type_args=method_type_args)
 
     def _generate_box_forward_call(self, expr: MethodCall):
         """Forward an immutable `&self` method call from a `Box<T, A>` to its
@@ -1481,8 +1501,7 @@ class CallsMixin:
             self._ensure_monomorphized_struct(payload_type.struct_name, payload_type.type_args)
         self_val = self.builder.load(payload_ptr, name="box_payload")
 
-        mangled = self._mangle_method_name(
-            self._type_method_base(payload_type), expr.method_name)
+        mangled = self._forward_target_symbol(expr, payload_type)
         method_func = self.functions[mangled]
         args = [self_val]
         for arg in expr.arguments:
