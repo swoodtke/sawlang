@@ -436,6 +436,21 @@ compiler pre-port restructures R1 declared AST contract + R2 stable NodeId +
 R11 astdiff oracle as the port-order prerequisites (then AST+parser next,
 coro_transform last).
 
+**P4 — element places / generalized accessors (user question, Aug 5):**
+`with_ref`/`with_var_ref` are `_read`/`_modify` accessors spelled as closure
+ceremony because indexing yields VALUES, not places. The successor design:
+`v[i]` becomes a PLACE backed by the existing scoped-borrow machinery, with
+shared-vs-exclusive picked from the USE SITE (`v[i].n += 1` borrows `&var`;
+`print(v[i].n)` borrows `&`) — Swift's accessor model, built on design
+131's place vocabulary. SUBSUMES the with_ref pair (they become the
+lowering) rather than deduplicating it; adjacent to G3 slices (also wants
+place semantics). Considered and REJECTED: mutability-generic parameters
+(`<M: mut>` — a new generic kind threading through exclusivity/inference/
+monomorphization for a handful of std pairs; Rust lived without it, D's
+`inout` is a cautionary tale) and name-overloading the pair (unannotated
+closure params make the overload solver tie, forcing per-site annotations).
+Until then the pair stands as the honest Rust-`_mut`-style convention.
+
 **P4 — coro frame-size optimization (user idea, Aug 5):** today the flat
 frame gives every driven CALL SITE its own embedded sub-frame field, so a
 task pays the SUM over all sites even though only one nested chain is ever
