@@ -38,8 +38,12 @@
 // claimed frame is owned by exactly one worker while it runs — paper 18's D6
 // confinement); the `active` flag enforces one-worker-per-frame. Enqueue is
 // main-thread-only (no worker is alive outside a drain), so the run queue never
-// resizes during a drain — `tasks` is read-only (only `with_var_ref`) while workers run,
-// and only the bookkeeping vectors are mutated, always under the lock.
+// resizes during a drain — `tasks` is only borrowed (`with_var_ref`) or cleared
+// in place (design 134's frame release) while workers run, never resized, and
+// the scheduler's bookkeeping vectors are mutated only under the lock. The slot
+// IDENTITY vectors (`gen`/`free`/`pin`) are the exception, reachable only from a
+// handle and therefore never touched while a worker is alive — see the
+// slot-identity trio below for why that holds.
 
 extern "C" {
     // pthread mutex seam (resolves from libSystem/libc; init wrapper in codegen).
@@ -371,10 +375,10 @@ extension TaskGroup {
             slot = self.tasks.len()
             self.tasks.push(None)
             self.cells.push(None)
-            self.done.push(true)
+            self.done.push(false)
             self.remaining.push(0)
             self.active.push(false)
-            self.gen.push(1)
+            self.gen.push(1)     // generation 1: 0 names no task
             self.pin.push(false)
         }
         self.tasks.set(slot, move t)
@@ -385,8 +389,23 @@ extension TaskGroup {
         slot
     }
 
+    // ------------------------------------------------------------------------
+    // The slot-identity trio (design 134). These four — `__gen_at`, `__stale`,
+    // `__recycle`, `__pin` — read and write `gen`/`free`/`pin` WITHOUT the
+    // run-queue lock, unlike the rest of the group's bookkeeping. What makes
+    // that safe is that only a HANDLE reaches them, and a handle cannot leave
+    // the thread that made it: `TaskHandle`/`VoidTaskHandle` hold
+    // `UnsafePointer` fields, which are not `Send`, so a handle can never be
+    // moved into a spawned task. Their one caller on the executor side,
+    // `__saw_exec_should_stop`, runs on the joining thread — and that thread is
+    // blocked inside `__run_all`/`__drain_mt`, which joins every worker before
+    // returning, whenever an MT drain is in flight. So no worker is alive at any
+    // point these run. A future feature that lets a cancel handle cross threads
+    // has to put these under the lock.
+    // ------------------------------------------------------------------------
+
     // This slot's current generation — half of the (index, generation) pair every
-    // handle records at spawn (design 134).
+    // handle records at spawn.
     func __gen_at(&self, slot: Int) -> Int {
         self.gen.get(slot)!
     }
@@ -436,10 +455,12 @@ extension TaskGroup {
     //
     // Every scan skips a done slot before touching `tasks`, so the `None` left
     // behind is never dereferenced. The MT caller holds the run-queue lock.
-    // A task with a joinable result keeps its slot until `join` takes the value
-    // (or until group teardown drops it once — design 124's never-joined path).
-    // A `Void` task leaves nothing behind, so its slot is reclaimed right here;
-    // that is what keeps an accept-loop group O(live) rather than O(ever-spawned).
+    //
+    // The SLOT goes too when there is nothing left to hold. A task with a
+    // joinable result keeps it until `join` takes the value (or until group
+    // teardown drops it once — design 124's never-joined path); a `Void` task
+    // leaves nothing behind, so its slot is reclaimed right here. That is what
+    // keeps an accept-loop group O(live) rather than O(tasks ever spawned).
     func __complete(&var self, slot: Int) {
         self.done.set(slot, true)
         self.remaining.set(slot, 0)
