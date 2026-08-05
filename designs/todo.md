@@ -253,6 +253,75 @@ it returned `None` before.
   proven deinit-twice). `set` also leaks the overwritten element;
   `String.byte_at` reads OOB heap from a safe signature; `Data.to_string`
   mints invalid UTF-8.
+- **DF-132a — OPEN, P0. `Vector.get` has NO `T: Copy` bound, so a NoCopy element
+  is handed out BY VALUE as a non-retained alias — proven double-deinit in safe
+  code (found by design 132 unit H, Aug 5; PRE-EXISTING).** RS-2's unfinished
+  half: design 122 gave the `T: Copy` bound to `iter`/`enumerated`/`each`/`map`
+  and routed `set` through `swap_out`, but `get` was never touched. Its
+  signature is bare — `public func get(&self, index: Int) unsafe -> T?`
+  (`sawc/std/vector.saw:91`) — and the body returns `buf[index]`, a bitwise read
+  through the raw pointer with no retain. For an ImplicitCopy element the
+  surrounding machinery balances it; for a **NoCopy** element there is no
+  `copy()` to call, so the caller receives an alias it then OWNS and DROPS,
+  while the vector still holds the same element. Every lookup frees it again:
+
+  ```saw
+  struct Item { name: String, payload: Vector<Int> }
+
+  extension Item: NoCopy {
+      func deinit(&var self) { print("Item.deinit {self.name}") }
+  }
+
+  extension Item {
+      init(n: String) -> Item {
+          var v = Vector<Int>()
+          v.push(41)
+          Item(name: n, payload: move v)
+      }
+  }
+
+  struct Box2 { items: Vector<Item> }
+  extension Box2: NoCopy {}
+
+  extension Box2 {
+      init() -> Box2 { let v = Vector<Item>()  Box2(items: move v) }
+      // `get` on a NoCopy element compiles. It should not.
+      func find(&self, want: String) -> Item? {
+          var i = 0
+          while i < self.items.len() {
+              if let e = self.items.get(i) {
+                  if e.name.equals(want) { return e }
+              }
+              i = i + 1
+          }
+          None
+      }
+  }
+
+  func main() {
+      var b = Box2()
+      b.items.push(Item(n: "one{1}"))
+      if let first = b.find("one1") { print(first.payload.len()) }
+      if let second = b.find("one1") { print(second.payload.len()) }
+  }
+  // Item.deinit one1   <- the first alias frees the payload buffer
+  // Item.deinit one1   <- the second frees it AGAIN; the vector still holds it
+  ```
+
+  Two lookups, two frees of one `Vector<Int>` buffer, no `unsafe` anywhere. It
+  does not crash today only because the freed block is usually not reused before
+  the process exits. libs/toml is built on this alias (`TomlDoc.get_section`,
+  `TomlSection.get_table`, `TomlTable.get`) and so is blade's manifest reader.
+
+  This is also what blocks **DF-128c** above: the missing `Vector<T>`-field drop
+  glue is the second half of a cancelling pair, and fixing either alone breaks.
+  FIX WANTED, as one brief: give `get` the bound the docs already claim it has
+  (the saw-lang skill says "`Vector.get(i)` returns a COPY (needs copyable
+  element)"), decide what replaces it for NoCopy elements (a `with_ref`-shaped
+  scoped borrow, an index-returning lookup, or `ExplicitCopy` on the toml
+  types), migrate libs/toml + blade, and land DF-128c's drop-glue fix in the
+  same change. Repros: `.build/scratch/p132_h_alias.saw`,
+  `.build/scratch/p132_h_uaf.saw` (gitignored; inlined above).
 - **RS-3 — FIXED (design 124, Aug 5).** A task's owned values are now released
   when THE TASK completes: the coro transform synthesizes a `__release` per
   frame and calls it at every `return Done` site, dropping params and
@@ -680,20 +749,40 @@ noted live-range packing of locals; do both in one sizing brief.
   aliasing if the symbol is still missing. Test:
   `examples/synthesize_explicit_copy_holder.saw` (fails before, passes after).
 
-  The DROP half is NOT fixed and wants its own unit. Fixing `_type_method_base`
-  itself — the obviously right change — makes `_emit_drop_at` start finding
-  `Vector$2$..._deinit` for struct fields where it previously found nothing and
-  fell through to `_emit_field_cleanup_at` (a no-op over Vector's raw pointer /
-  len / capacity fields). The compiler suite stays green at 1097, but the
-  bootstrap's stage1 `blade build` then dies with SIGSEGV before printing a
-  line, which says some blade struct's `Vector` field is currently being freed
-  by a path that would now free it a second time. Two possibilities worth
-  checking in that unit: struct-held `Vector` fields are leaking today (and
-  something else compensates), or a compensating release exists that must be
-  removed with the fix. Either way it is a drop-glue investigation across the
-  whole compiler, not a drive-by in a synthesis brief. Repro: apply
-  `_fill_default_type_args` inside `_type_method_base`, then
-  `tools/blade_bootstrap.py`.
+  The DROP half is **STOPPED — design 132 unit H diagnosed it and did NOT land
+  it** (Aug 5), per the brief's stop-if-it-fights rule. The fix itself is
+  confirmed correct and is a two-line change (fill the defaults in
+  `_type_method_base`, exactly as `_field_copy_fn` already does). What blocks it
+  is the OTHER path, now identified: **DF-132a below — `Vector.get` has no
+  `T: Copy` bound, so it hands out a non-retained bitwise ALIAS of a NoCopy
+  element.** libs/toml's `TomlDoc.get_section` / `TomlSection.get_table` and
+  blade's manifest reader are built on that alias. The two bugs currently
+  CANCEL: the alias runs the element's deinit at scope exit, and the container's
+  `Vector<T>` field drop glue never runs, so each element is freed once and the
+  program looks correct. Fixing the drop glue alone makes the container free the
+  element a SECOND time — which is the stage1 SIGSEGV.
+
+  Proven both directions on a 60-line repro (`.build/scratch/p132_h_alias.saw`,
+  inlined under DF-132a): with the drop-glue fix `Item.deinit` prints twice for
+  one element, without it exactly once. Localized from the bootstrap down to a
+  single test by bisection: `blade tree` and `blade/tests/manifest_dependencies`
+  both SIGSEGV with zero output, and a probe showed the crash inside
+  `Manifest.load_from`, at `doc.get_section("package")` — a `TomlSection?`
+  returned by value out of a `Vector<TomlSection>` whose element type is
+  `NoCopy`. Instrumenting `_emit_drop_at` listed exactly the 13 fields that
+  newly acquire drop glue: `TaskGroup`'s three vectors, `Command`, `DepList`,
+  `GitTags`, `LockData`, `ReqList`, `Resolution`, `TomlDoc`, `TomlSection` (x2),
+  `TomlTable`.
+
+  **These two must land together, and the pairing is a DESIGN QUESTION, not a
+  patch.** Giving `Vector.get` the bound the docs already claim it has breaks
+  libs/toml and blade at the source level: `get_section`/`get_table` cannot
+  return a NoCopy element by value at all, so they need a redesign (a
+  `with_ref`-shaped scoped borrow, an index-returning lookup, or making the toml
+  types `ExplicitCopy`), and blade's callers move with them. That is a std API
+  change plus two package migrations — RS-2's unfinished half (design 122 gave
+  the bound to `iter`/`enumerated`/`each`/`map` and to `set`, but never to
+  `get`). Wants its own brief with the API shape decided up front.
 
 - **DF-128b — FIXED (design 132 unit E, Aug 5).** `Namespace.is_trivially_copyable`
   gained the ENUM branch it never had: a payload-free enum that declares no
