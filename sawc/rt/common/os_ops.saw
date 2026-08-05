@@ -22,6 +22,10 @@ extern "C" {
     func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
     func close(fd: Int32) -> Int32
     // filesystem / environment ops (design 117).
+    // `open` is variadic; the mode argument is read only with O_CREAT.
+    func open(path: UnsafePointer<Int8>, flags: Int32, ...) -> Int32
+    func lseek(fd: Int32, offset: Int64, whence: Int32) -> Int64
+    func opendir(name: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
     func unlink(path: UnsafePointer<Int8>) -> Int32
     func rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) -> Int32
     func mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int32
@@ -195,6 +199,64 @@ func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
 // returns 0 on success or the NEGATED SysError tag on failure — the tag captured
 // right after the failing call, so std sees a tag, never a raw errno.
 // =============================================================================
+
+// design 132 unit G: the file-I/O half of the same convention. `open`/`read`/
+// `write`/`lseek` used to be bare libc calls in std, where the failure cause was
+// unreadable — errno is runtime-internal — so std could only answer `None`. Each
+// returns its natural non-negative result (fd, byte count, offset) or -tag.
+
+@export("__saw_rt_fs_open")
+func rt_fs_open(path: UnsafePointer<Int8>, flags: Int, mode: Int) unsafe -> Int {
+    let fd = open(path, flags as Int32, mode)
+    if fd >= (0 as Int32) {
+        return fd as Int
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+@export("__saw_rt_fs_read")
+func rt_fs_read(fd: Int, buf: UnsafePointer<Int8>, count: Int) unsafe -> Int {
+    let n = read(fd as Int32, buf, count)
+    if n >= 0 {
+        return n
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+@export("__saw_rt_fs_write")
+func rt_fs_write(fd: Int, buf: UnsafePointer<Int8>, count: Int) unsafe -> Int {
+    let n = write(fd as Int32, buf, count)
+    if n >= 0 {
+        return n
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+// lseek's success value is an OFFSET, which can legitimately exceed the tag
+// space, so a negative result is the only failure signal — as it is for lseek
+// itself. The tag rides back the same way.
+@export("__saw_rt_fs_lseek")
+func rt_fs_lseek(fd: Int, offset: Int, whence: Int) unsafe -> Int {
+    let pos = lseek(fd as Int32, offset as Int64, whence as Int32)
+    if pos >= (0 as Int64) {
+        return pos as Int
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+// opendir yields a DIR* and cannot fold a tag into its return, so the status
+// goes to an out-parameter: 0 on success, the (positive) tag on failure. The
+// pointer is returned raw — an exported return may not be optional, so the
+// caller's `extern` declaration does the `?`-wrapping (design 113b).
+@export("__saw_rt_fs_opendir")
+func rt_fs_opendir(path: UnsafePointer<Int8>, status_out: UnsafePointer<Int>) unsafe -> UnsafePointer<Int8> {
+    if let dir = opendir(path) {
+        status_out[0] = 0
+        return dir
+    }
+    status_out[0] = __saw_rt_last_syserror()
+    return 0 as UnsafePointer<Int8>
+}
 
 @export("__saw_rt_fs_unlink")
 func rt_fs_unlink(path: UnsafePointer<Int8>) unsafe -> Int {

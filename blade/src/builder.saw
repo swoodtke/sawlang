@@ -43,11 +43,13 @@ func read_file(path_str: String) -> String {
     if not File.exists(p) {
         return ""
     }
-    guard var f = File.open(p) else {
-        return ""
+    var f = match File.open(p) {
+        case Ok(handle) -> move handle,
+        case Err(_) -> { return "" }
     }
-    guard let data = f.read() else {
-        return ""
+    let data = match f.read() {
+        case Ok(bytes) -> move bytes,
+        case Err(_) -> { return "" }
     }
     // Same contract as the branches above: an unusable file reads as empty.
     // Design 122 unit B made the UTF-8 decode fallible, so a binary file is now
@@ -60,8 +62,11 @@ func read_file(path_str: String) -> String {
 
 // Append the contents of every `*.saw` file directly in `dir` to `b`.
 func append_dir_saw(b: &var StringBuilder, dir: String) {
-    guard let entries = Directory.list(Path(s: dir)) else {
-        return
+    // A directory that cannot be listed contributes nothing to the hash, the
+    // same as an empty one — this is a fingerprint, not a build step.
+    let entries = match Directory.list(Path(s: dir)) {
+        case Ok(v) -> move v,
+        case Err(_) -> { return }
     }
     var i = 0
     while i < entries.len() {
@@ -271,9 +276,12 @@ public extension Builder {
         if exit_code == (0 as Int32) {
             // Record the successful build's hash (create .blade first).
             let _ = Directory.create(Path(s: ".blade"))
-            if let f = File.create(hash_path) {
-                let data = hash.to_data()
-                f.write(move data)
+            // A stamp we cannot write only costs the next build its cache hit.
+            match File.create(hash_path) {
+                case Ok(f) -> {
+                    let _ = f.write(hash.to_data())
+                },
+                case Err(_) -> print("    (could not record the build hash)")
             }
             print("    Finished {output_name}")
             0
@@ -323,11 +331,14 @@ public extension Builder {
         }
 
         let text = b.build()
-        guard let f = File.create(Path(s: "Saw.toml")) else {
-            return BuildError(msg: "could not write Saw.toml")
+        let f = match File.create(Path(s: "Saw.toml")) {
+            case Ok(handle) -> move handle,
+            case Err(e) -> { return BuildError(msg: "could not write Saw.toml: {e}") }
         }
-        let data = text.to_data()
-        f.write(move data)
+        match f.write(text.to_data()) {
+            case Ok(_) -> print("    Updated Saw.toml"),
+            case Err(e) -> { return BuildError(msg: "could not write Saw.toml: {e}") }
+        }
 
         // Re-resolve against the freshly-written manifest and rewrite the lock.
         match Manifest.load() {

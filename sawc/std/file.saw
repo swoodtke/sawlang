@@ -8,24 +8,35 @@
 // =============================================================================
 
 extern "C" {
-    // File operations (POSIX)
-    // Note: open() is variadic - the mode parameter is only used with O_CREAT
-    func open(path: UnsafePointer<Int8>, flags: Int32, ...) -> Int32
-    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
-    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
     func close(fd: Int32) -> Int32
-    func lseek(fd: Int32, offset: Int64, whence: Int32) -> Int64
 
     // File info and manipulation
     func access(path: UnsafePointer<Int8>, mode: Int32) -> Int32
     // design 117: status-carrying fs ops (0 = ok, -SysError tag on failure).
     func __saw_rt_fs_unlink(path: UnsafePointer<Int8>) -> Int
     func __saw_rt_fs_rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) -> Int
+    // design 132 unit G: the file-I/O seams, same convention — the natural
+    // non-negative result (fd, byte count, offset) or the negated SysError tag.
+    // They replaced bare `open`/`read`/`write`/`lseek` calls, whose failure
+    // cause std had no way to read (errno is runtime-internal, rt/ABI.md).
+    func __saw_rt_fs_open(path: UnsafePointer<Int8>, flags: Int, mode: Int) -> Int
+    func __saw_rt_fs_read(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func __saw_rt_fs_write(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func __saw_rt_fs_lseek(fd: Int, offset: Int, whence: Int) -> Int
 
     // Memory
     func malloc(size: Int) -> UnsafePointer<Int8>?
     func free(ptr: UnsafePointer<Int8>)
 }
+
+// open(2) flag/mode combinations, named rather than spelled inline.
+static O_RDONLY: Int = 0
+static O_WRONLY_CREAT_TRUNC: Int = 577    // O_WRONLY | O_CREAT | O_TRUNC
+static O_WRONLY_CREAT_APPEND: Int = 1089  // O_WRONLY | O_CREAT | O_APPEND
+static MODE_RW_R_R: Int = 420             // 0644
+static SEEK_SET: Int = 0
+static SEEK_CUR: Int = 1
+static SEEK_END: Int = 2
 
 // =============================================================================
 // File - A file handle with automatic cleanup
@@ -40,83 +51,79 @@ extension File {
     // Static methods for opening files
     // =========================================================================
 
-    // Open a file for reading
-    public func open(path: Path) unsafe -> File? {
-        let path_ptr = path.as_str() as UnsafePointer<Int8>
-        let fd = open(path_ptr, 0 as Int32, 0 as Int32)  // O_RDONLY
-
-        if fd < (0 as Int32) {
-            None
-        } else {
-            File(fd: fd)
-        }
+    // Open `path` for reading.
+    //
+    // `Err` carries the reason open(2) refused — ENOENT and EACCES are different
+    // problems and the caller can now tell them apart (design 92).
+    public func open(path: Path) unsafe -> Result<File, IoError> {
+        File._opened(path, O_RDONLY, 0, "open")
     }
 
-    // Create a file for writing (truncates if exists)
-    public func create(path: Path) unsafe -> File? {
-        let path_ptr = path.as_str() as UnsafePointer<Int8>
-        // O_WRONLY | O_CREAT | O_TRUNC = 1 | 64 | 512 = 577
-        let fd = open(path_ptr, 577 as Int32, 420)  // 0644
-
-        if fd < (0 as Int32) {
-            None
-        } else {
-            File(fd: fd)
-        }
+    // Create `path` for writing, truncating an existing file.
+    public func create(path: Path) unsafe -> Result<File, IoError> {
+        File._opened(path, O_WRONLY_CREAT_TRUNC, MODE_RW_R_R, "open")
     }
 
-    // Open a file for appending
-    public func open_append(path: Path) unsafe -> File? {
-        let path_ptr = path.as_str() as UnsafePointer<Int8>
-        // O_WRONLY | O_CREAT | O_APPEND = 1 | 64 | 1024 = 1089
-        let fd = open(path_ptr, 1089 as Int32, 420)
+    // Open `path` for appending, creating it if absent.
+    public func open_append(path: Path) unsafe -> Result<File, IoError> {
+        File._opened(path, O_WRONLY_CREAT_APPEND, MODE_RW_R_R, "open")
+    }
 
-        if fd < (0 as Int32) {
-            None
-        } else {
-            File(fd: fd)
+    // The one open(2) call the three constructors share.
+    func _opened(path: Path, flags: Int, mode: Int, syscall: String) unsafe -> Result<File, IoError> {
+        let path_ptr = path.as_str() as UnsafePointer<Int8>
+        let fd = __saw_rt_fs_open(path_ptr, flags, mode)
+        if fd < 0 {
+            return IoError.of(syscall, 0 - fd)
         }
+        return File(fd: fd as Int32)
     }
 
     // =========================================================================
     // Reading - returns Data
     // =========================================================================
 
-    // Read bytes from the file
-    // If size <= 0, reads the entire file; otherwise reads up to size bytes
-    public func read(&var self, size: Int = 0) unsafe -> Data? {
+    // Read bytes from the file. With `size <= 0` (the default) that is the whole
+    // remainder; otherwise at most `size` bytes.
+    //
+    // `Err` carries the errno cause of the failing lseek(2) or read(2). An empty
+    // `Ok` means the file had nothing left, which is a different answer from a
+    // failure and always was — it just used to share `None` with it (design 92).
+    // Allocator exhaustion panics rather than joining either (design 123), and
+    // the `Data` fill below is the infallible tier too, so a short buffer cannot
+    // make this return FEWER bytes than the file holds.
+    public func read(&var self, size: Int = 0) unsafe -> Result<Data, IoError> {
         var bytes_to_read = size
 
-        // If size <= 0, determine file size
+        // If size <= 0, determine what is left from here to the end.
         if bytes_to_read <= 0 {
-            let current_pos = lseek(self.fd, 0 as Int64, 1 as Int32)  // SEEK_CUR
-            if current_pos < (0 as Int64) {
-                return None
+            let current_pos = __saw_rt_fs_lseek(self.fd as Int, 0, SEEK_CUR)
+            if current_pos < 0 {
+                return IoError.of("lseek", 0 - current_pos)
             }
-            let end_pos = lseek(self.fd, 0 as Int64, 2 as Int32)  // SEEK_END
-            if end_pos < (0 as Int64) {
-                return None
+            let end_pos = __saw_rt_fs_lseek(self.fd as Int, 0, SEEK_END)
+            if end_pos < 0 {
+                return IoError.of("lseek", 0 - end_pos)
             }
-            bytes_to_read = (end_pos - current_pos) as Int
-            // Seek back to original position
-            lseek(self.fd, current_pos, 0 as Int32)  // SEEK_SET
+            bytes_to_read = end_pos - current_pos
+            // Seek back to where we started.
+            let restored = __saw_rt_fs_lseek(self.fd as Int, current_pos, SEEK_SET)
+            if restored < 0 {
+                return IoError.of("lseek", 0 - restored)
+            }
         }
 
         if bytes_to_read == 0 {
             return Data()
         }
 
-        // Allocate buffer and read. `None` means the read(2) failed;
-        // allocator exhaustion panics rather than joining it (design 123), and
-        // the `Data` fill below is the infallible tier too, so a short buffer
-        // can no longer make this return FEWER bytes than the file holds.
         guard let buf = malloc(bytes_to_read) else {
             panic("File.read: allocation failed")
         }
-        let bytes_read = read(self.fd, buf, bytes_to_read)
+        let bytes_read = __saw_rt_fs_read(self.fd as Int, buf, bytes_to_read)
         if bytes_read < 0 {
             free(buf)
-            return None
+            return IoError.of("read", 0 - bytes_read)
         }
 
         // Create Data and copy bytes
@@ -127,22 +134,22 @@ extension File {
             i = i + 1
         }
         free(buf)
-        move data
+        return move data
     }
 
     // =========================================================================
     // Writing - accepts Data
     // =========================================================================
 
-    // Write Data to the file
-    public func write(&self, data: Data) unsafe -> Int? {
+    // Write `data` to the file, returning the number of bytes written.
+    //
+    // `Err` carries the errno cause of the failing write(2). Allocator
+    // exhaustion panics rather than joining it (design 123).
+    public func write(&self, data: Data) unsafe -> Result<Int, IoError> {
         if data.len() == 0 {
             return 0
         }
 
-        // Allocate temporary buffer for write. `None` means the write(2)
-        // failed; allocator exhaustion panics rather than joining it (design
-        // 123).
         guard let buf = malloc(data.len()) else {
             panic("File.write: allocation failed")
         }
@@ -155,38 +162,44 @@ extension File {
             i = i + 1
         }
 
-        let written = write(self.fd, buf, data.len())
+        let written = __saw_rt_fs_write(self.fd as Int, buf, data.len())
         free(buf)
 
         if written < 0 {
-            None
-        } else {
-            written
+            return IoError.of("write", 0 - written)
         }
+        return written
     }
 
     // =========================================================================
     // Seeking
     // =========================================================================
 
-    public func seek_start(&self, offset: Int) -> Int? {
-        let result = lseek(self.fd, offset as Int64, 0 as Int32)
-        if result < (0 as Int64) { None } else { result as Int }
+    // Each returns the resulting absolute offset, or the errno cause of the
+    // failing lseek(2) (design 92 — `None` said only "it did not work").
+
+    public func seek_start(&self, offset: Int) unsafe -> Result<Int, IoError> {
+        File._seek(self.fd, offset, SEEK_SET)
     }
 
-    public func seek_current(&self, offset: Int) -> Int? {
-        let result = lseek(self.fd, offset as Int64, 1 as Int32)
-        if result < (0 as Int64) { None } else { result as Int }
+    public func seek_current(&self, offset: Int) unsafe -> Result<Int, IoError> {
+        File._seek(self.fd, offset, SEEK_CUR)
     }
 
-    public func seek_end(&self, offset: Int) -> Int? {
-        let result = lseek(self.fd, offset as Int64, 2 as Int32)
-        if result < (0 as Int64) { None } else { result as Int }
+    public func seek_end(&self, offset: Int) unsafe -> Result<Int, IoError> {
+        File._seek(self.fd, offset, SEEK_END)
     }
 
-    public func position(&self) -> Int? {
-        let result = lseek(self.fd, 0 as Int64, 1 as Int32)
-        if result < (0 as Int64) { None } else { result as Int }
+    public func position(&self) unsafe -> Result<Int, IoError> {
+        File._seek(self.fd, 0, SEEK_CUR)
+    }
+
+    func _seek(fd: Int32, offset: Int, whence: Int) unsafe -> Result<Int, IoError> {
+        let result = __saw_rt_fs_lseek(fd as Int, offset, whence)
+        if result < 0 {
+            return IoError.of("lseek", 0 - result)
+        }
+        return result
     }
 
     // =========================================================================

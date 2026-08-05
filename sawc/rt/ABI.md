@@ -213,6 +213,32 @@ captured right after). C-string args.
 - `__saw_rt_env_set(name: i8*, value: i8*, overwrite: word) -> word`
 - `__saw_rt_env_unset(name: i8*) -> word`
 
+## Status-carrying file I/O (design 132 unit G — additive)
+
+The same convention applied to the read/write surface. These were bare libc
+calls in std, where the failure CAUSE was unreadable — `__saw_rt_last_syserror`
+is runtime-internal and must not be called after a bare libc op — so
+`File.open`/`read`/`write` could only answer `None`. Each returns its natural
+non-negative result or `-tag`.
+
+- `__saw_rt_fs_open(path: i8*, flags: word, mode: word) -> word` — the fd, or
+  `-tag`. `flags`/`mode` are the POSIX `open(2)` values; `mode` is read by the
+  kernel only with `O_CREAT`.
+- `__saw_rt_fs_read(fd: word, buf: i8*, count: word) -> word` — bytes read
+  (`0` = end of file), or `-tag`.
+- `__saw_rt_fs_write(fd: word, buf: i8*, count: word) -> word` — bytes written,
+  or `-tag`.
+- `__saw_rt_fs_lseek(fd: word, offset: word, whence: word) -> word` — the new
+  absolute offset, or `-tag`. A negative result is the only failure signal, as
+  it is for `lseek(2)` itself.
+- `__saw_rt_fs_opendir(path: i8*, status_out: word*) -> i8*` — the `DIR*`, or
+  NULL. A `DIR*` cannot fold a tag into its return, so the status goes to the
+  out-parameter: `0` on success, the POSITIVE tag on failure. The pointer comes
+  back raw because an exported return may not be optional (design 113b); std's
+  `extern` declaration does the `?`-wrapping. `readdir`/`closedir` stay bare —
+  readdir's end-of-stream is not an error, and closedir's status is not
+  actionable.
+
 ## Process spawn (design 122 — additive)
 
 Three seams added after v2 froze, for the same reason the fs/env ops exist: the
@@ -402,6 +428,14 @@ The `argv` main received.
 Everything else (alloc/dealloc/write/panic, sleep, clocks, set_nonblocking,
 sin_set_family, op-budget, mutex/cond init, the offload family, get_argc/argv) is
 unchanged from v1.
+
+Additions since v2, each purely additive (no existing symbol changed):
+
+| design | added                                                          |
+|--------|----------------------------------------------------------------|
+| 122    | `__saw_rt_fs_dirent_name`                                      |
+| 122    | `__saw_rt_proc_{spawn,read_stdout,wait}`                       |
+| 132    | `__saw_rt_fs_{open,read,write,lseek,opendir}`                  |
 
 ## The compiler → executor entry-point boundary (design 118, stage 1: map + carve)
 

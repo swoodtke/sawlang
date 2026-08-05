@@ -1078,7 +1078,9 @@ An `ExplicitCopy` or `NoCopy` payload is never duplicated implicitly, so a value
 read is refused and the error names the three consuming spellings:
 
 ```saw
-var file = File.open(Path(s: "/var/log/app.log"))   // File?
+// `File.open` returns `Result<File, IoError>`; `try?` discards the cause to
+// give the `File?` this example is about.
+var file: File? = try? File.open(Path(s: "/var/log/app.log"))
 let f = file!
 // error: cannot read the payload out of `file` in let binding:
 //        `File` implements NoCopy
@@ -3741,7 +3743,7 @@ let l = try! TcpListener.listen(0)
 // Whole std module - exposes every symbol the module defines, bare.
 import std.file
 import std.path.{Path}
-let f = File.create(Path(s: "data.txt"))
+let f = try! File.create(Path(s: "data.txt"))
 
 // User-module imports still support qualified access + aliasing (design 53).
 import mypkg.parser.{Parser}

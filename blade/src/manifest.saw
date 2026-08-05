@@ -129,13 +129,12 @@ public extension Manifest {
             return ManifestError(msg: "Saw.toml not found in current directory")
         }
 
-        guard var file = File.open(manifest_path) else {
-            return ManifestError(msg: "Could not open Saw.toml")
-        }
+        // An IoError boxes into the erased Result exactly as a ManifestError
+        // does, so `try` carries the errno cause straight through (design 132
+        // unit G gave these Results).
+        var file = try File.open(manifest_path)
 
-        guard let data = file.read() else {
-            return ManifestError(msg: "Could not read Saw.toml")
-        }
+        let data = try file.read()
 
         // Decode as UTF-8 (a Utf8Error boxes into the erased Result).
         let content = try data.to_string()
@@ -168,13 +167,9 @@ public extension Manifest {
             return ManifestError(msg: "Saw.toml not found in {dir.as_str()}")
         }
 
-        guard var file = File.open(manifest_path) else {
-            return ManifestError(msg: "Could not open Saw.toml")
-        }
+        var file = try File.open(manifest_path)
 
-        guard let data = file.read() else {
-            return ManifestError(msg: "Could not read Saw.toml")
-        }
+        let data = try file.read()
 
         let content = try data.to_string()
 
@@ -198,12 +193,8 @@ public extension Manifest {
     public func dependencies(&self) -> Result<DepList, Box<any Error>> {
         let manifest_path = self.root_dir.join("Saw.toml")
 
-        guard var file = File.open(manifest_path) else {
-            return ManifestError(msg: "Could not open {manifest_path.as_str()}")
-        }
-        guard let data = file.read() else {
-            return ManifestError(msg: "Could not read {manifest_path.as_str()}")
-        }
+        var file = try File.open(manifest_path)
+        let data = try file.read()
         let content = try data.to_string()
         let doc = try toml.TomlDoc.parse(content)
 

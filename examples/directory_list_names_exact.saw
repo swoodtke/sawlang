@@ -8,6 +8,7 @@
 // wrong, because it round-trips a name it created itself.
 // EXPECT: success
 // EXPECT-OUTPUT:
+// wrote the test file
 // entries: 1
 // name: needle_file.txt
 
@@ -29,17 +30,26 @@ func main() {
             return
         }
     }
-    if let f = File.create(file) {
-        let data = "x".to_data()
-        f.write(move data)
-    } else {
-        print("could not create the test file")
-        return
+    match File.create(file) {
+        case Ok(f) -> match f.write("x".to_data()) {
+            case Ok(_) -> print("wrote the test file"),
+            case Err(e) -> {
+                print("could not write the test file: {e}")
+                return
+            }
+        },
+        case Err(e) -> {
+            print("could not create the test file: {e}")
+            return
+        }
     }
 
-    guard let entries = Directory.list(dir) else {
-        print("could not list the test directory")
-        return
+    let entries = match Directory.list(dir) {
+        case Ok(v) -> move v,
+        case Err(e) -> {
+            print("could not list the test directory: {e}")
+            return
+        }
     }
     print("entries: {entries.len()}")
     if let first = entries.get(0) {

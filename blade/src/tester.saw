@@ -124,9 +124,12 @@ public extension Tester {
 
         let tests_dir = Path(s: "tests")
 
-        guard let entries = Directory.list(tests_dir) else {
-            print("error: no tests/ directory found")
-            return 1
+        let entries = match Directory.list(tests_dir) {
+            case Ok(v) -> move v,
+            case Err(e) -> {
+                print("error: could not read tests/: {e}")
+                return 1
+            }
         }
 
         // A scratch directory for compiled test binaries (created if absent;

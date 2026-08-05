@@ -8,68 +8,80 @@
 // EXPECT-OUTPUT: File removed: true
 // EXPECT-OUTPUT: File exists after remove: false
 
-// Test basic file operations using Data and Path
+// Basic file operations using Data and Path. Since design 132 unit G,
+// `File.create`/`open`/`read`/`write` return `Result<_, IoError>`: the errno
+// cause survives instead of collapsing into a `None` that also meant "the
+// allocation failed" and "the file was empty".
 
 import std.file.{File}
 import std.path.{Path}
 import std.data.{Data}
+import std.net.{IoError}
+
+func sample_bytes() -> Data {
+    var data = Data()
+    data.push(72 as UInt8)   // H
+    data.push(101 as UInt8)  // e
+    data.push(108 as UInt8)  // l
+    data.push(108 as UInt8)  // l
+    data.push(111 as UInt8)  // o
+    data.push(44 as UInt8)   // ,
+    data.push(32 as UInt8)   // space
+    data.push(87 as UInt8)   // W
+    data.push(111 as UInt8)  // o
+    data.push(114 as UInt8)  // r
+    data.push(108 as UInt8)  // l
+    data.push(100 as UInt8)  // d
+    data.push(33 as UInt8)   // !
+    move data
+}
+
+func write_sample(test_file: Path) {
+    match File.create(test_file) {
+        case Ok(f) -> match f.write(sample_bytes()) {
+            case Ok(bytes) -> print("Write successful: {bytes} bytes"),
+            case Err(e) -> print("Write failed: {e}")
+        },
+        case Err(e) -> print("Could not create file: {e}")
+    }
+}
+
+func read_sample(test_file: Path) {
+    match File.open(test_file) {
+        case Ok(f) -> {
+            var handle = move f
+            match handle.read() {
+                case Ok(data) -> {
+                    print("Read {data.len()} bytes")
+                    if let b = data.get(0) {
+                        print("Byte 0: {b as Int}")  // 72 (H)
+                    }
+                },
+                case Err(e) -> print("Read failed: {e}")
+            }
+        },
+        case Err(e) -> print("Could not open file: {e}")
+    }
+}
+
 func main() {
     let test_file = Path(s: "/tmp/saw_test_file.txt")
 
-    // Create and write to a file
     print("Writing to file...")
-    if var f = File.create(test_file) {
-        // Create Data with "Hello, World!" bytes
-        var data = Data()
-        data.push(72 as UInt8)   // H
-        data.push(101 as UInt8)  // e
-        data.push(108 as UInt8)  // l
-        data.push(108 as UInt8)  // l
-        data.push(111 as UInt8)  // o
-        data.push(44 as UInt8)   // ,
-        data.push(32 as UInt8)   // space
-        data.push(87 as UInt8)   // W
-        data.push(111 as UInt8)  // o
-        data.push(114 as UInt8)  // r
-        data.push(108 as UInt8)  // l
-        data.push(100 as UInt8)  // d
-        data.push(33 as UInt8)   // !
+    write_sample(test_file)
 
-        if let bytes = f.write(move data) {
-            print("Write successful: {bytes} bytes")
-        } else {
-            print("Write failed")
-        }
-    } else {
-        print("Could not create file")
-    }
-
-    // Read the file back
     print("Reading file...")
-    if var f = File.open(test_file) {
-        if let data = f.read() {
-            print("Read {data.len()} bytes")
-            if let b = data.get(0) {
-                print("Byte 0: {b as Int}")  // Should be 72 (H)
-            }
-        } else {
-            print("Read failed")
-        }
-    } else {
-        print("Could not open file")
-    }
+    read_sample(test_file)
 
-    // Check if file exists
     let exists = File.exists(test_file)
     print("File exists: {exists}")
 
-    // Remove the file (design 92: Result surfaces the errno on failure)
+    // design 92: Result surfaces the errno on failure.
     match File.remove(test_file) {
         case Ok(_) -> print("File removed: true"),
         case Err(e) -> print("File remove failed: {e}")
     }
 
-    // Verify it's gone
     let exists_after = File.exists(test_file)
     print("File exists after remove: {exists_after}")
 }

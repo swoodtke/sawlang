@@ -463,17 +463,42 @@ it returned `None` before.
   abort (ELF cross-targets fine).
 - (Re-confirmed, already open: DF-119b `print(UInt)` renders signed.)
 
-**P2 — portability (SOS-relevant): the two hardcoded numbers are FIXED (design
-122 unit F, Aug 4; commit 6c29cfa), the design-92 half-application is STILL
-OPEN.** The dirent offset moved behind the host split as
+**P2 — CLOSED. Portability (SOS-relevant): the two hardcoded numbers were fixed
+by design 122 unit F (Aug 4, commit 6c29cfa); the design-92 half-application in
+std.file/std.directory is finished by design 132 unit G (Aug 5).**
+
+Unit G's half: `File.open`/`create`/`open_append` -> `Result<File, IoError>`,
+`File.read` -> `Result<Data, IoError>` (an empty Ok means the file had nothing
+left — distinct from a failure, which used to share `None` with it and with
+"the allocation failed"), `File.write` -> `Result<Int, IoError>`,
+`File.seek_start`/`seek_current`/`seek_end`/`position` -> `Result<Int, IoError>`,
+`Directory.list` -> `Result<Vector<Path>, IoError>`. `Directory.current` stays
+`Path?` on purpose: `None` there means getcwd(2) failed, and unit F removed the
+truncation that used to share that answer. `File.exists`/`Directory.exists` stay
+`Bool` — genuine boolean questions.
+
+That needed new seams, because std had no way to read the CAUSE: `open`, `read`,
+`write`, `lseek` and `opendir` were bare libc calls, and rt/ABI.md forbids std
+from calling `__saw_rt_last_syserror` after one (errno may already be clobbered).
+Five additive `__saw_rt_fs_*` seams now carry it, on the design-117 convention —
+the natural non-negative result or `-tag` — with `opendir` taking a status
+out-parameter because a `DIR*` cannot fold a tag into its return. ABI.md
+documents them and gains an additions-since-v2 table.
+
+Call sites migrated: blade (builder, main, manifest, resolver, lock, tester),
+selfhost/lexer, and three examples. Two of them were silently discarding a
+failure and no longer can — `write_lock` returned `true` without checking the
+write, and blade's build-hash stamp ignored both halves. Note for anyone doing
+this again: Saw has no `if let` over a Result, so every site became `match` or
+`try`, and a `return` inside a match arm needs its own block.
+
+Unit F's half (design 122): the dirent offset moved behind the host split as
 `__saw_rt_fs_dirent_name` (macOS 21 / Linux 19, rt/ABI.md documents the additive
 seam) and `Data` uses `sizeof<DataBuffer>()`/`alignof<DataBuffer>()` instead of
 a literal 24 — the riscv32 block is 12 bytes, so it had been over-allocating and
 then handing the allocator a size that was a lie. Test
 examples/directory_list_names_exact.saw round-trips a file it creates itself, so
-a wrong offset fails on ANY host. REMAINING: design 92 is half-applied in
-std.file/std.directory — `open`/`read`/`write` still return cause-erasing
-Optionals.
+a wrong offset fails on ANY host.
 
 **P3 — docs debt (20 findings): CLOSED (design 125, Aug 4).** 18 of the 20
 were doc fixes and all landed; findings 3 (`--emit-docs` effect field) and 5

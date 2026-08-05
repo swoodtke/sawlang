@@ -667,10 +667,13 @@ The standard library includes:
 - **Mutex<T>**, **Channel<T>**, **Task<T>**, **TaskGroup** - Concurrency.
 - **std.net** - `TcpListener`/`TcpStream`: owning, cooperative, `Result`-honest
   (accept/connect/read/`read_into`/overloaded write).
-- **File**, **Directory**, **Path**, **Data**, **Env** - System I/O. Lookups and
-  opens return Optionals; failable mutating operations (`remove`, `rename`,
-  `create`, env `set`/`unset`) return `Result<Void, IoError>`. Nothing in std
-  silently swallows an error.
+- **File**, **Directory**, **Path**, **Data**, **Env** - System I/O. Every
+  operation that can fail returns its cause: `File.open`/`create`/`open_append`,
+  `read`, `write`, `seek_*` and `Directory.list` return `Result<_, IoError>`, as
+  do the mutating operations (`remove`, `rename`, `create`, env `set`/`unset`).
+  An Optional is reserved for a genuine absence — `Directory.current` answers
+  `None` only when getcwd(2) itself fails. Nothing in std silently swallows an
+  error.
 - **std.process** - `Command.run() -> Result<Int32, ProcessError>`, `.output()`.
 - **std.time** - `Duration`, `Instant` (hosted).
 - **Numeric extensions** - The two sets are disjoint. `Int`: `abs`, `min`/`max`/

@@ -44,6 +44,25 @@ func print_version() {
 // Project Creation
 // =============================================================================
 
+// Create `path` and write `content` to it. False (having reported why) if
+// either step failed — design 132 unit G made both halves return the cause.
+func write_new_file(path: Path, content: String) -> Bool {
+    let f = match File.create(path) {
+        case Ok(handle) -> move handle,
+        case Err(e) -> {
+            print("Error: Could not create {path.as_str()}: {e}")
+            return false
+        }
+    }
+    match f.write(content.to_data()) {
+        case Ok(_) -> true,
+        case Err(e) -> {
+            print("Error: Could not write {path.as_str()}: {e}")
+            false
+        }
+    }
+}
+
 func create_new_project(name: String) -> Int {
     // Create project directory
     let project_path = Path(s: name)
@@ -74,22 +93,14 @@ func create_new_project(name: String) -> Int {
     // Create Saw.toml
     let toml_content = "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"
     let toml_path = project_path.join("Saw.toml")
-    if let f = File.create(toml_path) {
-        let toml_data = toml_content.to_data()
-        f.write(move toml_data)
-    } else {
-        print("Error: Could not create Saw.toml")
+    if not write_new_file(toml_path, toml_content) {
         return 1
     }
 
     // Create src/main.saw - escape literal braces with \{ and \}
     let main_content = "func main() \{\n    print(\"Hello, {name}!\")\n\}\n"
     let main_path = src_path.join("main.saw")
-    if let f = File.create(main_path) {
-        let main_data = main_content.to_data()
-        f.write(move main_data)
-    } else {
-        print("Error: Could not create main.saw")
+    if not write_new_file(main_path, main_content) {
         return 1
     }
 

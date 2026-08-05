@@ -8,8 +8,12 @@
 // =============================================================================
 
 extern "C" {
-    // Directory operations
-    func opendir(name: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+    // Directory operations. opendir(3) goes through the seam so its failure
+    // CAUSE survives: the DIR* comes back raw (an exported return may not be
+    // optional, so the `?` is declared here) and the tag lands in `status_out`,
+    // 0 on success. readdir/closedir stay bare — readdir's end-of-stream is not
+    // an error and closedir's status is not actionable (design 132 unit G).
+    func __saw_rt_fs_opendir(name: UnsafePointer<Int8>, status_out: UnsafePointer<Int>) -> UnsafePointer<Int8>?
     func readdir(dirp: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
     func closedir(dirp: UnsafePointer<Int8>) -> Int32
 
@@ -57,11 +61,16 @@ extension Directory {
     // Directory listing
     // =========================================================================
 
-    // List files in a directory (not including . and ..)
-    // Returns a Vector of Paths, or None if directory cannot be opened
-    public func list(path: Path) unsafe -> Vector<Path>? {
+    // List the entries in a directory, excluding `.` and `..`.
+    //
+    // `Err` carries the errno cause of the failing opendir(3) — a missing
+    // directory and an unreadable one are different problems (design 92). An
+    // empty `Ok` means the directory is empty.
+    public func list(path: Path) unsafe -> Result<Vector<Path>, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
-        if let dir = opendir(path_ptr) {
+        var status = 0
+        let status_ptr = (&status) as UnsafePointer<Int>
+        if let dir = __saw_rt_fs_opendir(path_ptr, status_ptr) {
             var result = Vector<Path>()
 
             // Read entries until we get None
@@ -96,10 +105,9 @@ extension Directory {
             }
 
             closedir(dir)
-            move result
-        } else {
-            None
+            return move result
         }
+        return IoError.of("opendir", status)
     }
 
     // =========================================================================

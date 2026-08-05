@@ -179,9 +179,13 @@ func ensure_deps_dir() {
     let _ = Directory.create(Path(s: ".blade"))
     let gi = Path(s: ".blade/.gitignore")
     if not File.exists(gi) {
-        if let f = File.create(gi) {
-            let data = "*\n".to_data()
-            f.write(move data)
+        // Best-effort: without it the checkout dir shows up in `git status`,
+        // which is untidy rather than broken.
+        match File.create(gi) {
+            case Ok(f) -> {
+                let _ = f.write("*\n".to_data())
+            },
+            case Err(e) -> print("warning: could not write .blade/.gitignore: {e}")
         }
     }
     let _ = Directory.create(Path(s: ".blade/deps"))

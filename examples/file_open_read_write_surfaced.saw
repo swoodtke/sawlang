@@ -1,0 +1,116 @@
+// design 132 unit G finishes design 92 in std.file / std.directory. The
+// OPENING and READING half used to answer a bare `None`, which collided with
+// "the allocation failed" and, for `read`, with "the file was empty" — so a
+// caller could not tell a missing file from an unreadable one, and blade's
+// `write_lock` reported success without ever checking the write.
+//
+// Every failure below now names its syscall and its errno cause. The happy
+// path is exercised too, so the conversion is not just an error-path change.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// open missing: surfaced
+// create in missing dir: surfaced
+// append in missing dir: surfaced
+// list missing dir: surfaced
+// wrote 5 bytes
+// read back: hello
+// read at eof: 0 bytes
+// position: 5
+// seek_start: 0
+// cleaned up
+
+import std.file.{File}
+import std.directory.{Directory}
+import std.path.{Path}
+import std.data.{Data}
+import std.net.{IoError}
+
+func missing_path() -> Path { Path(s: "/tmp/saw_g_no_such_file_xyz.txt") }
+
+func missing_dir_file() -> Path { Path(s: "/tmp/saw_g_no_such_dir_xyz/f.txt") }
+
+func missing_dir() -> Path { Path(s: "/tmp/saw_g_no_such_dir_xyz") }
+
+func scratch() -> Path { Path(s: "/tmp/saw_g_roundtrip.txt") }
+
+// Each failing call carries an IoError naming the syscall; `{e}` renders it.
+func check_failures() {
+    match File.open(missing_path()) {
+        case Ok(_) -> print("open UNEXPECTED ok"),
+        case Err(_) -> print("open missing: surfaced")
+    }
+    match File.create(missing_dir_file()) {
+        case Ok(_) -> print("create UNEXPECTED ok"),
+        case Err(_) -> print("create in missing dir: surfaced")
+    }
+    match File.open_append(missing_dir_file()) {
+        case Ok(_) -> print("append UNEXPECTED ok"),
+        case Err(_) -> print("append in missing dir: surfaced")
+    }
+    match Directory.list(missing_dir()) {
+        case Ok(_) -> print("list UNEXPECTED ok"),
+        case Err(_) -> print("list missing dir: surfaced")
+    }
+}
+
+func write_scratch() -> Bool {
+    match File.create(scratch()) {
+        case Ok(f) -> match f.write("hello".to_data()) {
+            case Ok(n) -> {
+                print("wrote {n} bytes")
+                true
+            },
+            case Err(e) -> {
+                print("write failed: {e}")
+                false
+            }
+        },
+        case Err(e) -> {
+            print("create failed: {e}")
+            false
+        }
+    }
+}
+
+// Read the file back, then prove the distinctions the old `None` collapsed:
+// a second read at end-of-file is an empty Ok, not an error.
+func read_scratch() {
+    match File.open(scratch()) {
+        case Ok(f) -> {
+            var handle = move f
+            match handle.read() {
+                case Ok(data) -> match data.to_string() {
+                    case Ok(s) -> print("read back: {s}"),
+                    case Err(_) -> print("not utf-8")
+                },
+                case Err(e) -> print("read failed: {e}")
+            }
+            match handle.read() {
+                case Ok(rest) -> print("read at eof: {rest.len()} bytes"),
+                case Err(e) -> print("second read failed: {e}")
+            }
+            match handle.position() {
+                case Ok(p) -> print("position: {p}"),
+                case Err(e) -> print("position failed: {e}")
+            }
+            match handle.seek_start(0) {
+                case Ok(p) -> print("seek_start: {p}"),
+                case Err(e) -> print("seek failed: {e}")
+            }
+        },
+        case Err(e) -> print("open failed: {e}")
+    }
+}
+
+func main() {
+    check_failures()
+
+    if write_scratch() {
+        read_scratch()
+    }
+
+    match File.remove(scratch()) {
+        case Ok(_) -> print("cleaned up"),
+        case Err(e) -> print("cleanup failed: {e}")
+    }
+}

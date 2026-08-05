@@ -48,6 +48,15 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_fs_mkdir",
     "__saw_rt_fs_rmdir",
     "__saw_rt_fs_chdir",
+    # Status-carrying file I/O (design 132 unit G). These were bare libc calls
+    # in std, where the failure CAUSE was unreadable — errno is runtime-internal
+    # — so `File.open`/`read`/`write` could only answer `None`. Additive, like
+    # the dirent projection below.
+    "__saw_rt_fs_open",
+    "__saw_rt_fs_read",
+    "__saw_rt_fs_write",
+    "__saw_rt_fs_lseek",
+    "__saw_rt_fs_opendir",
     # `struct dirent` name projection — the one OS-divergent part of a readdir
     # walk (design 122 unit F)
     "__saw_rt_fs_dirent_name",

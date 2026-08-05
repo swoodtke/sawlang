@@ -286,6 +286,22 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   set_current`, `env.set/unset/set_cwd` → `Result<Void, IoError>`; net read/write/
   accept → Result (see the net section). `Result<Void, E>`: a bare `return` in
   such a function is `Ok(())`; `match r { case Ok(_) -> …, case Err(e) -> … }`.
+  Design 132 finished the sweep in std.file/std.directory — the whole opening
+  and reading surface carries its cause now: `File.open`/`create`/`open_append`
+  → `Result<File, IoError>`, `File.read` → `Result<Data, IoError>` (an empty Ok
+  means the file had nothing left, distinct from a failure), `File.write` →
+  `Result<Int, IoError>` (bytes written), `File.seek_*`/`position` →
+  `Result<Int, IoError>`, `Directory.list` → `Result<Vector<Path>, IoError>`.
+  There is no `if let` over a Result, so bind them with `match`/`try`:
+  ```saw
+  var f = try File.open(p)            // in a Result-returning function
+  let text = match f.read() {
+      case Ok(bytes) -> move bytes,
+      case Err(e) -> { return "" }    // a `return` arm needs its own block
+  }
+  ```
+  `Directory.current` stays `Path?` — `None` means getcwd(2) failed, and since
+  design 132 a long path is returned whole rather than becoming that `None`.
 
 ## Traits & generics
 ```saw
