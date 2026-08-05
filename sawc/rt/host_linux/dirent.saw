@@ -1,0 +1,21 @@
+// `struct dirent` name projection (design 122 unit F) — Linux (glibc/musl).
+//
+// See the macOS twin for why this is a seam: `d_name`'s offset is the one
+// OS-divergent part of the layout, and std used to hardcode the macOS value, so
+// every filename listed on Linux was two bytes off.
+//
+// Linux `struct dirent` (64-bit):
+//   d_ino    UInt64   @0
+//   d_off    Int64    @8
+//   d_reclen UInt16   @16
+//   d_type   UInt8    @18
+//   d_name   Int8[]   @19
+
+static DIRENT_NAME_OFFSET: Int = 19
+
+// The NUL-terminated name inside a `struct dirent` returned by `readdir`.
+// `entry` must be non-NULL (std checks readdir's own result first).
+@export("__saw_rt_fs_dirent_name")
+func rt_fs_dirent_name(entry: UnsafePointer<Int8>) -> UnsafePointer<Int8> {
+    entry + DIRENT_NAME_OFFSET
+}

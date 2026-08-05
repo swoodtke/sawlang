@@ -1,0 +1,54 @@
+// Design 122 unit F: `Directory.list` must return each entry's name EXACTLY.
+//
+// The `d_name` offset inside `struct dirent` is host-divergent — 21 on macOS,
+// 19 on Linux — and std had the macOS number hardcoded, so on Linux every
+// listed filename came back shifted by two bytes (a silent, plausible-looking
+// wrong answer on a supported host: `sawc/rt/host_linux/` ships). The offset
+// now lives behind the host split, and this test fails on ANY host that gets it
+// wrong, because it round-trips a name it created itself.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// entries: 1
+// name: needle_file.txt
+
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
+
+func main() {
+    let dir = Path(s: "/tmp/saw_dirent_offset_test")
+    let file = dir.join("needle_file.txt")
+
+    // Fresh directory (ignore removal failures — it may not exist).
+    let _ = File.remove(file)
+    let _ = Directory.remove(dir)
+    match Directory.create(dir) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("could not create the test directory: {e}")
+            return
+        }
+    }
+    if let f = File.create(file) {
+        let data = "x".to_data()
+        f.write(move data)
+    } else {
+        print("could not create the test file")
+        return
+    }
+
+    guard let entries = Directory.list(dir) else {
+        print("could not list the test directory")
+        return
+    }
+    print("entries: {entries.len()}")
+    if let first = entries.get(0) {
+        // `list` joins onto the directory path, so compare the trailing name.
+        let full = first.as_str()
+        let cut = full.len() - "needle_file.txt".len()
+        print("name: {full.substring(cut, full.len())}")
+    }
+
+    let _ = File.remove(file)
+    let _ = Directory.remove(dir)
+}

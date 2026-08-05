@@ -1,0 +1,24 @@
+// `struct dirent` name projection (design 122 unit F) — macOS.
+//
+// `readdir()` hands back a `struct dirent*` whose `d_name` offset is
+// OS-DIVERGENT, and std had the macOS number (21) baked into `Directory.list`,
+// so every filename listed on Linux came back shifted by two bytes. The offset
+// is the only divergent part, so it — and nothing else — moves behind the host
+// split: std still opens, walks and closes the directory.
+//
+// macOS `struct dirent`:
+//   d_ino     UInt64   @0
+//   d_seekoff UInt64   @8
+//   d_reclen  UInt16   @16
+//   d_namlen  UInt16   @18
+//   d_type    UInt8    @20
+//   d_name    Int8[]   @21
+
+static DIRENT_NAME_OFFSET: Int = 21
+
+// The NUL-terminated name inside a `struct dirent` returned by `readdir`.
+// `entry` must be non-NULL (std checks readdir's own result first).
+@export("__saw_rt_fs_dirent_name")
+func rt_fs_dirent_name(entry: UnsafePointer<Int8>) -> UnsafePointer<Int8> {
+    entry + DIRENT_NAME_OFFSET
+}

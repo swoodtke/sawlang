@@ -45,6 +45,9 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_fs_mkdir",
     "__saw_rt_fs_rmdir",
     "__saw_rt_fs_chdir",
+    # `struct dirent` name projection — the one OS-divergent part of a readdir
+    # walk (design 122 unit F)
+    "__saw_rt_fs_dirent_name",
     "__saw_rt_env_set",
     "__saw_rt_env_unset",
     # Process spawn (design 122 unit C): real argv spawn, no shell anywhere

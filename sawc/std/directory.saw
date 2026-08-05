@@ -13,6 +13,12 @@ extern "C" {
     func readdir(dirp: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
     func closedir(dirp: UnsafePointer<Int8>) -> Int32
 
+    // The name inside a `struct dirent` (design 122 unit F). `d_name`'s offset
+    // is the ONLY OS-divergent part of a readdir walk (21 on macOS, 19 on
+    // Linux), so it lives behind the host split; this file used to hardcode the
+    // macOS number and mis-read every filename on Linux.
+    func __saw_rt_fs_dirent_name(entry: UnsafePointer<Int8>) -> UnsafePointer<Int8>
+
     // Directory manipulation (design 117: status-carrying, -SysError tag on fail).
     func __saw_rt_fs_mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int
     func __saw_rt_fs_rmdir(path: UnsafePointer<Int8>) -> Int
@@ -56,8 +62,8 @@ extension Directory {
             var done = false
             while not done {
                 if let entry = unsafe readdir(dir) {
-                    // On macOS, d_name starts at offset 21 in struct dirent
-                    let name_ptr = unsafe entry + 21
+                    // `d_name`'s offset is host-divergent — the seam knows it.
+                    let name_ptr = unsafe __saw_rt_fs_dirent_name(entry)
                     // Copy the entry's C string into an owned String (the dirent
                     // buffer has no String header and is reused by readdir).
                     let name = __saw_string_from_bytes(name_ptr, strlen(name_ptr))

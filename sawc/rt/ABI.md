@@ -192,6 +192,11 @@ captured right after). C-string args.
 - `__saw_rt_fs_mkdir(path: i8*, mode: word) -> word`
 - `__saw_rt_fs_rmdir(path: i8*) -> word`
 - `__saw_rt_fs_chdir(path: i8*) -> word`
+- `__saw_rt_fs_dirent_name(entry: i8*) -> i8*` — **OS-divergent** (design 122).
+  The NUL-terminated name inside a `struct dirent` returned by `readdir`: the
+  `d_name` offset is 21 on macOS and 19 on Linux, and it is the ONLY divergent
+  part of a readdir walk, so std keeps `opendir`/`readdir`/`closedir` and only
+  the projection is a seam. `entry` is non-NULL (std checks readdir's result).
 - `__saw_rt_env_set(name: i8*, value: i8*, overwrite: word) -> word`
 - `__saw_rt_env_unset(name: i8*) -> word`
 
@@ -582,7 +587,7 @@ sawc/rt/
                 argv spawn), and the status-carrying OS ops
                 (os_ops.saw — tcp_* + fs_* + env_*)
   host_macos/   kqueue reactor + macOS specifics (clock, net_os = errno→tag +
-                sin_set_family)
+                sin_set_family, dirent = the d_name offset)
   host_linux/   epoll reactor + Linux specifics
   shim.c        the three FFI-blocked bodies (below)
 ```
