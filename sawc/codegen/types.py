@@ -133,7 +133,21 @@ class TypesMixin:
                 return self._get_llvm_type(alias_sym.aliased_type)
             # Check if it's a type parameter in the current context
             if saw_type.struct_name in self.type_param_context:
-                return self._get_llvm_type(self.type_param_context[saw_type.struct_name])
+                bound = self.type_param_context[saw_type.struct_name]
+                # A SELF-MAPPING binding (`T -> T`) means an unsubstituted type
+                # parameter reached codegen: recursing on it never terminates and
+                # surfaces as `maximum recursion depth exceeded`, which fails the
+                # WHOLE compilation unit rather than the one construct at fault
+                # (DF-123a). Stop at a bounded, named failure instead — every
+                # caller that monomorphizes is expected to substitute first.
+                if (bound is not None and bound.kind == TypeKind.STRUCT
+                        and bound.struct_name == saw_type.struct_name):
+                    raise ValueError(
+                        f"type parameter `{saw_type.struct_name}` reached codegen "
+                        f"unsubstituted (it is bound to itself); the call site "
+                        f"must substitute against the monomorphization context "
+                        f"before monomorphizing")
+                return self._get_llvm_type(bound)
             # Check if it's actually an enum
             if saw_type.struct_name in self.enum_types:
                 return self.enum_types[saw_type.struct_name][0]  # Return LLVM type

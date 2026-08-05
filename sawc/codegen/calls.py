@@ -1541,6 +1541,18 @@ class CallsMixin:
         # placeholder. Non-generic calls fall through unchanged.
         type_args = getattr(expr.object, 'type_args', None)
         if type_args and struct_name in self.generic_structs:
+            # Substitute against the active monomorphization context FIRST, the
+            # way the constructor path (`_generate_struct_init`) always has.
+            # Without it, `Holder<T>.make(...)` written inside a `Holder<T>`
+            # extension monomorphized `Holder` against the type PARAMETER `T`,
+            # which self-maps in `type_param_context` and sends `_get_llvm_type`
+            # into unbounded recursion — reported as `maximum recursion depth
+            # exceeded` and, because std is merged into every compilation unit,
+            # it took every program in the suite down with it (DF-123a). The
+            # constructor spelling of the same call survived precisely because it
+            # substituted here.
+            type_args = [self._substitute_saw_type(a, self.type_param_context)
+                         for a in type_args]
             struct_name = self._ensure_monomorphized_struct(struct_name, type_args)
 
         # Overloading (design 55): the typechecker resolved the static overload

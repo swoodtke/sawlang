@@ -1,0 +1,53 @@
+// A STATIC method call on the enclosing generic struct, spelled with the
+// extension's own type parameters (design 132 unit B / DF-123a). This used to
+// be `internal compiler error: maximum recursion depth exceeded`, and because
+// std is merged into every compilation unit it took every program down with it
+// — `hello.saw` included. The constructor spelling of the same call
+// (`Holder<T>(v: v)`) always worked, because it substituted the type arguments
+// against the monomorphization context before monomorphizing; the static path
+// did not, so `Holder` was monomorphized against the type PARAMETER `T`, which
+// maps to itself.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 3
+// hi
+// 7
+// 7
+// 42
+
+struct Holder<T> { v: T }
+
+extension Holder<T> {
+    public func make(v: T) -> Holder<T> { Holder<T>(v: v) }
+    // The static call under test, reached from an instance method...
+    public func remake(&self) -> Holder<T> { Holder<T>.make(self.v) }
+    // ...and from another static method on the same generic struct.
+    public func duplicate(v: T) -> Holder<T> { Holder<T>.make(v) }
+}
+
+struct Pair<A, B> { first: A, second: B }
+
+extension Pair<A, B> {
+    public func of(first: A, second: B) -> Pair<A, B> { Pair<A, B>(first: first, second: second) }
+    // Two type parameters, and a static call nested inside another one.
+    public func swapped(&self) -> Pair<B, A> { Pair<B, A>.of(self.second, self.first) }
+    public func rebuild(&self) -> Pair<A, B> { Pair<A, B>.of(self.first, self.second) }
+}
+
+func main() {
+    // One type parameter, two instantiations: each monomorphizes on its own.
+    let h = Holder<Int>.make(3)
+    print(h.v)
+    print(h.remake().v)
+
+    let s = Holder<String>.make("hi")
+    print(s.remake().v)
+
+    print(Holder<Int>.duplicate(7).v)
+    print(Holder<Int>.duplicate(7).remake().v)
+
+    // Two type parameters, including a static call that flips them.
+    let p = Pair<Int, String>.of(42, "answer")
+    print(p.rebuild().swapped().second)
+}

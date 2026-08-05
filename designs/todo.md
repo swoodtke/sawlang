@@ -977,9 +977,20 @@ inlined (the `.build/scratch` probes are gitignored).
 
 ## Design 123 — DF-findings
 
-- **DF-123a — ICE: a STATIC method call on the enclosing generic struct, spelled
-  with the extension's own type parameters (found by design 123 unit B, Aug 5;
-  PRE-EXISTING — reproduced on a clean tree at `2381350`).** Writing
+- **DF-123a — FIXED (design 132 unit B, Aug 5).** Both halves the finding asked
+  for. (1) `calls.py::_generate_static_method_call` now substitutes the written
+  type arguments against `type_param_context` before
+  `_ensure_monomorphized_struct`, exactly as the constructor path
+  (`structs.py::_generate_struct_init`) always did — which is the whole reason
+  `Holder<T>(v: v)` survived where `Holder<T>.make(...)` did not. (2)
+  `types.py::_get_llvm_type` now REFUSES a self-mapping type-param binding
+  (`T -> T`) with a named error instead of recursing: an unsubstituted parameter
+  reaching codegen is a bounded, diagnosable failure of the one construct at
+  fault rather than `maximum recursion depth exceeded` failing the entire
+  compilation unit. Test `examples/generic_static_call_own_type_params.saw`
+  covers the static call from an instance method and from another static method,
+  two instantiations of the same struct, a two-parameter struct, and a static
+  call that flips its parameters. Original finding follows. Writing
   `Vector<T, A>.try_with_capacity(n)` inside a `Vector<T, A>` extension body
   compiles to `internal compiler error: maximum recursion depth exceeded` and
   takes the WHOLE compilation unit with it: because std is merged in, every
