@@ -643,8 +643,9 @@ which drags the obligation into the caller through the trigger rule itself.
 Std policy: an `unsafe` function is short enough to review as a unit.
 **Accessor rule:** on a safe type every indexed accessor is checked. A direct
 accessor PANICS out of range (`Vector.set`/`swap`/`swap_out`/`with_ref`/
-`with_var_ref`, `String.byte_at`/`substring`); a `get`-shaped one returns
-`None`/`Err` (`Vector.get`, `Data.get`). Never a silent no-op, never a clamp.
+`with_var_ref`, `Data.set`, `String.byte_at`/`substring`); a `get`-shaped one
+returns `None`/`Err` (`Vector.get`, `Data.get`, `Data.slice`). Never a silent
+no-op, never a clamp, never an ignorable status flag (`Data.set` returned one).
 For scoped no-copy element access use `Vector.with_ref`/`with_var_ref` (a
 non-escaping `&T`/`&var T` borrow, invalidation-proof) — this REPLACED `ref_at`.
 **MMIO driver idiom (blessed, design 112 — use for EVERY memory-mapped

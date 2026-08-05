@@ -174,8 +174,9 @@ function with all-safe parameters must be sound for every input (a precondition
 is spelled as an unsafe-typed parameter). The line-level `unsafe` expression
 marker is GONE (writing one is a parse error). Accessor rule: on a safe type
 every indexed accessor is checked — direct accessors panic out of range
-(`Vector.set`/`swap`/`swap_out`/`with_ref`/`with_var_ref`, `String.byte_at`/
-`substring`), `get`-shaped ones return `None`; no silent no-ops, no clamps.
+(`Vector.set`/`swap`/`swap_out`/`with_ref`/`with_var_ref`, `Data.set`,
+`String.byte_at`/`substring`), `get`-shaped ones return `None`; no silent
+no-ops, no clamps, no ignorable status flags.
 `Vector.with_ref`/`with_var_ref` (scoped, invalidation-proof element borrow)
 replaced `ref_at`. Doc comments (121):
 `///` (following decl) + `//!` (module) lexed as trivia in BOTH lexers

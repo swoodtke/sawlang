@@ -36,7 +36,11 @@ contract, is deleted) and **M3** (`String.substring` clamped — it panics on a
 reversed or out-of-range range; an empty `substring(i, i)` is still legal). Both
 are the accessor rule (brief rule 8); RS-6's part of that rule — the three
 genuinely UNCHECKED accessors `with_ref`/`with_var_ref`/`swap_out` — had already
-landed in design 122 and is unchanged.
+landed in design 122 and is unchanged. The rule's audit of `Data` (the brief's
+exit criteria name it alongside Vector and String) found `get`/`slice` already
+`get`-shaped and compliant, and one third shape neither M3 nor M5 had named:
+`Data.set` returned a `Bool` that NOTHING in the tree read, so an out-of-range
+write silently did nothing. It panics now, like `Vector.set`.
 
 Fixed on the way: the trigger-rule verdict runs during teardown, after
 `current_method`/`current_function` are cleared, so `_error`'s source-file

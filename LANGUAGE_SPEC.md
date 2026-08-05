@@ -4021,9 +4021,10 @@ function is short enough to review as a unit.
 On a safe type, every indexed accessor is checked. Unchecked access exists only
 through `UnsafePointer`. An out-of-range index **panics** for a direct accessor
 (`Vector.set`, `Vector.swap`, `Vector.swap_out`, `Vector.with_ref`,
-`with_var_ref`, `String.byte_at`, `String.substring`) or yields `None`/`Err` for
-a `get`-shaped one (`Vector.get`, `Data.get`). Never a silent no-op, and never a
-clamp to a plausible-looking result.
+`with_var_ref`, `Data.set`, `String.byte_at`, `String.substring`) or yields
+`None`/`Err` for a `get`-shaped one (`Vector.get`, `Data.get`, `Data.slice`). Never a silent
+no-op, never a clamp to a plausible-looking result, and never a status flag a
+caller can ignore.
 
 For scoped, no-copy access to a container element (including a `NoCopy` one)
 without minting a raw pointer at all, use `Vector.with_ref`/`with_var_ref`: a

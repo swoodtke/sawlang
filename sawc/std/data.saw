@@ -134,20 +134,26 @@ extension Data {
         buf[self.offset + index]
     }
 
-    // Set byte at index (no-op if out of bounds)
-    // Note: If buffer is shared, this will modify the shared buffer!
-    // Use copy() first if you need copy-on-write semantics.
-    // Returns true if successful, false otherwise
-    public unsafe func set(&var self, index: Int, value: UInt8) -> Bool {
+    /// Writes `value` at `index`.
+    ///
+    /// Panics if `index` is outside `0..<len()`.
+    ///
+    /// If the buffer is SHARED this writes through to every holder — call
+    /// `copy()` first for copy-on-write semantics.
+    ///
+    /// This returned `Bool` and wrote nothing out of range. Design 130's
+    /// accessor rule made it panic instead, matching `Vector.set`: nothing in
+    /// the tree ever read the flag, so a bad index silently did nothing — the
+    /// ignorable-sentinel shape design 92 rules out.
+    public unsafe func set(&var self, index: Int, value: UInt8) {
         if index < 0 || index >= self.length {
-            return false
+            panic("Data.set: index out of range")
         }
         guard let inner = self.inner else {
-            return false
+            panic("Data.set: buffer is empty")
         }
         let buf = inner[0].buffer
         buf[self.offset + index] = value
-        true
     }
 
     // =========================================================================
