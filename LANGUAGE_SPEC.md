@@ -2493,7 +2493,8 @@ multi-threaded execution `TaskGroup(threads: N)` with a Send-on-frames gate
 (design 75).**
 There is NO `async`/`await` keyword and there never will be: Saw is
 COLORLESS (designs/18 Axis B′). Any call may suspend; the marked side is
-the rare one — `sync` contexts are checked suspension-free. Tasks are the ONLY concurrency
+the rare one — `sync` contexts are checked suspension-free. Tasks are the
+ONLY concurrency
 primitive: no user-facing threads, no thread identity, ever. The stage-1
 engine happens to run one OS thread per task; that is invisible and will
 change.

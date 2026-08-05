@@ -554,7 +554,7 @@ The standard library includes:
   `sort`/`sort_by`, `swap`; context-driven `[...]` literals.
   `with_ref`/`with_var_ref` borrow one element in place for the duration of a
   closure, holding the whole vector borrowed so a reallocation cannot invalidate
-  it. That is the only way to reach a `NoCopy` element.
+  it. That is the only way to read or mutate a `NoCopy` element in place.
 - **Map<K, V, A>** - Hash map (open addressing): `insert`, `get`, `remove`,
   `contains_key`, `len`; `each` visitors and `keys()`/`values()` snapshots;
   `{k: v}` literals. Keys are any copyable `Hashable + Equatable` type
@@ -655,7 +655,7 @@ and trait objects (`any Trait`); overloading; the `Printable`, `Error`,
 including chained assignment; whole-referent replacement through a `&var`
 reference; colorless concurrency (a cooperative scheduler with a precise I/O
 reactor, multi-threaded task groups, blocking-FFI offload, and suspending calls
-in arbitrary expression positions); member visibility with a curated prelude;
+in expression positions); member visibility with a curated prelude;
 earned shadowing; source-location literals; doc comments with `--emit-docs`
 extraction; pluggable allocators; and the freestanding toolkit (memory-mapped
 I/O, `static_assert`, and C-ABI exports).
