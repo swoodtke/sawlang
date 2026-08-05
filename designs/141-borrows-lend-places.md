@@ -74,7 +74,11 @@ entry. Closes the with_ref-closure-ceremony class; adjacent to G3 slices
 Lexer: `lend` keyword + `borrows` keyword (BOTH lexers — lexdiff parity;
 selfhost/lexer mirrors). Parser: effect-slot `borrows` (declarations +
 function types, 136 discipline: consistent slot, clean errors), `[]`
-method names, `lend` statement. Typechecker: place expressions from
+method names, `lend` statement. While in the slot parser: `escaping` on a
+DECLARATION gets a teaching error ("`escaping` applies to function types,
+not declarations — a named function has no environment and may always
+escape") instead of today's bare `Expected LBRACE` parse error (probe
+`.build/scratch/probe_escaping_decl.saw`; 136's fixit standard). Typechecker: place expressions from
 borrows calls (extending 131's place machinery), root attribution
 projection, lend-coverage check, use-site mutability resolution, the v1
 fences as clean errors. Coro-transform: synchronous lend split.
