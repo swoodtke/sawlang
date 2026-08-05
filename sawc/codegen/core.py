@@ -99,7 +99,8 @@ _install_volatile_ir_support()
 class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, ExistentialsMixin, TypesMixin, ResourcesMixin, DebugInfoMixin):
     def __init__(self, namespace: Namespace, target_triple: Optional[str] = None,
                  freestanding: bool = False, source_path: Optional[str] = None,
-                 runtime_build: bool = False):
+                 runtime_build: bool = False,
+                 target_features: Optional[str] = None):
         # Unified namespace from type checker (Phase 0 of module system)
         self.namespace = namespace
 
@@ -135,6 +136,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Resolve the target triple: default (host) unless --target overrides it.
         self.triple = target_triple or binding.get_default_triple()
         self._explicit_target = target_triple is not None
+        # An LLVM subtarget feature string (`+m,+a,+c`). A triple names an
+        # architecture but not which optional extensions the part has, and the
+        # difference is load-bearing on embedded targets: base rv32i has no
+        # divide instruction, so an integer `/` becomes a `__divsi3` libcall the
+        # freestanding profile has no library to satisfy. Formatting an integer
+        # needs division, so a kernel that logs a number cannot link without
+        # this (design 137).
+        self.target_features = target_features or ""
 
         # Create module in a FRESH llvmlite context (not the process-global one).
         # llvmlite's `ir.Module` defaults to a module-level singleton
@@ -152,7 +161,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Create target data for sizeof calculations
         target = binding.Target.from_triple(self.triple)
-        target_machine = target.create_target_machine()
+        target_machine = target.create_target_machine(
+            features=self.target_features)
         self.target_data = binding.create_target_data(str(target_machine.target_data))
         # Pin the module data layout to the target machine's, ALWAYS (host and
         # cross alike). Without it the module carries an empty datalayout, and the
@@ -2587,8 +2597,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """
         target = binding.Target.from_triple(self.triple)
         if self.freestanding:
-            return target.create_target_machine()
-        return target.create_target_machine(reloc='pic')
+            return target.create_target_machine(features=self.target_features)
+        return target.create_target_machine(reloc='pic',
+                                            features=self.target_features)
 
     def emit_ir(self, optimize: bool = True) -> str:
         """Return the module's LLVM IR as text.

@@ -535,7 +535,7 @@ def _reject_freestanding_macho(target_triple: str = None):
     sys.exit(1)
 
 
-def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False):
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None):
     """Resolve modules, load builtins, and type-check the whole program.
 
     This is the single front half of the compile pipeline: a plain single file
@@ -975,7 +975,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
             return _prepare_codegen(source_path, entry_ast, entry_source, verbose,
                                     object_only, target_triple, freestanding,
                                     module_paths, runtime_build,
-                                    post_transform=True)
+                                    post_transform=True,
+                                    target_features=target_features)
 
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns
@@ -984,7 +985,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         print("  Building code generator...")
     codegen = CodeGenerator(typechecker.namespace, target_triple=target_triple,
                             freestanding=freestanding, source_path=source_path,
-                            runtime_build=runtime_build)
+                            runtime_build=runtime_build,
+                            target_features=target_features)
     return codegen, merged_ast
 
 
@@ -1057,7 +1059,7 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
         print(f"Compiled {source_path} -> {output_path}")
 
 
-def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False):
+def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, target_features: str = None):
     """Compile a Saw source file to an executable or object file.
 
     A single file is just a module graph of size one, so there is one pipeline:
@@ -1099,7 +1101,8 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
 
     codegen, merged_ast = _prepare_codegen(
         source_path, entry_ast, source, verbose, object_only, target_triple,
-        freestanding, module_paths, runtime_build)
+        freestanding, module_paths, runtime_build,
+        target_features=target_features)
 
     if verbose:
         print("  Generating LLVM IR...")
@@ -1179,6 +1182,13 @@ Examples:
                         help="Disable optimization passes (emit raw codegen output for debugging)")
     parser.add_argument("--target", metavar="TRIPLE",
                         help="Target triple for cross-compilation (default: host)")
+    parser.add_argument("--target-features", metavar="FEATURES",
+                        dest="target_features",
+                        help="LLVM subtarget features for --target, comma separated "
+                             "(e.g. `+m,+a,+c` for rv32imac). A triple names an "
+                             "architecture but not its optional extensions; base "
+                             "rv32i has no divide instruction, so an integer `/` "
+                             "becomes a libcall the freestanding profile cannot link")
     parser.add_argument("--freestanding", action="store_true",
                         help="Freestanding profile: runtime seams as declarations only, "
                              "no hosted std modules (file/process/env/directory), "
@@ -1283,7 +1293,8 @@ Examples:
             args.input, entry_ast, source, verbose=args.verbose,
             object_only=args.c, target_triple=args.target,
             freestanding=args.freestanding, module_paths=module_paths,
-            runtime_build=args.runtime_build)
+            runtime_build=args.runtime_build,
+            target_features=args.target_features)
         run_codegen(codegen, merged_ast)
         llvm_ir = codegen.emit_ir(optimize=not args.no_optimize)
 
@@ -1300,7 +1311,8 @@ Examples:
         compile_saw(args.input, output_path, verbose=args.verbose,
                     object_only=args.c, optimize=not args.no_optimize,
                     target_triple=args.target, freestanding=args.freestanding,
-                    module_paths=module_paths, runtime_build=args.runtime_build)
+                    module_paths=module_paths, runtime_build=args.runtime_build,
+                    target_features=args.target_features)
 
 
 if __name__ == "__main__":

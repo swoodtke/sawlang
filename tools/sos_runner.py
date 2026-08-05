@@ -33,6 +33,13 @@ BUILD_DIR = os.path.join(REPO_ROOT, ".build", "sos")
 TRIPLE = "riscv32-unknown-none-elf"
 MARCH = "rv32imac_zicsr"
 MABI = "ilp32"
+# The same extensions as MARCH, in LLVM subtarget-feature form, for sawc's
+# `--target-features`. A triple names the architecture but not which optional
+# extensions the part has: without `+m` the Saw half of the kernel is built for
+# base rv32i, and formatting an integer (which needs division) emits `__divsi3`
+# calls that this link has no library to satisfy. The C half already gets these
+# through `-march`; this keeps the two halves on one subtarget.
+MFEATURES = "+m,+a,+c"
 QEMU_TIMEOUT_S = 10
 
 # ANSI colors (matched to test_runner.py's style; disabled when not a TTY).
@@ -50,7 +57,18 @@ TEST_CASES = [
     {
         "name": "boot_smoke",
         "src": os.path.join(KERNEL_DIR, "main.saw"),
-        "expect_out": "SOS M0: hello from Saw on riscv32",
+        "expect_out": [
+            # The banner, written through the UART driver (design 112).
+            "SOS M0: hello from Saw on riscv32",
+            # Design 137: the same console reached by `print` with format
+            # arguments, through the `__saw_rt_write` seam. Integers rendered
+            # into stack scratch, a user `Printable` streamed through its own
+            # `format` — with no allocator in this profile at all.
+            "uart at 268435456 lsr-mask 32",
+            "ram [2147483648 +8388608]",
+            "stage 0 ok",
+            "stage 2 ok",
+        ],
         "expect_clean_exit": True,
     },
     {
@@ -154,7 +172,8 @@ def _build_elf(case, boot_o, rt_o, lld):
     obj = os.path.join(BUILD_DIR, f"{name}.o")
     elf = os.path.join(BUILD_DIR, f"{name}.elf")
     _run([sys.executable, SAWC, case["src"], "-o", obj,
-          "--freestanding", "--target", TRIPLE])
+          "--freestanding", "--target", TRIPLE,
+          "--target-features", MFEATURES])
     _run([lld, "-T", os.path.join(KERNEL_DIR, "virt.ld"), "--gc-sections",
           "-o", elf, boot_o, rt_o, obj])
     return elf
@@ -181,8 +200,15 @@ def _check(case, status, out, timed_out):
         return False, f"QEMU hung (> {QEMU_TIMEOUT_S}s) — no clean exit"
     if isinstance(out, bytes):
         out = out.decode(errors="replace")
-    if case["expect_out"] is not None and case["expect_out"] not in out:
-        return False, f"missing expected output {case['expect_out']!r} (got {out!r})"
+    expected = case["expect_out"]
+    if expected is not None:
+        # A single substring or a list of them — one boot can assert several
+        # lines without rebuilding the kernel once per assertion.
+        if isinstance(expected, str):
+            expected = [expected]
+        for want in expected:
+            if want not in out:
+                return False, f"missing expected output {want!r} (got {out!r})"
     if case["expect_clean_exit"]:
         if status != 0:
             return False, f"expected clean exit (0), got status {status}"
