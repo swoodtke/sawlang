@@ -54,9 +54,11 @@ static ELF_HEADER_LEN: Int = 52
 static ELF_PHDR_LEN: Int = 32
 static TEST_ENTRY: UInt = 0x80200000
 static TEST_PRIO_MAP: UInt = 0x01010100
-// Prefixed to dodge DF-140f: `src/sosimg.saw`'s module-PRIVATE `PT_LOAD` /
-// `PF_R` / `PF_X` still collide with same-named statics here, even though this
-// module imports one function from it and cannot see those statics at all.
+// `ELF_`-prefixed because these are ELF's numbering, not sosimg's — the two
+// disagree about the permission bits and the prefix keeps that visible.
+// (They also used to have to be prefixed to dodge DF-140f, where a
+// dependency's module-private static reserved its name downstream. That is
+// fixed; the names stay because they read better.)
 static ELF_PT_LOAD: UInt = 1
 static ELF_PF_X: UInt = 1
 static ELF_PF_R: UInt = 4

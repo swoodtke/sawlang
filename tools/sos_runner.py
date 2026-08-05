@@ -338,20 +338,27 @@ def _build_root_image(blade_bin, pkg_dir, clang):
     Blade's build avoidance keys on content it cannot see change here (the
     kernel side, the linker script's meaning).
     """
+    # Design 143: artifacts live under `<package>/.build/<target>/`, never
+    # beside the source.
+    out_dir = os.path.join(pkg_dir, ".build", TRIPLE)
+
     # Delete first: a build that fails must not leave the PREVIOUS image lying
     # around to be booted as if it were current. (Blade used to exit 0 on a
     # failed build, which is exactly how a stale image once passed this suite.)
-    for stale in os.listdir(pkg_dir):
-        if stale.endswith(".sosimg"):
-            os.remove(os.path.join(pkg_dir, stale))
+    if os.path.isdir(out_dir):
+        for stale in os.listdir(out_dir):
+            if stale.endswith(".sosimg"):
+                os.remove(os.path.join(out_dir, stale))
 
     _run([blade_bin, "build", "--force"], cwd=pkg_dir, env=_blade_env(clang))
 
     # The image is named for the PACKAGE, which need not match its directory.
-    images = [f for f in os.listdir(pkg_dir) if f.endswith(".sosimg")]
+    images = []
+    if os.path.isdir(out_dir):
+        images = [f for f in os.listdir(out_dir) if f.endswith(".sosimg")]
     if len(images) != 1:
-        raise ToolError(f"expected exactly one .sosimg in {pkg_dir}, found {images}")
-    return os.path.join(pkg_dir, images[0])
+        raise ToolError(f"expected exactly one .sosimg in {out_dir}, found {images}")
+    return os.path.join(out_dir, images[0])
 
 
 def _stitch_root_image(image, clang):

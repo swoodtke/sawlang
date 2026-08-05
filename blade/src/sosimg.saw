@@ -92,6 +92,14 @@ public struct SosConfig {
     public target: String
     public march: String
     public mabi: String
+    /// The same extensions as `march`, in LLVM subtarget-feature form, for
+    /// sawc's `--target-features`. A triple names the architecture but not
+    /// which optional extensions the part has, so without this the Saw half of
+    /// an image is built for the BASE ISA while the C half gets `march` — and
+    /// the Saw half then emits `__divsi3` / `__atomic_*` calls into a link that
+    /// has no library to satisfy them. Keeping both halves on one subtarget is
+    /// the whole job of this field.
+    public target_features: String
     public linker_script: String
     /// C/assembly translation units linked alongside the Saw object, as a
     /// SPACE-SEPARATED list, or "" for none. A freestanding SOS process needs
@@ -172,6 +180,7 @@ public func load_sos_config(dir: Path) -> Result<SosConfig?, Box<any Error>> {
         target: target,
         march: section.get("march") ?? "rv32imac_zicsr",
         mabi: section.get("mabi") ?? "ilp32",
+        target_features: section.get("target-features") ?? "+m,+a,+c",
         linker_script: linker_script,
         native: section.get("native") ?? "",
         prio_map: packed,

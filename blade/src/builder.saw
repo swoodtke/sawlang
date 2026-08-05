@@ -297,13 +297,20 @@ public extension Builder {
             return BuildError(msg: "No main.saw or lib.saw found")
         }
         let name = self.manifest.name()
-        let image = "{name}.sosimg"
+
+        // Design 143: an SOS image is an artifact like any other, so it lands
+        // in `.build/<target>/` rather than beside the source. The layout
+        // accommodates this target by construction — a package cross-built for
+        // two architectures gets two directories instead of two `.sosimg`
+        // files fighting over one name.
+        let layout = BuildLayout(triple: cfg.target)
+        let image = layout.artifact("{name}.sosimg")
 
         let res = try self.resolve_deps()
 
         let hash = self.build_hash(&res)
         if not force {
-            if read_file(".blade/build-hash").equals(hash) {
+            if read_file(layout.stamp()).equals(hash) {
                 if File.exists(Path(s: image)) {
                     print("    Finished {image} (up to date)")
                     return 0
@@ -312,10 +319,12 @@ public extension Builder {
         }
 
         print("   Compiling {name} v{self.manifest.version()} (sosimg, {cfg.target})")
-        let _ = Directory.create(Path(s: ".blade"))
+        if not layout.ensure() {
+            return BuildError(msg: "could not create {layout.dir()}")
+        }
 
-        let obj = ".blade/{name}.o"
-        let elf = ".blade/{name}.elf"
+        let obj = layout.artifact("{name}.o")
+        let elf = layout.artifact("{name}.elf")
 
         var saw = self.compiler_command()
         saw.arg(source_file)
@@ -324,6 +333,10 @@ public extension Builder {
         saw.arg("--freestanding")
         saw.arg("--target")
         saw.arg(cfg.target)
+        if not cfg.target_features.is_empty() {
+            saw.arg("--target-features")
+            saw.arg(cfg.target_features)
+        }
         var i = 0
         while i < res.len() {
             saw.arg("--module-path")
@@ -349,7 +362,7 @@ public extension Builder {
                 u = u + 1
                 continue
             }
-            let native_obj = ".blade/{name}.native{u}.o"
+            let native_obj = layout.artifact("{name}.native{u}.o")
             var cc = Command(program: sos_clang())
             cc.arg("--target={cfg.target}")
             cc.arg("-march={cfg.march}")
@@ -390,7 +403,7 @@ public extension Builder {
         match write_sosimg(Path(s: elf), Path(s: image), cfg.prio_map) {
             case Ok(size) -> {
                 // A stamp we cannot write only costs the next build its cache hit.
-                match File.create(Path(s: ".blade/build-hash")) {
+                match File.create(Path(s: layout.stamp())) {
                     case Ok(f) -> {
                         let _ = f.write(hash.to_data())
                     },

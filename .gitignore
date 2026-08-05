@@ -15,12 +15,12 @@
 # so it is the first to leave one behind.
 blade/tests/fixtures/**/Saw.lock
 
-# Built SOS process images (design 140): Blade emits these from sos/root and
-# sos/tests/faulting-root on every `make sos-test`.
+# Built SOS process images (design 140) need no rule of their own: design 143
+# puts every Blade artifact under `<package>/.build/<target>/`, which the
+# `.build/` rule above already covers.
 #
 # Saw.lock is NOT ignored — the SOS root packages are applications, and
-# applications commit their lockfiles (user policy; design 143 sweeps the tree).
-*.sosimg
+# applications commit their lockfiles (user policy; design 143).
 
 # Python
 __pycache__/
