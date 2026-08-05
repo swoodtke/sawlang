@@ -78,7 +78,7 @@ public struct DepList {
 }
 
 extension DepList: NoCopy {
-    public func deinit(var self) {
+    public func deinit(&var self) {
         // Vector handles its own cleanup
     }
 }

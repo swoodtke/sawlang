@@ -64,7 +64,7 @@ public struct TomlTable {
 }
 
 extension TomlTable: NoCopy {
-    public func deinit(var self) {
+    public func deinit(&var self) {
         // Vector handles its own cleanup
     }
 }
@@ -102,7 +102,7 @@ public struct TomlSection {
 }
 
 extension TomlSection: NoCopy {
-    public func deinit(var self) {
+    public func deinit(&var self) {
         // Vector handles its own cleanup
     }
 }
@@ -232,7 +232,7 @@ public struct TomlDoc {
 }
 
 extension TomlDoc: NoCopy {
-    public func deinit(var self) {
+    public func deinit(&var self) {
         // Vector handles its own cleanup
     }
 }

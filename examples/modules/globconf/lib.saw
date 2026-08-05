@@ -8,7 +8,7 @@ public struct Bag {
 }
 
 extension Bag: NoCopy {
-    func deinit(var self) {
+    func deinit(&var self) {
         // Vector handles its own cleanup
     }
 }

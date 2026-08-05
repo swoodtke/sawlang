@@ -1606,7 +1606,7 @@ class RegistrationMixin:
                 if trait_method.self_mutable:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
-                        f"method `{method_name}` should have `var self` to conform to trait `{trait_info.name}`",
+                        f"method `{method_name}` should take `&var self` to conform to trait `{trait_info.name}`",
                         extension.line, extension.column
                     )
                 else:

@@ -273,7 +273,7 @@ public struct LexResult {
 }
 
 extension LexResult: NoCopy {
-    public func deinit(var self) {
+    public func deinit(&var self) {
         // The two Vectors clean up their own storage.
     }
 }

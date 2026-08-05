@@ -722,7 +722,16 @@ class DeclarationsMixin:
                     is_var = True
                     self.advance()
             elif self.match(TokenType.VAR):
-                # Legacy: 'var self' - treat as deprecated, convert to &var self
+                # `var self` was an undocumented receiver spelling quietly
+                # accepted as `&var self` (design 128 rider). The spec has two
+                # receivers, both borrows, and the sigil is what says so — a
+                # bare `var self` reads like a by-value consuming receiver,
+                # which is not what it ever meant.
+                if self.peek(1).type == TokenType.SELF:
+                    self.error(
+                        "`var self` is not a receiver spelling: write "
+                        "`&var self` to borrow mutably (or `&self` to borrow "
+                        "immutably)")
                 is_var = True
                 is_ref = True  # Implied reference
                 self.advance()
