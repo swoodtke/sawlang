@@ -1,0 +1,56 @@
+// Design 122 unit G (closes DF-119b): `print` renders an unsigned integer as
+// unsigned. A same-width `UInt`/`UInt64` has nothing to zero-extend, so it
+// reached the SIGNED formatter unchanged and `print(UInt.max)` emitted `-1` —
+// while interpolation of the same value printed it correctly, so the two
+// disagreed. That made design 119's headline capability (parsing the
+// 2^63..2^64-1 range with `to_uint`) unprintable through `print`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 18446744073709551615
+// 18446744073709551615
+// 18446744073709551615
+// 18446744073709551615
+// 18446744073709551615
+// 9223372036854775808
+// 255
+// 65535
+// 4294967295
+// 42
+// 0
+// -7
+// -9223372036854775808
+// 9223372036854775807
+
+func main() {
+    // The full-width cases: print, interpolation and to_string() must agree.
+    let m: UInt = UInt.max
+    print(m)
+    print("{m}")
+    print(m.to_string())
+    print(UInt.max)
+    let big: UInt64 = 18446744073709551615u64
+    print(big)
+
+    // Exactly 2^63: the first value the signed formatter got wrong.
+    if let mid = "9223372036854775808".to_uint() {
+        print(mid)
+    } else {
+        print("to_uint failed")
+    }
+
+    // Narrower unsigned types keep working (they zero-extend as before).
+    let b: UInt8 = 255u8
+    print(b)
+    let s: UInt16 = 65535u16
+    print(s)
+    let w: UInt32 = 4294967295u32
+    print(w)
+    let small: UInt = 42
+    print(small)
+    print(UInt.min)
+
+    // Signed printing is untouched, INT_MIN included.
+    print(-7)
+    print(Int.min)
+    print(Int.max)
+}

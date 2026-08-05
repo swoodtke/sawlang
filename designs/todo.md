@@ -331,7 +331,17 @@ inlined (the `.build/scratch` probes are gitignored).
   compares. Note for integration: this touches codegen/operators.py, which
   overlaps design 120's declared area; the change is a single call site.)
 
-- **DF-119b — OPEN (discovered design 119 Part A; flagged, not fixed).** A
+- **DF-119b — FIXED (design 122 unit G, Aug 4).** `print` now selects its
+  formatter by the operand's KIND: codegen emits two width-parametric itoa
+  bodies — `__saw_print_int` (unchanged) and `__saw_print_uint` (the same body
+  with the sign logic dropped; the digit loop was already unsigned udiv/urem) —
+  and the print call site (codegen/calls.py) picks the unsigned one for the
+  `UINT*` kinds. The interpolation path (`_value_to_string`, codegen/core.py) was
+  already correct (`%llu`), which is exactly why the two disagreed; the test
+  asserts print, interpolation and `to_string()` agree. Signed printing is
+  untouched, `Int.min` included. Test
+  examples/print_unsigned_full_width.saw. Original finding follows:
+  A
   full-width `UInt`/`UInt64` value with the high bit set (`>= 2^63`) misformats
   under `print` / string interpolation: `print(UInt.max)` emits `-1`, not
   `18446744073709551615`. `__saw_print_int` (codegen/core.py) formats every

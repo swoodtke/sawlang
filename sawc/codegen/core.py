@@ -594,10 +594,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return "apple" in t or "darwin" in t or "macos" in t or "ios" in t
 
     def _declare_print_runtime(self):
-        """Emit __saw_print_int: format a signed platform-width integer as decimal
-        plus a trailing newline, then emit it with a single saw_write.
+        """Emit the two integer `print` formatters, `__saw_print_int` (signed)
+        and `__saw_print_uint` (unsigned).
 
-        This replaces printf("%lld\\n", n) for the whole integer family. The value
+        These replace printf("%lld\\n", n) for the whole integer family. The value
         is formatted at the platform Int width (`self.int_type`) — design 47.
         Callers first bring the value to that width with exactly the sign-/zero-
         extension the old printf path used (sext for signed, zext for unsigned
@@ -607,20 +607,30 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         width is also what keeps this libcall-free on riscv32: the digit-extract
         udiv/urem run at 32 bits (native), never pulling __udivdi3.
 
-        MIN handling: the magnitude is computed as an *unsigned* value
+        MIN handling (signed): the magnitude is computed as an *unsigned* value
         (`select(neg, 0 - n, n)` — the wrapping negation of the signed minimum is
         itself, which read unsigned is its magnitude), and digits are extracted
         with unsigned udiv/urem, so no signed overflow occurs.
+
+        The UNSIGNED twin exists because a same-width `UInt`/`UInt64` reaches the
+        formatter unchanged (nothing to zero-extend), so the signed sign test read
+        `UInt.max` as -1 and printed `-1` (DF-119b, closed by design 122 unit G).
+        It is the same body with the sign logic dropped: the magnitude IS the
+        value, and the digit loop was already unsigned.
         """
+        self._emit_print_int_fn("__saw_print_int", signed=True)
+        self._emit_print_int_fn("__saw_print_uint", signed=False)
+
+    def _emit_print_int_fn(self, name: str, signed: bool):
+        """Emit one width-parametric itoa + newline + saw_write formatter."""
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
         i64 = ir.IntType(64)        # pointer arithmetic offsets (structural)
         iw = self.int_type          # platform Int width (the value being formatted)
         void = ir.VoidType()
 
-        fn = ir.Function(self.module, ir.FunctionType(void, [iw]),
-                         name="__saw_print_int")
-        self.functions["__saw_print_int"] = fn
+        fn = ir.Function(self.module, ir.FunctionType(void, [iw]), name=name)
+        self.functions[name] = fn
         n = fn.args[0]; n.name = "n"
 
         entry = fn.append_basic_block("entry")
@@ -633,8 +643,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         endp = b.gep(bufp, [ir.Constant(i64, 24)], inbounds=True, name="end")
         nlpos = b.gep(endp, [ir.Constant(i64, -1)], inbounds=True, name="nlpos")
         b.store(ir.Constant(i8, ord('\n')), nlpos)
-        neg = b.icmp_signed('<', n, ir.Constant(iw, 0), name="neg")
-        mag = b.select(neg, b.sub(ir.Constant(iw, 0), n), n, name="mag")
+        if signed:
+            neg = b.icmp_signed('<', n, ir.Constant(iw, 0), name="neg")
+            mag = b.select(neg, b.sub(ir.Constant(iw, 0), n), n, name="mag")
+        else:
+            # Unsigned: every bit pattern is its own magnitude, sign never set.
+            neg = None
+            mag = n
         b.branch(loop)
 
         b = ir.IRBuilder(loop)
@@ -654,9 +669,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         b = ir.IRBuilder(after)
         # newwritep points at the most significant digit. Prepend '-' if negative.
-        signp = b.gep(newwritep, [ir.Constant(i64, -1)], inbounds=True, name="signp")
-        b.store(ir.Constant(i8, ord('-')), signp)
-        startp = b.select(neg, signp, newwritep, name="startp")
+        if signed:
+            signp = b.gep(newwritep, [ir.Constant(i64, -1)], inbounds=True,
+                          name="signp")
+            b.store(ir.Constant(i8, ord('-')), signp)
+            startp = b.select(neg, signp, newwritep, name="startp")
+        else:
+            startp = newwritep
         # saw_write takes a platform-width length (design 47), so measure at iw.
         length = b.sub(b.ptrtoint(endp, iw), b.ptrtoint(startp, iw), name="len")
         b.call(self.functions["__saw_rt_write"], [startp, length])

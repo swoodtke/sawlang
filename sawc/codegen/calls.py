@@ -509,17 +509,32 @@ class CallsMixin:
                 # %lld path used (sext signed, zext unsigned), then format via the
                 # width-parametric itoa. On a 64-bit target this is the pre-47 i64
                 # path unchanged; on riscv32 it formats at 32 bits (no __udivdi3).
+                #
+                # The FORMATTER is chosen by the operand's kind, not just the
+                # extension (design 122 unit G / DF-119b): a same-width unsigned
+                # value has nothing to zero-extend, so it used to reach the signed
+                # formatter unchanged and `print(UInt.max)` emitted `-1`.
+                # Interpolation always picked `%llu` here, so the two disagreed.
                 iw = self.int_width
-                if value.type.width < iw:
+                # `arg_saw` is read defensively above; only fall back to
+                # `_expr_type` on the narrow path that already did (it ICEs on a
+                # module-qualified expression that reached codegen unannotated —
+                # the pre-existing L6 gap).
+                saw_type = arg_saw
+                if saw_type is None and value.type.width < iw:
                     saw_type = self._expr_type(arg.value)
-                    unsigned_kinds = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}
-                    if saw_type and saw_type.kind in unsigned_kinds:
+                unsigned_kinds = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}
+                is_unsigned = bool(saw_type is not None
+                                   and saw_type.kind in unsigned_kinds)
+                if value.type.width < iw:
+                    if is_unsigned:
                         value = self.builder.zext(value, self.int_type, name="print_ext")
                     else:
                         value = self.builder.sext(value, self.int_type, name="print_ext")
                 elif value.type.width > iw:
                     value = self.builder.trunc(value, self.int_type, name="print_trunc")
-                self.builder.call(self.functions["__saw_print_int"], [value])
+                fmt_fn = "__saw_print_uint" if is_unsigned else "__saw_print_int"
+                self.builder.call(self.functions[fmt_fn], [value])
 
         elif isinstance(value.type, ir.DoubleType):
             # Float stays printf-based (identical %f formatting; shares stdio with

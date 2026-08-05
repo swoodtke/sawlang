@@ -566,7 +566,9 @@ construct in the owner and lend `&driver` down.
   Optional; `to_uint()`/`to_uint(radix:)` (design 119) are the unsigned
   companions (→ `UInt?`), reaching the `2^63..2^64-1` range signed parsing
   can't (overflow past `UInt.max` → `None`). Integer bounds are the builtins
-  `Int.max`/`Int.min`, `UInt.max`/`UInt.min`, `Int8.max`…`UInt64.max`.
+  `Int.max`/`Int.min`, `UInt.max`/`UInt.min`, `Int8.max`…`UInt64.max`. An
+  unsigned value prints unsigned everywhere — `print`, `"{x}"` and `to_string()`
+  agree across the whole `0..2^64-1` range (design 122).
 - std.time/std.process/std.file/std.net are HOSTED-only (link libc).
   `Command` spawns a real ARGV — no shell, ever (design 122): one `arg(..)` call
   is exactly one argv element, so spaces, quotes, `;`, `*` and `$VAR` inside an

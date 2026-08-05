@@ -28,7 +28,7 @@ Two symbol tiers exist (design 113); only the first is this ABI:
   as IR bodies by codegen, carry no host-OS knowledge, and a runtime must NOT
   provide them: string retain/release/alloc/from_bytes/len (`__saw_string_*`),
   the Arc/Channel atomic helpers (`__saw_atomic_*`), and integer print
-  (`__saw_print_int`). (Design 118 stage 3 RETIRED the compiler's last reactor
+  (`__saw_print_int` / `__saw_print_uint`). (Design 118 stage 3 RETIRED the compiler's last reactor
   helper — the `__saw_reactor` instance getter — into the Saw executor's
   `__saw_host_reactor()`; codegen no longer emits any reactor-instance code.)
 

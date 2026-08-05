@@ -1155,7 +1155,10 @@ trait Printable {
 ```
 
 - `Int`/`UInt` and the fixed-width integers, `Float`, `Bool`, and `String`
-  conform **builtin** — the compiler renders them inline.
+  conform **builtin** — the compiler renders them inline. An UNSIGNED value
+  renders unsigned through every path — `print`, interpolation and `to_string()`
+  agree on the full `0..2^64-1` range (design 122 closed DF-119b, where
+  `print(UInt.max)` alone emitted `-1`).
 - User types conform **by hand** — there is *no* auto-conformance or synthesis
   (that is the deferred `Debug` design's territory).
 - **String interpolation** `"{expr}"` and **`print(expr)`** accept any Printable
