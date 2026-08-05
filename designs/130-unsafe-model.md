@@ -6,19 +6,26 @@ STATUS: LANDED. Supersedes design 81's marking rules. Decisions marked
 Shipped in the six staged commits of q4's plan, suite green at each. Measured
 migration, against the estimates in the table below:
 
-| area | functions marked | line markers deleted |
-|---|---|---|
-| `sawc/std` (18 files) | 133 | 152 |
-| `sawc/rt` (13 files) | 47 | 56 |
-| `examples` (35 files) | 60 | 79 |
-| `blade/src` + `blade/tests` | 5 | 0 |
-| `sos/kernel` + `sos/tests` | 5 | 0 |
-| `libs`, `selfhost` | 0 | 0 |
-| **total** | **250** | **287** |
+| area | `unsafe` funcs/inits | `unsafe struct` | line markers deleted |
+|---|---|---|---|
+| `sawc/std` (18 files) | 136 | 0 | 152 |
+| `sawc/rt` (13 files) | 47 | 0 | 56 |
+| `sawc/builtin.saw` | 0 | 1 (`UnsafeMemory`) | 0 |
+| `examples` | 69 (59 migrated + 10 new tests) | 6 (all new tests) | 79 |
+| `blade/src` + `blade/tests` | 5 | 0 | 0 |
+| `sos/kernel` + `sos/tests` | 5 | 0 | 0 |
+| `libs`, `selfhost` | 0 | 0 | 0 |
+| **total in tree** | **262** | **7** | **287** |
 
-Two estimates were low. The marker count was 287, not ~185 — the brief's table
+Both estimates were low. The marker count was 287, not ~185 — the brief's table
 omitted `examples/` entirely, and `taskgroup.saw` alone held 72. The function
-count was 250, not ~115, because the brief measured std and rt only.
+count is 252 migrated (the rest is new test code), not ~115, because the brief
+measured std and rt only.
+
+NO type had to be renamed: `UnsafePointer`/`UnsafeConstPointer` are built-in
+kinds rather than structs, `UnsafeMemory` already complied with the prefix rule,
+and no user or std type needed `unsafe struct`. The naming cost the brief
+accepted for kernel-domain types has not been paid by anything yet.
 
 The shape of the result held exactly: application-level Saw needed 5 marks in
 blade and 5 in SOS, all of them on code that casts to a raw pointer for a libc
