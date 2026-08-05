@@ -10,7 +10,7 @@ extern "C" {
     func system(command: UnsafePointer<Int8>) -> Int32
 }
 
-func sh(cmd: String) -> Bool {
+unsafe func sh(cmd: String) -> Bool {
     let full = "( {cmd} ) > /dev/null 2>&1"
     system(full as UnsafePointer<Int8>) == (0 as Int32)
 }

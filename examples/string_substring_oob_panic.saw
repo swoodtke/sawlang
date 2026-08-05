@@ -1,0 +1,12 @@
+// Design 130 accessor rule (M3): `String.substring` panics on a range outside
+// the string. It used to CLAMP — `"hello".substring(-9, 99)` returned the whole
+// string and `"hello".substring(5, 2)` returned `""` — so a caller could not
+// distinguish a bug from a legitimately empty slice.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: String.substring: range out of bounds
+
+func main() {
+    print("hello".substring(1, 3))    // "el" — in range
+    print("hello".substring(2, 2))    // "" — an empty range is legal
+    print("hello".substring(-9, 99))  // out of bounds -> panic
+}

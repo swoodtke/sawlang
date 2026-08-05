@@ -1,0 +1,12 @@
+// Design 130 accessor rule (M5): `Vector.swap` panics out of range. It was a
+// silent no-op, so a caller with a bad index got an unswapped vector and no way
+// to find out.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Vector.swap: index out of range
+
+func main() {
+    var v: Vector<Int> = [10, 20, 30]
+    v.swap(0, 2)
+    print(v.get(0)!)             // 30 — in range still swaps
+    v.swap(0, 99)                // past the end -> panic
+}

@@ -379,19 +379,25 @@ extension String {
         }
     }
 
-    // Extract a substring from start index to end index (exclusive)
-    // Returns empty string if indices are invalid
+    /// Returns the bytes in `start..<end` as a new String.
+    ///
+    /// Panics if the range is reversed (`start > end`) or reaches outside
+    /// `0..len()`. An empty range is legal and yields `""`.
+    ///
+    /// This used to CLAMP: `"hello".substring(5, 2)` returned `""` and
+    /// `"hello".substring(-9, 99)` returned `"hello"`, so a caller could not
+    /// tell a bug from an empty slice — the clamped `""` collided with the
+    /// legitimate `substring(2, 2)`. Design 130's accessor rule replaced the
+    /// clamp with the same always-on bounds check indexing has.
     public func substring(&self, start: Int, end: Int) -> String {
         let len = self.len()
-
-        // Clamp indices
-        var s = start
-        var e = end
-        if s < 0 { s = 0 }
-        if e > len { e = len }
-        if s >= e { return "" }
-
-        self._substring(s, e - s)
+        if start < 0 || end > len || start > end {
+            panic("String.substring: range out of bounds")
+        }
+        if start == end {
+            return ""
+        }
+        self._substring(start, end - start)
     }
 
     // Find the first occurrence of a character (byte)

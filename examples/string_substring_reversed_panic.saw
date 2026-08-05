@@ -1,0 +1,10 @@
+// Design 130 accessor rule (M3): a REVERSED range is a bug signal, not an empty
+// string. `"hello".substring(5, 2)` used to clamp to `""`, colliding with the
+// legitimate `substring(2, 2)`.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: String.substring: range out of bounds
+
+func main() {
+    print("hello".substring(2, 2))    // "" — empty, and legal
+    print("hello".substring(5, 2))    // reversed -> panic
+}

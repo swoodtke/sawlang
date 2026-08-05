@@ -152,19 +152,27 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Set element at index (no-op if out of bounds).
-    //
-    // The slot at `index` is LIVE, so the prior occupant must be released: a
-    // bare `buf[index] = value` is the placement-move primitive (see `push`),
-    // which moves the new value in WITHOUT dropping what was there — that
-    // leaked every owning element a `set` overwrote (design 122 unit A).
-    // `swap_out` moves the old element out and places the new one in; the
-    // `let _ =` discard then consumes and drops the old value right here, so
-    // exactly one deinit runs for it and nothing is duplicated.
-    public func set(&var self, index: Int, value: T) {
-        if index >= 0 && index < self.length {
-            let _ = self.swap_out(index, value)
+    /// Replaces the element at `index`, releasing the one it overwrites.
+    ///
+    /// Panics if `index` is outside `0..<len()`.
+    ///
+    /// The slot at `index` is LIVE, so the prior occupant must be released: a
+    /// bare `buf[index] = value` is the placement-move primitive (see `push`),
+    /// which moves the new value in WITHOUT dropping what was there — that
+    /// leaked every owning element a `set` overwrote (design 122 unit A).
+    /// `swap_out` moves the old element out and places the new one in; the
+    /// `let _ =` discard then consumes and drops the old value right here, so
+    /// exactly one deinit runs for it and nothing is duplicated.
+    ///
+    /// The out-of-range case used to be a silent no-op. Design 130's accessor
+    /// rule retired that: a direct accessor on a safe type panics rather than
+    /// quietly doing less than its name promises, and `value` is consumed either
+    /// way, so the no-op also dropped the caller's element on the floor.
+    public unsafe func set(&var self, index: Int, value: T) {
+        if index < 0 || index >= self.length {
+            panic("Vector.set: index out of range")
         }
+        let _ = self.swap_out(index, value)
     }
 
     /// Appends `value` to the end.
@@ -275,9 +283,11 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         if i == j {
             return
         }
-        // Out-of-bounds is a no-op (mirrors `get`/`set`'s tolerant contract).
+        // Out of range panics (design 130's accessor rule). This was a silent
+        // no-op, which meant a caller with a bad index got an unswapped vector
+        // and no signal — the "silently does less than the name promises" case.
         if i < 0 || i >= self.length || j < 0 || j >= self.length {
-            return
+            panic("Vector.swap: index out of range")
         }
         if let buf = self.buffer {
             let size = sizeof<T>()
@@ -302,8 +312,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // outside `0..<len()` panics (design 122, RS-6). Unchecked, this was the
     // worst of the three unchecked accessors — `buf[index] = value` past the
     // end is an out-of-bounds WRITE, i.e. heap corruption reachable from fully
-    // safe code. `set` filters the index before delegating here, so its
-    // documented no-op-when-out-of-range contract is unchanged.
+    // safe code.
     public unsafe func swap_out(&var self, index: Int, value: T) -> T {
         if index < 0 || index >= self.length {
             panic("Vector.swap_out: index out of range")

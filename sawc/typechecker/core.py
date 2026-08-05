@@ -348,6 +348,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                  f"signature where every caller can see it; if the operation is "
                  f"sound for every input, keep the wrapper unsafe and expose a "
                  f"safe one that checks its arguments",
+            # The verdict runs during teardown, after `current_method` /
+            # `current_function` are cleared, so `_error`'s auto-detection would
+            # fall back to the ENTRY module and point a multi-module diagnostic
+            # at an unrelated file. Name the declaration's own file.
+            source_file=getattr(node, 'source_file', None) or None,
         )
 
     def _member_gate_allows(self, def_module: Tuple[str, ...],
