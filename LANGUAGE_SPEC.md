@@ -149,12 +149,14 @@ func divide(a: Int, b: Int) -> (quotient: Int, remainder: Int) {
     (a / b, a % b)
 }
 
-// Generic functions with mutable-reference parameters
-func swap<T>(a: &var T, b: &var T) {
-    // (illustrative) — mutation through a &var reference uses compound
-    // assignment or mutating methods; direct `a = b` is rejected. A real
-    // in-place swap of two Vector slots uses the `Vector.swap(i, j)` method.
+// Generic functions with mutable-reference parameters. Mutation through a
+// &var reference uses compound assignment, a mutating method, or whole-referent
+// replacement (design 110): `a = b` overwrites what `a` refers to, in place.
+func replace<T>(a: &var T, b: &var T) {
+    a = b
 }
+// A true in-place swap is not writable this way — moving out of a reference is
+// rejected, so there is no way to park the old value. Use `Vector.swap(i, j)`.
 
 // Functions with default parameter values (implemented, design 53)
 func greet(name: String, greeting: String = "Hello") -> String {
