@@ -1,0 +1,68 @@
+// Design 123: Arc, Mutex and Channel each used to construct an INERT object on
+// allocator exhaustion — one that reports success, accepts calls forever and
+// does nothing:
+//   Arc      -> ptr None: the value silently dropped, strong_count() == 0, and
+//               any forwarded payload method dereferencing a null block
+//   Mutex    -> block None: lock() returning false WITHOUT running the body
+//   Channel  -> block None: send() swallowing every message, recv()
+//               force-unwrapping a None, receive() looping forever
+// All three constructors panic now, and each has a `try_make` twin that reports
+// the refusal instead. There is no inert state left to construct.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// arc denied
+// 1
+// mutex denied
+// true
+// channel denied
+// 42
+
+import std.mutex.{Mutex}
+import std.channel
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+}
+
+func main() {
+    let a = Arc<Int>(value: 5)
+    print(a.strong_count())             // 1 — a real block
+
+    __saw_rt_alloc_deny_after(0, 0)
+    let arc_made = Arc<Int>.try_make(6)
+    __saw_rt_alloc_deny_after(-1, 0)
+    match arc_made {
+        case Ok(made) -> print(made.strong_count()),
+        case Err(_) -> print("arc denied")
+    }
+    print(a.strong_count())             // 1 — the live Arc is unaffected
+
+    __saw_rt_alloc_deny_after(0, 0)
+    let mutex_made = Mutex<Int>.try_make(7)
+    __saw_rt_alloc_deny_after(-1, 0)
+    match mutex_made {
+        case Ok(made) -> print(made.get()),
+        case Err(_) -> print("mutex denied")
+    }
+    let m = Mutex<Int>(value: 1)
+    print(m.lock { &var c in c > 0 })    // true — a real mutex still locks
+
+    __saw_rt_alloc_deny_after(0, 0)
+    let chan_made = Channel<Int>.try_make()
+    __saw_rt_alloc_deny_after(-1, 0)
+    match chan_made {
+        case Ok(_) -> print("channel ok"),
+        case Err(_) -> print("channel denied")
+    }
+
+    // try_send reports a refused queue node rather than eating the message.
+    let ch = Channel<Int>()
+    __saw_rt_alloc_deny_after(0, 1)
+    let sent = ch.try_send(99)
+    match sent {
+        case Ok(_) -> print("sent"),
+        case Err(_) -> ch.send(42)
+    }
+    print(ch.try_receive()!)            // 42 — the retry landed
+}

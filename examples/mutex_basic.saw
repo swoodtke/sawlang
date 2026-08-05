@@ -1,10 +1,19 @@
 // Mutex<T>: mutual-exclusion wrapper. lock(body) runs the closure with &var
 // access to the guarded payload under the lock; get() snapshots it (T: Copy).
 // (Single task here; the cross-task counter lands with spawn in this stage.)
+//
+// Design 123 (review H7): `get` is no longer optional and `lock`'s `false` no
+// longer has two meanings. Both used to be shaped by the OOM path — an
+// allocation failure built an INERT mutex whose `lock` returned `false` without
+// running the critical section at all, and whose `get` answered `None`.
+// Construction panics on allocator exhaustion now, so the only `false` a caller
+// sees is the one the closure computed.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 5
 // 50
+// true
+// false
 
 import std.mutex.{Mutex}
 func main() {
@@ -18,16 +27,16 @@ func main() {
         }
         i = i + 1
     }
-    if let v = m.get() {
-        print(v)   // 5
-    }
+    print(m.get())   // 5
 
     // Mutate by a larger step, still under the lock.
     m.lock { &var c in
         c = c * 10
         true
     }
-    if let v = m.get() {
-        print(v)   // 50
-    }
+    print(m.get())   // 50
+
+    // The closure's own answers, both of them, and neither one ambiguous.
+    print(m.lock { &var c in c > 0 })     // true
+    print(m.lock { &var c in c < 0 })     // false
 }

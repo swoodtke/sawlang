@@ -22,13 +22,21 @@ extern "C" {
 }
 
 struct Arc<T> {
-    // Points at the control block's byte 0 (the strong count). None only on the
-    // OOM path, where the Arc is inert.
+    // Points at the control block's byte 0 (the strong count). Always live in a
+    // constructed Arc — `init` panics rather than build an inert one (design
+    // 123). The field keeps its optional TYPE because codegen's payload-method
+    // forwarding reads this exact `{ i1, i8* }` layout out of the Arc struct;
+    // the `None` case is unreachable, not a state the library can produce.
     ptr: UnsafePointer<Int8>?
 }
 
 extension Arc<T> {
-    // Construct a fresh Arc owning `value` (strong = 1, weak = 1).
+    /// Constructs a fresh `Arc` owning `value` (strong = 1, weak = 1).
+    ///
+    /// Panics if the allocator refuses the control block (design 123,
+    /// infallible tier). It used to build an INERT `Arc` — `value` silently
+    /// dropped, `strong_count()` reporting 0, and any forwarded payload method
+    /// dereferencing a null block. `try_make` reports the failure instead.
     public init(value: T) -> Arc<T> {
         let size = 16 + sizeof<T>()
         if let block = unsafe GlobalAllocator().alloc(size, 16) {
@@ -40,11 +48,30 @@ extension Arc<T> {
             unsafe payload_ptr[0] = value
             Arc<T>(ptr: block)
         } else {
-            Arc<T>(ptr: None)
+            panic("Arc(value:): allocation failed")
         }
     }
 
-    // Number of strong owners (for tests/diagnostics; a racy snapshot).
+    /// Constructs a fresh `Arc` owning `value`, reporting allocator exhaustion
+    /// as `Err(AllocError)`.
+    ///
+    /// `value` is destroyed on the failure path rather than leaked.
+    public func try_make(value: T) -> Result<Arc<T>, AllocError> {
+        let size = 16 + sizeof<T>()
+        if let block = unsafe GlobalAllocator().alloc(size, 16) {
+            let strong_ptr = block as UnsafePointer<Int>
+            unsafe strong_ptr[0] = 1
+            let weak_ptr = (block + 8) as UnsafePointer<Int>
+            unsafe weak_ptr[0] = 1
+            let payload_ptr = (block + 16) as UnsafePointer<T>
+            unsafe payload_ptr[0] = value
+            return Arc<T>(ptr: block)
+        }
+        return AllocError(size: size, align: 16)
+    }
+
+    // Number of strong owners (for tests/diagnostics; a racy snapshot). The
+    // `else` is unreachable — see the field comment.
     public func strong_count(&self) -> Int {
         if let block = self.ptr {
             let strong_ptr = block as UnsafePointer<Int>

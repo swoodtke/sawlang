@@ -16,7 +16,5 @@ func main() {
         c = double(c)
         true
     }
-    if let v = m.get() {
-        print(v)   // 6
-    }
+    print(m.get())   // 6 (design 123: `get` is no longer optional)
 }

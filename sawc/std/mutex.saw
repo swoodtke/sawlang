@@ -23,12 +23,19 @@ extern "C" {
 
 struct Mutex<T> {
     // Control block: bytes [0, 64) hold the pthread_mutex_t; the payload T
-    // starts at byte 64. None only on the OOM path.
-    block: UnsafePointer<Int8>?
+    // starts at byte 64. NOT optional (design 123): `init` panics rather than
+    // build a mutex that can never lock, so there is no inert state to check
+    // for and no dead branch that has to invent an answer.
+    block: UnsafePointer<Int8>
 }
 
 extension Mutex<T> {
-    // Take ownership of `value` and wrap it behind a fresh mutex.
+    /// Takes ownership of `value` and wraps it behind a fresh mutex.
+    ///
+    /// Panics if the allocator refuses the control block (design 123,
+    /// infallible tier). It used to build an INERT mutex whose `lock` returned
+    /// `false` without ever running the critical section. `try_make` reports
+    /// the failure instead.
     public init(value: T) -> Mutex<T> {
         let size = 64 + sizeof<T>()
         if let block = unsafe GlobalAllocator().alloc(size, 16) {
@@ -37,28 +44,55 @@ extension Mutex<T> {
             unsafe payload_ptr[0] = value
             Mutex<T>(block: block)
         } else {
-            Mutex<T>(block: None)
+            panic("Mutex(value:): allocation failed")
         }
     }
 
-    // Acquire the lock, run `body` with a &var borrow of the payload, release.
-    // `lock` is on `&self` (interior mutability) so it composes with Arc's
-    // immutable-borrow forwarding. The Bool result is the closure's result.
-    //
-    // `body` is a `sync` function type (design 22): the critical section is a
-    // checked suspension-free effect context. Suspending while holding the lock
-    // (the async-mutex deadlock class) is therefore a COMPILE ERROR, and because
-    // `body` is sync, calling it below does not make `lock` itself suspend.
-    public func lock(&self, body: (&var T) sync -> Bool) -> Bool {
-        if let block = self.block {
-            pthread_mutex_lock(block)
+    /// Wraps `value` behind a fresh mutex, reporting allocator exhaustion as
+    /// `Err(AllocError)`.
+    ///
+    /// `value` is destroyed on the failure path rather than leaked.
+    public func try_make(value: T) -> Result<Mutex<T>, AllocError> {
+        let size = 64 + sizeof<T>()
+        if let block = unsafe GlobalAllocator().alloc(size, 16) {
+            __saw_rt_pthread_mutex_init_default(block)
             let payload_ptr = (block + 64) as UnsafePointer<T>
-            let result = body(payload_ptr)
-            pthread_mutex_unlock(block)
-            result
-        } else {
-            false
+            unsafe payload_ptr[0] = value
+            return Mutex<T>(block: block)
         }
+        return AllocError(size: size, align: 16)
+    }
+
+    /// Acquires the lock, runs `body` with a `&var` borrow of the payload,
+    /// releases, and hands back what `body` returned.
+    ///
+    /// `lock` is on `&self` (interior mutability) so it composes with Arc's
+    /// immutable-borrow forwarding.
+    ///
+    /// The `false` you see is the one your critical section computed. It used
+    /// to have a second meaning: on a mutex whose construction had run out of
+    /// memory, `lock` returned `false` WITHOUT RUNNING `body` at all, so
+    /// "my critical section ran and said no" and "my critical section never
+    /// ran" were the same answer (review H7). Construction panics now, so the
+    /// inert mutex that made that ambiguity possible no longer exists.
+    ///
+    /// The result is still `Bool` rather than the closure's own type
+    /// (review M1). Making it generic is a one-line change here and breaks
+    /// `Arc<Mutex<T>>`: codegen's payload-method forwarding mangles a
+    /// NON-generic callee symbol, so every `shared.lock { ... }` through an Arc
+    /// stops compiling. See DF-123c.
+    ///
+    /// NON-REENTRANT: locking a mutex already held by the same task
+    /// self-deadlocks. `body` is a `sync` function type (design 22), so
+    /// suspending inside the critical section is a compile error and calling
+    /// `body` does not make `lock` itself suspend.
+    public func lock(&self, body: (&var T) sync -> Bool) -> Bool {
+        let block = self.block
+        pthread_mutex_lock(block)
+        let payload_ptr = (block + 64) as UnsafePointer<T>
+        let result = body(payload_ptr)
+        pthread_mutex_unlock(block)
+        result
     }
 }
 
@@ -66,12 +100,11 @@ extension Mutex<T> {
 // requirement is already satisfied.
 extension Mutex<T>: Deinit {
     public func deinit(&var self) {
-        if let block = self.block {
-            let payload_ptr = (block + 64) as UnsafePointer<T>
-            __saw_deinit_in_place(payload_ptr)
-            pthread_mutex_destroy(block)
-            GlobalAllocator().dealloc(block, 64 + sizeof<T>(), 16)
-        }
+        let block = self.block
+        let payload_ptr = (block + 64) as UnsafePointer<T>
+        __saw_deinit_in_place(payload_ptr)
+        pthread_mutex_destroy(block)
+        GlobalAllocator().dealloc(block, 64 + sizeof<T>(), 16)
     }
 }
 
@@ -81,15 +114,16 @@ extension Mutex<T>: NoCopy {
 // Snapshot the payload under the lock. Requires `T: Copy` so the read
 // duplicates rather than moves the guarded value out.
 extension Mutex<T: Copy> {
-    public func get(&self) -> T? {
-        if let block = self.block {
-            pthread_mutex_lock(block)
-            let payload_ptr = (block + 64) as UnsafePointer<T>
-            let result = payload_ptr[0].copy()
-            pthread_mutex_unlock(block)
-            result
-        } else {
-            None
-        }
+    /// Returns a copy of the payload, read under the lock.
+    ///
+    /// Not optional (design 123): the `None` only ever meant "this mutex was
+    /// built by an allocation that failed", and construction panics now.
+    public func get(&self) -> T {
+        let block = self.block
+        pthread_mutex_lock(block)
+        let payload_ptr = (block + 64) as UnsafePointer<T>
+        let result = payload_ptr[0].copy()
+        pthread_mutex_unlock(block)
+        result
     }
 }

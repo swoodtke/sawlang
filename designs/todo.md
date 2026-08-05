@@ -498,6 +498,49 @@ inlined (the `.build/scratch` probes are gitignored).
   instance method `try_reserve` instead, which is the better implementation
   anyway (one allocation, no intermediate) and never needed the static spelling.
 
+- **DF-123b — ICE: a generic local typed by the method's own type parameter,
+  when that parameter instantiates to `Void` (found by design 123 unit G, Aug
+  5).** `Mutex.lock<R>`'s natural body binds the closure result so the unlock can
+  run before the return:
+  ```saw
+  public func lock<R>(&self, body: (&var T) sync -> R) -> R {
+      pthread_mutex_lock(block)
+      let result = body(payload_ptr)     // R = Void -> ICE
+      pthread_mutex_unlock(block)
+      result
+  }
+  ```
+  At `R = Void` — a critical section that computes nothing, i.e. the common case
+  — codegen reaches `statements.py::_generate_let_statement` ->
+  `_entry_alloca(VoidType)` and llvmlite asserts, surfacing as
+  `internal compiler error:` with an EMPTY message. The typechecker accepts the
+  body (R is a type parameter there), so nothing catches it earlier.
+  `Vector.with_ref<R>`/`with_var_ref<R>` survive only because their `body(...)`
+  call is in tail position with no binding. Two things to fix: a `let` bound to a
+  `Void`-instantiated generic should be the same clean design-122 error a
+  concrete `let n = <Void expr>` already gets, and codegen should not build an
+  alloca for a zero-sized/void local.
+
+- **DF-123c — `Arc<T>` payload-method forwarding cannot reach a METHOD-GENERIC
+  payload method (found by design 123 unit G, Aug 5).** Making `Mutex.lock`
+  generic over the closure's result (review M1, "you cannot compute a value under
+  the lock") is a one-line signature change that compiles fine on its own and
+  then breaks every `Arc<Mutex<T>>` user with
+  `internal compiler error: 'Mutex$1$Int_lock'`. Cause:
+  `calls.py::_generate_arc_forward_call` mangles the payload method with
+  `_mangle_method_name(base, name)`, the NON-generic form, so it looks up a
+  symbol the method-generic monomorphizer never emits (`..._lock$1$Void` etc.);
+  the typechecker's `_resolve_arc_forward` likewise does not solve method-level
+  type arguments at a forward site. Reproduced by `examples/mutex_counter.saw`,
+  `task_join_on_deinit.saw` and `net_budget_fairness.saw`, all of which lock
+  through an `Arc<Mutex<Int>>`.
+  design 123 did NOT code around this: `lock` KEEPS its `Bool` result and the
+  brief's actual non-negotiable is met a different way — the `false` collision is
+  gone because the INERT mutex that produced the second meaning cannot be
+  constructed any more (`Mutex(value:)` panics). **M1 stays open and is blocked
+  on this**: forwarding needs to solve and monomorphize method-level type args
+  before `lock<R>` (or any other generic payload method) can ship.
+
 ## Design 122 — DF-findings
 
 - **DF-122a — STOPPED, needs a user decision (design 122 unit D4, Aug 4).**

@@ -44,12 +44,20 @@ extern "C" {
 }
 
 struct Channel<T: Send> {
-    // Shared block pointer. `None` only on the inert OOM path.
+    // Shared block pointer. Always live in a constructed Channel — `init`
+    // panics rather than build an inert one (design 123). The field keeps its
+    // optional TYPE because the block is also reached through the refcounted
+    // handle protocol below; the `None` case is unreachable.
     block: UnsafePointer<Int8>?
 }
 
 extension Channel<T: Send> {
-    // Create a fresh empty channel (refcount = 1, count = 0).
+    /// Creates a fresh empty channel.
+    ///
+    /// Panics if the allocator refuses the shared block (design 123,
+    /// infallible tier). It used to build an INERT channel: `send` swallowed
+    /// every message, `recv` force-unwrapped a `None` and `receive` looped
+    /// forever. `try_make` reports the failure instead.
     public init() -> Channel<T> {
         if let block = unsafe GlobalAllocator().alloc(160, 16) {
             __saw_rt_pthread_mutex_init_default(block)
@@ -61,12 +69,53 @@ extension Channel<T: Send> {
             unsafe count[0] = 0
             Channel<T>(block: block)
         } else {
-            Channel<T>(block: None)
+            panic("Channel(): allocation failed")
         }
     }
 
-    // Enqueue a value (ownership transferred in). Wakes one blocked receiver.
+    /// Creates a fresh empty channel, reporting allocator exhaustion as
+    /// `Err(AllocError)`.
+    public func try_make() -> Result<Channel<T>, AllocError> {
+        if let block = unsafe GlobalAllocator().alloc(160, 16) {
+            __saw_rt_pthread_mutex_init_default(block)
+            let cond = (block + 64) as UnsafePointer<Int8>
+            __saw_rt_pthread_cond_init_default(cond)
+            let refcount = (block + 128) as UnsafePointer<Int>
+            unsafe refcount[0] = 1
+            let count = (block + 136) as UnsafePointer<Int>
+            unsafe count[0] = 0
+            return Channel<T>(block: block)
+        }
+        return AllocError(size: 160, align: 16)
+    }
+
+    /// Enqueues a value, waking one blocked receiver.
+    ///
+    /// Ownership of `v` transfers to the channel. Panics if the queue node
+    /// cannot be allocated (design 123, infallible tier): this returned `Void`
+    /// and wrapped the whole enqueue in an unguarded `if let`, so on allocator
+    /// exhaustion the message was consumed, destroyed and never delivered —
+    /// with no signal to either end. `try_send` reports the failure instead.
     public func send(&self, v: T) {
+        if not self._enqueue(move v) {
+            panic("Channel.send: allocation failed")
+        }
+    }
+
+    /// Enqueues a value, reporting allocator exhaustion as `Err(AllocError)`.
+    ///
+    /// The queue is unchanged on `Err`; `v` is consumed either way.
+    public func try_send(&self, v: T) -> Result<Void, AllocError> {
+        if not self._enqueue(move v) {
+            return AllocError(size: 8 + sizeof<T>(), align: 16)
+        }
+        return
+    }
+
+    // Internal: the enqueue itself. Returns whether the node was allocated and
+    // linked; FALSE leaves the queue untouched (and `v`, unmoved, deinits at
+    // this scope's exit rather than vanishing into a half-built node).
+    func _enqueue(&self, v: T) -> Bool {
         if let block = self.block {
             pthread_mutex_lock(block)
             // Allocate and fill a node { next, value }.
@@ -88,9 +137,13 @@ extension Channel<T: Send> {
                 count[0] = count[0] + 1
                 let cond = (block + 64) as UnsafePointer<Int8>
                 pthread_cond_signal(cond)
+                pthread_mutex_unlock(block)
+                return true
             }
             pthread_mutex_unlock(block)
+            return false
         }
+        false
     }
 
     // Non-blocking dequeue (design 52b): the head value if the queue is
@@ -174,8 +227,10 @@ extension Channel<T: Send> {
             pthread_mutex_unlock(block)
             value
         } else {
-            let empty: T? = None
-            empty!
+            // Unreachable: a constructed Channel always has its block (design
+            // 123). This used to be `empty!` — a force-unwrap of None whose
+            // panic said nothing about what had actually gone wrong.
+            panic("Channel.recv: channel has no shared block")
         }
     }
 }
