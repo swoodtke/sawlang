@@ -1295,6 +1295,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # module now that all its signatures are registered.
         self._stamp_overload_symbols()
 
+        # DF-140f: give this module's PRIVATE free functions a module-local
+        # codegen symbol, so a same-named private function in another module is
+        # a different definition rather than an "ambiguous function" report.
+        self._stamp_module_private_functions()
+
         # design 58: validate @export / @section on this module's functions and
         # statics. The export-symbol table accumulates across every module the
         # shared checker visits, so a duplicate exported C symbol across modules

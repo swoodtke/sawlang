@@ -1026,6 +1026,23 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         table."""
         return f"saw.static.{name}"
 
+    def _static_global(self, expr):
+        """The LLVM global for an expression naming a module static, or None.
+
+        DF-140f: prefer the symbol the typechecker stamped. Codegen sees one
+        merged namespace, so two modules' private `PT_LOAD`s are
+        indistinguishable by name here — the stamp is the resolution, made where
+        the importing module's own namespace was in hand. The simple-name
+        fallback covers every unstamped reference (synthesized code, and the
+        root module, where the two keys are the same string anyway)."""
+        stamped = getattr(expr, 'resolved_static_symbol', None)
+        if stamped is not None and stamped in self.static_globals:
+            return self.static_globals[stamped]
+        name = getattr(expr, 'name', None)
+        if name is not None and name in self.static_globals:
+            return self.static_globals[name]
+        return None
+
     def _type_has_interior_mutability(self, saw_type) -> bool:
         """Whether a static of `saw_type` must be a NON-constant global — i.e. it
         contains an `Atomic` cell somewhere. Immutable POD statics are emitted as
@@ -1122,7 +1139,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         llvm_type = self._get_llvm_type(static.type)
         # An @export static takes the exact C data symbol; otherwise the mangled
         # module-local name (design 41).
-        gname = c_symbol if c_symbol else self._static_mangled_name(static.name)
+        # DF-140f: the typechecker stamps the static's codegen symbol, which is
+        # module-qualified for a private static outside the root module. Two
+        # dependencies may then each declare a private `PT_LOAD` without landing
+        # on one LLVM global.
+        stamped = getattr(static, 'mangled_symbol', None)
+        gname = c_symbol if c_symbol else (
+            stamped or self._static_mangled_name(static.name))
         gv = ir.GlobalVariable(self.module, llvm_type, name=gname)
         # Exported statics are externally-visible definitions (default linkage);
         # everything else stays module-local (`internal`).
@@ -1153,7 +1176,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         if exported and gv not in self._exported_llvm_globals:
             self._exported_llvm_globals.append(gv)
 
-        self.static_globals[static.name] = gv
+        # Keyed BOTH ways: by the codegen symbol (what a stamped reference
+        # resolves through, and what keeps two private same-named statics apart)
+        # and by the simple name (the compatible path for every reference the
+        # typechecker did not stamp — synthesized code, and the root module,
+        # where the two keys coincide anyway).
+        self.static_globals[getattr(static, 'mangled_symbol', None)
+                            or static.name] = gv
+        self.static_globals.setdefault(static.name, gv)
 
     def _declare_pthread_runtime(self):
         """Emit thin pthread wrappers the concurrency stdlib links against
@@ -2447,8 +2477,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             if expr.name in self.void_variables:
                 return None
             # Module-level static (design 41): load through its global.
-            if expr.name in self.static_globals:
-                gv = self.static_globals[expr.name]
+            gv = self._static_global(expr)
+            if gv is not None:
                 return self.builder.load(gv, name=expr.name)
             raise ValueError(f"Undefined variable: {expr.name}")
 

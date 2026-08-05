@@ -1,0 +1,15 @@
+//! DF-140f fixture: a dependency whose module-PRIVATE static and function
+//! happen to share names with the importer's own. Neither is nameable from
+//! outside this module, so neither should constrain what a consumer may call
+//! its own declarations.
+// EXPECT: skip
+
+static PT_LOAD: Int = 1
+
+func header_kind() -> Int {
+    PT_LOAD
+}
+
+public func dep_kind() -> Int {
+    header_kind()
+}

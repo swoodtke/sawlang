@@ -458,6 +458,13 @@ class ExpressionsMixin:
             # Module-level static (design 41): read like an immutable binding.
             static_sym = self.namespace.get_static(expr.name)
             if static_sym is not None and self.namespace.is_accessible(expr.name):
+                # DF-140f: resolution happens HERE, against this module's own
+                # namespace, so this is the only place that knows WHICH
+                # same-named private static was meant. Stamp its codegen symbol
+                # — codegen works from one merged namespace and could not tell
+                # two module-private `PT_LOAD`s apart on its own.
+                if static_sym.mangled_name:
+                    expr.resolved_static_symbol = static_sym.mangled_name
                 return static_sym.type
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,

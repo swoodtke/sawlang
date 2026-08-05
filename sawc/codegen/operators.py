@@ -1219,8 +1219,9 @@ class OperatorsMixin:
             if var_name not in self.variables:
                 # `&STATIC` (design 41): an immutable lend of a module static
                 # yields a pointer to its global.
-                if var_name in self.static_globals:
-                    return self.static_globals[var_name]
+                gv = self._static_global(inner_expr)
+                if gv is not None:
+                    return gv
                 raise ValueError(f"Undefined variable: {var_name}")
             # Re-borrowing an existing reference binding (`&var ref` / `&ref`,
             # design 56): the alloca holds the reference (a pointer to the real

@@ -1422,8 +1422,8 @@ class CallsMixin:
         if isinstance(obj_expr, Identifier):
             if obj_expr.name in self.variables:
                 struct_ptr = self.variables[obj_expr.name]
-            elif obj_expr.name in self.static_globals:
-                struct_ptr = self.static_globals[obj_expr.name]
+            elif self._static_global(obj_expr) is not None:
+                struct_ptr = self._static_global(obj_expr)
             else:
                 raise ValueError(f"Undefined Atomic receiver: {obj_expr.name}")
         elif isinstance(obj_expr, SelfExpr):
@@ -1959,8 +1959,8 @@ class CallsMixin:
         # or element reached through it (`S.field`, `S[i]`) addresses the real
         # static — needed so an interior-mutable field (`S.hits.fetch_add(..)`)
         # hits the global, not a copy.
-        if isinstance(expr, Identifier) and expr.name in self.static_globals:
-            return self.static_globals[expr.name]
+        if isinstance(expr, Identifier) and self._static_global(expr) is not None:
+            return self._static_global(expr)
         if isinstance(expr, SelfExpr) and "self" in self.variables:
             return self.variables["self"]
         if isinstance(expr, MemberAccess):

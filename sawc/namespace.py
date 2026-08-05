@@ -1666,7 +1666,18 @@ class Namespace:
                 (structs, enums, functions, traits, type aliases), not for
                 module aliases or generic AST storage.
         """
-        def _merge(category: str, dst: Dict[str, Any], src: Dict[str, Any]):
+        def _module_local(sym) -> bool:
+            """Whether `sym` is a module-PRIVATE declaration carrying a
+            module-local codegen symbol (DF-140f). Such a declaration cannot be
+            named from another module — no importer could be ambiguous about it
+            — and its definition no longer shares an LLVM name with a same-named
+            private declaration elsewhere, so a name it happens to share is not
+            a collision at all."""
+            return (getattr(sym, 'visibility', None) == Visibility.PRIVATE
+                    and bool(getattr(sym, 'mangled_name', "")))
+
+        def _merge(category: str, dst: Dict[str, Any], src: Dict[str, Any],
+                   private_is_local: bool = False):
             for name, sym in src.items():
                 # design 82 Part B: a std symbol whose module is not compiled into
                 # this program (non-imported import-required std) is skipped, so a
@@ -1679,6 +1690,9 @@ class Namespace:
                     if source_label is not None:
                         self._provenance[name] = source_label
                 elif existing is not sym and collisions is not None:
+                    if private_is_local and (_module_local(sym)
+                                             or _module_local(existing)):
+                        continue
                     prev = self._provenance.get(name, "<unknown>")
                     collisions.append((category, name, prev,
                                        source_label if source_label is not None
@@ -1686,7 +1700,8 @@ class Namespace:
 
         _merge("struct", self.structs, other.structs)
         _merge("enum", self.enums, other.enums)
-        _merge("function", self.functions, other.functions)
+        _merge("function", self.functions, other.functions,
+               private_is_local=True)
         # Overloading (design 55): carry each name's full overload set across the
         # merge (first-wins per name, matching the representative merge above).
         for _name, _lst in other.function_overloads.items():
@@ -1695,9 +1710,11 @@ class Namespace:
         _merge("trait", self.traits, other.traits)
         _merge("type alias", self.type_aliases, other.type_aliases)
         # Statics (design 41): same identity/collision rule (design 26) as the
-        # other value symbols — two modules each defining a distinct static of
-        # the same name is an unresolvable ambiguity, surfaced here.
-        _merge("static", self.statics, other.statics)
+        # other value symbols — two modules each defining a distinct PUBLIC
+        # static of the same name is an unresolvable ambiguity, surfaced here.
+        # A module-private one is not (DF-140f): it is unnameable from outside
+        # and carries a module-local LLVM global, so the two never meet.
+        _merge("static", self.statics, other.statics, private_is_local=True)
         for name, sym in other.modules.items():
             if name not in self.modules:
                 self.modules[name] = sym

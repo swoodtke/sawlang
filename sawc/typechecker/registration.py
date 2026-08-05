@@ -10,7 +10,7 @@ Usage:
 """
 
 import copy
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from ast_nodes import (
     TypeDefinition, Struct, Enum, Trait, Function, Extension, Method, Parameter,
     Program, StaticDecl, SawType, TypeKind, Visibility, has_synthesize,
@@ -510,6 +510,8 @@ class RegistrationMixin:
             visibility=getattr(func, 'visibility', Visibility.PRIVATE),
             is_sync=getattr(func, 'is_sync', False),
             is_unsafe=getattr(func, 'is_unsafe', False),
+            def_module=self._vis_module_for_source(
+                getattr(func, 'source_file', None)),
             ast_node=func if func.type_params else None,
             decl_node=func
         ))
@@ -607,6 +609,60 @@ class RegistrationMixin:
             parts = ["std"] + parts
         raw = "_".join(parts) if parts else "root"
         return "".join(c if (c.isalnum() or c == "_") else "_" for c in raw)
+
+    # ------------------------------------------------------------------ #
+    # Module-local codegen identity for PRIVATE top-level declarations
+    # (DF-140f, closed under design 142).
+    #
+    # A module-private declaration is invisible to importers for name
+    # resolution — the typechecker resolves against the importing module's own
+    # namespace, which never received it. Codegen, though, works from ONE merged
+    # namespace keyed by simple name, so two modules that each declare a private
+    # `PT_LOAD` (or a private `helper()`) used to land on one key. That was
+    # reported to the author as "ambiguous static `PT_LOAD`", making every
+    # private constant in a dependency a reserved word for every consumer.
+    #
+    # A private declaration cannot be named from outside, so its codegen symbol
+    # need not be — module-qualifying it makes the two definitions genuinely
+    # distinct and the ambiguity disappears. Only NON-ROOT modules are qualified,
+    # so single-file programs keep byte-identical IR.
+    # ------------------------------------------------------------------ #
+    def _module_private_symbol(self, base: str, def_module: Tuple[str, ...],
+                               visibility: Visibility) -> Optional[str]:
+        """The module-qualified codegen symbol for a private declaration, or
+        None when the declaration keeps its plain name (public — importable by
+        simple name, so a genuine cross-module clash is a real ambiguity — or
+        root-module, where there is nothing to distinguish it from)."""
+        if visibility != Visibility.PRIVATE or not def_module:
+            return None
+        return f"{base}$m${self._module_symbol_tag(def_module)}"
+
+    def _stamp_module_private_functions(self):
+        """Give this module's private free functions a module-local codegen
+        symbol. Runs per module, and only over declarations this module OWNS —
+        an imported symbol is the SAME object as the source module's, so
+        stamping it here would rename the definition out from under its owner."""
+        own_module = self._vis_module_for_source(None)
+        for name, overloads in self.namespace.function_overloads.items():
+            if len(overloads) != 1:
+                # An overload set already carries signature-mangled symbols; a
+                # cross-module private clash inside one is out of scope here.
+                continue
+            sym = overloads[0]
+            if sym.mangled_name or sym.decl_node is None:
+                continue
+            if sym.type_params:
+                # A generic's symbol is the template base its monomorphizations
+                # are named from; leave that naming alone.
+                continue
+            if (getattr(sym, 'def_module', ()) or ()) != own_module:
+                continue
+            mangled = self._module_private_symbol(
+                name, own_module, getattr(sym, 'visibility', Visibility.PRIVATE))
+            if mangled is None:
+                continue
+            sym.mangled_name = mangled
+            sym.decl_node.mangled_symbol = mangled
 
     def _stamp_overload_symbols(self):
         """Assign each member of a 2+ overload set a type-signature-suffixed
@@ -875,10 +931,22 @@ class RegistrationMixin:
             )
 
         static.type = resolved_type  # record resolved type for codegen
+        # DF-140f: a PRIVATE static in a non-root module takes a module-local
+        # LLVM global name. Nothing outside its module can name it, so nothing
+        # outside needs to agree on the symbol — and two dependencies that both
+        # declare `PT_LOAD` stop colliding in the merged codegen namespace.
+        # `static_globals` is keyed by this name, and the reference sites read
+        # the symbol the typechecker stamped on the identifier.
+        visibility = getattr(static, 'visibility', Visibility.PRIVATE)
+        mangled = self._module_private_symbol(
+            f"saw.static.{static.name}",
+            self._vis_module_for_source(getattr(static, 'source_file', None)),
+            visibility) or f"saw.static.{static.name}"
+        static.mangled_symbol = mangled
         self.namespace.register_static(static.name, StaticSymbol(
             type=resolved_type,
-            mangled_name=f"saw.static.{static.name}",
-            visibility=getattr(static, 'visibility', Visibility.PRIVATE),
+            mangled_name=mangled,
+            visibility=visibility,
             line=static.line,
             column=static.column
         ))
