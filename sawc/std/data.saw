@@ -71,11 +71,28 @@ extension Data {
         Data(inner: None, offset: 0, length: 0)
     }
 
-    // Create Data with a specific initial capacity
+    /// Creates an empty buffer with room for `capacity` bytes.
+    ///
+    /// Panics if the allocator refuses the request (design 123, infallible
+    /// tier); it used to hand back a capacity-0 buffer, so a caller that asked
+    /// to reserve and got nothing carried on as if it had succeeded.
+    /// `try_with_capacity` reports the failure instead.
     public init(capacity: Int) -> Data {
         var data = Data(inner: None, offset: 0, length: 0)
-        data.ensure_capacity(capacity)
+        if not data._reserve(capacity) {
+            panic("Data(capacity:): allocation failed")
+        }
         move data
+    }
+
+    /// Creates an empty buffer with room for `n` bytes, reporting allocator
+    /// exhaustion as `Err(AllocError)`.
+    public func try_with_capacity(n: Int) -> Result<Data, AllocError> {
+        var data = Data(inner: None, offset: 0, length: 0)
+        if not data._reserve(n) {
+            return AllocError(size: data._grow_target(n), align: 1)
+        }
+        return move data
     }
 
     // =========================================================================
@@ -137,16 +154,51 @@ extension Data {
     // Modification Operations
     // =========================================================================
 
-    // Add a byte to the end
+    /// Appends one byte.
+    ///
+    /// Panics if the buffer must grow and the allocator refuses (design 123,
+    /// infallible tier). The refused grow used to leave `capacity` short and
+    /// this write then landed past the end of the buffer, with `length`
+    /// advancing past `capacity` — RS-1's shape. `try_push` reports the failure.
     public func push(&var self, value: UInt8) {
-        // Ensure we have exclusive ownership and space
-        self.ensure_unique_capacity(self.length + 1)
+        if not self._reserve_unique(self.length + 1) {
+            panic("Data.push: allocation failed")
+        }
+        self._place(value)
+    }
 
+    /// Appends one byte, reporting allocator exhaustion as `Err(AllocError)`.
+    ///
+    /// The buffer is unchanged on `Err`.
+    public func try_push(&var self, value: UInt8) -> Result<Void, AllocError> {
+        let wanted = self.length + 1
+        if not self._reserve_unique(wanted) {
+            return AllocError(size: self._grow_target(wanted), align: 1)
+        }
+        self._place(value)
+        return
+    }
+
+    // Internal: store one byte into the (already reserved) buffer.
+    func _place(&var self, value: UInt8) {
         if let inner = self.inner {
             let buf = inner[0].buffer
             buf[self.offset + self.length] = value
             self.length = self.length + 1
         }
+    }
+
+    /// Reserves room for `additional` more bytes, reporting allocator
+    /// exhaustion as `Err(AllocError)`.
+    ///
+    /// On `Ok` the next `additional` pushes cannot allocate, so they cannot
+    /// fail.
+    public func try_reserve(&var self, additional: Int) -> Result<Void, AllocError> {
+        let wanted = self.length + additional
+        if not self._reserve_unique(wanted) {
+            return AllocError(size: self._grow_target(wanted), align: 1)
+        }
+        return
     }
 
     // Remove and return the last byte (returns None if empty)
@@ -168,15 +220,42 @@ extension Data {
         self.length = 0
     }
 
-    // Append all bytes from another Data
+    /// Appends every byte of `other`.
+    ///
+    /// Panics if the buffer must grow and the allocator refuses (design 123,
+    /// infallible tier); the refused grow used to leave the memcpy below running
+    /// past the end of the buffer. `try_append` reports the failure.
     // TODO: This uses memcpy which may have the same issues as copy() - needs testing
     public func append(&var self, other: Data) {
         if other.length == 0 {
             return
         }
+        if not self._reserve_unique(self.length + other.length) {
+            panic("Data.append: allocation failed")
+        }
+        self._place_data(&other)
+    }
 
-        self.ensure_unique_capacity(self.length + other.length)
+    /// Appends every byte of `other`, reporting allocator exhaustion as
+    /// `Err(AllocError)`.
+    ///
+    /// This buffer is unchanged on `Err` — no partial append. `other` is
+    /// consumed either way; reserve first with `try_reserve` when it has to
+    /// survive a refusal.
+    public func try_append(&var self, other: Data) -> Result<Void, AllocError> {
+        if other.length == 0 {
+            return
+        }
+        let wanted = self.length + other.length
+        if not self._reserve_unique(wanted) {
+            return AllocError(size: self._grow_target(wanted), align: 1)
+        }
+        self._place_data(&other)
+        return
+    }
 
+    // Internal: copy `other`'s live bytes into the (already reserved) buffer.
+    func _place_data(&var self, other: &Data) {
         if let self_inner = self.inner {
             if let other_inner = other.inner {
                 let dest = self_inner[0].buffer as UnsafePointer<Int8>
@@ -193,11 +272,34 @@ extension Data {
     // pointer-typed signature is the design-81 visible marker: callers in the
     // marked domain (std.net's socket read path) fill a Data from a stack buffer
     // with no per-byte overhead. `src`/`len` must describe `len` valid bytes.
+    // Panics if the buffer must grow and the allocator refuses (design 123,
+    // infallible tier); `try_append_bytes` reports the failure.
     public func append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) {
         if len <= 0 {
             return
         }
-        self.ensure_unique_capacity(self.length + len)
+        if not self._reserve_unique(self.length + len) {
+            panic("Data.append_bytes: allocation failed")
+        }
+        self._place_bytes(src, len)
+    }
+
+    // The fallible twin of `append_bytes` (design 123). The buffer is unchanged
+    // on `Err`.
+    public func try_append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) -> Result<Void, AllocError> {
+        if len <= 0 {
+            return
+        }
+        let wanted = self.length + len
+        if not self._reserve_unique(wanted) {
+            return AllocError(size: self._grow_target(wanted), align: 1)
+        }
+        self._place_bytes(src, len)
+        return
+    }
+
+    // Internal: copy `len` bytes from `src` into the (already reserved) buffer.
+    func _place_bytes(&var self, src: UnsafePointer<Int8>, len: Int) {
         if let inner = self.inner {
             let dest = inner[0].buffer as UnsafePointer<Int8>
             memcpy(dest + self.offset + self.length, src, len)
@@ -251,6 +353,12 @@ extension Data {
     //   let dest = new_inner[0].buffer as UnsafePointer<Int8>
     //   let src = self_inner[0].buffer as UnsafePointer<Int8>
     //   memcpy(dest, src + self.offset, self.length)
+    /// Duplicates the bytes into an independent buffer.
+    ///
+    /// Panics if the allocator refuses (design 123, infallible tier). It used
+    /// to set `length` regardless of whether the reservation succeeded, so a
+    /// refused copy reported `len() == N` with `capacity() == 0` and every
+    /// `get` answering `None`. `try_copy` reports the failure instead.
     public func copy(&self) -> Data {
         if self.length == 0 {
             return Data()
@@ -258,19 +366,41 @@ extension Data {
 
         // Allocate new buffer
         var new_data = Data()
-        new_data.ensure_capacity(self.length)
+        if not new_data._reserve(self.length) {
+            panic("Data.copy: allocation failed")
+        }
         new_data.length = self.length
+        new_data._fill_from(&self)
+        move new_data
+    }
 
-        // Copy bytes manually (memcpy causes segfaults - see TODO at top of file)
+    /// Duplicates the bytes into an independent buffer, reporting allocator
+    /// exhaustion as `Err(AllocError)`.
+    public func try_copy(&self) -> Result<Data, AllocError> {
+        if self.length == 0 {
+            return Data()
+        }
+        var new_data = Data()
+        if not new_data._reserve(self.length) {
+            return AllocError(size: new_data._grow_target(self.length), align: 1)
+        }
+        new_data.length = self.length
+        new_data._fill_from(&self)
+        return move new_data
+    }
+
+    // Internal: copy `source`'s live bytes into this (already reserved, already
+    // length-set) buffer.
+    // Uses a manual byte loop because the memcpy version segfaults — see the
+    // TODO at the top of the file.
+    func _fill_from(&var self, source: &Data) {
         var i = 0
         while i < self.length {
-            if let b = self.get(i) {
-                new_data.set(i, b)
+            if let b = source.get(i) {
+                self.set(i, b)
             }
             i = i + 1
         }
-
-        move new_data
     }
 
     // =========================================================================
@@ -310,18 +440,26 @@ extension Data {
     // Internal Helper Methods
     // =========================================================================
 
-    // Ensure the buffer has at least the given capacity
-    public func ensure_capacity(&var self, min_capacity: Int) {
+    // Internal: the capacity a growth to `min_capacity` would allocate.
+    func _grow_target(&self, min_capacity: Int) -> Int {
+        let current_cap = self.capacity()
+        var target = if current_cap == 0 { 16 } else { current_cap }
+        while target < min_capacity {
+            target = target * 2
+        }
+        target
+    }
+
+    // Internal: ensure `capacity() >= min_capacity`. Returns whether the buffer
+    // now has that room — FALSE means the allocator refused and the Data is
+    // untouched. The old `ensure_capacity` returned Void, so `push`/`append`/
+    // `append_bytes` wrote past a buffer that had never grown (RS-1's shape).
+    func _reserve(&var self, min_capacity: Int) -> Bool {
         let current_cap = self.capacity()
         if current_cap >= min_capacity {
-            return
+            return true
         }
-
-        // Calculate new capacity (grow by doubling)
-        var new_capacity = if current_cap == 0 { 16 } else { current_cap }
-        while new_capacity < min_capacity {
-            new_capacity = new_capacity * 2
-        }
+        let new_capacity = self._grow_target(min_capacity)
 
         if let inner = self.inner {
             // Grow via alloc + copy + dealloc (the seams provide no realloc).
@@ -331,11 +469,12 @@ extension Data {
                 GlobalAllocator().dealloc(raw, current_cap, 1)
                 inner[0].buffer = new_raw as UnsafePointer<UInt8>
                 inner[0].capacity = new_capacity
+                return true
             }
-        } else {
-            // Allocate new buffer and DataBuffer
-            self.allocate_buffer(new_capacity)
+            return false
         }
+        // Allocate new buffer and DataBuffer
+        self._allocate_buffer(new_capacity)
     }
 
     // Ensure we have exclusive ownership (copy if shared)
@@ -344,7 +483,7 @@ extension Data {
     // to self.inner, old_data still exists and its deinit will be called at scope
     // end, causing double-free or use-after-free issues despite refcount manipulation.
     // Need to investigate proper ownership transfer patterns in Saw.
-    public func make_unique(&var self) {
+    func _make_unique(&var self) {
         guard let inner = self.inner else {
             return
         }
@@ -369,21 +508,24 @@ extension Data {
         }
     }
 
-    // Ensure exclusive ownership and sufficient capacity
-    public func ensure_unique_capacity(&var self, min_capacity: Int) {
+    // Internal: exclusive ownership plus `min_capacity` bytes of room. Returns
+    // whether both were obtained; FALSE leaves the Data untouched.
+    func _reserve_unique(&var self, min_capacity: Int) -> Bool {
         // First ensure we have exclusive ownership
         if let inner = self.inner {
             if inner[0].refcount > 1 {
-                self.make_unique()
+                self._make_unique()
             }
         }
 
         // Then ensure capacity
-        self.ensure_capacity(min_capacity)
+        self._reserve(min_capacity)
     }
 
-    // Allocate a new buffer with given capacity
-    public func allocate_buffer(&var self, capacity: Int) {
+    // Internal: allocate a control block plus a `capacity`-byte buffer.
+    // Returns whether both allocations succeeded; on a partial failure the
+    // control block is released and the Data is left with no buffer at all.
+    func _allocate_buffer(&var self, capacity: Int) -> Bool {
         // The control block's real size/alignment, not a 64-bit-only literal:
         // `DataBuffer` is 24 bytes on a 64-bit target and 12 on riscv32 — the
         // live SOS target — where the hardcoded 24 over-allocated and then told
@@ -400,12 +542,14 @@ extension Data {
                 inner[0].refcount = 1
                 self.inner = inner
                 self.offset = 0
-            } else {
-                // Failed to allocate buffer, free the struct
-                let a = alignof<DataBuffer>()
-                GlobalAllocator().dealloc(inner_raw, buffer_struct_size, a)
+                return true
             }
+            // Failed to allocate buffer, free the struct
+            let a = alignof<DataBuffer>()
+            GlobalAllocator().dealloc(inner_raw, buffer_struct_size, a)
+            return false
         }
+        false
     }
 }
 

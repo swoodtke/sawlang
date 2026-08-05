@@ -1,0 +1,28 @@
+// Design 123: `Data.push` is the infallible tier, so a refused grow panics and
+// names its method. It used to call a Void-returning `ensure_capacity`, ignore
+// the refusal, and store the byte past the end of the buffer while advancing
+// `length` past `capacity` — RS-1's shape for the third time.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Data.push: allocation failed
+
+import std.data
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+}
+
+func main() {
+    // The first push allocates the 16-byte floor, so 16 bytes fit exactly.
+    var d = Data()
+    var i = 0
+    while i < 16 {
+        d.push(1)
+        i = i + 1
+    }
+    print(d.len())              // 16 — exactly full
+
+    // Refuse exactly the grow the 17th push needs.
+    __saw_rt_alloc_deny_after(0, 1)
+    d.push(2)
+    print(d.len())
+}

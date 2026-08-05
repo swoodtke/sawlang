@@ -1,0 +1,82 @@
+// Design 123: `Data` was the third copy of RS-1's shape. `ensure_capacity`
+// returned Void, so a refused grow left `capacity()` short and `push`/`append`/
+// `append_bytes` wrote past the end of the buffer. `copy` was worse: it set
+// `length` whether or not the reservation succeeded, so a refused copy reported
+// `len() == N` with `capacity() == 0` and every `get` answering `None`.
+//
+// push/append/copy/Data(capacity:) panic now; try_push/try_append/try_copy/
+// try_reserve/try_with_capacity report and leave the buffer exactly as it was.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// push denied: allocation of 32 bytes (align 1) failed
+// 3
+// 3
+// append denied
+// 3
+// copy denied
+// with_capacity denied
+// 9
+
+import std.data
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+}
+
+func main() {
+    var d = Data(capacity: 16)
+    d.push(1)
+    d.push(2)
+    d.push(3)
+    print(d.len())                  // 3
+
+    // Fill to capacity so the next push must grow, then refuse the grow.
+    var i = 3
+    while i < 16 {
+        d.push(0)
+        i = i + 1
+    }
+    __saw_rt_alloc_deny_after(0, 0)
+    let pushed = d.try_push(9)
+    __saw_rt_alloc_deny_after(-1, 0)
+    match pushed {
+        case Ok(_) -> print("pushed"),
+        case Err(e) -> print("push denied: {e}")
+    }
+    print(d.get(2)!)                // 3 — content untouched
+
+    // try_append: the same refusal, reported before any byte is copied.
+    var other = Data(capacity: 8)
+    other.push(7)
+    __saw_rt_alloc_deny_after(0, 0)
+    let appended = d.try_append(move other)
+    __saw_rt_alloc_deny_after(-1, 0)
+    print(d.get(2)!)                // 3
+    match appended {
+        case Ok(_) -> print("appended"),
+        case Err(_) -> print("append denied")
+    }
+    print(d.get(2)!)                // 3 — still untouched
+
+    // try_copy is all-or-nothing: no Data that claims bytes it does not have.
+    __saw_rt_alloc_deny_after(0, 0)
+    let copied = d.try_copy()
+    __saw_rt_alloc_deny_after(-1, 0)
+    match copied {
+        case Ok(c) -> print(c.len()),
+        case Err(_) -> print("copy denied")
+    }
+
+    __saw_rt_alloc_deny_after(0, 0)
+    let made = Data.try_with_capacity(64)
+    __saw_rt_alloc_deny_after(-1, 0)
+    match made {
+        case Ok(_) -> print("with_capacity ok"),
+        case Err(_) -> print("with_capacity denied")
+    }
+
+    // Infallible tier still works with allocation available.
+    d.push(9)
+    print(d.get(16)!)               // 9
+}
