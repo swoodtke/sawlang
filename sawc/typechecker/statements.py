@@ -1584,6 +1584,19 @@ class StatementsMixin:
                                       obj_type.struct_name, stmt.target)
 
             field_type = struct_info.fields[stmt.target.member]
+            # A field WRITE resolves its type exactly like a field READ does
+            # (`_check_member_access`): when the receiver is a concrete
+            # instantiation of a GENERIC struct, `struct_info` is the generic
+            # symbol whose fields still carry the abstract `T`, so substitute the
+            # receiver's type args. Without this, `h.slot = 5` on a `Holder<Int>`
+            # was rejected as "cannot assign `Int` to field of type `T?`" — every
+            # field of a generic struct was effectively write-only-through-init.
+            tps = getattr(struct_info, 'type_params', None)
+            if tps and getattr(obj_type, 'type_args', None):
+                type_map = {tp.name: arg
+                            for tp, arg in zip(tps, obj_type.type_args)}
+                if type_map:
+                    field_type = field_type.substitute(type_map)
 
             # Check value type
             value_type = self._check_expression(stmt.value)

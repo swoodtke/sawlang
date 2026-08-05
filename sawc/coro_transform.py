@@ -566,14 +566,35 @@ def _method_frame_key(struct_name, method_name, resolved_symbol=None):
     return resolved_symbol or f"{struct_name}_{method_name}"
 
 
+def _cell_type(fb):
+    """design 134: the group-owned cell type for a spawn-root frame —
+    `__ResultCell<T>` for a value body, `__VoidCell` for a `Void` one (which has
+    no result slot to carry). Both conform to `__TaskCell`, so the group holds
+    them erased and the box teardown runs the right destructor."""
+    if fb.is_void:
+        return SawType(TypeKind.STRUCT, struct_name="__VoidCell")
+    return SawType(TypeKind.STRUCT, struct_name="__ResultCell",
+                   type_args=[fb.ret])
+
+
+def _cell_ptr_type(fb):
+    return SawType(TypeKind.POINTER, inner_type=_cell_type(fb))
+
+
 class _FrameBuilder:
-    def __init__(self, func, struct_name=None, tc=None, force_opt_result=False,
+    def __init__(self, func, struct_name=None, tc=None, is_spawn_root=False,
                  recv_saw_type=None):
-        # design 52b item 2: a spawn-root frame forces its `__result` opt-encoded
+        # design 52b item 2: a spawn-root frame forces its result opt-encoded
         # even for a POD return, so `TaskHandle<T>` uniformly holds a
         # `UnsafePointer<T?>` and `join` takes the value with the same
         # force-unwrap + `__saw_forget` handoff regardless of T.
-        self.force_opt_result = force_opt_result
+        #
+        # design 134: a spawn-root frame ALSO keeps neither the result nor the
+        # cancel word itself. Both live in the group-owned cell the frame reaches
+        # through `__cellp`, which is what lets the frame box be released the
+        # moment the task completes: nothing outside the frame points INTO it.
+        self.is_spawn_root = is_spawn_root
+        self.force_opt_result = is_spawn_root
         # `func` is a Function (free-function root) or a Method (driven method,
         # Part 0c). For a method, `struct_name` is the receiver struct: the frame
         # holds a `__recv: UnsafePointer<Struct>` pointer into the task root's
@@ -2212,18 +2233,48 @@ class _FrameBuilder:
         # so an `io_wait` buried in a sub-frame routes the wakeup to the TOP-LEVEL
         # frame's `__wake` word — the one the scheduler reads. 0 = not yet set.
         fields.append(StructField(name="__io_tok", type=SawType(TypeKind.INT)))
-        # design 52b item 3: the cooperative cancel word. `handle.cancel()` sets it
-        # (through a `TaskHandle`'s raw pointer into this frame); task code reads it
-        # via `cancelled()`, which the transform rewrites to `self.__cancel`. NO
-        # forced destroy — the frame exits only through its own control flow.
-        fields.append(StructField(name="__cancel", type=SawType(TypeKind.BOOL)))
-        if not self.is_void:
-            fields.append(StructField(name="__result",
-                                      type=_field_type(self.ret, self.result_enc)))
+        if self.is_spawn_root:
+            # design 134: a spawned frame carries a POINTER to its group-owned
+            # cell instead of a cancel word and a result slot of its own. The
+            # cell holds both, outlives the frame, and is what every `TaskHandle`
+            # addresses — so a completed task's box can be released at once.
+            fields.append(StructField(name="__cellp", type=_cell_ptr_type(self)))
+        else:
+            # design 52b item 3: the cooperative cancel word. Task code reads it
+            # via `cancelled()`, which the transform rewrites to this field. NO
+            # forced destroy — the frame exits only through its own control flow.
+            # A spawned root reads its cell's word instead (design 134); a driven
+            # frame and a nested sub-frame keep the word here, and a sub-frame
+            # gets it copied down from its root at each drive.
+            fields.append(StructField(name="__cancel", type=SawType(TypeKind.BOOL)))
+            if not self.is_void:
+                fields.append(StructField(name="__result",
+                                          type=_field_type(self.ret, self.result_enc)))
         self.frame_struct = Struct(name=self.frame_name, fields=fields,
                                    line=func.line, column=func.column,
                                    source_file=getattr(func, 'source_file', ""))
         return self.frame_struct
+
+    # ------------------------------------------------------- design 134 places
+    # The result and the cancel word are FRAME fields for a driven frame and a
+    # nested sub-frame, and CELL fields (reached through `__cellp`) for a spawn
+    # root. Every read and write goes through these two helpers, so the rest of
+    # the lowering never has to know which layout it is looking at.
+    def _result_place(self, line=0, column=0):
+        if self.is_spawn_root:
+            return MemberAccess(
+                object=ArrayIndex(array_expr=_self_field("__cellp", line, column),
+                                  index=_int(0)),
+                member="__result")
+        return _self_field("__result", line, column)
+
+    def _cancel_place(self, line=0, column=0):
+        if self.is_spawn_root:
+            return MemberAccess(
+                object=ArrayIndex(array_expr=_self_field("__cellp", line, column),
+                                  index=_int(0)),
+                member="__cancel")
+        return _self_field("__cancel", line, column)
 
     def _classify_call(self, stmt):
         """If `stmt` is a top-level nested SUSPENDING call boundary, return
@@ -2627,15 +2678,18 @@ class _FrameBuilder:
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
         # design 102 item 2: the cooperative-cancel read surface — a `&self`
-        # accessor returning the frame's `__cancel` word, so the scheduler can wake
+        # accessor returning this task's cancel word, so the scheduler can wake
         # an io-parked frame whose peer set the cancel flag (it then re-checks
-        # `cancelled()` at its park-loop top and bails). Every frame has `__cancel`.
+        # `cancelled()` at its park-loop top and bails). Reads wherever the word
+        # lives (design 134): the frame's own field, or the cell's through
+        # `__cellp` for a spawn root. The executor only ever asks a NOT-done
+        # frame, so the cell it reaches through is always still there.
         is_cancelled = Method(
             name="__is_cancelled",
             parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True, reference_mutable=False)],
             return_type=SawType(TypeKind.BOOL),
-            body=Block(statements=[], final_expr=_self_field("__cancel")),
+            body=Block(statements=[], final_expr=self._cancel_place()),
             self_mutable=False, self_is_reference=True, is_sync=True,
             is_synthesized=True,
             line=func.line, column=func.column,
@@ -3094,7 +3148,7 @@ class _FrameBuilder:
         self._goto(header)
         # header: bail on a peer cancel (design 102), else fall to the done check.
         self.cur = header
-        self._branch(_self_field("__cancel"), after, check)
+        self._branch(self._cancel_place(), after, check)
         # check: the worker finished -> take; else park on the job's pipe.
         self.cur = check
         done = BinaryOp(op="!=", left=FunctionCall(
@@ -3194,7 +3248,7 @@ class _FrameBuilder:
                 # Store first (loads the value), THEN clear the sub-frame's drop
                 # flag so its teardown won't double-drop the moved-out result.
                 done_body.append(AssignStatement(
-                    target=_self_field("__result"), value=res))
+                    target=self._result_place(), value=res))
                 if _enc_cleanup(callee_fb.result_enc):
                     done_body.append(ExpressionStatement(expression=FunctionCall(
                         name="__saw_forget", arguments=[Argument(name=None,
@@ -3252,7 +3306,7 @@ class _FrameBuilder:
         # the cancel at its park-loop top and bails.
         self._blocks[drive].append(AssignStatement(
             target=MemberAccess(object=_self_field(sub), member="__cancel"),
-            value=_self_field("__cancel")))
+            value=self._cancel_place()))
         resume_call = MethodCall(object=_self_field(sub), method_name="resume",
                                  arguments=[])
         match = MatchExpr(matched_expr=resume_call, arms=[
@@ -3334,13 +3388,14 @@ class _FrameBuilder:
         differently — callers process nested statement lists via
         `_lower_stmt_list` so forgets are scoped to the executing branch."""
         from ast_nodes import MoveExpr
-        # design 52b item 3: `cancelled()` inside task code reads THIS frame's
-        # cancel word. `self` in the resume method is the frame, so it lowers to
-        # `self.__cancel` (observed cooperatively; NO forced destroy).
+        # design 52b item 3: `cancelled()` inside task code reads THIS task's
+        # cancel word (observed cooperatively; NO forced destroy) — the frame's
+        # own field for a driven frame, the group-owned cell's for a spawned one
+        # (design 134).
         if (isinstance(node, FunctionCall) and node.name == "cancelled"
                 and not node.arguments):
-            return _self_field("__cancel", getattr(node, 'line', 0),
-                               getattr(node, 'column', 0))
+            return self._cancel_place(getattr(node, 'line', 0),
+                                      getattr(node, 'column', 0))
         # design 77 item 4: a CALL to a frame-resident closure local `f(args)` ->
         # an indirect field call `self.f(args)` (codegen force-unwraps the
         # opt-encoded field). The closure name lives in `FunctionCall.name` (a
@@ -3642,7 +3697,7 @@ class _FrameBuilder:
         flag without disturbing the moved value."""
         seq = []
         if value is not None and not self.is_void:
-            seq.append(AssignStatement(target=_self_field("__result"), value=value))
+            seq.append(AssignStatement(target=self._result_place(), value=value))
         elif value is not None and self.is_void:
             # A void `return foo()` (foo void) still runs its side effects; there
             # is no result slot to store into.
@@ -3766,13 +3821,16 @@ def _frame_param_arg(p):
     return _Move(variable=p.name, path=None)
 
 
-def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):
+def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
+                      cellp_value=None):
     """A `StructInit` for `fb`'s frame: param fields from `param_values` (an
     opt-encoded param auto-wraps T -> Some), every local empty, every embedded
     callee sub-frame zero-initialised (a dead frame, rebuilt with real args when
     its call site is reached — the dead frame holds no live cleanup fields, so
     the rebuild's assignment drops nothing), state 0, result empty. For a method
-    frame the receiver pointer `__recv` leads (Part 0c)."""
+    frame the receiver pointer `__recv` leads (Part 0c); for a spawn-root frame
+    `cellp_value` is the address of the group-owned cell that carries the result
+    and the cancel word in the frame's stead (design 134)."""
     from ast_nodes import StructInit
     field_inits = []
     if fb.is_method:
@@ -3802,9 +3860,12 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None):
     field_inits.append(("__state", _int(0)))
     field_inits.append(("__wake", _int(0)))
     field_inits.append(("__io_tok", _int(0)))   # design 91: reactor wake-word address
-    field_inits.append(("__cancel", BoolLiteral(value=False)))
-    if not fb.is_void:
-        field_inits.append(("__result", _zeroed_value(fb.result_enc, fb.ret)))
+    if fb.is_spawn_root:
+        field_inits.append(("__cellp", cellp_value))
+    else:
+        field_inits.append(("__cancel", BoolLiteral(value=False)))
+        if not fb.is_void:
+            field_inits.append(("__result", _zeroed_value(fb.result_enc, fb.ret)))
     return StructInit(struct_name=fb.frame_name, field_inits=field_inits)
 
 
@@ -4062,29 +4123,82 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
 def _make_spawn_helper(fb: _FrameBuilder, fbs):
     """Synthesize `__spawn_<f>(__group, <params>) -> TaskHandle<T>`.
 
-    Build f's frame from the params, erase it into a `Box<any Resumable>`, capture
-    raw pointers to the boxed frame's `__result` / `__cancel` slots (stable while
-    the box lives in the group's queue — the fat pointer's data word never moves),
-    enqueue the box, and return the typed handle:
+    Allocate the task's CELL first (design 134), take the raw pointers to its
+    result and cancel slots, build f's frame around the cell address, erase both
+    into boxes, and hand them to the group together:
 
         func __spawn_f(__group: UnsafePointer<TaskGroup>, <params>) -> TaskHandle<T> {
-            var __box = Box<any Resumable>.make(__Frame_f(<params>...))
-            let __data = __saw_box_data(&__box)
-            let __fp   = __data as UnsafePointer<__Frame_f>
-            let __rp   = (&__fp[0].__result) as UnsafePointer<T?>
-            let __cp   = (&__fp[0].__cancel) as UnsafePointer<Bool>
-            __group[0].__enqueue(move __box)
-            TaskHandle<T>(result_ptr: __rp, cancel_ptr: __cp, group_ptr: __group)
+            var __cbox  = Box<any __TaskCell>.make(__ResultCell<T>(__result: None,
+                                                                   __cancel: false))
+            let __cdata = __saw_box_data(&__cbox)
+            let __cellp = __cdata as UnsafePointer<__ResultCell<T>>
+            let __rp    = (&__cellp[0].__result) as UnsafePointer<T?>
+            let __cp    = (&__cellp[0].__cancel) as UnsafePointer<Bool>
+            var __box   = Box<any Resumable>.make(__Frame_f(<params>..., __cellp: __cellp))
+            let __slot  = __group[0].__enqueue(move __box, move __cbox)
+            TaskHandle<T>(result_ptr: __rp, cancel_ptr: __cp, group_ptr: __group,
+                          slot: __slot)
         }
 
-    The frame is a spawn root, so its `__result` is opt-encoded — `result_ptr` is
-    `UnsafePointer<T?>` uniformly, and `join` takes with force-unwrap + `__saw_forget`.
+    Both pointers address the CELL, never the frame — that is the whole point of
+    the design-134 split: the frame box can be released the instant the task
+    completes, while the handle stays valid. The cell is a stable heap allocation
+    inside its box in the group's queue (the fat pointer's data word never moves).
+    The frame is a spawn root, so its result is opt-encoded — `result_ptr` is
+    `UnsafePointer<T?>` uniformly, and `join` takes it with `Optional.take`.
     """
     from ast_nodes import StructInit
     T = fb.ret
     params = fb.params
-    frame_init = _build_frame_init(fb, [_frame_param_arg(p) for p in params], fbs)
 
+    cell_ptr = _cell_ptr_type(fb)
+    # design 102 item 1: a `Void` task has no result slot, so its cell is the
+    # bare `__VoidCell` and the handle captures only the cancel word + slot.
+    if fb.is_void:
+        cell_init = StructInit(struct_name="__VoidCell", type_args=None,
+                               field_inits=[("__cancel", BoolLiteral(value=False))])
+    else:
+        cell_init = StructInit(
+            struct_name="__ResultCell", type_args=[T],
+            field_inits=[("__result", NoneLiteral()),
+                         ("__cancel", BoolLiteral(value=False))])
+    cell_box_ty = SawType(TypeKind.EXISTENTIAL, existential_trait="__TaskCell")
+    cell_box_make = MethodCall(
+        object=Identifier(name="Box", type_args=[cell_box_ty]),
+        method_name="make",
+        arguments=[Argument(name=None, value=cell_init)])
+
+    def _cell_field(name):
+        return MemberAccess(
+            object=ArrayIndex(array_expr=Identifier(name="__cellp"), index=_int(0)),
+            member=name)
+
+    stmts = [
+        LetStatement(name="__cbox", type_annotation=None, value=cell_box_make,
+                     mutable=True),
+        LetStatement(name="__cdata", type_annotation=None, mutable=False,
+                     value=FunctionCall(name="__saw_box_data", arguments=[Argument(
+                         name=None, value=ReferenceExpr(
+                             expr=Identifier(name="__cbox"), mutable=False))])),
+        LetStatement(name="__cellp", type_annotation=None, mutable=False,
+                     value=CastExpr(expr=Identifier(name="__cdata"),
+                                    target_type=cell_ptr)),
+    ]
+    if not fb.is_void:
+        stmts.append(
+            LetStatement(name="__rp", type_annotation=None, mutable=False,
+                         value=CastExpr(
+                             expr=ReferenceExpr(expr=_cell_field("__result"), mutable=False),
+                             target_type=SawType(TypeKind.POINTER, inner_type=_opt(T)))))
+    stmts.append(
+        LetStatement(name="__cp", type_annotation=None, mutable=False,
+                     value=CastExpr(
+                         expr=ReferenceExpr(expr=_cell_field("__cancel"), mutable=False),
+                         target_type=SawType(TypeKind.POINTER,
+                                             inner_type=SawType(TypeKind.BOOL)))))
+
+    frame_init = _build_frame_init(fb, [_frame_param_arg(p) for p in params], fbs,
+                                   cellp_value=Identifier(name="__cellp"))
     box_ty = SawType(TypeKind.EXISTENTIAL, existential_trait="Resumable")
     box_make = MethodCall(
         object=Identifier(name="Box", type_args=[box_ty]),
@@ -4093,43 +4207,16 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
 
     tg_ptr = SawType(TypeKind.POINTER,
                      inner_type=SawType(TypeKind.STRUCT, struct_name="TaskGroup"))
-    frame_ptr = SawType(TypeKind.POINTER,
-                        inner_type=SawType(TypeKind.STRUCT, struct_name=fb.frame_name))
 
-    def _fp_field(name):
-        return MemberAccess(
-            object=ArrayIndex(array_expr=Identifier(name="__fp"), index=_int(0)),
-            member=name)
-
-    # design 102 item 1: a `Void` spawn body has no `__result` field, so the
-    # handle captures no result pointer — only the cancel word + slot.
-    stmts = [
-        LetStatement(name="__box", type_annotation=None, value=box_make, mutable=True),
-        LetStatement(name="__data", type_annotation=None, mutable=False,
-                     value=FunctionCall(name="__saw_box_data", arguments=[Argument(
-                         name=None, value=ReferenceExpr(
-                             expr=Identifier(name="__box"), mutable=False))])),
-        LetStatement(name="__fp", type_annotation=None, mutable=False,
-                     value=CastExpr(expr=Identifier(name="__data"),
-                                    target_type=frame_ptr)),
-    ]
-    if not fb.is_void:
-        stmts.append(
-            LetStatement(name="__rp", type_annotation=None, mutable=False,
-                         value=CastExpr(
-                             expr=ReferenceExpr(expr=_fp_field("__result"), mutable=False),
-                             target_type=SawType(TypeKind.POINTER, inner_type=_opt(T)))))
     stmts.extend([
-        LetStatement(name="__cp", type_annotation=None, mutable=False,
-                     value=CastExpr(
-                         expr=ReferenceExpr(expr=_fp_field("__cancel"), mutable=False),
-                         target_type=SawType(TypeKind.POINTER,
-                                             inner_type=SawType(TypeKind.BOOL)))),
+        LetStatement(name="__box", type_annotation=None, value=box_make, mutable=True),
         LetStatement(name="__slot", type_annotation=None, mutable=False,
                      value=MethodCall(
                          object=ArrayIndex(array_expr=Identifier(name="__group"), index=_int(0)),
                          method_name="__enqueue",
-                         arguments=[Argument(name=None, value=MoveExpr(variable="__box", path=None))])),
+                         arguments=[
+                             Argument(name=None, value=MoveExpr(variable="__box", path=None)),
+                             Argument(name=None, value=MoveExpr(variable="__cbox", path=None))])),
     ])
     if fb.is_void:
         handle = StructInit(
@@ -4715,8 +4802,19 @@ def transform_program(program, typechecker, imported_ast=None):
     # Phase 1: build every frame's layout (so a caller can embed a callee frame
     # by value). Phase 2: generate every resume state machine.
     suspends_set = set(closure)
+    # design 134: a function that is BOTH `__saw_drive`n and spawned would need one
+    # frame layout to serve two protocols (a frame-resident result for the driver,
+    # a group-owned cell for the spawn). `__saw_drive` is a compiler-internal test
+    # intrinsic, so reject the overlap rather than carry two layouts.
+    for n in spawn_roots:
+        if n in roots:
+            f = funcs_by_name[n]
+            raise CoroTransformError(
+                f"`{n}` is both `__saw_drive`n and spawned into a `TaskGroup`; a "
+                f"task body belongs to one driver or the other", f.line, f.column,
+                source_file=getattr(f, 'source_file', None))
     fbs = {n: _FrameBuilder(funcs_by_name[n], tc=typechecker,
-                            force_opt_result=(n in spawn_roots))
+                            is_spawn_root=(n in spawn_roots))
            for n in closure}
     # design 84: frame builders for nested suspending method callees, keyed by
     # the resolved-signature frame key (design 95, matching `_FrameBuilder.name`)

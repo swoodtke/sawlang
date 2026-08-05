@@ -8,8 +8,12 @@
 // (structured join = LIFO destruction): no global queue, no static, no forced
 // destroy — the only frame drop is a Box teardown after the child is Done.
 //
-// The three parallel vectors are the run queue and the scheduler bookkeeping:
+// The parallel vectors are the run queue and the scheduler bookkeeping:
 //   * `tasks`     — the erased frames (`resume`/`__wake_reason` dispatch here).
+//                   `None` once the task completes: design 134 releases the frame
+//                   box AT completion, so a Done slot holds no frame at all.
+//   * `cells`     — the per-task result/cancel cell (design 134), which OUTLIVES
+//                   the frame: `TaskHandle` points here, never into the frame.
 //   * `done`      — per-task completion; a Done frame is never resumed again (its
 //                   dispatch loop is guarded but re-resuming would busy-spin).
 //   * `remaining` — ms until this task should next resume: 0 = ready now (yield /
@@ -192,8 +196,54 @@ func __saw_exec_reactor_wake() {
 // list (design 75 bifurcation).
 static __saw_exec_head: Atomic<Int> = Atomic(0)
 
+// =============================================================================
+// The per-task cell (design 134)
+// =============================================================================
+// A spawned task's RESULT and CANCEL word live HERE — beside the slot, owned by
+// the group — not inside the coroutine frame. That is what lets the frame box
+// die the moment the task completes (design 124 item 3, blocked until now as
+// DF-124c): a `TaskHandle` addresses the cell and never the frame, and
+// `cancel_addr()` hands a peer an address that outlives the task it cancels.
+//
+// The cell is TYPED (it holds a `T?`), so the group holds it ERASED and lets the
+// box teardown run the right destructor — the group itself never names `T`.
+// `__carries_result` is the one thing the erased side must know: a cell with a
+// result slot has to survive its task (until `join` takes the value, or until
+// group teardown drops it exactly once), while a `Void` task's cell holds
+// nothing joinable, so its slot is reclaimable the moment the task completes.
+trait __TaskCell {
+    func __carries_result(&self) sync -> Bool
+}
+
+// The cell for a task whose body returns a value. `__result` is the slot
+// `TaskHandle<T>.result_ptr` addresses and `join` empties with `Optional.take`.
+struct __ResultCell<T> {
+    __result: T?
+    __cancel: Bool
+}
+
+extension __ResultCell<T>: NoCopy {}
+
+extension __ResultCell<T>: __TaskCell {
+    func __carries_result(&self) sync -> Bool { true }
+}
+
+// The cell for a `Void` task (design 102 item 1) and for the ambient scheduler's
+// root frame: a cancel word and nothing else, so no value outlives the task.
+struct __VoidCell {
+    __cancel: Bool
+}
+
+extension __VoidCell: __TaskCell {
+    func __carries_result(&self) sync -> Bool { false }
+}
+
 struct TaskGroup {
-    tasks: Vector<Box<any Resumable>>
+    tasks: Vector<Box<any Resumable>?>
+    // design 134: the per-task cells, parallel to `tasks`. A slot's cell outlives
+    // its frame — it holds the result until `join` takes it (or until teardown)
+    // and the cancel word a stale handle may still address.
+    cells: Vector<Box<any __TaskCell>?>
     done: Vector<Bool>
     remaining: Vector<Int>
     // design 75 (A2): per-task "a worker is resuming this frame right now" flag,
@@ -229,11 +279,12 @@ struct __ResumeOutcome {
 
 extension TaskGroup {
     public init() -> TaskGroup {
-        let t = Vector<Box<any Resumable>>()
+        let t = Vector<Box<any Resumable>?>()
+        let c = Vector<Box<any __TaskCell>?>()
         let d = Vector<Bool>()
         let r = Vector<Int>()
         let a = Vector<Bool>()
-        TaskGroup(tasks: move t, done: move d, remaining: move r, active: move a, workers: 1, lock: None, next: 0, registered: false)
+        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, workers: 1, lock: None, next: 0, registered: false)
     }
 
     // design 75 (A2): opt in to multi-threaded execution with `n` worker threads.
@@ -243,7 +294,8 @@ extension TaskGroup {
     // group built this way turns on the Send-on-frames gate (a frame that crosses
     // to another worker must be Send).
     public init(threads: Int) unsafe -> TaskGroup {
-        let t = Vector<Box<any Resumable>>()
+        let t = Vector<Box<any Resumable>?>()
+        let c = Vector<Box<any __TaskCell>?>()
         let d = Vector<Bool>()
         let r = Vector<Int>()
         let a = Vector<Bool>()
@@ -266,26 +318,33 @@ extension TaskGroup {
                 panic("TaskGroup(threads:): allocation failed")
             }
         }
-        TaskGroup(tasks: move t, done: move d, remaining: move r, active: move a, workers: w, lock: lk, next: 0, registered: false)
+        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, workers: w, lock: lk, next: 0, registered: false)
     }
 
-    // The number of children spawned into this group (design 52b).
+    // The number of task slots this group currently holds (design 134): live
+    // tasks plus completed tasks whose result nobody has joined yet. A slot is
+    // RECLAIMED when it has nothing left to hold, so a long-lived group's count
+    // tracks concurrency rather than the number of tasks ever spawned.
     public func count(&self) -> Int {
         self.tasks.len()
     }
 
-    // Enqueue an erased frame (compiler-generated `__spawn_*` calls this). The
-    // box is MOVED in — the group owns the frame for its whole life. Returns the
-    // slot index (the `TaskHandle` records it for slot-precise `join`). A single-
-    // threaded group registers itself in the ambient scheduler list on first
-    // enqueue (design 89) so the shared sweep can reach its frames; MT groups never
-    // register (they run their own worker pool).
-    func __enqueue(&var self, task: Box<any Resumable>) -> Int {
+    // Enqueue an erased frame together with its result/cancel cell (compiler-
+    // generated `__spawn_*` calls this). Both boxes are MOVED in: the group owns
+    // the frame until the task completes and the cell until its result is joined
+    // or the group tears down. Returns the slot index (the `TaskHandle` records it
+    // for slot-precise `join`). A single-threaded group registers itself in the
+    // ambient scheduler list on first enqueue (design 89) so the shared sweep can
+    // reach its frames; MT groups never register (they run their own worker pool).
+    func __enqueue(&var self, task: Box<any Resumable>, cell: Box<any __TaskCell>) -> Int {
         if self.workers < 2 {
             self.__register()
         }
+        let t: Box<any Resumable>? = move task
+        let c: Box<any __TaskCell>? = move cell
         let slot = self.tasks.len()
-        self.tasks.push(move task)
+        self.tasks.push(move t)
+        self.cells.push(move c)
         self.done.push(false)
         self.remaining.push(0)
         self.active.push(false)
@@ -441,8 +500,8 @@ func __saw_exec_worker(addr: Int) unsafe {
                     g[0].active.set(idx, true)
                     let _ = pthread_mutex_unlock(lk)
                     let oc = g[0].tasks.with_var_ref<__ResumeOutcome>(idx, { f in
-                        match f.resume() {
-                            case Pending -> __ResumeOutcome(done: false, wake: f.__wake_reason()),
+                        match f!.resume() {
+                            case Pending -> __ResumeOutcome(done: false, wake: f!.__wake_reason()),
                             case Done -> __ResumeOutcome(done: true, wake: 0)
                         }
                     })
@@ -495,7 +554,7 @@ func __saw_exec_worker(addr: Int) unsafe {
                                     // cancelled() and bails); non-cancelled parked
                                     // siblings stay parked.
                                     let wk = g[0].tasks.with_var_ref<Bool>(k, { f in
-                                        f.__wake_reason() >= 0 || f.__is_cancelled()
+                                        f!.__wake_reason() >= 0 || f!.__is_cancelled()
                                     })
                                     if wk {
                                         g[0].remaining.set(k, 0)
@@ -543,10 +602,10 @@ func __saw_exec_worker(addr: Int) unsafe {
 }
 
 // Deinit runs the executor to completion of every child (structured join at
-// scope exit), THEN the three vectors are memberwise-dropped: each `tasks` box
-// tears down its frame, dropping any UNCONSUMED `__result` exactly once (a joined
-// task's result was already taken, leaving `None` in the slot). Declared before
-// NoCopy so the `NoCopy: Deinit` supertrait is satisfied.
+// scope exit), then releases whatever the slots still hold: an unfinished
+// frame's box, and every cell — dropping any UNCONSUMED result exactly once (a
+// joined task's result was already taken, leaving `None` behind). Declared
+// before NoCopy so the `NoCopy: Deinit` supertrait is satisfied.
 extension TaskGroup: NoCopy {
     public func deinit(&var self) unsafe {
         if self.workers >= 2 {
@@ -561,15 +620,19 @@ extension TaskGroup: NoCopy {
             __saw_exec_run(me, -1)
             self.__unregister()
         }
-        // Tear each child frame down explicitly: pop the box and let it drop, so
-        // its erased teardown (design 51 vtable dtor -> the frame's memberwise
-        // cleanup) drops any UNCONSUMED `__result` EXACTLY ONCE. A joined task's
-        // result was already taken, leaving `None` in the slot, so its frame drops
-        // nothing. The now-empty `tasks` (buffer), `done`, and `remaining` are
-        // freed by the memberwise field cleanup appended after this body.
-        while self.tasks.len() > 0 {
-            if let b = self.tasks.pop() {
-            }
+        // Release every slot explicitly, here rather than in the memberwise field
+        // cleanup, so an unconsumed result drops while the group is still whole
+        // (and before the run-queue mutex goes away). Clearing a slot's cell runs
+        // the erased teardown (design 51 vtable dtor -> the cell's memberwise
+        // cleanup), which drops an UNCONSUMED result EXACTLY ONCE — a joined
+        // task's cell holds `None` by then, so it drops nothing. `tasks` is
+        // already `None` for every completed task (design 134 releases the frame
+        // box at completion); only a frame the drain could not finish is left.
+        var s = 0
+        while s < self.tasks.len() {
+            self.tasks.set(s, None)
+            self.cells.set(s, None)
+            s = s + 1
         }
         // design 75 (A2): release the run-queue mutex (multi-threaded groups only).
         if let lk = self.lock {
@@ -580,12 +643,13 @@ extension TaskGroup: NoCopy {
 }
 
 // TaskHandle<T> — the typed result access for one spawned child (design 52b
-// item 2). It owns NOTHING: three raw pointers into the group and into the
-// group-owned heap frame. `result_ptr` addresses the frame's opt-encoded
-// `__result` slot (`T?`); the frame is a stable heap allocation inside the box in
-// the group's queue, so the pointer stays valid for the frame's whole life.
-// Dropping an unjoined handle is fine (no-op Deinit): the result stays in the
-// frame and is dropped once at group teardown — exactly-once either way.
+// item 2). It owns NOTHING: three raw pointers into the group and into that
+// task's group-owned CELL. `result_ptr` addresses the cell's `T?` slot and
+// `cancel_ptr` its cancel word; the cell is a stable heap allocation that
+// OUTLIVES the frame (design 134), so neither pointer is disturbed when the task
+// completes and its frame box is released. Dropping an unjoined handle is fine
+// (no-op Deinit): the result stays in the cell and is dropped once at group
+// teardown — exactly-once either way.
 struct TaskHandle<T> {
     result_ptr: UnsafePointer<T?>
     cancel_ptr: UnsafePointer<Bool>
@@ -598,8 +662,8 @@ struct TaskHandle<T> {
 
 extension TaskHandle<T> {
     // Drive the group until this task is Done, then TAKE its result. The take is
-    // exactly-once: `take()` moves the payload out of the frame slot and leaves
-    // `None` behind, so the frame's later teardown drops nothing.
+    // exactly-once: `take()` moves the payload out of the CELL and leaves `None`
+    // behind, so the cell's later teardown drops nothing.
     public func join(&self) unsafe -> T {
         if self.group_ptr[0].workers >= 2 {
             // MT: fork-join drain over the group's own queue (design 75).
@@ -614,7 +678,7 @@ extension TaskHandle<T> {
         self.result_ptr[0].take()!
     }
 
-    // Cooperative cancellation (design 18 C1, NO forced destroy): set the frame's
+    // Cooperative cancellation (design 18 C1, NO forced destroy): set the cell's
     // `__cancel` word. The task observes it where IT checks (`cancelled()`) or at
     // a cancellation-aware wait, and returns through normal control flow.
     public func cancel(&self) unsafe {
@@ -630,7 +694,9 @@ extension TaskHandle<T> {
     // sets the flag (`(addr as UnsafePointer<Bool>)[0] = true`) to cancel the target
     // from a worker thread; the target observes it via `cancelled()` on its next
     // check (the `__cancel` byte is set-once monotonic — race-free, eventually
-    // consistent, cooperative-cancellation semantics).
+    // consistent, cooperative-cancellation semantics). The address is into the
+    // task's CELL (design 134), which the group keeps alive for its own lifetime,
+    // so a write that lands after the task finished is defined and inert.
     public func cancel_addr(&self) unsafe -> Int {
         self.cancel_ptr as Int
     }
@@ -644,9 +710,9 @@ extension TaskHandle<T>: NoCopy {
 }
 
 // VoidTaskHandle — the handle for a spawned task whose body returns `Void`
-// (design 102 item 1). A `Void` frame carries NO result slot (`__result` is
-// omitted — a `{..., void}` struct field is illegal LLVM), so there is no
-// `result_ptr` to hold and no value to take: `join` drives the task to
+// (design 102 item 1). A `Void` task carries NO result slot (a `{..., void}`
+// struct field is illegal LLVM), so its cell is a `__VoidCell`: there is no
+// `result_ptr` to hold and no value to take, and `join` just drives the task to
 // completion and returns. Cancellation and drop-if-unjoined behave exactly like
 // `TaskHandle<T>`. Distinct type (not `TaskHandle<Void>`) so the generic handle
 // never has to encode a zero-size `T?` result pointer.
@@ -774,7 +840,7 @@ func __saw_exec_wake_io(events: Int, deadline: Int) unsafe {
                     // cancelled() at its park-loop top and bails. Non-cancelled,
                     // still-parked siblings stay parked (no herd wake).
                     let woke = g[0].tasks.with_var_ref<Bool>(i, { f in
-                        f.__wake_reason() >= 0 || f.__is_cancelled()
+                        f!.__wake_reason() >= 0 || f!.__is_cancelled()
                     })
                     if woke {
                         g[0].remaining.set(i, 0)
@@ -812,7 +878,7 @@ func __saw_exec_any_cancelled_io() unsafe -> Bool {
             if (not done_i) && (not active_i) {
                 let r = g[0].remaining.get(i)!
                 if r < 0 {
-                    let c = g[0].tasks.with_var_ref<Bool>(i, { f in f.__is_cancelled() })
+                    let c = g[0].tasks.with_var_ref<Bool>(i, { f in f!.__is_cancelled() })
                     if c {
                         return true
                     }
@@ -846,7 +912,7 @@ func __saw_exec_any_latched_io() unsafe -> Bool {
             if (not done_i) && (not active_i) {
                 let r = g[0].remaining.get(i)!
                 if r < 0 {
-                    let latched = g[0].tasks.with_var_ref<Bool>(i, { f in f.__wake_reason() >= 0 })
+                    let latched = g[0].tasks.with_var_ref<Bool>(i, { f in f!.__wake_reason() >= 0 })
                     if latched {
                         return true
                     }
@@ -908,8 +974,8 @@ func __saw_exec_run(term_group: Int, term_slot: Int) unsafe {
                     if (not done_i) && (not active_i) && rem_i == 0 {
                         g[0].active.set(i, true)
                         let oc = g[0].tasks.with_var_ref<__ResumeOutcome>(i, { f in
-                            match f.resume() {
-                                case Pending -> __ResumeOutcome(done: false, wake: f.__wake_reason()),
+                            match f!.resume() {
+                                case Pending -> __ResumeOutcome(done: false, wake: f!.__wake_reason()),
                                 case Done -> __ResumeOutcome(done: true, wake: 0)
                             }
                         })
@@ -992,6 +1058,9 @@ func __saw_exec_run(term_group: Int, term_slot: Int) unsafe {
 // any straggler and drops main's box exactly once.
 func __saw_exec_run_root(rootbox: Box<any Resumable>) {
     var root = TaskGroup()
-    let _ = root.__enqueue(move rootbox)
+    // `main` has no handle and no joinable result, so its cell is the empty one
+    // (design 134): every occupied slot carries a cell, with no special case for
+    // the root.
+    let _ = root.__enqueue(move rootbox, Box<any __TaskCell>.make(__VoidCell(__cancel: false)))
     __saw_exec_run(0, -1)
 }
