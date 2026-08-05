@@ -85,6 +85,14 @@ through `&var`, wrong `-o` default (also in --help); README calls CLAUDE.md
 header still says 109. Skill was fully current. Convention decision needed:
 does README join the docs-update contract?
 
+**Follow-up filed by design 130:** decompose the oversized functions the
+unsafe migration marks wholly-unsafe — `__saw_exec_worker` (~150 lines), the
+`rt/host_*/reactor.saw` bodies, `rt/common/os_ops.saw` — so the "an unsafe
+function is short enough to review as a unit" policy is actually true. Shape:
+extract the raw-pointer bookkeeping into small `unsafe` helpers and leave the
+surrounding loop safe. Deliberately NOT in 130 (mechanical migration kept
+separate from judgment-heavy refactoring of the executor's hot paths). [130]
+
 **P4 — design/gap briefs to consider:** structural `Deinit`/`ExplicitCopy`
 synthesis (the Equatable model; hand-transcription is pure tax); DF-121a
 newline-in-brackets (new evidence: a 210-char one-line signature in

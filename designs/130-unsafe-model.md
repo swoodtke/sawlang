@@ -1,8 +1,9 @@
 # Design 130 — DRAFT: the unsafe model, rebuilt (DO NOT DISPATCH)
 
-STATUS: DRAFT for user review (Aug 4 evening). Supersedes design 81's marking
-rules if accepted. Decisions below marked **[user]** were made in conversation;
-items under "Open questions" still need a call.
+STATUS: DRAFT, fully specified — every open question decided (user, Aug 4
+evening). Supersedes design 81's marking rules. Ready to dispatch on the user's
+word; still listed as a draft because the user has not called for dispatch.
+Decisions marked **[user]** were made in conversation.
 
 ## Why
 The Aug 4 review sweep found five probe-proven memory bugs in safe-facing std
@@ -26,14 +27,21 @@ signature.
 
 ## Proposed model
 
-1. **Type marking is declared, not inferred.** A type may be declared
-   `unsafe struct Foo`. **[user]** Any `Unsafe`-prefixed type (including
-   user-defined `UnsafeXxx`) is unsafe.
-   *Synthesis to decide (open q1):* make the semantics come from the
-   declaration and have the compiler **enforce** the `Unsafe*` name — so
-   `unsafe struct MmioReg` errors with "an unsafe type must be named
-   `UnsafeMmioReg`". Keeps the always-visible-at-use-site property of the
-   prefix without deriving semantics from an identifier.
+1. **Type marking is DECLARED, and the name is ENFORCED. [user, q1]**
+   Semantics come from the declaration keyword; the compiler then requires the
+   type's name to start with `Unsafe`:
+   ```saw
+   unsafe struct UnsafeMmioReg { addr: Int }     // ok
+   unsafe struct MmioReg { addr: Int }
+   // error: an unsafe type must be named `Unsafe*`
+   //   help: rename to `UnsafeMmioReg`
+   struct UnsafeDefaults { .. }                  // plain struct, no semantics
+   ```
+   Explicit opt-in (no identifier magic, no accidental capture of a benign
+   `UnsafeDefaults`), while keeping the always-visible-at-use-site property of
+   the prefix. Accepted cost: kernel-domain types must be named
+   `UnsafePhysAddr`/`UnsafeRawFd`/`UnsafeMmioReg` rather than their bare names.
+   The built-ins (`UnsafePointer`, `UnsafeMemory`) already comply.
 
 2. **Function/closure marking uses the `unsafe` keyword in the EFFECT
    position, beside `sync` — no `@decorator` syntax. [user]**
@@ -45,11 +53,29 @@ signature.
    design 121's `--emit-docs` picks it up for free from the effect position.
 
 3. **Trigger rule: a function is `unsafe` if its body or signature NAMES,
-   BINDS, RECEIVES or RETURNS a value of an unsafe type.**
+   BINDS, RECEIVES or RETURNS a value of an unsafe type — including a
+   REFERENCE to one (`&UnsafePointer<T>` counts). [user, q2]**
    Deliberately broader than "performs a deref/index/arithmetic": the narrow
    form MISSES `Vector.iter()`, which merely reads `self.buffer` and passes it
    into the iterator struct — and that is bugs C2 and C5. Marking trivia like
    `self.buffer != None` is accepted; the marker is simply true there.
+
+   **Derivation does NOT propagate. [user, q2]** A value or reference of a
+   SAFE type produced inside an unsafe function (`&T` obtained from `buf[i]`)
+   is safe onward — performing that derivation soundly is exactly what the
+   reviewed wrapper exists for. This is what keeps `with_ref`/`with_var_ref`
+   usable from safe code.
+
+   **Closures are judged by rule 3 on their OWN body. [user, q3 — follows from
+   q2]** A closure that never names an unsafe type is safe even when passed
+   into an unsafe function:
+   ```saw
+   unsafe func with_ref<R>(&self, i: Int, body: (&T) sync -> R) -> R
+   v.with_ref(0) { e in e + 1 }        // closure sees only &T -> SAFE
+   ```
+   Where an unsafe value genuinely IS handed to a closure, the closure's
+   parameter type names it, so rule 3 marks the closure — and the closure-type
+   effect slot from rule 2 carries it: `(UnsafePointer<T>) unsafe sync -> R`.
 
 4. **Unsafety is NOT transitive for types. [user]** A `Vector` holding an
    `UnsafePointer<T>` field is a safe type — safe to name, hold, pass, store.
@@ -57,10 +83,17 @@ signature.
    the granularity hole.
 
 5. **The line-level `unsafe` expression marker is removed. [user]**
-   Load-bearing assumption to state as std policy: an `unsafe` function must be
+   Load-bearing assumption, stated as std policy: an `unsafe` function must be
    short enough to review as a unit. (Note `Vector.push` becomes wholly marked,
    including the `if length >= capacity { grow() }` logic where C1's bug
    actually lived — function granularity is coarser there than line was.)
+
+   **Oversized unsafe functions are migrated as-is here and decomposed in a
+   FOLLOW-UP brief. [user]** `__saw_exec_worker` (~150 lines), the reactor
+   bodies, and `rt/common/os_ops.saw` would each become wholly `unsafe`,
+   violating the policy on the day it ships. Keeping the mechanical migration
+   separate from judgment-heavy refactoring of the executor's hot paths is the
+   deliberate tradeoff; the decomposition is filed as a tracker item.
 
 6. **Calling an unsafe function from a safe function needs no ceremony.
    [user]** The unsafe function is the reviewed wrapper; its callers are safe.
@@ -97,20 +130,23 @@ Net: delete ~185 line markers, add ~115 function keywords, moved from buried
 lines into signatures. Application-level Saw is ~0% — the model carves at the
 right joint.
 
-## Open questions
-- **q1** Declaration-marked with enforced `Unsafe*` naming, or pure name-prefix
-  semantics as originally proposed? (Prefix-only cannot mark `PhysAddr`/`RawFd`
-  without renaming, gives a benign `UnsafeDefaults` unwanted semantics, and has
-  no opt-out.)
-- **q2** Does rule 3 fire on a `&`/`&var` reference to an unsafe-typed field,
-  or only on the value? (Affects how many rt/ functions get marked.)
-- **q3** Closure literals passed INTO an unsafe function: judged by rule 3 on
-  their own body (so a closure receiving a safe `&T` stays safe). Confirm —
-  this is what keeps `with_ref`/`with_var_ref` callable from safe user code.
-- **q4** Migration mechanics: one sweeping commit per area, or incremental with
-  both models accepted during transition?
+## Migration plan [user, q4] — staged, NO dual-model period
 
-## Exit criteria (once approved)
+No transition window where both markers are valid; there are no consumers
+outside this repo. Full suite green at every step, one commit each:
+
+1. Grammar + typechecker ACCEPT `unsafe` in the effect position on functions
+   and closure types, and `unsafe struct` with the name check. No enforcement
+   of the trigger rule yet — zero behavior change, everything still compiles.
+2. Migrate `sawc/std` (73 functions).
+3. Migrate `sawc/rt` (40 functions), plus the 2 in `blade/src`.
+4. Flip the trigger rule (3) and the soundness rule (7) to hard errors.
+5. Delete the line-level `unsafe` expression marker from the grammar and the
+   ~185 remaining sites (mechanical).
+6. Apply the accessor rule (8) across `Vector`, `Data`, `String` — this is a
+   std change, not a language change, and closes RS-6 / M5 / M3.
+
+## Exit criteria
 Typechecker enforces rules 1-3 and 7; line-level marker removed from the
 grammar; std + rt migrated; the accessor rule (8) applied across `Vector`,
 `Data`, `String`; spec's unsafe chapter + saw-lang skill rewritten; design 81's
