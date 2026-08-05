@@ -127,6 +127,124 @@ def _wake_expr(stmt):
     return _int(0)
 
 
+# --------------------------------------------------------------------------- #
+# design 127 — loop-backedge preemption (RC-3)
+# --------------------------------------------------------------------------- #
+
+# Iterations a driven/spawned frame may run between forced cooperative yields.
+# Matches the design-89-c io op budget (`sawc/rt/common/op_budget.saw`): the two
+# are the same fairness knob applied to the two ways a task can fail to cede —
+# always-ready io ops (89-c, charged in std's io primitives against a
+# process-global counter) and a pure-compute loop (127, charged here against a
+# per-frame counter). Op-count, never a clock, so interleaving stays
+# deterministic.
+LOOP_BUDGET_DEFAULT = 128
+
+# The synthesized per-frame iteration counter. A `__saw_`-prefixed name cannot
+# collide with a user binding (the lexer reserves the prefix for the compiler),
+# and it is an ordinary Int local, so the existing frame-local collection makes
+# it a frame field with no special-casing anywhere downstream.
+BUDGET_LOCAL = "__saw_loop_budget"
+
+
+def _budget_check_stmts(budget, line, column):
+    """The per-iteration check, spelled as ordinary Saw the rest of the transform
+    already knows how to split:
+
+        __saw_loop_budget = __saw_loop_budget &- 1
+        if __saw_loop_budget <= 0 {
+            __saw_loop_budget = <budget>
+            yield_now()
+        }
+
+    The `yield_now()` carries wake reason 0 (ready), so the scheduler re-queues
+    the task at the back of the run queue and round-robin continues — the same
+    park path an explicit `yield_now()` takes, not a new one.
+
+    The decrement is the WRAPPING `&-`: the counter is reset the moment it
+    reaches 0, so it can never approach `Int.min`, and a checked `-` would spend
+    an `llvm.ssub.with.overflow` plus a panic branch per iteration on a case that
+    cannot arise."""
+    def counter():
+        return Identifier(name=BUDGET_LOCAL, line=line, column=column)
+
+    dec = AssignStatement(
+        target=counter(),
+        value=BinaryOp(op="&-", left=counter(), right=_int(1),
+                       line=line, column=column),
+        line=line, column=column)
+    reset = AssignStatement(target=counter(), value=_int(budget),
+                            line=line, column=column)
+    yielded = ExpressionStatement(
+        expression=FunctionCall(name="yield_now", arguments=[],
+                                line=line, column=column),
+        line=line, column=column)
+    check = ExpressionStatement(
+        expression=IfExpr(
+            condition=BinaryOp(op="<=", left=counter(), right=_int(0),
+                               line=line, column=column),
+            then_branch=Block(statements=[reset, yielded], final_expr=None),
+            else_branch=None, line=line, column=column),
+        line=line, column=column)
+    return [dec, check]
+
+
+def _instrument_loop_backedges(func, budget=LOOP_BUDGET_DEFAULT):
+    """design 127 (RC-3): charge every loop iteration in `func`'s body against a
+    frame-resident budget and force a cooperative yield when it runs out, so a
+    pure-compute loop cannot starve its siblings on the single ambient scheduler.
+
+    The check goes at the TOP of each loop body rather than after its last
+    statement. Both spellings run once per iteration, but the top placement also
+    covers a `continue` — a `while c { ...; continue }` would jump straight over
+    a trailing check and never cede.
+
+    Two subtrees are skipped, and both are documented bounds rather than
+    oversights:
+
+    * A CLOSURE body. It is not part of this frame's state machine, so a
+      `yield_now()` there lowers to a codegen no-op and would buy nothing.
+    * A `for` over a NON-RANGE iterable (`for x in v.iter()`), and everything
+      nested inside it. `_split_for` can only state-split a range `for`; a
+      suspension anywhere inside a collection `for` is a clean rejection
+      (`use a `while` loop`). Instrumenting one would turn working programs into
+      compile errors, so such a loop — and any loop nested in it — stays
+      unpreempted. Rewrite the loop as a `while` over an index to get the check.
+
+    Returns True when at least one loop was instrumented (the caller then knows
+    the counter declaration was added). A loop-free body is left byte-identical.
+    """
+    found = []
+
+    def visit_val(v):
+        if isinstance(v, list):
+            for item in v:
+                visit_val(item)
+        elif isinstance(v, ASTNode):
+            visit(v)
+
+    def visit(node):
+        if isinstance(node, ClosureExpr):
+            return
+        if isinstance(node, ForLoop) and not isinstance(node.iterable, RangeExpr):
+            return
+        if isinstance(node, (WhileExpr, ForLoop)):
+            found.append(node)
+            node.body.statements[:0] = _budget_check_stmts(
+                budget, node.line, node.column)
+        for f in structural_fields(node):
+            visit_val(getattr(node, f.name))
+
+    visit(func.body)
+    if not found:
+        return False
+    func.body.statements.insert(0, LetStatement(
+        name=BUDGET_LOCAL, type_annotation=SawType(TypeKind.INT),
+        value=_int(budget), mutable=True,
+        line=func.line, column=func.column))
+    return True
+
+
 def _is_pod(saw_type):
     """Conservative POD test for the v1 transform: a type that needs no cleanup
     and can be zero-initialised in the frame's struct-init. Widened to
@@ -4463,6 +4581,23 @@ def transform_program(program, typechecker, imported_ast=None):
     for root_name in roots:
         _analyze_nesting(root_name, funcs_by_name[root_name], nodes)
 
+    # design 127 (RC-3): instrument every loop backedge in the bodies that are
+    # about to become frames, BEFORE any layout is computed — the inserted
+    # `yield_now()` is a real suspension point, so it must be in place when
+    # `prepare` collects across-suspend locals and splits states. A body that
+    # was sync run-to-completion becomes suspending here; that is the point.
+    #
+    # Scope v1 (per the brief): the ENTRY module's task bodies and the suspending
+    # callees the transform embeds. Imported bodies are left alone — std's io
+    # primitives already charge the design-89-c op budget in their own loops, and
+    # a sync callee is not instrumented at all (a compute loop inside a
+    # never-suspending helper stays unpreempted; documented in spec + skill).
+    for n in closure:
+        _instrument_loop_backedges(funcs_by_name[n])
+    for mid, (_sname, mast, ext) in method_closure.items():
+        if ext.node_id in _entry_ext_ids and getattr(mast, 'body', None) is not None:
+            _instrument_loop_backedges(mast)
+
     # Phase 1: build every frame's layout (so a caller can embed a callee frame
     # by value). Phase 2: generate every resume state machine.
     suspends_set = set(closure)
@@ -4558,6 +4693,7 @@ def transform_program(program, typechecker, imported_ast=None):
                 raise CoroTransformError(
                     f"coroutine transform: driven generic-struct method "
                     f"`{struct_name}.{method_name}` was not monomorphized")
+            _instrument_loop_backedges(method_ast)   # design 127
             mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker,
                                 recv_saw_type=recv_saw_type)
             new_structs.append(mfb.prepare(suspends_set))
@@ -4584,6 +4720,8 @@ def transform_program(program, typechecker, imported_ast=None):
                 f"(design 74 A5-rest); monomorphize the receiver at the drive site",
                 method_ast.line, method_ast.column,
                 source_file=getattr(method_ast, 'source_file', None))
+        if ext.node_id in _entry_ext_ids:
+            _instrument_loop_backedges(method_ast)   # design 127
         mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker)
         new_structs.append(mfb.prepare(suspends_set))
         _, resume_ext = mfb.build_resume(fbs)

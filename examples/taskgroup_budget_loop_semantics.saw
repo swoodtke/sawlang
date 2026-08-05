@@ -1,0 +1,99 @@
+// design 127 (RC-3): the inserted backedge check must not perturb loop
+// semantics. Every loop shape a spawned body can carry is instrumented, so each
+// one has to keep its EXACT iteration count.
+//
+//   - a `for` over a range, longer than the 128-iteration budget
+//   - a `for` over a Vector's elements — the documented v1 bound: a collection
+//     `for` is NOT instrumented (the transform can only state-split a range
+//     `for`), so this one has to keep compiling and counting exactly as before
+//   - a `while` whose body already suspends (the check rides alongside the
+//     existing suspension instead of replacing it)
+//   - a `while` with `continue` — the check sits at the TOP of the body, so a
+//     `continue` re-enters it; a trailing check would be jumped clean over and
+//     such a loop would never cede
+//   - a nested loop pair, where inner and outer share one frame counter
+// EXPECT: success
+// EXPECT-OUTPUT:
+// range 1000
+// vector 55
+// suspending 300
+// continue 500
+// nested 600
+
+import std.task
+
+func count_range(n: Int) -> Int {
+    var seen = 0
+    for _ in 0..n {
+        seen = seen + 1
+    }
+    seen
+}
+
+func sum_vector(v: Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        total = total + x
+    }
+    total
+}
+
+func count_suspending(n: Int) -> Int {
+    var seen = 0
+    var i = 0
+    while i < n {
+        yield_now()
+        seen = seen + 1
+        i = i + 1
+    }
+    seen
+}
+
+// Half the iterations take the `continue` path and are never counted; the loop
+// still has to run all `n` of them and terminate.
+func count_continue(n: Int) -> Int {
+    var seen = 0
+    var i = 0
+    while i < n {
+        i = i + 1
+        if i % 2 == 0 {
+            continue
+        }
+        seen = seen + 1
+    }
+    seen
+}
+
+func count_nested(rows: Int, cols: Int) -> Int {
+    var seen = 0
+    var r = 0
+    while r < rows {
+        var c = 0
+        while c < cols {
+            seen = seen + 1
+            c = c + 1
+        }
+        r = r + 1
+    }
+    seen
+}
+
+func main() {
+    var group = TaskGroup()
+    var v: Vector<Int> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+    var h1 = group.spawn(count_range(1000))
+    print("range {h1.join()}")
+
+    var h2 = group.spawn(sum_vector(move v))
+    print("vector {h2.join()}")
+
+    var h3 = group.spawn(count_suspending(300))
+    print("suspending {h3.join()}")
+
+    var h4 = group.spawn(count_continue(1000))
+    print("continue {h4.join()}")
+
+    var h5 = group.spawn(count_nested(20, 30))
+    print("nested {h5.join()}")
+}

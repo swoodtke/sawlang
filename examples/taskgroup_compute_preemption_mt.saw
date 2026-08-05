@@ -1,0 +1,28 @@
+// design 127 (RC-3), multi-threaded: the loop-backedge budget yield must not
+// confuse the `threads: N` worker claim protocol. A forced yield hands the frame
+// back to the shared run queue mid-loop, so a DIFFERENT worker may pick it up on
+// the next turn — the frame has to carry its whole loop state (counter, budget,
+// accumulator) across that hand-off.
+//
+// Two compute-only tasks, each summing 0..<200000. Asserted on the SUM, never on
+// interleaving: with real threads the ordering is not ours to predict.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 39999800000
+
+func spin_sum(n: Int) -> Int {
+    var i = 0
+    var acc = 0
+    while i < n {
+        acc = acc + i
+        i = i + 1
+    }
+    acc
+}
+
+func main() {
+    var group = TaskGroup(threads: 2)
+    var a = group.spawn(spin_sum(200000))
+    var b = group.spawn(spin_sum(200000))
+    print(a.join() + b.join())
+}
