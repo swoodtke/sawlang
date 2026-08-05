@@ -17,6 +17,12 @@ backedge preemption (RC-3, user chose fix-not-soften — wave 2); **128/129
 DRAFTS** (Deinit/ExplicitCopy synthesis; newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
 
+**124 LANDED (Aug 5)** — RS-3 closed; a group is a scope, not an extender.
+Landing it needed a frame-field ownership fix (DF-124a, folded in). Two things
+it did NOT close: the general `opt!` read-out-of-optional gap DF-124a's root
+cause belongs to (DF-124b, stopped for a user decision) and the brief's item 3
+box reclamation, which is unimplementable as written (DF-124c).
+
 **122 LANDED (Aug 5)** — units A-I plus the folded-in RS-6, per-item closures
 inline below. Two things it did NOT close: RS-5's fourth hole (DF-122a, stopped
 for a user decision) and P2's design-92 half-application in
@@ -40,11 +46,27 @@ std.file/std.directory.
   proven deinit-twice). `set` also leaks the overwritten element;
   `String.byte_at` reads OOB heap from a safe signature; `Data.to_string`
   mints invalid UTF-8.
-- **RS-3 TaskGroup is a lifetime EXTENDER, not a scope.** Task-owned values are
-  released at group teardown, not task completion — the README's own
-  accept-loop server leaks one fd + frame per connection for the group's life,
-  and the sibling reader/writer EOF pattern deadlocks (verified hang).
-  Contradicts the deterministic-destruction claim. [design-claims #1]
+- **RS-3 — FIXED (design 124, Aug 5).** A task's owned values are now released
+  when THE TASK completes: the coro transform synthesizes a `__release` per
+  frame and calls it at every `return Done` site, dropping params and
+  across-suspend locals in the same LIFO order an ordinary scope exit uses
+  (including a frame-resident nested `TaskGroup`, whose own children are
+  structured-joined first). The result slot is the single exception — `join()`
+  moves it out, or the frame drops it once at group teardown. Both proven
+  defects are gone and fenced by tests that HANG on the pre-124 compiler:
+  `net_sibling_eof_no_deadlock` (the EOF pattern) and
+  `net_accept_loop_eager_fd_close` (the README server, client-observed EOF as
+  the fd oracle). Resource accounting is covered by
+  `taskgroup_eager_teardown{,_live_count,_mt}` (baseline leaked 8, and the MT
+  group accumulated across waves) and the double-drop edges by
+  `taskgroup_result_{joined,unjoined}_once`. Landing it required making
+  frame-field ownership honest — see DF-124a. Six existing deinit-oracle tests
+  were re-baselined to the eager ordering. Original finding follows: TaskGroup
+  is a lifetime EXTENDER, not a scope. Task-owned values are released at group
+  teardown, not task completion — the README's own accept-loop server leaks one
+  fd + frame per connection for the group's life, and the sibling reader/writer
+  EOF pattern deadlocks (verified hang). Contradicts the
+  deterministic-destruction claim. [design-claims #1]
 - **RS-4 — FIXED (design 122 unit C, Aug 4; commit facebad).** `Command` holds
   `args: Vector<String>` and spawns a real argv through three additive seams
   (`__saw_rt_proc_spawn`/`_read_stdout`/`_wait`, fork + execvp in
@@ -210,6 +232,81 @@ noted live-range packing of locals; do both in one sizing brief.
   `d125_120_shortcircuit.saw`, `d125_blocking_sc.saw` (gitignored; the shapes
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
+
+## Design 124 — DF-findings (TaskGroup eager teardown)
+
+- **DF-124a — FIXED (design 124, Aug 5).** Frame-field reads had no ownership
+  discipline. A coroutine frame holds an owned local in a `T?`-encoded field and
+  reads it as `self.name!`; the ForceUnwrap hid the underlying field access from
+  BOTH the typechecker's transfer checkpoint and every codegen copy predicate
+  (they match bare place expressions — Identifier / MemberAccess / ArrayIndex /
+  TupleIndex). So a transfer out of the frame took a non-retaining alias AND left
+  the field's drop flag set: neither the retain branch nor the move branch ran.
+  Latent before eager teardown (the frame outlived every reader, and a joined
+  task's take cleared `__result`, so the stale flag cost one late drop), it
+  became an immediate use-after-free once the field was released at task
+  completion — `func w() -> Wrap { let s = "v{n}"; yield_now(); Wrap(s: s) }`
+  handed back a `Wrap` whose String the frame then freed. Fix: `_read_field`
+  marks a non-`move` whole-binding read `frame_owning_read`, and codegen applies
+  the same read-out-of-storage retain the closure-capture materialization already
+  spells with `.copy()` — at call/return transfers (`_transfer_needs_copy`),
+  struct-literal fields (`_needs_copy_for_struct_init`) and both assignment paths
+  (`statements.py`). A `move` read is deliberately unmarked: it keeps
+  transferring the frame's own reference via `__saw_forget`. Retains are typed
+  against the VALUE's type, not the destination field's, since an opt-encoded
+  destination is `T?` while the read is the bare payload.
+
+- **DF-124b — STOPPED, needs a user decision (found by design 124, Aug 5).**
+  DF-124a's root cause is not confined to coroutine frames: reading a payload out
+  of ANY optional with `!` neither retains it nor clears the source's ownership,
+  so the reader gets a non-owning alias. Five lines, no coroutines, no unsafe:
+
+  ```saw
+  func main() {
+      var o: String? = "v{1}"     // interpolation => a heap-allocated String
+      let a = o!                  // reads the payload WITHOUT retaining it
+      o = None                    // releases the payload
+      print(a)                    // `a` dangles: prints NUL bytes
+  }
+  ```
+
+  Same for a `T?` STRUCT FIELD (`let b = h.s!`, then `h.s = None`), for an
+  `if let` binding out of a field, and for `??`. `_generate_force_unwrap` is a
+  bare `extract_value` and `_ALIASING_EXPR_TYPES` does not include `ForceUnwrap`,
+  so nothing along the path accounts for the payload.
+
+  NOT fixed here because the obvious fix (teach `_is_aliasing_expr` to see through
+  `ForceUnwrap`) would break an idiom the executor itself depends on:
+  `TaskHandle.join` does `let r = self.result_ptr[0]!` followed by
+  `__saw_forget(self.result_ptr[0])` — a deliberate MOVE out of a container,
+  which only works because `!` does not retain today. So the question is a design
+  one, not a patch: does `opt!` COPY the payload (and how is a move-out then
+  spelled — a `take()` on Optional? `move o!`?), or does it MOVE (and then `o`
+  must be marked moved-from, which the checker does not do either)? Either answer
+  needs the NoCopy case decided too: `let g = f!` on a `File?` is currently
+  accepted and silently duplicates. Design 124 scoped itself to the frame
+  encoding it owns; this wants its own brief. Repro:
+  `.build/scratch/probe_df124b.saw` (gitignored; inlined above).
+
+- **DF-124c — design 124 item 3 was NOT implemented as written; the frame box is
+  retained (Aug 5, needs a user call if the memory matters).** The brief asked
+  that "the `tasks` vector slot become reclaimable at Done (drop the Box
+  eagerly)". That is unimplementable alongside the brief's own items 1-2, which
+  require the never-joined `__result` to survive until group teardown: `__result`
+  lives INSIDE the frame, and `TaskHandle`'s `result_ptr` and `cancel_ptr` are
+  raw pointers into it. Freeing the box at Done would dangle both — and
+  `cancel_addr()` hands a raw frame address to a peer task precisely so it can
+  write the cancel word LATER, which no done-check can guard. What design 124
+  does deliver is that every RESOURCE the frame held is released at Done; what
+  the slot keeps afterward is the frame allocation itself (the result slot plus
+  the scheduler words). For a long-lived accept-loop server that is still O(tasks
+  ever spawned) memory, bounded by frame size — the bookkeeping vectors are
+  already O(tasks ever spawned) by the brief's own "do NOT compact, indices are
+  handles" rule. Reclaiming the box needs `__result` and `__cancel` relocated out
+  of the frame into group-owned, type-aware cells (the erased `Box<any Resumable>`
+  cannot free a payload it no longer describes), which is a protocol change
+  across the spawn lowering, `TaskHandle`, and design-102's `__is_cancelled`.
+  Worth a follow-up brief; not a correctness bug.
 
 ## Design 116 — DF-findings (self-hosting lexer pilot, IN PROGRESS)
 The lexer port (`selfhost/lexer`) is the pilot's measurement instrument;
