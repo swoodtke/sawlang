@@ -346,7 +346,16 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   while main is parked on accept — a live server WORKS. A TaskGroup is a
   lifetime/join SCOPE (its `Deinit` structured-joins its members at scope exit),
   not a separate executor; nested groups compose by construction; a task joining
-  another yields to the one scheduler (no nested loop). Suspending calls yield
+  another yields to the one scheduler (no nested loop). **Scope, not extender
+  (design 124):** a task's owned values deinit when THE TASK completes, not at
+  group teardown — a handler's `TcpStream` closes its fd on return, so the
+  accept-loop above reclaims each connection as it finishes and a reader sees EOF
+  as soon as its sibling writer completes. Only the RESULT outlives the task:
+  `join()` moves it out (the caller owns it for real, valid after the task is
+  gone) and an unjoined result drops once at group teardown. Cancelled-then-
+  completed follows the same path. So a long-lived group accumulates nothing, and
+  a task-local resource is NOT a way to extend a lifetime — hold it in the
+  spawner if you need it to outlast the task. Suspending calls yield
   IMPLICITLY when they park (a task doing I/O never needs `yield_now`); `yield_now`
   (design 114: `import std.task` — no longer prelude) is only for a CPU loop that
   makes no parking calls. Fairness backstop (design

@@ -2690,9 +2690,22 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   keeps its own worker-drained queue (design 75).
 - **`TaskHandle<T>`** owns nothing — raw pointers into the group-owned heap frame.
   `join()` drives the group then TAKES the frame's `__result` exactly once
-  (force-unwrap read + a slot clear, so teardown drops nothing). Dropping an
+  (force-unwrap read + a slot clear, so teardown drops nothing), and the caller
+  owns that value outright: it stays valid after the task is gone. Dropping an
   unjoined handle is fine: the result stays in the frame and is dropped once at
   group teardown — exactly-once either way.
+- **Eager per-task destruction (design 124).** A task's owned values are released
+  when THE TASK completes, not when its group is torn down. Params and
+  across-suspend locals are frame fields, so the transform emits a `__release` at
+  every `return Done` site: it drops them in the same LIFO order an ordinary
+  function's scope exit uses, including a frame-resident nested `TaskGroup` (whose
+  own children are structured-joined first). The single exception is the result
+  slot, which is what `join()` moves out — or, unjoined, what the frame drops once
+  at group teardown. So a group is a lifetime SCOPE, not a lifetime extender: a
+  handler task's `TcpStream` closes its fd when the handler returns, an
+  `accept`-loop server reclaims each connection as it finishes rather than
+  accumulating them, and a task that reads to EOF sees it as soon as its sibling
+  writer completes. A cancelled-then-completed task takes the same path.
 - **Structured join = LIFO destruction (design 18 C1).** The group's `Deinit`
   runs the executor to completion of every child, then tears each frame down.
   Because the group is declared before the resources its tasks use and before its
@@ -2844,6 +2857,17 @@ func main() {
     print(a.join())                   // drive the group; take a's result: 11
     print(b.join())                   // 21
 }                                     // group Deinit drains any unjoined child
+
+// A task's owned values die WITH THE TASK (design 124), not with the group, so a
+// long-lived group does not accumulate finished tasks' resources:
+func handle(conn: TcpStream) -> Int {
+    let req = try! conn.read()
+    try! conn.write("ok")
+    req.len()
+}                                     // `conn` deinits HERE: the fd closes when
+                                      // the handler returns, not at group teardown
+// The result is the one value that outlives the task: `join()` moves it out and
+// the caller owns it; an unjoined result drops once at group teardown.
 
 // Cooperative suspending receive over a Channel (design 62 G3):
 func consumer(ch: Channel<Int>) -> Int {

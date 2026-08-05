@@ -289,7 +289,10 @@ match parse(false) {
 There is no `async`/`await` keyword. **Any call may suspend**, and the rare call
 that must not is marked `sync`, which the compiler checks. A `TaskGroup` owns its
 child tasks and joins them when it goes out of scope; cancellation is explicit
-and cooperative (`handle.cancel()`).
+and cooperative (`handle.cancel()`). A group is a scope, not a lifetime extender:
+a task's values deinit when the task finishes, so a long-lived group does not
+accumulate the resources of tasks that have already completed. The one value that
+outlives a task is its result, which `join()` hands to the caller.
 `TaskGroup(threads: N)` opts into running on multiple threads, with `Send` checked
 at every spawn; the default stays single-threaded and deterministic.
 
@@ -354,7 +357,9 @@ while {
 func handle(stream: TcpStream) {
     let chunk = try! stream.read()           // Result<Data, IoError>; empty Ok = EOF
     try! stream.write("hello")               // writes everything or errors honestly
-}
+}                                            // stream deinits here: the fd closes
+                                             // when the handler returns
+
 ```
 
 ### The Copy Trait Family
