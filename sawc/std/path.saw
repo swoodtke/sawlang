@@ -148,7 +148,7 @@ extension Path {
     /// parent path, so `Path("/tmp").join("data.db")` could yield `/tmp` — and
     /// the caller would then open, write or unlink the directory it meant to
     /// create a file in.
-    public func join(&self, other: String) -> Path {
+    public unsafe func join(&self, other: String) -> Path {
         let self_len = self.value.len()
         let other_len = other.len()
 

@@ -150,7 +150,7 @@ extension Command {
     // `run`/`output` report a `None` here as "could not launch process", which
     // is a different failure from the one that happened — the callers' error
     // channels are about the CHILD, not about memory.
-    func build_argv(&self) -> UnsafePointer<Int8> {
+    unsafe func build_argv(&self) -> UnsafePointer<Int8> {
         let n = self.args.len()
         let slot = sizeof<UnsafePointer<Int8>>()
         let slots = n + 2                      // program + args + NULL
@@ -188,7 +188,7 @@ extension Command {
     //             exited 127 (POSIX "command not found / could not exec"). This
     //             is the design-92 distinction — a failed launch is surfaced,
     //             not folded into a bogus exit code (never hide errors).
-    public func run(&self) -> Result<Int32, ProcessError> {
+    public unsafe func run(&self) -> Result<Int32, ProcessError> {
         let argv = unsafe self.build_argv()
         let job = __saw_rt_proc_spawn(self.program as UnsafePointer<Int8>, argv, 0)
         free(argv)
@@ -209,7 +209,7 @@ extension Command {
     // Run the command and capture its stdout.
     // Returns CommandOutput with stdout and exit code, or None if the child
     // could not be spawned.
-    public func output(&self) -> CommandOutput? {
+    public unsafe func output(&self) -> CommandOutput? {
         let argv = unsafe self.build_argv()
         let job = __saw_rt_proc_spawn(self.program as UnsafePointer<Int8>, argv, 1)
         free(argv)

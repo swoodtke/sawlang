@@ -58,7 +58,7 @@ extension Channel<T: Send> {
     /// infallible tier). It used to build an INERT channel: `send` swallowed
     /// every message, `recv` force-unwrapped a `None` and `receive` looped
     /// forever. `try_make` reports the failure instead.
-    public init() -> Channel<T> {
+    public unsafe init() -> Channel<T> {
         if let block = unsafe GlobalAllocator().alloc(160, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
@@ -75,7 +75,7 @@ extension Channel<T: Send> {
 
     /// Creates a fresh empty channel, reporting allocator exhaustion as
     /// `Err(AllocError)`.
-    public func try_make() -> Result<Channel<T>, AllocError> {
+    public unsafe func try_make() -> Result<Channel<T>, AllocError> {
         if let block = unsafe GlobalAllocator().alloc(160, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
@@ -115,7 +115,7 @@ extension Channel<T: Send> {
     // Internal: the enqueue itself. Returns whether the node was allocated and
     // linked; FALSE leaves the queue untouched (and `v`, unmoved, deinits at
     // this scope's exit rather than vanishing into a half-built node).
-    func _enqueue(&self, v: T) -> Bool {
+    unsafe func _enqueue(&self, v: T) -> Bool {
         if let block = self.block {
             pthread_mutex_lock(block)
             // Allocate and fill a node { next, value }.
@@ -156,7 +156,7 @@ extension Channel<T: Send> {
     // suspension). The cancellation-aware form adds `if cancelled() { ... }` to the
     // loop, returning through normal control flow (NO forced destroy). The 21b
     // thread engine's blocking `recv` (below) is untouched and coexists.
-    public func try_receive(&self) -> T? {
+    public unsafe func try_receive(&self) -> T? {
         if let block = self.block {
             pthread_mutex_lock(block)
             let count = (block + 136) as UnsafePointer<Int>
@@ -205,7 +205,7 @@ extension Channel<T: Send> {
 
     // Dequeue a value, blocking the CALLING THREAD while the queue is empty (the
     // design-21b thread-per-task engine; untouched by the cooperative engine).
-    public func recv(&self) -> T {
+    public unsafe func recv(&self) -> T {
         if let block = self.block {
             pthread_mutex_lock(block)
             let count = (block + 136) as UnsafePointer<Int>
@@ -238,7 +238,7 @@ extension Channel<T: Send> {
 // Deinit is registered before ImplicitCopy so the `ImplicitCopy: Deinit`
 // supertrait requirement is already satisfied when ImplicitCopy is checked.
 extension Channel<T: Send>: Deinit {
-    public func deinit(&var self) {
+    public unsafe func deinit(&var self) {
         if let block = self.block {
             let refcount = (block + 128) as UnsafePointer<Int>
             let old = __saw_atomic_sub_i64_release(refcount, 1)
@@ -271,7 +271,7 @@ extension Channel<T: Send>: Deinit {
 
 extension Channel<T: Send>: ImplicitCopy {
     // Retain: a live handle keeps the queue alive, so monotonic is enough.
-    public func copy(&self) -> Channel<T> {
+    public unsafe func copy(&self) -> Channel<T> {
         if let block = self.block {
             let refcount = (block + 128) as UnsafePointer<Int>
             __saw_atomic_add_i64(refcount, 1)

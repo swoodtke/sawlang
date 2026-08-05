@@ -30,7 +30,7 @@ extern "C" {
 
 extension String {
     // Get the length of the string in bytes (O(1): reads the header `len` field)
-    public func len(&self) -> Int {
+    public unsafe func len(&self) -> Int {
         __saw_string_len(self as UnsafePointer<Int8>)
     }
 
@@ -45,7 +45,7 @@ extension String {
     // the caller gets no signal that a bad index would read arbitrary heap —
     // reading past the end from a safe method is never acceptable, and the
     // check is one O(1) header read.
-    public func byte_at(&self, index: Int) -> Int8 {
+    public unsafe func byte_at(&self, index: Int) -> Int8 {
         if index < 0 || index >= self.len() {
             panic("String.byte_at: index out of range")
         }
@@ -180,7 +180,7 @@ extension String {
     // exhaustion panics inside `__saw_string_alloc` (design 123). It used to
     // return `""` for BOTH, so `trim()` on a long string could hand back an
     // empty one and no caller could tell.
-    func _substring(&self, start: Int, length: Int) -> String {
+    unsafe func _substring(&self, start: Int, length: Int) -> String {
         if length <= 0 {
             ""
         } else {
@@ -200,7 +200,7 @@ extension String {
     // Returning `self` on allocator exhaustion — the UN-cased string, which is
     // a perfectly legal result — was one of the six degradations design 123
     // removed. Exhaustion panics inside `__saw_string_alloc` now.
-    public func to_uppercase(&self) -> String {
+    public unsafe func to_uppercase(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
@@ -223,7 +223,7 @@ extension String {
     }
 
     // Convert to lowercase (ASCII only). Same tier as `to_uppercase`.
-    public func to_lowercase(&self) -> String {
+    public unsafe func to_lowercase(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
@@ -246,7 +246,7 @@ extension String {
     }
 
     // Replace all occurrences of old with new
-    public func replace(&self, old: String, new: String) -> String {
+    public unsafe func replace(&self, old: String, new: String) -> String {
         let self_len = self.len()
         let old_len = old.len()
         let new_len = new.len()
@@ -846,7 +846,7 @@ extension String {
     /// different failure and threw away every byte.
     ///
     /// Static: call as `String.fromBytes(&data)`.
-    public func fromBytes(data: &Data) -> Result<String, Utf8Error> {
+    public unsafe func fromBytes(data: &Data) -> Result<String, Utf8Error> {
         let n = data.len()
         if n == 0 {
             return ""                       // trivially-valid empty string (Ok)
@@ -909,7 +909,7 @@ extension String {
     // borrow's result type, chosen at the call site (`s.withCString<Int> { ... }`).
     // The value flows straight out — `s.withCString<Int> { ptr in strlen(ptr) }`
     // — so a scoped C-borrow no longer needs the capture-and-write workaround.
-    public func withCString<R>(&self, body: (UnsafePointer<Int8>) -> R) -> R {
+    public unsafe func withCString<R>(&self, body: (UnsafePointer<Int8>) -> R) -> R {
         body(self as UnsafePointer<Int8>)
     }
 }
@@ -920,7 +920,7 @@ extension String {
 
 extension Vector<String> {
     // Join all strings in the vector with a separator
-    public func join(&self, separator: String) -> String {
+    public unsafe func join(&self, separator: String) -> String {
         let count = self.len()
 
         if count == 0 {

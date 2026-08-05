@@ -41,7 +41,7 @@ extension File {
     // =========================================================================
 
     // Open a file for reading
-    public func open(path: Path) -> File? {
+    public unsafe func open(path: Path) -> File? {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         let fd = open(path_ptr, 0 as Int32, 0 as Int32)  // O_RDONLY
 
@@ -53,7 +53,7 @@ extension File {
     }
 
     // Create a file for writing (truncates if exists)
-    public func create(path: Path) -> File? {
+    public unsafe func create(path: Path) -> File? {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         // O_WRONLY | O_CREAT | O_TRUNC = 1 | 64 | 512 = 577
         let fd = open(path_ptr, 577 as Int32, 420)  // 0644
@@ -66,7 +66,7 @@ extension File {
     }
 
     // Open a file for appending
-    public func open_append(path: Path) -> File? {
+    public unsafe func open_append(path: Path) -> File? {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         // O_WRONLY | O_CREAT | O_APPEND = 1 | 64 | 1024 = 1089
         let fd = open(path_ptr, 1089 as Int32, 420)
@@ -84,7 +84,7 @@ extension File {
 
     // Read bytes from the file
     // If size <= 0, reads the entire file; otherwise reads up to size bytes
-    public func read(&var self, size: Int = 0) -> Data? {
+    public unsafe func read(&var self, size: Int = 0) -> Data? {
         var bytes_to_read = size
 
         // If size <= 0, determine file size
@@ -135,7 +135,7 @@ extension File {
     // =========================================================================
 
     // Write Data to the file
-    public func write(&self, data: Data) -> Int? {
+    public unsafe func write(&self, data: Data) -> Int? {
         if data.len() == 0 {
             return 0
         }
@@ -193,14 +193,14 @@ extension File {
     // Static utility methods
     // =========================================================================
 
-    public func exists(path: Path) -> Bool {
+    public unsafe func exists(path: Path) -> Bool {
         let ptr = path.as_str() as UnsafePointer<Int8>
         access(ptr, 0 as Int32) == (0 as Int32)
     }
 
     // Remove a file. Returns Ok on success or the errno cause honestly (design
     // 92 — a Bool hid WHY it failed; `exists` stays a genuine boolean question).
-    public func remove(path: Path) -> Result<Void, IoError> {
+    public unsafe func remove(path: Path) -> Result<Void, IoError> {
         let ptr = path.as_str() as UnsafePointer<Int8>
         let e = __saw_rt_fs_unlink(ptr)
         if e != 0 {
@@ -210,7 +210,7 @@ extension File {
     }
 
     // Rename/move a file. Ok on success, Err(IoError) with the SysError cause.
-    public func rename(from_path: Path, to_path: Path) -> Result<Void, IoError> {
+    public unsafe func rename(from_path: Path, to_path: Path) -> Result<Void, IoError> {
         let from_ptr = from_path.as_str() as UnsafePointer<Int8>
         let to_ptr = to_path.as_str() as UnsafePointer<Int8>
         let e = __saw_rt_fs_rename(from_ptr, to_ptr)

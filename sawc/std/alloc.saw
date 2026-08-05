@@ -72,9 +72,14 @@ extern "C" {
 /// documentation). `dealloc` must be handed the same `size`/`align` the block
 /// was allocated with: the seams carry no per-block metadata, so the container
 /// remembers the layout.
+/// Both requirements are `unsafe` (design 130): each names a raw pointer in its
+/// signature, so every implementation and every caller is unsafe by the trigger
+/// rule. `dealloc` is the shape rule 7 describes — its precondition (the pointer
+/// really came from this allocator, with this layout) is expressed by taking an
+/// unsafe-typed parameter, which is what carries the obligation to the caller.
 trait Allocator {
-    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>?
-    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int)
+    unsafe func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>?
+    unsafe func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int)
 }
 
 // =============================================================================
@@ -89,11 +94,11 @@ trait Allocator {
 struct GlobalAllocator {}
 
 extension GlobalAllocator: Allocator {
-    public func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+    public unsafe func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
         __saw_rt_alloc(size, align)
     }
 
-    public func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+    public unsafe func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
         __saw_rt_dealloc(ptr, size, align)
     }
 }
