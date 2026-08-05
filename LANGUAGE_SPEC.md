@@ -3970,7 +3970,7 @@ lowering Saw to LLVM IR and then to a native object/executable.
 ```
 sawc <source.saw> [options]
 
-  -o <file>    Output executable name (default: ./<source>)
+  -o <file>    Output executable name (default: .build/<source>)
   -c           Compile to an object file (.o) only — no linking, no main() required
   -v           Verbose output (pipeline stages)
   --emit-ir    Emit LLVM IR only, don't compile

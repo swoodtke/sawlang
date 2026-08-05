@@ -1147,14 +1147,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    sawc hello.saw              Compile hello.saw to ./hello
+    sawc hello.saw              Compile hello.saw to .build/hello
     sawc hello.saw -o myprogram Compile to ./myprogram
     sawc hello.saw -v           Verbose output
         """
     )
 
     parser.add_argument("input", help="Input .saw file")
-    parser.add_argument("-o", "--output", help="Output executable name")
+    parser.add_argument("-o", "--output",
+                        help="Output executable name (default: .build/<source>)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("-c", action="store_true", help="Compile to object file (.o) without linking, no main() required")
     parser.add_argument("--emit-ir", action="store_true", help="Only emit LLVM IR, don't compile")
