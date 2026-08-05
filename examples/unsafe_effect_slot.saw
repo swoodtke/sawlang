@@ -64,14 +64,15 @@ func drain_register(index: Int) -> Int {
     drain(index * REGISTER_STRIDE)
 }
 
+// The slot hands an unsafe value to an unnamed function, so it carries the
+// effect its signature names.
+func with_register(offset: Int, body: (UnsafeMmioReg) unsafe sync -> Int) unsafe -> Int {
+    body(UnsafeMmioReg(at: offset))
+}
+
 func main() {
     print("{read_register(0)}")
     print("{read_register(1)}")
     print("{drain_register(2)}")
-    // A closure hands the unsafe value on through a slot that says `unsafe`.
     print("{with_register(4) { r in r.read() + 1 }}")
-}
-
-func with_register(offset: Int, body: (UnsafeMmioReg) unsafe sync -> Int) unsafe -> Int {
-    body(UnsafeMmioReg(at: offset))
 }
