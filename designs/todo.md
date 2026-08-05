@@ -145,10 +145,25 @@ std.file/std.directory.
 **123 LANDED (Aug 5)** — units A1-A3, B-J. Closes RS-1 and the report's C1, H2,
 H3, H7 and H8. Two things it did NOT close: review M1 (`Mutex.lock`'s result
 should be the closure's own type) was blocked on **DF-123c** — both closed by
-design 133 — and **DF-123b** is a second ICE found on the way, still open; both
-are recorded under "Design 123 — DF-findings".
-review M15 (`Directory.current` truncates at 1024 bytes) is untouched and still
-open — only its OOM path was separated out.
+design 133 — and **DF-123b** is a second ICE found on the way (closed by
+design 132 unit C); both are recorded under "Design 123 — DF-findings".
+review M15 (`Directory.current` truncates at 1024 bytes) was untouched there —
+only its OOM path was separated out — and is **FIXED by design 132 unit F**
+(Aug 5): the buffer doubles from 1024 up to a 1 MiB ceiling and getcwd is
+retried until the path fits, so a long working directory comes back WHOLE
+instead of as a `None` indistinguishable from a real failure. errno is not
+readable from std (rt/ABI.md keeps `__saw_rt_last_syserror` runtime-internal,
+and getcwd is a bare libc call), so the retry cannot tell ERANGE from EACCES and
+does not try — it grows until the path fits or the ceiling is reached, which
+costs a handful of doublings on a path that was already failing. The OOM path
+stays separate: allocator refusal still panics (design 123). Test
+`examples/directory_current_long_path.saw` builds its own ten-component,
+200-bytes-each tree by entering one component at a time (a single `mkdir` of the
+whole path would hit PATH_MAX — 1024 on macOS, 4096 on Linux), which puts the
+working directory past 2000 bytes on either host; it asserts the path comes
+back, exceeds the old fixed buffer, and is intact at both ends, then unwinds the
+tree and restores the original directory. Measured at 2036 bytes on macOS, where
+it returned `None` before.
 
 **P0 — proven memory-safety / correctness (stdlib + runtime):**
 - **RS-1 — FIXED (design 123, Aug 5).** std now has ONE answer to "the allocator
@@ -220,7 +235,7 @@ open — only its OOM path was separated out.
   | `Command.build_argv` | `None` -> reported as "could not launch process" | tier 1 panic; return non-optional |
   | `Command.arg` | corrupt / dropped an argv element | tier 1 panic (through `Vector.push`) |
   | `File.read` / `File.write` | `None`, colliding with the syscall failure; short reads | tier 1 panic; `None` means the syscall failed |
-  | `Directory.current` | `None`, colliding with getcwd failure AND truncation | tier 1 panic; `None` means getcwd failed (M15 truncation still open) |
+  | `Directory.current` | `None`, colliding with getcwd failure AND truncation | tier 1 panic; `None` means getcwd failed (M15 truncation FIXED in design 132 unit F) |
   | `Directory.list` | name -> `""`, entry -> the parent dir, entries dropped | tier 1 panic (through String/Path/Vector) |
   | `Env.arg` / `get` / `args` | `Some("")` for a real value; short argv | tier 1 panic (through String/Vector) |
   | `net.net_buffer` | tier 1 panic (already correct) | unchanged |

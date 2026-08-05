@@ -1,0 +1,125 @@
+// `Directory.current` grows its buffer and retries until the working directory
+// fits (design 132 unit F / review M15). It used to offer getcwd(2) a single
+// fixed 1024-byte buffer, so a longer path came back as `None` — the same
+// answer a real getcwd failure gives, and a silent wrong answer besides.
+//
+// The test builds its own deep tree: ten 200-byte components, entered one at a
+// time (a single `mkdir` of the whole path would hit PATH_MAX, which is 1024 on
+// macOS and 4096 on Linux). That puts the working directory past 2000 bytes on
+// either host, so the exact length is not asserted — what is asserted is that
+// the path comes back, exceeds the old fixed buffer, and is intact at both
+// ends. The tree is removed and the original directory restored on the way out.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// descended 10
+// got a path: true
+// longer than the old fixed buffer: true
+// contains the test root: true
+// ends with the deepest component: true
+// cleaned up: true
+
+import std.directory
+import std.path
+
+static COMPONENT_LENGTH: Int = 200
+static COMPONENT_COUNT: Int = 10
+static OLD_FIXED_BUFFER: Int = 1024
+
+func test_root_name() -> String { "saw_m15_long_cwd" }
+
+func test_root() -> String { "/tmp/saw_m15_long_cwd" }
+
+// One path component, long enough that ten of them clear any PATH_MAX.
+func component() -> String {
+    var b = StringBuilder()
+    var i = 0
+    while i < COMPONENT_LENGTH {
+        b.append("d")
+        i = i + 1
+    }
+    b.build()
+}
+
+func make_dir(p: Path) -> Bool {
+    match Directory.create(p) {
+        case Ok(_) -> true,
+        case Err(e) -> {
+            print("mkdir failed: {e}")
+            false
+        }
+    }
+}
+
+func enter_dir(p: Path) -> Bool {
+    match Directory.set_current(p) {
+        case Ok(_) -> true,
+        case Err(e) -> {
+            print("chdir failed: {e}")
+            false
+        }
+    }
+}
+
+func drop_dir(p: Path) -> Bool {
+    match Directory.remove(p) {
+        case Ok(_) -> true,
+        case Err(e) -> {
+            print("rmdir failed: {e}")
+            false
+        }
+    }
+}
+
+func main() {
+    guard let start = Directory.current() else {
+        print("no starting directory")
+        return
+    }
+
+    let root = Path(s: test_root())
+    let _ = Directory.remove(root)          // a previous run may have died here
+    if not make_dir(root) { return }
+    if not enter_dir(root) { return }
+
+    let name = component()
+    var made = 0
+    var going = true
+    while going && made < COMPONENT_COUNT {
+        if make_dir(Path(s: name)) && enter_dir(Path(s: name)) {
+            made = made + 1
+        } else {
+            going = false
+        }
+    }
+    print("descended {made}")
+
+    // The measurement: the whole path, not a truncated one and not `None`.
+    if let deep = Directory.current() {
+        let s = deep.as_str()
+        let long_enough = s.len() > OLD_FIXED_BUFFER
+        let rooted = s.contains(test_root_name())
+        let tailed = s.ends_with(name)
+        print("got a path: true")
+        print("longer than the old fixed buffer: {long_enough}")
+        print("contains the test root: {rooted}")
+        print("ends with the deepest component: {tailed}")
+    } else {
+        print("got a path: false")
+    }
+
+    // Unwind: leave and remove each component, then the root.
+    var left = made
+    var clean = true
+    while left > 0 {
+        if enter_dir(Path(s: "..")) && drop_dir(Path(s: name)) {
+            left = left - 1
+        } else {
+            clean = false
+            left = 0
+        }
+    }
+    if enter_dir(start) {
+        print("cleaned up: {clean}")
+    }
+    let _ = Directory.remove(root)
+}

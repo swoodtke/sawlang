@@ -42,6 +42,12 @@ extern "C" {
 // =============================================================================
 // Note: Directory is a marker struct for static methods only
 
+// The first buffer `Directory.current` offers getcwd(2), and the largest it
+// will grow to before giving up. The floor is the common PATH_MAX; the ceiling
+// is far past any real working directory, and only bounds the retry loop.
+static GETCWD_INITIAL_BYTES: Int = 1024
+static GETCWD_MAX_BYTES: Int = 1048576
+
 struct Directory {
     _unused: Int
 }
@@ -134,23 +140,38 @@ extension Directory {
 
     // Get the current working directory.
     //
-    // `None` means getcwd(2) failed — which, with this fixed 1024-byte buffer,
-    // includes a path longer than that (tracked as review M15). Allocator
-    // exhaustion PANICS rather than joining that `None` (design 123): it used
-    // to be a third meaning for the same answer.
+    // The buffer grows and the call is retried until the path fits, so a long
+    // working directory comes back WHOLE. It used to be a fixed 1024 bytes, and
+    // anything longer came back as `None` — indistinguishable from a real
+    // getcwd(2) failure and a silent wrong answer besides (review M15).
+    //
+    // `None` now means getcwd(2) failed for a reason growing the buffer cannot
+    // fix, or that the path exceeded `GETCWD_MAX_BYTES`. Allocator exhaustion
+    // PANICS rather than joining that `None` (design 123): it used to be a third
+    // meaning for the same answer.
+    //
+    // getcwd(2) reports a too-small buffer as ERANGE, but errno is not readable
+    // from std (rt/ABI.md: `__saw_rt_last_syserror` is runtime-internal, and
+    // this is a bare libc call). So the retry does not distinguish causes — it
+    // simply grows until the path fits or the ceiling is reached. A genuine
+    // failure such as EACCES costs a handful of doublings on a path that was
+    // already failing.
     public func current() unsafe -> Path? {
-        guard let buf = malloc(1024) else {
-            panic("Directory.current: allocation failed")
-        }
-        if let result = getcwd(buf, 1024) {
-            // Copy into an owned String, then free the scratch buffer.
-            let s = __saw_string_from_bytes(result, strlen(result))
+        var cap = GETCWD_INITIAL_BYTES
+        while cap <= GETCWD_MAX_BYTES {
+            guard let buf = malloc(cap) else {
+                panic("Directory.current: allocation failed")
+            }
+            if let result = getcwd(buf, cap) {
+                // Copy into an owned String, then free the scratch buffer.
+                let s = __saw_string_from_bytes(result, strlen(result))
+                free(buf)
+                return Path(s: s)
+            }
             free(buf)
-            Path(s: s)
-        } else {
-            free(buf)
-            None
+            cap = cap * 2
         }
+        None
     }
 
     // Change the current working directory. Ok on success, Err(IoError) with the
