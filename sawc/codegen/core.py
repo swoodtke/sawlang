@@ -717,6 +717,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # (it is not a seam and is available freestanding via compiler-rt).
         saw_alloc_fn = self.functions["__saw_rt_alloc"]
         saw_dealloc_fn = self.functions["__saw_rt_dealloc"]
+        saw_panic_fn = self.functions["__saw_rt_panic"]
         memcpy_fn = self._libc_func("memcpy", i8ptr, [i8ptr, i8ptr, word])
         align16 = ir.Constant(word, 16)
 
@@ -758,7 +759,23 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     b.call(saw_dealloc_fn, [block, total, align16])
         b.ret_void()
 
-        # ---- __saw_string_alloc(word len) -> i8*  (NULL on OOM) -------------
+        # ---- __saw_string_alloc(word len) -> i8*  (PANICS on OOM) -----------
+        # Design 123: `String` is an infallible-tier type — it takes no
+        # allocator type parameter and every producer of one (literal concat,
+        # interpolation, `_substring`, `StringBuilder.build`, every
+        # `__saw_string_from_bytes` caller in std) has a non-optional `String`
+        # return, so there is nowhere to surface a failure. Returning NULL made
+        # `__saw_string_len` read 0 and the whole library degrade to `""` —
+        # `to_uppercase` losing its text, `Env.get` reporting a set variable as
+        # empty, `StringBuilder.build` discarding everything appended. One panic
+        # HERE is the tier-1 answer for the entire String layer.
+        #
+        # The message is a fixed interned constant handed straight to the panic
+        # seam rather than assembled through `_emit_runtime_panic`, because that
+        # helper builds its buffer with THIS function: routing the failure
+        # through it would recurse until the stack ran out. It carries no
+        # FILE:LINE for the same reason a runtime helper has no source location
+        # of its own — it uses the `panic: ` fallback form.
         fn = ir.Function(self.module, ir.FunctionType(i8ptr, [word]),
                          name="__saw_string_alloc")
         self.functions["__saw_string_alloc"] = fn
@@ -771,7 +788,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         block = b.call(saw_alloc_fn, [total, align16], name="block")
         b.cbranch(b.icmp_unsigned('==', block, null), oom, ok)
         b = ir.IRBuilder(oom)
-        b.ret(null)
+        _saved_builder = getattr(self, "builder", None)
+        self.builder = b
+        msg_ptr, msg_len = self._raw_bytes_ptr("panic: string allocation failed\n")
+        self.builder = _saved_builder
+        b.call(saw_panic_fn, [msg_ptr, msg_len])
+        b.unreachable()
         b = ir.IRBuilder(ok)
         wordptr = word.as_pointer()
         rc_ptr = b.bitcast(block, wordptr, name="rc_ptr")
@@ -791,9 +813,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         src = fn.args[0]; src.name = "src"
         length = fn.args[1]; length.name = "len"
         b = ir.IRBuilder(fn.append_basic_block("entry"))
+        # `__saw_string_alloc` panics rather than returning NULL (design 123),
+        # so the destination is always live and the old null guard is gone.
         bytes_ptr = b.call(self.functions["__saw_string_alloc"], [length], name="dst")
-        with b.if_then(b.icmp_unsigned('!=', bytes_ptr, null)):
-            b.call(memcpy_fn, [bytes_ptr, src, length])
+        b.call(memcpy_fn, [bytes_ptr, src, length])
         b.ret(bytes_ptr)
 
         # ---- __saw_string_len(i8* s) -> word --------------------------------

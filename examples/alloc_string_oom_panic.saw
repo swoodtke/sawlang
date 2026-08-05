@@ -1,0 +1,25 @@
+// Design 123: `String` is an infallible-tier type — no allocator type
+// parameter, and every producer returns a non-optional `String`, so there is
+// nowhere to surface an allocation failure. The central `__saw_string_alloc`
+// used to hand back NULL, which `__saw_string_len` read as 0: the whole String
+// layer then degraded to `""`. `to_uppercase` returned the un-cased original,
+// `StringBuilder.build` discarded everything appended, and `Env.get` reported a
+// set variable as empty — plausible wrong answers, every one of them.
+//
+// It panics now. The message carries the `panic: ` fallback form rather than a
+// FILE:LINE, because the failure is raised inside a runtime helper that has no
+// source location of its own.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: string allocation failed
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(n: Int)
+}
+
+func main() {
+    var b = StringBuilder()
+    b.append("saw")
+    // The builder's own buffer is allocated; deny the String `build()` mints.
+    __saw_rt_alloc_deny_after(0)
+    print(b.build())
+}
