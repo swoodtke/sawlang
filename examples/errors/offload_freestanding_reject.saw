@@ -1,7 +1,10 @@
 // design 103 (A6): `extern blocking func` needs the hosted offload thread pool,
 // which the freestanding runtime does not provide — declaring one in the
 // freestanding profile is a clean registration-time error, anchored at the decl.
-// COMPILE-FLAGS: --freestanding
+// (An ELF cross-target is named explicitly: since design 122 unit H the
+// freestanding profile refuses a Mach-O target up front, and this test is about
+// the offload rejection, not the host.)
+// COMPILE-FLAGS: --freestanding --target x86_64-unknown-linux-gnu
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: is not available in the freestanding profile
 // EXPECT-ERROR-CONTAINS: blocking-call offload needs the hosted

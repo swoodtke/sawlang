@@ -510,6 +510,31 @@ def run_codegen(codegen, ast):
         sys.exit(1)
 
 
+def _reject_freestanding_macho(target_triple: str = None):
+    """`--freestanding` needs an ELF target (design 122 unit H).
+
+    The freestanding profile places every function in its own `.text.<name>`
+    section so `ld.lld --gc-sections` can drop the unreachable stdlib (design
+    112). Mach-O does not accept that section spelling — it wants
+    `__SEGMENT,__section` — and LLVM aborts the whole process with
+    `LLVM ERROR: ... invalid section specifier`, leaving a 0-byte object behind.
+    Catch it here, before any of that, and say what to pass instead.
+    """
+    import llvmlite.binding as binding
+    triple = target_triple or binding.get_default_triple()
+    t = triple.lower()
+    if not any(k in t for k in ("apple", "darwin", "macos", "ios")):
+        return
+    print(f"\033[1;31merror\033[0m: `--freestanding` cannot target the Mach-O "
+          f"triple `{triple}`", file=sys.stderr)
+    print(f"   \033[1;32mhint\033[0m: the freestanding profile emits per-function "
+          f"`.text.<name>` sections for `--gc-sections`, which Mach-O does not "
+          f"support. Cross-compile to an ELF target, e.g. `--target "
+          f"riscv32-unknown-none-elf` (also `aarch64-unknown-none-elf`, "
+          f"`x86_64-unknown-none-elf`).", file=sys.stderr)
+    sys.exit(1)
+
+
 def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None):
     """Resolve modules, load builtins, and type-check the whole program.
 
@@ -532,6 +557,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # Freestanding always emits an unlinked object file; the user owns linking.
     if freestanding:
         object_only = True
+        _reject_freestanding_macho(target_triple)
 
     # Reject imports of hosted-only std modules under the freestanding profile.
     if freestanding:
