@@ -613,6 +613,128 @@ noted live-range packing of locals; do both in one sizing brief.
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
 
+## Design 137 — DF-findings (fixed-capacity formatting)
+
+**Deny window REMOVED.** Design 123's `__saw_rt_alloc_deny_after(allow, deny)`
+lost its second parameter: the bounded window existed only because a panic
+assembled its message into a fresh allocation, so blanket denial swallowed every
+panic message. Panic messages come off the stack now
+(`alloc_panic_under_full_denial` is the test 123 could not write), and the four
+OOM-panic tests that used the window run under blanket denial and still report
+their real messages. Denial is a plain MODE; a test that keeps running past its
+failure calls `deny_after(-1)`. ABI.md and `sawc/rt/common/mem.saw` updated.
+
+**Storage mechanism chosen: a caller-provided pointer + a compiler-allocated
+scratch.** `StringBuilder(bytes: UnsafePointer<Int8>, capacity: Int)` is the Saw
+surface, and `print`/`panic`/`assert` alloca their scratch in CODEGEN. Both of
+the brief's nicer options are unwritable today — see DF-137a and DF-137b — and a
+shared `static` scratch was excluded by the brief (MT groups exist; the panic
+path must be per-stack). The generics model was not touched.
+
+- **DF-137a — FILED, not fixed (found probing design 137's storage question,
+  Aug 5). There are no VALUE (const) generics, so a capacity-generic
+  `FixedStringBuilder<N>` is unwritable — and the near-miss spelling is accepted
+  in SILENCE.** `struct FixedBuf<N: Int> { len: Int }` compiles: the parser reads
+  `N` as an ordinary type parameter and `Int` as its bound, and a bound naming a
+  non-trait is never checked. The declaration is then unusable from both sides:
+
+  ```saw
+  struct FixedBuf<N: Int> { len: Int }
+  extension FixedBuf<N> {
+      func cap(&self) -> Int { N }     // error: undefined variable `N`
+  }
+  func main() {
+      let f = FixedBuf<16>(len: 0)     // error: undefined variable `FixedBuf`
+      print(f.cap())
+  }
+  ```
+
+  Two gaps, one cheap and one not. (1) No const generics — the feature. (2) A
+  type-parameter BOUND naming a non-trait is silently accepted, so the diagnosis
+  surfaces at the use site as "undefined variable" instead of at the declaration
+  as "`Int` is not a trait". (2) is what makes (1) read as a compiler bug rather
+  than a missing feature, and is worth fixing on its own.
+
+- **DF-137b — FILED, not fixed (same probe). A LOCAL fixed array cannot be
+  zero-initialized, so caller-provided stack scratch is only writable at tiny
+  sizes.** A `static` may be declared bare and lands zero-initialized in .bss
+  (LANGUAGE_SPEC.md:3360), but a local may not, and there is no repeat literal:
+
+  ```saw
+  func main() unsafe {
+      var scratch: [Int8; 256]              // Parse error: Expected '=' in
+                                            //   variable declaration
+      var other: [Int8; 256] = [0; 256]     // Parse error: Expected ']' after
+                                            //   array elements
+  }
+  ```
+
+  The only spelling that works is 256 literal zeros. This is why
+  `StringBuilder(bytes:capacity:)` takes an `UnsafePointer<Int8>` rather than a
+  `&var [Int8; N]`, and why the panic/print scratch is allocated by the COMPILER
+  rather than in Saw: a stack buffer of a useful size is not writable in the
+  language today. A `static` is not the answer — the panic path must be MT-safe.
+  Either half would close it: bare local declarations (matching statics), or a
+  `[0; N]` repeat literal.
+
+- **DF-137c — FIXED here (found writing `StringBuilder.append(value: UInt)`).
+  A platform `Int`/`UInt` overload pair was ambiguous at EVERY call site.**
+  Platform `Int` and `UInt` are mutually compatible in `_types_compatible` so an
+  unsuffixed literal can initialize either (design 53). Overload ranking had no
+  exactness tiebreak, so both candidates scored equally even where one was an
+  exact match:
+
+  ```saw
+  func take(value: Int) -> String { "int" }
+  func take(value: UInt) -> String { "uint" }
+  let i: Int = 5
+  take(i)   // was: ambiguous call to `take`: multiple overloads match (Int)
+  ```
+
+  Free functions and methods alike; the pair was simply unwritable, which
+  blocked the unsigned append overload the alloc-free path needs (the signed one
+  cannot represent the top half of `UInt`). Fixed with a penalty in
+  `_resolve_overload` limited to the platform `Int`/`UInt` pair. Deliberately
+  narrow: a bare literal's WIDTH stays flexible, so `h(Int)` vs `h(Int8)` called
+  `h(5)` remains the design-55 ambiguity (`overload_call_ambiguous_error` still
+  passes — 5 really could be either). Test: `overload_int_uint_exact`.
+
+- **DF-137d — FILED, not fixed (found dogfooding the SOS kernel, Aug 5). An
+  integer literal is NOT range-checked against a 32-bit platform `Int`.**
+  LANGUAGE_SPEC promises a bare literal is range-checked at the literal against
+  its expected fixed-width type, and design 47 makes platform `Int` 32-bit on
+  riscv32. `0x80000000` exceeds `Int.max` there and is accepted anyway, wrapping
+  to `-2147483648`:
+
+  ```saw
+  static BIG_STATIC: Int = 0x80000000     // accepted; wraps negative
+  @export("kmain")
+  func kmain() {
+      let big_local: Int = 0x80000000     // accepted; wraps negative
+      print("{} {}", BIG_STATIC, big_local)   // -2147483648 -2147483648
+  }
+  ```
+
+  Built with `--freestanding --target riscv32-unknown-none-elf`. This bites the
+  exact audience the freestanding profile is for: an address constant is the
+  most ordinary thing a kernel writes, and `0x80000000` is QEMU `virt`'s RAM
+  base. Surfaced because the SOS kernel's first formatted log line printed its
+  RAM base as a negative number. Worked around correctly rather than papered
+  over — `Region` holds `UInt`, which is what an address is — but the literal
+  check should reject the signed spelling instead of wrapping it. The likely
+  cause is that the literal range check does not know the target's platform
+  width. Repro: `.build/scratch/probe_range32.saw` (gitignored; inlined above).
+
+- **`--target-features` added (not a finding, a gap closed).** sawc passed only a
+  triple, which names an architecture but not which optional extensions the part
+  has. The SOS kernel built its C half `-march=rv32imac` and its Saw half as base
+  rv32i, where there is no divide instruction — so the first kernel log line
+  carrying a number failed to link on `__divsi3`/`__modsi3`/`__udivsi3`, libcalls
+  the freestanding profile has no library to satisfy. The flag is explicit rather
+  than a riscv32 default: which extensions a part has is the board's fact.
+  `tools/sos_runner.py` passes `+m,+a,+c`, derived from the `-march` it already
+  used for clang.
+
 ## Design 133 — DF-findings (capability completions)
 
 - **DF-133a — FILED, not fixed (found while implementing design 133 unit B, Aug

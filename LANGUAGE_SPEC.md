@@ -1360,6 +1360,102 @@ let p = Point(x: 3, y: 4)
 print("point = {p}")   // point = (3, 4)
 ```
 
+#### Format arguments and the allocation-free path
+
+**Status: implemented.** `print`, `panic` and `assert` take a literal format
+string with `{}` placeholders followed by one value per placeholder:
+
+```saw
+print("x = {}", x)
+print("{} of {} frames used", used, total)
+panic("out of {}: wanted {}", "frames", 64)
+assert(a == b, "want {} got {}", a, b)
+```
+
+Each argument keeps its own type and renders through its own `format`. These are
+monomorphized generics, not varargs, so the placeholder count and the argument
+count are compared at compile time:
+
+```saw
+print("{} and {}", 1)
+// error: `print` format string has 2 placeholders but 1 argument was given
+```
+
+The format string has to be a literal, since that is what the count is read
+from. Mixing `{name}` interpolation into a format string that also carries
+arguments is rejected; use `{}` for every slot. Write `\{` and `\}` for literal
+braces, which stay literal beside a real placeholder.
+
+**Nothing on this path allocates.** Literal parts of the format string are
+interned constants, integers are rendered into stack scratch, a `String` is
+already its own bytes, and a user `Printable` streams through `format` into a
+fixed-capacity builder over stack scratch. The interpolation spelling `"{x}"`
+cannot do this: it produces a `String`, which is a heap value by definition.
+That is the difference between the two spellings, and the reason the fixed one
+exists:
+
+```saw
+print("x = {x}")     // builds a String, then writes it
+print("x = {}", x)   // writes the pieces; no allocation anywhere
+```
+
+Both produce the same bytes. The second works in the freestanding profile with
+no allocator at all, and with a hosted allocator refusing every request.
+
+A `print` line has no length limit — each piece goes to the output seam at its
+own length, so a long `String` argument is written whole. The one bounded piece
+is a single user `Printable` rendering (512 bytes), which truncates with the
+marker below. `panic` and `assert` assemble one message and are bounded as a
+whole (508 bytes of message); see [Panic](#panic-for-unrecoverable-errors).
+
+#### `StringBuilder` fixed mode
+
+**Status: implemented.** `StringBuilder(bytes:capacity:)` builds over
+caller-provided storage instead of the heap. It never grows and never frees:
+content that does not fit is cut on a UTF-8 boundary and the marker `…` is
+stamped in its place, so a shortened result says it was shortened.
+`is_truncated()` reports it, and stays true until `clear()`.
+
+```saw
+var store: [Int8; 32] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+var b = StringBuilder(bytes: (&store) as UnsafePointer<Int8>, capacity: 32)
+b.append("n = ")
+b.append(42)
+print(b.build())          // n = 42
+print(b.is_truncated())   // false
+```
+
+The last four bytes of `capacity` are reserved for the marker and the NUL
+terminator, so a builder holds `capacity - 4` bytes of text. A capacity below
+five panics: there is no room to say anything.
+
+Fixed mode is what `print`/`panic`/`assert` hand to a user type's `format`, so
+whether a type is printable without allocating depends on how its `format` is
+written. `append` calls are allocation-free; `"{...}"` interpolation inside a
+`format` body is not.
+
+```saw
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("(")        // allocation-free
+        into.append(self.x)
+        into.append(")")
+    }
+}
+extension Other: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("({self.x})")   // builds a String first
+    }
+}
+```
+
+`append(value: Int)` and `append(value: UInt)` render digits directly, with no
+intermediate `String`. In fixed mode `try_append` and `try_append_char` never
+report `Err`: there is no allocator to refuse them, and truncation is reported
+by the marker and `is_truncated()` rather than by an `AllocError` naming a
+failure that did not happen.
+
 #### `Error` and erased Results
 
 **Status: implemented.** An error type is a Printable value:
@@ -2337,11 +2433,36 @@ fixed array `[Int; N]` the same code type-checks and runs today.
 ```saw
 func get_index(arr: [Int], i: Int) -> Int {   // [Int] slice: illustrative
     if i >= arr.len() {
-        panic("Index {i} out of bounds")
+        panic("Index {} out of bounds", i)
     }
     arr[i]
 }
 ```
+
+#### Panic messages allocate nothing
+
+A panic message is assembled in stack scratch, never on the heap. This matters
+because the allocator is one of the things that panics: `Vector.push` panics
+when a growth is refused (see [Allocation failure](#allocation-failure)), and a
+message assembled through the allocator could not report that failure. The
+message survives an exhausted allocator, the freestanding profile, and a kernel
+with no heap.
+
+Both spellings work, and the format-argument form is the one that holds under
+allocator exhaustion:
+
+```saw
+panic("out of {}: wanted {}, had {}", "frames", 64, 3)
+// panic at slab.saw:41: out of frames: wanted 64, had 3
+```
+
+The scratch holds 508 bytes of message. A longer one is cut and marked with a
+trailing `…`, the same marker fixed-mode `StringBuilder` uses, so a shortened
+abort message says it was shortened. The `panic at FILE:LINE:` prefix is an
+interned constant and is never cut.
+
+`assert(cond, "want {} got {}", a, b)` renders its arguments on the failing
+branch only. A passing assert costs the condition test.
 
 ### Summary
 
@@ -4451,6 +4572,11 @@ allocation failed`) and routes through the `__saw_rt_panic` seam, so a kernel
 picks the policy: oops, kill the task, reboot. The compiler's own allocations
 follow the same rule — a spawned task's control block and an escaping closure's
 heap environment panic rather than storing through a null.
+
+The message reaches you because panic messages are assembled in stack scratch
+(see [Panic messages allocate
+nothing](#panic-messages-allocate-nothing)). An allocator that has refused
+everything still reports which method it refused.
 
 Every such operation has a **`try_`-prefixed twin** returning
 `Result<_, AllocError>`:

@@ -276,7 +276,37 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   violations panic ALWAYS (wrap intentionally with `&+ &- &*`). EVERY panic —
   the compiler-raised traps included — prints `panic at FILE:LINE: {reason}`,
   where LINE is the trapping expression's own line (a closure body reports its
-  own line, not the enclosing function's), in both profiles.
+  own line, not the enclosing function's), in both profiles. The message is
+  assembled in STACK scratch (design 137), so it survives an exhausted allocator
+  — which is the point, since a refused `Vector.push` panics. 508 bytes of
+  message; a longer one is cut and marked `…`.
+- **FORMAT ARGUMENTS (design 137) — `{}` placeholders, the alloc-free spelling.**
+  `print`/`panic`/`assert` take a LITERAL format string with `{}` slots plus one
+  value each: `print("x = {}", x)`, `panic("out of {}: wanted {}", "frames", 64)`,
+  `assert(a == b, "want {} got {}", a, b)`. Monomorphized generics, not varargs —
+  slot count vs argument count is a COMPILE error (`print("{} and {}", 1)` →
+  "format string has 2 placeholders but 1 argument was given"), the format string
+  must be a literal, and mixing `{name}` interpolation with `{}` in one format
+  string is rejected. `\{`/`\}` stay literal braces.
+  ```saw
+  print("x = {x}")     // builds a heap String, then writes it
+  print("x = {}", x)   // writes the pieces; allocates NOTHING
+  ```
+  Same bytes; the second works freestanding and under total allocator denial.
+  Reach for it in a kernel, a panic path, or anywhere design 135's
+  `--no-hidden-alloc` is in force (which bans the interpolation form). `print`
+  has no line-length limit (each piece goes to the seam at its own length); only
+  a single user-`Printable` rendering is bounded (512 bytes, marked).
+- **`StringBuilder` FIXED mode (design 137)** — `StringBuilder(bytes:capacity:)`
+  over caller storage. Never grows, never frees; overflow cuts on a UTF-8
+  boundary and stamps `…`, and `is_truncated()` reports it (until `clear()`).
+  Holds `capacity - 4` bytes of text (marker + NUL); capacity < 5 panics. This is
+  what `print`/`panic` hand to your `format`, so **write `format` out of `append`
+  calls, not `"{...}"` interpolation** — the latter builds a heap String and is
+  what makes a type un-printable on the alloc-free path. `append(value: Int)` and
+  `append(value: UInt)` render digits directly (no intermediate String). In fixed
+  mode `try_append`/`try_append_char` never return `Err`: nothing refused them,
+  and truncation is reported by the marker, not by a fake `AllocError`.
 - FAILABLE-RETURNS-RESULT (design 92, non-negotiable): a fallible op SURFACES
   its failure — `Result<T, IoError/…>` (caller must handle/`try`), or `T?` for an
   uninteresting/expected absence. NEVER a `Void` return that drops the error, and
@@ -365,7 +395,11 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   written and every derived one is marked). Hashable mirrors Equatable.
   Printable: hand-written `format` (no synthesis).
 - Overloads resolve by EXACT types (no conversions), labels
-  disambiguate same-type sets (`f(0, value: 4)`).
+  disambiguate same-type sets (`f(0, value: 4)`). Between platform `Int` and
+  `UInt` the EXACT one wins (design 137), so `f(Int)`/`f(UInt)` twins are
+  writable — `StringBuilder.append` needs both. A bare literal's WIDTH stays
+  flexible, so `h(Int)` vs `h(Int8)` called `h(5)` is still ambiguous (write
+  `h(5i8)`).
 
 ## Concurrency (colorless)
 ```saw

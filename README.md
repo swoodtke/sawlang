@@ -283,6 +283,51 @@ print("point = {p}")   // point = (3, 4)
 print(p.to_string())   // (3, 4), from Printable's default method
 ```
 
+There is a second spelling that takes the values as arguments:
+
+```saw
+print("point = {}", p)
+print("{} of {} frames used", used, total)
+```
+
+The two produce the same bytes. They differ in what happens underneath, which
+is the next section.
+
+### Formatting Without Allocating
+
+`"{p}"` produces a `String`, and a `String` lives on the heap. That is fine
+until the code doing the formatting is the code reporting that the heap is
+gone — a panic from a refused allocation, or a kernel that has no allocator to
+begin with.
+
+The `{}` form allocates nothing. Literal pieces of the format string are
+constants, integers are rendered into stack scratch, and a `Printable` value
+streams through its own `format` into a fixed-capacity builder over stack
+scratch:
+
+```saw
+print("addr {} size {}", base, size)   // no heap, anywhere
+```
+
+Placeholders and arguments are matched at compile time:
+
+```saw
+print("{} and {}", 1)
+// error: `print` format string has 2 placeholders but 1 argument was given
+```
+
+`panic` and `assert` take the same arguments and assemble their message the same
+way, so a panic still says what happened with the allocator refusing everything:
+
+```saw
+panic("out of {}: wanted {}, had {}", "frames", 64, 3)
+// panic at slab.saw:41: out of frames: wanted 64, had 3
+```
+
+Whether your own type formats without allocating depends on how you write
+`format`: `into.append(...)` calls do not allocate, `into.append("{self.x}")`
+does.
+
 ### Errors as Values
 
 Every `Error` is `Printable`. Returning `Result<T, Box<any Error>>` lets a
@@ -614,6 +659,12 @@ Saw is freestanding: the same language targets bare metal.
   field-offset projection. It is an unsafe type, so a driver method that touches
   a register block carries `unsafe` in its signature and reads as one at every
   call site.
+- **Logging with no allocator**: `print("stage {} ok", i)` writes through the
+  `__saw_rt_write` seam without touching a heap, so a kernel gets the same
+  logging a hosted program has. Panic messages are assembled in stack scratch
+  for the same reason — the failure you most need reported is the one where
+  memory ran out. The SOS kernel in this repo logs this way; `make sos-test`
+  boots it under QEMU and checks the lines on the UART.
 - **Compile-time layout checks**: `static_assert(sizeof<UartRegs>() == 0x1C,
   "...")` fails the build when a register block's layout drifts, at no runtime
   cost.
@@ -636,7 +687,22 @@ static_assert(sizeof<UartRegs>() == 8, "UartRegs layout drift")
 func add(a: Int, b: Int) -> Int {
     a + b
 }
+
+// Reaches the console through the runtime seam; allocates nothing.
+print("uart at {} regs {}", UART_BASE, sizeof<UartRegs>())
 ```
+
+Cross-compiling to a bare-metal target takes a triple and, where the part has
+optional extensions, a feature list:
+
+```bash
+sawc kernel.saw -o kernel.o --freestanding \
+    --target riscv32-unknown-none-elf --target-features +m,+a,+c
+```
+
+Base rv32i has no divide instruction, so `--target-features +m` is what keeps
+integer formatting from emitting a libcall the freestanding profile has no
+library to satisfy.
 
 ## Standard Library
 
@@ -649,9 +715,14 @@ The standard library includes:
   reaches the whole `0..UInt.max` range, with a `radix:` overload. Concatenation
   goes through interpolation or `StringBuilder`.
 - **StringBuilder** - Geometrically-growing builder: `append` (overloaded for
-  `String`/`Int`), `append_char`, `append_scalar` (UTF-8-encodes one Unicode
+  `String`/`Int`/`UInt`, rendering digits with no intermediate `String`),
+  `append_char`, `append_scalar` (UTF-8-encodes one Unicode
   scalar, returning the byte count, or `None` for a surrogate or out-of-range
-  value), `len`, `is_empty`, `clear`, `as_str`, `build`.
+  value), `len`, `is_empty`, `clear`, `as_str`, `build`. A second constructor,
+  `StringBuilder(bytes:capacity:)`, builds over caller-provided storage and
+  never allocates: content that does not fit is cut on a UTF-8 boundary and
+  marked with `…`, which `is_truncated()` reports. That is the builder
+  `print`/`panic` hand to a `Printable` value's `format`.
 - **Vector<T, A>** - Dynamic array: `push`, `pop`, `get`, `len`, `map`/`fold`,
   `sort`/`sort_by`, `swap`; context-driven `[...]` literals.
   `with_ref`/`with_var_ref` borrow one element in place for the duration of a
@@ -723,6 +794,8 @@ Options:
   --emit-docs-all    Same, keeping private fields, methods, and inits
   -O0                Disable optimization (default is an O1-style pass pipeline)
   --target <triple>  Cross-compile for a target triple (default: the host)
+  --target-features <list>
+                     LLVM subtarget features for --target (e.g. +m,+a,+c)
   --freestanding     Freestanding profile: no hosted std, unlinked object output
   --runtime-build    Build a Saw runtime exporting the __saw_rt_* ABI
   --module-path NAME=DIR
