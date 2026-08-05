@@ -1,0 +1,13 @@
+// Design 122 / RS-6: `Vector.with_var_ref` bounds-checks its index. Unchecked,
+// the `&var` borrow handed the body a mutable reference to memory past the end
+// of the buffer — so the body's own perfectly ordinary mutation became a heap
+// WRITE out of bounds, from fully safe code.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Vector.with_var_ref: index out of range
+
+func main() {
+    var v: Vector<Int> = [10, 20]
+    v.with_var_ref<Void>(1, { e in e += 5 })
+    print(v.get(1)!)                             // 25 — in range, mutation lands
+    v.with_var_ref<Void>(99, { e in e += 5 })    // past the end -> panic
+}

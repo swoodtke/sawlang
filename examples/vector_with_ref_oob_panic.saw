@@ -1,0 +1,15 @@
+// Design 122 / RS-6: `Vector.with_ref` bounds-checks its index. It used to test
+// only that the buffer was non-null, so an arbitrary `Int` reached `buf[index]`
+// through a `public`, non-`unsafe` signature — an out-of-bounds heap READ from
+// fully safe code, silent, exit 0. This is the API the skill and design 122
+// unit A both name as the sanctioned way to reach a NoCopy element, so it is
+// the one a caller is steered to. Repro shape from the tracker: a 2-element
+// `Vector<Int>` read past the end.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Vector.with_ref: index out of range
+
+func main() {
+    let v: Vector<Int> = [10, 20]
+    print(v.with_ref<Int>(1, { e in e }))     // 20 — in range, borrow works
+    print(v.with_ref<Int>(99, { e in e }))    // past the end -> panic
+}

@@ -108,8 +108,11 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // invalidated while the borrow is live — iterator-invalidation-proof. The
     // borrow is a LEND: nothing is retained. `R` (method-level generic, like
     // `withCString`) is the body's result, chosen at the call site; it flows
-    // straight out. Unchecked index: the caller guarantees `0 <= index < len`
-    // (an inert/None buffer force-unwrap panics deterministically).
+    // straight out. BOUNDS-CHECKED: an index outside `0..<len()` panics, exactly
+    // like every other indexing operation in the language (design 122, RS-6).
+    // The signature carries nothing unsafe, so the caller gets no signal that a
+    // bad index would reach arbitrary heap — and this is the sanctioned way to
+    // reach a NoCopy element, so it is the API a caller is steered TO.
     // `body` is `sync`: the borrow must not be held across a suspension (and it
     // keeps `with_var_ref` sync-usable, e.g. the executor drains it from the
     // group's `sync` Deinit).
@@ -124,6 +127,9 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // iterator-invalidation this API prevents. Confinement does not cover a
     // container-internal borrow, so the borrow may not span a suspension.
     public func with_var_ref<R>(&var self, index: Int, body: (&var T) sync -> R) -> R {
+        if index < 0 || index >= self.length {
+            panic("Vector.with_var_ref: index out of range")
+        }
         if let buf = self.buffer {
             body(&var buf[index])
         } else {
@@ -132,7 +138,11 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 
     // Immutable twin of `with_var_ref`: an in-place `&T` borrow of the element.
+    // Bounds-checked on the same terms.
     public func with_ref<R>(&self, index: Int, body: (&T) sync -> R) -> R {
+        if index < 0 || index >= self.length {
+            panic("Vector.with_ref: index out of range")
+        }
         if let buf = self.buffer {
             body(&buf[index])
         } else {
@@ -239,9 +249,16 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // and the new one placement-moved in, so it is refcount-neutral: no element
     // `copy()` and no leak (the placement primitive does not release, but the
     // prior occupant was moved out first, so nothing is dropped on the floor).
-    // The returned value is owned by the caller. Requires `0 <= index < length`;
-    // an empty/inert buffer panics deterministically.
+    // The returned value is owned by the caller. BOUNDS-CHECKED: an index
+    // outside `0..<len()` panics (design 122, RS-6). Unchecked, this was the
+    // worst of the three unchecked accessors — `buf[index] = value` past the
+    // end is an out-of-bounds WRITE, i.e. heap corruption reachable from fully
+    // safe code. `set` filters the index before delegating here, so its
+    // documented no-op-when-out-of-range contract is unchanged.
     public func swap_out(&var self, index: Int, value: T) -> T {
+        if index < 0 || index >= self.length {
+            panic("Vector.swap_out: index out of range")
+        }
         if let buf = self.buffer {
             let old = buf[index]
             buf[index] = value

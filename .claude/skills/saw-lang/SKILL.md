@@ -559,8 +559,9 @@ construct in the owner and lend `&driver` down.
   `iter()`/`enumerated()` carry the same `T: Copy` bound as `each`/`map`
   (design 122): `next()` yields an element the consumer OWNS, so a NoCopy
   element is reached through `with_ref`/`with_var_ref`, never a `for` loop.
-  `set(i, v)` RELEASES the element it overwrites; `String.byte_at(i)` panics
-  out of range like every other index.
+  `set(i, v)` RELEASES the element it overwrites (and stays a no-op out of
+  range). `with_ref`/`with_var_ref`/`swap_out` and `String.byte_at(i)` PANIC
+  out of range like every other index — none of them is an unchecked accessor.
 - String `chars()` yields Int scalars (no Char type); the inverse is
   `StringBuilder.append_scalar(scalar: Int) -> Int?` (design 119) — UTF-8
   encodes + appends a scalar, returns the byte count (1..4), `None` (appends

@@ -3725,7 +3725,9 @@ For scoped, no-copy access to a container element (including a `NoCopy` one)
 without minting a raw pointer at all, use `Vector.with_ref`/`with_var_ref`
 (design 81): a non-escaping `&T`/`&var T` borrow of the element in place, with
 the whole vector held borrowed for the body (reallocation- and
-invalidation-proof). This replaced the removed `ref_at`.
+invalidation-proof). This replaced the removed `ref_at`. The index is
+bounds-checked and panics out of range, like every other indexing operation —
+neither of them, nor `swap_out`, is an unchecked back door around the check.
 
 ### Placement writes (the placement-move primitive)
 

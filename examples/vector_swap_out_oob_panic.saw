@@ -1,0 +1,14 @@
+// Design 122 / RS-6: `Vector.swap_out` bounds-checks its index. This was the
+// worst of the three unchecked accessors: `buf[index] = value` past the end is
+// an out-of-bounds WRITE, so a plain `Int` argument to a `public`, non-`unsafe`
+// method corrupted the heap and returned normally. Proven on main with a
+// 2-element `Vector<Int>`: `swap_out(99, 7)` wrote 7 past the end and exited 0.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Vector.swap_out: index out of range
+
+func main() {
+    var v: Vector<Int> = [10, 20]
+    print(v.swap_out(1, 77))     // 20 — the previous occupant, in range
+    print(v.get(1)!)             // 77 — the new one is in place
+    print(v.swap_out(99, 7))     // past the end -> panic
+}
