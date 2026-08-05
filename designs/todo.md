@@ -17,6 +17,11 @@ backedge preemption (RC-3, user chose fix-not-soften — wave 2); **128/129
 DRAFTS** (Deinit/ExplicitCopy synthesis; newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
 
+**122 LANDED (Aug 5)** — units A-I plus the folded-in RS-6, per-item closures
+inline below. Two things it did NOT close: RS-5's fourth hole (DF-122a, stopped
+for a user decision) and P2's design-92 half-application in
+std.file/std.directory.
+
 **P0 — proven memory-safety / correctness (stdlib + runtime):**
 - **RS-1 allocator-failure corruption class.** `Vector.push` writes past the
   buffer and bumps length when `grow()` fails silently; same shape in
@@ -24,7 +29,14 @@ review — DO NOT DISPATCH. Original ranked findings follow for reference.
   `Command.append_arg`. Root cause is systemic: std has ~9 different answers to
   "the allocator said no" (panic / Err / degrade / corrupt / drop / inert
   object). One design-19-three-tier pass would subsume five other findings.
-- **RS-2 `Vector.iter()` double-frees owning elements** (safe code, no unsafe,
+- **RS-2 — FIXED (design 122 units A + B, Aug 4; commits 3b68703, b8f9969).**
+  `iter()`/`EnumeratedIterator` carry the `T: Copy` bound `each`/`map` already
+  had and `next()` yields an explicit `.copy()` (a NoCopy element is reached
+  through `with_ref`/`with_var_ref` instead — now a clean bound error naming
+  it); `set` routes through `swap_out`, so the overwritten element deinits
+  exactly once; `String.byte_at` bounds-checks; `Data.to_string` delegates to
+  `String.fromBytes` and returns `Result<String, Utf8Error>`. Original finding
+  follows: `Vector.iter()` double-frees owning elements (safe code, no unsafe,
   proven deinit-twice). `set` also leaks the overwritten element;
   `String.byte_at` reads OOB heap from a safe signature; `Data.to_string`
   mints invalid UTF-8.
@@ -33,7 +45,13 @@ review — DO NOT DISPATCH. Original ranked findings follow for reference.
   accept-loop server leaks one fd + frame per connection for the group's life,
   and the sibling reader/writer EOF pattern deadlocks (verified hang).
   Contradicts the deterministic-destruction claim. [design-claims #1]
-- **RS-4 `std.process.Command` is `system()` string-concat with no quoting** —
+- **RS-4 — FIXED (design 122 unit C, Aug 4; commit facebad).** `Command` holds
+  `args: Vector<String>` and spawns a real argv through three additive seams
+  (`__saw_rt_proc_spawn`/`_read_stdout`/`_wait`, fork + execvp in
+  rt/common/proc.saw, documented in rt/ABI.md). No shell sees the bytes, so
+  there are no quoting rules to get wrong; `wait` returns the RAW POSIX status
+  so signal death cannot read as exit 0. Original finding follows:
+  `std.process.Command` is `system()` string-concat with no quoting —
   `arg("; echo INJECTED")` executes; `arg("one two")` word-splits.
 - **RS-6 — FIXED (design 122, Aug 5).** `Vector.with_ref`, `with_var_ref` and
   `swap_out` now check `0 <= index < length` and panic on a miss — the same
@@ -64,15 +82,30 @@ review — DO NOT DISPATCH. Original ranked findings follow for reference.
   with_ref(99) = 0            // OOB read, exit 0, silent
   swap_out(99) returned = 0   // OOB WRITE of 7 past the end, exit 0, silent
   ```
-- **RS-5 silent-wrong-answer holes** (vs the never-hide-errors rule): a bare
-  `{ }` statement is a discarded uncalled closure (statements never run, no
+- **RS-5 — 3 of 4 FIXED (design 122 unit D, Aug 4; commit 3aabc9f).** A bare
+  `{ }` statement, a builtin redefinition and `let n = <Void expr>` are all
+  clean errors now. The FOURTH — an escaping closure's captured mutable state
+  resetting per call — was STOPPED per the no-workaround policy and is open as
+  **DF-122a** below: the contained fix the brief named is unavailable (designs
+  71/73 ratify the refcounted env as immutable and its sharing invisible), so
+  the choice is reject-the-write or a boxed-capture design brief. Original
+  finding follows: silent-wrong-answer holes (vs the never-hide-errors rule): a
+  bare `{ }` statement is a discarded uncalled closure (statements never run, no
   warning); an escaping closure's captured mutable state resets per call
   (`make_counter()` → 1,1,1); a user `func print`/`assert` is silently
   dropped; `let n = <Void expr>` typechecks then ICEs with an empty message.
 
 **P1 — compiler bugs found by review:**
-- **RC-1 `--emit-docs` labels every suspending USER function `"sync"`** (only
-  hardcoded std names emit `"suspending"`, docs_emit.py) — design 121 bug.
+- **RC-1 — FIXED (design 122 unit E, Aug 4; commit a904bcb).** Root cause was
+  not a hardcoded name list: the docs path type-checks with `object_only=True`,
+  so the whole-program effect FIXPOINT never ran and every `SuspendNode.suspends`
+  bit was still False. `finalize_effects()` now runs on the docs path and
+  `_effect` consults the program's own graph first (the std sets remain the
+  documented fallback for bodies this typechecker never checks). Golden test
+  examples/doc_emit_effect.saw covers direct, TRANSITIVE, plain-sync and
+  declared-`sync`. Original finding follows: `--emit-docs` labels every
+  suspending USER function `"sync"` (only hardcoded std names emit
+  `"suspending"`, docs_emit.py) — design 121 bug.
 - **RC-2 monomorphization misses grafted types**: `substitute_ast_types` walks
   `dataclasses.fields()` only, so ~10 runtime-grafted `SawType` annotations
   survive un-substituted (compiler-preport hazard 1; live bug).
@@ -100,14 +133,28 @@ review — DO NOT DISPATCH. Original ranked findings follow for reference.
   examples/panic_location_{overflow,bounds,divzero,shift}.saw. Original finding
   follows: overflow/bounds/div-zero/shift have no location at all;
   force-unwrap/`try!` lack the file.
-- **RC-5 `--freestanding` on the Mach-O host dies as an uncaught LLVM ERROR**
+- **RC-5 — FIXED (design 122 unit H, Aug 4; commit a5f36c1).** The driver
+  refuses `--freestanding` at a Mach-O EFFECTIVE triple up front, before any
+  codegen, and names the ELF cross-targets to pass instead — replacing the
+  uncaught LLVM abort over design 112's per-function `.text.<name>` sections
+  (which Mach-O rejects) and the 0-byte object it left behind. Test
+  examples/errors/freestanding_macho_target_rejected.saw names the triple
+  explicitly, so it asserts the same thing on every host. Original finding
+  follows: `--freestanding` on the Mach-O host dies as an uncaught LLVM ERROR
   abort (ELF cross-targets fine).
 - (Re-confirmed, already open: DF-119b `print(UInt)` renders signed.)
 
-**P2 — portability (SOS-relevant):** `Directory.list` hardcodes the macOS
-dirent offset (Linux differs); `Data` hardcodes `sizeof(DataBuffer)=24`
-(wrong on riscv32). Design 92 half-applied in std.file/std.directory
-(`open`/`read`/`write` still cause-erasing Optionals).
+**P2 — portability (SOS-relevant): the two hardcoded numbers are FIXED (design
+122 unit F, Aug 4; commit 6c29cfa), the design-92 half-application is STILL
+OPEN.** The dirent offset moved behind the host split as
+`__saw_rt_fs_dirent_name` (macOS 21 / Linux 19, rt/ABI.md documents the additive
+seam) and `Data` uses `sizeof<DataBuffer>()`/`alignof<DataBuffer>()` instead of
+a literal 24 — the riscv32 block is 12 bytes, so it had been over-allocating and
+then handing the allocator a size that was a lie. Test
+examples/directory_list_names_exact.saw round-trips a file it creates itself, so
+a wrong offset fails on ANY host. REMAINING: design 92 is half-applied in
+std.file/std.directory — `open`/`read`/`write` still return cause-erasing
+Optionals.
 
 **P3 — docs debt (20 findings):** README lags at design 111 (needs
 119/120/121); spec still carries pre-110 "is rejected" text for `a = b`
