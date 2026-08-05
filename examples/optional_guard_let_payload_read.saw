@@ -1,0 +1,42 @@
+// Design 131: a `guard let` binding takes the same value-read row as `if let`.
+// Out of a place it retains, so the binding is an owner and is released at the
+// end of the enclosing scope — and the scrutinee, which kept its own reference,
+// is still readable after the guard. Two reads means two copies; three drops
+// account for both bindings and the slot itself.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// copy
+// guarded 1
+// copy
+// slot still holds 1
+// drop
+// drop
+// drop
+
+struct Tag { id: Int }
+
+extension Tag: ImplicitCopy {
+    func copy(&self) -> Tag {
+        print("copy")
+        Tag(id: self.id)
+    }
+    func deinit(&var self) { print("drop") }
+}
+
+struct Slot { t: Tag? }
+
+func read(s: &Slot) {
+    guard let g = s.t else {
+        print("empty")
+        return
+    }
+    print("guarded {g.id}")
+    if let still = s.t {
+        print("slot still holds {still.id}")
+    }
+}
+
+func main() {
+    let s = Slot(t: Tag(id: 1))
+    read(&s)
+}
