@@ -1149,6 +1149,14 @@ class CallsMixin:
             # copy-method dispatch below to mangle.
             if recv_type is not None and recv_type.kind == TypeKind.OPTIONAL:
                 return self._emit_optional_deep_copy(obj_val, recv_type)
+            # A declared copying policy on an ENUM derives a payload-deep copy
+            # (design 139). Enums carry no method symbols, so it is emitted
+            # inline here rather than dispatched to.
+            if (recv_type is not None and recv_type.kind == TypeKind.ENUM
+                    and recv_type.enum_name
+                    and self.namespace.declared_copy_tier(recv_type.enum_name)
+                    in ('implicit', 'explicit')):
+                return self._emit_enum_deep_copy(obj_val, recv_type)
 
         # Auto-Copy: `.copy()` on a trivially-copyable receiver (a primitive, or
         # a POD struct with no copy() method) lowers to a bitwise copy, i.e. the

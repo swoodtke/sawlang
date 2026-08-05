@@ -709,6 +709,73 @@ class ResourcesMixin:
             self.builder.branch(cont_bb)
         self.builder.position_at_end(cont_bb)
 
+    def _emit_enum_deep_copy(self, value, saw_type: SawType):
+        """Copy an enum VALUE payload-deep (design 139).
+
+        The derived body behind `@synthesize extension E: ImplicitCopy {}` /
+        `: ExplicitCopy {}`. The active variant is a runtime choice, so the copy
+        switches on the tag and duplicates only that variant's payload fields,
+        each through `_emit_copy_value` — which means every field copies at ITS
+        own tier: a String payload retains, a `Vector<Int>` payload deep-copies,
+        a trivial one is bitwise. A payload-free variant is a bare tag and copies
+        as itself.
+
+        Works through a temporary rather than an insert chain because the payload
+        is a bitcast union: reaching a field means GEPping through a
+        variant-shaped view of it, which needs an address.
+        """
+        key = self._enum_key(saw_type)
+        if key is None:
+            return value
+        llvm_enum_type, variant_tags, variant_info = self.enum_types[key]
+        if isinstance(llvm_enum_type, ir.IntType):
+            # A payload-free enum is just its tag: bitwise.
+            return value
+        copy_variants = [
+            name for name, fields in variant_info.items()
+            if any(self._needs_cleanup(ftype) for _, ftype in fields)
+        ]
+        if not copy_variants:
+            return value
+
+        i32 = ir.IntType(32)
+        tmp = self._entry_alloca(value.type, name="enum_cp_tmp")
+        self.builder.store(value, tmp)
+        tag_ptr = self.builder.gep(
+            tmp, [ir.Constant(i32, 0), ir.Constant(i32, 0)], name="enum_cp_tag_ptr")
+        tag = self.builder.load(tag_ptr, name="enum_cp_tag")
+        func = self.builder.function
+        cont_bb = func.append_basic_block("enum_cp_cont")
+        switch = self.builder.switch(tag, cont_bb)
+        variant_blocks = []
+        for name in copy_variants:
+            bb = func.append_basic_block(f"enum_cp_{name}")
+            switch.add_case(ir.Constant(i32, variant_tags[name]), bb)
+            variant_blocks.append((name, bb))
+        for name, bb in variant_blocks:
+            self.builder.position_at_end(bb)
+            fields = variant_info[name]
+            param_struct_type = ir.LiteralStructType(
+                [self._get_llvm_type(ftype) for _, ftype in fields])
+            payload_ptr = self.builder.gep(
+                tmp, [ir.Constant(i32, 0), ir.Constant(i32, 1)],
+                name="enum_cp_payload_ptr")
+            struct_ptr = self.builder.bitcast(
+                payload_ptr, ir.PointerType(param_struct_type),
+                name="enum_cp_payload_struct")
+            for idx in range(len(fields)):
+                _, ftype = fields[idx]
+                if not self._needs_cleanup(ftype):
+                    continue
+                field_ptr = self.builder.gep(
+                    struct_ptr, [ir.Constant(i32, 0), ir.Constant(i32, idx)],
+                    name="enum_cp_payload_field")
+                original = self.builder.load(field_ptr, name="enum_cp_field")
+                self.builder.store(self._emit_copy_value(original, ftype), field_ptr)
+            self.builder.branch(cont_bb)
+        self.builder.position_at_end(cont_bb)
+        return self.builder.load(tmp, name="enum_cp_result")
+
     def _emit_optional_retain_at(self, opt_ptr, saw_type: SawType):
         inner = saw_type.inner_type
         if inner is None or not self._needs_cleanup(inner):

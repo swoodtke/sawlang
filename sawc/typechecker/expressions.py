@@ -5156,6 +5156,14 @@ class ExpressionsMixin:
             )
             return True, None
 
+        # An enum that DECLARED a copying policy (design 139) has a derived
+        # payload-deep `copy`, emitted inline by codegen — enums carry no method
+        # symbols, so there is nothing for the dispatch above to have found.
+        if obj_type.kind == TypeKind.ENUM and obj_type.enum_name:
+            if self.namespace.declared_copy_tier(obj_type.enum_name) in ('implicit', 'explicit'):
+                expr.resolved_type = obj_type
+                return True, obj_type
+
         # An `Optional<T>` is copyable exactly when its payload is (design 139):
         # the wrapper's tier IS the payload's, so `.copy()` exists precisely
         # where the tier provides one. `None` copies to `None`, `Some` to `Some`
