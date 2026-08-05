@@ -126,6 +126,18 @@ an ICE). Also worth flagging to the reader of the brief: it describes a
 hand-written deinit as REPLACING the field drops. It does not — it prefixes
 them, and always has; the spec now documents the real behavior.
 
+**132 LANDED (Aug 5)** — units A-G; suite 1140 -> 1149. Closes DF-122a (with
+RS-5's fourth hole), DF-123a, DF-123b, DF-128b, DF-128d, DF-129a, review M15 and
+P2. Unit A carried the user's reject-the-write decision and unit C the user's
+compile-instantiated-Void decision. Unit H — the flagged risky one — is STOPPED
+with findings, per its own stop-if-it-fights rule: its fix is correct but would
+introduce a live double-free, because DF-128c's missing drop glue is CANCELLING
+a second bug. That second bug is new and filed as **DF-132a** (P0): `Vector.get`
+has no `T: Copy` bound, so a NoCopy element is handed out as a non-retained
+alias and two lookups free it twice, in safe code, today. The pair must land
+together and needs its own brief — fixing `get` breaks libs/toml and blade at
+the source level.
+
 **127 LANDED (Aug 5)** — RC-3 closed; the op budget now covers pure-compute
 loops, so the README claim holds as written. Nothing left open, but the fix
 carries four deliberate bounds (sync callee, collection `for`, closure body,
