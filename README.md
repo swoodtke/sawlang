@@ -552,6 +552,9 @@ The standard library includes:
   value), `len`, `is_empty`, `clear`, `as_str`, `build`.
 - **Vector<T, A>** - Dynamic array: `push`, `pop`, `get`, `len`, `map`/`fold`,
   `sort`/`sort_by`, `swap`; context-driven `[...]` literals.
+  `with_ref`/`with_var_ref` borrow one element in place for the duration of a
+  closure, holding the whole vector borrowed so a reallocation cannot invalidate
+  it. That is the only way to reach a `NoCopy` element.
 - **Map<K, V, A>** - Hash map (open addressing): `insert`, `get`, `remove`,
   `contains_key`, `len`; `each` visitors and `keys()`/`values()` snapshots;
   `{k: v}` literals. Keys are any copyable `Hashable + Equatable` type
@@ -678,6 +681,7 @@ fetching, and incremental builds:
 # Use it
 ./.build/blade new myproject   # scaffold a new project
 ./.build/blade build           # resolve deps + compile (incremental; --force to rebuild)
+./.build/blade update          # re-resolve dependencies and rewrite Saw.lock
 ./.build/blade run             # build and run
 ./.build/blade test            # compile and run the project's tests/
 ./.build/blade tree            # print the resolved dependency graph

@@ -473,18 +473,20 @@ value, and a `panic` arm/branch contributes no type to a `match`/`if`.
 
 ```saw
 // Integers
-Int8, Int16, Int32, Int64, Int128
-UInt8, UInt16, UInt32, UInt64, UInt128
+Int8, Int16, Int32, Int64
+UInt8, UInt16, UInt32, UInt64
+Int128, UInt128    // (planned)
 Int    // Platform-native signed — pointer width (i64 on 64-bit, i32 on riscv32)
 UInt   // Platform-native unsigned — pointer width
 
 // Floating point
-Float32, Float64
-Float  // Alias for Float64
+Float64
+Float32     // (planned)
+Float       // Alias for Float64
 
 // Other primitives
 Bool        // true, false
-Char        // Unicode scalar value
+Char        // (planned) Unicode scalar value — today a scalar is just an Int
 String      // Immutable, refcounted byte string (see "String" below)
 Never       // Bottom type (a diverging `panic`; usable as a return type)
 ```
@@ -2390,8 +2392,9 @@ suspension-free context). The model is task-only: no user-facing thread API, no
 thread identity ever exposed — the engine is a swappable implementation detail.
 Two engines ship and coexist (they are not unified): the design-21b
 thread-per-task engine (`spawn`/`Task`/`Channel`, below) and the cooperative
-single-threaded executor (the coroutine transform, suspending `main`, and the
-multi-task `TaskGroup` — designs 44/45/52/52b, below).
+executor — single-threaded by default, with `TaskGroup(threads: N)` opting into
+multiple threads (design 75) — carrying the coroutine transform, suspending
+`main`, and the multi-task `TaskGroup` (designs 44/45/52/52b, below).
 
 **Landed in stage 1:**
 
@@ -2489,9 +2492,8 @@ suspending channel) all ship (designs 44/45/52/52b), including OPT-IN
 multi-threaded execution `TaskGroup(threads: N)` with a Send-on-frames gate
 (design 75).**
 There is NO `async`/`await` keyword and there never will be: Saw is
-COLORLESS (designs/18 Axis B′). Any call may suspend (once the
-cooperative engine lands); the marked side is the rare one — `sync`
-contexts are checked suspension-free. Tasks are the ONLY concurrency
+COLORLESS (designs/18 Axis B′). Any call may suspend; the marked side is
+the rare one — `sync` contexts are checked suspension-free. Tasks are the ONLY concurrency
 primitive: no user-facing threads, no thread identity, ever. The stage-1
 engine happens to run one OS thread per task; that is invisible and will
 change.
@@ -3486,11 +3488,12 @@ module: concurrency is colorless (no `async`/`await`).
 ### Core Types
 
 ```saw
-std.option.{Option, Some, None}
+std.option.{Option, None}          // the empty case is the keyword `None`;
+                                   // there is no `Some(...)` constructor
 std.result.{Result, Ok, Err}
 std.string.String
-std.vec.Vec
-std.collections.{Map, Set, Deque}
+std.vec.Vector
+std.collections.{Map, Set}         // no `Deque` today
 ```
 
 ### I/O
