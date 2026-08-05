@@ -806,7 +806,11 @@ inlined (the `.build/scratch` probes are gitignored).
 
 ## Design 122 — DF-findings
 
-- **DF-122a — STOPPED, needs a user decision (design 122 unit D4, Aug 4).**
+- **DF-122a — DECIDED (user, Aug 5): REJECT the write; design 132 unit A owns
+  the fix** (assignment to a by-value capture becomes a compile error hinting
+  `[&var x]` / `Arc<Mutex<T>>`; a future opt-in `[box n]` mode stays open as a
+  separate brief). Original finding follows:
+  **(design 122 unit D4, Aug 4.)**
   Mutating a BY-VALUE closure capture is accepted and silently does nothing
   observable. The brief's D4 said fix it if it is a contained codegen bug and
   STOP if it opens a semantics question. It opens one; the diagnosis:
