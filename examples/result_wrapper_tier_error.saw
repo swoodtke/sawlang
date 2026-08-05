@@ -1,0 +1,29 @@
+// design 139 spot-check: `Result<T, E>` is a wrapper like any other, so it is
+// never weaker than what it carries. Its variants hold the opaque parameters
+// `T`/`E`, so the tier is read from the INSTANTIATION — `Result<Vector<Int>,
+// LoadError>` joins to ExplicitCopy because the Vector is.
+//
+// Before design 139 `Result` had no tier at all and this read bitwise-aliased
+// the vector, leaving both bindings owning one buffer.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: which implements ExplicitCopy
+
+struct LoadError { code: Int }
+
+extension LoadError: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append("load failed: ")
+        into.append(self.code)
+    }
+}
+
+func load() -> Result<Vector<Int>, LoadError> {
+    let v: Vector<Int> = [1, 2, 3]
+    move v
+}
+
+func main() {
+    let a = load()
+    let b = a
+    print("both bound")
+}

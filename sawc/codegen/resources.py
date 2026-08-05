@@ -940,6 +940,8 @@ class ResourcesMixin:
         """
         if saw_type.kind == TypeKind.ARRAY:
             return self._emit_array_deep_copy(value, saw_type)
+        if saw_type.kind == TypeKind.OPTIONAL:
+            return self._emit_optional_deep_copy(value, saw_type)
         if self.namespace.is_trivially_copyable(saw_type):
             return value
         method_base = self._type_method_base(saw_type)
@@ -950,6 +952,46 @@ class ResourcesMixin:
                 return self.builder.call(fn, [value], name="elem_copy")
         # No copy path found: bitwise fallback (typechecker should have rejected).
         return value
+
+    def _emit_optional_deep_copy(self, value, saw_type: SawType):
+        """Copy an `Optional<T>` VALUE by copying its payload (design 139).
+
+        None copies to None; Some copies to Some of the payload's own copy, so
+        the tier the payload provides is the tier the optional provides —
+        `String?` retains, `Vector<Int>?` deep-copies into an independent buffer,
+        and a move-only payload never reaches here (the typechecker refuses
+        `.copy()` on it).
+
+        The payload copy is guarded by the tag rather than run unconditionally:
+        the payload slot of a None holds uninitialized bytes, and handing those
+        to `Vector.copy` would read a garbage pointer.
+        """
+        inner = saw_type.inner_type
+        if inner is None or self.namespace.is_trivially_copyable(inner):
+            # A trivial payload (and a None with nothing to copy) is bitwise —
+            # no branch, no work.
+            return value
+        entry_bb = self.builder.block
+        is_some = self.builder.extract_value(value, 0, name="opt_cp_is_some")
+        func = self.builder.function
+        some_bb = func.append_basic_block("opt_cp_some")
+        cont_bb = func.append_basic_block("opt_cp_cont")
+        self.builder.cbranch(is_some, some_bb, cont_bb)
+
+        self.builder.position_at_end(some_bb)
+        payload = self.builder.extract_value(value, 1, name="opt_cp_payload")
+        payload_copy = self._emit_copy_value(payload, inner)
+        copied = self.builder.insert_value(value, payload_copy, 1, name="opt_cp")
+        # `_emit_copy_value` may itself have branched (a nested optional or
+        # array), so the incoming edge is wherever the builder ended up.
+        some_exit_bb = self.builder.block
+        self.builder.branch(cont_bb)
+
+        self.builder.position_at_end(cont_bb)
+        result = self.builder.phi(value.type, name="opt_cp_result")
+        result.add_incoming(value, entry_bb)
+        result.add_incoming(copied, some_exit_bb)
+        return result
 
     def _emit_array_deep_copy(self, value, saw_type: SawType):
         """Copy a fixed array `[T; N]` value element-by-element, in index order

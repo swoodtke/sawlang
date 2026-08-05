@@ -1,0 +1,20 @@
+// design 139: an `Optional<Vector<Int>>` is ExplicitCopy, because the Vector is
+// — so a value read of the whole optional is refused, and the refusal names all
+// THREE ways out. An optional is a place with a payload, so it has an exit no
+// plain struct has: `.take()` writes None back and hands the payload over, which
+// is the spelling that works on a field.
+//
+// Before design 139 this read was silently accepted and the two optionals shared
+// one buffer.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: which implements ExplicitCopy
+// EXPECT-ERROR-CONTAINS: `o.copy()` for an explicit deep copy
+// EXPECT-ERROR-CONTAINS: `move o` to transfer the whole binding
+// EXPECT-ERROR-CONTAINS: `o.take()` to move the payload out in place
+
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    let o: Vector<Int>? = move v
+    let p = o
+    print("len {p!.len()}")
+}

@@ -1,0 +1,22 @@
+// design 139, the containment CASCADE. Once `Optional<T>` inherits its payload's
+// tier, a struct holding a `File?` holds a move-only field — so it owes a copy
+// policy exactly as a struct holding a bare `File` always has.
+//
+// This is the cascade working as intended rather than a special case: the
+// containment check did not change at all, it simply started getting a truthful
+// answer about the field's type. Before design 139 an optional field was
+// invisible to it, and `Keeper` copied bitwise while its `File` closed twice.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: struct `Keeper` contains NoCopy field `handle` of type `File?` but does not implement NoCopy
+// EXPECT-ERROR-CONTAINS: add `extension Keeper: NoCopy {}`
+
+import std.file
+
+struct Keeper {
+    handle: File?
+}
+
+func main() {
+    let k = Keeper(handle: None)
+    print("built")
+}

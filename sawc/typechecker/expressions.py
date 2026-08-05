@@ -5156,6 +5156,25 @@ class ExpressionsMixin:
             )
             return True, None
 
+        # An `Optional<T>` is copyable exactly when its payload is (design 139):
+        # the wrapper's tier IS the payload's, so `.copy()` exists precisely
+        # where the tier provides one. `None` copies to `None`, `Some` to `Some`
+        # of the payload's own copy. This used to be rejected outright, which
+        # left `move` as the only way to transfer a `Vector<Int>?` — a wrapper
+        # that was somehow less capable than the thing it wrapped.
+        if obj_type.kind == TypeKind.OPTIONAL:
+            if self.namespace.copy_tier(obj_type) != 'nocopy':
+                expr.resolved_type = obj_type
+                return True, obj_type
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                f"type `{obj_type}` is not Copy; its payload type is move-only",
+                expr.line, expr.column,
+                hint="use `move` to transfer the optional, or `.take()` to move "
+                     "the payload out in place"
+            )
+            return True, None
+
         # Anything else is not Copy.
         self._error(
             ErrorKind.CANNOT_COPY,

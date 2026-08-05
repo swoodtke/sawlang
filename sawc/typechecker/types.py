@@ -1365,14 +1365,14 @@ class TypeUtilsMixin:
                         ErrorKind.CANNOT_COPY,
                         f"cannot return NoCopy type `{src_type}` without `move` in {context}",
                         line, column,
-                        hint="use `move` to transfer ownership instead"
+                        hint=self._transfer_refusal_hint(src_type, expr, 'nocopy')
                     )
                 else:
                     self._error(
                         ErrorKind.CANNOT_COPY,
                         f"cannot copy value of type `{src_type}` which implements NoCopy",
                         line, column,
-                        hint="use `move` to transfer ownership instead"
+                        hint=self._transfer_refusal_hint(src_type, expr, 'nocopy')
                     )
         elif tier == 'explicit':
             # ExplicitCopy gets the same move-required treatment as NoCopy:
@@ -1383,11 +1383,36 @@ class TypeUtilsMixin:
                     ErrorKind.CANNOT_COPY,
                     f"cannot copy value of type `{src_type}` which implements ExplicitCopy",
                     line, column,
-                    hint="use .copy() for an explicit deep copy, or `move` to transfer ownership"
+                    hint=self._transfer_refusal_hint(src_type, expr, 'explicit')
                 )
         elif tier == 'implicit':
             if self._is_aliasing_expr(expr):
                 expr.needs_copy = True
+
+    def _transfer_refusal_hint(self, src_type: SawType, expr: Expression,
+                               tier: str) -> str:
+        """The spellings a refused whole-value transfer can be rewritten to.
+
+        An OPTIONAL gets its own list (design 139). It is a place with a payload,
+        so it has a third way out that no plain struct has: `o.take()` writes
+        `None` back and hands the payload over, which works on a FIELD, where
+        `move` cannot go (no partial moves). Naming only `move` and `.copy()`
+        would send an author with a `File?` field down a path that does not
+        exist.
+        """
+        if src_type is not None and src_type.kind == TypeKind.OPTIONAL:
+            path = self._render_place(expr) if self._is_aliasing_expr(expr) else "the optional"
+            parts = []
+            if tier == 'explicit':
+                parts.append(f"`{path}.copy()` for an explicit deep copy")
+            if isinstance(expr, Identifier):
+                parts.append(f"`move {path}` to transfer the whole binding")
+            parts.append(f"`{path}.take()` to move the payload out in place")
+            return "use " + ", ".join(parts[:-1]) + (", or " if len(parts) > 1 else "") + parts[-1]
+        if tier == 'explicit':
+            return ("use .copy() for an explicit deep copy, or `move` to "
+                    "transfer ownership")
+        return "use `move` to transfer ownership instead"
 
     def _check_no_copy_return(self, return_type: SawType, final_expr: Optional[Expression],
                                context_name: str, line: int, column: int):

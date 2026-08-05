@@ -1,0 +1,37 @@
+// design 139: `.copy()` on an optional exists exactly when its payload tier
+// provides one, and it copies the payload the way that tier copies. A
+// `Vector<Int>?` is ExplicitCopy, so `.copy()` is a DEEP copy: the two optionals
+// end up owning independent buffers, and pushing into one leaves the other
+// untouched.
+//
+// Before design 139 this was rejected outright — `.copy()` on an optional was
+// "not Copy" whatever it wrapped, so `move` was the only way to transfer a
+// `Vector<Int>?`. The wrapper was less capable than the thing it wrapped.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// original 3
+// duplicate 3
+// after push: original 3 duplicate 4
+// none copies to none
+
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    let original: Vector<Int>? = move v
+    var duplicate = original.copy()
+
+    print("original {original!.len()}")
+    print("duplicate {duplicate!.len()}")
+
+    // Independence: the copy owns its own buffer.
+    duplicate!.push(4)
+    print("after push: original {original!.len()} duplicate {duplicate!.len()}")
+
+    // None copies to None, with no payload touched.
+    let empty: Vector<Int>? = None
+    let empty_copy = empty.copy()
+    if let _ = empty_copy {
+        print("none copied to some")
+    } else {
+        print("none copies to none")
+    }
+}

@@ -1,0 +1,25 @@
+// design 139 / DF-131a: the whole-optional read that used to alias and
+// double-drop. Design 131 made the PAYLOAD read policy-driven, but the optional
+// ITSELF had no tier — every predicate at the checkpoint keyed off a struct or
+// enum NAME, and an optional has neither — so `let p = o` fell past every arm to
+// a silent bitwise copy. Both `o` and `p` then ran `Res.deinit`, printing
+// "drop res 1" twice.
+//
+// A wrapper is now never weaker than what it wraps, so this is refused. The
+// working spellings are in optional_nocopy_move_ok.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Res?` which implements NoCopy
+// EXPECT-ERROR-CONTAINS: `move o` to transfer the whole binding
+// EXPECT-ERROR-CONTAINS: `o.take()` to move the payload out in place
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+func main() {
+    let o: Res? = Res(id: 1)
+    let p = o
+    print("ok")
+}

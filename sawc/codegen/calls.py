@@ -1144,6 +1144,11 @@ class CallsMixin:
             recv_type = self._expr_type(expr.object)
             if recv_type is not None and recv_type.kind == TypeKind.ARRAY:
                 return self._emit_array_deep_copy(obj_val, recv_type)
+            # `Optional<T>.copy()` (design 139) — same reason to intercept here:
+            # the receiver is an LLVM `{i1, T}` with no struct_name for the
+            # copy-method dispatch below to mangle.
+            if recv_type is not None and recv_type.kind == TypeKind.OPTIONAL:
+                return self._emit_optional_deep_copy(obj_val, recv_type)
 
         # Auto-Copy: `.copy()` on a trivially-copyable receiver (a primitive, or
         # a POD struct with no copy() method) lowers to a bitwise copy, i.e. the

@@ -1,0 +1,34 @@
+// design 139: the DF-131a repro written correctly. A move-only payload makes
+// the optional move-only, and both consuming spellings work — `move` for a whole
+// binding, `.take()` for a place `move` cannot reach (a field: there are no
+// partial moves). Each resource drops exactly ONCE, which is the whole point:
+// the pre-139 bitwise alias dropped `res 1` twice.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// moved
+// took 2
+// drop res 2
+// drop res 1
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+struct Cell { slot: Res? }
+
+extension Cell: NoCopy {}
+
+func main() {
+    // `move` retires the whole binding.
+    let o: Res? = Res(id: 1)
+    let p = move o
+    print("moved")
+
+    // `.take()` writes None back and hands the payload over, so it works on a
+    // FIELD — where `move` would be the no-partial-moves error.
+    var c = Cell(slot: Res(id: 2))
+    let pulled = c.slot.take()
+    print("took {pulled!.id}")
+}
