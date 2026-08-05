@@ -1402,6 +1402,8 @@ class Extension(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     source_file: str = ""
     doc: Optional[str] = None
+    # Declaration attributes (design 58 machinery, design 128): `@synthesize`.
+    attributes: List['Attribute'] = field(default_factory=list)
 
 
 @dataclass
@@ -1445,17 +1447,24 @@ class Method(ASTNode):
 class Attribute(ASTNode):
     """A Swift-style declaration attribute (design 58): `@name` or `@name("arg")`.
 
-    Attached to the declaration immediately following it. In v1 the legal names
-    are `export` and `section`; `export` takes zero args or one string literal,
-    `section` requires exactly one string literal. `arg` is the decoded string
-    literal content (no quotes), or None for the bare `@name` form.
+    Attached to the declaration immediately following it. The legal names are
+    `export` and `section` (on a top-level func/static) and `synthesize` (on an
+    extension, design 128); `export` takes zero args or one string literal,
+    `section` requires exactly one string literal, `synthesize` takes none.
+    `arg` is the decoded string literal content (no quotes), or None for the
+    bare `@name` form.
     """
     name: str
     arg: Optional[str] = None
 
 
-# Known attribute names (design 58 v1). Used for the unknown-name diagnostic.
-KNOWN_ATTRIBUTES = ("export", "section")
+# Known attribute names. Used for the unknown-name diagnostic.
+KNOWN_ATTRIBUTES = ("export", "section", "synthesize")
+
+# Where each attribute may appear. The parser enforces this (position is a
+# grammar property); the typechecker owns the per-attribute semantics.
+FUNC_STATIC_ATTRIBUTES = ("export", "section")
+EXTENSION_ATTRIBUTES = ("synthesize",)
 
 
 def find_attribute(node: 'ASTNode', name: str) -> Optional['Attribute']:
@@ -1484,6 +1493,12 @@ def section_name(node: 'ASTNode') -> Optional[str]:
     """The object-file section requested by `@section("name")`, or None."""
     attr = find_attribute(node, 'section')
     return attr.arg if attr is not None else None
+
+
+def has_synthesize(node: 'ASTNode') -> bool:
+    """True if `node` carries the `@synthesize` attribute (design 128): the
+    author's explicit buy-in to a compiler-derived conformance body."""
+    return find_attribute(node, 'synthesize') is not None
 
 
 @dataclass

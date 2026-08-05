@@ -1,0 +1,26 @@
+// design 128: `@synthesize` on an extension parses and attaches, including on a
+// `public` extension and one carrying ordinary methods alongside the derived
+// conformance.
+// EXPECT: success
+// EXPECT-OUTPUT: true
+// EXPECT-OUTPUT: false
+// EXPECT-OUTPUT: 7
+
+struct Named {
+    name: String,
+    n: Int
+}
+
+@synthesize
+public extension Named: Equatable {
+    func sum(&self) -> Int { self.n + 4 }
+}
+
+func main() {
+    let a = Named(name: "a", n: 3)
+    let b = Named(name: "a", n: 3)
+    let c = Named(name: "b", n: 3)
+    print(a == b)
+    print(a == c)
+    print(a.sum())
+}

@@ -42,9 +42,10 @@ class DeclarationsMixin:
 
         Grammar-level checks live here (Part 1): the name must be a known
         attribute, `@export` takes zero args or one string literal, `@section`
-        requires exactly one string literal, and an attribute may not repeat.
-        Position (only on top-level func/static) and semantic rules are enforced
-        by the caller and the typechecker respectively.
+        requires exactly one string literal, `@synthesize` takes none, and an
+        attribute may not repeat. Position (which declaration kinds accept
+        which attribute) and semantic rules are enforced by the caller and the
+        typechecker respectively.
         """
         attrs: List[Attribute] = []
         while self.match(TokenType.AT):
@@ -69,6 +70,8 @@ class DeclarationsMixin:
             if name == "section" and arg is None:
                 self.error("attribute `@section` requires exactly one "
                            "string-literal argument, e.g. `@section(\".text.boot\")`")
+            if name == "synthesize" and arg is not None:
+                self.error("attribute `@synthesize` takes no argument")
 
             # Duplicate attribute is an error.
             for prev in attrs:

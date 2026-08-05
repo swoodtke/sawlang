@@ -22,7 +22,8 @@ from ast_nodes import (
     ExternFunction, ExternBlock,
     SawType, TypeKind, Argument, TypeParameter,
     ClosureExpr, ClosureParam,
-    ImportDecl, ModuleDecl, ExportDecl, Visibility
+    ImportDecl, ModuleDecl, ExportDecl, Visibility,
+    FUNC_STATIC_ATTRIBUTES, EXTENSION_ATTRIBUTES
 )
 from .types import TypeParsingMixin, GenericListTrailingComma
 from .declarations import DeclarationsMixin
@@ -514,9 +515,10 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         `parse()` only) the batched error recovery around each call.
         """
         # Attributes (design 58): zero or more `@name`/`@name("arg")` lines
-        # immediately preceding a declaration. v1 legal ONLY on top-level
-        # func/static; anything else is a clean "attributes are not supported"
-        # error routed through `_parse_attributed_decl`.
+        # immediately preceding a declaration. Legal on a top-level func/static
+        # (`@export`, `@section`) and on an extension (`@synthesize`, design
+        # 128); anything else is a clean "attributes are not supported" error
+        # routed through `_parse_attributed_decl`.
         if self.match(TokenType.AT):
             attrs = self.parse_attributes()
             self.skip_newlines()
@@ -575,9 +577,11 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def _parse_attributed_decl(self, p: Program, attrs):
         """Parse the declaration following an attribute block and attach `attrs`.
 
-        design 58 v1: attributes are legal ONLY on top-level `func` and `static`
-        (optionally `public`-prefixed). Everything else gets a clean
-        "attributes are not supported on X" error.
+        design 58: attributes are legal on a top-level `func`/`static`
+        (`@export`, `@section`) and — since design 128 — on an `extension`
+        (`@synthesize`), each optionally `public`-prefixed. Everything else gets
+        a clean "attributes are not supported on X" error, and an attribute on
+        the wrong one of the two gets the misplacement error below.
         """
         visibility = Visibility.PRIVATE
         if self.match(TokenType.PUBLIC):
@@ -587,15 +591,38 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             visibility = self._parse_visibility()
 
         if self.match(TokenType.FUNC):
+            self._reject_misplaced_attributes(attrs, FUNC_STATIC_ATTRIBUTES,
+                                              "function declarations")
             fn = self.parse_function(visibility)
             fn.attributes = attrs
             p.functions.append(fn)
         elif self.match(TokenType.STATIC):
+            self._reject_misplaced_attributes(attrs, FUNC_STATIC_ATTRIBUTES,
+                                              "static declarations")
             st = self.parse_static(visibility)
             st.attributes = attrs
             p.statics.append(st)
+        elif self.match(TokenType.EXTENSION):
+            self._reject_misplaced_attributes(attrs, EXTENSION_ATTRIBUTES,
+                                              "extensions")
+            ext = self.parse_extension(visibility)
+            ext.attributes = attrs
+            p.extensions.append(ext)
         else:
             self.error(f"attributes are not supported on {self._describe_decl_kind()}")
+
+    def _reject_misplaced_attributes(self, attrs, allowed, where: str):
+        """Error on any attribute in `attrs` that is not legal on `where`.
+
+        Position is a grammar property, so it is enforced here rather than in
+        the typechecker: `@export` belongs on a func/static, `@synthesize` on an
+        extension, and each is a clean error on the other.
+        """
+        for attr in attrs:
+            if attr.name not in allowed:
+                legal = ", ".join("@" + a for a in allowed)
+                self.error(f"attribute `@{attr.name}` is not supported on "
+                           f"{where} (legal here: {legal})")
 
     def _describe_decl_kind(self) -> str:
         """Human phrase for the declaration at the current token (used in the
@@ -605,7 +632,6 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             TokenType.STRUCT: "struct declarations",
             TokenType.ENUM: "enum declarations",
             TokenType.TRAIT: "trait declarations",
-            TokenType.EXTENSION: "extensions",
             TokenType.TYPE: "type declarations",
             TokenType.EXTERN: "extern blocks",
         }
