@@ -3895,78 +3895,164 @@ Destruction is not on this list. A `deinit` is synthesized for every type that
 owns something, with no marker and no declaration; see
 [Synthesized destruction](#synthesized-destruction).
 
-### Unsafe Code — unsafety is type-carried, not region-carried
+### Unsafe Code — unsafe types, and the functions that touch them
 
-**Principle (design 55): unsafety is type-carried, not region-carried.** Saw has
-**no** `unsafe { }` blocks, `unsafe func`, or `unsafe trait`. Where a construct
-carries a proof obligation the compiler cannot discharge, the *type* names it —
-the `Unsafe` prefix is the marker. `UnsafePointer<T>` / `UnsafeConstPointer<T>`
-(raw pointers), `UnsafeMemory<T, Use>` (typed memory at a fixed address), and the
-explicit `as`-casts that mint them are the entire surface: touching one of these
-types *is* the opt-out, so the obligation travels with the value that carries it
-rather than being fenced off in a lexical region.
+**Status: implemented (design 130, superseding design 81's marking rules).**
 
-**The visibility rule (design 81).** The type-carried principle gains one
-refinement: *where a raw pointer would flow **invisibly** — with no `Unsafe*`
-type spelled at that exact site — the `unsafe` expression marker is required
-there.* `unsafe` is a reserved word (a lexer keyword, so it is never an
-identifier) that prefixes an expression; it sits
-just below assignment and looser than every operator (`unsafe base + n` marks
-the whole arithmetic; `unsafe p[0] = 5` marks the whole store — the marker
-lifts off the lvalue onto the assignment). This keeps every entry to the raw
-domain greppable — by a signature, a field type, a pointer-naming cast, or the
-`unsafe` keyword — without a region block that would say nothing.
+**Principle: unsafety is carried by TYPES, and a function that touches one
+declares it.** Saw has no `unsafe { }` blocks and no unsafe regions. Where a
+construct carries a proof obligation the compiler cannot discharge, a *type*
+names it, and the obligation then travels with every value of that type and
+every signature that mentions one.
 
-Where the marker is **required** (in a function whose own signature carries no
-`Unsafe*` type):
+#### Unsafe types
 
-- **Deref / index — read or write:** `unsafe ptr[i]`, `unsafe ptr[i] = v`.
-- **Raw pointer arithmetic:** `unsafe base + n`.
-- **Binding a pointer produced by a call:** `let p = unsafe A().alloc(s, a)` —
-  a pointer-returning call shows no pointer type at the call syntax (this
-  includes a discarded pointer-returning call, e.g. `unsafe memcpy(...)`).
-
-Where it is **not** required — the pointer is already visible or is pass-through:
-
-- A **cast that names a pointer type** and any pointer op transitively inside it:
-  `(base + n) as UnsafePointer<T>` needs no marker (the cast is the marker).
-- A **parameter / return / field** of pointer type (the signature or field decl
-  is the visible marker), and **passing** a pointer value through a call.
-- Inside the **marked domain**: a function whose own signature carries a raw
-  pointer (parameter or return), OR a `self`-receiver method of a struct that
-  declares a raw-pointer field — there the field decl is the marker, which is
-  what keeps container *access* methods (`Vector.get`/`push`, `Arc.copy`) marker-
-  free while a no-`self` **factory** (`Box.make`, which mints a fresh pointer via
-  `alloc`) still shows the marker.
-
-`unsafe` on an expression that performs **no** unsafe operation is a clean
-error ("`unsafe` marks an expression with no unsafe operation") — markers stay
-honest. Compiler-synthesized code (coroutine frames) is exempt by provenance.
+The built-in unsafe types are `UnsafePointer<T>` / `UnsafeConstPointer<T>` (raw
+pointers) and `UnsafeMemory<T, Use>` (typed memory at a fixed address). A
+program declares its own with `unsafe struct`:
 
 ```saw
-// The obligation rides the type. Constructing a raw view IS the opt-out —
-// no block, no `unsafe func`.
+unsafe struct UnsafeMmioReg { addr: Int }     // ok
+unsafe struct MmioReg { addr: Int }
+// error: an unsafe type must be named `Unsafe*`, but this one is named `MmioReg`
+//   hint: rename it to `UnsafeMmioReg`, or drop the `unsafe` keyword if the
+//         type is safe to name, hold and pass
+```
+
+The `unsafe` keyword confers the semantics; the compiler then enforces the
+`Unsafe` name prefix, so the unsafety is legible at every use site without
+opening the declaration. The rule runs one way only: a plain
+`struct UnsafeDefaults` is an ordinary safe type, because the keyword is the
+only thing that marks one.
+
+**Unsafety is not transitive.** A `Vector<T>` holds an `UnsafePointer<T>` field
+and is itself a safe type: safe to name, hold, pass and store. Only the
+*functions* that reach through to the pointer are unsafe. That is what lets
+`Vector.pop` and `Vector.push` differ, and it is the whole point of putting the
+marker on functions rather than on the types that contain them.
+
+#### The trigger rule
+
+A function is `unsafe` when its body or signature **names, binds, receives or
+returns** a value of an unsafe type — including a reference to one
+(`&UnsafePointer<T>` counts). Reading `self.buffer` to test it against `None` is
+contact, and the marker is simply true there. The rule is deliberately broader
+than "performs a deref": `Vector.iter()` only reads `self.buffer` and hands it to
+an iterator struct, and that narrow reading is what hid two use-after-free bugs
+under the previous model.
+
+Failing to declare it is a clean error naming the type and the fix:
+
+```
+error: method `Vector.push` is not declared `unsafe`, but its body names a value
+       of unsafe type (`UnsafePointer<T>`)
+  hint: write `unsafe func push` — the unsafety belongs in the signature where
+        every caller can see it
+```
+
+**Derivation does not propagate.** A value or reference of a *safe* type produced
+inside an unsafe function is safe onward — the `&T` that `with_ref` hands its
+closure is an ordinary reference. Performing that derivation soundly is exactly
+what the reviewed wrapper exists for.
+
+Declaring `unsafe` where the rule would not require it is allowed. The marker is
+a promise about the contract, and a conformer of an `unsafe` trait requirement
+needs to make it.
+
+#### Spelling
+
+On a declaration, `unsafe` follows the visibility modifier and precedes the
+declaration keyword:
+
+```saw
+public unsafe func push(&var self, value: T) { ... }
+unsafe init(at: Int) -> UnsafeMmioReg { ... }
+```
+
+On a function **type** it rides the post-parameter effect slot, in the canonical
+order `unsafe sync escaping`:
+
+```saw
+func with_raw<R>(&self, body: (UnsafePointer<T>) unsafe sync -> R) -> R
+```
+
+Writing `unsafe` in the post-parameter slot of a *declaration* is a clean error
+pointing at the right position. `--emit-docs` reports the modifier in the
+`signature` field and prefixes the `effect` field with `unsafe`.
+
+#### Closures
+
+A closure is judged by the trigger rule on its **own body**. A closure that never
+names an unsafe type is safe even when passed into an unsafe function:
+
+```saw
+unsafe func with_ref<R>(&self, i: Int, body: (&T) sync -> R) -> R
+v.with_ref(0) { e in e + 1 }        // the closure sees only `&T`: safe
+```
+
+Where an unsafe value genuinely is handed to a closure, the closure's parameter
+type names it, so the rule fires and the slot must carry the `unsafe` effect. An
+unsafe closure passed where a safe function type is expected is a clean error.
+
+#### Calling an unsafe function
+
+Calling an unsafe function from a safe one needs no ceremony — no marker, no
+block, no re-declaration. The unsafe function is the reviewed wrapper and its
+callers are safe.
+
+What makes that sound is the **soundness rule**: a function whose parameters are
+all safe types must be sound for **every** input. A precondition is expressed by
+taking an unsafe-typed parameter, which drags the obligation into the caller
+through the trigger rule itself.
+
+- `with_ref(index: Int)` takes only safe types, so it must be sound for every
+  index — it bounds-checks and panics on a miss.
+- `dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)` names an unsafe
+  type, so any caller must name one too, and every caller is therefore unsafe.
+
+This gives the two categories Rust spells `unsafe fn` and "safe fn wrapping
+`unsafe {}`" with one marker and no `unsafe(caller)` spelling.
+
+Standing policy for std, and the assumption the model rests on: an `unsafe`
+function is short enough to review as a unit.
+
+#### The accessor rule
+
+On a safe type, every indexed accessor is checked. Unchecked access exists only
+through `UnsafePointer`. An out-of-range index **panics** for a direct accessor
+(`Vector.set`, `Vector.swap`, `Vector.swap_out`, `Vector.with_ref`,
+`with_var_ref`, `String.byte_at`, `String.substring`) or yields `None`/`Err` for
+a `get`-shaped one (`Vector.get`, `Data.get`). Never a silent no-op, and never a
+clamp to a plausible-looking result.
+
+For scoped, no-copy access to a container element (including a `NoCopy` one)
+without minting a raw pointer at all, use `Vector.with_ref`/`with_var_ref`: a
+non-escaping `&T`/`&var T` borrow of the element in place, with the whole vector
+held borrowed for the body (reallocation- and invalidation-proof). This replaced
+the removed `ref_at`.
+
+```saw
+// The obligation rides the type; the function that touches it says so.
 static UART0: UnsafeMemory<UartRegs, Device> = UnsafeMemory(0x1800_0000)
 
-// `addr: Int` carries no Unsafe* type, so the raw-pointer flow is marked.
-func poke(addr: Int) {
-    let p = addr as UnsafePointer<Int32>   // cast NAMES the type: visible, no marker
-    unsafe p[0] = 42                       // placement-move through a raw pointer
+unsafe func poke(addr: Int) {
+    let p = addr as UnsafePointer<Int32>
+    p[0] = 42                              // placement-move through a raw pointer
 }
 
-// Signature carries `UnsafePointer` -> the MARKED DOMAIN: ops here are free.
-func poke_domain(p: UnsafePointer<Int32>) {
-    p[0] = 42
+// A safe wrapper: safe parameters, so it must be sound for every input.
+func poke_register(index: Int) {
+    if index < 0 || index >= REGISTER_COUNT {
+        panic("poke_register: index out of range")
+    }
+    poke(UART_BASE + index * 4)            // calling unsafe code needs no ceremony
 }
 ```
 
-For scoped, no-copy access to a container element (including a `NoCopy` one)
-without minting a raw pointer at all, use `Vector.with_ref`/`with_var_ref`
-(design 81): a non-escaping `&T`/`&var T` borrow of the element in place, with
-the whole vector held borrowed for the body (reallocation- and
-invalidation-proof). This replaced the removed `ref_at`. The index is
-bounds-checked and panics out of range, like every other indexing operation —
-neither of them, nor `swap_out`, is an unchecked back door around the check.
+There is no line-level `unsafe` expression marker. Design 81 had one, prefixing
+any expression where a raw pointer flowed with no `Unsafe*` type spelled at that
+site; design 130 removed it along with the "marked domain" rules that decided
+where it was required.
 
 ### Placement writes (the placement-move primitive)
 

@@ -36,7 +36,7 @@
 //             }
 //           ],
 //           "doc": "Which end of a span a reading came from.",
-//           "line": 217
+//           "line": 218
 //         },
 //         {
 //           "kind": "extension",
@@ -65,7 +65,7 @@
 //               "effect": "sync",
 //               "self": "borrows-var",
 //               "doc": "Advances the count in place.",
-//               "line": 239
+//               "line": 240
 //             },
 //             {
 //               "kind": "init",
@@ -85,7 +85,7 @@
 //               "effect": "sync",
 //               "self": null,
 //               "doc": "Builds a tick count, defaulting to the start of the counter.",
-//               "line": 233
+//               "line": 234
 //             },
 //             {
 //               "kind": "method",
@@ -98,11 +98,11 @@
 //               "effect": "sync",
 //               "self": "borrows",
 //               "doc": "Returns the tick count.",
-//               "line": 236
+//               "line": 237
 //             }
 //           ],
 //           "doc": "Construction and arithmetic for `Tick`.",
-//           "line": 231
+//           "line": 232
 //         },
 //         {
 //           "kind": "func",
@@ -115,7 +115,7 @@
 //           "effect": "sync",
 //           "self": null,
 //           "doc": null,
-//           "line": 259
+//           "line": 260
 //         },
 //         {
 //           "kind": "func",
@@ -134,7 +134,7 @@
 //           "effect": "sync",
 //           "self": null,
 //           "doc": "Returns the tick count a reading landed on.",
-//           "line": 252
+//           "line": 253
 //         },
 //         {
 //           "kind": "static",
@@ -143,13 +143,14 @@
 //           "visibility": "public",
 //           "type": "Ticks",
 //           "doc": "The tick every counter starts at.",
-//           "line": 249
+//           "line": 250
 //         },
 //         {
 //           "kind": "struct",
 //           "name": "Tick",
 //           "signature": "public struct Tick",
 //           "visibility": "public",
+//           "unsafe": false,
 //           "generics": [],
 //           "conformances": [
 //             "Ticked"
@@ -160,11 +161,11 @@
 //               "type": "Int",
 //               "visibility": "public",
 //               "doc": "Ticks since the counter started.",
-//               "line": 211
+//               "line": 212
 //             }
 //           ],
 //           "doc": "A span measured in whole ticks.",
-//           "line": 209
+//           "line": 210
 //         },
 //         {
 //           "kind": "trait",
@@ -185,11 +186,11 @@
 //               "effect": "sync",
 //               "self": "borrows",
 //               "doc": "Returns the tick count.",
-//               "line": 227
+//               "line": 228
 //             }
 //           ],
 //           "doc": "A value with a tick count.",
-//           "line": 225
+//           "line": 226
 //         },
 //         {
 //           "kind": "typealias",
@@ -198,7 +199,7 @@
 //           "visibility": "public",
 //           "target": "Int",
 //           "doc": "A count of ticks.",
-//           "line": 246
+//           "line": 247
 //         }
 //       ]
 //     }

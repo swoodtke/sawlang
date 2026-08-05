@@ -609,19 +609,42 @@ per-host runtime under `sawc/rt/` export exactly the frozen `__saw_rt_*`
 ABI (sync-only; a non-ABI `__saw_rt_*` name / a suspending body is a clean
 error). You only touch this when authoring `sawc/rt/`. `static_assert(
 sizeof<T>() == N, "msg")`; struct layout = declaration-order natural ABI
-(documented rule) — a Saw struct can mirror a C struct for FFI. Unsafety is
-TYPE-carried (Unsafe* prefix), not region-carried — no unsafe blocks.
-**`unsafe` marker (design 81):** an expression prefix, required where a raw
-pointer flows INVISIBLY in a function whose signature carries no `Unsafe*`
-type — a deref/index read or write (`unsafe ptr[i]`, `unsafe ptr[i] = v`),
-pointer arithmetic (`unsafe base + n`), or binding a pointer produced by a
-call (`let p = unsafe A().alloc(s, a)`). NOT needed where visible: a cast that
-names `UnsafePointer<T>` (and any op inside it), a pointer param/return/field,
-a passed-through pointer. Free inside the MARKED DOMAIN: a fn whose signature
-carries a raw pointer, OR a `self`-method of a struct with a pointer field
-(so container access methods need no marker; a no-`self` factory like
-`Box.make` does). `unsafe` on nothing-unsafe = error. Precedence: below
-assignment, looser than every operator (`unsafe p[0] = 5` marks the store).
+(documented rule) — a Saw struct can mirror a C struct for FFI.
+**Unsafe surface (design 130 — supersedes design 81's marking rules).**
+Unsafety is TYPE-carried, not region-carried: no `unsafe` blocks, no unsafe
+regions, and NO line-level `unsafe` expression marker (writing one is now a
+parse error telling you to mark the declaration). The unsafe types are
+`UnsafePointer<T>`/`UnsafeConstPointer<T>`, `UnsafeMemory<T, Use>`, and anything
+you declare `unsafe struct` — the keyword confers the semantics and the compiler
+then REQUIRES the name to start with `Unsafe` (`unsafe struct MmioReg` errors,
+"rename it to `UnsafeMmioReg`"). The converse does not hold: a plain
+`struct UnsafeDefaults` is an ordinary safe type.
+**Trigger rule:** a function is `unsafe` iff its body or signature NAMES, BINDS,
+RECEIVES or RETURNS a value of an unsafe type — a reference to one
+(`&UnsafePointer<T>`) counts, and so does merely reading a pointer field to test
+it (`self.buffer != None`). Not declaring it is a clean error naming the type.
+Spelling: `public unsafe func push(&var self, ...)` / `unsafe init(...)` —
+AFTER the visibility modifier, BEFORE `func`/`init` (writing it in the
+post-parameter slot beside `sync` is a clean error pointing at the right
+position). On a function TYPE it rides the effect slot instead, canonical order
+`unsafe sync escaping`: `(UnsafePointer<T>) unsafe sync -> R`.
+**NOT transitive:** `Vector` holds an `UnsafePointer` field and IS a safe type —
+safe to name, hold, pass, store. Only the methods reaching through to the field
+are unsafe, and `self` is never counted as contact. Derivation doesn't propagate
+either: a `&T` obtained from `buf[i]` inside an unsafe function is safe onward.
+**Closures are judged on their OWN body:** `v.with_ref(0) { e in e + 1 }` sees
+only `&T` and stays safe even though `with_ref` is unsafe. A closure that DOES
+name an unsafe type carries `unsafe` in its type and fits only an `unsafe` slot
+(`String.withCString`'s callback is the std case).
+**Calling an unsafe function from safe code needs no ceremony.** What makes that
+sound: a function whose parameters are all safe types must be sound for EVERY
+input, and a precondition is expressed by taking an unsafe-typed parameter —
+which drags the obligation into the caller through the trigger rule itself.
+Std policy: an `unsafe` function is short enough to review as a unit.
+**Accessor rule:** on a safe type every indexed accessor is checked. A direct
+accessor PANICS out of range (`Vector.set`/`swap`/`swap_out`/`with_ref`/
+`with_var_ref`, `String.byte_at`/`substring`); a `get`-shaped one returns
+`None`/`Err` (`Vector.get`, `Data.get`). Never a silent no-op, never a clamp.
 For scoped no-copy element access use `Vector.with_ref`/`with_var_ref` (a
 non-escaping `&T`/`&var T` borrow, invalidation-proof) — this REPLACED `ref_at`.
 **MMIO driver idiom (blessed, design 112 — use for EVERY memory-mapped
@@ -633,14 +656,15 @@ device API:
 struct UartRegs { thr: UInt8, ..., lsr: ReadOnly<UInt8>, ... }
 struct Uart16550 { regs: UnsafeMemory<UartRegs, Device> }
 extension Uart16550 {
-    init(at: Int) -> Uart16550 { Uart16550(regs: UnsafeMemory<UartRegs, Device>(at)) }
-    func write_byte(&self, b: UInt8) { /* poll lsr, write thr */ }
+    unsafe init(at: Int) -> Uart16550 { Uart16550(regs: UnsafeMemory<UartRegs, Device>(at)) }
+    unsafe func write_byte(&self, b: UInt8) { /* poll lsr, write thr */ }
 }
 ```
 Don't drive registers through free functions constructing `UnsafeMemory` per
 call, and don't extend the raw block type. The driver struct keeps `regs`
-private (design 80), its `self`-methods are already the design-81 marked
-domain (clean call sites), and it has room for device state. No singleton
+private (design 80); `Uart16550` itself is a SAFE type (unsafety is not
+transitive), so it passes through safe code freely and only the methods touching
+`regs` carry `unsafe func`. It has room for device state. No singleton
 `static` drivers yet (statics need const inits — Once/Lazy is tracker F5):
 construct in the owner and lend `&driver` down.
 
@@ -676,9 +700,12 @@ construct in the owner and lend `&driver` down.
   `iter()`/`enumerated()` carry the same `T: Copy` bound as `each`/`map`
   (design 122): `next()` yields an element the consumer OWNS, so a NoCopy
   element is reached through `with_ref`/`with_var_ref`, never a `for` loop.
-  `set(i, v)` RELEASES the element it overwrites (and stays a no-op out of
-  range). `with_ref`/`with_var_ref`/`swap_out` and `String.byte_at(i)` PANIC
-  out of range like every other index — none of them is an unchecked accessor.
+  `set(i, v)` RELEASES the element it overwrites. Since design 130's accessor
+  rule, `set`/`swap`/`swap_out`/`with_ref`/`with_var_ref`, `String.byte_at(i)`
+  and `String.substring(s, e)` ALL PANIC out of range — no silent no-op
+  (`set`/`swap` used to be) and no clamp (`substring` used to be). `get` stays
+  the `None`-returning shape. An empty `substring(i, i)` is still legal; a
+  REVERSED range panics.
 - String `chars()` yields Int scalars (no Char type); the inverse is
   `StringBuilder.append_scalar(scalar: Int) -> Int?` (design 119) — UTF-8
   encodes + appends a scalar, returns the byte count (1..4), `None` (appends

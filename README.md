@@ -540,10 +540,20 @@ Saw provides deterministic memory management without garbage collection:
   stopped working. The `try_`-prefixed twins (`try_push`, `try_reserve`,
   `try_make`, `try_insert`, `try_send`) return `Result<_, AllocError>` for code
   that handles exhaustion rather than dying of it.
-- **Unsafety is carried in the type**: raw pointers live in `Unsafe*` types.
-  Where a pointer would flow through a function whose signature does not advertise
-  it, you have to mark the spot with an `unsafe` expression. There are no
-  `unsafe` blocks, and unsafety never spreads implicitly.
+- **Unsafety is carried in the type, and declared by the function**: raw
+  pointers live in `Unsafe*` types, and so does anything you declare with
+  `unsafe struct` (the compiler enforces the name). A function that names, binds,
+  receives or returns one of those values must say `unsafe func`, or the compiler
+  rejects it and names the type. There are no `unsafe` blocks and no unsafe
+  regions. Unsafety is not transitive: `Vector` holds a raw pointer and is still
+  a safe type, so only the methods that reach through to it are marked. Calling
+  an unsafe function from safe code needs no ceremony — a function whose
+  parameters are all safe types has to be sound for every input, and a
+  precondition is stated by taking an unsafe-typed parameter instead.
+- **Every indexed accessor is checked**: on a safe type, an out-of-range index
+  panics (`Vector.set`, `String.substring`) or returns `None` (`Vector.get`).
+  Never a silent no-op, never a clamp to a plausible answer. Unchecked access
+  exists only through `UnsafePointer`.
 
 ```saw
 // Mutable reference parameter (the call site mirrors the parameter's sigil;
@@ -581,7 +591,8 @@ Saw is freestanding: the same language targets bare metal.
   constructs an object that quietly stopped working.
 - **Memory-mapped I/O**: `UnsafeMemory<T, Use>` is a compiler-known view of memory
   at a fixed address, with volatile `read()`/`write()` for device registers and
-  field-offset projection.
+  field-offset projection. It is an unsafe type, so a driver method that touches
+  a register block is `unsafe func` and reads as one at every call site.
 - **Compile-time layout checks**: `static_assert(sizeof<UartRegs>() == 0x1C,
   "...")` fails the build when a register block's layout drifts, at no runtime
   cost.

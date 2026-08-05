@@ -1,5 +1,24 @@
 # Design 81 — Unsafe surface: `unsafe` marker + escape rules + with_ref (DECIDED Jul 31)
 
+> **SUPERSEDED by design 130 (Aug 5) — the MARKING rules only.** The line-level
+> `unsafe` expression marker, the "invisible flow" test that decided where it
+> was required, and the marked-domain escapes (a pointer-carrying signature, a
+> `self`-method of a pointer-field struct, a pointer-naming cast) are all gone
+> from the language. Marking is now per-DECLARATION: `unsafe struct` for a type,
+> `unsafe func`/`unsafe init` for a function that names, binds, receives or
+> returns one of its values. Writing the old expression marker is a parse error.
+>
+> Design 81's other two rulings STAND: unsafety is type-carried rather than
+> region-carried (still no `unsafe` blocks), and `Vector.with_ref`/`with_var_ref`
+> remain the only container borrow-projection model, with `ref_at` removed.
+>
+> Why it changed: the marker was too coarse inside pointer-holding types
+> (`vector.saw` carried 2 markers in ~530 lines because the whole type was
+> blanket-marked, so nothing distinguished sound `pop` from overflowing `push`)
+> and nothing stopped an unsafe operation from being re-exported through a safe
+> signature (`String.byte_at` marked its `unsafe ptr[index]` correctly and the
+> out-of-bounds read bug happened anyway). See `designs/130-unsafe-model.md`.
+
 **Ruling (user):** the type-carried principle gains a VISIBILITY rule:
 where an `Unsafe*` type appears in source (signature, field decl) it
 is allowed; where an unsafe value would flow INVISIBLY, the reserved

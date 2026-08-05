@@ -257,10 +257,16 @@ class DocsBuilder:
             fields.append({"name": f.name, "type": _type_str(f.type),
                            "visibility": _visibility_str(f.visibility),
                            "doc": f.doc, "line": f.line})
+        # design 130: an `unsafe struct` is a different type from a plain one
+        # that merely happens to be NAMED `Unsafe*`, so the signature has to say
+        # which it is — the name alone does not carry the semantics.
+        unsafe = "unsafe " if getattr(s, 'is_unsafe', False) else ""
         return {
             "kind": "struct", "name": s.name,
-            "signature": "%sstruct %s%s" % (_vis_prefix(s.visibility), s.name, gen),
+            "signature": "%s%sstruct %s%s" % (_vis_prefix(s.visibility), unsafe,
+                                              s.name, gen),
             "visibility": _visibility_str(s.visibility),
+            "unsafe": bool(getattr(s, 'is_unsafe', False)),
             "generics": _generics(s.type_params),
             "conformances": self._conformances(s.name),
             "fields": fields, "doc": s.doc, "line": s.line,

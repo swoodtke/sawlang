@@ -1,9 +1,46 @@
-# Design 130 — DRAFT: the unsafe model, rebuilt (DO NOT DISPATCH)
+# Design 130 — the unsafe model, rebuilt (LANDED Aug 5)
 
-STATUS: DRAFT, fully specified — every open question decided (user, Aug 4
-evening). Supersedes design 81's marking rules. Ready to dispatch on the user's
-word; still listed as a draft because the user has not called for dispatch.
-Decisions marked **[user]** were made in conversation.
+STATUS: LANDED. Supersedes design 81's marking rules. Decisions marked
+**[user]** were made in conversation.
+
+Shipped in the six staged commits of q4's plan, suite green at each. Measured
+migration, against the estimates in the table below:
+
+| area | functions marked | line markers deleted |
+|---|---|---|
+| `sawc/std` (18 files) | 133 | 152 |
+| `sawc/rt` (13 files) | 47 | 56 |
+| `examples` (35 files) | 60 | 79 |
+| `blade/src` + `blade/tests` | 5 | 0 |
+| `sos/kernel` + `sos/tests` | 5 | 0 |
+| `libs`, `selfhost` | 0 | 0 |
+| **total** | **250** | **287** |
+
+Two estimates were low. The marker count was 287, not ~185 — the brief's table
+omitted `examples/` entirely, and `taskgroup.saw` alone held 72. The function
+count was 250, not ~115, because the brief measured std and rt only.
+
+The shape of the result held exactly: application-level Saw needed 5 marks in
+blade and 5 in SOS, all of them on code that casts to a raw pointer for a libc
+call or drives an MMIO register block. `libs/` and `selfhost/` needed none.
+
+Three things the implementation had to decide that the brief did not name:
+
+1. **The trigger rule must judge the SOURCE program.** The coroutine transform
+   rewrites user bodies in place (a held `&var` param becomes a frame-resident
+   `UnsafePointer<T>`; a spawned task reaches its group through an
+   `UnsafeConstPointer<TaskGroup>`), so the post-transform AST attributes
+   compiler-minted pointers to the user's own `main`. The check runs on the
+   first type-check only; 37 net/coro examples were falsely flagged before that.
+2. **A redundant `unsafe` is allowed.** Design 81 made a marker over nothing
+   unsafe an error. Per-declaration that would break a conformer of an `unsafe`
+   trait requirement whose own body happens not to touch anything, so the
+   marker is treated as a promise about the contract rather than a claim about
+   the body.
+3. **Rule 7 needs no separate machinery.** A precondition expressed as an
+   unsafe-typed parameter forces every caller to produce an unsafe-typed
+   argument, which the trigger rule already marks. Rule 7 is rule 3 applied to
+   arguments; what the implementation adds is the policy statement in the spec.
 
 ## Why
 The Aug 4 review sweep found five probe-proven memory bugs in safe-facing std

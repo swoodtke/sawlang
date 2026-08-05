@@ -113,7 +113,7 @@ on discovery unless genuinely ambiguous (then tracker + flag). Record
 language pain hit while writing Saw as DF-findings in the tracker.
 
 ## Language state (orientation digest — details in spec/skill)
-Landed through design 121 (Aug 4): full trait system (default bodies,
+Landed through design 130 (Aug 5): full trait system (default bodies,
 `any Trait` existentials, Equatable/Comparable/Hashable/Printable/
 Error), overloading + labeled arguments (lenient model), generics with
 default type params + default VALUES that drive inference (108) +
@@ -161,14 +161,23 @@ StringBuilder); File/Data/Channel/Mutex/net/IoError/Utf8Error/process/
 env/time — and `yield_now` (std.task, design 114; the cooperative-yield
 wrapper over the now stdlib-internal intrinsic) — need
 `import std.<module>` — so a user type named `IoError`/`File` no longer
-collides. Unsafe surface (design 81):
-unsafety is type-carried, plus an `unsafe` expression marker required
-wherever a raw pointer flows invisibly — a deref/index/write, pointer
-arithmetic, or binding a pointer produced by a call — in a function whose
-signature carries no `Unsafe*` type (a pointer-naming cast, a
-pointer param/return/field, or a `self`-method of a pointer-field struct is
-already the marked domain); `Vector.with_ref`/`with_var_ref` (scoped,
-invalidation-proof element borrow) replaced `ref_at`. Doc comments (121):
+collides. Unsafe surface (design 130, superseding 81's marking rules):
+unsafety is type-carried and DECLARED per declaration — `unsafe struct` marks a
+type (compiler-enforced `Unsafe*` name; a plain `struct UnsafeDefaults` gets no
+semantics), `unsafe func`/`unsafe init` mark a function whose body or signature
+NAMES, BINDS, RECEIVES or RETURNS one of its values (a `&UnsafePointer<T>`
+counts), and `(T) unsafe sync -> R` marks a function TYPE. NOT transitive
+(`Vector` holds a raw pointer and stays a safe type — only the methods reaching
+through it are marked); closures judged on their OWN body; calling an unsafe
+function from safe code needs no ceremony, made sound by the rule that a
+function with all-safe parameters must be sound for every input (a precondition
+is spelled as an unsafe-typed parameter). The line-level `unsafe` expression
+marker is GONE (writing one is a parse error). Accessor rule: on a safe type
+every indexed accessor is checked — direct accessors panic out of range
+(`Vector.set`/`swap`/`swap_out`/`with_ref`/`with_var_ref`, `String.byte_at`/
+`substring`), `get`-shaped ones return `None`; no silent no-ops, no clamps.
+`Vector.with_ref`/`with_var_ref` (scoped, invalidation-proof element borrow)
+replaced `ref_at`. Doc comments (121):
 `///` (following decl) + `//!` (module) lexed as trivia in BOTH lexers
 (lexdiff parity, `--docs` dump), parser-attached with unattached-doc
 errors, `--emit-docs` JSON of the typechecked surface (design-80 gate on

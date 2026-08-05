@@ -18,6 +18,33 @@ DRAFTS** (Deinit/ExplicitCopy synthesis — LANDED, see below;
 newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
 
+**130 LANDED (Aug 5)** — the unsafe model is rebuilt and design 81's marking
+rules are superseded (that brief now carries a SUPERSEDED header). Marking is
+per-DECLARATION: `unsafe struct` for a type (with the `Unsafe*` name enforced),
+`unsafe func`/`unsafe init` for a function whose body or signature names, binds,
+receives or returns one of its values. Type unsafety is not transitive, closures
+are judged on their own body, and calling an unsafe function from safe code
+needs no ceremony. The line-level `unsafe` expression marker is GONE from the
+grammar — 287 of them deleted, and writing one now gets a parse error that says
+the model changed. 250 declarations marked (std 133, rt 47, examples 60, blade
+5, sos 5); `libs/` and `selfhost/` needed none. Shipped in six staged commits
+per the brief's q4 plan, full suite green at each.
+
+Closed here: **M5** (`Vector.set`/`swap` were silent no-ops out of range — both
+panic now, and `examples/vector_set_oob_still_noop.saw`, which asserted the old
+contract, is deleted) and **M3** (`String.substring` clamped — it panics on a
+reversed or out-of-range range; an empty `substring(i, i)` is still legal). Both
+are the accessor rule (brief rule 8); RS-6's part of that rule — the three
+genuinely UNCHECKED accessors `with_ref`/`with_var_ref`/`swap_out` — had already
+landed in design 122 and is unchanged.
+
+Fixed on the way: the trigger-rule verdict runs during teardown, after
+`current_method`/`current_function` are cleared, so `_error`'s source-file
+auto-detection fell back to the ENTRY module — a blade diagnostic about
+`Tester.shell_ok` printed a blank line from `main.saw`. It now names the
+declaration's own file. Still open: the oversized-`unsafe`-function
+decomposition already filed below.
+
 **128 LANDED (Aug 5)** — the P4 structural-synthesis line is closed. Deinit is
 implicit (a synthesized memberwise `deinit` for any owning struct/enum, dropping
 in reverse declaration order; enums payload-deep on the active variant), the
@@ -192,9 +219,9 @@ open — only its OOM path was separated out.
   class reads one way. Tests
   examples/vector_{with_ref,with_var_ref,swap_out}_oob_panic.saw, each verified
   failing before the fix (the OOB read returned 0 and exited 0, exactly the
-  probe). NOT covered here and still design 130's: M5's tolerant `set`/`swap`
-  and M3's clamping `substring` — this closes only the three UNCHECKED
-  accessors. Original finding (lead probe, Aug 4; the review under-rated it as
+  probe). M5's tolerant `set`/`swap` and M3's clamping `substring` were NOT
+  covered here and are now CLOSED by design 130's accessor rule (both panic);
+  this closed only the three UNCHECKED accessors. Original finding (lead probe, Aug 4; the review under-rated it as
   M5/medium) follows: they checked only that the buffer is non-null, so an
   arbitrary `Int` index reached `buf[index]` through a `public`, non-`unsafe`
   signature — the same shape as the C4 `byte_at` bug filed critical, in the API
@@ -327,12 +354,13 @@ value: a compute loop inside a SYNC callee is likewise unreachable — that one
 wants the instrumentation to follow sync call edges out of a task body, which
 would make sync helpers suspending and needs a design decision first. [127]
 
-**Follow-up filed by design 130:** decompose the oversized functions the
-unsafe migration marks wholly-unsafe — `__saw_exec_worker` (~150 lines), the
-`rt/host_*/reactor.saw` bodies, `rt/common/os_ops.saw` — so the "an unsafe
-function is short enough to review as a unit" policy is actually true. Shape:
-extract the raw-pointer bookkeeping into small `unsafe` helpers and leave the
-surrounding loop safe. Deliberately NOT in 130 (mechanical migration kept
+**Follow-up filed by design 130 (now OPEN — 130 landed Aug 5):** decompose the
+oversized functions the unsafe migration marked wholly-unsafe —
+`__saw_exec_worker` (~150 lines), the `rt/host_*/reactor.saw` bodies,
+`rt/common/os_ops.saw` (15 of the runtime's 47 marks on its own) — so the "an
+unsafe function is short enough to review as a unit" policy is actually true.
+Shape: extract the raw-pointer bookkeeping into small `unsafe` helpers and leave
+the surrounding loop safe. Deliberately NOT in 130 (mechanical migration kept
 separate from judgment-heavy refactoring of the executor's hot paths). [130]
 
 **P4 — design/gap briefs to consider:** ~~structural `Deinit`/`ExplicitCopy`
