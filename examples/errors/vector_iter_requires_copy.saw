@@ -1,0 +1,21 @@
+// Design 122 unit A: `Vector.iter()` carries the same `T: Copy` bound as
+// `each`/`map`/`enumerated`, because `next()` hands out an element the consumer
+// OWNS. Without the bound, a NoCopy element was bitwise-duplicated into the loop
+// variable and deinit'd twice (proven double-free). Reaching a NoCopy element is
+// `with_ref`/`with_var_ref`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no method `iter`
+// EXPECT-ERROR-CONTAINS: requires `T: Copy`
+
+struct Res { name: String }
+extension Res: Deinit {
+    func deinit(&var self) { print("deinit {self.name}") }
+}
+
+func main() {
+    var v = Vector<Res>()
+    v.push(Res(name: "a"))
+    for r in v.iter() {
+        print(r.name)
+    }
+}

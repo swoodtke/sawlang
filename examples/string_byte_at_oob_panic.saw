@@ -1,0 +1,12 @@
+// Design 122 unit A: `String.byte_at` is bounds-checked. It used to read
+// arbitrary heap past the end of the buffer from a signature carrying nothing
+// unsafe (`"hello".byte_at(99)` returned a value that was not even in Int8's
+// range). An out-of-range index now panics like every other indexing operation.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: String.byte_at: index out of bounds
+
+func main() {
+    let s = "hello"
+    print(s.byte_at(0) as Int)   // 104 — in range, fine
+    print(s.byte_at(99) as Int)  // past the end -> panic
+}

@@ -546,6 +546,11 @@ construct in the owner and lend `&driver` down.
 - `Vector.get(i)` returns a COPY (needs copyable element); use
   `swap_out(i, v)` to move a slot out; `with_ref`/`with_var_ref(i, body)`
   for scoped in-place (NoCopy) access (design 81; `ref_at` was removed).
+  `iter()`/`enumerated()` carry the same `T: Copy` bound as `each`/`map`
+  (design 122): `next()` yields an element the consumer OWNS, so a NoCopy
+  element is reached through `with_ref`/`with_var_ref`, never a `for` loop.
+  `set(i, v)` RELEASES the element it overwrites; `String.byte_at(i)` panics
+  out of range like every other index.
 - String `chars()` yields Int scalars (no Char type); the inverse is
   `StringBuilder.append_scalar(scalar: Int) -> Int?` (design 119) — UTF-8
   encodes + appends a scalar, returns the byte count (1..4), `None` (appends

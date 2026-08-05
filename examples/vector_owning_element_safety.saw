@@ -1,0 +1,52 @@
+// Design 122 unit A: a Vector must not duplicate or leak an owning element.
+//
+//  - `iter()` used to hand `next()`'s consumer a BITWISE duplicate of the slot,
+//    so an owning element was released twice. It is now `T: Copy`-bounded and
+//    `next()` yields a real `.copy()`: the Arc probe's strong count is balanced
+//    across the loop (3 before, 3 after), and the vector's elements stay live.
+//  - `set()` used to placement-move over a LIVE slot, leaking the element it
+//    overwrote. The prior occupant is now released at the `set`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 3
+// 4
+// deinit old
+// end of set scope
+// deinit new
+// 1
+
+struct Res { name: String }
+extension Res: Deinit {
+    func deinit(&var self) { print("deinit {self.name}") }
+}
+
+// `iter()` over an owning (but copyable) element retains exactly once per visit
+// and releases the loop variable at the end of each iteration.
+func iter_balance(probe: &Arc<Int>) {
+    var v = Vector<Arc<Int>>()
+    v.push(probe.copy())
+    v.push(probe.copy())
+    print(probe.strong_count())        // 3 = probe + 2 stored
+    var seen = 0
+    for a in v.iter() {
+        seen = seen + a.strong_count() // the loop variable is its own reference
+    }
+    print(probe.strong_count())        // 3 — no leak, no double release
+    print(seen / 2)                    // 4 = 3 + the loop variable's own ref
+}
+
+// `set` over a live slot releases the element it replaces.
+func set_releases() {
+    var v = Vector<Res>()
+    v.push(Res(name: "old"))
+    v.set(0, Res(name: "new"))         // "old" dies HERE
+    print("end of set scope")
+}
+
+func main() {
+    let probe = Arc<Int>(value: 0)
+    iter_balance(&probe)
+    set_releases()                     // "new" dies at the vector's drop
+    print(probe.strong_count())        // 1 — every stored copy was released
+}

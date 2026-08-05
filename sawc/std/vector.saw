@@ -140,12 +140,18 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Set element at index (no-op if out of bounds)
+    // Set element at index (no-op if out of bounds).
+    //
+    // The slot at `index` is LIVE, so the prior occupant must be released: a
+    // bare `buf[index] = value` is the placement-move primitive (see `push`),
+    // which moves the new value in WITHOUT dropping what was there — that
+    // leaked every owning element a `set` overwrote (design 122 unit A).
+    // `swap_out` moves the old element out and places the new one in; the
+    // `let _ =` discard then consumes and drops the old value right here, so
+    // exactly one deinit runs for it and nothing is duplicated.
     public func set(&var self, index: Int, value: T) {
         if index >= 0 && index < self.length {
-            if let buf = self.buffer {
-                buf[index] = value
-            }
+            let _ = self.swap_out(index, value)
         }
     }
 
@@ -270,10 +276,6 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Create an iterator for this vector
-    public func iter(&self) -> VectorIterator<T> {
-        VectorIterator<T>(buffer: self.buffer, length: self.length, index: 0)
-    }
 }
 
 // Deinit applies to EVERY element type, not just Copy ones: destroying a
@@ -348,6 +350,23 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
 // element) therefore cannot call `each`/`map`/`fold`; a future by-reference
 // (`(&T)`) overload would lift that, but is out of scope here.
 extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
+    // Create an iterator over this vector's elements (`for x in v.iter()`).
+    //
+    // `T: Copy` — the SAME bound `each`/`map`/`enumerated` carry, and for the
+    // same reason: `next()` hands the consumer an OWNED element, which is a
+    // copy at the source. Unbounded, `next()` returned a bitwise duplicate of
+    // the slot, so an owning element (`Vector<String>`, `Vector<Vector<..>>`,
+    // `Vector<File>`) was owned by BOTH the loop variable and the vector and
+    // deinit'd twice (design 122 unit A). This follows the `StringBytes`/
+    // `StringChars` model — an iterator yields values the consumer owns
+    // outright, with their own retain — rather than a scoped-borrow shape:
+    // a borrow iterator would have to hold the container borrowed for the
+    // whole loop, which is exactly what `with_ref`/`with_var_ref` already
+    // offer per element, and it is where a NoCopy element type is reached.
+    public func iter(&self) -> VectorIterator<T> {
+        VectorIterator<T>(buffer: self.buffer, length: self.length, index: 0)
+    }
+
     // Visit each element in order, passing it to `body`.
     public func each(&self, body: (T) -> Void) {
         var i = 0
@@ -508,7 +527,13 @@ struct VectorIterator<T> {
     index: Int
 }
 
-extension VectorIterator<T>: Iterator {
+// `T: Copy` (design 122 unit A): `next()` yields an element the CONSUMER owns,
+// so it must be a real copy per T's copy class — `.copy()` retains an
+// ImplicitCopy payload, deep-copies an ExplicitCopy one, and bitwise-copies a
+// trivial one. Reading the slot without it minted a duplicate owner and the
+// element was deinit'd twice. `Vector<T>.iter()` carries the matching bound, so
+// a NoCopy element type never reaches here (use `with_ref`/`with_var_ref`).
+extension VectorIterator<T: Copy>: Iterator {
     type Item = T
 
     public func next(&var self) -> T? {
@@ -516,7 +541,7 @@ extension VectorIterator<T>: Iterator {
             let idx = self.index
             self.index = self.index + 1
             if let buf = self.buffer {
-                buf[idx]
+                buf[idx].copy()
             } else {
                 None
             }
@@ -536,7 +561,10 @@ struct EnumeratedIterator<T> {
     index: Int
 }
 
-extension EnumeratedIterator<T>: Iterator {
+// `T: Copy` + `.copy()` for the same reason as `VectorIterator` above: the
+// yielded pair OWNS its element, so it must not be a bitwise duplicate of the
+// slot. (`enumerated()` already carried the bound at the producer.)
+extension EnumeratedIterator<T: Copy>: Iterator {
     type Item = (Int, T)
 
     public func next(&var self) -> (Int, T)? {
@@ -544,7 +572,7 @@ extension EnumeratedIterator<T>: Iterator {
             let idx = self.index
             self.index = self.index + 1
             if let buf = self.buffer {
-                (idx, buf[idx])
+                (idx, buf[idx].copy())
             } else {
                 None
             }
