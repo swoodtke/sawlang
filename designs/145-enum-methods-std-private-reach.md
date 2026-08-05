@@ -1,11 +1,12 @@
-# Design 145 — enum methods + the std private-symbol reach
+# Design 145 — enums stop being second-class: methods, raw backing, and the std private-symbol reach
 
-STATUS: APPROVED (user, Aug 5). Slots right after 141 integrates (user
+STATUS: APPROVED (user, Aug 5; unit B2 raw-backed enums folded in with
+its three pins confirmed Aug 5). Slots right after 141 integrates (user
 call — ahead of 135/138/144). Closes DF-140h and DF-140i (filed on the
 parked SOS M1 branch's tracker during the round-3 module-system stress;
 FILE THEM FRESH in main's tracker as part of landing, noting the origin,
 the 142/DF-140f pattern). After this lands on main, the PARKED SOS M1
-branch gets a follow-up revision adopting the new capability (unit C
+branch gets a follow-up revision adopting the new capabilities (unit C
 below runs THERE, not on main).
 
 ## Unit A — DF-140h: the private-symbol fix reaches std
@@ -56,13 +57,49 @@ Error enum through `Result<T, SysErrorLike>` + `try!`; generic enum
 method at two instantiations; import-scoped visibility of an enum
 extension; @synthesize + hand-written coexistence.
 
+## Unit B2 — raw-backed enums [user, three pins confirmed Aug 5]
+
+`enum SysError: UInt8 { case Ok = 0, case BadHandle = 1, ... }` — a
+payload-free enum may declare an integer BACKING TYPE in the
+declaration's colon position (any fixed-width int or Int/UInt; the
+design-47 wire discipline favors fixed-width and docs say so). Semantics:
+
+1. **Payload-free only** — a payload case under a declared backing is a
+   teaching error ("an enum with payloads has no integer identity").
+2. **Explicit values REQUIRED when a backing is declared** (duplicates
+   error; no auto-increment — declaring a backing claims the numbers
+   are ABI, so reordering must never silently renumber). Enums WITHOUT
+   a backing keep compiler-assigned ordinals and are NOT castable.
+3. **Total direction is `as`** (`err as UInt8` — the enum IS its tag);
+   **partial direction is a SYNTHESIZED static** `E.from(raw: U) -> E?`,
+   None on an unknown value (an invalid wire byte is DATA, never a
+   trap). NOT an init — unit B's no-inits rule stands; `from` is a
+   lookup, not a constructor.
+
+A declared backing PINS the representation (size and tag values):
+backed enums become legal as `UnsafeMemory<T>`-viewed struct FIELD
+types (the imgformat `flags` byte can be a typed enum), and are noted
+as future `@export`-whitelist candidates (as their backing) — the
+C-header story; whitelist admission itself is OUT of this brief.
+Equatable/Hashable auto-conformance unchanged; a raw-ordered
+Comparable `@synthesize` option is explicitly deferred. Tests: round
+trip `as`/`from(raw:)` incl. the None path on an unknown byte; explicit
+values enforced (missing + duplicate errors); payload-case-under-backing
+error; a backed-enum field inside a static_assert-pinned struct read
+through UnsafeMemory; match exhaustiveness unchanged; interaction with
+unit B (a backed enum with methods + Printable).
+
 ## Unit C — SOS adoption (runs on the PARKED M1 branch afterward)
 
-Once A+B are on main: the M1 branch rebases and `SysError` becomes a
-real enum with methods — `Error` + `Printable` conformances replace the
-free `sys_error(status)` helper; kernel/root diagnostics format through
-it; any other free-function-because-enum shapes in sos/ migrate. The
-branch re-parks; the user holds the integration call.
+Once A+B+B2 are on main: the M1 branch rebases and adopts BOTH — 
+`SysError` becomes a real backed enum (`: UInt8`, explicit tags) with
+methods and `Error` + `Printable` conformances replacing the free
+`sys_error(status)` helper; the abi module's op ids and rights bits
+become backed enums (`as` at the syscall boundary); imgformat's
+`SegFlags` becomes a backed-enum field in the typed header view;
+kernel/root diagnostics format through the conformances; any other
+free-function-because-enum or static-because-enum shapes in sos/
+migrate. The branch re-parks; the user holds the integration call.
 
 ## Gates
 Full battery per landing unit on main (suite/lexdiff/irdet/astdiff/
