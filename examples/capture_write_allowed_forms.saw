@@ -1,0 +1,50 @@
+// The writes a closure CAN still make, now that a write to a by-value capture
+// is rejected (design 132 unit A). Each of these reaches real storage: a
+// borrow capture and a `&var` parameter both hold a pointer into live memory,
+// a closure's own locals live in the closure, and `Arc<Mutex<T>>` shares state
+// instead of capturing it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 5
+// 11
+// 3
+// 2
+
+import std.mutex
+
+func each3(body: (Int) -> Bool) { body(1) body(2) body(3) }
+
+func main() {
+    // Borrow capture: legal in a closure passed directly to a non-escaping
+    // parameter, and the write lands on the caller's `sum`.
+    var sum = 0
+    each3({ [&var sum] n in sum = sum + n
+            true })
+    print(sum)
+
+    // A closure's own local is its own storage.
+    let counted = { var k = 0
+                    k = k + 5
+                    k }
+    print(counted())
+
+    // Reading a by-value capture is untouched.
+    let base = 10
+    let read_only = { base + 1 }
+    print(read_only())
+
+    // Reading a field of a captured struct is untouched too.
+    let point = (x: 1, y: 2)
+    let projected = { point.x + point.y }
+    print(projected())
+
+    // Escaping state is shared, not captured: the closure mutates the payload
+    // through a `&var` parameter the lock hands it.
+    let cell = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let inc = { cell.lock({ &var v in v = v + 1
+                                      true }) }
+    let _ = inc()
+    let _ = inc()
+    print(cell.get())
+}

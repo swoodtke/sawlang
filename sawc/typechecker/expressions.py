@@ -7096,6 +7096,11 @@ class ExpressionsMixin:
         from .core import VariableInfo, Scope
         outer_scope = self.current_scope
         self.current_scope = Scope(parent=outer_scope)
+        # design 132 unit A: everything the body can WRITE lives at or below this
+        # scope. A name that resolves past it came in by value capture, and the
+        # env copy makes such a write unobservable — `_capture_write_root` reads
+        # this stack to reject it (DF-122a).
+        self._closure_scopes.append(self.current_scope)
         # A closure captures by value, so its body has its own function-local
         # move state (design 15); restore the enclosing state on exit.
         saved_moves = self.moved_bindings
@@ -7150,7 +7155,10 @@ class ExpressionsMixin:
                         spec.line, spec.column,
                         hint="an escaping closure outlives the frame, so it cannot "
                              "borrow it — capture by value (`move`/`copy`) instead")
-                    continue
+                    # Fall through and bind it anyway. Recovering as the author
+                    # WROTE it keeps this the only complaint about the name; the
+                    # design-132 capture-write rule would otherwise fire a second
+                    # time on every mutation in the body and bury the real error.
                 referent = outer_info.type
                 if referent is not None and referent.kind == TypeKind.REFERENCE:
                     referent = referent.inner_type
@@ -7274,6 +7282,7 @@ class ExpressionsMixin:
         expr.escapes = force_escape or (
             (not as_call_argument) and (not has_reference_params))
         self.current_scope = outer_scope
+        self._closure_scopes.pop()
         self.moved_bindings = saved_moves
         # Route every VALUE capture (mode plain/move/copy) through the shared
         # value-transfer checkpoint, in the OUTER scope so `move` records the

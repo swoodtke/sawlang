@@ -1,0 +1,21 @@
+// A closure's environment is an env of VALUES: every plain/`move`/`copy`
+// capture is loaded into a per-call local, so a write to one is discarded when
+// the closure returns. Designs 71/73 ratify that env as immutable and its
+// sharing invisible, so the write is rejected rather than made to persist
+// (design 132 unit A / DF-122a). `make_counter` used to compile and return
+// 11, 11, 11.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to `n`: it is captured by value
+// EXPECT-ERROR-CONTAINS: [&var n]
+// EXPECT-ERROR-CONTAINS: Arc<Mutex<T>>
+
+func make_counter() -> () -> Int {
+    var n = 0
+    { n = n + 1
+      n }
+}
+
+func main() {
+    let c = make_counter()
+    print(c())
+}

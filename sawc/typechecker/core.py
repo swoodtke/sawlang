@@ -119,6 +119,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # None. A closure body gets its own scope — rule 3 judges a closure on
         # its OWN body, so contacts never leak either way across the boundary.
         self._unsafe_contact = None
+        # design 132 unit A: the scope each enclosing closure body opened,
+        # innermost last. A name an assignment target resolves to ABOVE the
+        # innermost entry arrived by VALUE capture, so writing it would hit the
+        # per-call copy of the env and be discarded (DF-122a).
+        self._closure_scopes: List[Scope] = []
         # Track break value types for each loop level
         # Each entry is (expected_type: Optional[SawType], is_infinite: bool, has_break: bool)
         self.loop_break_info: List[Tuple[Optional[SawType], bool, bool]] = []

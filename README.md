@@ -535,6 +535,13 @@ Saw provides deterministic memory management without garbage collection:
   refused for `ExplicitCopy`/`NoCopy`. The consuming reads are `move o!`, which
   retires the whole binding, and `o.take()`, which writes `None` back into the
   place and hands you the payload — including out of a struct field.
+- **A closure's captured environment is immutable**, which is what makes copying
+  a closure a plain refcount bump. Captures are read-only from inside the body:
+  writing to one is a compile error, because the write would land on a per-call
+  copy and vanish when the closure returned. The error names the two spellings
+  that reach real storage — `[&var x]` to capture by borrow (a closure passed
+  directly to a non-escaping parameter), or `Arc<Mutex<T>>` to share state a
+  closure outlives the frame with.
 - **Reference types** (`&T`, `&var T`) for borrowing, checked for exclusivity at
   compile time.
 - **The Law of Exclusivity**: a `&var` (mutable) reference must not overlap any

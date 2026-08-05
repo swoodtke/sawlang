@@ -1355,6 +1355,103 @@ class StatementsMixin:
             else:
                 return None
 
+    def _capture_write_root(self, target) -> Optional[str]:
+        """If an assignment target writes into a closure's BY-VALUE capture,
+        return that capture's name; else None (design 132 unit A / DF-122a).
+
+        A closure's environment is an env of VALUES: at body entry every
+        plain/`move`/`copy` capture is loaded out of the env into a fresh local,
+        so a write lands on a per-call copy and is discarded when the call
+        returns. Designs 71/73 ratify that env as immutable and its sharing
+        (`let g = f` is a refcount bump) as semantically invisible, so making
+        such a write persist is a new capture mode, not a fix — the write itself
+        is what has to go.
+
+        A name resolving inside the closure's own scope chain (its params, its
+        locals, and a `&`/`&var` BORROW capture, which is defined right in the
+        closure scope) is not a value capture and is untouched. Neither is a
+        capture whose TYPE is a reference: the env copies the POINTER, so the
+        write still reaches the caller's value. Otherwise the target must stay
+        inside the captured value's own storage for the write to be lost — field
+        and tuple hops and fixed-array elements do, while an index into a
+        heap-backed container (`Vector`) goes through a pointer the copy shares
+        and DOES persist, so those are left alone.
+        """
+        if not self._closure_scopes or getattr(self, 'post_transform', False):
+            return None
+        # Peel the target to its root binding, remembering the hops on the way
+        # so we can tell an in-storage write from one that goes through a
+        # pointer the env copy shares with the original.
+        hops = []
+        node = target
+        while not isinstance(node, Identifier):
+            if isinstance(node, MemberAccess):
+                hops.append(node)
+                node = node.object
+            elif isinstance(node, TupleIndex):
+                hops.append(node)
+                node = node.tuple_expr
+            elif isinstance(node, ArrayIndex):
+                hops.append(node)
+                node = node.array_expr
+            else:
+                return None
+        name = node.name
+
+        closure_scope = self._closure_scopes[-1]
+        scope = self.current_scope
+        while True:
+            if scope.lookup_local(name) is not None:
+                return None          # a local, a param, or a borrow capture
+            if scope is closure_scope or scope.parent is None:
+                break
+            scope = scope.parent
+
+        info = self.current_scope.lookup(name)
+        if info is None or info.type is None:
+            return None              # undefined: a different diagnostic owns it
+        current = info.type
+        if current.kind == TypeKind.REFERENCE:
+            return None              # the copied pointer still addresses the referent
+
+        for hop in reversed(hops):
+            current = self._resolve_type_alias(current)
+            if isinstance(hop, MemberAccess):
+                if current.kind != TypeKind.STRUCT or current.struct_name is None:
+                    return None
+                struct_info = self.get_struct_info(current.struct_name)
+                if struct_info is None or hop.member not in struct_info.fields:
+                    return None
+                current = struct_info.fields[hop.member]
+            elif isinstance(hop, TupleIndex):
+                elems = current.element_types or []
+                if current.kind != TypeKind.TUPLE or hop.index >= len(elems):
+                    return None
+                current = elems[hop.index]
+            else:  # ArrayIndex
+                if current.kind != TypeKind.ARRAY:
+                    return None      # a heap-backed container: the write persists
+                current = current.array_element_type
+            if current is None:
+                return None
+        return name
+
+    def _reject_capture_write(self, target, line, column) -> bool:
+        """Report a write to a by-value closure capture. True iff one was found."""
+        name = self._capture_write_root(target)
+        if name is None:
+            return False
+        self._error(
+            ErrorKind.IMMUTABLE_ASSIGNMENT,
+            f"cannot assign to `{name}`: it is captured by value, so the write "
+            f"would be discarded when the closure returns",
+            line, column,
+            hint=f"capture it by borrow — `{{ [&var {name}] ... }}`, legal in a "
+                 f"closure passed directly to a non-escaping parameter — or, for "
+                 f"a closure that outlives the frame, share the state through an "
+                 f"`Arc<Mutex<T>>`")
+        return True
+
     def _check_assign_statement(self, stmt: AssignStatement):
         """Check an assignment statement."""
         # Statics are immutable (design 41): reject any write whose root is a
@@ -1370,6 +1467,10 @@ class StatementsMixin:
                 hint="use an interior-synchronized type (e.g. `Atomic<Int>`) and "
                      "mutate through its methods"
             )
+            return
+
+        # A write to a by-value closure capture is discarded (design 132 unit A).
+        if self._reject_capture_write(stmt.target, stmt.line, stmt.column):
             return
 
         # Handle both simple variable assignment and field assignment
@@ -1677,6 +1778,10 @@ class StatementsMixin:
                 hint="use an interior-synchronized type (e.g. `Atomic<Int>`) and "
                      "mutate through its methods"
             )
+            return
+
+        # `n += 1` on a by-value capture is the same discarded write.
+        if self._reject_capture_write(stmt.target, stmt.line, stmt.column):
             return
 
         # Get target type

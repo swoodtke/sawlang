@@ -1,0 +1,23 @@
+// The same rule at the other end of the capture model: a closure passed
+// directly as a call argument keeps a stack env, but its by-value captures are
+// still loaded into per-call locals, so `sum = sum + n` never moved the real
+// `sum` (it printed 0). The borrow capture `[&var sum]` is the spelling that
+// works here, and the hint names it. Compound assignment takes the same path
+// (design 132 unit A / DF-122a).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to `sum`: it is captured by value
+// EXPECT-ERROR-CONTAINS: cannot assign to `total`: it is captured by value
+
+func each3(body: (Int) -> Bool) { body(1) body(2) body(3) }
+
+func main() {
+    var sum = 0
+    each3({ n in sum = sum + n
+            true })
+    print(sum)
+
+    var total = 0
+    each3({ n in total += n
+            true })
+    print(total)
+}

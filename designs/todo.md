@@ -296,13 +296,12 @@ open — only its OOM path was separated out.
   with_ref(99) = 0            // OOB read, exit 0, silent
   swap_out(99) returned = 0   // OOB WRITE of 7 past the end, exit 0, silent
   ```
-- **RS-5 — 3 of 4 FIXED (design 122 unit D, Aug 4; commit 3aabc9f).** A bare
-  `{ }` statement, a builtin redefinition and `let n = <Void expr>` are all
-  clean errors now. The FOURTH — an escaping closure's captured mutable state
-  resetting per call — was STOPPED per the no-workaround policy and is open as
-  **DF-122a** below: the contained fix the brief named is unavailable (designs
-  71/73 ratify the refcounted env as immutable and its sharing invisible), so
-  the choice is reject-the-write or a boxed-capture design brief. Original
+- **RS-5 — FIXED (3 of 4 in design 122 unit D, Aug 4, commit 3aabc9f; the
+  fourth in design 132 unit A, Aug 5).** A bare `{ }` statement, a builtin
+  redefinition and `let n = <Void expr>` are all clean errors now. The FOURTH —
+  an escaping closure's captured mutable state resetting per call — is closed
+  the way the user decided: the WRITE is rejected, so the silent-wrong-answer is
+  gone rather than papered over (see **DF-122a** below). Original
   finding follows: silent-wrong-answer holes (vs the never-hide-errors rule): a
   bare `{ }` statement is a discarded uncalled closure (statements never run, no
   warning); an escaping closure's captured mutable state resets per call
@@ -1045,10 +1044,31 @@ inlined (the `.build/scratch` probes are gitignored).
 
 ## Design 122 — DF-findings
 
-- **DF-122a — DECIDED (user, Aug 5): REJECT the write; design 132 unit A owns
-  the fix** (assignment to a by-value capture becomes a compile error hinting
-  `[&var x]` / `Arc<Mutex<T>>`; a future opt-in `[box n]` mode stays open as a
-  separate brief). Original finding follows:
+- **DF-122a — FIXED (design 132 unit A, Aug 5), closing RS-5's fourth hole.**
+  The write is now a compile error: `cannot assign to `n`: it is captured by
+  value, so the write would be discarded when the closure returns`, hinting
+  `[&var n]` and `Arc<Mutex<T>>`. The checker keeps a stack of the scopes closure
+  bodies open (`TypeChecker._closure_scopes`); an assignment target whose ROOT
+  binding resolves past the innermost entry arrived by value capture, and
+  `_capture_write_root` (typechecker/statements.py) reports it from both
+  `_check_assign_statement` and `_check_compound_assign_statement`. Three things
+  it deliberately does NOT flag, because each write reaches real storage: a
+  borrow capture (defined right in the closure scope, so it never resolves past
+  the boundary), a capture whose TYPE is already a reference (the env copies the
+  pointer), and an index into a heap-backed container (`v[i] = x` on a captured
+  `Vector` shares the buffer). It DOES cover the in-storage path — `x = v`,
+  `x += v`, `x.f = v`, `x.0 = v`, a fixed-array element — which matters beyond
+  the lost write: `x.f = v` on a captured struct also drops the OLD field value
+  the env copy still points at, i.e. a double free. Blast radius was zero as
+  measured: the suite, blade, libs and SOS all stayed green with no source edit.
+  Riders: a REJECTED `[&var x]` borrow capture now still binds the name (error
+  recovery), so the borrow diagnostic stays the only complaint instead of being
+  buried under one capture-write error per mutation. Tests
+  `examples/errors/capture_assign_escaping.saw` (the `make_counter` shape),
+  `examples/errors/capture_assign_non_escaping.saw` (the `each3` shape plus
+  `+=`), `examples/capture_write_allowed_forms.saw` (the forms that still work).
+  A future opt-in `[box n]` capture mode stays open as a separate brief.
+  Original finding follows:
   **(design 122 unit D4, Aug 4.)**
   Mutating a BY-VALUE closure capture is accepted and silently does nothing
   observable. The brief's D4 said fix it if it is a contained codegen bug and

@@ -752,6 +752,17 @@ construct in the owner and lend `&driver` down.
   `move f` still transfers ownership. A closure also satisfies the generic
   `Copy` bound, so `Vector<() -> Int>` is copyable — `.copy()`/`.get()` each
   retain the element env exactly once (deinit-once through copy).
+- **Writing to a by-value capture is a compile error** (design 132). The env is
+  immutable and each plain/`move`/`copy` capture is loaded into a per-call
+  local, so `{ n = n + 1  n }` would count in a copy that dies with the call.
+  The error names the two working spellings: `[&var n]` (borrow capture — only
+  in a closure passed directly to a non-escaping parameter) and `Arc<Mutex<T>>`
+  (escaping, shared instead of captured). READS are untouched, and so are the
+  closure's own locals/params, a `&var` closure parameter, and a capture that
+  is already a reference. Covers the whole path in — `n = v`, `n += v`,
+  `s.f = v`, `t.0 = v`, a fixed-array element — but NOT `v[i] = x` on a
+  `Vector`, whose heap buffer the copy shares (that write does persist). The
+  counter-closure idiom is unwritable without an `Arc<Mutex<Int>>`.
 - `guard` must exit (return/break/continue/panic).
 - Shadowing footgun (design 100/107): naming an inner binding after an outer one
   is an ERROR unless the inner DERIVES from the outer (its initializer mentions the

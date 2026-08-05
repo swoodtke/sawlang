@@ -2668,6 +2668,29 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   closed design 71's residual gap: an owning closure in a copyable struct that is
   then copied now retains the shared env and tears it down once at the last
   owner.)*
+- **Assigning to a by-value capture is a compile error** (design 132). The env
+  above is immutable, and at body entry every plain / `move` / `copy` capture is
+  loaded out of it into a per-call local. A write to one therefore lands on that
+  local and is gone when the call returns, so the checker rejects it instead:
+
+  ```saw
+  func make_counter() -> () -> Int {
+      var n = 0
+      { n = n + 1        // error: cannot assign to `n`: it is captured by
+        n }              //        value, so the write would be discarded
+  }                      //        when the closure returns
+  ```
+
+  The diagnostic names the two spellings that do reach real storage. `[&var n]`
+  captures by borrow, legal in a closure passed directly to a non-escaping
+  parameter, where the env holds a pointer into the live frame. `Arc<Mutex<T>>`
+  is the answer for a closure that outlives the frame, since the state is then
+  shared rather than captured. Reading a by-value capture is untouched, as are
+  a closure's own locals and params, a `&var` closure parameter, and a write
+  through a capture whose type is already a reference. The rule covers the
+  whole path into the captured value — `x = v`, `x += v`, `x.f = v`, `x.0 = v`,
+  a fixed-array element — but not an index into a heap-backed container such as
+  `Vector`, whose buffer the copy shares with the original.
 - **A closure satisfies the generic `Copy` bound** (design 77 DF-C2). Because an
   escaping closure is `ImplicitCopy`, a container element type of closures is
   copyable: `Vector<() -> Int>` is `ExplicitCopy`, and `.copy()`/`.get()` each
