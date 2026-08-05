@@ -1,0 +1,57 @@
+// `move` on a local typed by the function's own type parameter, at the
+// instantiation where that parameter is `Void` (design 141, closing a gap left
+// by design 132 unit C / DF-123b).
+//
+// Unit C taught the READ path that a Void-instantiated binding names no value,
+// and stopped there. `move x` on the same binding still went looking for
+// storage and raised `internal compiler error: Undefined variable: x` — an
+// internal error at an instantiation far from the definition, which is exactly
+// what unit C's instantiation-uniformity rule exists to prevent. A body that
+// type-checks generically must compile for EVERY instantiation.
+//
+// Moving a zero-sized binding transfers nothing, so it yields no value and
+// suppresses no deinit; the shape matters because it is what an epilogue looks
+// like — take the result, run cleanup, hand the result back.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// epilogue
+// epilogue
+// 20
+// epilogue
+// n=2
+// epilogue
+// held made2
+// Res.deinit made2
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("Res.deinit {self.name}") }
+}
+
+struct Holder { n: Int }
+
+extension Holder {
+    // Bind the closure's result, run an epilogue, then MOVE the result out.
+    func run<R>(&var self, body: (&var Int) sync -> R) sync -> R {
+        let wr = body(&var self.n)
+        print("epilogue")
+        return move wr
+    }
+}
+
+func main() {
+    var h = Holder(n: 1)
+    // R = Void: the binding has no storage and the move yields no value.
+    h.run() { p in p = p + 1 }
+    // R = Int
+    let got = h.run() { p in p * 10 }
+    print(got)
+    // R = String
+    let s = h.run() { p in "n={p}" }
+    print(s)
+    // R = a NoCopy type: the move must hand ownership out exactly once, so the
+    // deinit runs at the CALLER's scope exit and not also inside `run`.
+    let r = h.run() { p in Res(name: "made{p}") }
+    print("held {r.name}")
+}

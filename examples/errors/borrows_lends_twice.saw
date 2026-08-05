@@ -1,0 +1,18 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: this path lends twice
+//
+// Design 141, the other half of the coverage rule. Statements after a `lend`
+// are the EPILOGUE -- they run when the caller's window closes -- so a second
+// `lend` among them would have to open a new window inside the closing of the
+// old one.
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    public func at(&self, i: Int) borrows -> Int {
+        lend self.items[0]
+        lend self.items[1]
+    }
+}
+
+func main() { print("unreached") }

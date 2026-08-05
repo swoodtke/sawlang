@@ -1,0 +1,13 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `borrows` may not appear on a trait requirement
+//
+// Design 141 v1 fence: no trait participation. A `borrows` requirement means
+// "every conformer yields a place", which needs a place-shaped call through an
+// erased receiver -- the generic `T: IndexPlace` follow-up. v1 lands borrows
+// methods on concrete types only.
+
+trait Indexed {
+    func at(&self, i: Int) borrows -> Int
+}
+
+func main() { print("unreached") }

@@ -37,10 +37,27 @@ def parse_source(source: str, source_path: str, verbose: bool = False):
     try:
         parser = Parser(tokens, source_file=source_path,
                         doc_comments=lexer.doc_comments)
-        return parser.parse()
+        program = parser.parse()
     except SyntaxError as e:
         print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
         sys.exit(1)
+
+    # design 141: lower `borrows` declarations to their window-closure form
+    # before anything downstream sees them, so registration, inference,
+    # monomorphization and codegen all handle an ordinary generic method and
+    # need to know nothing about places. Every compilation path funnels through
+    # here — builtins, std, imported modules and the entry file — which is why
+    # the transform lives here rather than at any one of those call sites.
+    # `tools/dump_ast.py` builds its own parser and so still dumps the AUTHORED
+    # form, which is what a parser-stage oracle should show.
+    from place_transform import transform_places
+    place_reporter = ErrorReporter(source, source_path)
+    transform_places(program, place_reporter, source_path)
+    if place_reporter.has_errors():
+        place_reporter.print_all()
+        sys.exit(1)
+
+    return program
 
 
 # Hosted-only std modules (design 19 layering): they depend on libc/OS and are

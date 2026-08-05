@@ -1174,6 +1174,17 @@ class OperatorsMixin:
         """Generate code for move expression - transfers ownership without copying."""
         var_name = expr.variable
         if var_name not in self.variables:
+            # A local whose type instantiated to `Void` has no storage, so there
+            # is nothing to load, nothing to retire and no deinit to suppress —
+            # moving it yields no value, exactly as reading it does
+            # (`visit_Identifier`). Design 132 unit C taught the READ path this
+            # and stopped there, so `move x` on the same binding raised
+            # "Undefined variable" from codegen — an internal error at an
+            # instantiation far from the definition, which is precisely what
+            # unit C's instantiation-uniformity rule exists to prevent.
+            if var_name in self.void_variables:
+                self.moved_variables.add(var_name)
+                return None
             raise ValueError(f"Undefined variable: {var_name}")
 
         # Load the value

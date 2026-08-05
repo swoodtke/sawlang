@@ -1,0 +1,19 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: comes before
+//
+// Design 141 extends the documented effect-slot sequence to
+// `unsafe sync borrows` (the function-type grammar spells the same run with
+// `escaping` third). The order is fixed so a signature always reads the same
+// way and matches its function type character for character -- design 136 set
+// that discipline for `unsafe` before `sync`, and this is the same rule one
+// slot wider.
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    public func at(&self, i: Int) borrows sync -> Int {
+        lend self.items[i]
+    }
+}
+
+func main() { print("unreached") }

@@ -878,6 +878,9 @@ class StatementsMixin:
     def visit_ReturnStatement(self, stmt: ReturnStatement):
         self._check_return_statement(stmt)
 
+    def visit_LendStatement(self, stmt):
+        self._check_lend_statement(stmt)
+
     def visit_GuardLetStatement(self, stmt: GuardLetStatement):
         self._check_guard_let_statement(stmt)
 

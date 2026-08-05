@@ -1,0 +1,17 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `borrows` body must `lend` a place
+//
+// Design 141. `borrows -> T` promises the caller a window onto storage of type
+// `T`. A body that only produces a VALUE has nothing to open the window onto --
+// the tail expression here is a fresh temporary that would be gone before the
+// caller ever saw it.
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    public func at(&self, i: Int) borrows -> Int {
+        i + 1
+    }
+}
+
+func main() { print("unreached") }

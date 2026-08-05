@@ -1,0 +1,57 @@
+// Design 141: the four shapes a `borrows` declaration can take, all lowered by
+// the place transform into ordinary window-closure methods. Nothing calls them
+// yet -- this pins the DECLARATION side: the effect slot parses, `[]` is a
+// declarable method name, the coverage rule accepts each body, and the rewrite
+// produces something the type checker and codegen accept.
+//
+// `lend` is a suspension, not a return. The body pauses at the `lend` with its
+// frame alive; the caller's window code runs inside that pause; the body then
+// resumes through its epilogue and only then finishes.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// declared
+
+struct Bag {
+    items: [Int; 4]
+    hits: Int
+}
+
+extension Bag {
+    // A panicking place. The accessor rule (design 130 r8) puts the bounds
+    // check in the PROLOGUE, so an out-of-range index never reaches a `lend`.
+    public func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 {
+            panic("Bag.[]: index out of range")
+        }
+        lend self.items[i]
+    }
+
+    // A named borrows method needs no index at all.
+    public func first(&self) borrows -> Int {
+        lend self.items[0]
+    }
+
+    // A conditional lend: `borrows -> T?` is the optional place. Present paths
+    // lend real storage; the absent path returns None and no window opens.
+    public func get(&self, i: Int) borrows -> Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.items[i]
+    }
+
+    // An epilogue: statements after the `lend` run when the caller's window
+    // closes. They are spliced in at the lend site, so every prologue local
+    // stays in scope for them.
+    public func counted(&var self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 {
+            panic("Bag.counted: index out of range")
+        }
+        lend self.items[i]
+        self.hits = self.hits + 1
+    }
+}
+
+func main() {
+    print("declared")
+}

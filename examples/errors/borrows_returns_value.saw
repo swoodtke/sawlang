@@ -1,0 +1,18 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `borrows` body returns no value
+//
+// Design 141, the whole point of the construct stated as an error. `lend` is a
+// SUSPENSION, not a return: the function pauses with its frame alive, the
+// caller's window code runs inside the pause, and the function then resumes
+// through its epilogue. `-> T` names the type of the PLACE, not of a returned
+// value, so `return self.items[0]` would hand back a copy and close nothing.
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    public func at(&self, i: Int) borrows -> Int {
+        return self.items[i]
+    }
+}
+
+func main() { print("unreached") }

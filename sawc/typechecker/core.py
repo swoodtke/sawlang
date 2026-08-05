@@ -36,6 +36,7 @@ from .registration import RegistrationMixin
 from .statements import StatementsMixin
 from .expressions import ExpressionsMixin
 from .effects import EffectsMixin
+from .places import PlacesMixin
 
 
 _BINDING_ID_COUNTER = itertools.count(1)
@@ -83,7 +84,7 @@ class Scope:
         return self.variables.get(name)
 
 
-class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin):
+class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin):
     """Type checks a Saw program."""
 
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False,

@@ -1,0 +1,17 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `lend` needs a PLACE
+//
+// Design 141. A place is storage that ALREADY EXISTS -- a field, an element, a
+// deref. `self.items[i] + 1` builds a temporary in the prologue's frame, and
+// the prologue is exactly what is paused while the caller's window runs, so the
+// temporary would be gone before the window opened.
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    public func at(&self, i: Int) borrows -> Int {
+        lend self.items[i] + 1
+    }
+}
+
+func main() { print("unreached") }

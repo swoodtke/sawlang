@@ -1,0 +1,21 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `return None` needs an optional place
+//
+// Design 141, decision 5. `borrows -> T?` is the OPTIONAL PLACE: present paths
+// lend real storage, the absent path returns None and no window opens at all.
+// The absent path is only available when the declaration admits it, so a
+// `return None` under a non-optional place type is a signature mistake, not a
+// body mistake -- the fixit names the signature.
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    public func at(&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.items[i]
+    }
+}
+
+func main() { print("unreached") }

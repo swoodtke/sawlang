@@ -472,28 +472,48 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                    "(`func f(...) unsafe -> T`), got "
                    f"{self.current().type.name}")
 
+    # The declaration effect slot in canonical order (design 136 + 141). The
+    # function-TYPE grammar spells the same sequence with `escaping` third;
+    # `escaping` is meaningless on a declaration and gets its own teaching
+    # error, so the declaration sequence is these three.
+    _EFFECT_SLOT_ORDER = ('unsafe', 'sync', 'borrows')
+
     def _parse_effect_slot(self):
-        """The post-parameter effect slot of a declaration (design 136):
-        `unsafe` then `sync`, in the order and spelling a function TYPE already
-        uses (`(T) unsafe sync -> R`). Both are optional. `sync` is CONTEXTUAL —
-        after the parameter list only `->`, `{`, or a newline-then-`{` may
-        follow, so a bare identifier here is unambiguous (Swift's
-        `throws`/`async` position; no keyword reservation). Returns
-        `(is_unsafe, is_sync)`.
+        """The post-parameter effect slot of a declaration (designs 136, 141):
+        `unsafe`, then `sync`, then `borrows`, in the order and spelling a
+        function TYPE already uses (`(T) unsafe sync borrows -> R`). All three
+        are optional. `sync` stays CONTEXTUAL — after the parameter list only
+        `->`, `{`, or a newline-then-`{` may follow, so a bare identifier here
+        is unambiguous (Swift's `throws`/`async` position). `unsafe` and
+        `borrows` are reserved words and match on token type. Returns
+        `(is_unsafe, is_sync, is_borrows)`.
         """
-        is_unsafe = False
-        is_sync = False
-        if self.match(TokenType.UNSAFE):
+        seen = {}
+        while True:
+            if self.match(TokenType.UNSAFE):
+                tok, kw = self.current(), 'unsafe'
+            elif self.match(TokenType.BORROWS):
+                tok, kw = self.current(), 'borrows'
+            elif self.match_ident('sync'):
+                tok, kw = self.current(), 'sync'
+            else:
+                break
+            if kw in seen:
+                self.error(f"duplicate `{kw}` in the effect slot")
+            # Order is fixed so a signature always reads the same way and
+            # matches its function type character for character.
+            later = [k for k in seen
+                     if self._EFFECT_SLOT_ORDER.index(k)
+                     > self._EFFECT_SLOT_ORDER.index(kw)]
+            if later:
+                order = " ".join(self._EFFECT_SLOT_ORDER)
+                self.error(f"`{kw}` comes before `{later[0]}` in the effect "
+                           f"slot — write `... {order} ...` (omitting the ones "
+                           f"you do not need)")
+            seen[kw] = tok
             self.advance()
-            is_unsafe = True
-        if self.match_ident('sync'):
-            self.advance()
-            is_sync = True
-        if self.match(TokenType.UNSAFE):
-            self.error("`unsafe` comes before `sync` in the effect slot — "
-                       "write `... unsafe sync ...`")
         self._reject_escaping_in_decl_slot()
-        return is_unsafe, is_sync
+        return 'unsafe' in seen, 'sync' in seen, 'borrows' in seen
 
     def _reject_escaping_in_decl_slot(self) -> None:
         """`escaping` in a DECLARATION's effect slot (design 141).

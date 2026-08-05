@@ -1,0 +1,19 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: one branch here lends and the other falls through
+//
+// Design 141, the coverage rule. Every path through a `borrows` body lends
+// exactly once, returns None (only for an optional place), or diverges first.
+// This body lends only when the index is in range and falls off the end
+// otherwise, which would leave the caller holding a window onto nothing.
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    public func at(&self, i: Int) borrows -> Int {
+        if i >= 0 {
+            lend self.items[i]
+        }
+    }
+}
+
+func main() { print("unreached") }

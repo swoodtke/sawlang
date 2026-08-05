@@ -131,23 +131,47 @@ class TypeParsingMixin:
             # and the identifiers are left unconsumed. `unsafe` is a keyword and
             # rides the same run so the three read as one slot. This is Swift's
             # `throws`/`async` position.
+            # `borrows` (design 141) rides the same run, last in canonical
+            # order `unsafe sync escaping borrows`. It is a reserved word like
+            # `unsafe`, so it matches on token type.
             is_sync = False
             is_escaping = False
             is_unsafe = False
+            is_borrows = False
+            _RUN_TOKENS = {TokenType.UNSAFE: 'unsafe',
+                           TokenType.BORROWS: 'borrows'}
             run = []
             k = 0
-            while ((self.peek(k).type == TokenType.IDENT
-                    and self.peek(k).value in ('sync', 'escaping'))
-                   or self.peek(k).type == TokenType.UNSAFE):
-                run.append('unsafe' if self.peek(k).type == TokenType.UNSAFE
-                           else self.peek(k).value)
+            while True:
+                t = self.peek(k)
+                if t.type in _RUN_TOKENS:
+                    run.append(_RUN_TOKENS[t.type])
+                elif t.type == TokenType.IDENT and t.value in ('sync', 'escaping'):
+                    run.append(t.value)
+                else:
+                    break
                 k += 1
             if run and self.peek(k).type == TokenType.ARROW:
+                if 'borrows' in run:
+                    # design 141 v1 fence: there are no borrows function
+                    # VALUES. A borrows call yields a PLACE for a window, and a
+                    # place is not a value — binding it, storing it in a field
+                    # or erasing it behind `any Trait` would all outlive the
+                    # window. The grammar accepts the run so the refusal can
+                    # name the word instead of failing as a syntax error.
+                    self.error(
+                        "a function TYPE may not be `borrows` (design 141 v1): "
+                        "a borrows call yields a place for a window, and a "
+                        "place is never a value, so there is nothing to bind, "
+                        "store or erase. Call the borrows method at the use "
+                        "site instead")
                 for kw in run:
                     if kw == 'sync':
                         is_sync = True
                     elif kw == 'unsafe':
                         is_unsafe = True
+                    elif kw == 'borrows':
+                        is_borrows = True
                     else:
                         is_escaping = True
                     self.advance()
@@ -163,6 +187,8 @@ class TypeParsingMixin:
                     fn_type.func_is_escaping = True
                 if is_unsafe:
                     fn_type.func_is_unsafe = True
+                if is_borrows:
+                    fn_type.func_is_borrows = True
                 return fn_type
             else:
                 # All-or-nothing labeling (design 63): a partially-labeled tuple

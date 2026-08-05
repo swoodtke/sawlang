@@ -101,8 +101,10 @@ class DeclarationsMixin:
         # `func f(...) unsafe sync [-> T]`. `sync` makes the body a checked
         # suspension-free context; `unsafe` declares that the signature or body
         # touches an unsafe type (design 130's trigger rule). The slot spells the
-        # effects exactly as the matching function TYPE does.
-        is_unsafe, is_sync = self._parse_effect_slot()
+        # effects exactly as the matching function TYPE does. `borrows` (design
+        # 141) makes the declaration yield a PLACE of the return type for a
+        # window instead of a value.
+        is_unsafe, is_sync, is_borrows = self._parse_effect_slot()
 
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)
@@ -122,6 +124,7 @@ class DeclarationsMixin:
             visibility=visibility,
             is_sync=is_sync,
             is_unsafe=is_unsafe,
+            is_borrows=is_borrows,
             line=start.line,
             column=start.column,
             source_file=self.source_file
@@ -348,7 +351,17 @@ class DeclarationsMixin:
         # suspension-free context — and, once erased, stays sync-callable through
         # `any` (the effect follows the trait signature). An `unsafe` requirement
         # states the effect once for every conformer.
-        is_unsafe, is_sync = self._parse_effect_slot()
+        is_unsafe, is_sync, is_borrows = self._parse_effect_slot()
+        if is_borrows:
+            # v1 fence (design 141): no trait participation. A `borrows`
+            # requirement means "every conformer yields a place", which needs a
+            # place-shaped call through an erased receiver — the generic
+            # `T: IndexPlace` follow-up.
+            self.error(
+                "`borrows` may not appear on a trait requirement (design 141 "
+                "v1): a place is not a value, so it cannot be yielded through "
+                "an erased `any Trait` receiver. Declare the borrows method on "
+                "the concrete type instead")
 
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)
@@ -643,8 +656,22 @@ class DeclarationsMixin:
             self.advance()
         elif self.match(TokenType.FUNC):
             self.advance()
-            name_token = self.expect(TokenType.IDENT, "Expected method name")
-            name = name_token.value
+            if self.match(TokenType.LBRACKET):
+                # Subscript (design 141): `func [](&self, i: Int) borrows -> T`.
+                # The method's name IS the string "[]", which is only reachable
+                # through `v[i]` sugar — the symbol tables key methods by a
+                # plain string and never validated identifier shape, so nothing
+                # below this line needs to know.
+                open_tok = self.advance()
+                self.expect(TokenType.RBRACKET,
+                            "Expected `]` to close the subscript method name "
+                            "`[]` — the name is the two brackets with nothing "
+                            "between them")
+                name = "[]"
+                name_token = open_tok
+            else:
+                name_token = self.expect(TokenType.IDENT, "Expected method name")
+                name = name_token.value
             # Method-level generic type parameters (brief 36): `func map<U>(...)`.
             # These are IN ADDITION to the extension's own type params (the `T` in
             # `extension Vector<T>`); a call supplies them explicitly
@@ -662,8 +689,19 @@ class DeclarationsMixin:
         # 136): an extension method or `init` may be
         # `func name(...) unsafe sync [-> T]`. `sync` makes the body a checked
         # suspension-free context (`Method.is_sync`, honored by the effect
-        # graph); `unsafe` declares contact with an unsafe type.
-        is_unsafe, is_sync = self._parse_effect_slot()
+        # graph); `unsafe` declares contact with an unsafe type; `borrows`
+        # (design 141) yields a place of the return type for a window.
+        is_unsafe, is_sync, is_borrows = self._parse_effect_slot()
+        if is_borrows and is_init:
+            self.error(
+                "`init` may not be `borrows` — an initializer CONSTRUCTS a "
+                "value, and there is no prior storage for it to lend")
+        if name == "[]" and not is_borrows:
+            self.error(
+                "a `[]` subscript must be `borrows` — `v[i]` names a PLACE in "
+                "the container, not a value read out of it. Write "
+                "`func [](&self, ...) borrows -> T`; a value-returning lookup "
+                "is an ordinary named method")
 
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)
@@ -685,6 +723,7 @@ class DeclarationsMixin:
             is_static=is_static,
             is_sync=is_sync,
             is_unsafe=is_unsafe,
+            is_borrows=is_borrows,
             type_params=type_params,
             visibility=visibility,
             line=start.line,

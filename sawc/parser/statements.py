@@ -14,7 +14,7 @@ from lexer import TokenType
 from ast_nodes import (
     Block, Statement,
     LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
-    GuardLetStatement, DestructuringLet,
+    GuardLetStatement, DestructuringLet, LendStatement,
     WhileExpr, ForLoop, BreakStatement, ContinueStatement,
     Identifier, MemberAccess, ArrayIndex, SelfExpr,
     OptionalEvalExpr, OptionalChainAssign
@@ -75,6 +75,8 @@ class StatementsMixin:
             return self.parse_guard_statement()
         elif self.match(TokenType.RETURN):
             return self.parse_return_statement()
+        elif self.match(TokenType.LEND):
+            return self.parse_lend_statement()
         elif self.match(TokenType.WHILE):
             return self.parse_while_statement()
         elif self.match(TokenType.FOR):
@@ -248,6 +250,28 @@ class StatementsMixin:
             expression=target_expr,
             line=target_expr.line,
             column=target_expr.column
+        )
+
+    def parse_lend_statement(self) -> LendStatement:
+        """`lend <place>` (design 141) — the borrow window of a borrows body.
+
+        Deliberately shaped like `return` and deliberately not one: the
+        function pauses here rather than finishing, and what follows the
+        keyword names STORAGE rather than producing a value. A bare `lend` is
+        rejected here so the "a place, not a value" error can be about the
+        expression the author wrote.
+        """
+        start = self.advance()  # consume 'lend'
+
+        if self.match(TokenType.NEWLINE, TokenType.RBRACE, TokenType.EOF):
+            self.error("`lend` needs a place to lend — write `lend "
+                       "self.buffer[i]` or `lend self.field`")
+
+        place = self.parse_expression()
+        return LendStatement(
+            place=place,
+            line=start.line,
+            column=start.column
         )
 
     def parse_return_statement(self) -> ReturnStatement:

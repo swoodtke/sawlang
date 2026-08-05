@@ -122,6 +122,13 @@ class SawType:
     # body names an unsafe type is an unsafe closure (rule 3 judged per body), so
     # only an `unsafe`-typed slot accepts it; a safe closure flows into either.
     func_is_unsafe: bool = False
+    # For function types (FUNCTION): True for a `borrows` function type
+    # (`(Int) borrows -> T`, design 141). A borrows function yields a PLACE of T
+    # for a window rather than a T value, so the marker is signature-level. v1
+    # has no borrows function VALUES: the bit exists so the type grammar can
+    # PARSE the spelling and the typechecker can refuse it by name instead of
+    # with a syntax error.
+    func_is_borrows: bool = False
     # For pointer types (POINTER), True = UnsafePointer (mutable), False = UnsafeConstPointer
     pointer_mutable: Optional[bool] = None
     # For module types (during qualified access)
@@ -171,7 +178,8 @@ class SawType:
             return f"[{self.array_element_type}; {self.array_size}]"
         if self.kind == TypeKind.FUNCTION:
             params = ", ".join(str(t) for t in (self.param_types or []))
-            # Canonical post-parameter effect-slot order: `unsafe sync escaping`.
+            # Canonical post-parameter effect-slot order (designs 136, 141):
+            # `unsafe sync escaping borrows`.
             effects = ""
             if self.func_is_unsafe:
                 effects += " unsafe"
@@ -179,6 +187,8 @@ class SawType:
                 effects += " sync"
             if self.func_is_escaping:
                 effects += " escaping"
+            if self.func_is_borrows:
+                effects += " borrows"
             return f"({params}){effects} -> {self.func_return_type}"
         if self.kind == TypeKind.SELF:
             return "Self"
@@ -1306,6 +1316,22 @@ class ExpressionStatement(Statement):
 
 
 @dataclass
+class LendStatement(Statement):
+    """`lend <place>` — the borrow window of a `borrows` body (design 141).
+
+    Not a return. The function PAUSES here with its frame alive, the caller's
+    window code runs inside the pause, and the function then RESUMES through
+    whatever follows (the epilogue) before it finishes. `place` names storage
+    that already exists — a field, an element, a deref — never a temporary.
+
+    Every path through a `borrows` body lends exactly once, returns `None`
+    (only when the declared place type is optional), or diverges first; that
+    coverage rule is what makes the split well defined.
+    """
+    place: Expression
+
+
+@dataclass
 class WhileExpr(Expression):
     condition: Optional[Expression]  # None for infinite loop
     body: 'Block'
@@ -1486,6 +1512,17 @@ class Method(ASTNode):
     # type. Declared, never inferred — the trigger rule checks the declaration
     # against the body rather than supplying it.
     is_unsafe: bool = False
+    # `borrows` (design 141): this method yields a PLACE of `return_type` for a
+    # window rather than a value. Its body lends exactly once per path; the
+    # place transform rewrites it into the window-closure form and records the
+    # lent type in `place_type`, leaving this bit set as the declaration's own
+    # record of what the author wrote.
+    is_borrows: bool = False
+    # Set by the place transform (design 141) on a rewritten borrows method: the
+    # type of the place it lends, i.e. the `T` the author wrote after `->`
+    # (unwrapped from `T?` for a conditional lend, with `place_optional` set).
+    place_type: Optional['SawType'] = None
+    place_optional: bool = False
     # Method-level generic type params (brief 36): the `U` in `func map<U>(...)`,
     # distinct from and in addition to the enclosing extension's own type params.
     type_params: List['TypeParameter'] = field(default_factory=list)
@@ -1575,6 +1612,10 @@ class Function(ASTNode):
     is_sync: bool = False
     # `unsafe func` declaration (design 130): see Method.is_unsafe.
     is_unsafe: bool = False
+    # `borrows func` declaration (design 141): see Method.is_borrows.
+    is_borrows: bool = False
+    place_type: Optional[SawType] = None
+    place_optional: bool = False
     # Declaration attributes (design 58): `@export` / `@section(...)` lines.
     attributes: List['Attribute'] = field(default_factory=list)
     # Compiler-synthesized (design 80): coroutine-transform-generated functions

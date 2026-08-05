@@ -1,0 +1,23 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `lend` may not appear inside a loop
+//
+// Design 141. A loop around a `lend` would lend more than once, and the first
+// window's epilogue would have to interleave with the second window's
+// prologue. Search first, lend once the loop has chosen the place.
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    public func find(&self, want: Int) borrows -> Int {
+        var i = 0
+        while i < 4 {
+            if self.items[i] == want {
+                lend self.items[i]
+            }
+            i = i + 1
+        }
+        lend self.items[0]
+    }
+}
+
+func main() { print("unreached") }
