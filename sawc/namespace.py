@@ -881,6 +881,133 @@ class Namespace:
                 self.type_conforms_to(name, "ExplicitCopy") or
                 self.type_conforms_to(name, "Copy"))
 
+    # =========================================================================
+    # The copy tier (design 139) — one transfer class per type.
+    #
+    # Every type answers with exactly one tier, and every read consults it.
+    # Ordered by how much ceremony a transfer costs, weakest first:
+    #
+    #   'free'      the compiler handles the transfer with no ceremony from the
+    #               author — a POD bitwise copy, or an owning aggregate whose
+    #               retain codegen inserts on its own (an undeclared struct with
+    #               a String field).
+    #   'implicit'  duplicated by a refcount retain at every transfer.
+    #   'explicit'  never duplicated implicitly: `move`, or a visible `.copy()`.
+    #   'nocopy'    move-only.
+    #
+    # A WRAPPER is never weaker than what it wraps: an `Optional<T>`, a tuple, a
+    # fixed array, and an enum's payloads all JOIN their parts' tiers. That join
+    # is what closes DF-131a. Before design 139 `Optional<T>` had no tier at all
+    # — the checkpoint keyed every predicate off a struct/enum NAME, and an
+    # optional has neither — so a whole-optional read of a move-only payload fell
+    # past every arm to a silent bitwise alias that double-dropped.
+    #
+    # A DECLARED conformance WINS over the structural join, which is what makes a
+    # user enum's policy its author's choice rather than something inferred out
+    # from under them. Registration refuses a bare enum whose join is 'explicit'
+    # or 'nocopy', so by the time this runs a declaration is always present where
+    # one is owed.
+    # =========================================================================
+
+    _COPY_TIER_ORDER = ('free', 'implicit', 'explicit', 'nocopy')
+
+    def _tier_join(self, a: str, b: str) -> str:
+        """The stronger of two tiers — a composite is never weaker than a part."""
+        order = self._COPY_TIER_ORDER
+        return a if order.index(a) >= order.index(b) else b
+
+    def declared_copy_tier(self, type_name: str) -> str:
+        """The tier a type NAME declares, or 'free' when it declares none."""
+        if self.type_conforms_to(type_name, "NoCopy"):
+            return 'nocopy'
+        if self.type_conforms_to(type_name, "ExplicitCopy"):
+            return 'explicit'
+        if self.type_conforms_to(type_name, "ImplicitCopy"):
+            return 'implicit'
+        return 'free'
+
+    def copy_tier(self, saw_type: SawType, _visiting=None) -> str:
+        """The single transfer class of `saw_type` (design 139)."""
+        if saw_type is None:
+            return 'free'
+        saw_type = self._normalize_struct_enum(saw_type)
+        kind = saw_type.kind
+        if kind == TypeKind.FUNCTION:
+            # An escaping closure carries a refcounted heap env (design 73) and
+            # copies by retaining it; a non-escaping one borrows and owns nothing.
+            return 'implicit' if getattr(saw_type, 'func_is_escaping', False) else 'free'
+        if kind == TypeKind.STRING:
+            return 'implicit'
+        if kind in self._TRIVIAL_PRIMITIVE_KINDS:
+            return 'free'
+        if kind == TypeKind.ARRAY:
+            return self.copy_tier(saw_type.array_element_type, _visiting)
+        if kind == TypeKind.OPTIONAL:
+            return self.copy_tier(saw_type.inner_type, _visiting)
+        if kind == TypeKind.TUPLE:
+            tier = 'free'
+            for element in saw_type.element_types or []:
+                tier = self._tier_join(tier, self.copy_tier(element, _visiting))
+            return tier
+        if kind == TypeKind.STRUCT:
+            name = saw_type.struct_name
+            if name is None:
+                return 'free'
+            alias_sym = self._lookup_type_alias_deep(name)
+            if alias_sym and alias_sym.aliased_type:
+                return self.copy_tier(alias_sym.aliased_type, _visiting)
+            return self.declared_copy_tier(name)
+        if kind == TypeKind.ENUM:
+            name = saw_type.enum_name
+            if name is None:
+                return 'free'
+            declared = self.declared_copy_tier(name)
+            if declared != 'free':
+                return declared
+            return self._enum_structural_copy_tier(saw_type, _visiting)
+        return 'free'
+
+    def _enum_structural_copy_tier(self, saw_type: SawType, _visiting=None) -> str:
+        """The join of an enum's payload tiers, type arguments substituted in.
+
+        This is what gives the compiler-owned wrappers their tier without a
+        declaration to read: `Result`'s variants carry the opaque parameters
+        `T`/`E`, so the payload types must be instantiated before they can be
+        classified at all. A USER enum reaches here only when it declares no
+        policy, which registration permits exactly when this join is 'free' or
+        'implicit'.
+        """
+        name = saw_type.enum_name
+        if _visiting is None:
+            _visiting = frozenset()
+        if name in _visiting:
+            # An enum reaching itself through a payload. The back-edge adds no
+            # tier of its own: whatever closes the cycle is behind a Box or an
+            # Optional, each of which contributes its own tier at that field.
+            return 'free'
+        _visiting = _visiting | {name}
+        sym = self._lookup_enum_deep(name)
+        if sym is None:
+            return 'free'
+        type_map = self._enum_type_arg_map(sym, saw_type)
+        tier = 'free'
+        for variant_fields in sym.variants.values():
+            for _fname, field_type in variant_fields:
+                if field_type is None:
+                    continue
+                if type_map:
+                    field_type = field_type.substitute(type_map)
+                tier = self._tier_join(tier, self.copy_tier(field_type, _visiting))
+        return tier
+
+    def _enum_type_arg_map(self, sym, saw_type: SawType):
+        """Map an enum's type-parameter names to an instantiation's arguments."""
+        params = getattr(sym, 'type_params', None) or []
+        args = saw_type.type_args or []
+        if not params or not args:
+            return {}
+        return {p.name: a for p, a in zip(params, args) if a is not None}
+
     def is_implicit_copy_enum(self, saw_type: SawType, _visiting=None) -> bool:
         """Structural ImplicitCopy classification for enums (design 06 / DF12).
 

@@ -524,12 +524,19 @@ class Expression(ASTNode):
     #                           was settled on the pre-transform AST, so the
     #                           place rule must not re-judge it on the second
     #                           type-check pass.
+    #   enum_variant_literal -- design 139: this MemberAccess spells a
+    #                           payload-free enum variant (`Slot.Empty`), so it
+    #                           CONSTRUCTS a fresh value rather than reading one
+    #                           out of storage. It shares a node type with real
+    #                           field access, and only the typechecker can tell
+    #                           the two apart.
     autowrap_to_optional: Optional['SawType'] = annotation(None)
     expected_type: Optional['SawType'] = annotation(None)
     needs_copy: bool = annotation(False)
     closure_lend: bool = annotation(False)
     payload_needs_copy: bool = annotation(False)
     frame_place_read: bool = annotation(False)
+    enum_variant_literal: bool = annotation(False)
 
 
 @dataclass

@@ -4048,6 +4048,9 @@ class ExpressionsMixin:
                     if expr.member in enum_info.variants:
                         variant_params = enum_info.variants[expr.member]
                         if len(variant_params) == 0:
+                            # Constructs a value rather than reading one out of
+                            # storage — see the unqualified path (design 139).
+                            expr.enum_variant_literal = True
                             result = SawType(TypeKind.ENUM, enum_name=obj_type.enum_name, type_args=type_args, symbol=enum_info)
                             # Preserve module resolution info for codegen
                             if getattr(expr.object, 'resolved_module', None) is not None:
@@ -4138,6 +4141,9 @@ class ExpressionsMixin:
                 if expr.member in enum_info.variants:
                     variant_params = enum_info.variants[expr.member]
                     if len(variant_params) == 0:
+                        # A payload-free variant CONSTRUCTS a value; it does not
+                        # read one out of storage (design 139).
+                        expr.enum_variant_literal = True
                         return SawType(TypeKind.ENUM, enum_name=expr.object.name, type_args=type_args, symbol=enum_info)
                     else:
                         self._error(

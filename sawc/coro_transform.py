@@ -458,6 +458,30 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
     return acc
 
 
+def _sub_result_read(sub: str, result_enc):
+    """The read that moves a completed sub-frame's `__result` out of its slot.
+
+    Paired at every call site with a `__saw_forget` on the same slot, which is
+    what makes this a TRANSFER rather than a duplication: the sub-frame gives up
+    its reference and this frame takes it. Stamped `frame_place_read` for the
+    same reason every other frame projection is (design 131) — the ownership is
+    already settled here, so the language's place rule must not re-judge it and
+    charge a second retain.
+
+    Design 139 is what made the omission visible. While `Result<T, E>` had no
+    copy tier, an unstamped read of an owning result fell through to the
+    catch-all 'retain' and codegen bumped a refcount the paired `__saw_forget`
+    then dropped — a leak that no test could see. Once `Result<Data, IoError>`
+    became move-only the same read turned into a hard error instead.
+    """
+    read = MemberAccess(object=_self_field(sub), member="__result")
+    read.frame_place_read = True
+    if _enc_unwraps(result_enc):
+        read = ForceUnwrap(expr=read)
+        read.frame_place_read = True
+    return read
+
+
 def _rewrite_val(val, encmap):
     if isinstance(val, list):
         return [_rewrite_val(v, encmap) for v in val]
@@ -3242,9 +3266,7 @@ class _FrameBuilder:
         done_body = []
         if is_ret:
             if not callee_fb.is_void and not self.is_void:
-                res = MemberAccess(object=_self_field(sub), member="__result")
-                if _enc_unwraps(callee_fb.result_enc):
-                    res = ForceUnwrap(expr=res)
+                res = _sub_result_read(sub, callee_fb.result_enc)
                 # Store first (loads the value), THEN clear the sub-frame's drop
                 # flag so its teardown won't double-drop the moved-out result.
                 done_body.append(AssignStatement(
@@ -3264,9 +3286,7 @@ class _FrameBuilder:
             done_body.append(ReturnStatement(value=_poll("Done")))
         else:
             if target is not None and not callee_fb.is_void:
-                res = MemberAccess(object=_self_field(sub), member="__result")
-                if _enc_unwraps(callee_fb.result_enc):
-                    res = ForceUnwrap(expr=res)
+                res = _sub_result_read(sub, callee_fb.result_enc)
                 done_body.append(AssignStatement(
                     target=_self_field(target), value=res))
                 if _enc_cleanup(callee_fb.result_enc):
@@ -3996,11 +4016,32 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
             # the driver just loops to completion and returns Void.
             final = None
         else:
-            result_acc = MemberAccess(object=Identifier(name="__f"), member="__result")
-            # Reading the result CONSUMES the slot (opt-encoded: force-unwrap the
-            # Some); an unconsumed result (e.g. driven only for its step count) stays
-            # in the frame and is dropped once at frame death.
-            final = ForceUnwrap(expr=result_acc) if _enc_unwraps(fb.result_enc) else result_acc
+            # Reading the result MOVES it out of the frame: `__f` is a
+            # driver-local about to die, and the result is the one thing that
+            # escapes it. Spelled as the sub-frame path spells the same
+            # transfer — take the value, then `__saw_forget` the slot so the
+            # frame's teardown does not release what the caller now owns.
+            #
+            # Design 139 is what forced the spelling. A retain would do for an
+            # ImplicitCopy result (a bump the frame's own release then undoes),
+            # and that is what used to happen; but once `Result<Int, Box<any
+            # Error>>` became move-only there was no retain to reach for, and a
+            # move is what this always was.
+            read = MemberAccess(object=Identifier(name="__f"), member="__result")
+            read.frame_place_read = True
+            if _enc_unwraps(fb.result_enc):
+                read = ForceUnwrap(expr=read)
+                read.frame_place_read = True
+            stmts.append(LetStatement(name="__res", type_annotation=None,
+                                      value=read))
+            if _enc_cleanup(fb.result_enc):
+                slot = MemberAccess(object=Identifier(name="__f"),
+                                    member="__result")
+                slot.frame_place_read = True
+                stmts.append(ExpressionStatement(expression=FunctionCall(
+                    name="__saw_forget",
+                    arguments=[Argument(name=None, value=slot)])))
+            final = MoveExpr(variable="__res")
 
     # design 88: a reference param flows through the driver AS a raw pointer (the
     # drive site casts `&var x` -> `UnsafePointer<T>`), seeding the frame's pointer

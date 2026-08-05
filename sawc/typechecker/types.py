@@ -924,34 +924,15 @@ class TypeUtilsMixin:
         return node.kind if node is not None else None
 
     def _is_no_copy_type(self, saw_type: SawType) -> bool:
-        """Check if a type implements NoCopy (cannot be copied)."""
-        if saw_type is None:
-            return False
+        """Check if a type is move-only (design 139: its copy tier is 'nocopy').
 
-        # Closures are never NoCopy (design 73): an escaping closure joins the
-        # ImplicitCopy family — its heap env carries an atomic refcount, so a copy
-        # is a refcount bump and the last owner's drop tears it down exactly once.
-        # `let g = f` is legal again; see `_is_implicit_copy_type`.
-        if saw_type.kind == TypeKind.FUNCTION:
-            return False
-
-        # A fixed array `[T; N]` inherits T's copy class (design 33): it is
-        # NoCopy iff its element type is.
-        if saw_type.kind == TypeKind.ARRAY:
-            return self._is_no_copy_type(saw_type.array_element_type)
-
-        # Get the type name for conformance lookup
-        type_name = None
-        if saw_type.kind == TypeKind.STRUCT:
-            type_name = saw_type.struct_name
-        elif saw_type.kind == TypeKind.ENUM:
-            type_name = saw_type.enum_name
-
-        if type_name is None:
-            return False
-
-        # Check if type conforms to NoCopy
-        return self.namespace.type_conforms_to(type_name, "NoCopy")
+        Delegates to the shared tier oracle, so a WRAPPER of a move-only value
+        answers here too: an `Optional<File>`, a `(File, Int)` tuple, a `[File; 4]`
+        array and an enum with a `File` payload are each as move-only as the
+        `File` itself. Closures are never move-only (design 73) and a fixed array
+        inherits its element's class (design 33); both fall out of the oracle.
+        """
+        return self.namespace.copy_tier(saw_type) == 'nocopy'
 
     def _is_implicit_copy_type(self, saw_type: SawType) -> bool:
         """Check if a type implements ImplicitCopy."""
@@ -987,28 +968,14 @@ class TypeUtilsMixin:
         return self.namespace.type_conforms_to(type_name, "ImplicitCopy")
 
     def _is_explicit_copy_type(self, saw_type: SawType) -> bool:
-        """Check if a type implements ExplicitCopy (move-only, deep .copy())."""
-        if saw_type is None:
-            return False
+        """Check if a type is ExplicitCopy (never implicitly duplicated; a
+        transfer is `move`, a duplicate is a visible `.copy()`).
 
-        # A fixed array `[T; N]` inherits T's copy class (design 33): it is
-        # ExplicitCopy iff its element type is (move by default, `.copy()`
-        # duplicates per element).
-        if saw_type.kind == TypeKind.ARRAY:
-            return self._is_explicit_copy_type(saw_type.array_element_type)
-
-        # Get the type name for conformance lookup
-        type_name = None
-        if saw_type.kind == TypeKind.STRUCT:
-            type_name = saw_type.struct_name
-        elif saw_type.kind == TypeKind.ENUM:
-            type_name = saw_type.enum_name
-
-        if type_name is None:
-            return False
-
-        # Check if type conforms to ExplicitCopy
-        return self.namespace.type_conforms_to(type_name, "ExplicitCopy")
+        Delegates to the shared tier oracle (design 139), so an `Optional<Vector<Int>>`
+        answers here exactly as the `Vector<Int>` does — that wrapper hole is
+        what DF-131a reported.
+        """
+        return self.namespace.copy_tier(saw_type) == 'explicit'
 
     def _is_trivially_copyable(self, saw_type: SawType) -> bool:
         """A type is trivially copyable iff it can be duplicated bitwise: all
@@ -1080,6 +1047,14 @@ class TypeUtilsMixin:
         """
         if isinstance(expr, ForceUnwrap):
             return self._is_aliasing_expr(expr.expr)
+        # design 139: `Slot.Empty` is a payload-free enum variant LITERAL. It
+        # wears the same node type as `config.slot`, but it constructs a fresh
+        # value out of nothing rather than naming storage somebody else owns, so
+        # it is no more aliasing than `Slot.Occupied(r: R(id: 7))` beside it.
+        # Only the typechecker can tell the two spellings apart, which is why
+        # this rides an annotation instead of a node type.
+        if getattr(expr, 'enum_variant_literal', False):
+            return False
         return isinstance(expr, self._ALIASING_EXPR_TYPES)
 
     # ------------------------------------------------------------------
@@ -1344,6 +1319,18 @@ class TypeUtilsMixin:
                                      line, column)
             return
 
+        # design 131/139: a read the coroutine transform synthesized out of a
+        # frame slot carries its own ownership bookkeeping — a paired
+        # `__saw_forget` when the frame hands its reference over, codegen's
+        # frame-read retain when it does not. The pre-transform AST was already
+        # judged at this checkpoint as the plain local it was, and the whole
+        # program is re-checked afterwards, so weighing in on the projection
+        # would judge one read twice. `_check_payload_read` has carried this
+        # guard since design 131; the un-projected path needs it for the same
+        # reason, and needed it the moment `Result<T, E>` gained a tier.
+        if getattr(expr, 'frame_place_read', False):
+            return
+
         # design 131: a type carrying a deinit but NO copy policy used to fall
         # through every arm below and take the default bitwise path — an alias
         # whose two halves each ran `deinit` (DF-128a). Declaring `Deinit` alone
@@ -1363,7 +1350,15 @@ class TypeUtilsMixin:
             )
             return
 
-        if self._is_no_copy_type(src_type):
+        # design 139: ONE policy lookup decides this transfer. The chain used to
+        # end in a bespoke owning-enum arm — a retain that fired only for a
+        # structurally-ImplicitCopy enum, and left every OTHER wrapper (an
+        # `Optional`, a tuple, a `Result`) with no tier at all, so a move-only
+        # payload inside one fell past every arm to a silent bitwise alias that
+        # double-dropped (DF-131a). The oracle folds that enum case into the
+        # 'implicit' tier and answers for the wrappers at the same time.
+        tier = self.namespace.copy_tier(src_type)
+        if tier == 'nocopy':
             if self._is_aliasing_expr(expr):
                 if is_return:
                     self._error(
@@ -1379,7 +1374,7 @@ class TypeUtilsMixin:
                         line, column,
                         hint="use `move` to transfer ownership instead"
                     )
-        elif self._is_explicit_copy_type(src_type):
+        elif tier == 'explicit':
             # ExplicitCopy gets the same move-required treatment as NoCopy:
             # the compiler never implicitly duplicates it. Duplication must be a
             # visible `.copy()`; a plain transfer must be a `move`.
@@ -1390,18 +1385,7 @@ class TypeUtilsMixin:
                     line, column,
                     hint="use .copy() for an explicit deep copy, or `move` to transfer ownership"
                 )
-        elif self._is_implicit_copy_type(src_type):
-            if self._is_aliasing_expr(expr):
-                expr.needs_copy = True
-        elif self.namespace.is_implicit_copy_enum(src_type):
-            # An enum can't DECLARE ImplicitCopy, so its copy tier is structural
-            # (design 06): an enum carrying an owning `String`/`Arc` payload copies
-            # by RETAINING that payload. Marking the transfer `needs_copy` makes
-            # codegen bump the refcount; without it the enum was bitwise-copied yet
-            # still released its payload at every drop -> double free (DF12). Kept
-            # out of `_is_implicit_copy_type` so it does NOT force a containing
-            # struct to opt into ImplicitCopy (an owning-enum field is compiler-
-            # handled, exactly like a `String` field).
+        elif tier == 'implicit':
             if self._is_aliasing_expr(expr):
                 expr.needs_copy = True
 
@@ -1798,6 +1782,15 @@ class TypeUtilsMixin:
     def _check_explicit_copy_containment(self):
         """Check that structs containing ExplicitCopy fields declare ExplicitCopy or NoCopy."""
         for struct_name, struct_info in self.namespace.structs.items():
+            # design 62 G1: a compiler-synthesized coroutine frame is never
+            # copied (constructed, resumed through `&var`, dropped in place), so
+            # an ExplicitCopy field needs no conformance — the same exemption
+            # `_check_no_copy_containment` already makes. It went unnoticed until
+            # design 139 gave `Optional<T>` a tier: a frame stores each
+            # across-suspend local as an optional field, so a spawned body over a
+            # `Vector<Int>` parameter suddenly held an ExplicitCopy `v` field.
+            if struct_name.startswith("__Frame_"):
+                continue
             # Skip if struct already declares ExplicitCopy or NoCopy.
             # (NoCopy types can contain ExplicitCopy fields since they can't be
             # copied anyway.) ImplicitCopy is NOT sufficient: an ExplicitCopy
