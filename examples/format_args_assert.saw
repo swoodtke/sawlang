@@ -1,0 +1,19 @@
+// Design 137: `assert(cond, "want {} got {}", a, b)`. The arguments are
+// rendered on the FAILING branch only, so a passing assert costs nothing — the
+// two passing asserts below have format arguments that are never rendered.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at format_args_assert.saw:17: assertion failed: want 1 got 2 (at step 3)
+
+func main() {
+    let a = 1
+    let b = 2
+
+    assert(a == 1, "never {} rendered", a)
+    print("passed")
+
+    assert(a != b, "also never {} rendered", b)
+    print("also passed")
+
+    assert(a == b, "want {} got {} (at step {})", a, b, 3)
+    print("not reached")
+}

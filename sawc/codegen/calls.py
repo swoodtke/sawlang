@@ -15,8 +15,25 @@ from llvmlite import ir
 from ast_nodes import (
     FunctionCall, StructInit, Argument, SawType, TypeKind,
     MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit, ArrayIndex,
-    ForceUnwrap, ReferenceExpr
+    ForceUnwrap, ReferenceExpr, StringLiteral, StringInterpolation
 )
+
+
+class PreparedValue:
+    """A synthesized expression node carrying an already-generated LLVM value.
+
+    Design 137. Codegen builds a `MethodCall` for `format(into:)` whose argument
+    is a `StringBuilder` it just allocated on the stack. Wrapping that value in
+    an expression node lets the call go through the ORDINARY method dispatch —
+    vtable slot for an erased `&any Printable` receiver included — rather than a
+    second, divergent copy of it.
+    """
+
+    def __init__(self, value, saw_type=None):
+        self.value = value
+        self.resolved_type = saw_type
+        self.line = 0
+        self.column = 0
 
 
 class CallsMixin:
@@ -444,6 +461,170 @@ class CallsMixin:
         # Length feeds the platform-width saw_write seam (design 47).
         return ptr, ir.Constant(self.int_type, len(encoded))
 
+    def visit_PreparedValue(self, expr):
+        """Yield the LLVM value a `PreparedValue` was built around."""
+        return expr.value
+
+    # Bytes of stack scratch a single `{}` rendering of a user `Printable` value
+    # is given. Its `format` streams into a FIXED StringBuilder over this, so a
+    # value that renders longer is cut and marked rather than allocating.
+    PRINTABLE_SCRATCH = 512
+
+    def _format_pieces(self, fmt_expr, value_args):
+        """Interleave a checked format string's literal parts with its arguments.
+
+        Yields `("text", str)` and `("arg", Expression)` in output order. The
+        typechecker has already established that the format string is a literal
+        and that its `{}` count matches `value_args`, so this is pure shape.
+        """
+        if isinstance(fmt_expr, StringInterpolation):
+            parts = fmt_expr.parts
+        else:
+            parts = [fmt_expr.value]
+        for i, part in enumerate(parts):
+            if part:
+                yield ("text", part)
+            if i < len(value_args):
+                yield ("arg", value_args[i].value)
+
+    def _format_segments(self, fmt_expr, value_args):
+        """Lower a format call to a list of `(i8* ptr, word len)` byte ranges.
+
+        Design 137. Nothing here allocates: literal parts are interned byte
+        constants, a String argument is its own bytes, an integer is rendered by
+        `__saw_fmt_int` into stack scratch, and a user `Printable` streams
+        through its own `format` into a fixed StringBuilder over stack scratch.
+        The caller decides what to do with the ranges — `print` writes them
+        straight to the output seam, `panic` concatenates them into its message
+        buffer — so ONE walk serves both and the two cannot drift.
+        """
+        segments = []
+        for kind, item in self._format_pieces(fmt_expr, value_args):
+            if kind == "text":
+                segments.append(self._raw_bytes_ptr(item))
+            else:
+                segments.append(self._render_argument(item))
+        return segments
+
+    def _render_argument(self, arg_expr):
+        """Render one format argument to a `(i8* ptr, word len)` byte range."""
+        word = self.int_type
+        i8 = ir.IntType(8)
+        i32 = ir.IntType(32)
+
+        saw_type = getattr(arg_expr, 'resolved_type', None)
+        if saw_type is not None and self.type_param_context:
+            saw_type = saw_type.substitute(self.type_param_context)
+        if saw_type is not None:
+            saw_type = self._resolve_type_alias(saw_type)
+
+        # A user struct/enum, or an erased `&any Printable`/`Box<any Error>`:
+        # stream it through `format` into a fixed builder over stack scratch.
+        # `to_string()` would be shorter and is what interpolation does, but it
+        # returns an owned String — an allocation, which is the one thing this
+        # path may not do.
+        if (saw_type is not None
+                and self.namespace.is_printable(saw_type)
+                and not self._is_builtin_interp_type(saw_type)):
+            return self._render_via_format(arg_expr, saw_type)
+
+        value = self._generate_expression(arg_expr)
+
+        if isinstance(value.type, ir.PointerType):
+            # String: its own bytes, at its header length.
+            length = self.builder.call(self.functions["__saw_string_len"],
+                                       [value], name="fmt_str_len")
+            return (value, length)
+
+        if isinstance(value.type, ir.IntType):
+            if value.type.width == 1:
+                true_ptr, true_len = self._raw_bytes_ptr("true")
+                false_ptr, false_len = self._raw_bytes_ptr("false")
+                return (self.builder.select(value, true_ptr, false_ptr),
+                        self.builder.select(value, true_len, false_len))
+            # Integer family: bring the value to the platform width with the
+            # same extension `print` uses, then render with the same itoa, so
+            # `print(n)` and `print("{}", n)` agree byte for byte.
+            unsigned_kinds = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16,
+                              TypeKind.UINT32, TypeKind.UINT64}
+            is_unsigned = bool(saw_type is not None
+                               and saw_type.kind in unsigned_kinds)
+            if value.type.width < self.int_width:
+                if is_unsigned:
+                    value = self.builder.zext(value, word, name="fmt_ext")
+                else:
+                    value = self.builder.sext(value, word, name="fmt_ext")
+            elif value.type.width > self.int_width:
+                value = self.builder.trunc(value, word, name="fmt_trunc")
+            buf = self._entry_alloca(ir.ArrayType(i8, self.INT_FMT_MAX),
+                                     name="fmt_int_buf")
+            bufp = self.builder.gep(buf, [ir.Constant(i32, 0), ir.Constant(i32, 0)],
+                                    inbounds=True)
+            fmt_fn = "__saw_fmt_uint" if is_unsigned else "__saw_fmt_int"
+            length = self.builder.call(self.functions[fmt_fn], [value, bufp],
+                                       name="fmt_int_len")
+            return (bufp, length)
+
+        if isinstance(value.type, ir.DoubleType):
+            # Float stays snprintf-based, into stack scratch (hosted only —
+            # freestanding rejects it at typecheck, as `print` already did).
+            c_ptr = self._value_to_string(value, saw_type)
+            strlen_fn = self._libc_func("strlen", word, [i8.as_pointer()])
+            return (c_ptr, self.builder.call(strlen_fn, [c_ptr], name="fmt_f_len"))
+
+        raise ValueError(f"Cannot format type: {value.type}")
+
+    def _render_via_format(self, arg_expr, saw_type):
+        """Stream a `Printable` value through `format` into stack scratch.
+
+        Builds a FIXED `StringBuilder` (design 137) over a stack buffer and
+        hands it to the value's own `format(into:)`, then reports how many bytes
+        landed. The builder truncates rather than growing, so a value that
+        renders longer than `PRINTABLE_SCRATCH` ends in the `…` marker — the one
+        place this path is bounded, and it says so.
+        """
+        i8 = ir.IntType(8)
+        i32 = ir.IntType(32)
+        word = self.int_type
+
+        scratch = self._entry_alloca(ir.ArrayType(i8, self.PRINTABLE_SCRATCH),
+                                     name="fmt_scratch")
+        scratch_ptr = self.builder.gep(
+            scratch, [ir.Constant(i32, 0), ir.Constant(i32, 0)], inbounds=True)
+
+        sb_type, sb_fields = self.struct_types["StringBuilder"]
+        sb_ptr = self._entry_alloca(sb_type, name="fmt_sb")
+
+        def field(name):
+            return self.builder.gep(
+                sb_ptr, [ir.Constant(i32, 0),
+                         ir.Constant(i32, sb_fields.index(name))],
+                inbounds=True, name=f"sb_{name}")
+
+        # `buffer` is `UnsafePointer<Int8>?` — the {i1 is_some, ptr} pair.
+        buf_slot = field("buffer")
+        opt_type = buf_slot.type.pointee
+        opt = ir.Constant(opt_type, ir.Undefined)
+        opt = self.builder.insert_value(opt, ir.Constant(ir.IntType(1), 1), 0)
+        opt = self.builder.insert_value(opt, scratch_ptr, 1)
+        self.builder.store(opt, buf_slot)
+        self.builder.store(ir.Constant(word, 0), field("length"))
+        self.builder.store(ir.Constant(word, self.PRINTABLE_SCRATCH),
+                           field("capacity"))
+        self.builder.store(ir.Constant(ir.IntType(1), 1), field("fixed"))
+        self.builder.store(ir.Constant(ir.IntType(1), 0), field("truncated"))
+        self.builder.store(ir.Constant(i8, 0), scratch_ptr)
+
+        call = MethodCall(
+            object=arg_expr, method_name="format",
+            arguments=[Argument(name="into", value=PreparedValue(sb_ptr))],
+            line=getattr(arg_expr, 'line', 0),
+            column=getattr(arg_expr, 'column', 0))
+        self._generate_expression(call)
+
+        length = self.builder.load(field("length"), name="fmt_sb_len")
+        return (scratch_ptr, length)
+
     def _generate_print(self, arguments: List[Argument]):
         """Generate code for the print built-in function.
 
@@ -462,6 +643,18 @@ class CallsMixin:
 
         if not arguments:
             # Print a bare newline.
+            nl_ptr, nl_len = self._raw_bytes_ptr("\n")
+            self.builder.call(saw_write, [nl_ptr, nl_len])
+            return dummy
+
+        if len(arguments) > 1:
+            # design 137: `print("x = {}", x)`. Each segment goes straight to
+            # the output seam at its own length, so a long String argument is
+            # written WHOLE — the line has no capacity limit, and the only
+            # bounded piece is a single user `Printable` rendering.
+            for seg_ptr, seg_len in self._format_segments(arguments[0].value,
+                                                          arguments[1:]):
+                self.builder.call(saw_write, [seg_ptr, seg_len])
             nl_ptr, nl_len = self._raw_bytes_ptr("\n")
             self.builder.call(saw_write, [nl_ptr, nl_len])
             return dummy
@@ -657,11 +850,17 @@ class CallsMixin:
         (design 69 unified format), then terminates the block. Returns None
         (the value is NEVER; nothing consumes it).
         """
+        prefix_ptr, prefix_len = self._raw_bytes_ptr(
+            self._panic_location_prefix(getattr(expr, 'line', 0)))
+        if len(expr.arguments) > 1:
+            # design 137: `panic("out of {}", what)`.
+            segments = self._format_segments(expr.arguments[0].value,
+                                             expr.arguments[1:])
+            self._emit_runtime_panic([(prefix_ptr, prefix_len)] + segments)
+            return None
         msg_val = self._generate_expression(expr.arguments[0].value)
         msg_len = self.builder.call(self.functions["__saw_string_len"], [msg_val],
                                     name="panic_msg_len")
-        prefix_ptr, prefix_len = self._raw_bytes_ptr(
-            self._panic_location_prefix(getattr(expr, 'line', 0)))
         self._emit_runtime_panic([(prefix_ptr, prefix_len),
                                   (msg_val, msg_len)])
         return None
@@ -681,13 +880,20 @@ class CallsMixin:
         self.builder.cbranch(cond, cont_bb, fail_bb)
 
         self.builder.position_at_end(fail_bb)
-        msg_val = self._generate_expression(expr.arguments[1].value)
-        msg_len = self.builder.call(self.functions["__saw_string_len"], [msg_val],
-                                    name="assert_msg_len")
         prefix_ptr, prefix_len = self._raw_bytes_ptr(
             self._panic_location_prefix(getattr(expr, 'line', 0)) + "assertion failed: ")
-        self._emit_runtime_panic([(prefix_ptr, prefix_len),
-                                  (msg_val, msg_len)])
+        if len(expr.arguments) > 2:
+            # design 137: `assert(ok, "want {} got {}", a, b)`. The arguments are
+            # rendered on THIS branch only, so a passing assert costs nothing.
+            segments = self._format_segments(expr.arguments[1].value,
+                                             expr.arguments[2:])
+            self._emit_runtime_panic([(prefix_ptr, prefix_len)] + segments)
+        else:
+            msg_val = self._generate_expression(expr.arguments[1].value)
+            msg_len = self.builder.call(self.functions["__saw_string_len"],
+                                        [msg_val], name="assert_msg_len")
+            self._emit_runtime_panic([(prefix_ptr, prefix_len),
+                                      (msg_val, msg_len)])
 
         self.builder.position_at_end(cont_bb)
         return None

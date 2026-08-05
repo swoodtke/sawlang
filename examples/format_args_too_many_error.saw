@@ -1,0 +1,8 @@
+// Design 137: an argument with no `{}` to land in is the same compile error
+// from the other side — nothing is silently dropped.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `panic` format string has 1 placeholder but 2 arguments were given
+
+func main() {
+    panic("out of {}", 1, 2)
+}

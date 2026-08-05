@@ -1,0 +1,63 @@
+// Design 137: `print("x = {}", x)` renders each argument through its own
+// `Printable.format` into the `{}` slots. Monomorphized generics, not varargs —
+// every argument keeps its type, and the arity is checked against the literal
+// format string at compile time.
+//
+// The bar is byte-identity with the interpolation spelling: the two must agree
+// for the same values, or the alloc-free path would be a second, subtly
+// different formatter. Each pair below prints interpolation first.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// p=(3, -4) s=hello b=true u=18446744073709551615 f=1.5
+// p=(3, -4) s=hello b=true u=18446744073709551615 f=1.5
+// (3, -4)
+// (3, -4)
+// erased: (3, -4)
+// -9223372036854775808 9223372036854775807 0
+// -9223372036854775808 9223372036854775807 0
+// literal {} then 7
+// {}
+// no slots
+
+struct Point { x: Int, y: Int }
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("(")
+        into.append(self.x)
+        into.append(", ")
+        into.append(self.y)
+        into.append(")")
+    }
+}
+
+func show(v: &any Printable) {
+    print("erased: {}", v)
+}
+
+func main() {
+    let p = Point(x: 3, y: -4)
+    let s = "hello"
+    let b = true
+    let u: UInt = 18446744073709551615
+    let f = 1.5
+
+    print("p={p} s={s} b={b} u={u} f={f}")
+    print("p={} s={} b={} u={} f={}", p, s, b, u, f)
+
+    print("{p}")
+    print("{}", p)
+
+    // An erased `&any Printable` renders through its vtable slot, same as
+    // interpolation does.
+    show(&p)
+
+    print("{Int.min} {Int.max} {0}")
+    print("{} {} {}", Int.min, Int.max, 0)
+
+    // Escaped braces stay literal text beside a real placeholder.
+    print("literal \{\} then {}", 7)
+    print("\{\}")
+
+    // A format string with no slots and no arguments is an ordinary print.
+    print("no slots")
+}

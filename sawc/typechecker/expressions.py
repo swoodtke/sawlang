@@ -13,7 +13,8 @@ from typing import Optional, Dict, List
 from types import SimpleNamespace as _SandboxNode
 from ast_nodes import (
     Expression, IntLiteral, FloatLiteral, BoolLiteral, StringLiteral,
-    StringInterpolation, Identifier, BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr,
+    StringInterpolation, FormatPlaceholder,
+    Identifier, BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr,
     FunctionCall, IfExpr, IfLetExpr, TupleLiteral, TupleIndex,
     ArrayLiteral, MapLiteral, SetLiteral, ArrayIndex, MemberAccess, StructInit, NoneLiteral,
     ForceUnwrap, NilCoalesce, OptionalChain, BindOptional, OptionalEvalExpr,
@@ -202,6 +203,18 @@ class ExpressionsMixin:
         interpolation builder via its `format`/`to_string`. A non-Printable type
         is a clean error naming the type and the trait."""
         for sub_expr in expr.expressions:
+            # design 137: an empty `{}` is a FORMAT PLACEHOLDER, filled from a
+            # call's argument list. Reaching here means the string is not the
+            # format argument of one, so there is no value to put in it.
+            if isinstance(sub_expr, FormatPlaceholder):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "`{}` is a format placeholder and needs an argument to fill it",
+                    sub_expr.line, sub_expr.column,
+                    hint="pass a value for it — `print(\"x = {}\", x)` — or name "
+                         "the value in the braces (`\"x = {x}\"`); write `\\{\\}` "
+                         "for literal braces")
+                return None
             expr_type = self._check_expression(sub_expr)
             if expr_type is None:
                 return None
@@ -209,6 +222,97 @@ class ExpressionsMixin:
                     expr_type, sub_expr, "cannot interpolate", " in a string"):
                 return None
         return SawType(TypeKind.STRING)
+
+    def _format_placeholder_count(self, fmt_expr):
+        """How many `{}` slots a format-string argument has, or None if the
+        expression cannot be one.
+
+        A plain `StringLiteral` has none (it is a complete message). A
+        `StringInterpolation` may carry placeholders, real `{expr}` pieces, or
+        both — the caller decides what to allow. Anything else (a String-typed
+        variable, a call result) is not a format string: its placeholders could
+        not be counted at compile time, which is the whole point of checking
+        arity here rather than at runtime.
+        """
+        if isinstance(fmt_expr, StringLiteral):
+            return 0
+        if isinstance(fmt_expr, StringInterpolation):
+            return sum(1 for e in fmt_expr.expressions
+                       if isinstance(e, FormatPlaceholder))
+        return None
+
+    def _check_format_call(self, name: str, expr, value_args,
+                           fmt_index: int = 0) -> None:
+        """Check a `print`/`panic`/`assert` call that supplies format arguments.
+
+        Design 137. The format string must be a LITERAL so `{}` slots can be
+        counted at compile time: a mismatch between slots and arguments is an
+        error here, never a runtime surprise, and there are no varargs to
+        type-erase — each argument keeps its own type and is rendered through
+        its own `Printable.format`. `fmt_index` is 1 for `assert`, whose Bool
+        condition comes first.
+        """
+        fmt_expr = expr.arguments[fmt_index].value
+        count = self._format_placeholder_count(fmt_expr)
+
+        if count is None:
+            self._check_expression(fmt_expr)
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{name}` with format arguments needs a literal format string",
+                fmt_expr.line, fmt_expr.column,
+                hint="the `{}` slots are counted at compile time, so the format "
+                     "string cannot be a variable")
+            for arg in value_args:
+                self._check_expression(arg.value)
+            return
+
+        # Mixing a real `{expr}` interpolation into a format string would build
+        # a heap String for the format string itself, which is exactly what this
+        # path exists to avoid — and it reads ambiguously besides.
+        if isinstance(fmt_expr, StringInterpolation):
+            for piece in fmt_expr.expressions:
+                if not isinstance(piece, FormatPlaceholder):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`{name}` format string mixes `{{...}}` interpolation "
+                        f"with `{{}}` placeholders",
+                        piece.line, piece.column,
+                        hint="use `{}` for every slot and pass the values as "
+                             "arguments; an interpolated format string would "
+                             "allocate, which is what this spelling avoids")
+                    for arg in value_args:
+                        self._check_expression(arg.value)
+                    return
+
+        if count != len(value_args):
+            slots = "1 placeholder" if count == 1 else f"{count} placeholders"
+            given = ("1 argument" if len(value_args) == 1
+                     else f"{len(value_args)} arguments")
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"`{name}` format string has {slots} but {given} "
+                f"{'was' if len(value_args) == 1 else 'were'} given",
+                expr.line, expr.column,
+                hint="every `{}` takes exactly one argument, by position")
+
+        for arg in value_args:
+            if arg.name is not None:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`{name}` format arguments are positional and take no label",
+                    arg.value.line, arg.value.column)
+            arg_type = self._check_expression(arg.value)
+            if arg_type is None:
+                continue
+            if self.freestanding and arg_type.kind == TypeKind.FLOAT:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "Float formatting requires the hosted profile; "
+                    "freestanding formatting supports integers, Bool, and String only",
+                    arg.value.line, arg.value.column)
+                continue
+            self._check_renderable_operand(arg_type, arg.value, "cannot format")
 
     def _type_display_name(self, saw_type: SawType) -> str:
         """A bare type name for diagnostics (struct/enum name, else the type)."""
@@ -2079,12 +2183,12 @@ class ExpressionsMixin:
             return SawType(TypeKind.STRUCT, struct_name="UnsafeMemory")
 
         if expr.name == "print":
+            # design 137: `print(fmt, a, b)` renders each argument through its
+            # own `Printable.format` into the `{}` slots. Monomorphized, not
+            # varargs: arity is checked here against the literal format string.
             if len(expr.arguments) > 1:
-                self._error(
-                    ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"`print` takes 0 or 1 arguments, but {len(expr.arguments)} were given",
-                    expr.line, expr.column
-                )
+                self._check_format_call("print", expr, expr.arguments[1:])
+                return SawType(TypeKind.VOID)
             for arg in expr.arguments:
                 arg_type = self._check_expression(arg.value)
                 # Freestanding has no dtoa: Float printing requires the hosted
@@ -2111,10 +2215,16 @@ class ExpressionsMixin:
             # Its type is NEVER (the bottom type): control never continues past
             # it, so a function body ending in `panic(...)` needs no return value
             # and the value is assignable to any expected type.
-            if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
+            if len(expr.arguments) > 1:
+                # design 137: `panic("out of {}", what)` assembles the message
+                # in stack scratch, so a panic can still say what happened with
+                # the allocator refusing everything.
+                self._check_format_call("panic", expr, expr.arguments[1:])
+            elif len(expr.arguments) != 1 or expr.arguments[0].name is not None:
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
-                    "`panic` takes exactly one positional String argument",
+                    "`panic` takes a String message, optionally followed by "
+                    "format arguments for its `{}` placeholders",
                     expr.line, expr.column
                 )
             else:
@@ -2133,11 +2243,25 @@ class ExpressionsMixin:
             # "assertion failed: {message} (line N)" through the same seam (the
             # call-site line N is available on the AST node, so it is included).
             # `debug_assert` is deferred — there is no build-profile split yet.
-            if len(expr.arguments) != 2 or any(a.name is not None for a in expr.arguments):
+            if len(expr.arguments) > 2:
+                # design 137: `assert(ok, "want {} got {}", a, b)` — the message
+                # is assembled only on the failing branch, and only then.
+                cond_type = self._check_expression(expr.arguments[0].value)
+                if (cond_type is not None
+                        and self._get_underlying_type(cond_type).kind != TypeKind.BOOL):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`assert` expects a Bool condition, got `{cond_type}`",
+                        expr.arguments[0].value.line, expr.arguments[0].value.column
+                    )
+                self._check_format_call("assert", expr, expr.arguments[2:],
+                                        fmt_index=1)
+            elif len(expr.arguments) != 2 or any(a.name is not None for a in expr.arguments):
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
-                    "`assert` takes exactly two positional arguments "
-                    "(a Bool condition and a String message)",
+                    "`assert` takes a Bool condition and a String message, "
+                    "optionally followed by format arguments for its `{}` "
+                    "placeholders",
                     expr.line, expr.column
                 )
             else:

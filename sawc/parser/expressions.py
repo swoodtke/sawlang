@@ -19,7 +19,8 @@ from lexer import TokenType
 from ast_nodes import (
     Expression, Block, Statement,
     LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
-    IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation, Identifier,
+    IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation,
+    FormatPlaceholder, Identifier,
     BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MapLiteral, SetLiteral,
@@ -1690,8 +1691,17 @@ class ExpressionsMixin:
                         expr_chars.append(ch)
                     i += 1
 
-                # Parse the expression using a sub-lexer and sub-parser
+                # An EMPTY brace pair is a format placeholder (design 137), not
+                # an expression to parse: `panic("out of {}", what)` fills it
+                # from the argument list. Sub-parsing "" used to be the error
+                # "Invalid expression in string interpolation".
                 expr_str = ''.join(expr_chars)
+                if expr_str.strip() == "":
+                    expressions.append(FormatPlaceholder(
+                        line=brace_line, column=brace_column))
+                    continue
+
+                # Parse the expression using a sub-lexer and sub-parser
                 expr = self._parse_expression_from_string(expr_str, brace_line, brace_column)
                 expressions.append(expr)
             else:

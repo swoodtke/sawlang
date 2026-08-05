@@ -1,0 +1,11 @@
+// Design 137: `{}` slots and format arguments must match, and the mismatch is a
+// COMPILE error. That is the whole reason the format string has to be a literal
+// and the overloads are monomorphized generics rather than varargs — a printf
+// that discovers the mismatch at runtime is exactly the failure mode a
+// type-checked language should not ship.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `print` format string has 2 placeholders but 1 argument was given
+
+func main() {
+    print("{} and {}", 1)
+}

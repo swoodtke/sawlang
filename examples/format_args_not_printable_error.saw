@@ -1,0 +1,12 @@
+// Design 137: a format argument has to be `Printable`, the same requirement
+// `print(x)` and `"{x}"` already carry (design 132 unit D). The diagnostic names
+// the type and the conformance rather than reaching codegen and dying there.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot format value of type `Opaque`: it is not `Printable`
+
+struct Opaque { n: Int }
+
+func main() {
+    let o = Opaque(n: 1)
+    print("value: {}", o)
+}

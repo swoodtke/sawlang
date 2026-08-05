@@ -1,0 +1,56 @@
+// Design 137: the format-argument path allocates NOTHING. Everything below runs
+// with `__saw_rt_alloc_deny_after(0)` in force — the allocator refuses every
+// request from that call until it is disarmed — and still produces whole,
+// correct output.
+//
+// This is the kernel-logging story: literal parts are interned byte constants,
+// integers are rendered by the compiler's itoa into stack scratch, a String is
+// its own bytes, and a user `Printable` streams through its own `format` into a
+// fixed StringBuilder over stack scratch. The interpolation spelling `"{x}"`
+// cannot do this — it builds a heap String by construction, which is why design
+// 135 bans it under `--no-hidden-alloc` and points here instead.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// armed
+// p = (1, 2) n = -42 s = text b = false u = 18446744073709551615
+// counter 0
+// counter 1
+// counter 2
+// disarmed, heap works again
+
+struct Point { x: Int, y: Int }
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("(")
+        into.append(self.x)
+        into.append(", ")
+        into.append(self.y)
+        into.append(")")
+    }
+}
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    let s = "text"
+    let u: UInt = 18446744073709551615
+    print("armed")
+
+    __saw_rt_alloc_deny_after(0)
+    print("p = {} n = {} s = {} b = {} u = {}", p, -42, s, false, u)
+
+    // A logging LOOP allocates nothing either — no per-line buffer to grow.
+    var i = 0
+    while i < 3 {
+        print("counter {}", i)
+        i = i + 1
+    }
+    __saw_rt_alloc_deny_after(-1)
+
+    var v = Vector<Int>()
+    v.push(1)
+    print("disarmed, heap works again")
+}

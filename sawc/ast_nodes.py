@@ -578,6 +578,24 @@ class StringInterpolation(Expression):
 
 
 @dataclass
+class FormatPlaceholder(Expression):
+    """An EMPTY `{}` inside a string: a positional slot for a format argument.
+
+    Design 137. `"n = {}"` lexes as an interpolated string like any other — the
+    braces are there — but the expression between them is empty, so the parser
+    records a placeholder here instead of failing. It is legal only as the
+    format string of `print`/`panic`/`assert` in a call that supplies a value
+    for it; every other position (a bare `let s = "{}"`, a placeholder with no
+    argument) is a clean typecheck error, so this node never reaches codegen.
+
+    It carries no expression because the value comes from the call's argument
+    list, matched by POSITION. `\\{\\}` is unaffected: escaped braces are
+    already marked by the lexer and stay literal text.
+    """
+    pass
+
+
+@dataclass
 class Identifier(Expression):
     name: str
     type_args: Optional[List['SawType']] = None  # For generic type access: Option<Int>

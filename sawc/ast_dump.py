@@ -30,6 +30,7 @@ from ast_nodes import (
     Block, Statement, Expression, LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     WhileExpr, BreakStatement, ContinueStatement, ForLoop, GuardLetStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation,
+    FormatPlaceholder,
     Identifier, BinaryOp, UnaryOp, MoveExpr, CastExpr, FunctionCall, IfExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex, MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain, MethodCall, SelfExpr,
@@ -529,6 +530,10 @@ class ASTDumper:
         elif isinstance(expr, StringLiteral):
             escaped = expr.value.replace('"', '\\"')
             self._emit(f'StringLiteral("{escaped}") : String')
+
+        elif isinstance(expr, FormatPlaceholder):
+            # design 137: an empty `{}` slot inside a format string.
+            self._emit("FormatPlaceholder")
 
         elif isinstance(expr, StringInterpolation):
             self._emit("StringInterpolation : String")
@@ -1049,6 +1054,8 @@ class ASTDumper:
         elif isinstance(expr, BinaryOp):
             return (f"{self._expr_summary(expr.left)} {expr.op} "
                     f"{self._expr_summary(expr.right)}")
+        elif isinstance(expr, FormatPlaceholder):
+            return "{}"
         elif isinstance(expr, StringInterpolation):
             return '"..."'
         elif isinstance(expr, SourceLocationLiteral):
