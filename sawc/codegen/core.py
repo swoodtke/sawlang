@@ -1652,7 +1652,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Build maps for quick lookup
         struct_map = {s.name: s for s in structs}
         enum_map = {e.name: e for e in enums}
-        all_types = set(struct_map.keys()) | set(enum_map.keys())
+        # DECLARATION order, not set order. Every structure below (the dependency
+        # map, the in-degree map, Kahn's initial queue, the cycle-breaking tail)
+        # is seeded by iterating this, so seeding it from a `set` of names made
+        # the emitted type -- and therefore function -- order depend on the
+        # process's string hash seed, i.e. the compiler did not produce identical
+        # IR twice (design 126 R2). `all_types` stays a set for membership tests
+        # only.
+        type_order = list(struct_map.keys()) + [
+            n for n in enum_map.keys() if n not in struct_map]
+        all_types = set(type_order)
 
         # Helper to get type dependencies from a SawType
         def get_deps(saw_type):
@@ -1683,7 +1692,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return deps
 
         # Build dependency graph
-        deps = {name: set() for name in all_types}
+        deps = {name: set() for name in type_order}
 
         for struct in structs:
             if struct.type_params:
@@ -1699,7 +1708,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     deps[enum.name].update(get_deps(param_type))
 
         # Topological sort using Kahn's algorithm
-        in_degree = {name: 0 for name in all_types}
+        in_degree = {name: 0 for name in type_order}
         for name, type_deps in deps.items():
             for dep in type_deps:
                 if dep in in_degree:
@@ -1721,7 +1730,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                         queue.append(other_name)
 
         # Add any remaining types (may have cycles - just add them)
-        for name in all_types:
+        for name in type_order:
             if name not in sorted_types:
                 sorted_types.append(name)
 

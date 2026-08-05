@@ -7288,21 +7288,27 @@ class ExpressionsMixin:
         into as well: a name they reference that resolves in an enclosing scope is
         a transitive capture of this closure too. A name is a capture iff it
         resolves in `outer_scope`; the closure's own params/locals do not.
+
+        The accumulator is an insertion-ordered dict, NOT a set: the returned
+        order becomes the closure environment's field order in the emitted IR, so
+        iterating a set of names made the compiler emit different IR for the same
+        source on every run (Python randomizes string hashing per process). Order
+        is first-use order in the body (design 126 R2).
         """
-        used_names = set()
+        used_names = {}
 
         def collect_names(expr):
             if expr is None:
                 return
             if isinstance(expr, Identifier):
-                used_names.add(expr.name)
+                used_names[expr.name] = None
             elif isinstance(expr, BinaryOp):
                 collect_names(expr.left)
                 collect_names(expr.right)
             elif isinstance(expr, UnaryOp):
                 collect_names(expr.operand)
             elif isinstance(expr, MoveExpr):
-                used_names.add(expr.variable)
+                used_names[expr.variable] = None
             elif isinstance(expr, ReferenceExpr):
                 collect_names(expr.expr)
             elif isinstance(expr, CastExpr):
@@ -7311,7 +7317,7 @@ class ExpressionsMixin:
                 # `f(x)` where `f` is an enclosing closure-typed binding is a
                 # capture of `f` (the final `outer_scope.lookup` filter drops
                 # top-level function names, which are not locals).
-                used_names.add(expr.name)
+                used_names[expr.name] = None
                 for arg in expr.arguments:
                     collect_names(arg.value)
             elif isinstance(expr, MethodCall):
