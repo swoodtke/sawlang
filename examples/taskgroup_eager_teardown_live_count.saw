@@ -1,0 +1,44 @@
+// design 124: the resource-accounting form of eager teardown — a live-object
+// counter, not a print order. Eight tasks are spawned and joined into one
+// long-lived group; by the time the last join returns, every task's owned value
+// has already been released, so the counter reads 0 WHILE THE GROUP IS STILL
+// ALIVE. Before eager teardown it read 8 (one retained frame per task).
+//
+// This is the shape a long-running server has: the group outlives the tasks, so
+// "released at group teardown" is indistinguishable from a leak.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 28
+// 0
+
+import std.task
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Held { id: Int }
+extension Held {
+    init(tag: Int) -> Held {
+        LIVE.fetch_add(1)
+        Held(id: tag)
+    }
+}
+extension Held: Deinit { func deinit(&var self) { LIVE.fetch_add(0 - 1) } }
+extension Held: NoCopy {}
+
+func worker(h: Held) -> Int {
+    yield_now()
+    h.id
+}
+
+func main() {
+    var group = TaskGroup()
+    var sum = 0
+    var i = 0
+    while i < 8 {
+        let hd = group.spawn(worker(Held(tag: i)))
+        sum = sum + hd.join()
+        i = i + 1
+    }
+    print(sum)          // 0+1+...+7
+    print(LIVE.load())  // every Held already released
+}

@@ -1,0 +1,46 @@
+// design 124: the sibling reader/writer EOF pattern must COMPLETE, not deadlock.
+//
+// The natural spelling of "one task writes, another reads to EOF" was a
+// three-way lifetime deadlock before eager teardown: the sender finished, but
+// its `TcpStream` stayed open inside the retained frame, so the receiver parked
+// forever on an EOF that could only arrive at group teardown — which could not
+// happen until the receiver finished. (Verified: on the pre-124 compiler this
+// program prints 5 and then hangs indefinitely.)
+//
+// Now the sender's stream is released when the SENDER completes, the fd closes,
+// and the receiver sees its EOF. Reported by the language-design review as the
+// EOF caveat under RS-3 / claim 22.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 5
+
+import std.net.{TcpStream}
+
+func sender(w: TcpStream) -> Int {
+    try! w.write("hello")
+    5                       // `w` is released here — the fd closes at completion
+}
+
+func receiver(r: TcpStream) -> Int {
+    var total = 0
+    var going = true
+    while going {
+        let chunk = try! r.read()
+        if chunk.len() == 0 {
+            going = false   // EOF, reachable only because the sender's fd closed
+        } else {
+            total = total + chunk.len()
+        }
+    }
+    total
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hs = group.spawn(sender(move a))
+    let hr = group.spawn(receiver(move b))
+    print(hs.join())
+    print(hr.join())
+}

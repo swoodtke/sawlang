@@ -1,0 +1,53 @@
+// design 124: eager teardown holds on the MULTI-THREADED engine too. The MT
+// worker resumes frames on its own OS thread, so the release runs there — the
+// assertion is on the COUNT, never on interleaving (design 75 test discipline).
+//
+// Two WAVES of tasks go into one long-lived `threads: 4` group. After each wave
+// the live counter reads 0 while the group is still alive, so the group does not
+// accumulate finished tasks' resources — the leak shape a long-running MT server
+// would hit. (The net-backed sibling-EOF variant is not expressible here: `Data`
+// is not `Send`, so a suspending net call cannot be spawned into an MT group.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+// 0
+// 240
+// 0
+
+import std.task
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Held { id: Int }
+extension Held {
+    init(tag: Int) -> Held {
+        LIVE.fetch_add(1)
+        Held(id: tag)
+    }
+}
+extension Held: Deinit { func deinit(&var self) { LIVE.fetch_add(0 - 1) } }
+extension Held: NoCopy {}
+
+func worker(h: Held) -> Int {
+    yield_now()
+    h.id
+}
+
+func main() {
+    var group = TaskGroup(threads: 4)
+    let h0 = group.spawn(worker(Held(tag: 1)))
+    let h1 = group.spawn(worker(Held(tag: 2)))
+    let h2 = group.spawn(worker(Held(tag: 4)))
+    let h3 = group.spawn(worker(Held(tag: 8)))
+    let s = h0.join() + h1.join() + h2.join() + h3.join()
+    print(s)            // 1+2+4+8 — a sum, not an order
+    print(LIVE.load())  // every Held of wave 1 already released
+
+    let g0 = group.spawn(worker(Held(tag: 16)))
+    let g1 = group.spawn(worker(Held(tag: 32)))
+    let g2 = group.spawn(worker(Held(tag: 64)))
+    let g3 = group.spawn(worker(Held(tag: 128)))
+    let s2 = g0.join() + g1.join() + g2.join() + g3.join()
+    print(s2)           // 16+32+64+128
+    print(LIVE.load())  // wave 2 released too: the group accumulates nothing
+}

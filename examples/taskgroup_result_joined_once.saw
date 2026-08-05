@@ -1,0 +1,36 @@
+// design 124 (semantics 2, JOINED path): eager teardown must not disturb the
+// result slot. A task's `__result` is the ONE thing `__release` leaves alone, so
+// `join()` still moves an owned result out of the frame and the caller owns it
+// for real — readable after the join, dropped exactly once at ITS scope.
+//
+// The oracle is the deinit print (900 + id): exactly one `977` means the payload
+// was neither freed early by the release nor dropped a second time at group
+// teardown. The design-67 read-out-of-container class is exactly this hazard.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 77
+// 999
+// 977
+
+import std.task
+struct Res { id: Int }
+extension Res: Deinit { func deinit(&var self) { print(900 + self.id) } }
+extension Res: NoCopy {}
+
+func producer(n: Int) -> Res {
+    yield_now()
+    let r = Res(id: n)
+    yield_now()
+    return move r
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(producer(77))
+    let owned = h.join()
+    print(7)                // the task's release already ran
+    print(owned.id)         // payload still valid AFTER the task's teardown
+    print(999)
+    // `owned` drops here -> one 977; group teardown drops nothing
+}

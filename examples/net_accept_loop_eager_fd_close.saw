@@ -1,0 +1,65 @@
+// design 124: the README's flagship accept-loop server must reclaim each
+// connection's fd when its HANDLER finishes, not when the group dies.
+//
+// The client is the oracle: it reads its reply and then reads again for EOF, and
+// EOF can only arrive once the handler's `TcpStream` has been dropped and the fd
+// closed. Before eager teardown every served handler's frame — and its fd — was
+// retained for the life of the server's group, so no client ever saw EOF and
+// this program hung (verified on the pre-124 compiler). It also exercises the
+// design-91 token contract across fd-number turnover: closing eagerly is what
+// lets the next connection REUSE a just-freed fd number.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 2
+// 2
+// 3
+
+import std.net.{TcpListener, TcpStream}
+
+func handle(conn: TcpStream) -> Int {
+    let req = try! conn.read()
+    try! conn.write("ok")
+    req.len()               // `conn` is released here — the fd closes now
+}
+
+func serve(listener: TcpListener, n: Int) -> Int {
+    var served = 0
+    var group = TaskGroup()
+    while served < n {
+        let conn = try! listener.accept()
+        let _ = group.spawn(handle(move conn))
+        served = served + 1
+    }
+    served
+}
+
+func client(port: Int) -> Int {
+    let s = try! TcpStream.connect("127.0.0.1", port)
+    try! s.write("hi")
+    var total = 0
+    var going = true
+    while going {
+        let chunk = try! s.read()
+        if chunk.len() == 0 {
+            going = false   // EOF: the handler's fd is already closed
+        } else {
+            total = total + chunk.len()
+        }
+    }
+    total
+}
+
+func main() {
+    let listener = try! TcpListener.listen(0)
+    let port = listener.local_port()
+    var group = TaskGroup()
+    let hs = group.spawn(serve(move listener, 3))
+    let c0 = group.spawn(client(port))
+    let c1 = group.spawn(client(port))
+    let c2 = group.spawn(client(port))
+    print(c0.join())
+    print(c1.join())
+    print(c2.join())
+    print(hs.join())
+}

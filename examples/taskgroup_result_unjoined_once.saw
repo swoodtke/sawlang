@@ -1,0 +1,35 @@
+// design 124 (semantics 2, NEVER-JOINED path): a result nobody joins is dropped
+// exactly once, at group teardown. The frame's other owned values still go
+// eagerly at completion — only `__result` waits.
+//
+// `held` (55) is an ordinary across-suspend local: released when the task
+// completes, so `955` prints BEFORE the marker. The result `Res(77)` is the slot
+// `__release` leaves alone, so its `977` prints once at group teardown, AFTER
+// the marker. Two prints, one each: no early free, no double drop.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 955
+// 1
+// 977
+
+import std.task
+struct Res { id: Int }
+extension Res: Deinit { func deinit(&var self) { print(900 + self.id) } }
+extension Res: NoCopy {}
+
+func producer(n: Int) -> Res {
+    let held = Res(id: 55)   // an ordinary local: released at completion
+    yield_now()
+    let r = Res(id: n)
+    yield_now()
+    return move r            // the result: held until group teardown
+}
+
+func main() {
+    var group = TaskGroup()
+    let _h = group.spawn(producer(77))
+    // Drive the task to completion without taking its result.
+    sleep(1)
+    print(1)
+    // group teardown: the unconsumed result drops exactly once
+}
