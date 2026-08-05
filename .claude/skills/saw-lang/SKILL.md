@@ -561,10 +561,21 @@ construct in the owner and lend `&driver` down.
   can't (overflow past `UInt.max` → `None`). Integer bounds are the builtins
   `Int.max`/`Int.min`, `UInt.max`/`UInt.min`, `Int8.max`…`UInt64.max`.
 - std.time/std.process/std.file/std.net are HOSTED-only (link libc).
-  `Command(program:).arg(..).run() -> Result<Int32, ProcessError>`: Ok(code) =
-  launched + exited (signal death = 128+signum, never a bogus 0); Err = could not
-  launch (executable not found / shell exit 127). `ProcessError: Error` names the
-  program. `.output() -> CommandOutput?` still captures stdout.
+  `Command` spawns a real ARGV — no shell, ever (design 122): one `arg(..)` call
+  is exactly one argv element, so spaces, quotes, `;`, `*` and `$VAR` inside an
+  argument are literal bytes the child receives verbatim (nothing is split,
+  expanded or executed). Want a shell? Spawn one explicitly:
+  `Command(program: "/bin/sh")`, `arg("-c")`, `arg("cmd | cmd2")`. `arg` returns
+  Void, so build it in statements, not a chain:
+  ```saw
+  var c = Command(program: "git")
+  c.arg("clone"); c.arg(url)
+  let code = try! c.run()
+  ```
+  `run() -> Result<Int32, ProcessError>`: Ok(code) = launched + exited (signal
+  death = 128+signum, never a bogus 0); Err = could not launch (spawn failed, or
+  the child could not exec -> 127). `ProcessError: Error` names the program.
+  `.output() -> CommandOutput?` captures stdout (stderr is inherited).
 - `UnsafePointer<T> + n` / `- n` / `[i]` are ELEMENT-STRIDE GEPs (the C
   convention: `UnsafePointer<Int32> + 1` advances 4 bytes). Use them for typed
   pointer math. `ptr as Int` (+ int math + `as UnsafePointer<T>`) DESTROYS

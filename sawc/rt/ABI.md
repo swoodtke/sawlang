@@ -195,6 +195,39 @@ captured right after). C-string args.
 - `__saw_rt_env_set(name: i8*, value: i8*, overwrite: word) -> word`
 - `__saw_rt_env_unset(name: i8*) -> word`
 
+## Process spawn (design 122 — additive)
+
+Three seams added after v2 froze, for the same reason the fs/env ops exist: the
+operation crosses the boundary and its status has to come back with it. They
+replace `std.process.Command`'s old `system()`/`popen()` shell command line —
+which re-split every argument and executed anything after a `;` — with a real
+argv spawn. **No shell is involved at any point**, on any implementation: one
+`argv` element is one argument, whatever bytes it holds.
+
+A **job** is an opaque heap record owning the child's pid and, when capturing,
+the read end of its stdout pipe. Single-owner discipline, exactly like the
+offload family: `spawn` creates the job, `wait` reaps the child and destroys it.
+The hosted bodies are `fork` + `execvp` (`rt/common/proc.saw`, OS-independent);
+between fork and exec the child touches only async-signal-safe calls
+(`close`/`dup2`/`execvp`/`_exit`).
+
+### `__saw_rt_proc_spawn(path: i8*, argv: i8**, capture: word) -> word`
+Spawn `path` with the NULL-terminated `argv` array (`argv[0]` is the program
+name, as `execvp` expects). `capture != 0` redirects the child's stdout into a
+pipe the job owns. Returns the job handle (`> 0`) or `-tag`. A child that cannot
+exec exits **127** (the POSIX "command not found" convention), which std maps
+back to a launch failure.
+
+### `__saw_rt_proc_read_stdout(job: word, buf: i8*, len: word) -> word`
+Read up to `len` bytes of the child's captured stdout: the byte count (`0` =
+EOF, and `0` immediately for a job spawned without capture) or `-tag`.
+
+### `__saw_rt_proc_wait(job: word) -> word`
+Reap the child, close the capture pipe, free the job, and return the **RAW POSIX
+wait status** (`>= 0`) or `-tag`. Raw, not an exit code: std decodes it, because
+the signal bits are what distinguish a crashed child from a clean exit 0 (design
+59 DF2). Retries on `Interrupted`.
+
 ## Cooperative-scheduler fairness (design 89-c)
 
 A backstop for the single-threaded cooperative scheduler: an io op that completes
@@ -545,7 +578,8 @@ blocks. Layout:
 ```
 sawc/rt/
   common/       OS-independent bodies: alloc/sleep/op-budget, pthread mutex/cond
-                init + thread_join, offload, and the status-carrying OS ops
+                init + thread_join, offload, process spawn (proc.saw — fork/exec
+                argv spawn), and the status-carrying OS ops
                 (os_ops.saw — tcp_* + fs_* + env_*)
   host_macos/   kqueue reactor + macOS specifics (clock, net_os = errno→tag +
                 sin_set_family)

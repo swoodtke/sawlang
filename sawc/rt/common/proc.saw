@@ -1,0 +1,152 @@
+// Process spawn seams (design 122 unit C), authored in Saw.
+//
+// `std.process.Command` used to concatenate its arguments into ONE string and
+// hand it to `system()`, so every argument was re-split by the shell and any
+// metacharacter in it executed (`arg("; rm -rf ~")`). These seams replace that
+// with a real argv spawn: the caller passes a NULL-terminated `char**` and the
+// child is `execvp`'d directly — no shell is involved at any point, and one
+// element of the array is exactly one argument no matter what bytes it holds.
+//
+// The shape mirrors the offload family: `spawn` returns an opaque JOB handle (a
+// heap record owning the child's pid and, when capturing, the read end of its
+// stdout pipe); `read_stdout` drains that pipe; `wait` reaps the child, releases
+// the record and returns the RAW POSIX wait status (which std decodes — a signal
+// death must not read as exit 0). Single-owner discipline: spawn creates the
+// job, wait destroys it.
+//
+// OS-INDEPENDENT (identical POSIX calls on macOS + Linux); only the errno->tag
+// mapping diverges, and that already lives behind `__saw_rt_last_syserror`. A
+// kernel/sos runtime authors its own bodies for these three names.
+
+extern "C" {
+    func malloc(size: Int) -> UnsafePointer<Int8>
+    func free(ptr: UnsafePointer<Int8>)
+    func pipe(fds: UnsafePointer<Int8>) -> Int32
+    func close(fd: Int32) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func dup2(oldfd: Int32, newfd: Int32) -> Int32
+    func fork() -> Int32
+    func execvp(file: UnsafePointer<Int8>, argv: UnsafePointer<Int8>) -> Int32
+    func _exit(code: Int32)
+    func waitpid(pid: Int32, status: UnsafePointer<Int32>, options: Int32) -> Int32
+    func __saw_rt_last_syserror() -> Int
+}
+
+// SysError tags this file branches on (the full space is in ABI.md).
+static SYS_INTERRUPTED: Int = 4
+
+static STDOUT_FILENO: Int32 = 1
+// POSIX shell convention for "command not found / could not exec": the child
+// that fails to exec exits 127, which std maps back to a launch failure.
+static EXEC_FAILED_STATUS: Int32 = 127
+static NO_FD: Int32 = -1
+
+// pipe() writes fds[0]=read, fds[1]=write into two adjacent Int32s.
+struct PipeFds {
+    r: Int32
+    w: Int32
+}
+
+// The opaque job record handed back to std as a word.
+struct ProcJob {
+    pid: Int32
+    stdout_fd: Int32   // the read end when capturing, NO_FD otherwise
+}
+
+// Spawn `path` with `argv` (a NULL-terminated char* array whose [0] is the
+// program name, exactly as execvp wants). `capture != 0` redirects the child's
+// stdout into a pipe this job owns. Returns the job handle (> 0) or -tag.
+@export("__saw_rt_proc_spawn")
+func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, capture: Int) -> Int {
+    var fds = PipeFds(r: NO_FD, w: NO_FD)
+    if capture != 0 {
+        if pipe((&fds) as UnsafePointer<Int8>) != (0 as Int32) {
+            return 0 - __saw_rt_last_syserror()
+        }
+    }
+
+    let pid = fork()
+    if pid < (0 as Int32) {
+        let e = __saw_rt_last_syserror()
+        if capture != 0 {
+            let _ = close(fds.r)
+            let _ = close(fds.w)
+        }
+        return 0 - e
+    }
+
+    if pid == (0 as Int32) {
+        // CHILD. Everything here is async-signal-safe (dup2/close/execvp/_exit),
+        // which is the whole contract for the window between fork and exec.
+        if capture != 0 {
+            let _ = close(fds.r)
+            let _ = dup2(fds.w, STDOUT_FILENO)
+            let _ = close(fds.w)
+        }
+        let _ = execvp(path, argv)
+        // Only reachable when exec FAILED (bad path, not executable, ENOENT).
+        _exit(EXEC_FAILED_STATUS)
+        return 0
+    }
+
+    // PARENT: the write end belongs to the child now.
+    if capture != 0 {
+        let _ = close(fds.w)
+    }
+    let raw = unsafe malloc(sizeof<ProcJob>())
+    let p = raw as UnsafePointer<ProcJob>
+    unsafe p[0].pid = pid
+    unsafe p[0].stdout_fd = fds.r
+    raw as Int
+}
+
+// Read up to `len` bytes of the child's captured stdout. Returns the byte count
+// (0 = EOF, and 0 immediately for a job spawned without capture) or -tag.
+@export("__saw_rt_proc_read_stdout")
+func rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
+    let p = job as UnsafePointer<ProcJob>
+    let fd = unsafe p[0].stdout_fd
+    if fd < (0 as Int32) {
+        return 0
+    }
+    let n = read(fd, buf, len)
+    if n >= 0 {
+        return n
+    }
+    0 - __saw_rt_last_syserror()
+}
+
+// Reap the child and release the job. Returns the RAW POSIX wait status (>= 0,
+// decoded by std — the exit byte and the signal bits both matter) or -tag.
+@export("__saw_rt_proc_wait")
+func rt_proc_wait(job: Int) -> Int {
+    let raw = job as UnsafePointer<Int8>
+    let p = job as UnsafePointer<ProcJob>
+    let fd = unsafe p[0].stdout_fd
+    if fd >= (0 as Int32) {
+        let _ = close(fd)
+        unsafe p[0].stdout_fd = NO_FD
+    }
+
+    var status: Int32 = 0
+    let sp = (&status) as UnsafePointer<Int32>
+    var tag = 0
+    var waiting = true
+    while waiting {
+        let r = waitpid(unsafe p[0].pid, sp, 0 as Int32)
+        if r >= (0 as Int32) {
+            waiting = false
+        } else {
+            tag = __saw_rt_last_syserror()
+            // A signal delivered to US must not lose the child's status.
+            if tag != SYS_INTERRUPTED {
+                waiting = false
+            }
+        }
+    }
+    free(raw)
+    if tag != 0 && tag != SYS_INTERRUPTED {
+        return 0 - tag
+    }
+    status as Int
+}

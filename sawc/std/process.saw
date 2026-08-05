@@ -9,27 +9,30 @@
 // =============================================================================
 
 extern "C" {
-    // Process execution
-    func system(command: UnsafePointer<Int8>) -> Int32
-    func popen(command: UnsafePointer<Int8>, mode: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
-    func pclose(stream: UnsafePointer<Int8>) -> Int32
-    func fread(ptr: UnsafePointer<Int8>, size: Int, count: Int, stream: UnsafePointer<Int8>) -> Int
-    func feof(stream: UnsafePointer<Int8>) -> Int32
+    // Process execution (design 122 unit C). A command is spawned through the
+    // runtime seams with a real argv array — never a shell command line — so an
+    // argument containing spaces, quotes or `;` is ONE argument and nothing in
+    // it is ever interpreted. `spawn` hands back an opaque job handle (or a
+    // negated SysError tag); `wait` reaps it and returns the RAW POSIX wait
+    // status, which `decode_wait_status` below turns into an exit code.
+    func __saw_rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, capture: Int) -> Int
+    func __saw_rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
+    func __saw_rt_proc_wait(job: Int) -> Int
 
     // Memory
     func malloc(size: Int) -> UnsafePointer<Int8>?
     func realloc(ptr: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
     func free(ptr: UnsafePointer<Int8>)
-    func strlen(s: UnsafePointer<Int8>) -> Int
 
     // Refcounted String runtime (defined by the compiler, see codegen/core.py)
-    func __saw_string_alloc(len: Int) -> UnsafePointer<Int8>?
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
-
-    // String operations (BSD safe versions)
-    func strlcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, size: Int) -> Int
-    func strlcat(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, size: Int) -> Int
 }
+
+// The exit code a child reports when it could not exec (POSIX convention, and
+// what the spawn seam's child branch uses).
+static EXEC_FAILED_CODE: Int32 = 127
+// stdout drain granularity for `output()`.
+static PROC_READ_CHUNK: Int = 1024
 
 // =============================================================================
 // Wait-status decode (design 59 A, DF2)
@@ -111,102 +114,63 @@ extension CommandOutput {
 
 struct Command {
     program: String
-    args_buffer: UnsafePointer<Int8>?
-    args_len: Int
-    args_cap: Int
+    // One element per argument, kept SEPARATE all the way to `execvp`. The old
+    // representation was a single space-joined byte buffer handed to `system()`,
+    // which meant the shell re-split it: `arg("one two")` became two arguments
+    // and `arg("; echo hi")` ran a second command (design 122 unit C).
+    args: Vector<String>
 }
 
 extension Command {
     // Create a new Command for the given program
     public init(program: String) -> Command {
-        Command(program: program, args_buffer: None, args_len: 0, args_cap: 0)
+        Command(program: program, args: Vector<String>())
     }
 
-    // Add a single argument
+    // Add a single argument. Whatever bytes it holds, it arrives at the child
+    // process as exactly one element of `argv` — no quoting rules to get wrong,
+    // because no shell ever sees it.
     public func arg(&var self, argument: String) {
-        self.append_arg(argument)
+        self.args.push(argument)
     }
 
-    // Internal: append an argument to the buffer
-    public func append_arg(&var self, argument: String) {
-        let arg_ptr = argument as UnsafePointer<Int8>
-        let arg_len = strlen(arg_ptr)
-
-        // Need space for: existing args + space + new arg + null
-        let needed = self.args_len + 1 + arg_len + 1
-
-        if self.args_cap < needed {
-            // Grow buffer
-            var new_cap = if self.args_cap == 0 { 256 } else { self.args_cap * 2 }
-            while new_cap < needed {
-                new_cap = new_cap * 2
-            }
-
-            if let old_buf = self.args_buffer {
-                if let new_buf = realloc(old_buf, new_cap) {
-                    self.args_buffer = new_buf
-                    self.args_cap = new_cap
-                }
-            } else {
-                if let new_buf = malloc(new_cap) {
-                    new_buf[0] = 0 as Int8  // Start with empty string
-                    self.args_buffer = new_buf
-                    self.args_cap = new_cap
-                }
-            }
-        }
-
-        // Append the argument
-        if let buf = self.args_buffer {
-            // Add space if not first arg
-            if self.args_len > 0 {
-                buf[self.args_len] = 32 as Int8  // ' '
-                self.args_len = self.args_len + 1
-            }
-
-            // Copy argument
-            var i = 0
-            while i < arg_len {
-                buf[self.args_len + i] = arg_ptr[i]
-                i = i + 1
-            }
-            self.args_len = self.args_len + arg_len
-            buf[self.args_len] = 0 as Int8  // null terminate
-        }
+    // The number of arguments added so far.
+    public func arg_count(&self) -> Int {
+        self.args.len()
     }
 
-    // Build the full command string
-    public func build_command(&self) -> String {
-        // Calculate total length: program + space + args + null
-        let prog_ptr = self.program as UnsafePointer<Int8>
-        let prog_len = strlen(prog_ptr)
-
-        var total_len = prog_len
-        if self.args_len > 0 {
-            total_len = total_len + 1 + self.args_len  // + space + args
+    // Build the NULL-terminated `char**` that `execvp` wants:
+    // `[program, arg0, arg1, ..., NULL]`. The slots BORROW the Strings this
+    // Command owns, so the array is only valid while `self` is alive and must be
+    // freed by the caller; both spawn paths below use it and free it at once.
+    // (Signature names a raw pointer, so this is already the design-81 marked
+    // domain.)
+    func build_argv(&self) -> UnsafePointer<Int8>? {
+        let n = self.args.len()
+        let slot = sizeof<UnsafePointer<Int8>>()
+        let slots = n + 2                      // program + args + NULL
+        guard let raw = malloc(slots * slot) else {
+            return None
         }
-
-        let buf_size = total_len + 1
-        // Build into a real refcounted String buffer so the returned value has a
-        // valid header and is freed by its owner's release() (not a bare malloc).
-        if let cmd_buf = __saw_string_alloc(total_len) {
-            // Copy program
-            strlcpy(cmd_buf, prog_ptr, buf_size)
-
-            // Append args if any
-            if let args = self.args_buffer {
-                if self.args_len > 0 {
-                    // Append space and args
-                    let space = " " as UnsafePointer<Int8>
-                    strlcat(cmd_buf, space, buf_size)
-                    strlcat(cmd_buf, args, buf_size)
-                }
+        let arr = raw as UnsafePointer<UnsafePointer<Int8>>
+        arr[0] = self.program as UnsafePointer<Int8>
+        var i = 0
+        while i < n {
+            if let a = self.args.get(i) {
+                arr[i + 1] = a as UnsafePointer<Int8>
             }
-
-            cmd_buf as String
-        } else {
-            self.program
+            i = i + 1
         }
+        // Terminate with a NULL pointer, written as a slot of zero bytes (there
+        // is no null-pointer literal, and the element type is not optional).
+        let bytes = raw as UnsafePointer<Int8>
+        let end = (slots - 1) * slot
+        var k = 0
+        while k < slot {
+            bytes[end + k] = 0 as Int8
+            k = k + 1
+        }
+        raw
     }
 
     // Run the command, inheriting stdin/stdout/stderr.
@@ -214,114 +178,126 @@ extension Command {
     // Ok(code)  = the command LAUNCHED and its process exited with `code`
     //             (a signal death decodes to 128+signum via decode_wait_status,
     //             so a crashed child is a nonzero code, never a bogus 0 — DF2).
-    // Err(...)  = the command could not be LAUNCHED: `system()` returned -1
-    //             (no child / status unavailable), or the shell reported exit
-    //             127 (POSIX "command not found / could not exec"). This is the
-    //             design-92 distinction — a failed launch is surfaced, not
-    //             folded into a bogus exit code (never hide errors).
+    // Err(...)  = the command could not be LAUNCHED: the spawn itself failed
+    //             (no child / no argv memory), or the child could not exec and
+    //             exited 127 (POSIX "command not found / could not exec"). This
+    //             is the design-92 distinction — a failed launch is surfaced,
+    //             not folded into a bogus exit code (never hide errors).
     public func run(&self) -> Result<Int32, ProcessError> {
-        let cmd = self.build_command()
-        let cmd_ptr = cmd as UnsafePointer<Int8>
-        let raw = system(cmd_ptr)
-        if raw == (-1 as Int32) {
+        guard let argv = unsafe self.build_argv() else {
             return ProcessError(program: self.program)
         }
-        let code = decode_wait_status(raw)
-        if code == (127 as Int32) {
+        let job = __saw_rt_proc_spawn(self.program as UnsafePointer<Int8>, argv, 0)
+        free(argv)
+        if job <= 0 {
+            return ProcessError(program: self.program)
+        }
+        let raw = __saw_rt_proc_wait(job)
+        if raw < 0 {
+            return ProcessError(program: self.program)
+        }
+        let code = decode_wait_status(raw as Int32)
+        if code == EXEC_FAILED_CODE {
             return ProcessError(program: self.program)
         }
         code
     }
 
-    // Run the command and capture its output
-    // Returns CommandOutput with stdout and exit code
+    // Run the command and capture its stdout.
+    // Returns CommandOutput with stdout and exit code, or None if the child
+    // could not be spawned.
     public func output(&self) -> CommandOutput? {
-        let cmd = self.build_command()
-        let cmd_ptr = cmd as UnsafePointer<Int8>
-        let mode = "r" as UnsafePointer<Int8>
-
-        if let stream = popen(cmd_ptr, mode) {
-            // Read output into a buffer
-            var output_buf: UnsafePointer<Int8>? = None
-            var output_len = 0
-            var output_cap = 0
-
-            if let read_buf = malloc(1024) {
-                var done = false
-                while not done {
-                    let bytes_read = fread(read_buf, 1, 1024, stream)
-                    if bytes_read > 0 {
-                        // Ensure capacity
-                        let needed = output_len + bytes_read + 1
-                        if output_cap < needed {
-                            var new_cap = if output_cap == 0 { 1024 } else { output_cap * 2 }
-                            while new_cap < needed {
-                                new_cap = new_cap * 2
-                            }
-
-                            if let old = output_buf {
-                                if let new_buf = realloc(old, new_cap) {
-                                    output_buf = new_buf
-                                    output_cap = new_cap
-                                }
-                            } else {
-                                if let new_buf = malloc(new_cap) {
-                                    output_buf = new_buf
-                                    output_cap = new_cap
-                                }
-                            }
-                        }
-
-                        // Copy bytes
-                        if let out = output_buf {
-                            var i = 0
-                            while i < bytes_read {
-                                out[output_len + i] = read_buf[i]
-                                i = i + 1
-                            }
-                            output_len = output_len + bytes_read
-                            out[output_len] = 0 as Int8  // null terminate
-                        }
-                    }
-
-                    if feof(stream) != (0 as Int32) || bytes_read == 0 {
-                        done = true
-                    }
-                }
-                free(read_buf)
-            }
-
-            // Get exit status. pclose() returns the raw wait status too, so
-            // decode it the same way run() does (DF2): a signal death is a
-            // nonzero failure, not exit 0.
-            let status = pclose(stream)
-            let exit_code = decode_wait_status(status)
-
-            // Convert output to an owned String. The read buffer has no String
-            // header (it's a bare realloc buffer), so copy its bytes into a
-            // proper refcounted String, then free the scratch buffer. This is
-            // what fixes the old use-after-free (`out as String` then `free(out)`
-            // returned a dangling pointer -> empty captured stdout).
-            let stdout_str = if let out = output_buf {
-                let s = __saw_string_from_bytes(out, output_len)
-                free(out)
-                s
-            } else {
-                ""
-            }
-
-            CommandOutput(stdout: stdout_str, exit_code: exit_code)
-        } else {
-            None
+        guard let argv = unsafe self.build_argv() else {
+            return None
         }
+        let job = __saw_rt_proc_spawn(self.program as UnsafePointer<Int8>, argv, 1)
+        free(argv)
+        if job <= 0 {
+            return None
+        }
+
+        // Drain the child's stdout pipe into a growing scratch buffer.
+        var output_buf: UnsafePointer<Int8>? = None
+        var output_len = 0
+        var output_cap = 0
+
+        if let read_buf = unsafe malloc(PROC_READ_CHUNK) {
+            var done = false
+            while not done {
+                let bytes_read = __saw_rt_proc_read_stdout(job, read_buf, PROC_READ_CHUNK)
+                if bytes_read > 0 {
+                    // Ensure capacity
+                    let needed = output_len + bytes_read + 1
+                    if output_cap < needed {
+                        var new_cap = if output_cap == 0 { PROC_READ_CHUNK } else { output_cap * 2 }
+                        while new_cap < needed {
+                            new_cap = new_cap * 2
+                        }
+
+                        if let old = output_buf {
+                            if let new_buf = unsafe realloc(old, new_cap) {
+                                output_buf = new_buf
+                                output_cap = new_cap
+                            }
+                        } else {
+                            if let new_buf = unsafe malloc(new_cap) {
+                                output_buf = new_buf
+                                output_cap = new_cap
+                            }
+                        }
+                    }
+
+                    // Copy bytes
+                    if let out = output_buf {
+                        var i = 0
+                        while i < bytes_read {
+                            unsafe out[output_len + i] = unsafe read_buf[i]
+                            i = i + 1
+                        }
+                        output_len = output_len + bytes_read
+                        unsafe out[output_len] = 0 as Int8  // null terminate
+                    }
+                } else {
+                    // 0 = EOF (the child closed stdout / exited); < 0 = a read
+                    // error. Either way there is nothing more to collect — the
+                    // child is still reaped below so its status is not lost.
+                    done = true
+                }
+            }
+            free(read_buf)
+        }
+
+        // Reap the child. The seam returns the RAW wait status, decoded the same
+        // way run() does (DF2): a signal death is a nonzero failure, not exit 0.
+        let raw = __saw_rt_proc_wait(job)
+        if raw < 0 {
+            if let out = output_buf {
+                free(out)
+            }
+            return None
+        }
+        let exit_code = decode_wait_status(raw as Int32)
+
+        // Convert output to an owned String. The read buffer has no String
+        // header (it's a bare realloc buffer), so copy its bytes into a
+        // proper refcounted String, then free the scratch buffer. This is
+        // what fixes the old use-after-free (`out as String` then `free(out)`
+        // returned a dangling pointer -> empty captured stdout).
+        let stdout_str = if let out = output_buf {
+            let s = __saw_string_from_bytes(out, output_len)
+            free(out)
+            s
+        } else {
+            ""
+        }
+
+        CommandOutput(stdout: stdout_str, exit_code: exit_code)
     }
 }
 
-// Command needs cleanup for the args buffer
+// Command owns its argument vector; nothing else needs releasing (the `args`
+// field's own deinit runs as drop glue).
 extension Command: NoCopy {
     public func deinit(&var self) {
-        if let buf = self.args_buffer {
-            free(buf)
-        }
     }
 }

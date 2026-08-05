@@ -47,6 +47,10 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_fs_chdir",
     "__saw_rt_env_set",
     "__saw_rt_env_unset",
+    # Process spawn (design 122 unit C): real argv spawn, no shell anywhere
+    "__saw_rt_proc_spawn",
+    "__saw_rt_proc_read_stdout",
+    "__saw_rt_proc_wait",
     # Cooperative-scheduler fairness (design 89-c)
     "__saw_rt_op_budget_tick",
     "__saw_rt_op_budget_reset",

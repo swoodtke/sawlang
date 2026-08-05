@@ -1,0 +1,47 @@
+// Design 122 unit C: `Command` spawns a real argv array — no shell is involved
+// at any point, so an argument arrives at the child EXACTLY as written.
+//
+// Every case below used to be mangled: `arg()` space-joined its arguments into
+// one string handed to `system()`, so the shell re-split on whitespace, ran
+// anything after a `;`, and expanded globs and `$VAR`. `arg("; echo INJECTED")`
+// really did execute a second command.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// [a  b]
+// [; echo INJECTED]
+// [*]
+// [$HOME]
+// [one]
+
+import std.process.{Command}
+
+// Echo one argument back verbatim (no trailing newline) and bracket it, so any
+// shell word-splitting, expansion or extra command shows up in the output.
+func echoed(argument: String) -> String {
+    var c = Command(program: "/bin/echo")
+    c.arg("-n")
+    c.arg(argument)
+    if let r = c.output() {
+        "[{r.stdout}]"
+    } else {
+        "<spawn failed>"
+    }
+}
+
+func main() {
+    print(echoed("a  b"))              // two spaces survive: not re-split
+    print(echoed("; echo INJECTED"))   // literal text, not a second command
+    print(echoed("*"))                 // no glob expansion
+    print(echoed("$HOME"))             // no variable expansion
+
+    // And an argument count sanity check: one `arg` call is one argv element.
+    var c = Command(program: "/bin/echo")
+    c.arg("-n")
+    c.arg("one")
+    assert(c.arg_count() == 2, "arg_count counts argv elements")
+    if let r = c.output() {
+        print("[{r.stdout}]")
+    } else {
+        print("<spawn failed>")
+    }
+}

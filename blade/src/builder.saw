@@ -101,6 +101,33 @@ public extension Builder {
         }
     }
 
+    // `SAWC` as a spawnable Command. The variable may hold a full command line
+    // (`/path/to/python /path/to/sawc.py`, which is how the bootstrap drives the
+    // in-tree compiler), so it is split on spaces here — the `CC="ccache gcc"`
+    // convention, applied deliberately and locally to an environment variable.
+    // `Command` itself never splits or interprets anything: one `arg` is one
+    // argv element (design 122).
+    public func compiler_command(&self) -> Command {
+        let words = self.compiler().split(" ")
+        var program = "sawc"
+        if let first = words.get(0) {
+            if not first.is_empty() {
+                program = first
+            }
+        }
+        var cmd = Command(program: program)
+        var i = 1
+        while i < words.len() {
+            if let extra = words.get(i) {
+                if not extra.is_empty() {
+                    cmd.arg(extra)
+                }
+            }
+            i = i + 1
+        }
+        move cmd
+    }
+
     // Find the main source file
     public func find_source_file(&self) -> String? {
         let src_main = Path(s: "src/main.saw")
@@ -223,7 +250,7 @@ public extension Builder {
 
         print("   Compiling {output_name} v{self.manifest.version()}")
 
-        var cmd = Command(program: self.compiler())
+        var cmd = self.compiler_command()
         cmd.arg(source_file)
         cmd.arg("-o")
         cmd.arg(output_name)

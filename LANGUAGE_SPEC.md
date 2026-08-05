@@ -3448,7 +3448,10 @@ namespace layout and are largely *illustrative* (the concrete names may differ).
 Actually shipped today: `String`, `StringBuilder`, `Vector<T, A>`,
 `Map<K, V, A>`, `Set<T, A>`, `Arc<T>`, `Box<T, A>`, `Mutex<T>`, `Channel<T>`,
 `Task<T>`, `TaskGroup`, `File`, `Directory`, `Path`, `Data`, `Env`,
-`Command`/`ProcessError` (std.process), `std.net` (`TcpListener`/`TcpStream`),
+`Command`/`ProcessError` (std.process — a real argv spawn, never a shell: one
+`arg()` is one argv element and nothing in it is split, expanded or executed;
+run `/bin/sh -c` explicitly if a shell is what you want, design 122),
+`std.net` (`TcpListener`/`TcpStream`),
 `std.time` (`Duration`/`Instant`), plus `Int`/`Float` numeric extensions and the
 `Equatable`/`Comparable`/`Hashable`/`Printable`/`Error` traits (and
 `Result`/optionals as language features). `RwLock` and I/O beyond files and
