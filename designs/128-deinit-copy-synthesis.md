@@ -48,10 +48,20 @@ i.e. most structs.
    deep memberwise copy of all fields is being generated. `@synthesize` is
    deliberately generic — extensible to future synthesized conformances.
 
-4. **Equatable is unchanged.** `[user]` Empty-conformance synthesis
-   (`extension T: Equatable {}`) keeps working with no marker — equality has
-   no ownership/allocation cost, which is what the marker exists to flag.
-   Whether `@synthesize` later unifies the derive story is out of scope.
+4. **Uniform derive story: every declared synthesis takes `@synthesize`.**
+   `[user, revised Aug 5]` Equatable adopts the marker too, and the rule
+   extends to the other empty-conformance synthesizers (Comparable,
+   Hashable) for one teachable rule: a DECLARED empty conformance to a
+   synthesizable trait derives its body only under `@synthesize`; a bare
+   empty conformance is a compile error hinting at the marker or a
+   hand-written body. AUTO-conformance is untouched — trivial (POD) structs
+   and payload-free enums still conform to Equatable/Hashable with no
+   declaration, and builtin conformances (Int/Bool/Float/String) are
+   unaffected; the marker applies only where a conformance is written
+   (which for Comparable is every conformance — it has no auto-conform).
+   Migration: the existing empty Equatable/Comparable/Hashable conformances
+   in std, libs/, examples/, blade/ gain the marker in this brief
+   (mechanical).
 
 5. **Riders (review §2.2 diagnostic bugs).** `[user]` The conformance-error
    hints currently teach `func deinit(var self)` / `func copy(self)` —
@@ -67,11 +77,15 @@ i.e. most structs.
 ## Shape of the work
 Parser: `@synthesize` joins the attribute vocabulary (design 58 machinery),
 valid on extensions. Typechecker: conformance synthesis pass (Equatable's
-machinery generalized) — implicit deinit synthesis, marker-gated
-ExplicitCopy synthesis, bare-empty-ExplicitCopy error, non-copyable-field
-error, `var self` rejection + fixit, hint spelling fixes. Codegen: none new
-(lower onto existing deinit/copy paths). Tests: the review's `Holder` probe
-compiles under both `NoCopy` and `@synthesize ExplicitCopy`; drop-order
-test (declaration order, reverse); enum payload-mix deinit; bare empty
-ExplicitCopy conformance errors; non-copyable-field error names the field;
-`var self` fixit. Spec + skill sections (load saw-docs for the prose).
+machinery generalized) — implicit deinit synthesis, marker-gated synthesis
+for ExplicitCopy AND the existing Equatable/Comparable/Hashable paths,
+bare-empty-conformance error (all four traits), non-copyable-field error,
+`var self` rejection + fixit, hint spelling fixes. Codegen: none new
+(lower onto existing deinit/copy paths). Migration commit: add the marker
+to every empty Equatable/Comparable/Hashable conformance in std, libs/,
+examples/, blade/. Tests: the review's `Holder` probe compiles under both
+`NoCopy` and `@synthesize ExplicitCopy`; drop-order test (declaration
+order, reverse); enum payload-mix deinit; bare empty conformance errors
+for each of the four traits; non-copyable-field error names the field;
+POD auto-conformance still marker-free; `var self` fixit. Spec + skill
+sections (load saw-docs for the prose).
