@@ -49,7 +49,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
             Vector<T, A>(buffer: None, length: 0, capacity: 0)
         } else {
             let byte_size = capacity * sizeof<T>()
-            if let raw_ptr = unsafe A().alloc(byte_size, alignof<T>()) {
+            if let raw_ptr = A().alloc(byte_size, alignof<T>()) {
                 let typed_ptr = raw_ptr as UnsafePointer<T>
                 Vector<T, A>(buffer: typed_ptr, length: 0, capacity: capacity)
             } else {
@@ -69,7 +69,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
             return Vector<T, A>()
         }
         let byte_size = n * sizeof<T>()
-        if let raw_ptr = unsafe A().alloc(byte_size, alignof<T>()) {
+        if let raw_ptr = A().alloc(byte_size, alignof<T>()) {
             let typed_ptr = raw_ptr as UnsafePointer<T>
             return Vector<T, A>(buffer: typed_ptr, length: 0, capacity: n)
         }

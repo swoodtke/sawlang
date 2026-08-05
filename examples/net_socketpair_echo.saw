@@ -10,7 +10,7 @@
 
 import std.net.{net_buffer, net_bytes_to_string, net_free_buffer, net_would_block, tcp_close, tcp_socketpair, tcp_try_read, tcp_try_write}
 unsafe func server(fd: Int) -> Int {
-    let buf = unsafe net_buffer(16)
+    let buf = net_buffer(16)
     var n = 0
     var going = true
     while going {
@@ -26,7 +26,7 @@ unsafe func server(fd: Int) -> Int {
     var off = 0
     going = true
     while going {
-        let w = tcp_try_write(fd, unsafe buf + off, n - off)
+        let w = tcp_try_write(fd, buf + off, n - off)
         if net_would_block(w) {
             io_wait(fd, 1)
         } else {
@@ -41,13 +41,13 @@ unsafe func server(fd: Int) -> Int {
 }
 
 unsafe func client(fd: Int) -> Int {
-    let msg = unsafe net_buffer(2)
-    unsafe msg[0] = 104 as Int8    // 'h'
-    unsafe msg[1] = 105 as Int8    // 'i'
+    let msg = net_buffer(2)
+    msg[0] = 104 as Int8    // 'h'
+    msg[1] = 105 as Int8    // 'i'
     var off = 0
     var going = true
     while going {
-        let w = tcp_try_write(fd, unsafe msg + off, 2 - off)
+        let w = tcp_try_write(fd, msg + off, 2 - off)
         if net_would_block(w) {
             io_wait(fd, 1)
         } else {
@@ -57,7 +57,7 @@ unsafe func client(fd: Int) -> Int {
             }
         }
     }
-    let buf = unsafe net_buffer(16)
+    let buf = net_buffer(16)
     var n = 0
     going = true
     while going {

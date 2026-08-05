@@ -189,7 +189,7 @@ extension Command {
     //             is the design-92 distinction — a failed launch is surfaced,
     //             not folded into a bogus exit code (never hide errors).
     public unsafe func run(&self) -> Result<Int32, ProcessError> {
-        let argv = unsafe self.build_argv()
+        let argv = self.build_argv()
         let job = __saw_rt_proc_spawn(self.program as UnsafePointer<Int8>, argv, 0)
         free(argv)
         if job <= 0 {
@@ -210,7 +210,7 @@ extension Command {
     // Returns CommandOutput with stdout and exit code, or None if the child
     // could not be spawned.
     public unsafe func output(&self) -> CommandOutput? {
-        let argv = unsafe self.build_argv()
+        let argv = self.build_argv()
         let job = __saw_rt_proc_spawn(self.program as UnsafePointer<Int8>, argv, 1)
         free(argv)
         if job <= 0 {
@@ -230,7 +230,7 @@ extension Command {
         // short while the copy loop below wrote `out[output_len + i]` and the
         // terminator past it: heap corruption. `output` is the infallible tier,
         // so both panic now.
-        guard let read_buf = unsafe malloc(PROC_READ_CHUNK) else {
+        guard let read_buf = malloc(PROC_READ_CHUNK) else {
             panic("Command.output: allocation failed")
         }
         var done = false
@@ -246,13 +246,13 @@ extension Command {
                     }
 
                     if let old = output_buf {
-                        guard let new_buf = unsafe realloc(old, new_cap) else {
+                        guard let new_buf = realloc(old, new_cap) else {
                             panic("Command.output: allocation failed")
                         }
                         output_buf = new_buf
                         output_cap = new_cap
                     } else {
-                        guard let new_buf = unsafe malloc(new_cap) else {
+                        guard let new_buf = malloc(new_cap) else {
                             panic("Command.output: allocation failed")
                         }
                         output_buf = new_buf
@@ -265,11 +265,11 @@ extension Command {
                 if let out = output_buf {
                     var i = 0
                     while i < bytes_read {
-                        unsafe out[output_len + i] = unsafe read_buf[i]
+                        out[output_len + i] = read_buf[i]
                         i = i + 1
                     }
                     output_len = output_len + bytes_read
-                    unsafe out[output_len] = 0 as Int8  // null terminate
+                    out[output_len] = 0 as Int8  // null terminate
                 }
             } else {
                 // 0 = EOF (the child closed stdout / exited); < 0 = a read

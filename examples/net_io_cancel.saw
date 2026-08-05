@@ -19,7 +19,7 @@ extension Res: NoCopy {}
 
 unsafe func reader(fd: Int) -> Int {
     let held = Res(id: 55)      // deinit oracle
-    let buf = unsafe net_buffer(16)
+    let buf = net_buffer(16)
     var total = 0
     var going = true
     while going {
@@ -45,10 +45,10 @@ unsafe func main() {
     let a = pair.0
     let b = pair.1
     // Pre-load 3 bytes; the reader drains them, then exits on empty + cancelled.
-    let msg = unsafe net_buffer(3)
-    unsafe msg[0] = 1 as Int8
-    unsafe msg[1] = 2 as Int8
-    unsafe msg[2] = 3 as Int8
+    let msg = net_buffer(3)
+    msg[0] = 1 as Int8
+    msg[1] = 2 as Int8
+    msg[2] = 3 as Int8
     let _ = tcp_try_write(a, msg, 3)
     net_free_buffer(msg, 3)
 

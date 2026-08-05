@@ -36,7 +36,7 @@ from ast_nodes import (
     IfLetExpr, EnumInit, MatchArm, MatchExpr, RangeExpr, ClosureExpr, ClosureParam,
     SawType, TypeParameter, Argument, ExternFunction,
     # design 126 R11: the previously-uncovered node types.
-    ReferenceExpr, UnsafeExpr, MapLiteral, SetLiteral, SourceLocationLiteral,
+    ReferenceExpr, MapLiteral, SetLiteral, SourceLocationLiteral,
     BindOptional, OptionalEvalExpr, OptionalChainAssign, OptionalWrap,
     ResultOkWrap, ResultErrWrap, ErasedErrWrap, TryExpr, TryCatchExpr,
     DestructuringLet, CompoundAssignStatement, StaticDecl,
@@ -477,8 +477,7 @@ class ASTDumper:
             self._dedent()
 
         elif isinstance(stmt, CompoundAssignStatement):
-            unsafe = " unsafe" if stmt.is_unsafe else ""
-            self._emit(f"CompoundAssignStatement {stmt.op}{unsafe}")
+            self._emit(f"CompoundAssignStatement {stmt.op}")
             self._indent()
             self._emit("target:")
             self._indent()
@@ -846,12 +845,6 @@ class ASTDumper:
             self._emit(f"ReferenceExpr {sigil}{arg}")
             self._indent()
             self._dump_expression(expr.expr)
-            self._dedent()
-
-        elif isinstance(expr, UnsafeExpr):
-            self._emit(f"UnsafeExpr unsafe")
-            self._indent()
-            self._dump_expression(expr.expression)
             self._dedent()
 
         elif isinstance(expr, MapLiteral):

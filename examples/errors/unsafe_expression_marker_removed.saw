@@ -1,0 +1,19 @@
+// Design 130 removed design 81's line-level `unsafe` expression marker. Code
+// written against the old model gets a message that says the model changed,
+// rather than a bare "unexpected token" at the keyword.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `unsafe` is not an expression prefix
+// EXPECT-ERROR-CONTAINS: mark the enclosing declaration instead
+
+extern "C" {
+    func malloc(size: UInt) -> UnsafePointer<Int8>?
+}
+
+unsafe func take() -> Int {
+    let p = unsafe malloc(8 as UInt)
+    0
+}
+
+func main() {
+    print("{take()}")
+}

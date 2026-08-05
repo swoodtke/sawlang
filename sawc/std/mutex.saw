@@ -38,10 +38,10 @@ extension Mutex<T> {
     /// the failure instead.
     public unsafe init(value: T) -> Mutex<T> {
         let size = 64 + sizeof<T>()
-        if let block = unsafe GlobalAllocator().alloc(size, 16) {
+        if let block = GlobalAllocator().alloc(size, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let payload_ptr = (block + 64) as UnsafePointer<T>
-            unsafe payload_ptr[0] = value
+            payload_ptr[0] = value
             Mutex<T>(block: block)
         } else {
             panic("Mutex(value:): allocation failed")
@@ -54,10 +54,10 @@ extension Mutex<T> {
     /// `value` is destroyed on the failure path rather than leaked.
     public unsafe func try_make(value: T) -> Result<Mutex<T>, AllocError> {
         let size = 64 + sizeof<T>()
-        if let block = unsafe GlobalAllocator().alloc(size, 16) {
+        if let block = GlobalAllocator().alloc(size, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let payload_ptr = (block + 64) as UnsafePointer<T>
-            unsafe payload_ptr[0] = value
+            payload_ptr[0] = value
             return Mutex<T>(block: block)
         }
         return AllocError(size: size, align: 16)

@@ -194,8 +194,8 @@ unsafe func tcp_socketpair() -> (Int, Int) {
     var fds = FdPair(a: 0 as Int32, b: 0 as Int32)
     let fp = (&fds) as UnsafePointer<Int32>
     if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, fp) == 0 {
-        let a = unsafe fp[0]
-        let b = unsafe fp[1]
+        let a = fp[0]
+        let b = fp[1]
         let _ = __saw_rt_set_nonblocking(a as Int)
         let _ = __saw_rt_set_nonblocking(b as Int)
         return (a as Int, b as Int)
@@ -213,7 +213,7 @@ static INVALID_FD: Int32 = -1
 // precise IoError. The pointer work is confined here (raw layer); TcpStream.read
 // drives it behind an io_wait park.
 unsafe func net_read_once(fd: Int, into: &var Data) -> Int {
-    if let ptr = unsafe GlobalAllocator().alloc(READ_CHUNK, 1) {
+    if let ptr = GlobalAllocator().alloc(READ_CHUNK, 1) {
         let r = __saw_rt_tcp_read(fd, ptr, READ_CHUNK)
         if r > 0 {
             into.append_bytes(ptr, r)
@@ -228,13 +228,13 @@ unsafe func net_read_once(fd: Int, into: &var Data) -> Int {
 // written (may be < remaining) or a NEGATED SysError tag (design 117).
 unsafe func net_write_str_once(fd: Int, s: String, off: Int) -> Int {
     let ptr = s as UnsafePointer<Int8>
-    __saw_rt_tcp_write(fd, unsafe ptr + off, s.len() - off)
+    __saw_rt_tcp_write(fd, ptr + off, s.len() - off)
 }
 
 // One nonblocking write of the tail of `bytes` starting at `off`.
 unsafe func net_write_data_once(fd: Int, bytes: &Data, off: Int) -> Int {
-    let ptr = unsafe bytes.byte_ptr()
-    __saw_rt_tcp_write(fd, unsafe ptr + off, bytes.len() - off)
+    let ptr = bytes.byte_ptr()
+    __saw_rt_tcp_write(fd, ptr + off, bytes.len() - off)
 }
 
 // =============================================================================

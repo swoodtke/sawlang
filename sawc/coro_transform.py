@@ -43,7 +43,7 @@ from ast_nodes import (
     DestructuringLet, TuplePattern, BindingPattern, WildcardPattern, TupleIndex,
     EnumPattern,
     StringInterpolation, ArrayLiteral, MapLiteral, SetLiteral, StructInit,
-    TupleLiteral, UnsafeExpr, NilCoalesce, OptionalChain, BindOptional,
+    TupleLiteral, NilCoalesce, OptionalChain, BindOptional,
     OptionalEvalExpr, OptionalChainAssign, OptionalWrap,
     structural_fields,
 )
@@ -997,8 +997,6 @@ class _FrameBuilder:
             expr.expr = do(expr.expr)
         elif isinstance(expr, CastExpr):
             expr.expr = do(expr.expr)
-        elif isinstance(expr, UnsafeExpr):
-            expr.expression = do(expr.expression)
         elif isinstance(expr, OptionalWrap):
             expr.value = do(expr.value)
 

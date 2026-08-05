@@ -14,7 +14,6 @@ from types import SimpleNamespace as _SandboxNode
 from ast_nodes import (
     Expression, IntLiteral, FloatLiteral, BoolLiteral, StringLiteral,
     StringInterpolation, Identifier, BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr,
-    UnsafeExpr,
     FunctionCall, IfExpr, IfLetExpr, TupleLiteral, TupleIndex,
     ArrayLiteral, MapLiteral, SetLiteral, ArrayIndex, MemberAccess, StructInit, NoneLiteral,
     ForceUnwrap, NilCoalesce, OptionalChain, BindOptional, OptionalEvalExpr,
@@ -67,27 +66,7 @@ class ExpressionsMixin:
             if not isinstance(expr, ClosureExpr):
                 self._note_unsafe_contact(
                     result, expr, "its body names a value of unsafe type")
-            # design 81: a call whose result is a raw pointer produces a pointer
-            # that flows out INVISIBLY (no `UnsafePointer` type at the call
-            # syntax) — binding/using it requires the `unsafe` marker. A cast that
-            # names the pointer type in source is visible and is NOT classified
-            # here (only FunctionCall/MethodCall producers are).
-            if isinstance(expr, (FunctionCall, MethodCall)) and \
-                    self._type_is_or_wraps_pointer(result):
-                self._note_unsafe_op(
-                    expr, "binding a raw pointer produced by a call")
         return result
-
-    def _type_is_or_wraps_pointer(self, t: SawType) -> bool:
-        """A raw pointer, or an Optional wrapping one (`UnsafePointer<T>?`, the
-        shape `Allocator.alloc` returns) — the pointer a call hands back."""
-        if t is None:
-            return False
-        if t.kind == TypeKind.POINTER:
-            return True
-        if t.is_optional() and t.inner_type is not None:
-            return t.inner_type.kind == TypeKind.POINTER
-        return False
 
     # ===== Expression Visitor Methods =====
 
@@ -255,25 +234,6 @@ class ExpressionsMixin:
         if expr.value is not None:
             self._check_expression(expr.value)
         return getattr(expr, 'result_type', None)
-
-    def visit_UnsafeExpr(self, expr: UnsafeExpr) -> Optional[SawType]:
-        """`unsafe <expr>` (design 81): check the inner expression under the
-        marker so any raw-pointer operation it contains is satisfied, then verify
-        the marker actually covered SOMETHING unsafe (else "nothing unsafe here",
-        keeping markers honest)."""
-        before = self._unsafe_ops_seen
-        self._unsafe_marker_depth += 1
-        inner_type = self._check_expression(expr.expression)
-        self._unsafe_marker_depth -= 1
-        if self._unsafe_ops_seen == before:
-            self._error(
-                ErrorKind.TYPE_MISMATCH,
-                "`unsafe` marks an expression with no unsafe operation",
-                expr.line, expr.column,
-                hint="the `unsafe` marker is only for a raw-pointer deref/index/"
-                     "write, pointer arithmetic, or binding a pointer produced by "
-                     "a call; remove it here")
-        return inner_type
 
     def visit_FunctionCall(self, expr: FunctionCall) -> Optional[SawType]:
         return self._check_function_call(expr)
@@ -591,17 +551,7 @@ class ExpressionsMixin:
 
     def _check_cast_expr(self, expr: CastExpr) -> Optional[SawType]:
         """Check a type cast expression: expr as Type"""
-        # design 81: a cast whose target is a raw pointer names `UnsafePointer`
-        # in source, so any pointer op in its operand is already visible — check
-        # the operand under the pointer-cast context so it needs no marker
-        # (`(block + 8) as UnsafePointer<Int>`, `(&buf[i]) as UnsafePointer<T>`).
-        _cast_target = self._resolve_type(expr.target_type)
-        _cover = _cast_target is not None and _cast_target.kind == TypeKind.POINTER
-        if _cover:
-            self._ptr_cast_depth += 1
         from_type = self._check_expression(expr.expr)
-        if _cover:
-            self._ptr_cast_depth -= 1
         if from_type is None:
             return None
         to_type = self._resolve_type(expr.target_type)
@@ -703,9 +653,9 @@ class ExpressionsMixin:
         if expr.op in ['+', '-', '*', '/']:
             if expr.op in ['+', '-'] and left_underlying.kind == TypeKind.POINTER:
                 if right_underlying.kind in int_kinds:
-                    # design 81: raw pointer arithmetic requires the `unsafe`
-                    # marker (the offset pointer flows invisibly).
-                    self._note_unsafe_op(expr, "raw pointer arithmetic")
+                    # Element-stride pointer arithmetic. The result is a raw
+                    # pointer, so the design-130 trigger rule marks the enclosing
+                    # function at the `_check_expression` chokepoint.
                     return left_type
                 else:
                     self._error(
@@ -3552,9 +3502,9 @@ class ExpressionsMixin:
                 return None
             return container_type.element_types[index]
         elif container_type.kind == TypeKind.POINTER:
-            # design 81: dereferencing a raw pointer flows the pointee out with
-            # no `UnsafePointer` type visible — requires the `unsafe` marker.
-            self._note_unsafe_op(expr, "dereferencing a raw pointer")
+            # Raw-pointer deref. Reaching a pointer to index it already marked
+            # the enclosing function under the design-130 trigger rule, so the
+            # deref itself carries no separate obligation.
             return container_type.inner_type
         else:
             self._error(

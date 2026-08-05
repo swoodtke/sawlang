@@ -50,7 +50,7 @@ extension String {
             panic("String.byte_at: index out of range")
         }
         let ptr = self as UnsafePointer<Int8>
-        unsafe ptr[index]
+        ptr[index]
     }
 
     // Check if the string starts with the given prefix
@@ -184,13 +184,13 @@ extension String {
         if length <= 0 {
             ""
         } else {
-            let new_ptr = unsafe __saw_string_alloc(length)
+            let new_ptr = __saw_string_alloc(length)
             var i = 0
             while i < length {
-                unsafe new_ptr[i] = self.byte_at(start + i)
+                new_ptr[i] = self.byte_at(start + i)
                 i = i + 1
             }
-            unsafe new_ptr[length] = 0 as Int8  // null terminate
+            new_ptr[length] = 0 as Int8  // null terminate
             new_ptr as String
         }
     }
@@ -205,19 +205,19 @@ extension String {
         if len == 0 {
             self
         } else {
-            let new_ptr = unsafe __saw_string_alloc(len)
+            let new_ptr = __saw_string_alloc(len)
             var i = 0
             while i < len {
                 let c = self.byte_at(i)
                 // 'a' = 97, 'z' = 122
                 if c >= (97 as Int8) && c <= (122 as Int8) {
-                    unsafe new_ptr[i] = c - (32 as Int8)
+                    new_ptr[i] = c - (32 as Int8)
                 } else {
-                    unsafe new_ptr[i] = c
+                    new_ptr[i] = c
                 }
                 i = i + 1
             }
-            unsafe new_ptr[len] = 0 as Int8
+            new_ptr[len] = 0 as Int8
             new_ptr as String
         }
     }
@@ -228,19 +228,19 @@ extension String {
         if len == 0 {
             self
         } else {
-            let new_ptr = unsafe __saw_string_alloc(len)
+            let new_ptr = __saw_string_alloc(len)
             var i = 0
             while i < len {
                 let c = self.byte_at(i)
                 // 'A' = 65, 'Z' = 90
                 if c >= (65 as Int8) && c <= (90 as Int8) {
-                    unsafe new_ptr[i] = c + (32 as Int8)
+                    new_ptr[i] = c + (32 as Int8)
                 } else {
-                    unsafe new_ptr[i] = c
+                    new_ptr[i] = c
                 }
                 i = i + 1
             }
-            unsafe new_ptr[len] = 0 as Int8
+            new_ptr[len] = 0 as Int8
             new_ptr as String
         }
     }
@@ -284,7 +284,7 @@ extension String {
                 // (design 123). Returning `self` here handed back the string
                 // with NO replacements performed, identical in shape to the
                 // legitimate "no match" return above.
-                let new_ptr = unsafe __saw_string_alloc(new_size)
+                let new_ptr = __saw_string_alloc(new_size)
                 var src_i = 0
                 var dst_i = 0
 
@@ -306,19 +306,19 @@ extension String {
                         // Copy replacement
                         var k = 0
                         while k < new_len {
-                            unsafe new_ptr[dst_i] = new.byte_at(k)
+                            new_ptr[dst_i] = new.byte_at(k)
                             dst_i = dst_i + 1
                             k = k + 1
                         }
                         src_i = src_i + old_len
                     } else {
-                        unsafe new_ptr[dst_i] = self.byte_at(src_i)
+                        new_ptr[dst_i] = self.byte_at(src_i)
                         dst_i = dst_i + 1
                         src_i = src_i + 1
                     }
                 }
 
-                unsafe new_ptr[new_size] = 0 as Int8
+                new_ptr[new_size] = 0 as Int8
                 new_ptr as String
             }
         }
@@ -851,15 +851,15 @@ extension String {
         if n == 0 {
             return ""                       // trivially-valid empty string (Ok)
         }
-        let ptr = unsafe __saw_string_alloc(n)
+        let ptr = __saw_string_alloc(n)
         var i = 0
         while i < n {
             if let b = data.get(i) {
-                unsafe ptr[i] = b as Int8
+                ptr[i] = b as Int8
             }
             i = i + 1
         }
-        unsafe ptr[n] = 0 as Int8
+        ptr[n] = 0 as Int8
         let candidate = ptr as String
         if let off = candidate._utf8_error_offset() {
             // Malformed: hand back the offset; `candidate` (rc=1) is

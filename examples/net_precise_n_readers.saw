@@ -18,7 +18,7 @@ import std.net.{net_buffer, net_free_buffer, net_would_block, tcp_close, tcp_soc
 static SPURIOUS: Atomic<Int> = Atomic(0)
 
 unsafe func reader(fd: Int) -> Int {
-    let buf = unsafe net_buffer(1)
+    let buf = net_buffer(1)
     var v = 0
     var parked = false
     var going = true
@@ -31,7 +31,7 @@ unsafe func reader(fd: Int) -> Int {
             parked = true
             io_wait(fd, 0)
         } else {
-            v = (unsafe buf[0]) as Int
+            v = (buf[0]) as Int
             going = false
         }
     }
@@ -40,8 +40,8 @@ unsafe func reader(fd: Int) -> Int {
 }
 
 unsafe func writer(fd: Int, b: Int) -> Int {
-    let buf = unsafe net_buffer(1)
-    unsafe buf[0] = b as Int8
+    let buf = net_buffer(1)
+    buf[0] = b as Int8
     var going = true
     while going {
         let w = tcp_try_write(fd, buf, 1)

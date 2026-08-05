@@ -19,7 +19,7 @@ extension Res: Deinit {
 }
 
 unsafe func read_n(fd: Int) -> Int {
-    let buf = unsafe net_buffer(16)
+    let buf = net_buffer(16)
     var n = 0
     var going = true
     while going {
@@ -36,13 +36,13 @@ unsafe func read_n(fd: Int) -> Int {
 }
 
 unsafe func write_hi(fd: Int) -> Int {
-    let buf = unsafe net_buffer(2)
-    unsafe buf[0] = 104 as Int8
-    unsafe buf[1] = 105 as Int8
+    let buf = net_buffer(2)
+    buf[0] = 104 as Int8
+    buf[1] = 105 as Int8
     var off = 0
     var going = true
     while going {
-        let w = tcp_try_write(fd, unsafe buf + off, 2 - off)
+        let w = tcp_try_write(fd, buf + off, 2 - off)
         if net_would_block(w) {
             io_wait(fd, 1)
         } else {

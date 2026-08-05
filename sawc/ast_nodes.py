@@ -511,13 +511,10 @@ class Expression(ASTNode):
     #                           literals/collection literals that need it
     #   needs_copy           -- the move checker decided this operand is copied
     #   closure_lend         -- a closure operand is lent, not transferred
-    #   _unsafe_reported     -- an unsafe-marker diagnostic already fired here,
-    #                           so the check does not report the same node twice
     autowrap_to_optional: Optional['SawType'] = annotation(None)
     expected_type: Optional['SawType'] = annotation(None)
     needs_copy: bool = annotation(False)
     closure_lend: bool = annotation(False)
-    _unsafe_reported: bool = annotation(False)
 
 
 @dataclass
@@ -624,20 +621,6 @@ class CastExpr(Expression):
     """Type cast expression: expr as Type."""
     expr: Expression
     target_type: 'SawType'
-
-
-@dataclass
-class UnsafeExpr(Expression):
-    """`unsafe <expr>` — the visibility marker for a raw-pointer operation
-    (design 81). The typechecker requires it wherever a pointer flows INVISIBLY
-    (a deref/index/write, pointer arithmetic, or binding a pointer produced by a
-    call) inside a function whose own signature carries no `Unsafe*` type. A cast
-    that names `UnsafePointer<T>` in source is already visible and needs no
-    marker. `unsafe` on an expression with no such operation is a "nothing unsafe
-    here" error, keeping markers honest. Precedence: looser than any operator,
-    tighter than assignment (`unsafe p[0] = 5` marks the whole store — the parser
-    lifts the marker off the lvalue onto the assignment)."""
-    expression: Expression
 
 
 @dataclass
@@ -1237,9 +1220,6 @@ class DestructuringLet(Statement):
 class AssignStatement(Statement):
     target: Expression  # Can be Identifier or MemberAccess
     value: Expression
-    # design 81: `unsafe p[0] = v` — the marker was lifted off the lvalue onto
-    # the whole store, satisfying the pointer-write marker requirement.
-    is_unsafe: bool = False
 
 
 @dataclass
@@ -1248,8 +1228,6 @@ class CompoundAssignStatement(Statement):
     target: Expression  # Can be Identifier, MemberAccess, or ArrayIndex
     op: str  # '+', '-', '*', '/', '%'
     value: Expression
-    # design 81: `unsafe p[0] += v` marks the whole read-modify-write.
-    is_unsafe: bool = False
 
 
 @dataclass

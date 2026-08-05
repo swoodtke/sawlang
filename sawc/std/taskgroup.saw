@@ -259,7 +259,7 @@ extension TaskGroup {
             // not one spawned task runs, `Deinit` drops every frame unrun, and
             // `TaskHandle.join` then force-unwraps a result that was never
             // written. The group still reported `workers >= 2` throughout.
-            if let block = unsafe GlobalAllocator().alloc(64, 16) {
+            if let block = GlobalAllocator().alloc(64, 16) {
                 __saw_rt_pthread_mutex_init_default(block)
                 lk = block
             } else {
@@ -322,9 +322,9 @@ extension TaskGroup {
         var cur = head
         while cur != 0 {
             let cg = cur as UnsafePointer<TaskGroup>
-            let nx = unsafe cg[0].next
+            let nx = cg[0].next
             if nx == me {
-                unsafe cg[0].next = self.next
+                cg[0].next = self.next
                 self.registered = false
                 return
             }
@@ -397,11 +397,11 @@ unsafe func __saw_exec_worker(addr: Int) {
     // access is marked `unsafe` (design 81). A deref buried in an `if`/`not`
     // condition is hoisted to a marked `let` first (the marker prefixes an
     // expression, so it cannot sit under `not`).
-    if let lk = unsafe g[0].lock {
+    if let lk = g[0].lock {
         var running = true
         while running {
             pthread_mutex_lock(lk)
-            let n = unsafe g[0].tasks.len()
+            let n = g[0].tasks.len()
             var live = 0
             var idx = -1
             var anyactive = false
@@ -409,14 +409,14 @@ unsafe func __saw_exec_worker(addr: Int) {
             var minrem = -1
             var i = 0
             while i < n {
-                let done_i = unsafe g[0].done.get(i)!
+                let done_i = g[0].done.get(i)!
                 if not done_i {
                     live = live + 1
-                    let active_i = unsafe g[0].active.get(i)!
+                    let active_i = g[0].active.get(i)!
                     if active_i {
                         anyactive = true
                     } else {
-                        let rem = unsafe g[0].remaining.get(i)!
+                        let rem = g[0].remaining.get(i)!
                         if rem == 0 {
                             if idx < 0 {
                                 idx = i
@@ -438,9 +438,9 @@ unsafe func __saw_exec_worker(addr: Int) {
             } else {
                 if idx >= 0 {
                     // Claim frame `idx` (one worker owns it), resume OUTSIDE the lock.
-                    unsafe g[0].active.set(idx, true)
+                    g[0].active.set(idx, true)
                     let _ = pthread_mutex_unlock(lk)
-                    let oc = unsafe g[0].tasks.with_var_ref<__ResumeOutcome>(idx, { f in
+                    let oc = g[0].tasks.with_var_ref<__ResumeOutcome>(idx, { f in
                         match f.resume() {
                             case Pending -> __ResumeOutcome(done: false, wake: f.__wake_reason()),
                             case Done -> __ResumeOutcome(done: true, wake: 0)
@@ -448,13 +448,13 @@ unsafe func __saw_exec_worker(addr: Int) {
                     })
                     if oc.done {
                         pthread_mutex_lock(lk)
-                        unsafe g[0].active.set(idx, false)
-                        unsafe g[0].done.set(idx, true)
+                        g[0].active.set(idx, false)
+                        g[0].done.set(idx, true)
                         let _ = pthread_mutex_unlock(lk)
                     } else {
                         pthread_mutex_lock(lk)
-                        unsafe g[0].active.set(idx, false)
-                        unsafe g[0].remaining.set(idx, oc.wake)
+                        g[0].active.set(idx, false)
+                        g[0].remaining.set(idx, oc.wake)
                         let _ = pthread_mutex_unlock(lk)
                     }
                 } else {
@@ -486,26 +486,26 @@ unsafe func __saw_exec_worker(addr: Int) {
                         pthread_mutex_lock(lk)
                         var k = 0
                         while k < n {
-                            let done_k = unsafe g[0].done.get(k)!
+                            let done_k = g[0].done.get(k)!
                             if not done_k {
-                                let rk = unsafe g[0].remaining.get(k)!
+                                let rk = g[0].remaining.get(k)!
                                 if rk < 0 {
                                     // design 102 item 2: wake a reactor-latched OR a
                                     // peer-cancelled io-parked frame (it re-checks
                                     // cancelled() and bails); non-cancelled parked
                                     // siblings stay parked.
-                                    let wk = unsafe g[0].tasks.with_var_ref<Bool>(k, { f in
+                                    let wk = g[0].tasks.with_var_ref<Bool>(k, { f in
                                         f.__wake_reason() >= 0 || f.__is_cancelled()
                                     })
                                     if wk {
-                                        unsafe g[0].remaining.set(k, 0)
+                                        g[0].remaining.set(k, 0)
                                     }
                                 } else if rk > 0 && events == 0 && minrem > 0 {
                                     var nr = rk - minrem
                                     if nr < 0 {
                                         nr = 0
                                     }
-                                    unsafe g[0].remaining.set(k, nr)
+                                    g[0].remaining.set(k, nr)
                                 }
                             }
                             k = k + 1
@@ -521,15 +521,15 @@ unsafe func __saw_exec_worker(addr: Int) {
                         }
                         var j = 0
                         while j < n {
-                            let done_j = unsafe g[0].done.get(j)!
+                            let done_j = g[0].done.get(j)!
                             if not done_j {
-                                let r2 = unsafe g[0].remaining.get(j)!
+                                let r2 = g[0].remaining.get(j)!
                                 if r2 > 0 {
                                     var nr = r2 - minrem
                                     if nr < 0 {
                                         nr = 0
                                     }
-                                    unsafe g[0].remaining.set(j, nr)
+                                    g[0].remaining.set(j, nr)
                                 }
                             }
                             j = j + 1
@@ -708,18 +708,18 @@ unsafe func __saw_exec_any_ready() -> Bool {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
-        let n = unsafe g[0].tasks.len()
+        let n = g[0].tasks.len()
         var i = 0
         while i < n {
-            let done_i = unsafe g[0].done.get(i)!
-            let active_i = unsafe g[0].active.get(i)!
-            let rem_i = unsafe g[0].remaining.get(i)!
+            let done_i = g[0].done.get(i)!
+            let active_i = g[0].active.get(i)!
+            let rem_i = g[0].remaining.get(i)!
             if (not done_i) && (not active_i) && rem_i == 0 {
                 return true
             }
             i = i + 1
         }
-        cur = unsafe g[0].next
+        cur = g[0].next
     }
     false
 }
@@ -727,10 +727,10 @@ unsafe func __saw_exec_any_ready() -> Bool {
 // Does the group at `gaddr` still have a not-done frame?
 unsafe func __saw_exec_group_has_live(gaddr: Int) -> Bool {
     let g = gaddr as UnsafePointer<TaskGroup>
-    let n = unsafe g[0].tasks.len()
+    let n = g[0].tasks.len()
     var i = 0
     while i < n {
-        let done_i = unsafe g[0].done.get(i)!
+        let done_i = g[0].done.get(i)!
         if not done_i {
             return true
         }
@@ -746,7 +746,7 @@ unsafe func __saw_exec_should_stop(term_group: Int, term_slot: Int) -> Bool {
     if term_group != 0 {
         let g = term_group as UnsafePointer<TaskGroup>
         if term_slot >= 0 {
-            let d = unsafe g[0].done.get(term_slot)!
+            let d = g[0].done.get(term_slot)!
             return d
         }
         return not __saw_exec_group_has_live(term_group)
@@ -757,7 +757,7 @@ unsafe func __saw_exec_should_stop(term_group: Int, term_slot: Int) -> Bool {
             return false
         }
         let g = cur as UnsafePointer<TaskGroup>
-        cur = unsafe g[0].next
+        cur = g[0].next
     }
     true
 }
@@ -773,35 +773,35 @@ unsafe func __saw_exec_wake_io(events: Int, deadline: Int) {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
-        let n = unsafe g[0].tasks.len()
+        let n = g[0].tasks.len()
         var i = 0
         while i < n {
-            let done_i = unsafe g[0].done.get(i)!
-            let active_i = unsafe g[0].active.get(i)!
+            let done_i = g[0].done.get(i)!
+            let active_i = g[0].active.get(i)!
             if (not done_i) && (not active_i) {
-                let r = unsafe g[0].remaining.get(i)!
+                let r = g[0].remaining.get(i)!
                 if r < 0 {
                     // Wake an io-parked frame the reactor latched (wake word >= 0)
                     // OR one a peer cancelled (design 102 item 2) — it re-checks
                     // cancelled() at its park-loop top and bails. Non-cancelled,
                     // still-parked siblings stay parked (no herd wake).
-                    let woke = unsafe g[0].tasks.with_var_ref<Bool>(i, { f in
+                    let woke = g[0].tasks.with_var_ref<Bool>(i, { f in
                         f.__wake_reason() >= 0 || f.__is_cancelled()
                     })
                     if woke {
-                        unsafe g[0].remaining.set(i, 0)
+                        g[0].remaining.set(i, 0)
                     }
                 } else if r > 0 && events == 0 && deadline > 0 {
                     var nr = r - deadline
                     if nr < 0 {
                         nr = 0
                     }
-                    unsafe g[0].remaining.set(i, nr)
+                    g[0].remaining.set(i, nr)
                 }
             }
             i = i + 1
         }
-        cur = unsafe g[0].next
+        cur = g[0].next
     }
 }
 
@@ -816,15 +816,15 @@ unsafe func __saw_exec_any_cancelled_io() -> Bool {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
-        let n = unsafe g[0].tasks.len()
+        let n = g[0].tasks.len()
         var i = 0
         while i < n {
-            let done_i = unsafe g[0].done.get(i)!
-            let active_i = unsafe g[0].active.get(i)!
+            let done_i = g[0].done.get(i)!
+            let active_i = g[0].active.get(i)!
             if (not done_i) && (not active_i) {
-                let r = unsafe g[0].remaining.get(i)!
+                let r = g[0].remaining.get(i)!
                 if r < 0 {
-                    let c = unsafe g[0].tasks.with_var_ref<Bool>(i, { f in f.__is_cancelled() })
+                    let c = g[0].tasks.with_var_ref<Bool>(i, { f in f.__is_cancelled() })
                     if c {
                         return true
                     }
@@ -832,7 +832,7 @@ unsafe func __saw_exec_any_cancelled_io() -> Bool {
             }
             i = i + 1
         }
-        cur = unsafe g[0].next
+        cur = g[0].next
     }
     false
 }
@@ -850,15 +850,15 @@ unsafe func __saw_exec_any_latched_io() -> Bool {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
-        let n = unsafe g[0].tasks.len()
+        let n = g[0].tasks.len()
         var i = 0
         while i < n {
-            let done_i = unsafe g[0].done.get(i)!
-            let active_i = unsafe g[0].active.get(i)!
+            let done_i = g[0].done.get(i)!
+            let active_i = g[0].active.get(i)!
             if (not done_i) && (not active_i) {
-                let r = unsafe g[0].remaining.get(i)!
+                let r = g[0].remaining.get(i)!
                 if r < 0 {
-                    let latched = unsafe g[0].tasks.with_var_ref<Bool>(i, { f in f.__wake_reason() >= 0 })
+                    let latched = g[0].tasks.with_var_ref<Bool>(i, { f in f.__wake_reason() >= 0 })
                     if latched {
                         return true
                     }
@@ -866,7 +866,7 @@ unsafe func __saw_exec_any_latched_io() -> Bool {
             }
             i = i + 1
         }
-        cur = unsafe g[0].next
+        cur = g[0].next
     }
     false
 }
@@ -877,24 +877,24 @@ unsafe func __saw_exec_advance_sleep(deadline: Int) {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
-        let n = unsafe g[0].tasks.len()
+        let n = g[0].tasks.len()
         var i = 0
         while i < n {
-            let done_i = unsafe g[0].done.get(i)!
-            let active_i = unsafe g[0].active.get(i)!
+            let done_i = g[0].done.get(i)!
+            let active_i = g[0].active.get(i)!
             if (not done_i) && (not active_i) {
-                let r = unsafe g[0].remaining.get(i)!
+                let r = g[0].remaining.get(i)!
                 if r > 0 {
                     var nr = r - deadline
                     if nr < 0 {
                         nr = 0
                     }
-                    unsafe g[0].remaining.set(i, nr)
+                    g[0].remaining.set(i, nr)
                 }
             }
             i = i + 1
         }
-        cur = unsafe g[0].next
+        cur = g[0].next
     }
 }
 
@@ -911,25 +911,25 @@ unsafe func __saw_exec_run(term_group: Int, term_slot: Int) {
             var cur = __saw_exec_head.load()
             while cur != 0 {
                 let g = cur as UnsafePointer<TaskGroup>
-                let n = unsafe g[0].tasks.len()
+                let n = g[0].tasks.len()
                 var i = 0
                 while i < n {
-                    let done_i = unsafe g[0].done.get(i)!
-                    let active_i = unsafe g[0].active.get(i)!
-                    let rem_i = unsafe g[0].remaining.get(i)!
+                    let done_i = g[0].done.get(i)!
+                    let active_i = g[0].active.get(i)!
+                    let rem_i = g[0].remaining.get(i)!
                     if (not done_i) && (not active_i) && rem_i == 0 {
-                        unsafe g[0].active.set(i, true)
-                        let oc = unsafe g[0].tasks.with_var_ref<__ResumeOutcome>(i, { f in
+                        g[0].active.set(i, true)
+                        let oc = g[0].tasks.with_var_ref<__ResumeOutcome>(i, { f in
                             match f.resume() {
                                 case Pending -> __ResumeOutcome(done: false, wake: f.__wake_reason()),
                                 case Done -> __ResumeOutcome(done: true, wake: 0)
                             }
                         })
-                        unsafe g[0].active.set(i, false)
+                        g[0].active.set(i, false)
                         if oc.done {
-                            unsafe g[0].done.set(i, true)
+                            g[0].done.set(i, true)
                         } else {
-                            unsafe g[0].remaining.set(i, oc.wake)
+                            g[0].remaining.set(i, oc.wake)
                         }
                         if __saw_exec_should_stop(term_group, term_slot) {
                             return
@@ -937,7 +937,7 @@ unsafe func __saw_exec_run(term_group: Int, term_slot: Int) {
                     }
                     i = i + 1
                 }
-                let nx = unsafe g[0].next
+                let nx = g[0].next
                 cur = nx
             }
         }
@@ -952,14 +952,14 @@ unsafe func __saw_exec_run(term_group: Int, term_slot: Int) {
         var cur2 = __saw_exec_head.load()
         while cur2 != 0 {
             let g = cur2 as UnsafePointer<TaskGroup>
-            let n = unsafe g[0].tasks.len()
+            let n = g[0].tasks.len()
             var i = 0
             while i < n {
-                let done_i = unsafe g[0].done.get(i)!
-                let active_i = unsafe g[0].active.get(i)!
+                let done_i = g[0].done.get(i)!
+                let active_i = g[0].active.get(i)!
                 if (not done_i) && (not active_i) {
                     anylive = true
-                    let r = unsafe g[0].remaining.get(i)!
+                    let r = g[0].remaining.get(i)!
                     if r < 0 {
                         io = true
                     } else if r > 0 {
@@ -970,7 +970,7 @@ unsafe func __saw_exec_run(term_group: Int, term_slot: Int) {
                 }
                 i = i + 1
             }
-            cur2 = unsafe g[0].next
+            cur2 = g[0].next
         }
         if not anylive {
             // Every frame toward our goal is active on an OUTER sweep's stack —

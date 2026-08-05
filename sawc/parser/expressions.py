@@ -20,7 +20,7 @@ from ast_nodes import (
     Expression, Block, Statement,
     LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
     IntLiteral, FloatLiteral, BoolLiteral, StringLiteral, StringInterpolation, Identifier,
-    BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, UnsafeExpr, FunctionCall, IfExpr, IfLetExpr,
+    BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, FunctionCall, IfExpr, IfLetExpr,
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MapLiteral, SetLiteral,
     MemberAccess, StructInit,
@@ -41,19 +41,10 @@ class ExpressionsMixin:
     """Mixin providing expression parsing methods for Parser."""
 
     def parse_expression(self) -> Expression:
-        return self.parse_unsafe()
-
-    def parse_unsafe(self) -> Expression:
-        """Parse the `unsafe <expr>` marker (design 81). It sits just below
-        assignment and looser than every operator, so `unsafe ptr + n` and
-        `unsafe A().alloc(s, a)` mark the WHOLE producing expression, while
-        `unsafe p[0] = 5` marks only the lvalue here — the statement parser then
-        lifts the marker onto the whole store (see
-        `parse_assignment_or_expression_statement`)."""
-        if self.match(TokenType.UNSAFE):
-            tok = self.advance()
-            operand = self.parse_unsafe()
-            return UnsafeExpr(expression=operand, line=tok.line, column=tok.column)
+        # design 130 removed the line-level `unsafe <expr>` marker: `unsafe` is a
+        # DECLARATION modifier and a function-type effect now, never an expression
+        # prefix. A stray one here reaches `parse_primary` and is reported as a
+        # token that cannot begin an expression.
         return self.parse_nil_coalesce()
 
     def parse_nil_coalesce(self) -> Expression:
@@ -752,6 +743,15 @@ class ExpressionsMixin:
             param_token = self.current()
             self.advance()
             return Identifier(name=param_token.value, line=param_token.line, column=param_token.column)
+
+        elif self.match(TokenType.UNSAFE):
+            # design 130 removed design 81's line-level marker. Saw code written
+            # against the old model puts `unsafe` in front of a pointer
+            # expression, and a bare "unexpected token" would leave the reader to
+            # work out that the whole model changed under them.
+            self.error("`unsafe` is not an expression prefix — mark the "
+                       "enclosing declaration instead (`unsafe func f(...)`), "
+                       "and delete the marker here")
 
         else:
             self.error(f"Unexpected token: {token.type.name}")

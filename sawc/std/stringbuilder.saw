@@ -39,7 +39,7 @@ extension StringBuilder {
         if capacity <= 0 {
             StringBuilder(buffer: None, length: 0, capacity: 0)
         } else {
-            if let ptr = unsafe GlobalAllocator().alloc(capacity, 1) {
+            if let ptr = GlobalAllocator().alloc(capacity, 1) {
                 StringBuilder(buffer: ptr, length: 0, capacity: capacity)
             } else {
                 panic("StringBuilder(capacity:): allocation failed")
@@ -53,7 +53,7 @@ extension StringBuilder {
         if n <= 0 {
             return StringBuilder()
         }
-        if let ptr = unsafe GlobalAllocator().alloc(n, 1) {
+        if let ptr = GlobalAllocator().alloc(n, 1) {
             return StringBuilder(buffer: ptr, length: 0, capacity: n)
         }
         return AllocError(size: n, align: 1)

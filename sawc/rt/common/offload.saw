@@ -46,33 +46,33 @@ static_assert(sizeof<Job>() == 48, "offload Job layout must match shim.c")
 
 @export("__saw_rt_offload_start")
 unsafe func rt_offload_start(fn: Int, arg: Int) -> Int {
-    let raw = unsafe malloc(sizeof<Job>())
+    let raw = malloc(sizeof<Job>())
     let p = raw as UnsafePointer<Job>
-    unsafe p[0].fn = fn
-    unsafe p[0].arg = arg
-    unsafe p[0].result = 0
-    unsafe p[0].done.store(0)
+    p[0].fn = fn
+    p[0].arg = arg
+    p[0].result = 0
+    p[0].done.store(0)
     // pipe into a local pair, then copy the two fds into the job record.
     var fds = PipeFds(r: 0, w: 0)
     pipe((&fds) as UnsafePointer<Int8>)
-    unsafe p[0].pipe_r = fds.r
-    unsafe p[0].pipe_w = fds.w
+    p[0].pipe_r = fds.r
+    p[0].pipe_w = fds.w
     // Spawn the C thunk; store the returned OS thread handle in the job (design 117).
-    let thunk = unsafe __saw_offload_thread_ptr()
-    unsafe p[0].thread = __saw_rt_thread_spawn(thunk, raw)
+    let thunk = __saw_offload_thread_ptr()
+    p[0].thread = __saw_rt_thread_spawn(thunk, raw)
     raw as Int
 }
 
 @export("__saw_rt_offload_done")
 unsafe func rt_offload_done(job: Int) -> Int {
     let p = job as UnsafePointer<Job>
-    unsafe p[0].done.load()
+    p[0].done.load()
 }
 
 @export("__saw_rt_offload_pipe_fd")
 unsafe func rt_offload_pipe_fd(job: Int) -> Int {
     let p = job as UnsafePointer<Job>
-    unsafe p[0].pipe_r as Int
+    p[0].pipe_r as Int
 }
 
 @export("__saw_rt_offload_take")
@@ -80,10 +80,10 @@ unsafe func rt_offload_take(job: Int) -> Int {
     let raw = job as UnsafePointer<Int8>
     let p = job as UnsafePointer<Job>
     // Join (full barrier -> the thread's stores are visible) then read + free.
-    __saw_rt_thread_join(unsafe p[0].thread)
-    let result = unsafe p[0].result
-    close(unsafe p[0].pipe_r)
-    close(unsafe p[0].pipe_w)
+    __saw_rt_thread_join(p[0].thread)
+    let result = p[0].result
+    close(p[0].pipe_r)
+    close(p[0].pipe_w)
     free(raw)
     result
 }

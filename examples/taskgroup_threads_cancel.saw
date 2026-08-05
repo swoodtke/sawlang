@@ -25,7 +25,7 @@ unsafe func canceller(target: Int) -> Int {
     // Write through the cast inline: a `let flag = ...` pointer local would be
     // frame-resident (spans the yield) and non-Send, tripping the gate. `target`
     // (a plain Int) is the only value the frame carries across the suspension.
-    unsafe (target as UnsafePointer<Bool>)[0] = true
+    (target as UnsafePointer<Bool>)[0] = true
     return 0
 }
 

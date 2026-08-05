@@ -11,7 +11,7 @@
 
 import std.net.{net_buffer, net_free_buffer, net_would_block, tcp_close, tcp_socketpair, tcp_try_read, tcp_try_write}
 unsafe func reader(fd: Int) -> Int {
-    let buf = unsafe net_buffer(16)
+    let buf = net_buffer(16)
     var n = 0
     var going = true
     while going {
@@ -29,16 +29,16 @@ unsafe func reader(fd: Int) -> Int {
 
 unsafe func writer(fd: Int) -> Int {
     sleep(10)                       // the reactor poll must honour this deadline
-    let msg = unsafe net_buffer(5)
-    unsafe msg[0] = 104 as Int8
-    unsafe msg[1] = 101 as Int8
-    unsafe msg[2] = 108 as Int8
-    unsafe msg[3] = 108 as Int8
-    unsafe msg[4] = 111 as Int8
+    let msg = net_buffer(5)
+    msg[0] = 104 as Int8
+    msg[1] = 101 as Int8
+    msg[2] = 108 as Int8
+    msg[3] = 108 as Int8
+    msg[4] = 111 as Int8
     var off = 0
     var going = true
     while going {
-        let w = tcp_try_write(fd, unsafe msg + off, 5 - off)
+        let w = tcp_try_write(fd, msg + off, 5 - off)
         if net_would_block(w) {
             io_wait(fd, 1)
         } else {

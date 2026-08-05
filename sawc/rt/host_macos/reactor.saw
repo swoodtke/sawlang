@@ -67,11 +67,11 @@ unsafe func rt_reactor_create() -> Int {
     pipe((&fds) as UnsafePointer<Int8>)
     let _ = __saw_rt_set_nonblocking(fds.r as Int)
     let _ = __saw_rt_set_nonblocking(fds.w as Int)
-    let raw = unsafe malloc(sizeof<Reactor>())
+    let raw = malloc(sizeof<Reactor>())
     let rp = raw as UnsafePointer<Reactor>
-    unsafe rp[0].fd = kfd as Int
-    unsafe rp[0].wake_r = fds.r as Int
-    unsafe rp[0].wake_w = fds.w as Int
+    rp[0].fd = kfd as Int
+    rp[0].wake_r = fds.r as Int
+    rp[0].wake_w = fds.w as Int
     raw as Int
 }
 
@@ -80,7 +80,7 @@ unsafe func rt_reactor_create() -> Int {
 @export("__saw_rt_reactor_register")
 unsafe func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) {
     let rp = r as UnsafePointer<Reactor>
-    let kfd = unsafe rp[0].fd
+    let kfd = rp[0].fd
     let filt: Int16 = if w != 0 { -2 } else { -1 }
     var kev = KEvent(ident: fd, filter: filt, flags: EV_ADD_ONESHOT, fflags: 0 as UInt32, data: 0, udata: token)
     let nullp = 0 as UnsafePointer<Int8>
@@ -94,22 +94,22 @@ unsafe func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) {
 @export("__saw_rt_reactor_poll")
 unsafe func rt_reactor_poll(r: Int, timeout_ms: Int) -> Int {
     let rp = r as UnsafePointer<Reactor>
-    let kfd = unsafe rp[0].fd
-    let wr = unsafe rp[0].wake_r
+    let kfd = rp[0].fd
+    let wr = rp[0].wake_r
     // Register the self-wake pipe read end one-shot (token 0 -> latch loop skips
     // it, no frame falsely woken) so a `wake()` byte returns this poll promptly.
     rt_reactor_register(r, wr, 0, 0)
-    let buf = unsafe malloc(POLL_EVENTS * sizeof<KEvent>())
+    let buf = malloc(POLL_EVENTS * sizeof<KEvent>())
     var ts = TimeSpec(sec: timeout_ms / 1000, nsec: (timeout_ms % 1000) * 1000000)
     let tsp = if timeout_ms < 0 { 0 as UnsafePointer<Int8> } else { (&ts) as UnsafePointer<Int8> }
     let n = kevent(kfd as Int32, 0 as UnsafePointer<Int8>, 0, buf, POLL_EVENTS as Int32, tsp)
     let evs = buf as UnsafePointer<KEvent>
     var i = 0
     while i < (n as Int) {
-        let ud = unsafe evs[i].udata
+        let ud = evs[i].udata
         if ud != 0 {
             let tokptr = ud as UnsafePointer<Int>
-            unsafe tokptr[0] = 0
+            tokptr[0] = 0
         }
         i = i + 1
     }
@@ -131,7 +131,7 @@ unsafe func rt_reactor_poll(r: Int, timeout_ms: Int) -> Int {
 @export("__saw_rt_reactor_wake")
 unsafe func rt_reactor_wake(r: Int) {
     let rp = r as UnsafePointer<Reactor>
-    let ww = unsafe rp[0].wake_w
+    let ww = rp[0].wake_w
     var byte: Int8 = 1
     write(ww as Int32, (&byte) as UnsafePointer<Int8>, 1)
 }
@@ -139,8 +139,8 @@ unsafe func rt_reactor_wake(r: Int) {
 @export("__saw_rt_reactor_destroy")
 unsafe func rt_reactor_destroy(r: Int) {
     let rp = r as UnsafePointer<Reactor>
-    close(unsafe rp[0].fd as Int32)
-    close(unsafe rp[0].wake_r as Int32)
-    close(unsafe rp[0].wake_w as Int32)
+    close(rp[0].fd as Int32)
+    close(rp[0].wake_r as Int32)
+    close(rp[0].wake_w as Int32)
     free(r as UnsafePointer<Int8>)
 }

@@ -60,7 +60,7 @@ static AF_INET: Int8 = 2
 
 // The current thread's errno (sign-extended to a platform word). Private helper.
 unsafe func errno_value() -> Int {
-    unsafe __error()[0] as Int
+    __error()[0] as Int
 }
 
 // design 117: map the current errno to a portable SysError tag. Called by the

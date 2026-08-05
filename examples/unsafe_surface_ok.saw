@@ -24,13 +24,13 @@ unsafe func fill(p: UnsafePointer<Int8>) {
 }
 
 unsafe func main() {
-    if let base = unsafe malloc(16) {   // binding a produced pointer: marker
+    if let base = malloc(16) {   // binding a produced pointer: marker
         fill(base)                      // passing a pointer through: free
         // The cast names `UnsafePointer`, so `base + 1` is visible — no marker.
         let second = (base + 1) as UnsafePointer<Int8>
-        unsafe second[0] = 66           // deref write: marker
-        print(unsafe base[0] as Int)    // 65 — deref read: marker
-        print(unsafe base[1] as Int)    // 66
+        second[0] = 66           // deref write: marker
+        print(base[0] as Int)    // 65 — deref read: marker
+        print(base[1] as Int)    // 66
         free(base)
     }
 }

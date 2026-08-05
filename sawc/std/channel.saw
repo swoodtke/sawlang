@@ -59,14 +59,14 @@ extension Channel<T: Send> {
     /// every message, `recv` force-unwrapped a `None` and `receive` looped
     /// forever. `try_make` reports the failure instead.
     public unsafe init() -> Channel<T> {
-        if let block = unsafe GlobalAllocator().alloc(160, 16) {
+        if let block = GlobalAllocator().alloc(160, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
             __saw_rt_pthread_cond_init_default(cond)
             let refcount = (block + 128) as UnsafePointer<Int>
-            unsafe refcount[0] = 1
+            refcount[0] = 1
             let count = (block + 136) as UnsafePointer<Int>
-            unsafe count[0] = 0
+            count[0] = 0
             Channel<T>(block: block)
         } else {
             panic("Channel(): allocation failed")
@@ -76,14 +76,14 @@ extension Channel<T: Send> {
     /// Creates a fresh empty channel, reporting allocator exhaustion as
     /// `Err(AllocError)`.
     public unsafe func try_make() -> Result<Channel<T>, AllocError> {
-        if let block = unsafe GlobalAllocator().alloc(160, 16) {
+        if let block = GlobalAllocator().alloc(160, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
             __saw_rt_pthread_cond_init_default(cond)
             let refcount = (block + 128) as UnsafePointer<Int>
-            unsafe refcount[0] = 1
+            refcount[0] = 1
             let count = (block + 136) as UnsafePointer<Int>
-            unsafe count[0] = 0
+            count[0] = 0
             return Channel<T>(block: block)
         }
         return AllocError(size: 160, align: 16)

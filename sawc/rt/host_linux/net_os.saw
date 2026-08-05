@@ -56,7 +56,7 @@ static AF_INET_LO: Int8 = 2
 static AF_INET_HI: Int8 = 0
 
 unsafe func errno_value() -> Int {
-    unsafe __errno_location()[0] as Int
+    __errno_location()[0] as Int
 }
 
 // design 117: map the current errno to a portable SysError tag.

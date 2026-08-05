@@ -37,13 +37,13 @@ extension Box<T, A: Allocator = GlobalAllocator> {
     public unsafe func make(value: T) -> Box<T, A> {
         let size = sizeof<T>()
         let align = alignof<T>()
-        if let raw = unsafe A().alloc(size, align) {
+        if let raw = A().alloc(size, align) {
             let ptr = raw as UnsafePointer<T>
             // PLACEMENT-MOVE (LANGUAGE_SPEC "Placement writes"): `ptr[0]` is an
             // uninitialized, freshly-allocated chunk, so this store bitwise-moves
             // `value` in and does NOT release any prior occupant. `value` is
             // consumed by the value-transfer checkpoint.
-            unsafe ptr[0] = move value
+            ptr[0] = move value
             return Box<T, A>(ptr: ptr)
         }
         // Allocation failed: the infallible tier panics deterministically via the
@@ -62,9 +62,9 @@ extension Box<T, A: Allocator = GlobalAllocator> {
     public unsafe func try_make(value: T) -> Result<Box<T, A>, AllocError> {
         let size = sizeof<T>()
         let align = alignof<T>()
-        if let raw = unsafe A().alloc(size, align) {
+        if let raw = A().alloc(size, align) {
             let ptr = raw as UnsafePointer<T>
-            unsafe ptr[0] = move value
+            ptr[0] = move value
             return Box<T, A>(ptr: ptr)
         }
         // `value` unmoved -> deinit'd at scope exit; surface the failure.

@@ -2403,12 +2403,6 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def visit_CastExpr(self, expr: CastExpr):
         return self._generate_cast_expr(expr)
 
-    def visit_UnsafeExpr(self, expr):
-        # design 81: `unsafe` is a pure type-checker visibility marker — it emits
-        # exactly the inner expression's code.
-        return self._generate_expression(expr.expression,
-                                         need_result=getattr(self, '_need_result', True))
-
     def visit_FunctionCall(self, expr: FunctionCall):
         return self._generate_function_call(expr)
 

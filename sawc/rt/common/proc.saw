@@ -93,10 +93,10 @@ unsafe func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, 
     if capture != 0 {
         let _ = close(fds.w)
     }
-    let raw = unsafe malloc(sizeof<ProcJob>())
+    let raw = malloc(sizeof<ProcJob>())
     let p = raw as UnsafePointer<ProcJob>
-    unsafe p[0].pid = pid
-    unsafe p[0].stdout_fd = fds.r
+    p[0].pid = pid
+    p[0].stdout_fd = fds.r
     raw as Int
 }
 
@@ -105,7 +105,7 @@ unsafe func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, 
 @export("__saw_rt_proc_read_stdout")
 unsafe func rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
     let p = job as UnsafePointer<ProcJob>
-    let fd = unsafe p[0].stdout_fd
+    let fd = p[0].stdout_fd
     if fd < (0 as Int32) {
         return 0
     }
@@ -122,10 +122,10 @@ unsafe func rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) ->
 unsafe func rt_proc_wait(job: Int) -> Int {
     let raw = job as UnsafePointer<Int8>
     let p = job as UnsafePointer<ProcJob>
-    let fd = unsafe p[0].stdout_fd
+    let fd = p[0].stdout_fd
     if fd >= (0 as Int32) {
         let _ = close(fd)
-        unsafe p[0].stdout_fd = NO_FD
+        p[0].stdout_fd = NO_FD
     }
 
     var status: Int32 = 0
@@ -133,7 +133,7 @@ unsafe func rt_proc_wait(job: Int) -> Int {
     var tag = 0
     var waiting = true
     while waiting {
-        let r = waitpid(unsafe p[0].pid, sp, 0 as Int32)
+        let r = waitpid(p[0].pid, sp, 0 as Int32)
         if r >= (0 as Int32) {
             waiting = false
         } else {

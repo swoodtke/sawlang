@@ -114,25 +114,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self.found_return_with_value: bool = False
         # Track loop nesting depth for break/continue validation
         self.loop_depth: int = 0
-        # Unsafe surface (design 81). `_unsafe_marker_depth` > 0 while checking
-        # inside an `unsafe <expr>` marker (or an `unsafe`-marked store);
-        # `_current_fn_unsafe_domain` is True inside a function/method whose own
-        # signature carries a raw pointer (the marked domain — everything free);
-        # `_unsafe_ops_seen` is a monotonic counter of raw-pointer operations
-        # encountered, used to detect a marker that covers nothing unsafe.
-        self._unsafe_marker_depth: int = 0
-        self._current_fn_unsafe_domain: bool = False
-        self._unsafe_ops_seen: int = 0
         # design 130 trigger rule: the first contact the function currently being
         # checked made with an unsafe type, as (line, column, why, type name), or
         # None. A closure body gets its own scope — rule 3 judges a closure on
         # its OWN body, so contacts never leak either way across the boundary.
         self._unsafe_contact = None
-        # >0 while checking the operand of a cast whose target is a raw pointer
-        # (`(block + 8) as UnsafePointer<Int>`). The `UnsafePointer` type is named
-        # IN the expression, so the pointer flow is already visible/greppable — a
-        # pointer op under such a cast needs no `unsafe` marker.
-        self._ptr_cast_depth: int = 0
         # Track break value types for each loop level
         # Each entry is (expected_type: Optional[SawType], is_infinite: bool, has_break: bool)
         self.loop_break_info: List[Tuple[Optional[SawType], bool, bool]] = []
@@ -243,95 +229,6 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 self.current_function, 'is_synthesized', False):
             return True
         return False
-
-    # ===== Unsafe surface (design 81) =====
-
-    def _type_tree_has_pointer(self, t) -> bool:
-        """Whether a type mentions a raw pointer (`UnsafePointer<T>` /
-        `UnsafeConstPointer<T>`, `TypeKind.POINTER`) ANYWHERE in its tree —
-        directly, or nested in an optional/array/tuple/generic-arg/closure. Used
-        to decide whether a function's signature carries an `Unsafe*` type (and
-        is therefore in the marked domain)."""
-        if t is None:
-            return False
-        if t.kind == TypeKind.POINTER:
-            return True
-        if getattr(t, 'inner_type', None) and self._type_tree_has_pointer(t.inner_type):
-            return True
-        if getattr(t, 'array_element_type', None) and self._type_tree_has_pointer(t.array_element_type):
-            return True
-        for ta in (getattr(t, 'type_args', None) or []):
-            if self._type_tree_has_pointer(ta):
-                return True
-        for et in (getattr(t, 'element_types', None) or []):
-            if self._type_tree_has_pointer(et):
-                return True
-        for pt in (getattr(t, 'param_types', None) or []):
-            if self._type_tree_has_pointer(pt):
-                return True
-        if getattr(t, 'func_return_type', None) and self._type_tree_has_pointer(t.func_return_type):
-            return True
-        return False
-
-    def _signature_unsafe_domain(self, param_types, return_type) -> bool:
-        """A function/method is in the UNSAFE DOMAIN when its own signature —
-        any parameter type or the return type — carries a raw pointer (design
-        81). Inside such a function raw-pointer operations are free: the pointer
-        type is already visible at the signature. `self` (a struct receiver) is
-        never a raw pointer, so a pointer FIELD does not put the method in the
-        domain (the field decl is its own visible marker)."""
-        for pt in (param_types or []):
-            if self._type_tree_has_pointer(pt):
-                return True
-        return self._type_tree_has_pointer(return_type)
-
-    def _struct_has_pointer_field(self, struct_name) -> bool:
-        """Whether a struct declares a field whose type carries a raw pointer
-        (design 81). A `self`-receiver method of such a struct is in the unsafe
-        domain: the pointer field's decl is the visible marker for operations on
-        it. Extension of a primitive/non-struct receiver has no such field."""
-        if not struct_name:
-            return False
-        info = self.get_struct_info(struct_name)
-        if info is None:
-            return False
-        for _fname, ftype in info.fields.items():
-            if self._type_tree_has_pointer(ftype):
-                return True
-        return False
-
-    def _note_unsafe_op(self, expr, what: str) -> None:
-        """Record (and, when required, reject) a raw-pointer operation whose
-        pointer value flows INVISIBLY (design 81): a deref/index/write, pointer
-        arithmetic, or a pointer produced by a call. The `unsafe` marker, an
-        enclosing cast that names a pointer type, the enclosing function being in
-        the unsafe domain, or compiler-synthesized provenance (design 80) each
-        satisfy the requirement; otherwise it is a clean error naming the
-        operation."""
-        self._unsafe_ops_seen += 1
-        if self._unsafe_marker_depth > 0:
-            return
-        if self._ptr_cast_depth > 0:
-            # The pointer op is the operand of a cast that names `UnsafePointer`
-            # in source — already visible/greppable, no marker required.
-            return
-        if self._current_fn_unsafe_domain:
-            return
-        if self._in_synthesized_context():
-            return
-        if getattr(expr, '_unsafe_reported', False):
-            return
-        expr._unsafe_reported = True
-        self._error(
-            ErrorKind.TYPE_MISMATCH,
-            f"{what} requires the `unsafe` marker",
-            getattr(expr, 'line', 0), getattr(expr, 'column', 0),
-            hint="prefix the expression with `unsafe` (e.g. `let p = unsafe "
-                 "A().alloc(size, align)`, `unsafe ptr[0]`) — the raw pointer "
-                 "flows with no `UnsafePointer` type visible at this site; or put "
-                 "an `Unsafe*` type in this function's signature to enter the "
-                 "marked domain",
-        )
 
     # ===== Unsafe surface (design 130) =====
     #

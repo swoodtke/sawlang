@@ -30,5 +30,5 @@ unsafe func main() {
     let hbase = ((&HEAP) as UnsafePointer<Int8>) as Int
     let region = UnsafeMemory<[Int; 4], Normal>(hbase)
     print(region.len())                          // 32 : 4 * 8 bytes
-    print(unsafe (region.end() as Int) - (region.ptr() as Int))  // 32
+    print((region.end() as Int) - (region.ptr() as Int))  // 32
 }

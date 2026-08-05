@@ -58,11 +58,11 @@ unsafe func rt_reactor_create() -> Int {
     pipe((&fds) as UnsafePointer<Int8>)
     let _ = __saw_rt_set_nonblocking(fds.r as Int)
     let _ = __saw_rt_set_nonblocking(fds.w as Int)
-    let raw = unsafe malloc(sizeof<Reactor>())
+    let raw = malloc(sizeof<Reactor>())
     let rp = raw as UnsafePointer<Reactor>
-    unsafe rp[0].fd = epfd as Int
-    unsafe rp[0].wake_r = fds.r as Int
-    unsafe rp[0].wake_w = fds.w as Int
+    rp[0].fd = epfd as Int
+    rp[0].wake_r = fds.r as Int
+    rp[0].wake_w = fds.w as Int
     raw as Int
 }
 
@@ -71,13 +71,13 @@ unsafe func rt_reactor_create() -> Int {
 @export("__saw_rt_reactor_register")
 unsafe func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) {
     let rp = r as UnsafePointer<Reactor>
-    let epfd = unsafe rp[0].fd
+    let epfd = rp[0].fd
     var ev = EpollEv(lo: 0, hi: 0)
     let evp = (&ev) as UnsafePointer<Int8>
     let events: UInt32 = if w != 0 { EV_OUT_ONESHOT } else { EV_IN_ONESHOT }
-    unsafe (evp as UnsafePointer<UInt32>)[0] = events           // events @ byte 0
-    let datap = unsafe (evp + 4) as UnsafePointer<Int>          // data @ byte 4
-    unsafe datap[0] = token
+    (evp as UnsafePointer<UInt32>)[0] = events           // events @ byte 0
+    let datap = (evp + 4) as UnsafePointer<Int>          // data @ byte 4
+    datap[0] = token
     // EPOLL_CTL_ADD; on EEXIST (already known) re-arm with EPOLL_CTL_MOD.
     let r0 = epoll_ctl(epfd as Int32, EPOLL_CTL_ADD, fd as Int32, evp)
     if r0 != (0 as Int32) {
@@ -92,19 +92,19 @@ unsafe func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) {
 @export("__saw_rt_reactor_poll")
 unsafe func rt_reactor_poll(r: Int, timeout_ms: Int) -> Int {
     let rp = r as UnsafePointer<Reactor>
-    let epfd = unsafe rp[0].fd
-    let wr = unsafe rp[0].wake_r
+    let epfd = rp[0].fd
+    let wr = rp[0].wake_r
     rt_reactor_register(r, wr, 0, 0)
-    let buf = unsafe malloc(POLL_EVENTS * EPOLL_EVENT_SIZE)
+    let buf = malloc(POLL_EVENTS * EPOLL_EVENT_SIZE)
     let to: Int32 = if timeout_ms < 0 { -1 } else { timeout_ms as Int32 }
     let n = epoll_wait(epfd as Int32, buf, POLL_EVENTS as Int32, to)
     var i = 0
     while i < (n as Int) {
-        let datap = unsafe (buf + (i * EPOLL_EVENT_SIZE + 4)) as UnsafePointer<Int>
-        let ud = unsafe datap[0]
+        let datap = (buf + (i * EPOLL_EVENT_SIZE + 4)) as UnsafePointer<Int>
+        let ud = datap[0]
         if ud != 0 {
             let tokptr = ud as UnsafePointer<Int>
-            unsafe tokptr[0] = 0
+            tokptr[0] = 0
         }
         i = i + 1
     }
@@ -122,7 +122,7 @@ unsafe func rt_reactor_poll(r: Int, timeout_ms: Int) -> Int {
 @export("__saw_rt_reactor_wake")
 unsafe func rt_reactor_wake(r: Int) {
     let rp = r as UnsafePointer<Reactor>
-    let ww = unsafe rp[0].wake_w
+    let ww = rp[0].wake_w
     var byte: Int8 = 1
     write(ww as Int32, (&byte) as UnsafePointer<Int8>, 1)
 }
@@ -130,8 +130,8 @@ unsafe func rt_reactor_wake(r: Int) {
 @export("__saw_rt_reactor_destroy")
 unsafe func rt_reactor_destroy(r: Int) {
     let rp = r as UnsafePointer<Reactor>
-    close(unsafe rp[0].fd as Int32)
-    close(unsafe rp[0].wake_r as Int32)
-    close(unsafe rp[0].wake_w as Int32)
+    close(rp[0].fd as Int32)
+    close(rp[0].wake_r as Int32)
+    close(rp[0].wake_w as Int32)
     free(r as UnsafePointer<Int8>)
 }
