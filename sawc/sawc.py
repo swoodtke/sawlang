@@ -855,7 +855,12 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # violation. The entry module was checked with is_entry=False (object_only
     # suppresses the main() requirement), so the whole-program effect fixpoint
     # has not run yet — run it now, then surface any violation.
-    if runtime_build:
+    # design 122 unit E: `--emit-docs` needs the same fixpoint. The entry module
+    # is checked with is_entry=False under `object_only`, so nothing ran the
+    # whole-program effect analysis — every node's `suspends` bit was still
+    # False, and the docs emitter reported `"effect": "sync"` for every
+    # suspending USER function (only a hardcoded std name list said otherwise).
+    if runtime_build or docs_out is not None:
         typechecker.finalize_effects()
         if reporter.has_errors():
             reporter.print_all()

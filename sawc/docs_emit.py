@@ -128,6 +128,10 @@ class DocsBuilder:
         self.typechecker = ctx["typechecker"]
         self.include_private = include_private
         builtin_ns = ctx["builtin_ns"]
+        # std bodies are checked (and their effect fixpoint run) by the separate
+        # builtin typechecker — design 84 — so their suspend facts arrive as
+        # these two sets rather than in this compilation's effect graph. They are
+        # the FALLBACK in `_effect`; the program's own graph always wins.
         self._std_suspending_methods = getattr(
             builtin_ns, "_std_suspending_methods", set()) or set()
         self._std_suspending_functions = getattr(
@@ -406,17 +410,26 @@ class DocsBuilder:
         checker already proved the body suspension-free."""
         if getattr(node, "is_sync", False):
             return "sync"
+        # The program's own effect graph is the authority (design 122 unit E).
+        # It answers for every USER function and method now that the docs path
+        # runs the whole-program fixpoint; before that it was always empty here,
+        # so a suspending user function was reported `sync`.
         nodes = getattr(self.typechecker, "_suspend_nodes", {}) or {}
+        if owner is not None and not is_trait_method:
+            entry = nodes.get(id(node))
+        else:
+            entry = nodes.get(("fn", getattr(node, "mangled_symbol", None)
+                               or node.name))
+        if entry is not None:
+            return "suspending" if getattr(entry, "suspends", False) else "sync"
+        # No node: a std body, which THIS typechecker never checks (std is
+        # pre-checked by the builtin typechecker, design 84). Its finalized graph
+        # is carried over as these two sets — effect-graph facts too, just from
+        # the other graph.
         if owner is not None and not is_trait_method:
             if (owner, node.name) in self._std_suspending_methods:
                 return "suspending"
-            entry = nodes.get(id(node))
-        else:
-            if owner is None and node.name in self._std_suspending_functions:
-                return "suspending"
-            entry = nodes.get(("fn", getattr(node, "mangled_symbol", None)
-                               or node.name))
-        if entry is not None and getattr(entry, "suspends", False):
+        elif owner is None and node.name in self._std_suspending_functions:
             return "suspending"
         return "sync"
 

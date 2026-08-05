@@ -1,0 +1,134 @@
+//! The `--emit-docs` effect field, read off the effect graph.
+//
+// Design 122 unit E: `effect` is answered by the whole-program effect graph, so
+// a suspending USER function reports `suspending` — directly (`nap` calls
+// `sleep`) and TRANSITIVELY (`nap_twice` only calls `nap`). The docs path used
+// to skip the effect fixpoint entirely, leaving every node's bit unset, so only
+// names carried over from the std pre-check ever said `suspending` and every
+// suspending user function was documented `sync`.
+
+// EXPECT: docs
+// COMPILE-FLAGS: --emit-docs
+// EXPECT-OUTPUT:
+// {
+//   "schema_version": 1,
+//   "modules": [
+//     {
+//       "name": "doc_emit_effect",
+//       "source": "doc_emit_effect.saw",
+//       "doc": "The `--emit-docs` effect field, read off the effect graph.",
+//       "items": [
+//         {
+//           "kind": "func",
+//           "name": "main",
+//           "signature": "func main()",
+//           "visibility": "private",
+//           "generics": [],
+//           "params": [],
+//           "returns": "Void",
+//           "effect": "suspending",
+//           "self": null,
+//           "doc": null,
+//           "line": 132
+//         },
+//         {
+//           "kind": "func",
+//           "name": "nap",
+//           "signature": "public func nap(ms: Int) -> Int",
+//           "visibility": "public",
+//           "generics": [],
+//           "params": [
+//             {
+//               "name": "ms",
+//               "label": "ms",
+//               "type": "Int"
+//             }
+//           ],
+//           "returns": "Int",
+//           "effect": "suspending",
+//           "self": null,
+//           "doc": "Suspends: sleeps before answering.",
+//           "line": 116
+//         },
+//         {
+//           "kind": "func",
+//           "name": "nap_twice",
+//           "signature": "public func nap_twice(ms: Int) -> Int",
+//           "visibility": "public",
+//           "generics": [],
+//           "params": [
+//             {
+//               "name": "ms",
+//               "label": "ms",
+//               "type": "Int"
+//             }
+//           ],
+//           "returns": "Int",
+//           "effect": "suspending",
+//           "self": null,
+//           "doc": "Suspends transitively: it only calls `nap`.",
+//           "line": 122
+//         },
+//         {
+//           "kind": "func",
+//           "name": "plain",
+//           "signature": "public func plain(n: Int) -> Int",
+//           "visibility": "public",
+//           "generics": [],
+//           "params": [
+//             {
+//               "name": "n",
+//               "label": "n",
+//               "type": "Int"
+//             }
+//           ],
+//           "returns": "Int",
+//           "effect": "sync",
+//           "self": null,
+//           "doc": "Sync: no suspension anywhere below it.",
+//           "line": 127
+//         },
+//         {
+//           "kind": "func",
+//           "name": "promised",
+//           "signature": "public func promised(n: Int) sync -> Int",
+//           "visibility": "public",
+//           "generics": [],
+//           "params": [
+//             {
+//               "name": "n",
+//               "label": "n",
+//               "type": "Int"
+//             }
+//           ],
+//           "returns": "Int",
+//           "effect": "sync",
+//           "self": null,
+//           "doc": "Declared `sync`: the checker proved the body suspension-free.",
+//           "line": 130
+//         }
+//       ]
+//     }
+//   ]
+// }
+
+/// Suspends: sleeps before answering.
+public func nap(ms: Int) -> Int {
+    sleep(ms)
+    ms
+}
+
+/// Suspends transitively: it only calls `nap`.
+public func nap_twice(ms: Int) -> Int {
+    nap(ms) + nap(ms)
+}
+
+/// Sync: no suspension anywhere below it.
+public func plain(n: Int) -> Int { n + 1 }
+
+/// Declared `sync`: the checker proved the body suspension-free.
+public func promised(n: Int) sync -> Int { plain(n) }
+
+func main() {
+    print(nap_twice(0) + plain(1) + promised(1))
+}
