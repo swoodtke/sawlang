@@ -1,6 +1,8 @@
 # Design 139 — the enum policy tier: no policy-exempt wrappers
 
-STATUS: APPROVED (user, Aug 5). Queued after 138. Closes DF-131a by
+STATUS: APPROVED (user, Aug 5; REORDERED Aug 5 — soundness ahead of
+polish). Queued right after the [134∥137] pair integrates; then 142 →
+141 → 135 → 138. Closes DF-131a by
 generalizing, not special-casing: enums join the same policy discipline
 structs got in designs 9/128/131. End state: every type — struct, enum, or
 builtin generic — has exactly one transfer class, and every read consults

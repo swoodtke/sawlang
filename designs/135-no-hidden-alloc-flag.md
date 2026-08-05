@@ -1,6 +1,8 @@
 # Design 135 — `--no-hidden-alloc`: enforce the no-hidden-allocations claim
 
-STATUS: APPROVED (user, Aug 5). Queued after 134 (pipeline 130 → 131 → 132 →
+STATUS: APPROVED (user, Aug 5; REORDERED Aug 5 — the soundness set 139 →
+142 → 141 runs first). Queued after 141, before 138 (original pipeline
+note follows: 130 → 131 → 132 →
 133 → 134 → 135); diagnostics-only, so it may be pulled earlier if a slot
 opens. Restores the guarantee design 125 had to soften into "names its two
 exceptions".

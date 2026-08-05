@@ -1,10 +1,12 @@
 # Design 141 — `borrows` functions and `lend`: element places
 
-STATUS: APPROVED (user, Aug 5). Queued after 139 (it builds on 131's place
-rule and 139's uniform policy tiers; the queue ahead is mechanical by
-comparison). Promotes the P4 "element places / generalized accessors"
-entry. Closes the with_ref-closure-ceremony class; adjacent to G3 slices
-(same construct, later brief).
+STATUS: APPROVED (user, Aug 5; DF-132a fold + queue reorder confirmed
+Aug 5). Queue position: after 139 → 142 (reordered: soundness ahead of
+polish — 135/138 follow this brief). Promotes the P4 "element places /
+generalized accessors" entry. Closes the with_ref-closure-ceremony class
+AND the DF-132a / DF-128c pair (P0: `Vector.get` aliases NoCopy elements —
+two gets double-free; the drop-glue fix that exposes it lands HERE, as the
+proven pair). Adjacent to G3 slices (same construct, later brief).
 
 ## The decisions [user]
 
@@ -24,6 +26,30 @@ entry. Closes the with_ref-closure-ceremony class; adjacent to G3 slices
    window spanning the call; `f(&var v[i])` exclusive ditto.
 4. **`[]` becomes a declarable method name** (subscript) via borrows; any
    NAMED method may also be `borrows` (`func first() borrows -> T`).
+5. **Conditional lend — `borrows -> T?` is the optional place** `[user,
+   Aug 5]`. A `borrows -> T?` body's paths each either `lend <place>`
+   (the present path — lends real storage as a Some-place) or plainly
+   `return None` (the absent path — no storage, an immediate value) or
+   diverge; the lend-coverage rule is amended accordingly. The caller
+   sees an optional place consumed by 131's rules: `v.get(i)!.m()`
+   chains a borrow; `if let x = v.get(i)` value-binds by the policy
+   table. This is the semantics behind Map's `[](key) borrows -> V?`.
+6. **`Vector.get` becomes `func get(&self, i: Int) borrows -> T?`**
+   `[user, Aug 5 — closes DF-132a]`: the non-panicking optional place
+   beside `[]`'s panicking place. Trivial/ImplicitCopy value reads keep
+   today's owned-`T?` behavior (retained — no caller breakage);
+   NoCopy/ExplicitCopy value reads become the policy-table error instead
+   of today's silent non-retained alias (two `get`s of one NoCopy
+   element double-free on the pre-141 compiler — the 132 unit H repro is
+   the regression test). Same conversion for Map's optional accessors.
+7. **The DF-128c drop-glue fix lands in this brief, paired** `[user]`:
+   the `_type_method_base` mangling fix for drop glue (132 unit H
+   diagnosed it correct-but-blocked; its 13-field instrumentation list
+   and 60-line repro are in the tracker) ships in the SAME unit as the
+   `get` conversion — each is unsound without the other. toml/blade
+   migrate STRAIGHT to places (`doc.section("package")!.get_string(...)`
+   — `section(name) borrows -> TomlTable?`), one migration, no closure
+   interim.
 
 ## Semantics (from the design discussion, settled)
 
