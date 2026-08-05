@@ -54,8 +54,8 @@ func stopper(stop: Arc<Mutex<Int>>) -> Int {
 func main() {
     let stop = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     var group = TaskGroup()
-    var hs = group.spawn(spinner(stop))
-    var hk = group.spawn(stopper(stop))
+    let hs = group.spawn(spinner(stop))
+    let hk = group.spawn(stopper(stop))
     let turns = hk.join()
     let _ = hs.join()
     print(turns)

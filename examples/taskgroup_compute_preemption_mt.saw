@@ -22,7 +22,7 @@ func spin_sum(n: Int) -> Int {
 
 func main() {
     var group = TaskGroup(threads: 2)
-    var a = group.spawn(spin_sum(200000))
-    var b = group.spawn(spin_sum(200000))
+    let a = group.spawn(spin_sum(200000))
+    let b = group.spawn(spin_sum(200000))
     print(a.join() + b.join())
 }

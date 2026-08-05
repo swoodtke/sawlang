@@ -80,20 +80,20 @@ func count_nested(rows: Int, cols: Int) -> Int {
 
 func main() {
     var group = TaskGroup()
-    var v: Vector<Int> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    let v: Vector<Int> = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-    var h1 = group.spawn(count_range(1000))
+    let h1 = group.spawn(count_range(1000))
     print("range {h1.join()}")
 
-    var h2 = group.spawn(sum_vector(move v))
+    let h2 = group.spawn(sum_vector(move v))
     print("vector {h2.join()}")
 
-    var h3 = group.spawn(count_suspending(300))
+    let h3 = group.spawn(count_suspending(300))
     print("suspending {h3.join()}")
 
-    var h4 = group.spawn(count_continue(1000))
+    let h4 = group.spawn(count_continue(1000))
     print("continue {h4.join()}")
 
-    var h5 = group.spawn(count_nested(20, 30))
+    let h5 = group.spawn(count_nested(20, 30))
     print("nested {h5.join()}")
 }
