@@ -1765,7 +1765,7 @@ class TypeUtilsMixin:
                     f"`{type_name}` conforms to `{trait}` but not to `Equatable`: "
                     f"`{trait}` requires `Equatable`",
                     line, column,
-                    hint=f"add `extension {type_name}: Equatable {{}}`"
+                    hint=f"add `@synthesize extension {type_name}: Equatable {{}}`"
                 )
 
     # design 128 removed `_check_deinit_containment`. Destruction is no longer

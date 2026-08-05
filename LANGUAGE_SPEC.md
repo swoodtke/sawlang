@@ -1101,7 +1101,7 @@ trait Iterator {
 // Interface inheritance (supertraits)
 trait ImplicitCopy: Deinit {
     func copy(&self) -> Self
-    // Implementing ImplicitCopy requires also implementing Deinit
+    // ImplicitCopy implies Deinit; the deinit itself is synthesized
 }
 ```
 
@@ -1415,7 +1415,9 @@ extension Point: Display {
 ```
 
 **Key Features:**
-- Methods use `&self` (immutable reference) or `&var self` (mutable reference)
+- Methods use `&self` (immutable reference) or `&var self` (mutable reference).
+  Both receivers are borrows and the sigil says so; a bare `var self` is a
+  compile error pointing at `&var self`
 - Custom `init` methods return the struct type
 - Multiple `init` methods distinguished by parameter names
 - Mutable methods receive a reference for efficient mutation
@@ -1460,12 +1462,12 @@ claim: the cost of every transfer is now readable at the use site.
 - **`NoCopy`** — never duplicable, on purpose (`File`, `Mutex`, `Box`; currently
   also `Map`/`Set` — their `ExplicitCopy` conformance is future work). Move-only.
 - **Every declared policy trait extends `Deinit`**: `ImplicitCopy`,
-  `ExplicitCopy`, and `NoCopy` all require a `deinit(&var self)` (declared as
-  `trait ImplicitCopy: Deinit` etc. in the builtin prelude). A type opts into
-  a policy because it manages a resource, and managing a resource means having
-  a destructor — so the trivially-copyable tier is exactly the destructor-free
-  tier. A policy type with genuinely nothing to clean up writes an empty
-  `deinit`.
+  `ExplicitCopy`, and `NoCopy` are declared as `trait ImplicitCopy: Deinit` etc.
+  in the builtin prelude. A type opts into a policy because it manages a
+  resource, and managing a resource means having a destructor, so the
+  trivially-copyable tier is exactly the destructor-free tier. The `deinit`
+  itself is synthesized (see [Synthesized destruction](#synthesized-destruction));
+  declaring the policy is all you write.
 - **`ImplicitCopy` and `ExplicitCopy` are mutually exclusive** on one type.
 
 ```saw
@@ -1495,9 +1497,23 @@ func dup<T: Copy>(x: T) -> T {
 ```
 
 **Derivation & containment.** A struct declaring `ExplicitCopy`/`ImplicitCopy`
-without a hand-written `copy()` gets a memberwise one synthesized (POD fields
-bitwise, copy-policy fields via their `copy()`; a `NoCopy` field makes
-derivation impossible). Containment is explicit, never inferred: a struct with
+can have its `copy()` derived memberwise (POD fields bitwise, copy-policy fields
+via their own `copy()`), but the derivation is opt-in: mark the extension
+`@synthesize`, or write `copy()` by hand. See
+[Synthesized conformances](#synthesized-conformances). A `NoCopy` field makes
+derivation impossible and is reported by name.
+
+```saw
+struct Snapshot {
+    rows: Vector<Int>,
+    label: String
+}
+
+@synthesize
+extension Snapshot: ExplicitCopy {}   // memberwise deep copy + synthesized deinit
+```
+
+Containment is explicit, never inferred: a struct with
 an `ExplicitCopy` (or `NoCopy`) field must itself declare that policy — the
 compiler errors with a hint otherwise. Containment looks *through* array-typed
 fields: a struct holding a `[NoCopy; N]` field is move-only and must declare
@@ -1800,6 +1816,10 @@ trait Deinit {
 
 The compiler inserts `deinit()` calls at all scope exit points—including normal exits, early returns, breaks, and error propagation.
 
+You rarely write the body. Any struct or enum that owns something gets a
+memberwise `deinit` synthesized from its fields, so a hand-written one is for
+raw resources only; see [Synthesized destruction](#synthesized-destruction).
+
 **Important:** Manual `deinit()` calls are not allowed. Calling `obj.deinit()` is a compile-time error to prevent double-free and use-after-free bugs. For early cleanup, use a nested scope or `move` the value to a consuming function.
 
 #### The ImplicitCopy Interface
@@ -1909,46 +1929,69 @@ use(f)           // Error: f was moved
 | `ExplicitCopy` | **error** — needs `move` | yes (visible) | `deinit()` |
 | `NoCopy` | **error** — needs `move` | no | `deinit()` |
 
+The `deinit()` in the Cleanup column is synthesized from the type's fields
+unless you write one.
+
 #### Containment Rules
 
-If a struct contains fields that implement `Deinit`, `ImplicitCopy`, or `NoCopy`, the struct must also implement that trait. This ensures resource management is never silently skipped:
+A struct that contains a field with a copy policy must declare a copy policy of
+its own. The compiler knows how to destroy such a struct — see *Synthesized
+destruction* below — but it cannot know whether you want the value duplicated,
+so that one decision stays with you:
 
 ```saw
 struct Connection {
-    socket: File       // File implements NoCopy
+    socket: File       // File is NoCopy
     config: Config     // plain type
 }
-// Error: Connection contains NoCopy field but doesn't implement NoCopy
+// error: struct `Connection` contains NoCopy field `socket` of type `File`
+//        but does not implement NoCopy
 
-// Fix: explicitly implement NoCopy
-extension Connection: NoCopy {
-    func deinit(&var self) {
-        // Your cleanup code here
-        // Compiler auto-calls socket.deinit() after your code
-    }
-}
+// Fix: declare the policy. The body is empty; `deinit` is synthesized and
+// closes `socket` at scope exit.
+extension Connection: NoCopy {}
 ```
 
 The containment rules are:
 - **NoCopy containment**: If any field is `NoCopy`, the struct must be `NoCopy`
 - **ExplicitCopy containment**: If any field is `ExplicitCopy`, the struct must declare `ExplicitCopy` (or `NoCopy`)
 - **ImplicitCopy containment**: If any field is `ImplicitCopy` (and none are `NoCopy`/`ExplicitCopy`), the struct must be `ImplicitCopy`
-- **Deinit containment**: If any field is `Deinit`, the struct must implement `Deinit`
 
-#### Automatic Field Operations
+There is no Deinit containment rule. Destruction is never something a type opts
+into.
 
-When you implement these traits, the compiler automatically handles fields:
+#### Synthesized destruction
 
-**In `deinit`**: After your cleanup code runs, the compiler calls `deinit()` on all fields that implement `Deinit`, in reverse declaration order:
+Every struct and enum that owns something gets a `deinit`, written by the
+compiler. Fields are dropped in reverse declaration order, matching the order
+locals drop in; an enum switches on its tag and drops the active variant's
+owning payload. A field that owns nothing costs nothing.
+
+```saw
+struct Session {
+    log: Vector<String>,
+    buffer: Vector<Int>
+}
+
+extension Session: NoCopy {}
+// deinit drops `buffer`, then `log`. Nothing to write.
+```
+
+Write a `deinit` yourself when a raw resource needs releasing — a file
+descriptor, a mapped page, an allocation the compiler does not track. Your body
+runs first, then the field drops are appended:
 
 ```saw
 extension Connection: NoCopy {
     func deinit(&var self) {
-        print("closing connection")
-        // Compiler inserts: self.socket.deinit()
+        log_close(self.id)
+        // then: self.socket drops
     }
 }
 ```
+
+There is only ever one `deinit` per type. Writing one replaces the synthesized
+body; it does not add a second pass.
 
 **In struct initialization**: When initializing a struct, `copy()` is automatically called on any `ImplicitCopy` fields that come from existing variables:
 
@@ -1957,7 +2000,6 @@ extension Container: ImplicitCopy {
     func copy(&self) -> Container {
         Container(data: self.data)  // Compiler calls self.data.copy()
     }
-    func deinit(&var self) { }
 }
 ```
 
@@ -2277,11 +2319,18 @@ func get_index(arr: [Int], i: Int) -> Int {   // [Int] slice: illustrative
 - **Auto-conform:** trivial (POD) structs — the exact set that auto-conforms to
   `Copy` — and payload-free enums. Integers, `Bool`, `Float`, and `String`
   conform builtin.
-- **Opt-in with synthesis:** every other struct/enum declares
-  `extension T: Equatable {}`. An empty body **synthesizes** the comparison:
-  memberwise `&&` for structs, payload-deep for enums (equal tag, then the
-  active variant's payload fields, recursively). A hand-written
-  `func equals(&self, other: Self) -> Bool` **overrides** the synthesis.
+- **Opt-in with synthesis:** every other struct/enum declares the conformance and
+  marks it `@synthesize` to have the comparison derived: memberwise `&&` for
+  structs, payload-deep for enums (equal tag, then the active variant's payload
+  fields, recursively). A hand-written
+  `func equals(&self, other: Self) -> Bool` is used instead of the derivation.
+  A declared conformance that neither carries `@synthesize` nor writes `equals`
+  is a compile error; see [Synthesized conformances](#synthesized-conformances).
+
+  ```saw
+  @synthesize
+  extension Named: Equatable {}
+  ```
 - **Resource types never conform** (`File`, `Mutex`, ...): they are neither
   trivially copyable nor accepted as Equatable conformers.
 - Tuples are Equatable iff every element is. A `T: Equatable` generic bound
@@ -2318,13 +2367,15 @@ trait Comparable {          // requires Equatable
   **byte-lexicographically** (= code-point order for ASCII / UTF-8; a shorter
   string that is a prefix of a longer one is `Less`).
 - **No auto-conformance.** Unlike `Equatable`, a struct/enum is *never*
-  automatically `Comparable` — field order is a semantic choice. Opt in with an
-  empty `extension T: Comparable {}`, which **synthesizes** a lexicographic
+  automatically `Comparable` — field order is a semantic choice. Opt in with
+  `@synthesize extension T: Comparable {}`, which derives a lexicographic
   compare (struct: field-declaration order; enum: variant-declaration order,
-  then the active payload). A hand-written `compare` **overrides** the synthesis.
+  then the active payload). A hand-written `compare` is used instead. Since
+  Comparable has no auto-conformance, every Comparable conformance is written,
+  and every derived one carries the marker.
 - **Requires Equatable.** A `Comparable` type must also be `Equatable` (so `==`
   and `compare(...) == .Equal` agree); a trivial struct satisfies this by
-  auto-`Equatable`, otherwise declare `extension T: Equatable {}` too.
+  auto-`Equatable`, otherwise declare `@synthesize extension T: Equatable {}` too.
 - `a < b` is `a.compare(b) == .Less`, `a <= b` is `!= .Greater`, etc. A
   `T: Comparable` generic bound grants the operators in a generic body.
 - **Float NaN:** a `NaN` is unordered, so every ordering operator involving it
@@ -2350,9 +2401,10 @@ trait Hashable {            // requires Equatable
 ```
 
 - Conformance **mirrors `Equatable`'s gating exactly:** trivial (POD) structs
-  and payload-free enums auto-conform; everything else opts in with an empty
-  `extension T: Hashable {}` (which streams each field / active payload);
-  primitives and `String` conform builtin. `Hashable` **requires Equatable**.
+  and payload-free enums auto-conform; everything else opts in with
+  `@synthesize extension T: Hashable {}` (which streams each field / active
+  payload); primitives and `String` conform builtin. `Hashable` **requires
+  Equatable**.
 - **hash/== contract:** `a == b` implies `a` and `b` hash identically. Synthesis
   upholds it by streaming exactly the fields `==` compares; a hand-written
   `hash` must uphold it. (Unequal values *may* collide — that is a hash map's
@@ -3725,13 +3777,14 @@ struct CStruct {
 ### Attributes (design 58)
 
 **Status: implemented.** Attributes are Swift-style `@name` / `@name("string")`
-lines placed immediately before a declaration. In v1 they are legal **only on
-top-level `func` and `static` declarations** — an attribute on a struct, enum,
-trait, extension, type alias, extern block, method, or local is a clean
-"attributes are not supported on X" error (the grammar leaves room for
-`#[test]`/derive-style growth without opening it yet). An unknown attribute name,
-a repeated attribute, or the wrong argument shape is a compile error. The v1 set
-is `@export` and `@section`; `@inline` is reserved for a later design.
+lines placed immediately before a declaration. They are legal on top-level
+`func` and `static` declarations (`@export`, `@section`) and on `extension`
+declarations (`@synthesize`). An attribute on a struct, enum, trait, type alias,
+extern block, method, or local is a clean "attributes are not supported on X"
+error; an attribute on the wrong one of the two accepting positions names what
+is legal there instead. An unknown attribute name, a repeated attribute, or the
+wrong argument shape is a compile error. The set is `@export`, `@section` and
+`@synthesize`; `@inline` is reserved for a later design.
 
 **`@export` / `@export("sym")`** makes a function or static callable from C. It
 is one unified attribute whose meaning is inseparable: **C calling convention +
@@ -3789,6 +3842,58 @@ beyond a non-empty check. Section-name *syntax* is target-specific — ELF accep
 @section(".vector_table")
 static VECTORS: [UInt32; 64]        // externally-visible, kept alive, in-section
 ```
+
+#### Synthesized conformances
+
+**`@synthesize`** goes on an `extension` and asks the compiler to derive the
+conformance's method from the type's fields. It takes no argument.
+
+```saw
+struct Version {
+    major: Int,
+    minor: Int,
+    patch: Int
+}
+
+@synthesize
+extension Version: Comparable {}     // lexicographic over the three fields
+```
+
+Five traits derive a body, each from the declaration order of the type's fields
+(or, for an enum, its variants and their payloads):
+
+| Trait | Derived method | Body |
+|---|---|---|
+| `ImplicitCopy` / `ExplicitCopy` | `copy` | memberwise; POD fields bitwise, policy fields via their own `copy` |
+| `Equatable` | `equals` | memberwise `&&`; payload-deep for enums |
+| `Comparable` | `compare` | lexicographic in declaration order |
+| `Hashable` | `hash` | streams exactly the fields `==` compares |
+
+The rule is the same for all five: a **declared** conformance derives its body
+only under `@synthesize`. Writing the conformance means the body is yours unless
+you ask for the compiler's, so a conformance that is neither marked nor
+hand-written is a compile error naming the type, the trait and the missing
+method. What the marker acknowledges is that the derived body ranges over
+whatever fields the type happens to have — add a field later and `==`,
+`compare`, `hash` or `copy` changes with it.
+
+Two things the marker does **not** reach:
+
+- **Auto-conformance.** A trivial (POD) struct and a payload-free enum conform to
+  `Equatable` and `Hashable` with no declaration at all, so there is nothing to
+  mark. `@synthesize` applies only where a conformance is written.
+- **Traits with no derivation**, such as `Printable`. A marker that derives
+  nothing is an error rather than silently inert — which also catches marking a
+  conformance that already has a hand-written body.
+
+A derivation that cannot be written is reported against the member that blocks
+it: `@synthesize` on a copy policy for a struct with a `NoCopy` field names that
+field, as do `Equatable`/`Comparable`/`Hashable` over a member that does not
+itself conform.
+
+Destruction is not on this list. A `deinit` is synthesized for every type that
+owns something, with no marker and no declaration; see
+[Synthesized destruction](#synthesized-destruction).
 
 ### Unsafe Code — unsafety is type-carried, not region-carried
 
@@ -4258,8 +4363,8 @@ Implemented
   Reference:      &  &var             (`&x` at a call site; `&var` params)
   Cast:           as                 (`x as Int`)
   Member/return:  .  ->
-  Attribute:      @                  (`@export`, `@section("...")` — design 58;
-                                      declaration position only)
+  Attribute:      @                  (`@export`, `@section("...")`,
+                                      `@synthesize`; declaration position only)
 
 Planned (parsed shape may differ or be rejected today)
   Arithmetic:     **                 (power — use `Int.pow(...)` today)

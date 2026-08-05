@@ -14,8 +14,26 @@ wave 2); **125** docs sweep + README catch-up + README joins the docs
 convention + soften no-hidden-allocations (P3 — wave 1); **126** pre-port trio
 R1/R2/R11 incl. the RC-2 substitution bug (wave 1); **127** op-budget loop-
 backedge preemption (RC-3, user chose fix-not-soften — wave 2); **128/129
-DRAFTS** (Deinit/ExplicitCopy synthesis; newlines-in-brackets) awaiting user
+DRAFTS** (Deinit/ExplicitCopy synthesis — LANDED, see below;
+newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
+
+**128 LANDED (Aug 5)** — the P4 structural-synthesis line is closed. Deinit is
+implicit (a synthesized memberwise `deinit` for any owning struct/enum, dropping
+in reverse declaration order; enums payload-deep on the active variant), the
+"does not implement Deinit" containment error is gone, and the copy/equality
+derivations are gated on a new `@synthesize` extension attribute — uniformly
+across ImplicitCopy/ExplicitCopy/Equatable/Comparable/Hashable, with
+auto-conformance untouched. Riders done: the four bad-receiver hints, and
+`var self` is now a compile error (the audit found TEN in-tree uses, not the
+expected zero — blade, libs/toml and selfhost/lexer among them). Nine
+transcribed empty deinits deleted from the real Saw packages.
+
+Three things it did NOT close, each recorded below: **DF-128a** (a `Deinit`-only
+type aliases and double-frees — pre-existing, found while probing), **DF-128b**
+(a payload-free enum cannot be a Map/Set key despite auto-conforming), and the
+brief's own mis-description of hand-written deinit as REPLACING the field drops
+(it prefixes them; the spec now documents the real behavior).
 
 **127 LANDED (Aug 5)** — RC-3 closed; the op budget now covers pure-compute
 loops, so the README claim holds as written. Nothing left open, but the fix
@@ -314,11 +332,11 @@ extract the raw-pointer bookkeeping into small `unsafe` helpers and leave the
 surrounding loop safe. Deliberately NOT in 130 (mechanical migration kept
 separate from judgment-heavy refactoring of the executor's hot paths). [130]
 
-**P4 — design/gap briefs to consider:** structural `Deinit`/`ExplicitCopy`
-synthesis (the Equatable model; hand-transcription is pure tax);
-~~DF-121a newline-in-brackets~~ (LANDED as design 129, Aug 5 — the 210-char
-`blade/src/resolver.saw` signature that was the evidence is now wrapped);
-std gaps ranked G1 bit intrinsics (S–M), G2
+**P4 — design/gap briefs to consider:** ~~structural `Deinit`/`ExplicitCopy`
+synthesis~~ DONE (design 128: deinit is implicit, copy/equality derivations are
+`@synthesize`-gated); ~~DF-121a newline-in-brackets~~ (LANDED as design 129,
+Aug 5 — the 210-char `blade/src/resolver.saw` signature that was the evidence
+is now wrapped); std gaps ranked G1 bit intrinsics (S–M), G2
 checked/saturating arithmetic (S, tracker already wants it), G3 slices
 (L, language-level), G4 radix/hex formatting (S), G5 iterator adaptors (M);
 compiler pre-port restructures R1 declared AST contract + R2 stable NodeId +
@@ -374,6 +392,70 @@ noted live-range packing of locals; do both in one sizing brief.
   transferring the frame's own reference via `__saw_forget`. Retains are typed
   against the VALUE's type, not the destination field's, since an opt-encoded
   destination is `T?` while the read is the bare payload.
+
+- **DF-128a — STOPPED, needs a user decision. A `Deinit`-only type aliases and
+  double-frees (found while probing for design 128, Aug 5; PRE-EXISTING —
+  reproduces with design 128 reverted).** A type whose only resource conformance
+  is `Deinit` falls through every arm of the value-transfer checkpoint, so a
+  plain `let s = r` bitwise-aliases it and both copies run `deinit`:
+
+  ```saw
+  struct Res { id: Int }
+  extension Res: Deinit {
+      func deinit(&var self) { print("drop res {self.id}") }
+  }
+
+  func main() {
+      let r = Res(id: 7)
+      let s = r                 // no move required, no copy performed
+      print("alive {r.id} {s.id}")
+  }                             // prints "drop res 7" TWICE
+  ```
+
+  `_check_transfer` (typechecker/types.py) branches on NoCopy / ExplicitCopy /
+  ImplicitCopy / owning-enum and has no arm for "carries a deinit but declared no
+  copy policy", so the transfer takes the default path — a bitwise move that
+  never retires the source. It also reaches one level up: `struct Pair { a: Res }`
+  behaves the same, and today `extension Pair: Deinit { ... }` satisfies the
+  containment rule without making `Pair` move-only.
+
+  NOT fixed here because it is a language-semantics call, not a patch. The sound
+  answer is that `Deinit` alone implies move-only (Rust's model): a value that
+  owns a resource and has no copy policy can only be moved. That is a one-line
+  change at the checkpoint, but it retires an accepted spelling — roughly fifteen
+  in-tree examples declare a bare `extension X: Deinit` on a type they then copy
+  freely, and each would need `move` or a policy. Design 128 explicitly left the
+  copy-policy containment rule unchanged, so widening it was out of scope. What
+  128 DID change is reachability: with the Deinit containment error gone, a
+  struct holding a `Deinit`-only field now compiles with no declaration at all,
+  so the hole is easier to fall into than it was. Repro:
+  `.build/scratch/p5_deinit_alias.saw` (gitignored; inlined above).
+
+- **DF-128b — a payload-free enum cannot be a Map/Set key, though it
+  auto-conforms to Equatable and Hashable (found by design 128, Aug 5;
+  PRE-EXISTING).** `Set<Color>` on a payload-free enum is rejected with "set
+  element type `Color` must be copyable ... owns a Deinit without a copy (it is
+  move-only, not retainable)", which is false — the enum owns nothing.
+
+  ```saw
+  enum Color { case Red, case Green }
+
+  func main() {
+      var palette: Set<Color> = Set<Color>()   // error: must be copyable
+      palette.insert(Color.Red)
+      print(palette.len())
+  }
+  ```
+
+  `Namespace.is_trivially_copyable` handles STRUCT, tuple, optional and array
+  kinds and falls off the end returning False for `TypeKind.ENUM` — unconditionally,
+  payload or not. `_key_copyable_reason` then reads that False as "owns a Deinit"
+  and reports the misleading reason. The gap is visible in the docs too: `Color`
+  is documented as auto-`Hashable`, and `examples/map_each_string_enum.saw` uses a
+  payload-free enum only as a VALUE, never a key. Fixing it means teaching
+  triviality about enums (payload-free, or all payloads trivial), which touches
+  copy classification everywhere and wants its own unit rather than a drive-by in
+  128. Repro inlined above.
 
 - **DF-124b — STOPPED, needs a user decision (found by design 124, Aug 5).**
   DF-124a's root cause is not confined to coroutine frames: reading a payload out

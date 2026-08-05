@@ -99,6 +99,17 @@ Copy tiers: trivial/POD = implicit bitwise copy; `ImplicitCopy`
 (Vector, conformance bounded `T: Copy`) = must `move v` or `v.copy()` at every
 transfer; `NoCopy` (File, Mutex, Box — and currently Map/Set: their
 `ExplicitCopy` is future work, `.copy()` on them is a compile error) = `move` only.
+**A struct that OWNS one of those must pick its own copy policy** — the #1 thing
+you hit writing Saw. `struct Holder { v: Vector<Int> }` does not compile bare;
+the compiler knows how to DESTROY it but not whether you want it duplicated:
+```saw
+extension Holder: NoCopy {}                     // move-only (usually what you want)
+@synthesize
+extension Holder: ExplicitCopy {}               // memberwise deep .copy()
+```
+Both bodies are EMPTY — the `deinit` is synthesized either way. Only the copy
+policy is your call. (A `String`/closure/owning-enum field is compiler-handled
+and forces nothing.)
 ```saw
 var w = move v         // v now invalid (use-after-move = compile error)
 var u = w.copy()       // explicit duplicate
@@ -134,7 +145,13 @@ var u = w.copy()       // explicit duplicate
   exclusivity is by root path (`g(&var r, &r)` in one call is rejected). This
   is what lets `net.read_into` forward its `&var Data` to a helper.
 - Deterministic LIFO destruction (`Deinit` trait); never call
-  `deinit()` manually.
+  `deinit()` manually. You almost never WRITE one either (design 128): any
+  struct/enum owning something gets a memberwise `deinit` synthesized — fields
+  dropped in reverse declaration order, enums dropping the active variant's
+  payload — with no declaration needed. Hand-write `deinit(&var self)` only for
+  a raw resource (an fd, a mapping); your body runs FIRST and the field drops
+  are appended, and there is only ever one deinit per type. Corollary: an empty
+  `func deinit(&var self) {}` is dead code — delete it.
 - `let _ = expr` = true discard (consumes + drops immediately).
 
 ## Collections & literals
@@ -277,9 +294,24 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   (ambiguous — give `<...>`); a driven/spawned generic METHOD overload (only free
   functions carry the per-overload codegen symbol) — drive it directly at an
   explicit instantiation if needed.
-- Equatable: auto for trivial structs/payload-free enums; opt in with
-  empty `extension T: Equatable {}` (synthesized) elsewhere.
-  Comparable requires Equatable (no auto). Hashable mirrors Equatable.
+- **`@synthesize` (design 128) — a WRITTEN empty conformance derives its body
+  only under the marker**; a bare one is a compile error. Applies to
+  ImplicitCopy/ExplicitCopy (`copy`), Equatable (`equals`), Comparable
+  (`compare`), Hashable (`hash`), structs and enums alike:
+  ```saw
+  @synthesize
+  extension Point: Equatable {}     // memberwise; payload-deep for an enum
+  @synthesize
+  extension Point: Comparable {}    // lexicographic, declaration order
+  ```
+  AUTO-conformance is UNTOUCHED and needs neither marker nor declaration:
+  trivial (POD) structs + payload-free enums are already Equatable/Hashable, and
+  primitives/String conform builtin. So the marker appears only where you wrote
+  `extension T: Trait` yourself. A marker that derives nothing (a hand-written
+  body already there, or a trait with no derivation like Printable) is an error,
+  as is a derivation blocked by a member — it names the field.
+  Comparable requires Equatable (no auto, so EVERY Comparable conformance is
+  written and every derived one is marked). Hashable mirrors Equatable.
   Printable: hand-written `format` (no synthesis).
 - Overloads resolve by EXACT types (no conversions), labels
   disambiguate same-type sets (`f(0, value: 4)`).
@@ -565,7 +597,9 @@ forwarding cannot reach a method-generic method).
 allocator type params `Vector<T, A: Allocator = GlobalAllocator>`, `Box<T, A>`,
 slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
 (volatile, RO/WO markers); `@export("sym")`/`@section(".s")` on
-top-level func/static (C ABI, whitelist: fixed-width ints, Int/UInt,
+top-level func/static ONLY (`@synthesize` is the extension-only one — see
+traits; each is a clean error in the other's position)
+(C ABI, whitelist: fixed-width ints, Int/UInt,
 Float, UnsafePointer, Void/Never — no Bool/String/aggregates by
 value; an exported return may not be optional — a seam returns a raw
 `UnsafePointer<T>`, the `?`-wrapping is the caller's `extern` decl).
@@ -611,6 +645,9 @@ domain (clean call sites), and it has room for device state. No singleton
 construct in the owner and lend `&driver` down.
 
 ## Gotchas
+- Receivers are `&self` and `&var self`, always with the sigil. A bare
+  `var self` (an old spelling some code still shows) is a compile error
+  pointing at `&var self`; a bare `self` is likewise rejected.
 - An escaping closure (bound/returned/stored/`spawn`) is **ImplicitCopy**
   over a refcounted heap env (like String/Arc): `let g = f` is a free
   refcount bump (both valid), and the captures are torn down exactly once

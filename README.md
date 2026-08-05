@@ -166,6 +166,25 @@ func print_area(s: &any Shape) {   // dynamic dispatch
 }
 ```
 
+`Equatable`, `Comparable`, `Hashable` and the copy policies can have their body
+derived from the type's fields. Ask for it with `@synthesize`:
+
+```saw
+struct Version {
+    major: Int,
+    minor: Int,
+    patch: Int
+}
+
+@synthesize
+extension Version: Comparable {}   // lexicographic over the three fields
+```
+
+A conformance you write derives nothing without the marker, so adding a field
+never changes `==` or `compare` behind your back. Trivial (POD) structs and
+payload-free enums are the exception: they are already `Equatable` and
+`Hashable` with no declaration at all, and nothing to mark.
+
 ### Overloading
 
 A function, method, or `init` name carries an overload set resolved by exact
@@ -495,10 +514,15 @@ Saw provides deterministic memory management without garbage collection:
   (like `String` and `Arc`) copy cheaply on every transfer as a refcount bump.
   `ExplicitCopy` types (like `Vector`) never copy implicitly: you `move` to
   transfer them or `.copy()` to duplicate. `NoCopy` types (like `File`, `Mutex`,
-  and for now `Map`/`Set`) can only be moved.
+  and for now `Map`/`Set`) can only be moved. A struct that owns such a field
+  picks its own policy — `extension Holder: NoCopy {}` for move-only, or
+  `@synthesize extension Holder: ExplicitCopy {}` for a memberwise deep copy.
+  That is the one thing the compiler will not guess for you.
 - **Explicit `move`** for ownership transfer, checked at the point of transfer.
-- **The `Deinit` trait** runs cleanup when a value goes out of scope, in reverse
-  order of creation.
+- **Cleanup is written for you.** Any struct or enum that owns something gets a
+  `deinit` synthesized from its fields, dropped in reverse declaration order at
+  scope exit. You write a `deinit` by hand only for a raw resource such as a
+  file descriptor; it runs before the field drops.
 - **Reference types** (`&T`, `&var T`) for borrowing, checked for exclusivity at
   compile time.
 - **The Law of Exclusivity**: a `&var` (mutable) reference must not overlap any
@@ -695,7 +719,8 @@ Run `make test` to see the current test count. See
 
 Saw is in active development. Implemented so far: generics with trait bounds and
 call-site type inference (generics compile to specialized code); algebraic data
-types with exhaustive `match`; the Copy trait family; traits with default bodies
+types with exhaustive `match`; the Copy trait family; synthesized destruction
+and `@synthesize`d conformances; traits with default bodies
 and trait objects (`any Trait`); overloading; the `Printable`, `Error`,
 `Equatable`, `Comparable`, and `Hashable` traits; multi-hop optional chaining
 including chained assignment; whole-referent replacement through a `&var`
