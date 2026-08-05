@@ -13,6 +13,7 @@ from llvmlite import ir
 from ast_nodes import (
     Function, Block, Method, Extension, SawType, TypeKind
 )
+from .mangle import mangle_named
 
 
 class MethodsMixin:
@@ -214,15 +215,56 @@ class MethodsMixin:
             conf_name = self._get_type_name_for_conformance(field_type) if field_type else None
             conformances = self.namespace.get_conformances(conf_name) if conf_name else []
             if "ImplicitCopy" in conformances or "ExplicitCopy" in conformances:
-                copy_method_name = self._mangle_method_name(self._type_method_base(field_type), "copy")
-                copy_fn = self.functions.get(copy_method_name)
-                if copy_fn is not None:
-                    field_val = self.builder.call(copy_fn, [field_val],
-                                                  name=f"{field_name}_copy")
+                copy_fn = self._field_copy_fn(field_type)
+                if copy_fn is None:
+                    # The field's type declares a copy policy, so it HAS a
+                    # `copy()`; failing to find the symbol would silently emit a
+                    # bitwise alias of an owning field, and both copies would
+                    # then free the same storage. Refuse instead.
+                    raise RuntimeError(
+                        f"internal compiler error: no `copy` symbol for field "
+                        f"`{field_name}` of type `{field_type}` while deriving "
+                        f"copy() for `{struct_name}`")
+                field_val = self.builder.call(copy_fn, [field_val],
+                                              name=f"{field_name}_copy")
 
             result = self.builder.insert_value(result, field_val, i)
 
         self.builder.ret(self._coerce_ret_value(result))
+
+    def _field_copy_fn(self, field_type):
+        """The emitted `copy` function for a struct field's type, or None.
+
+        `_type_method_base` mangles the field type exactly as written, but a
+        field declared `Vector<Int>` denotes `Vector<Int, GlobalAllocator>` and
+        the monomorphized method is registered under the FULL form — so the
+        written form alone looks for `Vector$1$Int_copy` against an emitted
+        `Vector$2$Int$GlobalAllocator_copy` and misses. Fill the declared
+        defaults (design 37) and try that name first.
+
+        Scoped to the derived-copy body deliberately: `_type_method_base` feeds
+        the drop glue as well, and filling defaults there changes which struct
+        fields get a real `deinit` call across the whole compiler. See DF-128c.
+        """
+        if field_type is None:
+            return None
+        base = self._type_method_base(field_type)
+        if base is None:
+            return None
+        candidates = []
+        if field_type.kind in (TypeKind.STRUCT, TypeKind.ENUM):
+            name = (field_type.struct_name if field_type.kind == TypeKind.STRUCT
+                    else field_type.enum_name)
+            args = list(field_type.type_args or [])
+            filled = self._fill_default_type_args(name, args) if name else args
+            if len(filled) != len(args):
+                candidates.append(mangle_named(name, filled))
+        candidates.append(base)
+        for cand in candidates:
+            fn = self.functions.get(self._mangle_method_name(cand, "copy"))
+            if fn is not None:
+                return fn
+        return None
 
     def _generate_derived_equals_body(self, struct_name: str):
         """Emit the body of a compiler-derived memberwise equals() (design 32).

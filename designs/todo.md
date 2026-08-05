@@ -29,11 +29,14 @@ auto-conformance untouched. Riders done: the four bad-receiver hints, and
 expected zero — blade, libs/toml and selfhost/lexer among them). Nine
 transcribed empty deinits deleted from the real Saw packages.
 
-Three things it did NOT close, each recorded below: **DF-128a** (a `Deinit`-only
+Four things it did NOT close, each recorded below: **DF-128a** (a `Deinit`-only
 type aliases and double-frees — pre-existing, found while probing), **DF-128b**
-(a payload-free enum cannot be a Map/Set key despite auto-conforming), and the
-brief's own mis-description of hand-written deinit as REPLACING the field drops
-(it prefixes them; the spec now documents the real behavior).
+(a payload-free enum cannot be a Map/Set key despite auto-conforming),
+**DF-128c** (the drop half of a mangling miss whose copy half WAS a live
+double-free and is fixed here), and **DF-128d** (`print(o)` on any optional is
+an ICE). Also worth flagging to the reader of the brief: it describes a
+hand-written deinit as REPLACING the field drops. It does not — it prefixes
+them, and always has; the spec now documents the real behavior.
 
 **127 LANDED (Aug 5)** — RC-3 closed; the op budget now covers pure-compute
 loops, so the README claim holds as written. Nothing left open, but the fix
@@ -431,6 +434,43 @@ noted live-range packing of locals; do both in one sizing brief.
   so the hole is easier to fall into than it was. Repro:
   `.build/scratch/p5_deinit_alias.saw` (gitignored; inlined above).
 
+- **DF-128c — STOPPED, needs its own unit. `_type_method_base` does not fill
+  default type arguments, so a struct FIELD's generic type mangles to a symbol
+  that does not exist (found by design 128, Aug 5; PRE-EXISTING).** A field
+  written `Vector<Int>` denotes `Vector<Int, GlobalAllocator>`, and the
+  monomorphized methods are registered under the full form
+  (`Vector$2$Int$GlobalAllocator_copy`). `_type_method_base` calls `mangle_type`
+  on the written form directly, producing `Vector$1$Int`, and every consumer
+  treats the resulting miss as "this type has no copy/deinit of its own" and
+  falls back to structural glue. generics.py:131-154 documents exactly this
+  chokepoint ("every mangling of a named type funnels through
+  `_fill_default_type_args` ... the dual-identity hazard is closed") — this
+  caller skips it. It bites only types with a DEFAULTED type param, i.e.
+  Vector/Map/Set/Box.
+
+  The copy half was a live memory-safety bug and IS fixed here, narrowly: a
+  derived memberwise `copy()` over a `Vector` field bitwise-aliased the buffer,
+  so `let b = a.copy()` gave two holders sharing one allocation, mutations were
+  visible through both, and both freed it. `_field_copy_fn` (codegen/methods.py)
+  now fills the defaults before the lookup and RAISES rather than silently
+  aliasing if the symbol is still missing. Test:
+  `examples/synthesize_explicit_copy_holder.saw` (fails before, passes after).
+
+  The DROP half is NOT fixed and wants its own unit. Fixing `_type_method_base`
+  itself — the obviously right change — makes `_emit_drop_at` start finding
+  `Vector$2$..._deinit` for struct fields where it previously found nothing and
+  fell through to `_emit_field_cleanup_at` (a no-op over Vector's raw pointer /
+  len / capacity fields). The compiler suite stays green at 1097, but the
+  bootstrap's stage1 `blade build` then dies with SIGSEGV before printing a
+  line, which says some blade struct's `Vector` field is currently being freed
+  by a path that would now free it a second time. Two possibilities worth
+  checking in that unit: struct-held `Vector` fields are leaking today (and
+  something else compensates), or a compensating release exists that must be
+  removed with the fix. Either way it is a drop-glue investigation across the
+  whole compiler, not a drive-by in a synthesis brief. Repro: apply
+  `_fill_default_type_args` inside `_type_method_base`, then
+  `tools/blade_bootstrap.py`.
+
 - **DF-128b — a payload-free enum cannot be a Map/Set key, though it
   auto-conforms to Equatable and Hashable (found by design 128, Aug 5;
   PRE-EXISTING).** `Set<Color>` on a payload-free enum is rejected with "set
@@ -456,6 +496,23 @@ noted live-range packing of locals; do both in one sizing brief.
   triviality about enums (payload-free, or all payloads trivial), which touches
   copy classification everywhere and wants its own unit rather than a drive-by in
   128. Repro inlined above.
+
+- **DF-128d — `print` of an optional is an internal compiler error (found by
+  design 128, Aug 5; PRE-EXISTING).** Three lines, no generics:
+
+  ```saw
+  func main() {
+      let o: Int? = 5
+      print(o)          // error: internal compiler error: Cannot print type: {i1, i64}
+  }
+  ```
+
+  An ICE is never the right answer. What the right answer IS is a small design
+  question, which is why it is filed rather than patched: either `T?` is not
+  Printable and this is a clean "does not conform to `Printable`" error at the
+  call site, or optionals render (Swift prints `Optional(5)` / `nil`) and the
+  formatter grows a case. Hit while writing a test that printed
+  `v.get(0)` — `Vector.get` returns `T?`, so this is easy to reach by accident.
 
 - **DF-124b — STOPPED, needs a user decision (found by design 124, Aug 5).**
   DF-124a's root cause is not confined to coroutine frames: reading a payload out

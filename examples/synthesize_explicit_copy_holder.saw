@@ -1,0 +1,53 @@
+// design 128: the review's probe under the OTHER policy. `@synthesize` derives
+// a memberwise deep copy for the same `struct Holder { v: Vector<Int> }`, so
+// the two copies own separate storage and each drops once. The companion
+// NoCopy spelling is deinit_synth_nocopy_holder.saw.
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 99
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: label
+// EXPECT-OUTPUT: two
+// EXPECT-OUTPUT: survived
+
+struct Holder {
+    v: Vector<Int>,
+    label: String
+}
+
+@synthesize
+extension Holder: ExplicitCopy {}
+
+// A field whose ELEMENTS own heap storage. If the derived copy aliased the
+// buffer instead of copying it, both holders would release the same strings.
+struct Names {
+    names: Vector<String>
+}
+
+@synthesize
+extension Names: ExplicitCopy {}
+
+func balance() {
+    let one = Names(names: ["one", "two"])
+    let two = one.copy()
+    print(two.names.get(1)!)
+    // both drop here, each freeing its own buffer
+}
+
+func main() {
+    let a = Holder(v: [1, 2, 3], label: "label")
+    var b = a.copy()
+
+    print(a.v.len())
+    print(b.v.len())
+
+    // The copy owns its own storage: mutating it leaves the original alone.
+    b.v.set(0, 99)
+    print(b.v.get(0)!)
+    print(a.v.get(0)!)
+    print(b.label)
+
+    balance()
+    print("survived")
+}
