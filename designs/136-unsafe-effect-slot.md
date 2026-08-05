@@ -64,6 +64,12 @@ Two clarifications the landed 130 spec leaves unstated `[user, Aug 5]`:
    `unsafe func`. An unsafe-built, safe-signatured closure ESCAPING behind
    a plain function type is the rule-7 wrapper responsibility of its
    author (the ad-hoc analogue of `Vector` over `UnsafePointer`).
+   Challenged and CONFIRMED `[user, Aug 5]`: a closure-scoped unsafe
+   region was considered and rejected — captures give a closure the whole
+   enclosing frame, so its braces confine the text but not the blast
+   radius; the enforceable confinement boundary is a SIGNATURE, i.e. the
+   small named `unsafe func` helper (the design-130 decomposition
+   follow-up is the ergonomic path, not a scoped marker).
 
 ## Tests
 Slot spelling accepted on func/init (incl. combined `unsafe sync` order and
