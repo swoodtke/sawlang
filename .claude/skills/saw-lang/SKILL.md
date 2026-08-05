@@ -499,6 +499,42 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   under the gate too — you reach its public API, never its internals; each std
   FILE is its own module (design 82), so std internals are private per-file.
 
+## Allocation failure (design 123 — one policy, two tiers)
+An **infallible signature PANICS** on allocator exhaustion, naming its method
+(`panic at vector.saw:180: Vector.push: allocation failed`) and routing through
+`__saw_rt_panic` so a kernel picks the policy. That is `push`/`append`/`insert`/
+`send`/`Box.make`/`String.to_uppercase`/`Path.join` and EVERY constructor
+(`Vector(capacity:)`, `Data(capacity:)`, `Arc(value:)`, `Mutex(value:)`,
+`Channel()`, `TaskGroup(threads:)`), plus the compiler's own two sites (a
+spawned task's control block, an escaping closure's env).
+
+Each has a **`try_` twin returning `Result<_, AllocError>`** — the fallible tier,
+and the PRIMARY surface for allocator-parameterized types (`Vector<T, A>`,
+`Box<T, A>`, `Map<K, V, A>`, `Set<T, A>`): `try_with_capacity`, `try_push`,
+`try_reserve`, `try_copy`, `try_make`, `try_append`, `try_append_char`,
+`try_append_bytes`, `try_insert`, `try_send`. `try_` is the ONE spelling (design
+123 renamed `Box.make_or` -> `try_make`; `Channel.try_receive` is unrelated — a
+non-blocking poll, Rust's `try_recv`). A `try_` op is ALL-OR-NOTHING: on `Err`
+the container is untouched, every element still in it. Its argument is consumed
+either way — `try_reserve` FIRST when the value must survive a refusal.
+`AllocError` carries the refused `size`/`align` and is `Error + Printable`
+(`"{e}"` -> `allocation of 64 bytes (align 8) failed`).
+```saw
+match frames.try_push(Frame(id: 1)) {
+    case Ok(_) -> print("queued"),
+    case Err(e) -> print("out of frame memory: {e}")
+}
+```
+`String` has NO fallible tier — every producer returns a plain `String`, so the
+one allocator behind them panics (covers `to_uppercase`/`replace`/`trim`/
+`substring`/`join`/`StringBuilder.build`/`Path.join`/`String.fromBytes`).
+Nothing degrades: no truncated container, no `Ok("")` from a validating
+constructor, no un-joined path, no dropped message, and no inert object
+(`Arc`/`Mutex`/`Channel` used to construct one and no longer can). `Mutex.get()`
+is `T`, not `T?`, for the same reason. Still open: `Mutex.lock`'s result is
+`Bool` rather than the closure's own type (M1, blocked on DF-123c — Arc payload
+forwarding cannot reach a method-generic method).
+
 ## Systems/embedded corner
 `static NAME: T = const_init` (Sync-only, immortal); `Atomic<Int>`;
 allocator type params `Vector<T, A: Allocator = GlobalAllocator>`, `Box<T, A>`,

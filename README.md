@@ -482,6 +482,13 @@ Saw provides deterministic memory management without garbage collection:
   the one it came from, and references stay valid across suspension points.
 - **Shared ownership** through `Arc<T>` (Saw uses atomic reference counts only)
   and owned heap allocation through `Box<T, A>`.
+- **Allocation failure is loud**: an infallible operation (`push`, `append`,
+  `insert`, `send`, `Box.make`, any constructor) panics with the name of the
+  method that ran out of memory. It never truncates the container, never returns
+  a plausible substitute value, and never hands back an object that has quietly
+  stopped working. The `try_`-prefixed twins (`try_push`, `try_reserve`,
+  `try_make`, `try_insert`, `try_send`) return `Result<_, AllocError>` for code
+  that handles exhaustion rather than dying of it.
 - **Unsafety is carried in the type**: raw pointers live in `Unsafe*` types.
   Where a pointer would flow through a function whose signature does not advertise
   it, you have to mark the spot with an `unsafe` expression. There are no
@@ -514,6 +521,13 @@ Saw is freestanding: the same language targets bare metal.
   `Map<K, V, A = GlobalAllocator>`, `Box<T, A = GlobalAllocator>`). A custom zero-sized allocator produces a distinct type
   that routes through its own `A` as a direct call. Per-type slab allocators over
   a `static` region make the `type JobBox = Box<Job, JobSlab>` kernel idiom work.
+- **One answer when allocation fails**: an infallible signature panics through
+  the `__saw_rt_panic` seam, naming the method that ran out (`Vector.push:
+  allocation failed`), so a kernel picks the policy. Every such operation has a
+  `try_`-prefixed twin returning `Result<_, AllocError>` — `try_push`,
+  `try_reserve`, `try_make`, `try_insert`, `try_send` — which is all-or-nothing:
+  on `Err` the container is exactly as it was. Nothing truncates, and no type
+  constructs an object that quietly stopped working.
 - **Memory-mapped I/O**: `UnsafeMemory<T, Use>` is a compiler-known view of memory
   at a fixed address, with volatile `read()`/`write()` for device registers and
   field-offset projection.

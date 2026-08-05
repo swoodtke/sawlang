@@ -28,13 +28,90 @@ inline below. Two things it did NOT close: RS-5's fourth hole (DF-122a, stopped
 for a user decision) and P2's design-92 half-application in
 std.file/std.directory.
 
+**123 LANDED (Aug 5)** — units A1-A3, B-J. Closes RS-1 and the report's C1, H2,
+H3, H7 and H8. Two things it did NOT close: review M1 (`Mutex.lock`'s result
+should be the closure's own type) is blocked on **DF-123c**, and **DF-123b** is a
+second ICE found on the way; both are recorded under "Design 123 — DF-findings".
+review M15 (`Directory.current` truncates at 1024 bytes) is untouched and still
+open — only its OOM path was separated out.
+
 **P0 — proven memory-safety / correctness (stdlib + runtime):**
-- **RS-1 allocator-failure corruption class.** `Vector.push` writes past the
+- **RS-1 — FIXED (design 123, Aug 5).** std now has ONE answer to "the allocator
+  said no", in two tiers, applied to every site below. An infallible signature
+  PANICS naming its method (`Vector.push: allocation failed`) through
+  `__saw_rt_panic`; each such operation has a `try_`-prefixed twin returning
+  `Result<_, AllocError>` that is all-or-nothing — on `Err` the container is
+  exactly as it was. `try_` is the one spelling (`Box.make_or` -> `try_make`).
+  `AllocError` conforms to `Error`/`Printable` and carries the refused
+  size/align. `String` gets no fallible tier: every producer returns a plain
+  `String`, so the single allocator behind them panics, which covers the whole
+  layer in one place. Original finding follows: `Vector.push` writes past the
   buffer and bumps length when `grow()` fails silently; same shape in
   `StringBuilder.append/append_char`, `Data.push/append/append_bytes`,
   `Command.append_arg`. Root cause is systemic: std has ~9 different answers to
   "the allocator said no" (panic / Err / degrade / corrupt / drop / inert
   object). One design-19-three-tier pass would subsume five other findings.
+
+  **The classification table** (the brief's first task — every allocation-failure
+  site in std and in the compiler's own emitted code, its behavior BEFORE, and
+  the tier it now sits in). "corrupt" = out-of-bounds write from safe code.
+
+  | Site | Was | Now |
+  |---|---|---|
+  | `Vector.push` | corrupt (OOB write + length past capacity); dropped the element on the first-alloc path | tier 1 panic; `try_push` |
+  | `Vector.grow` | silent no-op | private `_reserve -> Bool` |
+  | `Vector.init(capacity:)` | degraded to an EMPTY vector | tier 1 panic; `try_with_capacity` (existed) |
+  | `Vector.copy` / `map` | short/empty result vector | tier 1 panic; `try_copy` |
+  | (new) | — | `Vector.try_reserve` |
+  | `Box.make` | tier 1 panic (already correct) | unchanged; `make_or` renamed `try_make` |
+  | `StringBuilder.append` / `append_char` | corrupt | tier 1 panic; `try_append` / `try_append_char` |
+  | `StringBuilder.grow` | silent no-op | private `_reserve -> Bool` |
+  | `StringBuilder.init(capacity:)` | capacity-0 builder | tier 1 panic; `try_with_capacity` |
+  | `StringBuilder.build` / `as_str` | `""` | tier 1 panic (via `__saw_string_alloc`) |
+  | `StringBuilder.append_scalar` | corrupt, still returning `Some(1..4)` | tier 1 panic; `None` means invalid scalar only |
+  | `Data.push` / `append` / `append_bytes` | corrupt | tier 1 panic; `try_push` / `try_append` / `try_append_bytes` |
+  | `Data.ensure_capacity` / `allocate_buffer` / `ensure_unique_capacity` | silent no-op, `public` | private `_reserve` / `_allocate_buffer` / `_reserve_unique`, all `-> Bool` |
+  | `Data.copy` | `len() == N` with `capacity() == 0`, every `get` None | tier 1 panic; `try_copy` |
+  | `Data.init(capacity:)` | capacity-0 buffer | tier 1 panic; `try_with_capacity` |
+  | `Data.make_unique` | silent data loss | private `_make_unique`; tier 1 through `copy` |
+  | (new) | — | `Data.try_reserve` |
+  | `__saw_string_alloc` (codegen) | NULL -> every String producer degraded to `""` | tier 1 panic; declared non-optional in std |
+  | `String._substring` (and `trim`/`trim_start`/`trim_end`/`substring`) | `""` | tier 1 panic |
+  | `String.to_uppercase` / `to_lowercase` | returned `self`, UN-cased | tier 1 panic |
+  | `String.replace` | returned `self`, NO replacements | tier 1 panic |
+  | `String.fromBytes` | `Ok("")` — success reported on failure | tier 1 panic; `Err` means invalid UTF-8 only |
+  | `String.split` / `to_data` | short/empty, or corrupt via push | tier 1 panic |
+  | `Vector<String>.join` | `""` | tier 1 panic |
+  | `Path.join` / `join_path` | returned the UN-JOINED parent path | tier 1 panic |
+  | `Map._grow` | first grow: `cap = 8` over an EMPTY vector; later grows: INFINITE LOOP | `_try_grow -> Bool`, reserving the table up front |
+  | `Map.insert` | dropped key+value, incremented `count`, returned None | tier 1 panic; `try_insert` |
+  | `Map.keys` / `values` | short/empty snapshot | tier 1 panic (via push) |
+  | `Set.insert` | dropped the element, counted it, returned `true` | tier 1 panic; `try_insert` |
+  | `Set.of` / `init(from:)` / `to_vector` / union / intersection / difference | short/empty | tier 1 panic |
+  | `Set.is_subset` / `is_superset` | vacuously `true` | tier 1 panic |
+  | `Arc.init(value:)` | INERT: value dropped, `strong_count() == 0`, forwarded calls deref null | tier 1 panic; `try_make` |
+  | `Mutex.init(value:)` | INERT: `lock` returned `false` without running the body | tier 1 panic; `try_make` |
+  | `Mutex.lock` | `false` collided with the inert case | collision gone (no inert mutex exists); result still `Bool` — M1, blocked on DF-123c |
+  | `Mutex.get` | `T?` whose None meant "built by a failed allocation" | returns `T` |
+  | `Channel.init` | INERT: `send` swallowed, `recv` panicked on a None unwrap, `receive` hung | tier 1 panic; `try_make` |
+  | `Channel.send` | SILENTLY DROPPED the message | tier 1 panic; `try_send` over a reporting `_enqueue` |
+  | `Channel.recv` (no block) | `empty!` — a force-unwrap saying nothing | named panic (unreachable) |
+  | `TaskGroup.init(threads: N>=2)` | INERT: no task ever ran; `join` unwrapped an unwritten result | tier 1 panic |
+  | `TaskGroup.__enqueue` / `__saw_exec_run_root` | corrupt / desynced 4 vectors; root: main's frame dropped, exit 0 | tier 1 panic (through `Vector.push`) |
+  | spawn control block (codegen `calls.py`) | stored through NULL -> segfault, no message | tier 1 panic (`_alloc_or_panic`) |
+  | escaping closure env (codegen `closures.py`) | stored through NULL -> segfault, no message | tier 1 panic (`_alloc_or_panic`) |
+  | `Command.output` read buffer | `Some(CommandOutput(stdout: "", exit_code: real))` | tier 1 panic |
+  | `Command.output` grow | corrupt | tier 1 panic |
+  | `Command.build_argv` | `None` -> reported as "could not launch process" | tier 1 panic; return non-optional |
+  | `Command.arg` | corrupt / dropped an argv element | tier 1 panic (through `Vector.push`) |
+  | `File.read` / `File.write` | `None`, colliding with the syscall failure; short reads | tier 1 panic; `None` means the syscall failed |
+  | `Directory.current` | `None`, colliding with getcwd failure AND truncation | tier 1 panic; `None` means getcwd failed (M15 truncation still open) |
+  | `Directory.list` | name -> `""`, entry -> the parent dir, entries dropped | tier 1 panic (through String/Path/Vector) |
+  | `Env.arg` / `get` / `args` | `Some("")` for a real value; short argv | tier 1 panic (through String/Vector) |
+  | `net.net_buffer` | tier 1 panic (already correct) | unchanged |
+  | `net.net_read_once` / `read` / `read_into` | `Err(IoError)` + corrupt via `append_bytes` | `Err(IoError)` kept; the corrupt half is tier 1 |
+  | `TcpStream.write(String)` | short/empty write reported as `Ok` | tier 1 panic (through `to_data`) |
+  | `Allocator.alloc` / `slab_alloc` | `None` (the reporting primitive) | unchanged — this is what the tiers are built on |
 - **RS-2 — FIXED (design 122 units A + B, Aug 4; commits 3b68703, b8f9969).**
   `iter()`/`EnumeratedIterator` carry the `T: Copy` bound `each`/`map` already
   had and `next()` yields an explicit `.copy()` (a NoCopy element is reached

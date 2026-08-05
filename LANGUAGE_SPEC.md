@@ -1697,10 +1697,13 @@ m.lock { &var c in
     true            // the closure returns a Bool result
 }                   // lock released automatically
 
-if let v = m.get() {
-    print(v)        // 1
-}
+print(m.get())      // 1
 ```
+
+`Mutex(value:)` panics if the allocator refuses its control block (design 123,
+see [Allocation failure](#allocation-failure)), so there is no inert mutex: the
+`false` from `lock` is the one the closure computed, and `get` is not optional.
+`Mutex.try_make(value:)` is the fallible twin.
 
 `RwLock` (multiple readers XOR single writer) is planned; it is not yet in the
 stdlib.
@@ -3919,6 +3922,69 @@ Paper 19 §4's allocator model is now landed end to end: module-level `static`
 declarations (design 41) and **per-type slab allocators** (design 42) both ship.
 The only piece still deferred is the optional `AllocatedBy<Slab>` sugar (per-type
 default allocator), which paper 19 keeps for when kernel code justifies it.
+
+### Allocation failure
+
+**Status: implemented (design 123).** Every allocating operation in the standard
+library answers "the allocator said no" one of two ways, and the name tells you
+which.
+
+An operation with an **infallible signature** panics. `Vector.push`,
+`StringBuilder.append`, `Data.push`, `Map.insert`, `Set.insert`,
+`Channel.send`, `Box.make`, `String.to_uppercase`, `Path.join`, and every
+constructor — `Vector(capacity:)`, `Data(capacity:)`, `Arc(value:)`,
+`Mutex(value:)`, `Channel()`, `TaskGroup(threads:)` — are in this tier. The
+panic carries the method's name (`panic at vector.saw:180: Vector.push:
+allocation failed`) and routes through the `__saw_rt_panic` seam, so a kernel
+picks the policy: oops, kill the task, reboot. The compiler's own allocations
+follow the same rule — a spawned task's control block and an escaping closure's
+heap environment panic rather than storing through a null.
+
+Every such operation has a **`try_`-prefixed twin** returning
+`Result<_, AllocError>`:
+
+| Type | Infallible | Fallible |
+|---|---|---|
+| `Vector` | `init(capacity:)`, `push`, `copy` | `try_with_capacity`, `try_push`, `try_reserve`, `try_copy` |
+| `Box` | `make` | `try_make` |
+| `StringBuilder` | `init(capacity:)`, `append`, `append_char` | `try_with_capacity`, `try_append`, `try_append_char` |
+| `Data` | `init(capacity:)`, `push`, `append`, `append_bytes`, `copy` | `try_with_capacity`, `try_push`, `try_append`, `try_append_bytes`, `try_reserve`, `try_copy` |
+| `Map` / `Set` | `insert` | `try_insert` |
+| `Arc` / `Mutex` | `init(value:)` | `try_make` |
+| `Channel` | `init()`, `send` | `try_make`, `try_send` |
+
+A `try_` operation is **all-or-nothing**: on `Err` the container is exactly as it
+was, with every element still in it. The `AllocError` carries the byte `size` and
+`align` of the request that was refused, and conforms to `Error` and `Printable`,
+so it interpolates into a log line and boxes at a `Result<T, Box<any Error>>`
+boundary like any other error.
+
+```saw
+var frames = Vector<Frame, FrameSlab>()
+match frames.try_push(Frame(id: 1)) {
+    case Ok(_) -> print("queued"),
+    case Err(e) -> print("out of frame memory: {e}")
+}
+// prints e.g. out of frame memory: allocation of 64 bytes (align 8) failed
+```
+
+A type parameterized by its allocator (`Vector<T, A>`, `Box<T, A>`,
+`Map<K, V, A>`, `Set<T, A>`) is the freestanding toolkit, and the `try_` tier is
+its primary surface. Types with no allocator parameter — `String`,
+`StringBuilder`, `Data`, `Arc`, `Mutex`, `Channel` — allocate through
+`GlobalAllocator`.
+
+`String` has no fallible tier at all: every producer of one returns a plain
+`String`, so there is nowhere to put a failure. The single allocator behind them
+panics, which covers `to_uppercase`, `to_lowercase`, `replace`, `trim`,
+`substring`, `Vector<String>.join`, `StringBuilder.build`, `Path.join` and
+`String.fromBytes` in one place.
+
+What none of these do is degrade. There is no truncated `Vector`, no
+`Ok("")` from a validating constructor, no un-joined path returned from `join`,
+no message dropped by `send`, and no object that constructs "successfully" and
+then does nothing — `Arc`, `Mutex` and `Channel` used to have exactly that inert
+state, and it no longer exists.
 
 ### `Box<T, A>` — a single owned heap allocation
 
