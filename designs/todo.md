@@ -1120,6 +1120,56 @@ path must be per-stack). The generics model was not touched.
   across the spawn lowering, `TaskHandle`, and design-102's `__is_cancelled`.
   Worth a follow-up brief; not a correctness bug.
 
+## Design 134 — DF-findings
+
+- **DF-134a — OPEN, needs a user decision (reactor-token lifetime vs fd
+  lifetime; found landing design 134, Aug 5).** The design-91 reactor token is
+  the ADDRESS of the root frame's `__wake` word: `io_wait` arms
+  `EV_ADD|EV_ONESHOT` with `udata = &frame.__wake`
+  (`sawc/rt/host_macos/reactor.saw:85`) and the poll writes the latch through it.
+  Nothing ever DE-registers. A park loop that exits WITHOUT its event firing —
+  the cancellation path, `std/net.saw:438` `if cancelled() { ... }` at the loop
+  top — therefore leaves the kevent armed. Normally that is harmless because the
+  task's own `TcpStream` deinits at completion and closing the fd drops the
+  kevent with it. It is NOT harmless when the fd OUTLIVES the frame, which
+  happens when the task returns its stream as its RESULT: the fd stays open, the
+  kevent stays armed, and the next readiness event writes into memory the frame
+  used to occupy.
+  This is pre-existing (design 91), not introduced here, but design 134 narrows
+  the safe window: the frame box used to live until group teardown, and now it is
+  released at task completion. Exposure is narrow — it needs cancel-while-parked
+  AND the fd escaping through the result — and the write is a single word into a
+  freed block, so it is silent rather than crashing (the repro below runs clean;
+  that is not evidence of safety).
+  The fix belongs to the runtime ABI, not to the slot lifecycle: a
+  `__saw_rt_reactor_unregister(r, fd, dir)` seam the frame's `__release` calls
+  for any fd it armed and did not consume. rt/ABI.md freezes the seam set, so
+  adding one is a user decision — hence stopped here rather than patched.
+  Repro (`.build/scratch/probe_stale_token.saw`, gitignored; inlined):
+  ```saw
+  func reader(s: TcpStream) -> TcpStream {
+      match s.read() {            // parks, armed EV_ONESHOT on s.fd
+          case Ok(_) -> print("reader-read"),
+          case Err(_) -> print("reader-cancelled")
+      }
+      return move s               // the fd leaves with the RESULT, kevent armed
+  }
+  func canceller(addr: Int) unsafe { let p = addr as UnsafePointer<Bool>  p[0] = true }
+  func writer(s: TcpStream) { try! s.write("hello") }
+  func run() {
+      let (a, b) = TcpStream.pair()
+      var group = TaskGroup()
+      let hr = group.spawn(reader(move a))
+      let addr = hr.cancel_addr()
+      let _ = group.spawn(canceller(addr))
+      var back = hr.join()        // frame box freed here; token still armed
+      // ... churn the group so new frames reuse that memory ...
+      let w = group.spawn(writer(move b))   // makes the old fd readable
+      w.join()                              // stale kevent fires -> latch write
+      let _ = move back
+  }
+  ```
+
 ## Design 116 — DF-findings (self-hosting lexer pilot, IN PROGRESS)
 The lexer port (`selfhost/lexer`) is the pilot's measurement instrument;
 language pain hit while writing it is the explicit product. Policy (user, Aug 4):
