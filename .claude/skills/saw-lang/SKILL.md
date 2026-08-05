@@ -632,7 +632,18 @@ forwarding cannot reach a method-generic method).
 `static NAME: T = const_init` (Sync-only, immortal); `Atomic<Int>`;
 allocator type params `Vector<T, A: Allocator = GlobalAllocator>`, `Box<T, A>`,
 slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
-(volatile, RO/WO markers); `@export("sym")`/`@section(".s")` on
+(volatile, RO/WO markers);
+- **Wire/register structures are TYPED VIEWS, never offset arithmetic**
+  (user idiom ruling, Aug 5). Declare the layout ONCE as a struct of
+  fixed-width fields (+ explicit reserved bytes), pin the ABI with
+  `static_assert(sizeof<T>() == N)`, and read through
+  `UnsafeMemory<T, Normal>` (RAM) / `<T, Device>` (MMIO) by FIELD NAME —
+  `seg.mem_len`, not `read_u32(rec + SEG_MEM_LEN)`. One unsafe view
+  construction replaces N raw reads; a layout edit that skews offsets
+  becomes a compile error instead of a silent corruption. Design the
+  format alignment-friendly (each u32 4-aligned) so the overlay is exact;
+  note LE assumptions in a comment. Share the struct module between
+  writer and reader when they are separate packages. `@export("sym")`/`@section(".s")` on
 top-level func/static ONLY (`@synthesize` is the extension-only one — see
 traits; each is a clean error in the other's position)
 (C ABI, whitelist: fixed-width ints, Int/UInt,
