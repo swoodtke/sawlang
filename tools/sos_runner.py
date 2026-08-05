@@ -33,7 +33,13 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAWC = os.path.join(REPO_ROOT, "sawc", "sawc.py")
 KERNEL_DIR = os.path.join(REPO_ROOT, "sos", "kernel")
+CORE_DIR = os.path.join(KERNEL_DIR, "core")
 TESTS_DIR = os.path.join(REPO_ROOT, "sos", "tests")
+
+# Every kernel image is `boot.S` + `rt.c` + the shared kernel core + one entry
+# `.saw` defining `kmain`. The core carries the trap handler boot.S calls, so
+# the module path is not optional for any case.
+CORE_MODULE = f"kcore={CORE_DIR}"
 
 TRIPLE = "riscv32-unknown-none-elf"
 MARCH = "rv32imac_zicsr"
@@ -63,8 +69,9 @@ RESET = "\033[0m" if _TTY else ""
 CHECK = f"{GREEN}✓{RESET}"
 CROSS = f"{RED}✗{RESET}"
 
-# Each test: source, an expected UART substring (or None), and whether the
-# emulator is expected to exit cleanly (True → status 0) or fail (False → non-0).
+# Each test: the entry source, an optional extra assembly payload linked into
+# the `.payload` section, one or more expected UART substrings (or None), and
+# whether the emulator should exit cleanly (True → status 0) or fail (False).
 TEST_CASES = [
     {
         "name": "boot_smoke",
@@ -87,13 +94,37 @@ TEST_CASES = [
         "name": "trap_fault",
         "src": os.path.join(TESTS_DIR, "trap.saw"),
         "expect_out": None,             # a fault produces no banner
-        "expect_clean_exit": False,     # trap stub → FINISHER_FAIL
+        "expect_clean_exit": False,     # kernel_fault → FINISHER_FAIL
     },
     {
         "name": "panic_seam",
         "src": os.path.join(TESTS_DIR, "panic.saw"),
         "expect_out": "SOS M0: deliberate panic",
         "expect_clean_exit": False,     # __saw_rt_panic → UART + FINISHER_FAIL
+    },
+    # --- design 140 unit A: the M/U split, without any image format ----------
+    {
+        "name": "umode_syscall",
+        "src": os.path.join(TESTS_DIR, "umode.saw"),
+        "asm": os.path.join(TESTS_DIR, "payload_ok.S"),
+        # "SOS-U" is written one character at a time through `debug_putc`, so
+        # seeing it at all proves the ecall round trip resumed correctly.
+        "expect_out": ["SOS M1: entering U-mode", "SOS-U"],
+        "expect_clean_exit": True,      # sys_exit(0) → FINISHER_PASS
+    },
+    {
+        "name": "umode_access_fault",
+        "src": os.path.join(TESTS_DIR, "umode.saw"),
+        "asm": os.path.join(TESTS_DIR, "payload_fault.S"),
+        "expect_out": "fault store-access-fault",
+        "expect_clean_exit": False,
+    },
+    {
+        "name": "umode_bad_syscall",
+        "src": os.path.join(TESTS_DIR, "umode.saw"),
+        "asm": os.path.join(TESTS_DIR, "payload_badcall.S"),
+        "expect_out": "fault bad-syscall-number",
+        "expect_clean_exit": False,
     },
 ]
 
@@ -178,8 +209,13 @@ def _build_shared(clang):
     return boot_o, rt_o
 
 
-def _build_elf(case, boot_o, rt_o, lld):
-    """Compile + link one test case to an ELF; return its path."""
+def _build_elf(case, boot_o, rt_o, lld, clang):
+    """Compile + link one test case to an ELF; return its path.
+
+    A case may name an extra `.S` payload, which lands in the `.payload` section
+    virt.ld bounds — unit A's raw U-mode code, and from unit B on the `.incbin`
+    stub that carries the root sosimg.
+    """
     name = case["name"]
     obj = os.path.join(BUILD_DIR, f"{name}.o")
     elf = os.path.join(BUILD_DIR, f"{name}.elf")
@@ -190,9 +226,18 @@ def _build_elf(case, boot_o, rt_o, lld):
     # instead of quietly reaching for an allocator the kernel may not have.
     _run([sys.executable, SAWC, case["src"], "-o", obj,
           "--freestanding", "--no-hidden-alloc", "--target", TRIPLE,
-          "--target-features", MFEATURES])
+          "--target-features", MFEATURES,
+          "--module-path", CORE_MODULE])
+
+    objs = [boot_o, rt_o, obj]
+    if case.get("asm"):
+        payload_o = os.path.join(BUILD_DIR, f"{name}.payload.o")
+        _run([clang, f"--target={TRIPLE}", f"-march={MARCH}", f"-mabi={MABI}",
+              "-nostdlib", "-c", case["asm"], "-o", payload_o])
+        objs.append(payload_o)
+
     _run([lld, "-T", os.path.join(KERNEL_DIR, "virt.ld"), "--gc-sections",
-          "-o", elf, boot_o, rt_o, obj])
+          "-o", elf, *objs])
     return elf
 
 
@@ -237,7 +282,7 @@ def _check(case, status, out, timed_out):
 
 def main():
     qemu, lld, clang = _probe_tools()
-    print(f"{BOLD}SOS M0 QEMU tests{RESET} (riscv32 `virt`)")
+    print(f"{BOLD}SOS QEMU tests{RESET} (riscv32 `virt`)")
     print(f"  qemu : {qemu}")
     print(f"  clang: {clang}")
     print(f"  lld  : {lld}\n")
@@ -253,10 +298,11 @@ def main():
     for i, case in enumerate(TEST_CASES, 1):
         name = case["name"]
         try:
-            elf = _build_elf(case, boot_o, rt_o, lld)
+            elf = _build_elf(case, boot_o, rt_o, lld, clang)
         except ToolError as e:
             print(f"[{i}/{len(TEST_CASES)}] {CROSS} {name}  (build error)")
-            print(f"    {str(e).splitlines()[0]}")
+            for line in str(e).splitlines():
+                print(f"    {line}")
             failed += 1
             continue
         status, out, timed_out = _run_qemu(qemu, elf)
