@@ -520,6 +520,20 @@ let n = 7
 print(n.doubled())  // 14
 ```
 
+Extension methods are **import-scoped**. A file sees extensions from its own
+module, from the modules it imports directly, and from the receiver type's own
+module — never from a transitive dependency it did not import. `public` on an
+extension therefore means what it means everywhere else: importers of my module
+get this. Nothing can add methods to your types program-wide behind your back,
+and adding a dependency cannot change which method an existing call resolves to.
+
+Trait conformances follow a stricter rule, because they are program-wide by
+nature: `extension T: Trait` may be declared only in the module that defines `T`
+or the module that defines `Trait`. Two modules minting different conformances
+for one (type, trait) pair would let a `Map` built in one and probed in the
+other disagree about hashing. To conform a foreign type to a foreign trait, wrap
+it in a type you own.
+
 ### Module System
 
 ```saw

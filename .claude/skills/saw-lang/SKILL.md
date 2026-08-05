@@ -651,6 +651,33 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   argument owns (conversion pipelines, multi-receiver algorithms). If a
   private extension turns out generally useful, promote it to std rather
   than making it `public` on a std type from a package.
+- **Extension methods are IMPORT-SCOPED (design 142).** Lookup consults
+  exactly three places: your own module, the modules your FILE imports
+  DIRECTLY, and the receiver type's own defining module (its inherent API —
+  a `Data` you were handed keeps every `std.data` method whether or not you
+  wrote `import std.data`, which you may not even be able to write). A
+  TRANSITIVE dependency contributes NOTHING: if you import `net` and `net`
+  imports `codec`, `codec`'s `public extension Data` is invisible to you
+  until you import `codec` yourself. So `public` on an extension means what
+  it means everywhere else — importers of my module get this — and the
+  calling-it-without-the-import error names the module to add
+  (``type `Data` has no method `u16_at` in scope here`` / ``add `import
+  bmod```). std is ONE scoping domain (its files extend each other's types
+  on purpose), so nothing about std method calls changes. Two imported
+  modules may extend one type with the same method name: different
+  signatures overload normally, identical ones are an ambiguity error AT THE
+  CALL naming both modules.
+- **CONFORMANCES follow the ORPHAN RULE (design 142)**, not import scoping:
+  `extension T: Trait` is declarable ONLY in the module defining `T` or the
+  module defining `Trait`. A conformance mints one vtable per (type, trait)
+  pair and backs a contract (Hashable feeds Map, Equatable feeds `==`), so
+  two of them for one pair would let a Map built in one module and probed in
+  another disagree about hashing — an incoherence no use-site error can
+  catch. To conform a foreign type to a foreign trait, WRAP it in a type you
+  own. A conformance declared under the rule is coherent program-wide, so it
+  needs no import: it is visible wherever the type and the trait both are.
+  In practice you almost never notice this rule — you conform your own
+  types, and the in-tree migration when it landed was zero.
 - **Prelude (design 82) — what's bare vs what needs `import std.X`.** Bare
   (prelude): primitives, `Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/`Arc`/
   `Allocator`/`GlobalAllocator`, the Copy family + `Deinit`/`Iterator`/

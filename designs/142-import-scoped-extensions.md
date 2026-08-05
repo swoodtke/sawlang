@@ -1,6 +1,11 @@
 # Design 142 — extension visibility is import-scoped; conformance coherence
 
-STATUS: APPROVED (user, Aug 5). Queued after 139 and BEFORE 141 (whose `[]`
+STATUS: LANDED (Aug 5). Both rules implemented as specified; DF-140f folded in
+and closed (private statics + functions), with private TYPES filed as DF-142a.
+The sweep found ZERO in-tree migration — no orphan conformances among 416, and
+no code relying on the transitive leak. See the tracker's design-142 section.
+
+Queued after 139 and BEFORE 141 (whose `[]`
 borrows methods multiply extension usage — the scoping rule lands first).
 Proven gap: `.build/scratch/extvis/` — main imports `amod` only; `bmod`
 (reached transitively) declares `public extension Data { func u16_at }`;

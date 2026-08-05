@@ -3911,6 +3911,90 @@ Consequences:
   genuinely-shared std internals are marked `public(package)` (std is the
   package). User code is always a separate module from std.
 
+#### Extension scoping (design 142)
+
+Visibility says whether a member MAY be reached. Scoping says whether it is
+visible at all. Method lookup on a receiver consults extensions from exactly
+three places:
+
+1. the current module;
+2. the modules the current file imports DIRECTLY;
+3. the receiver type's own defining module — its inherent API, which travels
+   with the value.
+
+A transitive dependency contributes nothing. If your package depends on `net`
+and `net` depends on `codec`, a `public extension Data` in `codec` is invisible
+to you until you import `codec` yourself. So `public` on an extension means what
+it means on every other declaration: importers of my module get this. Without
+the rule, any module anywhere in the link could add methods to any type for the
+whole program, and adding an unrelated dependency could change which method a
+call resolved to.
+
+Rule 3 is what keeps this workable. A `Data` handed to you by some library is
+still a `Data`, with every method `std.data` gave it, whether or not you wrote
+`import std.data` — and you may not even be able to write it, since the prelude
+rules gate the NAME `Data` separately from the value.
+
+The standard library is one scoping domain. Its files are separate modules for
+privacy, but they extend each other's types deliberately (`std.string` defines
+`join` on `Vector<String>`), so std's public surface is in scope wherever its
+types are.
+
+Two modules may extend one type with the same method name. Where both are
+visible they form an ordinary overload set and resolve by signature. Where their
+signatures are indistinguishable, the error is at the CALL — each declaration is
+fine on its own, and neither module knows the other exists:
+
+```
+error: ambiguous method `kind` on `Reading`: `modules.ext142_dup_a` and
+       `modules.ext142_dup_b` both extend it with an indistinguishable signature
+```
+
+Calling an out-of-scope method names the module that defines it:
+
+```
+error: type `Data` has no method `u16_at` in scope here
+  hint: `bmod` extends `Data` with `u16_at`, but this file does not import it
+        — add `import bmod`
+```
+
+#### Conformance coherence: the orphan rule (design 142)
+
+`extension T: Trait` is declarable only in the module that defines `T` or the
+module that defines `Trait`. Anywhere else is a compile error naming both
+owners.
+
+Methods can be import-scoped because a method is chosen at a call site, where
+"which ones can I see" is a fair question with a per-file answer. A conformance
+cannot. It mints one vtable per (type, trait) pair and backs a semantic
+contract — `Hashable` feeds `Map`, `Equatable` feeds `==` — so two modules
+minting different conformances for one pair would let a `Map` built in one
+module and probed in another disagree about hashing. No use-site diagnostic can
+catch that, because neither site is wrong.
+
+Pinning a conformance to an owner makes it global, which is why conformances
+need no import scoping of their own: one declared under this rule is visible
+wherever the type and the trait both are.
+
+```saw
+// In the module that defines Reading — the type's owner.
+public extension Reading: Printable {
+    public func format(&self, into: &var StringBuilder) {
+        into.append("Reading(")
+        into.append(self.raw)
+        into.append(")")
+    }
+}
+
+// In the module that defines Describable — the trait's owner, conforming a
+// foreign type. Also allowed.
+public extension Reading: Describable {
+    public func describe(&self) -> String { "reading {self.raw}" }
+}
+```
+
+To conform a foreign type to a foreign trait, wrap it in a type you own.
+
 ### The prelude (design 82)
 
 Not all of std is auto-visible. The **prelude** — the names usable without an

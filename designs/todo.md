@@ -694,6 +694,90 @@ noted live-range packing of locals; do both in one sizing brief.
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
 
+## Design 142 — findings (import-scoped extensions; conformance coherence)
+
+- **DF-142-leak — FIXED by design 142 (the brief's own proving repro).** Any
+  module in the link injected its `public` extension methods onto a type for the
+  whole program. `main` imported `amod` only; `bmod` (reached transitively
+  through `amod`) declared `public extension Data { func u16_at }`; `main`
+  compiled AND RAN `d.u16_at(0)`, printing `leaked: 4660`. One module could
+  monkey-patch a type for every consumer, with silent cross-dependency
+  collisions and an add-a-dependency-changes-resolution hazard behind it.
+  Lookup now consults the current module, the file's DIRECT imports, and the
+  receiver type's own module; the transitive case is a clean error naming the
+  module to import. Regression: `examples/ext142_transitive_leak_error.saw`
+  (plus `ext142_direct_import` for the positive side).
+
+- **Sweep result (Aug 5): ZERO migration**, as the brief predicted. All 416
+  conformances across `blade/`, `libs/`, `selfhost/`, `sos/`, `examples/`,
+  `sawc/std/` and `builtin.saw` were checked: no orphans (412 declare the type
+  locally; the other 4 declare the trait locally — `extension Int/Float:
+  Fooable` in the file declaring `Fooable`). Only 13 of 601 extensions target a
+  foreign type, and the single user-code cross-package case, blade's
+  `public extension Path { public func ensure_dir }`
+  (`blade/src/layout.saw:35`), is called only inside its own module. Two notes
+  for anyone touching this again: `Allocator` lives in `sawc/std/alloc.saw`,
+  NOT `builtin.saw`; and a type-declaration grep must accept the `unsafe`
+  prefix (`unsafe struct UnsafeMmioReg`) or it reports false orphans.
+
+- **std is ONE scoping domain, deliberately.** Design 82 makes each std file its
+  own module, but std files extend each other's types on purpose —
+  `sawc/std/string.saw:932` defines `join` on `Vector<String>`, whose type lives
+  in `sawc/std/vector.saw`. A literal reading of rules 1-3 would have demanded
+  `import std.string` to call `v.join(", ")`. The scope predicate exempts
+  `("<std>", *)`; the prelude rules already govern which std NAMES a file may
+  write unimported.
+
+- **DF-140f — FIXED here (originally filed on a parked SOS branch; refiled in
+  main's tracker as found-and-fixed).** A module-PRIVATE `static` in a
+  dependency collided with a same-named static in the importer —
+  "ambiguous static `PT_LOAD`: defined in both `dep` and `<entry>`" — even
+  though neither module can see the other's. Private extension methods stayed
+  correctly invisible, so the hole was in top-level declarations. A fresh sweep
+  found private FUNCTIONS had it too. Every private constant (and helper) in a
+  dependency was a reserved word for its consumers.
+
+  Cause: the typechecker resolves against the importing module's own namespace,
+  which never received the private symbol, so name resolution was always right.
+  Codegen works from ONE merged namespace keyed by simple name, so the two
+  definitions landed on one key, and the merge reported that to the author as
+  their ambiguity. Fix: private statics and private free functions in non-root
+  modules take a module-qualified codegen symbol (`$m$<module>`), the merge stops
+  flagging a collision it no longer has, and identifier references carry the
+  resolved static symbol so codegen loads the right global. Public declarations
+  are untouched — they are importable by simple name, so two under one name is a
+  real ambiguity and still reported. Regression:
+  `examples/df140f_private_static_collision.saw`; the public-collision tests
+  (`test_static_collision`, `module_import_collision`) still pass.
+
+- **DF-142a — FILED, not fixed. Private TYPES still collide across modules.**
+  Two modules each declaring a private `struct Header` is still
+  "ambiguous struct `Header`: defined in both `dep` and `<entry>`", the same
+  shape as DF-140f. It was left out of that fix deliberately: a static's or
+  function's codegen identity is a symbol NAME, which is why module-qualifying
+  it was contained. A type's identity is threaded through `SawType.struct_name`,
+  `Codegen.struct_types`, monomorphization keys and method mangling
+  (`Struct_method`), so module-qualifying it is a structural change. Suppressing
+  the report WITHOUT that change would be worse than the error: codegen would
+  emit one layout under the shared name and silently miscompile the other
+  module's code against it. The error stays until the identity change is done.
+  Repro (two files):
+
+  ```saw
+  // dep.saw
+  struct Header { kind: Int }
+  public func dep_kind() -> Int { 1 }
+
+  // main.saw
+  import dep.{dep_kind}
+  struct Header { kind: Int }
+  func main() { print(dep_kind()) }
+  // error: ambiguous struct `Header`: defined in both `dep` and `<entry>`
+  ```
+
+  Same hole for private enums, traits and type aliases (the merge treats all
+  five categories alike). Wants its own brief.
+
 ## Design 137 — DF-findings (fixed-capacity formatting)
 
 **Deny window REMOVED.** Design 123's `__saw_rt_alloc_deny_after(allow, deny)`
