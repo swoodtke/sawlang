@@ -869,10 +869,41 @@ fetching, and incremental builds:
 ./.build/blade update          # re-resolve dependencies and rewrite Saw.lock
 ./.build/blade run             # build and run
 ./.build/blade test            # compile and run the project's tests/
+./.build/blade clean           # remove build output
 ./.build/blade tree            # print the resolved dependency graph
 ./.build/blade add foo --path ../foo         # add a path dependency
 ./.build/blade add bar --git <url> --version ^1.0.0   # add a git dependency
 ```
+
+### Build output
+
+Everything a build produces goes under `<package>/.build/<target>/`:
+
+```
+myproject/
+  Saw.toml
+  Saw.lock
+  src/main.saw
+  .build/
+    host/                      # the default hosted build
+      myproject                # the binary
+      build-hash               # what the next build compares against
+      tests/                   # `blade test` binaries
+    riscv32-unknown-none-elf/  # `blade build --target riscv32-unknown-none-elf`
+      myproject
+      build-hash
+```
+
+`<target>` is the `sawc --target` triple, or `host` for a build that names no
+target. Two targets of one package therefore have two directories rather than
+two builds overwriting one filename, and the up-to-date check is per-target: a
+riscv32 build cannot satisfy an arm64 check, and an arm64 binary cannot answer
+for a riscv32 one.
+
+Nothing generated sits beside a source file, so a package needs one ignore rule
+(`.build/`) and `blade new` writes it. `blade clean` removes the whole tree;
+`blade clean --target <triple>` removes one target and leaves the rest. Neither
+touches `.blade/deps/`, which holds dependency source rather than output.
 
 ### Dependencies (design 64)
 
@@ -891,10 +922,18 @@ tiny  = "0.3.1"          # bare = EXACT pin (ranges need ^, ~, or >=)
   for one name, dependency cycles, and self-deps are errors.
 - **`Saw.lock`**: deterministic (packages sorted, no timestamps), records
   version + source + git rev, plus a manifest-deps hash for drift detection.
+  An **application commits it**; a **library does not**, because a library's
+  resolution belongs to whoever depends on it. The source layout decides which
+  a package is: `src/main.saw` (or a root `main.saw`) builds a program,
+  `src/lib.saw` alone is a library. `blade build` writes the lock for an
+  application only. `blade update` writes it either way, so a library that
+  wants one for its own CI can have it and ignore the file.
 - **Git**: tagged versions are cloned into `.blade/deps/<name>-<version>/`
   (`.blade/` is self-gitignoring). No global cache yet.
-- **Incremental**: a content hash of every reachable source (`.blade/build-hash`)
-  skips an up-to-date build; `--force` bypasses it.
+- **Incremental**: a content hash of every reachable source
+  (`.build/<target>/build-hash`) skips an up-to-date build; `--force` bypasses
+  it. Both the hash and the artifact must be present for a build to be skipped,
+  so a missing binary always rebuilds.
 - **Self-hosting**: Blade's own build depends on the `libs/toml` and
   `libs/semver` packages by path, so every Blade build exercises the resolver /
   lock / module-path pipeline. `make blade-bootstrap` runs the loop that builds and tests Blade

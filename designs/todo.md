@@ -18,6 +18,40 @@ DRAFTS** (Deinit/ExplicitCopy synthesis — LANDED, see below;
 newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
 
+**143 LANDED (Aug 5)** — Blade build-output directories + lockfile policy.
+Origin: the SOS M1 review finding that `sos/root/sos-root.sosimg` sat next to
+its `Saw.toml` [user]. Blade built IN PLACE, so artifacts lived beside source,
+every package grew artifact ignore patterns, and two TARGETS of one package
+would have fought over one filename (load-bearing with M1b/arm64 queued).
+Decision 1: everything a build produces goes under `<package>/.build/<target>/`
+— `<target>` is the sawc `--target` triple with `host` for the default hosted
+build (the brief's pin, taken as written). `blade/src/layout.saw` is the one
+place that knows the shape (`BuildLayout` + `Path.ensure_dir`/`remove_tree`);
+builder and tester both hold one. The up-to-date check is per-target on BOTH
+halves (stamp AND artifact), which is what makes a stale in-place artifact from
+the old layout unreachable rather than merely unlikely. Riders the layout made
+expressible: `blade build --target <triple>`, `blade clean [--target]` (new
+command; `.blade/deps/` survives — it is source, not output), Blade creating
+its own output directory (sawc does not create one), `blade new` scaffolding a
+`.gitignore`. Decision 2: the app/lib distinction has NO manifest field — the
+source layout IS the declaration (`src/main.saw`/`main.saw` = application,
+`src/lib.saw` alone = library), recorded as `Builder.is_application()`. An
+application commits `Saw.lock`; a library does not, so `blade build` no longer
+writes one in a library at all (`blade update` still does, the explicit ask)
+and `libs/toml` + `libs/semver` carry a one-line `.gitignore` for that case.
+Sweep: blade conformant already; selfhost/lexer is application-shaped but has
+zero deps and is built by tools/lexdiff.py through sawc directly, so no lock
+exists or can appear; `sos/root/Saw.lock` is on the PARKED M1 branch — that
+branch should commit it (sos/root is an application). Gates: suite 1174,
+lexdiff, irdet, astdiff, bootstrap (three new layout stages), sos (now building
+into `.build/riscv32-unknown-none-elf/sos/`). Found and fixed on the way: the
+Blade suite was ORDER-DEPENDENT — `dep_build` and `lock_roundtrip` write into
+`.build/scratch/` and nothing created it, so whichever ran first failed on a
+clean tree. NOT moved (deliberate): `tools/lexdiff.py`'s `.build/sawlex` and
+`tools/irdet.py`'s `.build/<stem>.ll` are repo-root scratch for host-only
+harnesses, not package output, and the repo root is not a Blade package.
+Brief: designs/143-blade-build-dirs.md. [143]
+
 **133 LANDED (Aug 5)** — two capability completions. Unit A: `Arc<T>`/`Box<T, A>`
 payload-method forwarding reaches a METHOD-GENERIC payload method, closing
 **DF-123c**, and `Mutex.lock` then became `lock<R>(body: (&var T) sync -> R) -> R`

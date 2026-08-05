@@ -1,0 +1,7 @@
+# `toml` is a library, so its lockfile is never committed: the resolution that
+# matters belongs to whatever application depends on it. `blade build` does not
+# write one here; `blade update` will, and this keeps that out of the history.
+#
+# Build output needs no rule of its own. It goes under `.build/`, which the
+# repository root already ignores.
+Saw.lock

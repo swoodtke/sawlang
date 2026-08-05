@@ -368,6 +368,20 @@ shown — a passing run stays quiet, a failing one explains itself.
 module-paths (the same flags `blade build` uses), so a test can `import` a
 dependency. It also reports per-test timing (`test NAME ... ok (Nms)`).
 
+The compiled test binaries go in `.build/host/tests/`, under the same per-target
+build directory as everything else Blade produces (see the README's Blade
+section for the layout). Tests are compiled and then run, so they are always
+built for the host. A test that writes scratch files of its own should create
+its directory first, the way `blade/tests/dep_build.saw` does:
+
+```saw
+assert(Path(s: ".build/scratch").ensure_dir(), "scratch directory available")
+```
+
+`sawc` does not create its output directory, so a test that skips this depends
+on some earlier test having made the directory, and the suite starts failing
+in whatever order the filesystem hands the files back.
+
 ### Library packages and the self-hosting bootstrap (design 64 B8)
 
 The dependency machinery is extracted into real library packages, each with its
@@ -384,6 +398,12 @@ in-tree checkout (no installed `sawc`) the bootstrap sets `SAWC` for you: the
 loop runs both lib suites as a standard bar (design 97), so they are actually
 validated on every `make blade-bootstrap` and cannot silently rot.
 
+Blade is an application, so its `Saw.lock` is committed. The two library
+packages are libraries, so theirs are not: `blade build` writes no lock in a
+library, and each ships a one-line `.gitignore` covering the `blade update`
+case. The bootstrap checks it, and a library that grows a `Saw.lock` fails the
+loop.
+
 Because Blade's own `Saw.toml` depends on `libs/toml`, **every Blade build runs
 the resolver, writes/uses `Saw.lock`, and passes `--module-path`** — the dep
 features cannot rot without breaking Blade's own build. The bootstrap loop
@@ -391,9 +411,22 @@ features cannot rot without breaking Blade's own build. The bootstrap loop
 end: the in-tree `sawc` builds Blade (stage0); that Blade builds Blade through
 its own resolve/lock/module-path/incremental pipeline (stage1); the self-built
 binary runs Blade's full suite; a second build reports "up to date"; `--force`
-rebuilds (stage2); and the stage2 binary re-runs the suite. (The bootstrap
-retries a build a bounded number of times to ride out an intermittent
-self-build runtime crash — dogfood DF12.)
+rebuilds (stage2); and the stage2 binary re-runs the suite.
+
+Three of its stages are about where the output goes:
+
+- the artifact is at `blade/.build/host/blade` with its build-hash beside it,
+  and the package root holds no binary and no `.ll` file.
+- a stale artifact left at the old in-place path is ignored rather than
+  trusted. The stage removes the real artifact, drops a junk file where builds
+  used to land, and requires a recompile that leaves the junk alone. Without
+  the per-target artifact check, a matching build hash alone would report the
+  stale file as up to date.
+- one throwaway package is built for two target names (`host` and the explicit
+  host triple) and must produce two artifacts, two build hashes, and an
+  up-to-date second build for each. `blade clean --target` then removes one and
+  leaves the other. Only the directory behavior is under test, so the machine
+  does not need a second architecture it can link for.
 
 ## Test Runner Implementation
 
