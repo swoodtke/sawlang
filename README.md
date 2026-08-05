@@ -338,14 +338,16 @@ steps, so left-to-right order and short-circuiting hold as written:
 
 ```saw
 func report() -> Int {
-    let total = work(3) + work(4)      // both operands suspend
-    print("squared: {work(5)}")        // suspends inside an interpolation
+    let total = work(3) + work(4)         // both operands suspend
+    print("squared: {work(5)}")           // suspends inside an interpolation
     let cached: Int? = None
-    let extra = cached ?? work(7)      // the `??` RHS suspends only if it runs
-    return total + extra
+    return total + (cached ?? work(7))    // the `??` RHS suspends only if it runs
 }
 // spawned into a TaskGroup: prints "squared: 25", joins 74
 ```
+
+The short-circuit keeps its guard wherever it sits. In the `return` above the
+`??` is nested inside a `+`, and `work(7)` still runs only on the `None` path.
 
 A suspension the transform cannot place is a compile error naming the site, not
 a silent blocking call.

@@ -1,0 +1,40 @@
+// Design 133 unit B: the blocking-extern half of the nested short-circuit fix
+// (DF-125a). A `blocking` extern in a `??` RHS offloads to a worker thread like
+// any other suspension — and now does so with the operator buried in a larger
+// expression, where it used to be the "bind it to its own statement first"
+// error. The Some paths never take the offload: their result is the LHS.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 40
+// 7
+// 41
+// 8
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func ident(n: Int) sync -> Int { n }
+
+// Blocking call in a `??` RHS, buried in a call argument.
+func in_arg(o: Int?) -> Int {
+    let r = ident(o ?? __saw_rt_blocking_sleep(40))
+    r
+}
+
+// Blocking call in a `??` RHS, buried in a binary operand.
+func in_operand(o: Int?) -> Int {
+    return 1 + (o ?? __saw_rt_blocking_sleep(40))
+}
+
+func main() {
+    var group = TaskGroup()
+    let h1 = group.spawn(in_arg(None))
+    print(h1.join())        // 40 — the offload ran
+    let h2 = group.spawn(in_arg(7))
+    print(h2.join())        // 7 — short-circuited, no offload
+    let h3 = group.spawn(in_operand(None))
+    print(h3.join())        // 1 + 40
+    let h4 = group.spawn(in_operand(7))
+    print(h4.join())        // 1 + 7
+}

@@ -975,11 +975,8 @@ class _FrameBuilder:
         temp reference; a sync child is returned unchanged)."""
         def do(child):
             return self._anf(child, out, lift_self=True)
-        if isinstance(expr, FunctionCall):
-            for a in expr.arguments:
-                a.value = do(a.value)
-        elif isinstance(expr, MethodCall):
-            obj = do(expr.object)
+
+        def receiver_hook(obj):
             # A suspending method / channel `receive()` embeds its receiver as a
             # frame-resident value the sub-frame borrows through `&receiver` — that
             # needs an ADDRESSABLE location. A non-addressable receiver (a call,
@@ -987,38 +984,61 @@ class _FrameBuilder:
             # a temp so `&__anfN` is well-formed. A suspending receiver was already
             # lifted by `do` above (its temp is addressable).
             if self._is_suspending_call_node(expr) and not self._is_addressable(obj):
-                obj = self._anf_lift(obj, out)
+                return self._anf_lift(obj, out)
+            return obj
+        self._map_uncond_children(expr, do, receiver_hook=receiver_hook)
+
+    def _map_uncond_children(self, expr, fn, receiver_hook=None):
+        """Apply `fn` to each UNCONDITIONAL child expression position of `expr`,
+        writing the result back, in EVALUATION ORDER.
+
+        The RHS of `&&`/`||` is skipped: it is evaluated conditionally, so nothing
+        may be lifted out of it (the stage-2 branch lowering owns that position).
+        `receiver_hook`, when given, post-processes a method call's receiver right
+        after `fn` and before the arguments, keeping the receiver's own hoists
+        ahead of the arguments'.
+        """
+        if isinstance(expr, FunctionCall):
+            for a in expr.arguments:
+                a.value = fn(a.value)
+        elif isinstance(expr, MethodCall):
+            obj = fn(expr.object)
+            if receiver_hook is not None:
+                obj = receiver_hook(obj)
             expr.object = obj
             for a in expr.arguments:
-                a.value = do(a.value)
+                a.value = fn(a.value)
         elif isinstance(expr, BinaryOp):
-            expr.left = do(expr.left)
-            # `&&`/`||` short-circuit: the right operand is conditional (stage 2).
+            expr.left = fn(expr.left)
             if expr.op not in ("&&", "||", "and", "or"):
-                expr.right = do(expr.right)
+                expr.right = fn(expr.right)
         elif isinstance(expr, UnaryOp):
-            expr.operand = do(expr.operand)
+            expr.operand = fn(expr.operand)
         elif isinstance(expr, (ArrayLiteral, SetLiteral, TupleLiteral)):
-            expr.elements = [do(e) for e in expr.elements]
+            expr.elements = [fn(e) for e in expr.elements]
         elif isinstance(expr, MapLiteral):
-            expr.entries = [(do(k), do(v)) for (k, v) in expr.entries]
+            expr.entries = [(fn(k), fn(v)) for (k, v) in expr.entries]
         elif isinstance(expr, StructInit):
-            expr.field_inits = [(n, do(v)) for (n, v) in expr.field_inits]
+            expr.field_inits = [(n, fn(v)) for (n, v) in expr.field_inits]
         elif isinstance(expr, StringInterpolation):
-            expr.expressions = [do(e) for e in expr.expressions]
+            expr.expressions = [fn(e) for e in expr.expressions]
         elif isinstance(expr, MemberAccess):
-            expr.object = do(expr.object)
+            expr.object = fn(expr.object)
         elif isinstance(expr, TupleIndex):
-            expr.tuple_expr = do(expr.tuple_expr)
+            expr.tuple_expr = fn(expr.tuple_expr)
         elif isinstance(expr, ArrayIndex):
-            expr.array_expr = do(expr.array_expr)
-            expr.index = do(expr.index)
+            expr.array_expr = fn(expr.array_expr)
+            expr.index = fn(expr.index)
         elif isinstance(expr, ForceUnwrap):
-            expr.expr = do(expr.expr)
+            expr.expr = fn(expr.expr)
         elif isinstance(expr, CastExpr):
-            expr.expr = do(expr.expr)
+            expr.expr = fn(expr.expr)
         elif isinstance(expr, OptionalWrap):
-            expr.value = do(expr.value)
+            expr.value = fn(expr.value)
+        elif isinstance(expr, TryExpr):
+            # Only the stage-2 walk reaches a TryExpr here; `_anf` peels its
+            # subject itself before this dispatch ever sees one.
+            expr.expr = fn(expr.expr)
 
     def _is_suspending_call_node(self, expr):
         """True if `expr` is a suspending call node the transform can lift to a
@@ -1196,11 +1216,65 @@ class _FrameBuilder:
         field = self._VC_HEAD_FIELD.get(type(cond))
         if field is None:
             return
-        head = getattr(cond, field)
-        if not (self._is_value_conditional(head)
-                and self._spans_suspension(head)):
-            return
-        setattr(cond, field, self._vc_hoist_to_temp(head, out))
+        setattr(cond, field, self._vc_lift_here(getattr(cond, field), out))
+
+    # ------------------------------------------------------------------ #
+    # design 133 unit B: a value-conditional BURIED in a larger expression
+    # ------------------------------------------------------------------ #
+    #
+    # Design 120 lowered a suspension-spanning `??` / `&&` / `||` / value-position
+    # `if`/`match` / `?.` only when the operator was the statement's WHOLE value.
+    # One level down — `f(a ?? slow())`, `return 1 + (a ?? slow())`,
+    # `not (a && slow())` — nothing lowered it, stage 1 left the conditional opaque
+    # on purpose, and the suspension surfaced as the nested-position error
+    # (DF-125a). The fix reuses the mechanism rather than extending it: hoist the
+    # WHOLE conditional into its own `let __vchN = <conditional>` and read the temp
+    # in its place. That is exactly the outermost form `_vc_stmt` already lowers, so
+    # the guard survives — the RHS still runs only on the path that needs it, and
+    # the arms' own suspends are handled by the branch shape as before. Nesting
+    # recurses for free: `_vc_hoist_to_temp` re-enters `_vc_stmt`, and `_vc_block`
+    # walks the branches the lowering produces.
+
+    def _vc_lift_here(self, expr, out):
+        """Lift `expr` itself when it is a suspension-spanning value-conditional,
+        otherwise lift the ones buried inside it. Returns the replacement."""
+        if not isinstance(expr, ASTNode) or not self._spans_suspension(expr):
+            return expr
+        if self._is_value_conditional(expr):
+            return self._vc_hoist_to_temp(expr, out)
+        self._vc_lift_nested(expr, out)
+        return expr
+
+    def _vc_lift_nested(self, root, out):
+        """Replace every suspension-spanning value-conditional in a STRICT
+        descendant position of `root` with a read of a preceding statement temp."""
+        def visit(child):
+            if not isinstance(child, ASTNode) or not self._spans_suspension(child):
+                return child
+            # A closure body is its own scope — never hoist a conditional out of one.
+            if isinstance(child, ClosureExpr):
+                return child
+            if self._is_value_conditional(child):
+                return self._vc_hoist_to_temp(child, out)
+            self._map_uncond_children(child, visit)
+            return child
+        self._map_uncond_children(root, visit)
+
+    # The value expression a leaf statement evaluates unconditionally, or None for
+    # a statement whose value positions belong to another pass (control flow, an
+    # optional-chain assignment, a `guard let` subject).
+    def _vc_stmt_value(self, s):
+        if isinstance(s, (LetStatement, AssignStatement)):
+            return s.value
+        if isinstance(s, ReturnStatement):
+            return s.value
+        if isinstance(s, ExpressionStatement):
+            e = s.expression
+            if isinstance(e, (IfExpr, WhileExpr, MatchExpr, IfLetExpr,
+                              OptionalChainAssign)):
+                return None
+            return e
+        return None
 
     def _vc_chain_prefix_hoist(self, cond, out):
         """Peel a MULTI-hop `?.` chain down to a single hop: everything left of the
@@ -1274,6 +1348,17 @@ class _FrameBuilder:
             lowered = self._lower_optchain_assign(s.expression)
             if lowered is not None:
                 return [lowered]
+        # design 133 unit B (DF-125a): the statement's value is not itself a
+        # conditional, but one is BURIED in it (`f(a ?? slow())`,
+        # `return 1 + (a ?? slow())`, `not (a && slow())`). Lift each buried
+        # conditional to its own preceding statement — the outermost form the
+        # branches above lower — and read the temp in its place.
+        root = self._vc_stmt_value(s)
+        if root is not None and self._spans_suspension(root):
+            pre = []
+            self._vc_lift_nested(root, pre)
+            if pre:
+                return pre + [s]
         return [s]
 
     def _lower_optchain_assign(self, oca):

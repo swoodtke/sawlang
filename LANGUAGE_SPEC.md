@@ -2847,9 +2847,12 @@ Observable rules:
   position that is evaluated CONDITIONALLY keeps its guard: a value-position
   `if`/`match` arm, a `??` RHS, an `&&`/`||` RHS, a `?.` hop, and a
   chained-assignment RHS lower to the branch shape first, so an arm that is not
-  taken never runs its suspension or its side effects — with the nesting limit
-  noted below. A blocking `extern` call (below) rides the same rewrite, including
-  when it is buried in a larger expression.
+  taken never runs its suspension or its side effects. The guard holds at any
+  nesting depth (design 133): a short-circuit buried in a larger expression —
+  `f(a ?? slow())`, `return 1 + (a ?? slow())`, `not (a && slow())` — is lifted
+  to its own statement, which is that same branch shape, so the operand the LHS
+  decides against still never runs. A blocking `extern` call (below) rides the
+  same rewrite, including when it is buried in a larger expression.
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
   line, not miscompiled): a
   suspension-spanning `if let`/`guard let` with a *tuple pattern*, or one whose body
@@ -2861,12 +2864,7 @@ Observable rules:
   over a non-range iterable; a value-producing `break` out of a suspension-spanning
   loop; and a chained assignment through MORE THAN ONE optional hop whose RHS
   suspends (`a?.b?.c = stream.read()` — the single-hop form works; bind the inner
-  optional with `if let` first); and a **short-circuiting operator whose
-  suspending operand is not the outermost expression** of its statement —
-  `let x = a ?? slow()`, `return a ?? slow()` and a tail `a ?? slow()` all
-  transform, while `return 1 + (a ?? slow())`, `f(a ?? slow())` and
-  `not (a && slow())` are rejected; bind the short-circuit to its own `let`
-  first.
+  optional with `if let` first).
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately

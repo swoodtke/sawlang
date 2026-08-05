@@ -474,11 +474,10 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   a blocking-extern call BURIED in a larger expression offloads like any other
   suspension — `identity(slow(x))`, `return 1 + slow(x)`, `"slept {slow(x)}"` and
   `let r = 1 + slow(x)` all RUN (re-probed Aug 4); the pre-120 rule that you had to
-  bind it to its own `let` first is RETIRED, and so is the error it named. The
-  design-120 short-circuit limit below applies here too, with its own diagnostic:
-  `1 + (cached ?? slow(x))` gives "the blocking-extern call `slow(...)` appears in
-  a nested/expression position the offload desugar cannot occupy; bind it to its
-  own statement first". (At statement position inside an `if let`/`guard let` body it
+  bind it to its own `let` first is RETIRED, and so is the error it named. Design
+  133 extended that to a NESTED short-circuit: `1 + (cached ?? slow(x))` and
+  `identity(cached ?? slow(x))` offload on the None path and skip the offload
+  entirely when the LHS decides. (At statement position inside an `if let`/`guard let` body it
   offloads fine — design 104 CFG-splits that branch.) Cancelling a task parked on an offload job wakes
   it (design 102), but the in-flight blocking call cannot be aborted: take() joins
   the worker before the task takes its cancel path.
@@ -507,13 +506,12 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   temporaries for you, so left-to-right order and intermediate deinit timing match
   the hand-written `let`-per-step spelling; a CONDITIONAL position (a value
   `if`/`match` arm, a `??` / `&&` / `||` RHS, a `?.` hop) keeps its short-circuit,
-  so a skipped suspension and its side effects never run. LIMIT on that last one
-  (probed Aug 4): a short-circuiting operator whose RHS suspends must be the
-  OUTERMOST expression of its statement — `let x = a ?? slow()`,
-  `return a ?? slow()`, a tail `a ?? slow()` all transform, but nesting the
-  operator inside a further expression (`return 1 + (a ?? slow())`,
-  `f(a ?? slow())`, `not (a && slow())`) is still the nested/expression-position
-  error. Bind the short-circuit to its own `let` first. Still a clean,
+  so a skipped suspension and its side effects never run — at ANY nesting depth
+  since design 133. The operator no longer has to be the outermost expression of
+  its statement: `f(a ?? slow())`, `return 1 + (a ?? slow())`,
+  `not (a && slow())`, `g(f(a ?? slow()))` and the blocking-extern versions of
+  each all transform now (the whole short-circuit is lifted to its own statement
+  first), and the RHS still runs only when the LHS does not decide. Still a clean,
   user-anchored compile error (NOT a silent block): a suspension-spanning `if let`/
   `guard let` with a TUPLE pattern, or one whose body RE-BINDS the bound name
   (rename the inner binding); and a NESTED generic call whose template suspends
