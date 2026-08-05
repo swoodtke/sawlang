@@ -152,12 +152,11 @@ func band_level(section: &TomlSection, band: String, fallback: Int) -> Result<In
 /// has no `[sos]` section — an ordinary host package, built the ordinary way.
 public func load_sos_config(dir: Path) -> Result<SosConfig?, Box<any Error>> {
     let manifest_path = dir.join("Saw.toml")
-    guard var file = File.open(manifest_path) else {
-        return SosError(msg: "could not open {manifest_path.as_str()}")
-    }
-    guard let data = file.read() else {
-        return SosError(msg: "could not read {manifest_path.as_str()}")
-    }
+    // std.file surfaces its IoError on open and read alike (design 92); `try`
+    // re-boxes each into the erased Result, alongside the Utf8Error and the
+    // TomlError below.
+    var file = try File.open(manifest_path)
+    let data = try file.read()
     let content = try data.to_string()
     let doc = try TomlDoc.parse(content)
 
@@ -483,19 +482,23 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt) -> Result<Data, SosError> 
 
 /// Read `elf_path`, convert it, and write the image to `img_path`.
 public func write_sosimg(elf_path: Path, img_path: Path, prio_map: UInt) -> Result<Int, SosError> {
-    guard var f = File.open(elf_path) else {
-        return SosError(msg: "could not open {elf_path.as_str()}")
+    var f = match File.open(elf_path) {
+        case Ok(handle) -> move handle,
+        case Err(e) -> { return SosError(msg: "could not open {elf_path.as_str()}: {e}") }
     }
-    guard let elf = f.read() else {
-        return SosError(msg: "could not read {elf_path.as_str()}")
+    let elf = match f.read() {
+        case Ok(bytes) -> move bytes,
+        case Err(e) -> { return SosError(msg: "could not read {elf_path.as_str()}: {e}") }
     }
     let img = try elf_to_sosimg(&elf, prio_map)
     let size = img.len()
-    guard let out = File.create(img_path) else {
-        return SosError(msg: "could not create {img_path.as_str()}")
+    let out = match File.create(img_path) {
+        case Ok(handle) -> move handle,
+        case Err(e) -> { return SosError(msg: "could not create {img_path.as_str()}: {e}") }
     }
-    guard let written = out.write(move img) else {
-        return SosError(msg: "could not write {img_path.as_str()}")
+    let written = match out.write(move img) {
+        case Ok(n) -> n,
+        case Err(e) -> { return SosError(msg: "could not write {img_path.as_str()}: {e}") }
     }
     if written != size {
         return SosError(msg: "short write to {img_path.as_str()} ({written} of {size} bytes)")

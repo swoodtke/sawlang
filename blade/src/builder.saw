@@ -372,9 +372,12 @@ public extension Builder {
 
         match write_sosimg(Path(s: elf), Path(s: image), cfg.prio_map) {
             case Ok(size) -> {
-                if let f = File.create(Path(s: ".blade/build-hash")) {
-                    let data = hash.to_data()
-                    f.write(move data)
+                // A stamp we cannot write only costs the next build its cache hit.
+                match File.create(Path(s: ".blade/build-hash")) {
+                    case Ok(f) -> {
+                        let _ = f.write(hash.to_data())
+                    },
+                    case Err(_) -> print("    (could not record the build hash)")
                 }
                 print("    Finished {image} ({size} bytes)")
                 0
