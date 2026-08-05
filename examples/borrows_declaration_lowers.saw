@@ -52,6 +52,24 @@ extension Bag {
     }
 }
 
+// The shape std's containers need: generic, `unsafe borrows`, and the place
+// reached through a force-unwrapped optional pointer field. `lend x!` used to
+// crash the transform outright -- `ForceUnwrap`'s payload field is `expr`, not
+// `expression` -- which no smaller body would have caught.
+struct Holder<T> {
+    buffer: UnsafePointer<T>?
+    length: Int
+}
+
+extension Holder<T> {
+    public func [](&self, i: Int) unsafe borrows -> T {
+        if i < 0 || i >= self.length {
+            panic("Holder.[]: index out of range")
+        }
+        lend self.buffer![i]
+    }
+}
+
 func main() {
     print("declared")
 }

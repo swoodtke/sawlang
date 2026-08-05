@@ -18,6 +18,74 @@ DRAFTS** (Deinit/ExplicitCopy synthesis — LANDED, see below;
 newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
 
+**141 PARTIAL (Aug 5) — the DECLARATION half of element places landed; USE
+SITES are stopped on a front-end finding.** Units A and B are in: `lend` and
+`borrows` are reserved in BOTH lexers (selfhost mirrored, lexdiff clean over
+1326 files); `borrows` joins the declaration effect slot in canonical order
+`unsafe sync borrows`, matching the type grammar's
+`unsafe sync escaping borrows`; `[]` is a declarable method name; `lend <place>`
+is a statement; the coverage rule, the conditional-lend absent path, and both v1
+fences (no borrows function TYPES, no trait requirements) are enforced with
+teaching errors. The brief's `escaping`-on-a-declaration fixit landed with them.
+
+THE LOWERING THAT WORKS, and why. A borrows declaration is rewritten into the
+window-closure shape — `func [](&self, i: Int) borrows -> T` becomes
+`func [](&self, i: Int, __window: (&var T) sync -> __R) sync -> __R`, with
+`lend X` becoming `return __window(&var X)` — so the common case emits exactly
+what `with_ref` emits today. An EPILOGUE (statements after the `lend`) is
+spliced in AT the lend site rather than left where it was written; that keeps
+every prologue local in scope for the epilogue that reads it (the
+lock-and-release shape) with no frame struct and no state machine, and
+duplicating the tail is sound precisely because the coverage rule forbids a
+second lend on that path. The transform runs inside `parse_source`, the one
+funnel every compilation path takes, so registration, inference,
+monomorphization and codegen all see an ordinary generic method and it costs no
+second front-end pass. `tools/dump_ast.py` builds its own parser, so the
+parser-stage oracle still dumps the authored form.
+
+**WHY USE SITES STOPPED — two findings, both load-bearing for whoever picks
+this up.**
+
+(1) **The address form is not expressible in Saw source.** The obvious use-site
+lowering is a prologue returning the place's address
+(`__place_addr(&self, i) -> UnsafePointer<T>?`), which would let codegen treat a
+place as an ordinary lvalue — no closures, no AST surgery, and the fastest
+possible code. It cannot be written: `&var` is *only* legal as a call argument,
+so `&var X as UnsafePointer<T>` in return position is rejected, and the `&`
+variant is refused too (`can only take reference to a variable, field, or array
+element`). This is exactly why `with_ref` takes a closure and why the brief
+calls the pair "the lowering vocabulary" — a place can only be handed out AS A
+CALL ARGUMENT. So a use site must synthesize a closure call
+(`v.[](i) { __p in ... }`), which needs the receiver's type and therefore must
+run after type checking.
+
+(2) **The coro transform's "mutate the AST, re-enter the front end" pattern
+cannot carry a mutation into std.** `_prepare_codegen` re-resolves and
+RE-PARSES every module and every builtin from disk on the recursive
+`post_transform=True` pass (`sawc.py:700-772`, `build_builtin_namespace`), so
+anything the transform wrote into an imported AST is thrown away. The coro
+transform never noticed because it only ever mutates `entry_ast`. Places are
+different: `Vector.[]` and `Vector.get` live in std, and so do their use sites
+inside std itself.
+
+WANTED, as the first unit of the follow-up: teach `_prepare_codegen` to reuse
+already-parsed module ASTs (and a builtin AST) on re-entry instead of re-reading
+them, then do use-site rewriting in the transform slot exactly as the coro
+transform does. That refactor pays for itself twice — it also removes a full
+redundant parse of std from every program that uses concurrency. It is a change
+to the most load-bearing function in the driver and was not something to start
+at the end of a session, which is why this stopped here rather than half-landing
+a second mechanism.
+
+NOT DONE, and still owned by this brief: use sites of every shape (value read,
+whole-element write, `v[i].n += 1`, `f(&v[i])`, chained windows), root
+attribution into `_build_access_path`, the exclusivity/LIFO-epilogue work, the
+std `[]` methods, **the DF-132a / DF-128c P0 pair and the toml/blade
+migration**, and the spec/skill/README docs. LANGUAGE_SPEC, the skill and README
+were deliberately NOT updated: a user can declare a borrows accessor but cannot
+yet call one, and documenting that as a language feature would be false.
+Brief: designs/141-borrows-lend-places.md. [141]
+
 **143 LANDED (Aug 5)** — Blade build-output directories + lockfile policy.
 Origin: the SOS M1 review finding that `sos/root/sos-root.sosimg` sat next to
 its `Saw.toml` [user]. Blade built IN PLACE, so artifacts lived beside source,
@@ -346,7 +414,13 @@ it returned `None` before.
   proven deinit-twice). `set` also leaks the overwritten element;
   `String.byte_at` reads OOB heap from a safe signature; `Data.to_string`
   mints invalid UTF-8.
-- **DF-132a — OPEN, P0. `Vector.get` has NO `T: Copy` bound, so a NoCopy element
+- **DF-132a — OPEN, P0. STILL OPEN after design 141's partial landing (Aug 5):
+  the fix needs `Vector.get` to become `borrows -> T?`, and 141 landed the
+  declaration half only — a borrows accessor can be DECLARED but not yet CALLED,
+  so `get` cannot be converted yet. See the 141 PARTIAL entry at the top for the
+  two front-end findings that stopped use sites. This pair remains the first
+  thing the 141 follow-up must land. `Vector.get` has NO `T: Copy` bound, so a
+  NoCopy element
   is handed out BY VALUE as a non-retained alias — proven double-deinit in safe
   code (found by design 132 unit H, Aug 5; PRE-EXISTING).** RS-2's unfinished
   half: design 122 gave the `T: Copy` bound to `iter`/`enumerated`/`each`/`map`
@@ -1167,6 +1241,24 @@ path must be per-stack). The generics model was not touched.
   the bound to `iter`/`enumerated`/`each`/`map` and to `set`, but never to
   `get`). Wants its own brief with the API shape decided up front.
 
+- **DF-141a — FIXED in place (design 141 unit B, Aug 5). `move x` on a local
+  whose type INSTANTIATED to `Void` raised `internal compiler error: Undefined
+  variable: x`.** Design 132 unit C made a Void-instantiated binding a
+  zero-sized one — no alloca, and `visit_Identifier` reads it back as no value —
+  but only taught the READ path. `_generate_move_expr` still went looking for
+  storage and raised, so a generic body that type-checked fine produced an
+  internal error at one instantiation, which is precisely what unit C's
+  instantiation-uniformity rule ("a body that type-checks generically compiles
+  for every instantiation") exists to prevent. Moving a zero-sized binding
+  transfers nothing: it yields no value and suppresses no deinit. Found while
+  looking for a lowering for a borrows epilogue's `let __wr = __window(...); ...;
+  return move __wr`, where `__R` is unbounded and Void is an ordinary
+  instantiation. Test `examples/generic_local_move_at_void.saw` covers `R` =
+  Void, Int, String and a NoCopy type (the last asserting exactly one deinit, at
+  the CALLER's scope exit). The transform itself ended up not needing `move` —
+  a plain return of a local at its last use is already a transfer and stays
+  sound for a NoCopy `R`, proven by probe — but the ICE was real either way.
+
 - **DF-128b — FIXED (design 132 unit E, Aug 5).** `Namespace.is_trivially_copyable`
   gained the ENUM branch it never had: a payload-free enum that declares no
   resource trait is a bare tag, so it copies bitwise and has no deinit to
@@ -1893,6 +1985,27 @@ inlined (the `.build/scratch` probes are gitignored).
   unpoliced: any future `set`-of-`str` iteration that reaches emission order
   reintroduces this class silently, because Python randomizes string hashing per
   process and a single run always looks self-consistent.
+
+  **The warning came true — TWO MORE INSTANCES, both in the coroutine transform,
+  both FIXED (design 141, Aug 5).** Found by accident, which is the point:
+  `tools/irdet.py` samples 40 examples via `random.sample` over the tracked file
+  LIST, so simply ADDING two unrelated examples reshuffled the sample and pulled
+  in a file that had been non-reproducible all along. Both causes are
+  `set`-of-`str` iteration reaching emission order in `coro_transform.py`:
+  (a) `promoted` — the set of promoted generic instantiations — was iterated
+  into the work list at `transform_program`, which orders `closure`, which
+  orders `fbs`, which orders the emitted frame structs and resume methods
+  (`examples/coro_nested_generic_deep.saw`); (b) `modes` — the drive modes
+  recorded per root by `_effect_record_driven`, a `set` — was iterated when
+  emitting the `__saw_drive_*` / `__saw_drive_steps_*` wrappers, at three sites
+  (`examples/coro_tuple_across_suspend.saw`). Both now sort. Verified with
+  `irdet --all` rather than the 40-file sample.
+
+  The guard is still the weak part: a 40-file random sample cannot police a
+  whole-corpus property, and this pair proves a latent instance can sit in the
+  tree indefinitely. WANTED: run `irdet --all` (or a much larger sample) in the
+  gate rather than the default sample, or a static check for `set` iteration
+  that reaches an emission list.
 
 ## Milestones
 - **App-1 Blade: DONE** (design 64 + 67; real resolver/lock/git/

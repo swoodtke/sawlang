@@ -1,0 +1,112 @@
+//! The `--emit-docs` place surface (design 141).
+//
+// Docs document what the AUTHOR wrote (design 121), and a `borrows` accessor
+// reaches the emitter already LOWERED -- the place transform runs inside
+// `parse_source` so that registration, inference, monomorphization and codegen
+// all see an ordinary generic method. The emitter therefore undoes the rewrite
+// for rendering: the synthesized `__window` / `__absent` parameters and the
+// `__R` result type parameter are dropped, and `-> __R` goes back to naming the
+// PLACE. Without that, a documented subscript would read
+// `func []<__R>(&self, i: Int, __window: (&var Int) sync -> __R) sync -> __R`,
+// which is the compiler's business and not the reader's.
+//
+// `sync` is not rendered on a borrows accessor: it is implied by `borrows` (a
+// place window may not span a suspension) and the author never writes it.
+
+// EXPECT: docs
+// COMPILE-FLAGS: --emit-docs
+// EXPECT-OUTPUT:
+// {
+//   "schema_version": 1,
+//   "modules": [
+//     {
+//       "name": "doc_emit_borrows",
+//       "source": "doc_emit_borrows.saw",
+//       "doc": "The `--emit-docs` place surface (design 141).",
+//       "items": [
+//         {
+//           "kind": "extension",
+//           "name": "Bag",
+//           "signature": "extension Bag",
+//           "visibility": "private",
+//           "generics": [],
+//           "conformances": [],
+//           "methods": [
+//             {
+//               "kind": "method",
+//               "name": "[]",
+//               "signature": "public func [](&self, i: Int) borrows -> Int",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [
+//                 {
+//                   "name": "i",
+//                   "label": "i",
+//                   "type": "Int"
+//                 }
+//               ],
+//               "returns": "Int",
+//               "effect": "sync",
+//               "self": "borrows",
+//               "doc": "The element at `i`, as a place.",
+//               "line": 98
+//             },
+//             {
+//               "kind": "method",
+//               "name": "get",
+//               "signature": "public func get(&self, i: Int) borrows -> Int?",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [
+//                 {
+//                   "name": "i",
+//                   "label": "i",
+//                   "type": "Int"
+//                 }
+//               ],
+//               "returns": "Int?",
+//               "effect": "sync",
+//               "self": "borrows",
+//               "doc": "The element at `i` if it exists -- an optional place.",
+//               "line": 106
+//             }
+//           ],
+//           "doc": null,
+//           "line": 96
+//         },
+//         {
+//           "kind": "struct",
+//           "name": "Bag",
+//           "signature": "struct Bag",
+//           "visibility": "private",
+//           "unsafe": false,
+//           "generics": [],
+//           "conformances": [],
+//           "fields": [],
+//           "doc": null,
+//           "line": 94
+//         }
+//       ]
+//     }
+//   ]
+// }
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    /// The element at `i`, as a place.
+    public func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 {
+            panic("Bag.[]: index out of range")
+        }
+        lend self.items[i]
+    }
+
+    /// The element at `i` if it exists -- an optional place.
+    public func get(&self, i: Int) borrows -> Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.items[i]
+    }
+}

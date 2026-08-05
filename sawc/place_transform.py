@@ -46,13 +46,14 @@ dumps the authored form, which is what a parser oracle should show.
 
 import copy
 import dataclasses
-from typing import List, Optional, Tuple
+from typing import List
 
 from ast_nodes import (
-    Argument, Block, ClosureExpr, ContinueStatement, BreakStatement,
-    ExpressionStatement, ForLoop, FunctionCall, GuardLetStatement, Identifier,
-    IfExpr, IfLetExpr, LendStatement, LetStatement, MatchExpr, NoneLiteral,
-    Parameter, Program, ReferenceExpr, ReturnStatement, SawType, TypeKind,
+    Argument, ArrayIndex, Block, BreakStatement, ClosureExpr,
+    ContinueStatement, ExpressionStatement, ForceUnwrap, ForLoop, FunctionCall,
+    GuardLetStatement, Identifier, IfExpr, IfLetExpr, LendStatement,
+    LetStatement, MatchExpr, MemberAccess, NoneLiteral, Parameter, Program,
+    ReferenceExpr, ReturnStatement, SawType, SelfExpr, TupleIndex, TypeKind,
     TypeParameter, WhileExpr, structural_fields,
 )
 from errors import ErrorKind
@@ -541,10 +542,8 @@ def _diverges(expr) -> bool:
 
 def _is_place_expr(expr) -> bool:
     """Syntactically, does this name storage rather than build a value?"""
-    from ast_nodes import (ArrayIndex, ForceUnwrap, MemberAccess, SelfExpr,
-                           TupleIndex)
     if isinstance(expr, ForceUnwrap):
-        return _is_place_expr(expr.expression)
+        return _is_place_expr(expr.expr)
     return isinstance(expr, (Identifier, MemberAccess, ArrayIndex, TupleIndex,
                              SelfExpr))
 

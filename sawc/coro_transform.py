@@ -4766,7 +4766,14 @@ def transform_program(program, typechecker, imported_ast=None):
     closure = []
     method_closure = {}   # method.node_id -> (struct_name, method_ast, extension)
     seen = set()
-    work = [("fn", n) for n in (list(seed_names) + list(promoted))]
+    # `promoted` is a SET of instantiation names, so iterating it directly puts
+    # string-hash order — which Python randomizes per process — into the work
+    # list, then into `closure`, then into `fbs`, and finally into the ORDER the
+    # frame structs and their resume methods are emitted. Two runs of the same
+    # compiler over the same source then produced different IR. That is exactly
+    # the unpoliced hazard DF-126b warned about after design 126 R2 fixed two
+    # other instances of it; sorting pins the order to the names themselves.
+    work = [("fn", n) for n in (list(seed_names) + sorted(promoted))]
     while work:
         kind, key = work.pop()
         if (kind, key) in seen:
@@ -4892,7 +4899,11 @@ def transform_program(program, typechecker, imported_ast=None):
         _, resume_ext = fbs[fbkey].build_resume(fbs)
         new_extensions.append(resume_ext)
     for root_name, modes in roots.items():
-        for mode in modes:
+        # `modes` is a SET (`_effect_record_driven`), so iterating it directly
+        # puts per-process string-hash order into the order the `__saw_drive_*`
+        # and `__saw_drive_steps_*` wrappers are emitted — the DF-126b
+        # reproducible-build hazard again. Sorting pins it to the mode names.
+        for mode in sorted(modes):
             new_functions.append(_make_driver(fbs[root_name], mode, fbs))
         removed.add(root_name)
     # design 52b item 2: each spawn root gets a `__spawn_<f>` helper that boxes
@@ -4962,7 +4973,7 @@ def transform_program(program, typechecker, imported_ast=None):
             new_structs.append(mfb.prepare(suspends_set))
             _, resume_ext = mfb.build_resume(fbs)
             new_extensions.append(resume_ext)
-            for mode in modes:
+            for mode in sorted(modes):   # deterministic emission order
                 new_functions.append(_make_driver(mfb, mode, fbs))
             continue
         # design 95: disambiguate an overloaded method by its resolved symbol.
@@ -4989,7 +5000,7 @@ def transform_program(program, typechecker, imported_ast=None):
         new_structs.append(mfb.prepare(suspends_set))
         _, resume_ext = mfb.build_resume(fbs)
         new_extensions.append(resume_ext)
-        for mode in modes:
+        for mode in sorted(modes):   # deterministic emission order
             new_functions.append(_make_driver(mfb, mode, fbs))
         removed_methods.append((ext, method_ast))
 

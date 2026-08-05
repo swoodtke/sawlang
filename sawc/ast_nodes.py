@@ -1521,8 +1521,11 @@ class Method(ASTNode):
     # Set by the place transform (design 141) on a rewritten borrows method: the
     # type of the place it lends, i.e. the `T` the author wrote after `->`
     # (unwrapped from `T?` for a conditional lend, with `place_optional` set).
-    place_type: Optional['SawType'] = None
-    place_optional: bool = False
+    # Cross-pass ANNOTATIONS, not structure: `place_type` aliases a type node
+    # that also hangs off the rewritten `__window` parameter, so a child walker
+    # that followed it would visit the same subtree twice.
+    place_type: Optional['SawType'] = annotation(None)
+    place_optional: bool = annotation(False)
     # Method-level generic type params (brief 36): the `U` in `func map<U>(...)`,
     # distinct from and in addition to the enclosing extension's own type params.
     type_params: List['TypeParameter'] = field(default_factory=list)
@@ -1614,8 +1617,8 @@ class Function(ASTNode):
     is_unsafe: bool = False
     # `borrows func` declaration (design 141): see Method.is_borrows.
     is_borrows: bool = False
-    place_type: Optional[SawType] = None
-    place_optional: bool = False
+    place_type: Optional[SawType] = annotation(None)
+    place_optional: bool = annotation(False)
     # Declaration attributes (design 58): `@export` / `@section(...)` lines.
     attributes: List['Attribute'] = field(default_factory=list)
     # Compiler-synthesized (design 80): coroutine-transform-generated functions

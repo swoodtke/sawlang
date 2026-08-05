@@ -359,6 +359,21 @@ class DocsBuilder:
         if visibility is None:
             visibility = getattr(node, "visibility", Visibility.PRIVATE)
         params = list(node.parameters or [])
+        # design 141: a `borrows` accessor reaches here already LOWERED into its
+        # window-closure form, because the place transform runs in `parse_source`
+        # so that everything downstream sees an ordinary generic method. Docs
+        # document what the AUTHOR wrote (design 121), so undo the rewrite for
+        # rendering: drop the synthesized `__window`/`__absent` parameters and
+        # the `__R` result type param, and put back the declared place type.
+        is_borrows = getattr(node, "is_borrows", False)
+        type_params = list(getattr(node, "type_params", None) or [])
+        if is_borrows:
+            from place_transform import (ABSENT_PARAM, RESULT_TYPE_PARAM,
+                                         WINDOW_PARAM)
+            params = [p for p in params
+                      if p.name not in (WINDOW_PARAM, ABSENT_PARAM)]
+            type_params = [t for t in type_params
+                           if t.name != RESULT_TYPE_PARAM]
         self_kind = None
         if params and params[0].name == "self":
             params = params[1:]
@@ -380,7 +395,7 @@ class DocsBuilder:
 
         is_init = getattr(node, "is_init", False)
         name = node.name
-        gen = _generics_str(getattr(node, "type_params", None))
+        gen = _generics_str(type_params)
         head = ("init" if is_init else "func %s" % name) + gen
         self_txt = {"borrows-var": "&var self", "borrows": "&self",
                     "consumes": "self"}.get(self_kind)
@@ -390,12 +405,24 @@ class DocsBuilder:
             if "default" in e:
                 text += " = " + e["default"]
             rendered.append(text)
-        ret = _type_str(node.return_type)
-        # design 136: both effects ride the post-parameter slot, in the canonical
-        # order `unsafe sync` — so a rendered signature reads exactly as the
-        # source spells it, and as the matching function TYPE does.
+        if is_borrows:
+            place = getattr(node, "place_type", None)
+            ret = _type_str(place)
+            if getattr(node, "place_optional", False):
+                ret += "?"
+        else:
+            ret = _type_str(node.return_type)
+        # designs 136/141: the effects ride the post-parameter slot in the
+        # canonical order `unsafe sync borrows` — so a rendered signature reads
+        # exactly as the source spells it, and as the matching function TYPE
+        # does. A borrows accessor's `sync` is implied by `borrows` (a place
+        # window may not span a suspension) and the author never writes it, so
+        # it is not rendered either.
         effect_txt = (" unsafe" if getattr(node, "is_unsafe", False) else "")
-        effect_txt += (" sync" if getattr(node, "is_sync", False) else "")
+        if is_borrows:
+            effect_txt += " borrows"
+        elif getattr(node, "is_sync", False):
+            effect_txt += " sync"
         ret_txt = "" if ret in (None, "Void") else " -> " + ret
         signature = "%s%s(%s)%s%s" % (_vis_prefix(visibility), head,
                                       ", ".join(rendered), effect_txt, ret_txt)
@@ -405,7 +432,7 @@ class DocsBuilder:
             "name": name,
             "signature": signature,
             "visibility": _visibility_str(visibility),
-            "generics": _generics(getattr(node, "type_params", None)),
+            "generics": _generics(type_params),
             "params": param_entries,
             "returns": ret,
             "effect": self._effect(node, owner, is_trait_method),

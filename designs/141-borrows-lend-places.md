@@ -96,6 +96,33 @@ proven pair). Adjacent to G3 slices (same construct, later brief).
   v1 lands `[]` borrows methods on Vector, Map (`func [](key: K) borrows
   -> V?` — composes with 131's optional places), Data, and user structs.
 
+## Implementation notes (Aug 5, from the partial landing)
+
+Units A and B landed the DECLARATION half; use sites stopped on two findings.
+Both are recorded in the tracker's "141 PARTIAL" entry; the short version:
+
+- **A place can only be handed out AS A CALL ARGUMENT.** `&var` is legal only
+  in argument position, so the tempting "prologue returns
+  `UnsafePointer<T>?`, codegen uses it as an lvalue" lowering cannot be
+  written in Saw at all. That is why `with_ref` takes a closure, and it means
+  a use site must synthesize a closure call — which needs the receiver's
+  type, hence must run after type checking.
+- **The coro transform's re-entry pattern cannot carry a mutation into std**,
+  because `_prepare_codegen` re-parses every module and builtin from disk on
+  the `post_transform` pass. `Vector.[]` is in std. The follow-up's first unit
+  should teach `_prepare_codegen` to reuse already-parsed ASTs on re-entry
+  (which also deletes a redundant full parse of std from every concurrent
+  program), after which use-site rewriting fits the coro transform's slot
+  exactly.
+
+What DID work, and is worth keeping: the declaration lowering is the
+window-closure form (`__window: (&var T) sync -> __R`, plus `__absent` for a
+conditional lend), with an epilogue handled by splicing the `lend`'s
+continuation in AT the lend site. Tail duplication keeps prologue locals in
+scope for the epilogue with no frame struct and no state machine, and is sound
+exactly because the coverage rule forbids a second lend on that path. It runs
+inside `parse_source`, so it costs no extra front-end pass.
+
 ## Work
 Lexer: `lend` keyword + `borrows` keyword (BOTH lexers — lexdiff parity;
 selfhost/lexer mirrors). Parser: effect-slot `borrows` (declarations +
