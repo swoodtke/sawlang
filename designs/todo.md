@@ -725,6 +725,18 @@ path must be per-stack). The generics model was not touched.
   cause is that the literal range check does not know the target's platform
   width. Repro: `.build/scratch/probe_range32.saw` (gitignored; inlined above).
 
+- **Follow-up (not a bug): the `{}` Printable scratch is per call site.** Each
+  user-`Printable` format argument gets its own 512-byte entry alloca, because
+  every segment of a `panic` message is built before any is concatenated — two
+  arguments sharing one buffer would print the second value twice
+  (`format_args_panic` pins this with two of them). Across SEPARATE format calls
+  the buffers could be shared, since each call consumes its segments before the
+  next runs, so a function with N such arguments costs N x 512 bytes of stack
+  where it could cost (max args in one call) x 512. Not pooled here: the win is
+  bounded and the failure mode of getting it wrong is silent wrong output. Worth
+  doing for the embedded profile, ideally alongside LLVM lifetime intrinsics so
+  stack coloring can do it rather than the frontend.
+
 - **`--target-features` added (not a finding, a gap closed).** sawc passed only a
   triple, which names an architecture but not which optional extensions the part
   has. The SOS kernel built its C half `-march=rv32imac` and its Saw half as base

@@ -1,8 +1,11 @@
 // Design 137: `panic("out of {}", what)` assembles its message from format
 // arguments in stack scratch, so it still says what happened with the allocator
 // refusing everything. The design-122 `panic at FILE:LINE:` prefix is unchanged.
+// Two `Printable` arguments in ONE message also pin that each rendering gets
+// its own scratch: a panic builds every segment first and concatenates only
+// afterwards, so a shared buffer would show the second value twice.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: panic at format_args_panic.saw:26: out of frames: wanted 64, had 3 (slab (1, 2))
+// EXPECT-PANIC-CONTAINS: panic at format_args_panic.saw:30: out of frames: wanted 64, had 3 (slab (1, 2) -> slab (9, 8))
 
 struct Slab { id: Int, gen: Int }
 extension Slab: Printable {
@@ -21,7 +24,8 @@ extern "C" {
 
 func main() {
     let s = Slab(id: 1, gen: 2)
+    let next = Slab(id: 9, gen: 8)
     print("armed")
     __saw_rt_alloc_deny_after(0)
-    panic("out of {}: wanted {}, had {} ({})", "frames", 64, 3, s)
+    panic("out of {}: wanted {}, had {} ({} -> {})", "frames", 64, 3, s, next)
 }
