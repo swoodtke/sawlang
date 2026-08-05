@@ -1717,9 +1717,9 @@ extension Snapshot: ExplicitCopy {}   // memberwise deep copy + synthesized dein
 
 Containment is explicit, never inferred: a struct with
 an `ExplicitCopy` (or `NoCopy`) field must itself declare that policy — the
-compiler errors with a hint otherwise. Containment looks *through* array-typed
-fields: a struct holding a `[NoCopy; N]` field is move-only and must declare
-`NoCopy`, exactly as for a scalar `NoCopy` field.
+compiler errors with a hint otherwise. Containment looks *through* array- and
+optional-typed fields: a struct holding a `[NoCopy; N]` or a `File?` field is
+move-only and must declare `NoCopy`, exactly as for a scalar `NoCopy` field.
 
 **Fixed arrays.** A fixed array `[T; N]` is treated as an anonymous struct with
 `N` uniform fields: it inherits T's copy class. `[trivial; N]` copies bitwise;
@@ -1730,6 +1730,59 @@ in **reverse index order** at scope death, composing with the enclosing struct/
 enum drop glue. (A `[String; N]` field, like a scalar `String` field, does not
 force the container to declare a policy — String's per-element retain/release is
 compiler-handled.)
+
+**Wrappers carry the tier of what they wrap.** Every type has exactly one
+transfer class, and a type built out of other types is never weaker than its
+parts. An `Optional<T>`, a tuple, a fixed array, an enum's payloads and a
+`Result<T, E>` each take the strongest tier among the values they hold. So
+`Vector<Int>?` is `ExplicitCopy` because `Vector<Int>` is, `File?` is move-only
+because `File` is, and `Int?` stays trivial.
+
+```saw
+let v: Vector<Int> = [1, 2, 3]
+let o: Vector<Int>? = move v
+
+let p = o           // error: cannot copy value of type
+                    //        `Vector<Int, GlobalAllocator>?` which implements ExplicitCopy
+let q = o.copy()    // ok: an independent buffer
+```
+
+`.copy()` on an optional exists exactly when the payload's tier provides one,
+and duplicates the payload the way that tier duplicates: `None` copies to
+`None`, `Some` to `Some` of the payload's own copy. A `String?` retains, a
+`Vector<Int>?` copies the buffer, a `File?` has no `.copy()` at all.
+
+A refused optional transfer names three ways out: `.copy()`, `move`, and
+`.take()`. The last writes `None` back into the place and hands the payload
+over, which is what makes it the spelling that works on a *field* — `move` there
+would be a partial move.
+
+**Enums declare a policy too.** An enum carrying an `ExplicitCopy` or `NoCopy`
+payload names its transfer class the way a struct with such a field does, and a
+bare one is the same error with the same hints. An enum whose payloads are only
+trivial or `ImplicitCopy` needs no declaration, exactly as a `String`-field
+struct needs none.
+
+```saw
+enum Reel {
+    case Loaded(t: Tape),      // Tape is NoCopy
+    case Empty
+}
+
+extension Reel: NoCopy {}      // move-only
+
+enum Bag {
+    case Nums(v: Vector<Int>),
+    case Empty
+}
+
+@synthesize
+extension Bag: ExplicitCopy {}  // payload-deep copy()
+```
+
+The derived enum `copy()` switches on the active variant and duplicates only
+that variant's payload, each field at its own tier. A payload-free variant is a
+bare tag and copies as itself.
 
 **Optional payloads follow the same table.** Reading the payload out of an
 optional that someone else still owns is a read out of storage, so it is
@@ -4158,7 +4211,7 @@ Five traits derive a body, each from the declaration order of the type's fields
 
 | Trait | Derived method | Body |
 |---|---|---|
-| `ImplicitCopy` / `ExplicitCopy` | `copy` | memberwise; POD fields bitwise, policy fields via their own `copy` |
+| `ImplicitCopy` / `ExplicitCopy` | `copy` | memberwise; POD fields bitwise, policy fields via their own `copy`. For an enum, payload-deep over the active variant |
 | `Equatable` | `equals` | memberwise `&&`; payload-deep for enums |
 | `Comparable` | `compare` | lexicographic in declaration order |
 | `Hashable` | `hash` | streams exactly the fields `==` compares |

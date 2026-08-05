@@ -52,6 +52,42 @@ clean tree. NOT moved (deliberate): `tools/lexdiff.py`'s `.build/sawlex` and
 harnesses, not package output, and the repo root is not a Blade package.
 Brief: designs/143-blade-build-dirs.md. [143]
 
+**139 LANDED (Aug 5)** — the enum policy tier; no policy-exempt wrappers.
+Closes **DF-131a**. `Namespace.copy_tier` is the single oracle: every type has
+exactly one transfer class, and a WRAPPER is never weaker than what it wraps —
+`Optional<T>`, tuples, fixed arrays, enum payloads and `Result<T, E>` all JOIN
+their parts' tiers, with a declared conformance winning over the join. The move
+checkpoint is one lookup into it, which retired the bespoke owning-enum arm.
+Owning ENUMS now declare a policy like owning structs (`extension E: NoCopy {}`
+/ `@synthesize extension E: ExplicitCopy {}`), a bare one being the same
+teaching error; only the two OWNING tiers are demanded, so a trivial/
+ImplicitCopy enum stays undeclared. `.copy()` on an optional exists exactly when
+the payload's tier provides one, and a refused optional transfer names three
+spellings (`.copy()` / `move` / `.take()`) rather than the struct's two.
+
+Migration, whole tree: FIVE enums declared a tier (`Slot` twice, `Crate`,
+`Payload`, blade's `BladeCommand`) and ONE struct was hit by the containment
+cascade (blade's `Cli`); compiler-synthesized `__Frame_*` structs are exempt
+rather than migrated. The brief assumed design 128's enum synthesis already
+covered copy — it did not (128 gave enums a payload-deep DEINIT and the
+Equatable/Comparable/Hashable derivations), so `_emit_enum_deep_copy` was
+written here. The tiers are COMPUTED rather than spelled as bounded
+conformances in builtin.saw as the brief sketched: `Optional` is a `TypeKind`,
+not an enum or struct, so it cannot carry an extension; and `Result`'s two
+parameters make the brief's "bounds are mutually exclusive, so exactly one tier
+matches" false — the join over (T, E) is not a rectangle, so no set of bounded
+conformances expresses it. Observable behaviour is the brief's.
+
+Five latent defects surfaced and were fixed on the way: the coro transform's
+sub-frame `__result` read was unstamped (a retain against a paired
+`__saw_forget` — a leak); the `__saw_drive_*` wrapper relied on a retain that
+has no analogue for a move-only result, and is now a move; `__Frame_*` structs
+lacked the ExplicitCopy containment exemption their NoCopy sibling had; the
+derived memberwise struct copy raised on an ENUM field and silently
+BITWISE-ALIASED an OPTIONAL field. Filed rather than fixed: **DF-139a** below
+(overwriting a binding releases its old value while a live copy exists —
+pre-existing, reproduces on a plain `String` field, identical before and after).
+
 **133 LANDED (Aug 5)** — two capability completions. Unit A: `Arc<T>`/`Box<T, A>`
 payload-method forwarding reaches a METHOD-GENERIC payload method, closing
 **DF-123c**, and `Mutex.lock` then became `lock<R>(body: (&var T) sync -> R) -> R`

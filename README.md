@@ -570,7 +570,17 @@ Saw provides deterministic memory management without garbage collection:
   and for now `Map`/`Set`) can only be moved. A struct that owns such a field
   picks its own policy — `extension Holder: NoCopy {}` for move-only, or
   `@synthesize extension Holder: ExplicitCopy {}` for a memberwise deep copy.
-  That is the one thing the compiler will not guess for you.
+  That is the one thing the compiler will not guess for you. An enum carrying
+  such a payload picks a policy the same way, and its derived `copy()` is
+  payload-deep over the active variant.
+- **Wrappers carry the tier of what they wrap.** Every type has exactly one
+  transfer class, and a type built out of others is never weaker than its parts:
+  an `Optional<T>`, a tuple, a fixed array, an enum payload and a `Result<T, E>`
+  each take the strongest tier they hold. `Vector<Int>?` needs `move` or
+  `.copy()`, `File?` is move-only, `Int?` stays trivial, and a struct with a
+  `File?` field owes a policy exactly as if the field were a bare `File`.
+  `.copy()` on an optional exists when the payload's tier provides one, copying
+  `None` to `None` and `Some` to `Some` of the payload's own copy.
 - **Explicit `move`** for ownership transfer, checked at the point of transfer.
 - **Cleanup is written for you.** Any struct or enum that owns something gets a
   `deinit` synthesized from its fields, dropped in reverse declaration order at

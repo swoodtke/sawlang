@@ -108,8 +108,28 @@ extension Holder: NoCopy {}                     // move-only (usually what you w
 extension Holder: ExplicitCopy {}               // memberwise deep .copy()
 ```
 Both bodies are EMPTY — the `deinit` is synthesized either way. Only the copy
-policy is your call. (A `String`/closure/owning-enum field is compiler-handled
-and forces nothing.)
+policy is your call. (A `String`/closure field is compiler-handled and forces
+nothing, and so is an enum whose payloads are only trivial/ImplicitCopy.)
+**ENUMS PICK A POLICY TOO** (design 139) — an enum carrying an ExplicitCopy or
+NoCopy payload declares one exactly as a struct with such a field does; a bare
+one is the same error. Same two spellings, same empty bodies:
+```saw
+enum Reel { case Loaded(t: Tape), case Empty }   // Tape is NoCopy
+extension Reel: NoCopy {}
+@synthesize
+extension Bag: ExplicitCopy {}   // payload-deep copy() over the ACTIVE variant
+```
+**WRAPPERS CARRY THE TIER OF WHAT THEY WRAP** (design 139). Every type has
+exactly one transfer class, and a composite is never weaker than its parts: an
+`Optional<T>`, a tuple, a `[T; N]`, an enum payload and a `Result<T, E>` all take
+the strongest tier they hold. So `Vector<Int>?` needs `move`/`.copy()`, `File?`
+is move-only, `Int?` stays trivial — and a struct with a `File?` FIELD must
+declare `NoCopy` (the containment cascade). `.copy()` on an optional exists
+exactly when the payload's tier provides one (`None`→`None`, `Some`→`Some` of the
+payload's copy): a `String?` retains, a `Vector<Int>?` duplicates the buffer, a
+`File?` has none. A refused optional transfer names THREE ways out —
+`o.copy()`, `move o`, `o.take()`; `take()` is the one that works on a FIELD,
+where `move` would be the no-partial-moves error.
 **`Deinit` is NOT declarable** (design 131): `extension T: Deinit {...}` is a
 compile error naming the three policies. A hand-written `deinit` body goes
 INSIDE the policy conformance (`extension Res: NoCopy { func deinit(&var self)
@@ -269,8 +289,10 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
     place and returns the payload owned, so it works on a FIELD (the move-out
     `move` can't do). Needs a mutable place, exclusivity-checked like any
     `&var self` method. Checked spelling `o.take()!`.
-  `if let a = move o` is the consuming binding. Whole-optional ops are unchanged
-  (`let y = x` retains, `move x` retires). A payload read out of a CALL RESULT
+  `if let a = move o` is the consuming binding. A WHOLE-optional read follows the
+  same table since design 139 — the optional's tier IS its payload's, so
+  `let y = x` retains a `String?` and is REFUSED on a `Vector<Int>?`/`File?`
+  (`x.copy()` / `move x` / `x.take()`). A payload read out of a CALL RESULT
   (`v.get(0)!`, `if let x = f()`) is unaffected — that value is already yours.
 - `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift/div-zero
   violations panic ALWAYS (wrap intentionally with `&+ &- &*`). EVERY panic —
