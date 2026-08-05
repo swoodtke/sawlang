@@ -359,8 +359,10 @@ design-88 interior pointers need frames that never move, which rules out a
 DYNAMIC grow/shrink frame stack unless chunked). Companion to design 44's
 noted live-range packing of locals; do both in one sizing brief.
 
-- **DF-125a — design-120 short-circuit nesting limit (found by design 125, Aug
-  4; NEW, needs a user call).** A suspending call in a `??`/`&&`/`||` operand
+- **DF-125a — APPROVED (user, Aug 5): design 133 unit B owns the fix** (the ANF
+  hoist lifts the whole nested short-circuit to the statement level). Original
+  finding follows: **design-120 short-circuit nesting limit (found by design
+  125, Aug 4).** A suspending call in a `??`/`&&`/`||` operand
   transforms only when the short-circuit operator is the OUTERMOST expression
   of its statement. `let x = a ?? slow()`, `return a ?? slow()` and a tail
   `a ?? slow()` all work; `return 1 + (a ?? slow())`, `f(a ?? slow())` and
@@ -551,8 +553,10 @@ noted live-range packing of locals; do both in one sizing brief.
   encoding it owns; this wants its own brief. Repro:
   `.build/scratch/probe_df124b.saw` (gitignored; inlined above).
 
-- **DF-124c — design 124 item 3 was NOT implemented as written; the frame box is
-  retained (Aug 5, needs a user call if the memory matters).** The brief asked
+- **DF-124c — APPROVED (user, Aug 5): design 134 owns the fix** (group-owned
+  result/cancel cells + generation-counted slot free-list; sequenced LAST,
+  after 133, so the executor is quiet). Original finding follows: **design 124
+  item 3 was NOT implemented as written; the frame box is retained (Aug 5).** The brief asked
   that "the `tasks` vector slot become reclaimable at Done (drop the Box
   eagerly)". That is unimplementable alongside the brief's own items 1-2, which
   require the never-joined `__result` to survive until group teardown: `__result`
@@ -784,8 +788,10 @@ inlined (the `.build/scratch` probes are gitignored).
   concrete `let n = <Void expr>` already gets, and codegen should not build an
   alloca for a zero-sized/void local.
 
-- **DF-123c — `Arc<T>` payload-method forwarding cannot reach a METHOD-GENERIC
-  payload method (found by design 123 unit G, Aug 5).** Making `Mutex.lock`
+- **DF-123c — APPROVED (user, Aug 5): design 133 unit A owns the fix** (forward
+  resolution + mangling learn method-level generics, then M1's `lock<R>`
+  ships). Original finding follows: **`Arc<T>` payload-method forwarding cannot
+  reach a METHOD-GENERIC payload method (found by design 123 unit G, Aug 5).** Making `Mutex.lock`
   generic over the closure's result (review M1, "you cannot compute a value under
   the lock") is a one-line signature change that compiles fine on its own and
   then breaks every `Arc<Mutex<T>>` user with
