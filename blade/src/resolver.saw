@@ -268,7 +268,16 @@ func req_ok(constraint: String, v: Version) -> Bool? {
 
 // Visit one dependency edge: record the requirement, and (first time only) read
 // the dependency's manifest, add it to the table, and descend into ITS deps.
-func visit(dep_name: String, source: DepSource, constraint: String, requirer: String, base_dir: Path, resolution: &var Resolution, reqs: &var ReqList, stack: &var Vector<String>) -> Result<Bool, ResolveError> {
+func visit(
+    dep_name: String,
+    source: DepSource,
+    constraint: String,
+    requirer: String,
+    base_dir: Path,
+    resolution: &var Resolution,
+    reqs: &var ReqList,
+    stack: &var Vector<String>,
+) -> Result<Bool, ResolveError> {
 
     // Every edge is a requirement to validate later (so conflicts name every
     // requirer, not just the first).
@@ -382,7 +391,10 @@ func visit(dep_name: String, source: DepSource, constraint: String, requirer: St
         guard let sd = sub.get(j) else {
             break
         }
-        let _ = try visit(sd.name, sd.source, sd.version, dep_name, dep_dir, &var resolution, &var reqs, &var stack)
+        let _ = try visit(
+            sd.name, sd.source, sd.version, dep_name, dep_dir,
+            &var resolution, &var reqs, &var stack,
+        )
         j = j + 1
     }
     let _ = stack.pop()
@@ -464,7 +476,10 @@ public func resolve(root: Manifest) -> Result<Resolution, ResolveError> {
         guard let d = deps.get(i) else {
             break
         }
-        let _ = try visit(d.name, d.source, d.version, root.name(), root.root_dir, &var resolution, &var reqs, &var stack)
+        let _ = try visit(
+            d.name, d.source, d.version, root.name(), root.root_dir,
+            &var resolution, &var reqs, &var stack,
+        )
         i = i + 1
     }
 
