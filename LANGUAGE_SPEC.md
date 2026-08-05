@@ -868,6 +868,27 @@ build a closure and discard it, so none of its body would run — that is a
 compile error naming the two real spellings (call it, `{ ... }()`, or bind it).
 To narrow a value's lifetime, extract a function.
 
+**Binding a `Void` expression** (design 122, refined by design 132). Writing
+`let n = nothing()` names a value that does not exist, and it is a compile error
+at the binding: call it as a statement, or write `let _ = ...` if the point is
+to evaluate and discard. The line is **syntactic**. A `Void` you can see in the
+source is a visible mistake and is rejected; a `Void` that arrives by
+INSTANTIATION is not. A local typed by a function's own type parameter compiles
+at every instantiation, `Void` included, where it becomes a zero-sized binding —
+no storage, and reading the name yields no value:
+
+```saw
+func around<R>(&self, body: (Int) sync -> R) -> R {
+    let result = body(self.n)   // fine at every R, `Void` among them
+    self.release()
+    result
+}
+```
+
+Generic code stays instantiation-uniform: a body that type-checks generically
+compiles for every instantiation, so there is no error at a distance from a call
+site far from the definition. This is how a unit type binds in Rust and Swift.
+
 ### Structs
 
 ```saw

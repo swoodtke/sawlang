@@ -6,6 +6,12 @@
 // just a type parameter, so it only becomes Void per instantiation. This is the
 // natural body of a `lock<R>`-shaped wrapper — bind the result, release, then
 // return it — and `R = Void` is the common case there.
+//
+// The line is SYNTACTIC. A `Void` visible in the source is still an error (see
+// examples/errors/let_void_expression_rejected.saw); a `Void` that arrives by
+// instantiation compiles, as a zero-sized binding. Generic code stays
+// instantiation-uniform: a body that type-checks generically compiles for every
+// instantiation, so no call site produces an error at a distance.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 10
@@ -15,7 +21,16 @@
 // 21
 // around 7
 // around 14
+// guarded 5
+// void body 5
+// released guard for 5
+// guarded 6
+// released guard for 6
+// 60
+// suspended 8
 // done
+
+import std.task
 
 struct Runner { n: Int }
 
@@ -45,6 +60,34 @@ func twice<R>(body: (Int) sync -> R) -> R {
     second
 }
 
+// A value with a real destructor, so there is genuine cleanup to run between
+// the binding and the tail read — the `lock<R>` shape, where the point of
+// binding the result is to release something before returning it.
+struct Guard { id: Int }
+
+extension Guard: NoCopy {
+    func deinit(&var self) {
+        print("released guard for {self.id}")
+    }
+}
+
+func under_guard<R>(id: Int, body: (Int) sync -> R) -> R {
+    let held = Guard(id: id)
+    print("guarded {held.id}")
+    let result = body(id)
+    result
+}
+
+// The same binding inside a SUSPENDING body, so the coroutine transform sees it
+// too: `yield_now` turns the frame into a state machine, and the void local has
+// to survive that without acquiring storage it cannot have.
+func suspending_at_void<R>(n: Int, body: (Int) sync -> R) -> R {
+    yield_now()
+    let result = body(n)
+    yield_now()
+    result
+}
+
 func main() {
     let r = Runner(n: 5)
 
@@ -59,6 +102,16 @@ func main() {
 
     // A free generic at Void, with the void-valued local read twice.
     twice<Void>({ x in print("around {x * 7}") })
+
+    // Real cleanup between the binding and the tail read, at BOTH Void and Int:
+    // the guard deinits after the body runs and before the value comes back.
+    under_guard<Void>(5, { x in print("void body {x}") })
+    print(under_guard<Int>(6, { x in x * 10 }))
+
+    // The same shape inside a suspending body.
+    var group = TaskGroup()
+    let h = group.spawn(suspending_at_void<Void>(8, { x in print("suspended {x}") }))
+    h.join()
 
     print("done")
 }

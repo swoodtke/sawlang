@@ -1035,9 +1035,16 @@ inlined (the `.build/scratch` probes are gitignored).
   anyway (one allocation, no intermediate) and never needed the static spelling.
 
 - **DF-123b — FIXED (design 132 unit C, Aug 5): it COMPILES, rather than being
-  rejected.** The brief allowed either; compiling it is what unblocks the
-  `lock<R>` shape M1 wants, and a `Void`-instantiated local is well-defined —
-  it just has no storage. Two changes, both in codegen. (1)
+  rejected.** USER DECISION (Aug 5) on the brief's either/or, and the rule it
+  sets: **syntactic Void errors, instantiated Void compiles.** A `Void` you can
+  SEE in the source is a visible mistake and stays the design-122 D3 error; a
+  `Void` that arrives by INSTANTIATION is a legitimate use and becomes a
+  zero-sized binding — no storage, and reading the name yields no value. The
+  point is that generic code stays INSTANTIATION-UNIFORM: a body that
+  type-checks generically compiles for every instantiation, so no call site ever
+  produces a post-monomorphization error at a distance from the definition. This
+  is how a unit type binds in Rust and Swift, and it is what unblocks the
+  `lock<R>` shape M1 wants. Three changes, all in codegen. (1)
   `statements.py::_generate_let_statement` skips the alloca when the value's
   LLVM type is void and records the name in the new `void_variables` set, which
   `core.py::visit_Identifier` reads back as no value (the block-tail and return
@@ -1047,12 +1054,24 @@ inlined (the `.build/scratch` probes are gitignored).
   declared type is still the type PARAMETER, so an `R = Void` free function took
   the value branch and asserted building an `undef` of void. The generic METHOD
   path (`generics.py`) already substituted its return type and needed nothing.
+  (3) A `Void`-instantiated local that the coroutine transform gives a frame
+  field hit two more `{i1, void}` producers, both fixed at the source: the None
+  literal now lowers the OPTIONAL type through `_get_llvm_type` instead of
+  assembling `{i1, payload}` around it, so design 111's `Void?` i8-placeholder
+  rule applies; and `_wrap_in_optional` sets the is_some flag and stops when the
+  payload is void, since there is no payload to insert.
   The typechecker is untouched — the design-122 error for a CONCRETE
   `let n = <Void expr>` still stands; only the per-instantiation case, which the
   abstract body check cannot see, now lowers. Test
   `examples/generic_local_at_void.saw`: a generic method at `R = Void` and at
-  `R = Int`, statements on both sides of the void binding, an inferred `R`, and
-  a free generic function whose void-valued local is read twice.
+  `R = Int`, statements on both sides of the void binding, an inferred `R`, a
+  free generic function whose void-valued local is read twice, a NoCopy guard
+  whose deinit runs between the binding and the tail read at BOTH instantiations
+  (the `lock<R>` shape), and the same binding inside a SUSPENDING body spawned
+  into a TaskGroup. `examples/errors/let_void_expression_rejected.saw` keeps
+  asserting the syntactic half. The decision line is recorded in LANGUAGE_SPEC
+  beside the design-122 statement rules and in the saw-lang skill. design 133's
+  `lock<R>` is NOT rewritten here — this only proves the shape compiles.
   Original finding follows.
   `Mutex.lock<R>`'s natural body binds the closure result so the unlock can
   run before the return:

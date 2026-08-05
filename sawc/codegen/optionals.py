@@ -38,6 +38,16 @@ class OptionalsMixin:
 
     def _wrap_in_optional(self, value):
         """Wrap a value in an optional type (for implicit wrapping)."""
+        if isinstance(value.type, ir.VoidType):
+            # `Void?` carries an `i8` PLACEHOLDER payload — LLVM has no
+            # void-in-struct — and only the is_some flag is ever read (design
+            # 111). There is no payload to insert, so set the flag and stop.
+            # Reached when a `Void`-instantiated generic local becomes an
+            # opt-encoded coroutine frame field (design 132 unit C).
+            optional_type = ir.LiteralStructType([ir.IntType(1), ir.IntType(8)])
+            optional_val = ir.Constant(optional_type, ir.Undefined)
+            return self.builder.insert_value(
+                optional_val, ir.Constant(ir.IntType(1), 1), 0)
         optional_type = ir.LiteralStructType([ir.IntType(1), value.type])
         optional_val = ir.Constant(optional_type, ir.Undefined)
 
@@ -97,9 +107,14 @@ class OptionalsMixin:
                 f"current_return_type={self.current_return_type}"
             )
 
-        inner_llvm_type = self._get_llvm_type(inner_type)
-
-        optional_type = ir.LiteralStructType([ir.IntType(1), inner_llvm_type])
+        # Lower the OPTIONAL, not the payload: `Void?` has no void-in-struct
+        # representation and carries an `i8` placeholder instead, and that rule
+        # lives in `_get_llvm_type`'s OPTIONAL branch. Assembling `{i1, payload}`
+        # here bypassed it and produced a `{i1, void}` that no `Void?` slot would
+        # accept — which is what a `Void`-instantiated generic local hit when the
+        # coroutine transform gave it a frame field (design 132 unit C).
+        optional_type = self._get_llvm_type(
+            SawType(TypeKind.OPTIONAL, inner_type=inner_type))
         optional_val = ir.Constant(optional_type, ir.Undefined)
 
         # Set is_some to false

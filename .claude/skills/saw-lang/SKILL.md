@@ -177,6 +177,12 @@ let e: Map<String,Int> = {:}        // empty map needs annotation
   top-level `func`/`extern` named after a built-in (`print`/`assert`/`sleep`/
   `spawn`/`sizeof`/…) is a duplicate-definition error — the call site always
   resolves to the built-in, so the declaration could never run.
+  The Void rule is SYNTACTIC (design 132): a Void you can SEE errors, a Void
+  that arrives by INSTANTIATION does not. `let r = body(x)` inside a
+  `func f<R>(...) -> R` compiles at every `R`, `Void` included — it becomes a
+  zero-sized binding (no storage; reading the name yields no value), so a
+  generic body that type-checks compiles for every instantiation and you never
+  get an error at a distance. Same as a unit type in Rust/Swift.
 - Map/Set keys: `Hashable + Equatable` and copyable-with-retain
   (NoCopy keys rejected). A payload-free enum qualifies — it is a bare
   tag, so `Set<Color>` and `Map<Color, Int>` both work (design 132).
