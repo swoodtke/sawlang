@@ -750,7 +750,9 @@ noted live-range packing of locals; do both in one sizing brief.
   `examples/df140f_private_static_collision.saw`; the public-collision tests
   (`test_static_collision`, `module_import_collision`) still pass.
 
-- **DF-142a — FILED, not fixed. Private TYPES still collide across modules.**
+- **DF-142a — APPROVED (user, Aug 5): design 144 owns the fix**
+  (module-qualified type identity end to end; queued after 138). Original
+  finding follows: **Private TYPES still collide across modules.**
   Two modules each declaring a private `struct Header` is still
   "ambiguous struct `Header`: defined in both `dep` and `<entry>`", the same
   shape as DF-140f. It was left out of that fix deliberately: a static's or
