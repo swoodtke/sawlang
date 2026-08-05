@@ -3982,6 +3982,18 @@ sawc <source.saw> [options]
                Same, keeping private fields, methods and inits.
   -O0          Disable optimization passes (raw codegen; default is an O1-style
                pipeline: entry-block allocas + mem2reg and friends)
+  --target TRIPLE
+               Cross-compile for a target triple (default: the host)
+  --freestanding
+               Freestanding profile: runtime seams as declarations only, no
+               hosted std modules, no Float printing, unlinked object output
+  --runtime-build
+               Compile a Saw runtime that `@export`s the frozen `__saw_rt_*`
+               ABI. Sync-only, unlinked object output; builds `sawc/rt/`.
+  --module-path NAME=DIR
+               Map package NAME to source directory DIR (`import NAME` ->
+               DIR/lib.saw, `import NAME.sub` -> DIR/sub.saw). Repeatable;
+               this is how the package manager wires dependencies.
 ```
 
 Optimization: by default `sawc` runs an O1-style pass pipeline (allocas hoisted

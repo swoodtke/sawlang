@@ -554,12 +554,19 @@ python3 -m venv .venv
 ./.venv/bin/python sawc/sawc.py <source.saw> [options]
 
 Options:
-  -o <file>    Output file name
-  -c           Compile to object file only (no linking, no main required)
-  -v           Verbose output
-  --emit-ir    Output LLVM IR only
-  --emit-ast   Dump typed AST for debugging
-  -O0          Disable optimization (default is an O1-style pass pipeline)
+  -o <file>          Output file name (default: .build/<source>)
+  -c                 Compile to an object file only (no linking, no main required)
+  -v                 Verbose output
+  --emit-ir          Output LLVM IR only
+  --emit-ast         Dump the typed AST for debugging
+  --emit-docs        Emit documentation JSON instead of code
+  --emit-docs-all    Same, keeping private fields, methods, and inits
+  -O0                Disable optimization (default is an O1-style pass pipeline)
+  --target <triple>  Cross-compile for a target triple (default: the host)
+  --freestanding     Freestanding profile: no hosted std, unlinked object output
+  --runtime-build    Build a Saw runtime exporting the __saw_rt_* ABI
+  --module-path NAME=DIR
+                     Map a package name to a source directory (repeatable)
 ```
 
 ## Running Tests

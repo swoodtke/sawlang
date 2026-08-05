@@ -47,9 +47,12 @@ activated first.
 ## Compiler usage (dev)
 ```bash
 ./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
-    [--emit-ir] [--emit-ast] [-O0] [--module-path NAME=DIR]
+    [--emit-ir] [--emit-ast] [--emit-docs] [--emit-docs-all] [-O0]
+    [--target TRIPLE] [--module-path NAME=DIR]
     [--freestanding] [--runtime-build]
 ```
+That is the complete flag set (`sawc.py:1125-1156`); `-o` defaults to
+`.build/<source>`.
 Default pipeline is O1-style. `--module-path` maps a package name to a
 module dir (Blade uses this per dependency). `--runtime-build` (design
 113b) compiles a Saw runtime that `@export`s the frozen `__saw_rt_*` ABI
