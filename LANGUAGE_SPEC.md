@@ -2537,7 +2537,10 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
   COPY (hash / compare / slot inspection), so a KEY must be trivial/POD,
   `ImplicitCopy` (String, `Arc<T>`), or `ExplicitCopy` — a **NoCopy** key, or a
   `Deinit`-only move-only key, is a clean compile error. VALUES have no such
-  restriction (a NoCopy value is fine — it is moved, never probe-copied).
+  restriction (a NoCopy value is fine — it is moved, never probe-copied). A
+  **payload-free enum is trivial/POD** and so is a legal key: it is a bare tag,
+  owning nothing, which is the same reason it auto-conforms to `Equatable` and
+  `Hashable` in the first place.
 - Slots are an enum `{ Empty, Tombstone, Occupied(key, value) }`, so a fresh
   table is deinit-safe even for owning key/value types; slot updates/removals
   move the old slot out (`Vector.swap_out`, a refcount-neutral move), so nothing

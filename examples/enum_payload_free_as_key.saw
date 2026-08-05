@@ -1,0 +1,43 @@
+// A payload-free enum auto-conforms to Equatable and Hashable, so it is a
+// legal Map key and Set element (design 132 unit E / DF-128b). The key check
+// used to reject it with "owns a Deinit without a copy (it is move-only, not
+// retainable)" — false for a type that owns nothing: `is_trivially_copyable`
+// had no ENUM branch and fell off the end returning False.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// true
+// false
+// 2
+// 3
+// 1
+// true
+
+enum Color { case Red, case Green, case Blue }
+
+func main() {
+    // Set element, built by insertion.
+    var seen = Set<Color>()
+    seen.insert(Color.Red)
+    seen.insert(Color.Green)
+    seen.insert(Color.Red)          // duplicate: the tag compares equal
+    print(seen.len())
+    print(seen.contains(Color.Green))
+    print(seen.contains(Color.Blue))
+
+    // Set element, built by a collection literal.
+    let literal: Set<Color> = {Color.Red, Color.Blue}
+    print(literal.len())
+
+    // Map key, built by a collection literal.
+    let counts: Map<Color, Int> = {Color.Red: 1, Color.Green: 2, Color.Blue: 3}
+    print(counts.len())
+    if let n = counts.get(Color.Red) {
+        print(n)
+    }
+
+    // Map key, written after the fact.
+    var tally = Map<Color, Int>()
+    tally.insert(Color.Blue, 7)
+    print(tally.contains_key(Color.Blue))
+}

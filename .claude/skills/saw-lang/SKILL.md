@@ -178,7 +178,9 @@ let e: Map<String,Int> = {:}        // empty map needs annotation
   `spawn`/`sizeof`/…) is a duplicate-definition error — the call site always
   resolves to the built-in, so the declaration could never run.
 - Map/Set keys: `Hashable + Equatable` and copyable-with-retain
-  (NoCopy keys rejected). Values unrestricted. Iteration order
+  (NoCopy keys rejected). A payload-free enum qualifies — it is a bare
+  tag, so `Set<Color>` and `Map<Color, Int>` both work (design 132).
+  Values unrestricted. Iteration order
   unspecified — sort `keys()` for determinism.
 - Iterate: `m.each { k, v in ... }`, `each_key`, `keys()/values()`
   snapshots (Copy elements); `v.iter()`, `v.enumerated()` (for-in),

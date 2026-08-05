@@ -819,6 +819,30 @@ class Namespace:
                 # Unknown / opaque type parameter: not known to be trivial.
                 return False
             return all(self.is_trivially_copyable(ft) for ft in struct_sym.fields.values())
+        if kind == TypeKind.ENUM:
+            # A PAYLOAD-FREE enum is a bare tag: it owns nothing, so a copy is
+            # bitwise and there is no deinit to double-run. This branch used to
+            # be missing entirely, so `Color` fell off the end as False and the
+            # Map/Set key check reported the false reason "owns a Deinit without
+            # a copy (it is move-only, not retainable)" for a type that owns
+            # nothing (design 132 unit E / DF-128b). The gate matches
+            # `is_equatable`'s auto-conformance exactly, which is what the spec
+            # promises: the auto-Copy set and the auto-Equatable set are one set.
+            # An enum carrying a payload keeps the old answer — its tier is
+            # derived structurally by `is_implicit_copy_enum` and the
+            # fall-through paths, and widening that is a separate question.
+            name = saw_type.enum_name
+            if name is None:
+                return False
+            if (self.type_conforms_to(name, "Deinit") or
+                    self.type_conforms_to(name, "NoCopy") or
+                    self.type_conforms_to(name, "ImplicitCopy") or
+                    self.type_conforms_to(name, "ExplicitCopy")):
+                return False
+            enum_sym = self._lookup_enum_deep(name)
+            if enum_sym is None:
+                return False
+            return all(len(fields) == 0 for fields in enum_sym.variants.values())
         return False
 
     def type_satisfies_copy_bound(self, saw_type: SawType) -> bool:

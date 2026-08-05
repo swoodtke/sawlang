@@ -680,9 +680,19 @@ noted live-range packing of locals; do both in one sizing brief.
   `_fill_default_type_args` inside `_type_method_base`, then
   `tools/blade_bootstrap.py`.
 
-- **DF-128b — a payload-free enum cannot be a Map/Set key, though it
-  auto-conforms to Equatable and Hashable (found by design 128, Aug 5;
-  PRE-EXISTING).** `Set<Color>` on a payload-free enum is rejected with "set
+- **DF-128b — FIXED (design 132 unit E, Aug 5).** `Namespace.is_trivially_copyable`
+  gained the ENUM branch it never had: a payload-free enum that declares no
+  resource trait is a bare tag, so it copies bitwise and has no deinit to
+  double-run. The gate is `is_equatable`'s auto-conformance gate verbatim,
+  which is what the spec promises — the auto-Copy set and the auto-Equatable set
+  are one set. An enum WITH a payload keeps its old classification (derived
+  structurally by `is_implicit_copy_enum`); widening triviality to "all payloads
+  trivial" would change copy tiers for `enum Msg { case Move(x: Int, y: Int) }`
+  and is a separate question, not needed here. Test
+  `examples/enum_payload_free_as_key.saw`: Set element by insertion and by
+  collection literal, Map key by literal and by `insert`, plus `contains` /
+  `contains_key` / `get` round-trips. Original finding follows.
+  `Set<Color>` on a payload-free enum is rejected with "set
   element type `Color` must be copyable ... owns a Deinit without a copy (it is
   move-only, not retainable)", which is false — the enum owns nothing.
 
