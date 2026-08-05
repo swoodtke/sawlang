@@ -375,14 +375,18 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   call inside a suspending body (driven / spawned / a suspending `main`) now RUNS —
   it is OFFLOADED to a worker thread (thread-per-call v1) and the task PARKS on the
   job's pipe like any socket read, so siblings keep running while it blocks and the
-  cooperative thread is never wedged. Write it as a plain call bound to a statement:
-  `let r = slow(arg)` (or a bare / tail call). v1 restricts the extern to the C-ABI
+  cooperative thread is never wedged. v1 restricts the extern to the C-ABI
   `(Int) -> Int` whitelist (a single Int arg, Int result); a wider signature is a
-  clean anchored error (multi-arg + a real pool are future work). A blocking-extern
-  call BURIED in a larger expression (`foo(slow(x))`, `return a + slow(x)`, a
-  `try!`) is a clean error anchored at the call site — bind it to its own `let`
-  first. (At statement position inside an `if let`/`guard let` body it offloads
-  fine — design 104 CFG-splits that branch.) Cancelling a task parked on an offload job wakes
+  clean anchored error (multi-arg + a real pool are future work). Since design 120
+  a blocking-extern call BURIED in a larger expression offloads like any other
+  suspension — `identity(slow(x))`, `return 1 + slow(x)`, `"slept {slow(x)}"` and
+  `let r = 1 + slow(x)` all RUN (re-probed Aug 4); the pre-120 rule that you had to
+  bind it to its own `let` first is RETIRED, and so is the error it named. The
+  design-120 short-circuit limit below applies here too, with its own diagnostic:
+  `1 + (cached ?? slow(x))` gives "the blocking-extern call `slow(...)` appears in
+  a nested/expression position the offload desugar cannot occupy; bind it to its
+  own statement first". (At statement position inside an `if let`/`guard let` body it
+  offloads fine — design 104 CFG-splits that branch.) Cancelling a task parked on an offload job wakes
   it (design 102), but the in-flight blocking call cannot be aborted: take() joins
   the worker before the task takes its cancel path.
 - Generic suspending functions/methods work (design 70 + 74): effect is
@@ -410,7 +414,13 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   temporaries for you, so left-to-right order and intermediate deinit timing match
   the hand-written `let`-per-step spelling; a CONDITIONAL position (a value
   `if`/`match` arm, a `??` / `&&` / `||` RHS, a `?.` hop) keeps its short-circuit,
-  so a skipped suspension and its side effects never run. Still a clean,
+  so a skipped suspension and its side effects never run. LIMIT on that last one
+  (probed Aug 4): a short-circuiting operator whose RHS suspends must be the
+  OUTERMOST expression of its statement — `let x = a ?? slow()`,
+  `return a ?? slow()`, a tail `a ?? slow()` all transform, but nesting the
+  operator inside a further expression (`return 1 + (a ?? slow())`,
+  `f(a ?? slow())`, `not (a && slow())`) is still the nested/expression-position
+  error. Bind the short-circuit to its own `let` first. Still a clean,
   user-anchored compile error (NOT a silent block): a suspension-spanning `if let`/
   `guard let` with a TUPLE pattern, or one whose body RE-BINDS the bound name
   (rename the inner binding); and a NESTED generic call whose template suspends
