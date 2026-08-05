@@ -18,6 +18,29 @@ DRAFTS** (Deinit/ExplicitCopy synthesis — LANDED, see below;
 newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
 
+**133 LANDED (Aug 5)** — two capability completions. Unit A: `Arc<T>`/`Box<T, A>`
+payload-method forwarding reaches a METHOD-GENERIC payload method, closing
+**DF-123c**, and `Mutex.lock` then became `lock<R>(body: (&var T) sync -> R) -> R`
+— review **M1** closed, a value can be computed under the lock and carried out of
+it. The fix was codegen-only: both forwards now share `_forward_target_symbol`,
+which substitutes the resolved method type args and requests the monomorph the
+way the ordinary call path does. DF-123c's second named cause (the typechecker's
+`_resolve_arc_forward` not solving method-level type args) was not real — the
+forward hands off to the shared downstream, which already runs the design-93/105
+inference. Unit B: the design-120 ANF hoist lifts a NESTED short-circuit, closing
+**DF-125a** — `f(a ?? slow())`, `return 1 + (a ?? slow())`, `not (a && slow())`,
+`g(f(a ?? slow()))` and the blocking-extern versions all transform, and the RHS
+still runs only when the LHS does not decide. The mechanism is the one design 120
+already had: hoist the WHOLE conditional to its own statement, which is the
+outermost form the branch lowering handles, and recurse.
+
+`lock<R>` keeps `body` in TAIL position (a `LockRelease` scope guard does the
+unlock) because binding the result would need a local typed `R`, and `R` is
+`Void` for every critical section that computes nothing — **DF-123b**, still
+open, and the same reason `Vector.with_ref<R>` is written that way. Found on the
+way and filed rather than fixed: **DF-133a** (the stage-1 hoist reorders a
+suspending child ahead of a side-effecting sync sibling).
+
 **131 LANDED (Aug 5)** — payload-read ownership. Every payload-extraction form
 (`o!`, the `??` left operand, an `if let`/`guard let` binding) is now a PLACE,
 governed by the payload's copy tier like every other read, and `Deinit` is
@@ -121,8 +144,9 @@ std.file/std.directory.
 
 **123 LANDED (Aug 5)** — units A1-A3, B-J. Closes RS-1 and the report's C1, H2,
 H3, H7 and H8. Two things it did NOT close: review M1 (`Mutex.lock`'s result
-should be the closure's own type) is blocked on **DF-123c**, and **DF-123b** is a
-second ICE found on the way; both are recorded under "Design 123 — DF-findings".
+should be the closure's own type) was blocked on **DF-123c** — both closed by
+design 133 — and **DF-123b** is a second ICE found on the way, still open; both
+are recorded under "Design 123 — DF-findings".
 review M15 (`Directory.current` truncates at 1024 bytes) is untouched and still
 open — only its OOM path was separated out.
 
@@ -182,7 +206,7 @@ open — only its OOM path was separated out.
   | `Set.is_subset` / `is_superset` | vacuously `true` | tier 1 panic |
   | `Arc.init(value:)` | INERT: value dropped, `strong_count() == 0`, forwarded calls deref null | tier 1 panic; `try_make` |
   | `Mutex.init(value:)` | INERT: `lock` returned `false` without running the body | tier 1 panic; `try_make` |
-  | `Mutex.lock` | `false` collided with the inert case | collision gone (no inert mutex exists); result still `Bool` — M1, blocked on DF-123c |
+  | `Mutex.lock` | `false` collided with the inert case | collision gone (no inert mutex exists); result is the closure's own type since design 133 (M1 closed) |
   | `Mutex.get` | `T?` whose None meant "built by a failed allocation" | returns `T` |
   | `Channel.init` | INERT: `send` swallowed, `recv` panicked on a None unwrap, `receive` hung | tier 1 panic; `try_make` |
   | `Channel.send` | SILENTLY DROPPED the message | tier 1 panic; `try_send` over a reporting `_enqueue` |
@@ -425,8 +449,18 @@ design-88 interior pointers need frames that never move, which rules out a
 DYNAMIC grow/shrink frame stack unless chunked). Companion to design 44's
 noted live-range packing of locals; do both in one sizing brief.
 
-- **DF-125a — APPROVED (user, Aug 5): design 133 unit B owns the fix** (the ANF
-  hoist lifts the whole nested short-circuit to the statement level). Original
+- **DF-125a — FIXED (design 133 unit B, Aug 5).** The stage-2 lowering lifts a
+  suspension-spanning value-conditional out of a NESTED expression position into
+  its own `let __vchN = <conditional>` — the outermost form it already lowered to
+  a branch shape — and reads the temp in its place. Laziness survives by
+  construction (the temp's own lowering is the guard), nesting recurses because
+  the hoist re-enters `_vc_stmt`, and the blocking-extern variant rides along.
+  `_anf_children`'s child-position dispatch was factored into
+  `_map_uncond_children` so both passes walk the same positions in the same
+  order. Tests: `examples/expr_suspend_nested_shortcircuit.saw` (argument,
+  operand-in-`return`, under `not`, doubly nested, interpolation, each with the
+  RHS-skipped counter assertion) and `examples/expr_suspend_nested_blocking.saw`.
+  The spec + skill limitation notes design 125 added are deleted. Original
   finding follows: **design-120 short-circuit nesting limit (found by design
   125, Aug 4).** A suspending call in a `??`/`&&`/`||` operand
   transforms only when the short-circuit operator is the OUTERMOST expression
@@ -440,6 +474,43 @@ noted live-range packing of locals; do both in one sizing brief.
   `d125_120_shortcircuit.saw`, `d125_blocking_sc.saw` (gitignored; the shapes
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
+
+## Design 133 — DF-findings (capability completions)
+
+- **DF-133a — FILED, not fixed (found while implementing design 133 unit B, Aug
+  5; PRE-EXISTING, design 120). The stage-1 ANF hoist reorders a suspending child
+  ahead of a side-effecting SYNC sibling to its left.** `_anf_children` walks
+  child positions left to right and lifts only the children that span a
+  suspension; a sync sibling stays in place, so the lifted `let __anfN = ...`
+  lands ahead of side effects that source order puts first:
+
+  ```saw
+  func slow(n: Int) -> Int { yield_now()  print("slow")  n * 2 }
+  func noisy(n: Int) sync -> Int { print("noisy")  n }
+  func add(a: Int, b: Int) sync -> Int { a + b }
+
+  func body() -> Int {
+      let r = add(noisy(1), slow(3))     // prints "slow" then "noisy"
+      r
+  }                                      // spawned; the hand-unchained spelling
+                                         // prints "noisy" then "slow"
+  ```
+
+  This contradicts what LANGUAGE_SPEC.md claims for design 120 ("evaluation
+  order, the deinit timing of the intermediates, and the ownership rules are the
+  ones the hand-unchained spelling gets"), so either the transform or the
+  sentence is wrong. Silent, not diagnosed.
+
+  NOT fixed here because the repair is out of unit B's scope and has a real blast
+  radius: preserving order means hoisting every side-effecting sibling to the LEFT
+  of a lifted child into its own temp, which changes emitted IR for a large slice
+  of the suite (the irdet/astdiff gates), and hoisting an owned operand into a
+  temp moves the transfer checkpoint — a `move v` or an ExplicitCopy argument
+  would be checked at a different point than the user wrote it. Deciding which
+  siblings are "side-effecting" enough to hoist is the design question. Design
+  133 unit B inherits the behavior rather than adding to it: a nested
+  short-circuit is lifted on the same terms as the calls stage 1 already lifts.
+  Repro: `.build/scratch/d133_order.saw` (gitignored; inlined above).
 
 ## Design 131 — DF-findings (payload-read ownership)
 
@@ -921,9 +992,20 @@ inlined (the `.build/scratch` probes are gitignored).
   concrete `let n = <Void expr>` already gets, and codegen should not build an
   alloca for a zero-sized/void local.
 
-- **DF-123c — APPROVED (user, Aug 5): design 133 unit A owns the fix** (forward
-  resolution + mangling learn method-level generics, then M1's `lock<R>`
-  ships). Original finding follows: **`Arc<T>` payload-method forwarding cannot
+- **DF-123c — FIXED (design 133 unit A, Aug 5).** `_generate_arc_forward_call`
+  and `_generate_box_forward_call` share `_forward_target_symbol`, which
+  substitutes the resolved method type args against the active monomorphization
+  context, requests the monomorph through `_ensure_monomorphized_generic_method`,
+  and composes the symbol from them — what the ordinary method-call path already
+  did. `Mutex.lock<R>` shipped on top of it (M1). The finding named a second
+  cause that was not real: `_resolve_arc_forward` does not need to solve
+  method-level type args itself, because it returns the payload method and its
+  struct substitution to the SHARED downstream, which runs the design-93/105
+  inference and the bound checks for the forward site as for any other call.
+  Verified across inferred and explicit type args, generic and non-generic
+  payload structs, both wrappers, and a forward whose method type argument is the
+  enclosing generic's own parameter (`examples/arc_forward_generic_method.saw`).
+  Original finding follows: **`Arc<T>` payload-method forwarding cannot
   reach a METHOD-GENERIC payload method (found by design 123 unit G, Aug 5).** Making `Mutex.lock`
   generic over the closure's result (review M1, "you cannot compute a value under
   the lock") is a one-line signature change that compiles fine on its own and

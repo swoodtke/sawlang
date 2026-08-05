@@ -66,33 +66,43 @@ extension Mutex<T> {
     /// Acquires the lock, runs `body` with a `&var` borrow of the payload,
     /// releases, and hands back what `body` returned.
     ///
+    /// The result is the closure's own type, so a value can be computed under
+    /// the lock and carried out of it:
+    ///
+    /// ```saw
+    /// let doubled = shared.lock { &var n in n * 2 }
+    /// shared.lock { &var n in n = n + 1 }     // R = Void; nothing to return
+    /// ```
+    ///
     /// `lock` is on `&self` (interior mutability) so it composes with Arc's
     /// immutable-borrow forwarding.
-    ///
-    /// The `false` you see is the one your critical section computed. It used
-    /// to have a second meaning: on a mutex whose construction had run out of
-    /// memory, `lock` returned `false` WITHOUT RUNNING `body` at all, so
-    /// "my critical section ran and said no" and "my critical section never
-    /// ran" were the same answer (review H7). Construction panics now, so the
-    /// inert mutex that made that ambiguity possible no longer exists.
-    ///
-    /// The result is still `Bool` rather than the closure's own type
-    /// (review M1). Making it generic is a one-line change here and breaks
-    /// `Arc<Mutex<T>>`: codegen's payload-method forwarding mangles a
-    /// NON-generic callee symbol, so every `shared.lock { ... }` through an Arc
-    /// stops compiling. See DF-123c.
     ///
     /// NON-REENTRANT: locking a mutex already held by the same task
     /// self-deadlocks. `body` is a `sync` function type (design 22), so
     /// suspending inside the critical section is a compile error and calling
     /// `body` does not make `lock` itself suspend.
-    public func lock(&self, body: (&var T) sync -> Bool) unsafe -> Bool {
+    public func lock<R>(&self, body: (&var T) sync -> R) unsafe -> R {
         let block = self.block
         pthread_mutex_lock(block)
-        let payload_ptr = (block + 64) as UnsafePointer<T>
-        let result = body(payload_ptr)
-        pthread_mutex_unlock(block)
-        result
+        // The release rides a scope guard so `body` can stay in TAIL position:
+        // binding its result would need a local typed `R`, and `R` is `Void` for
+        // every critical section that computes nothing. `with_ref`/`with_var_ref`
+        // keep their `body` calls in tail position for the same reason. The guard
+        // deinits after the tail expression is evaluated, so the payload is still
+        // under the lock while `body` runs.
+        let held = LockRelease(block: block)
+        body((block + 64) as UnsafePointer<T>)
+    }
+}
+
+// Releases `block` when it goes out of scope. Private to std.mutex.
+struct LockRelease {
+    block: UnsafePointer<Int8>
+}
+
+extension LockRelease: NoCopy {
+    func deinit(&var self) unsafe {
+        pthread_mutex_unlock(self.block)
     }
 }
 

@@ -1,0 +1,35 @@
+// `Mutex.lock` hands back what the critical section computed (review M1). The
+// result type is the closure's own, so a value can be computed under the lock
+// and carried out of it; a critical section that computes nothing instantiates
+// `R = Void`. Reached directly and through `Arc<Mutex<T>>` — the Arc forward is
+// what DF-123c blocked, because a method-generic payload method could not be
+// mangled. The `-> Bool` shape every earlier caller wrote is just `R = Bool`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 6
+// true
+// n=6
+// 11
+// 30
+// hello 30
+
+import std.mutex.{Mutex}
+
+func main() {
+    let m = Mutex<Int>(value: 5)
+    print(m.lock { &var n in n * 2 })        // R = Int
+    m.lock { &var n in n = n + 1 }           // R = Void
+    print(m.get())
+    print(m.lock { &var n in n > 0 })        // R = Bool, the pre-M1 shape
+    print(m.lock { &var n in "n={n}" })      // R = String
+
+    let shared = Arc<Mutex<Int>>(value: Mutex<Int>(value: 10))
+    print(shared.lock { &var n in n + 1 })   // forwarded, R = Int
+    shared.lock { &var n in n = n * 3 }      // forwarded, R = Void
+    print(shared.lock { &var n in n })
+
+    // A String computed under the lock outlives the critical section.
+    let greeting = shared.lock { &var n in "hello {n}" }
+    print(greeting)
+}
