@@ -35,6 +35,23 @@ review — DO NOT DISPATCH. Original ranked findings follow for reference.
   Contradicts the deterministic-destruction claim. [design-claims #1]
 - **RS-4 `std.process.Command` is `system()` string-concat with no quoting** —
   `arg("; echo INJECTED")` executes; `arg("one two")` word-splits.
+- **RS-6 — `Vector.with_ref`/`with_var_ref`/`swap_out` take an UNCHECKED index
+  (lead probe, Aug 4; the review under-rated this as M5/medium).** They check
+  only that the buffer is non-null, so an arbitrary `Int` index reaches
+  `buf[index]` through a `public`, non-`unsafe` signature — the same shape as
+  the C4 `byte_at` bug filed critical, still live, in the API the skill and
+  design 122 unit A both name as the sanctioned way to reach `NoCopy`
+  elements. `swap_out` is worse than C4: it is an out-of-bounds **WRITE**, i.e.
+  heap corruption from fully safe code. PROVEN on main (`.build/scratch/
+  wr_oob.saw`, 2-element `Vector<Int>`):
+  ```
+  len = 2
+  with_ref(99) = 0            // OOB read, exit 0, silent
+  swap_out(99) returned = 0   // OOB WRITE of 7 past the end, exit 0, silent
+  ```
+  Fix is design 130's accessor rule (bounds-check + panic); the code change is
+  small and belongs with design 122 unit A. Same rule closes M5's silent
+  no-op `set`/`swap` and M3's clamping `substring`.
 - **RS-5 silent-wrong-answer holes** (vs the never-hide-errors rule): a bare
   `{ }` statement is a discarded uncalled closure (statements never run, no
   warning); an escaping closure's captured mutable state resets per call
