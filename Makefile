@@ -47,10 +47,14 @@ astdiff:
 irdet:
 	@python3 tools/irdet.py
 
-# Clean build artifacts
+# Clean build artifacts. Everything generated lives under a `.build/` directory
+# — the repo's own, plus one per Saw package holding that package's per-target
+# output (design 143). Nothing generated sits beside a source file, so these two
+# lines are the whole of it.
 clean:
 	@rm -rf .build/*
-	@echo "Cleaned build directory"
+	@rm -rf blade/.build libs/*/.build
+	@echo "Cleaned build directories"
 
 # Run tests sequentially (original behavior)
 test-sequential:

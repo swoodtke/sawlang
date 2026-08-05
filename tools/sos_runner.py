@@ -28,7 +28,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAWC = os.path.join(REPO_ROOT, "sawc", "sawc.py")
 KERNEL_DIR = os.path.join(REPO_ROOT, "sos", "kernel")
 TESTS_DIR = os.path.join(REPO_ROOT, "sos", "tests")
-BUILD_DIR = os.path.join(REPO_ROOT, ".build", "sos")
 
 TRIPLE = "riscv32-unknown-none-elf"
 MARCH = "rv32imac_zicsr"
@@ -41,6 +40,13 @@ MABI = "ilp32"
 # through `-march`; this keeps the two halves on one subtarget.
 MFEATURES = "+m,+a,+c"
 QEMU_TIMEOUT_S = 10
+
+# Build output goes under `.build/<target>/` (design 143), the same per-target
+# shape Blade uses. Every object here is compiled for TRIPLE — the Saw half, the
+# assembled boot code, and the C runtime seams alike — so a second architecture
+# (arm64 is on the roadmap) gets its own directory instead of overwriting this
+# one's `boot.o` with something that will not link.
+BUILD_DIR = os.path.join(REPO_ROOT, ".build", TRIPLE, "sos")
 
 # ANSI colors (matched to test_runner.py's style; disabled when not a TTY).
 _TTY = sys.stdout.isatty()
