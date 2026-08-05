@@ -70,6 +70,36 @@ class OperatorsMixin:
         self.builder.call(self.functions["__saw_rt_panic"], [msg_ptr, msg_len])
         self.builder.unreachable()
 
+    def _alloc_or_panic(self, size: int, align: int, what: str, line: int = 0):
+        """Call the allocation seam, panicking if it refuses (design 123).
+
+        The compiler's OWN allocation sites — a spawned task's control block and
+        an escaping closure's heap environment — have no signature to report a
+        failure through, so they sit in the infallible tier alongside
+        `Box.make`. Before this the returned NULL was bitcast and stored through
+        immediately: a segfault with no message, where the policy asks for a
+        named panic. Returns the (non-null) block; the builder is left in the
+        continuation block.
+
+        `_emit_panic` builds its message from an interned byte constant rather
+        than allocating one, so the failure path does not need the allocator
+        that just refused.
+        """
+        word = self.int_type
+        raw = self.builder.call(
+            self.functions["__saw_rt_alloc"],
+            [ir.Constant(word, size), ir.Constant(word, align)], name="alloc_raw")
+        null = ir.Constant(ir.IntType(8).as_pointer(), None)
+        func = self.builder.function
+        panic_bb = func.append_basic_block("alloc_panic")
+        cont_bb = func.append_basic_block("alloc_ok")
+        self.builder.cbranch(self.builder.icmp_unsigned('==', raw, null),
+                             panic_bb, cont_bb)
+        self.builder.position_at_end(panic_bb)
+        self._emit_panic(f"{what}: allocation failed", line=line)
+        self.builder.position_at_end(cont_bb)
+        return raw
+
     def _check_divisor_nonzero(self, divisor, line: int = 0):
         """Guard an integer division/modulo: panic if `divisor` is zero.
 

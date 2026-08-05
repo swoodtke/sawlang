@@ -249,12 +249,13 @@ class ClosuresMixin:
         env_dtor = None
         if captures and env_struct_type:
             if escapes:
-                i64 = self.int_type  # design 47: saw_alloc size/align are platform-width
                 env_size = self._abi_size(env_struct_type)
-                raw = self.builder.call(
-                    self.functions["__saw_rt_alloc"],
-                    [ir.Constant(i64, env_size), ir.Constant(i64, 16)],
-                    name="env_raw")
+                # Panics rather than storing through the NULL a refused
+                # allocation returns (design 123, infallible tier: a closure
+                # literal has no signature to report an OOM through).
+                raw = self._alloc_or_panic(
+                    env_size, 16, "closure environment",
+                    line=getattr(expr, 'line', 0))
                 env_alloca = self.builder.bitcast(
                     raw, ir.PointerType(env_struct_type), name="env_heap")
                 # Seed the atomic refcount word (field 0) to 1 — this creation is

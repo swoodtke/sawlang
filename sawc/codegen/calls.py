@@ -1337,14 +1337,12 @@ class CallsMixin:
         # Control block: { pthread_t tid (i8*), i8* env, T result }.
         cb_ty = ir.LiteralStructType([i8ptr, i8ptr, slot_llvm])
         cb_size = self._abi_size(cb_ty)
-        # design 47: __saw_rt_alloc's size/align are platform-width (i32 on
-        # riscv32). Use the target word type, not a hardcoded i64, or the seam
-        # call ICEs on a 32-bit target (the last un-migrated alloc site —
-        # closures.py's env alloc/dealloc were already migrated).
-        word = self.int_type
-        raw = self.builder.call(
-            self.functions["__saw_rt_alloc"],
-            [ir.Constant(word, cb_size), ir.Constant(word, 16)], name="task_cb_raw")
+        # `_alloc_or_panic` uses the target word type for the seam's size/align
+        # (design 47: they are i32 on riscv32, so a hardcoded i64 ICEs there)
+        # and panics rather than storing through the NULL a refused allocation
+        # returns (design 123).
+        raw = self._alloc_or_panic(cb_size, 16, "spawn",
+                                   line=getattr(expr, 'line', 0))
         cb = self.builder.bitcast(raw, ir.PointerType(cb_ty), name="task_cb")
         # Store the env pointer at slot 1.
         env_slot = self.builder.gep(

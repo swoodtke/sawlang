@@ -253,9 +253,17 @@ extension TaskGroup {
         }
         var lk: UnsafePointer<Int8>? = None
         if w >= 2 {
+            // Design 123: this used to leave `lk` None on allocator exhaustion,
+            // and a multi-threaded group with no run-queue lock is INERT in the
+            // worst way — `__run_all` guards on the lock and does nothing, so
+            // not one spawned task runs, `Deinit` drops every frame unrun, and
+            // `TaskHandle.join` then force-unwraps a result that was never
+            // written. The group still reported `workers >= 2` throughout.
             if let block = unsafe GlobalAllocator().alloc(64, 16) {
                 __saw_rt_pthread_mutex_init_default(block)
                 lk = block
+            } else {
+                panic("TaskGroup(threads:): allocation failed")
             }
         }
         TaskGroup(tasks: move t, done: move d, remaining: move r, active: move a, workers: w, lock: lk, next: 0, registered: false)
