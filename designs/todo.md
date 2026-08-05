@@ -181,6 +181,19 @@ compiler pre-port restructures R1 declared AST contract + R2 stable NodeId +
 R11 astdiff oracle as the port-order prerequisites (then AST+parser next,
 coro_transform last).
 
+**P4 — coro frame-size optimization (user idea, Aug 5):** today the flat
+frame gives every driven CALL SITE its own embedded sub-frame field, so a
+task pays the SUM over all sites even though only one nested chain is ever
+live at once. Because suspending recursion is banned, the high-water mark
+(the deepest simultaneously-live drive chain) is statically computable —
+sub-frames with disjoint lifetimes (sequential drives, if/else branches)
+can be OVERLAID union-style at fixed offsets, shrinking `sizeof(frame)` to
+exactly the high-water mark with zero runtime cost (keeps one-allocation-
+at-spawn, zero-alloc suspend, pinned frames — the design-91 wake token and
+design-88 interior pointers need frames that never move, which rules out a
+DYNAMIC grow/shrink frame stack unless chunked). Companion to design 44's
+noted live-range packing of locals; do both in one sizing brief.
+
 ## Design 116 — DF-findings (self-hosting lexer pilot, IN PROGRESS)
 The lexer port (`selfhost/lexer`) is the pilot's measurement instrument;
 language pain hit while writing it is the explicit product. Policy (user, Aug 4):
