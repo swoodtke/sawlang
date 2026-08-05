@@ -545,7 +545,7 @@ unsafe func __saw_exec_worker(addr: Int) {
 // Deinit runs the executor to completion of every child (structured join at
 // scope exit), THEN the three vectors are memberwise-dropped: each `tasks` box
 // tears down its frame, dropping any UNCONSUMED `__result` exactly once (a joined
-// task's result was already taken and `__saw_forget`-cleared). Declared before
+// task's result was already taken, leaving `None` in the slot). Declared before
 // NoCopy so the `NoCopy: Deinit` supertrait is satisfied.
 extension TaskGroup: Deinit {
     public unsafe func deinit(&var self) {
@@ -564,7 +564,7 @@ extension TaskGroup: Deinit {
         // Tear each child frame down explicitly: pop the box and let it drop, so
         // its erased teardown (design 51 vtable dtor -> the frame's memberwise
         // cleanup) drops any UNCONSUMED `__result` EXACTLY ONCE. A joined task's
-        // result was already taken and `__saw_forget`-cleared, so its frame drops
+        // result was already taken, leaving `None` in the slot, so its frame drops
         // nothing. The now-empty `tasks` (buffer), `done`, and `remaining` are
         // freed by the memberwise field cleanup appended after this body.
         while self.tasks.len() > 0 {
@@ -601,9 +601,8 @@ struct TaskHandle<T> {
 
 extension TaskHandle<T> {
     // Drive the group until this task is Done, then TAKE its result. The take is
-    // exactly-once: force-unwrap reads the payload out of the frame slot and
-    // `__saw_forget` clears the slot's `is_some` flag, so the frame's later teardown
-    // drops nothing.
+    // exactly-once: `take()` moves the payload out of the frame slot and leaves
+    // `None` behind, so the frame's later teardown drops nothing.
     public unsafe func join(&self) -> T {
         if self.group_ptr[0].workers >= 2 {
             // MT: fork-join drain over the group's own queue (design 75).
@@ -615,9 +614,7 @@ extension TaskHandle<T> {
             // stack and never re-enters a live coroutine.
             __saw_exec_run(self.group_ptr as Int, self.slot)
         }
-        let r = self.result_ptr[0]!
-        __saw_forget(self.result_ptr[0])
-        move r
+        self.result_ptr[0].take()!
     }
 
     // Cooperative cancellation (design 18 C1, NO forced destroy): set the frame's
