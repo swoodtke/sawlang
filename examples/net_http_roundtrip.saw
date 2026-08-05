@@ -21,7 +21,7 @@ func handle(stream: TcpStream) -> Int {
             reading = false                        // peer closed
         } else {
             req.append(move chunk)
-            if req.to_string().contains("\r\n\r\n") {
+            if (try! req.to_string()).contains("\r\n\r\n") {
                 reading = false                    // have the full request head
             }
         }
@@ -46,12 +46,12 @@ func client(stream: TcpStream) -> Int {
             reading = false
         } else {
             resp.append(move chunk)
-            if resp.to_string().contains("hello") {
+            if (try! resp.to_string()).contains("hello") {
                 reading = false
             }
         }
     }
-    let s = resp.to_string()
+    let s = try! resp.to_string()
     if s.starts_with("HTTP/1.1 200 OK") && s.contains("hello") { 1 } else { 0 }
 }
 

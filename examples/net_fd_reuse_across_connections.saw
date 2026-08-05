@@ -25,12 +25,12 @@ func serve(listener: TcpListener, n: Int) -> Int {
                 reading = false
             } else {
                 req.append(move chunk)
-                if req.to_string().contains("\r\n\r\n") {
+                if (try! req.to_string()).contains("\r\n\r\n") {
                     reading = false
                 }
             }
         }
-        assert(req.to_string().starts_with("GET / HTTP/1.1"), "bad request")
+        assert((try! req.to_string()).starts_with("GET / HTTP/1.1"), "bad request")
         try! stream.write("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
         served = served + 1
     }
@@ -51,12 +51,12 @@ func client_twice(port: Int) -> Int {
                 reading = false
             } else {
                 resp.append(move chunk)
-                if resp.to_string().contains("hello") {
+                if (try! resp.to_string()).contains("hello") {
                     reading = false
                 }
             }
         }
-        if resp.to_string().contains("hello") {
+        if (try! resp.to_string()).contains("hello") {
             ok = ok + 1
         }
         i = i + 1

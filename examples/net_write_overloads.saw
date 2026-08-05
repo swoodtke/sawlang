@@ -33,7 +33,7 @@ func receiver(stream: TcpStream) -> Int {
             }
         }
     }
-    if got.to_string() == "data:abc" {
+    if (try! got.to_string()) == "data:abc" {
         got.len()
     } else {
         0

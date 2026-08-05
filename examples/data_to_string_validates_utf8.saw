@@ -1,0 +1,54 @@
+// Design 122 unit B: `Data.to_string()` decodes UTF-8 and SURFACES a failure
+// instead of minting a String that breaks the always-valid-UTF-8 invariant.
+//
+// Before, `[0x68, 0xC8, 0x69]` produced a `len() == 3` String whose `chars()`
+// yielded ONE scalar and then stopped — std silently truncated the caller's
+// data. Now the same bytes return `Err(Utf8Error)` carrying the offset of the
+// first malformed sequence, the same failure type `String.fromBytes` uses.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// hi 2 2
+// err at 1
+// invalid UTF-8 at byte offset 1
+
+import std.data.{Data}
+import std.string.{Utf8Error}
+
+// Utf8Error is an `Error`, so a decode failure boxes at an erased boundary.
+func decode_erased(d: &Data) -> Result<String, Box<any Error>> {
+    let s = try d.to_string()
+    move s
+}
+
+func scalars(s: String) -> Int {
+    var n = 0
+    for _c in s.chars() {
+        n = n + 1
+    }
+    n
+}
+
+func main() {
+    var good = Data()
+    good.push(104 as UInt8)   // 'h'
+    good.push(105 as UInt8)   // 'i'
+    match good.to_string() {
+        case Ok(s) -> print("{s} {s.len()} {scalars(s)}"),
+        case Err(e) -> print("unexpected err at {e.offset}")
+    }
+
+    var bad = Data()
+    bad.push(104 as UInt8)    // 'h'
+    bad.push(200 as UInt8)    // 0xC8: a lead byte with no continuation
+    bad.push(105 as UInt8)    // 'i'
+    match bad.to_string() {
+        case Ok(s) -> print("unexpectedly decoded {s.len()} bytes"),
+        case Err(e) -> print("err at {e.offset}")
+    }
+
+    // Utf8Error is an Error: it interpolates and boxes like any other.
+    match decode_erased(&bad) {
+        case Ok(s) -> print("unexpectedly decoded {s.len()} bytes"),
+        case Err(e) -> print("{e}")
+    }
+}

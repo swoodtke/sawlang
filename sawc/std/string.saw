@@ -987,6 +987,17 @@ struct Utf8Error {
     public offset: Int
 }
 
+// `Error` so a decode failure propagates like any other: it interpolates
+// (`"{e}"`), boxes into `Result<T, Box<any Error>>` at a `try` boundary, and is
+// downcastable. `Data.to_string()` (design 122 unit B) is the caller that made
+// this necessary — a byte buffer that fails to decode has to travel.
+extension Utf8Error: Error {
+    public func format(&self, into: &var StringBuilder) {
+        into.append("invalid UTF-8 at byte offset ")
+        into.append(self.offset)
+    }
+}
+
 // =============================================================================
 // String iterators (brief 38 item 2)
 // =============================================================================

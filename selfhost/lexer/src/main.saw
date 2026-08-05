@@ -44,7 +44,13 @@ func main() -> Int {
         print("sawlex: cannot read {path}")
         return 2
     }
-    let source = data.to_string()
+    let source = match data.to_string() {
+        case Ok(s) -> s,
+        case Err(e) -> {
+            print("sawlex: {path} is not valid UTF-8 (byte {e.offset})")
+            return 2
+        }
+    }
 
     if docs_mode {
         match lex_all(source) {

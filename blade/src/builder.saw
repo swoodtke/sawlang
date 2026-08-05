@@ -49,7 +49,13 @@ func read_file(path_str: String) -> String {
     guard let data = f.read() else {
         return ""
     }
-    data.to_string()
+    // Same contract as the branches above: an unusable file reads as empty.
+    // Design 122 unit B made the UTF-8 decode fallible, so a binary file is now
+    // "unusable" for the same reason an unopenable one is.
+    match data.to_string() {
+        case Ok(s) -> s,
+        case Err(_) -> ""
+    }
 }
 
 // Append the contents of every `*.saw` file directly in `dir` to `b`.

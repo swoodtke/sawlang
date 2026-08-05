@@ -22,13 +22,13 @@ func serve(listener: TcpListener) -> Int {
             reading = false
         } else {
             req.append(move chunk)
-            if req.to_string().contains("\r\n\r\n") {
+            if (try! req.to_string()).contains("\r\n\r\n") {
                 reading = false
             }
         }
     }
     try! stream.write("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
-    if req.to_string().starts_with("GET / HTTP/1.1") { 1 } else { 0 }
+    if (try! req.to_string()).starts_with("GET / HTTP/1.1") { 1 } else { 0 }
 }
 
 func client(port: Int) -> Int {
@@ -42,12 +42,12 @@ func client(port: Int) -> Int {
             reading = false
         } else {
             resp.append(move chunk)
-            if resp.to_string().contains("hello") {
+            if (try! resp.to_string()).contains("hello") {
                 reading = false
             }
         }
     }
-    let s = resp.to_string()
+    let s = try! resp.to_string()
     if s.starts_with("HTTP/1.1 200 OK") && s.contains("hello") { 1 } else { 0 }
 }
 

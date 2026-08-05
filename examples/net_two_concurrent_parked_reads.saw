@@ -22,12 +22,12 @@ func reader(stream: TcpStream, want: String) -> Int {
             reading = false
         } else {
             got.append(move chunk)
-            if got.to_string().contains(want) {
+            if (try! got.to_string()).contains(want) {
                 reading = false
             }
         }
     }
-    if got.to_string().contains(want) { 1 } else { 0 }
+    if (try! got.to_string()).contains(want) { 1 } else { 0 }
 }
 
 func writer(stream: TcpStream, msg: String) -> Int {

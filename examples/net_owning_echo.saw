@@ -21,7 +21,7 @@ func sender(stream: TcpStream) -> Int {
 
 func receiver(stream: TcpStream) -> Int {
     let chunk = try! stream.read()         // suspending method, parks internally
-    if chunk.to_string() == "hello" {
+    if (try! chunk.to_string()) == "hello" {
         chunk.len()
     } else {
         0

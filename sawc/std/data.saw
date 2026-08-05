@@ -288,17 +288,22 @@ extension Data {
     // Conversion
     // =========================================================================
 
-    // Convert Data bytes to String (assumes UTF-8/ASCII)
-    public func to_string(&self) -> String {
-        var sb = StringBuilder()
-        var i = 0
-        while i < self.length {
-            if let b = self.get(i) {
-                sb.append_char(b as Int8)
-            }
-            i = i + 1
-        }
-        sb.as_str()
+    // Decode these bytes as UTF-8 into a String.
+    //
+    // Ok(s)  = the whole buffer is valid UTF-8.
+    // Err(e) = it is not; `e.offset` is the byte index where the first
+    //          malformed sequence begins (`String.fromBytes` semantics).
+    //
+    // A `String`'s contents are ALWAYS valid UTF-8 — literals are source-encoded
+    // and `String.fromBytes` validates — and the language's own iterators rely on
+    // that invariant. This used to byte-copy into a StringBuilder with no
+    // validation, minting Strings that broke it: `Data` of `[0x68, 0xC8, 0x69]`
+    // produced a `len() == 3` String whose `chars()` yielded ONE scalar and then
+    // stopped, i.e. std silently truncated the caller's data (design 122 unit B).
+    // Decoding is fallible, so it says so — through the same `Utf8Error` surface
+    // `String` decoding already uses.
+    public func to_string(&self) -> Result<String, Utf8Error> {
+        String.fromBytes(&self)
     }
 
     // =========================================================================

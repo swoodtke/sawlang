@@ -24,7 +24,7 @@ func server(stream: TcpStream) -> Int {
         try! stream.write("k")          // ack so the client sends the next chunk
         i = i + 1
     }
-    let s = acc.to_string()
+    let s = try! acc.to_string()
     assert(s == "abcabcabcabcabc", "accumulated buffer wrong")
     return acc.len()                       // 15 = 3 bytes * 5 chunks
 }

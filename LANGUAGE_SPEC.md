@@ -574,6 +574,11 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   U+10FFFF, and truncated sequences). `Utf8Error.offset` is the byte index where
   the first malformed sequence begins (bytes before it decode cleanly —
   `valid_up_to()` semantics). Validation is written in Saw, not the compiler.
+  `Data.to_string() -> Result<String, Utf8Error>` is the same door under a
+  different name — it delegates to `fromBytes` (design 122), so decoding a byte
+  buffer read off a socket or a file surfaces the failure instead of minting a
+  String that breaks the invariant. `Utf8Error` conforms to `Error`, so it
+  interpolates and boxes at an erased `Result<T, Box<any Error>>` boundary.
 - **Access views, never `s[i]`.** There is deliberately no integer indexing (it
   conflates bytes with scalars). Two iterator views are provided instead:
   `bytes()` yields the raw bytes (`Int8`, matching `byte_at`) and `chars()`
