@@ -548,6 +548,17 @@ import std.net.{TcpListener, TcpStream}   // non-prelude std: import to use bare
 import std.file                            // whole module (exposes File, ...)
 import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
 ```
+- **Utility methods belong on the receiver as extensions — including on
+  types you don't own** (user idiom ruling, Aug 5). A helper that is
+  *about* one value reads as a method: write `extension Data {
+  func u16_at(&self, off: Int) -> UInt? }` and call `d.u16_at(0)`, NOT
+  `func u16_at(d: &Data, off: Int)`. This is safe on foreign/std types
+  because design-80/82 visibility makes the extension MODULE-PRIVATE by
+  default — invisible to other packages, absent from the type's public
+  docs, no collision risk. Free functions are for operations no single
+  argument owns (conversion pipelines, multi-receiver algorithms). If a
+  private extension turns out generally useful, promote it to std rather
+  than making it `public` on a std type from a package.
 - **Prelude (design 82) — what's bare vs what needs `import std.X`.** Bare
   (prelude): primitives, `Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/`Arc`/
   `Allocator`/`GlobalAllocator`, the Copy family + `Deinit`/`Iterator`/
