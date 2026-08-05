@@ -257,7 +257,9 @@ extension Atomic<T> {
 // the one-word representation and is never accessed at the source level.
 // Sync by fiat (the Atomic precedent) — statics of this type are shared across
 // all tasks. Volatile is NOT atomic (documented).
-struct UnsafeMemory<T, Use> {
+// An UNSAFE type (design 130): naming, binding, receiving or returning one makes
+// a function `unsafe`. Its name already carries the required `Unsafe` prefix.
+unsafe struct UnsafeMemory<T, Use> {
     addr: Int
 }
 

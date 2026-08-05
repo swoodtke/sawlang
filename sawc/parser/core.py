@@ -442,13 +442,42 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     # Maximum syntax errors collected before bailing out of a single file.
     MAX_PARSE_ERRORS = 10
 
+    def _parse_unsafe_modifier(self) -> bool:
+        """Consume a leading `unsafe` declaration modifier, if present (design
+        130). It sits after the visibility modifier and before the declaration
+        keyword — `public unsafe func push(...)`, `unsafe struct UnsafeMmioReg`
+        — mirroring the `unsafe` slot on a function TYPE
+        (`(UnsafePointer<T>) unsafe sync -> R`)."""
+        if self.match(TokenType.UNSAFE):
+            self.advance()
+            return True
+        return False
+
+    def _error_unsafe_position(self) -> None:
+        """The `unsafe` modifier was consumed but the declaration that follows
+        cannot carry it (design 130). Only a `struct`, a `func` and an extension
+        `init` are markable: a type declares its own unsafety, and every other
+        declaration inherits it from the types it names."""
+        self.error("`unsafe` may only precede `struct`, `func` or `init` "
+                   f"(design 130), got {self.current().type.name}")
+
+    def _reject_trailing_unsafe(self) -> None:
+        """`unsafe` belongs BEFORE the declaration keyword, not in the
+        post-parameter effect slot beside `sync` (design 130). A declaration that
+        spells it there gets a clean error pointing at the right position rather
+        than a confusing parse failure at the return arrow."""
+        if self.match(TokenType.UNSAFE):
+            self.error("`unsafe` goes before the declaration, not after the "
+                       "parameter list — write `unsafe func name(...)` "
+                       "(after any visibility modifier)")
+
     def _at_toplevel_start(self) -> bool:
         """True if the current token can begin a top-level declaration."""
         t = self.current()
         if t.type in (TokenType.FUNC, TokenType.STRUCT, TokenType.ENUM,
                       TokenType.EXTENSION, TokenType.TRAIT, TokenType.TYPE,
                       TokenType.EXTERN, TokenType.STATIC, TokenType.PUBLIC,
-                      TokenType.AT):
+                      TokenType.UNSAFE, TokenType.AT):
             return True
         if t.type == TokenType.IDENT and t.value in ("import", "module", "export"):
             return True
@@ -537,16 +566,19 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             else:
                 # Parse visibility and then the declaration
                 visibility = self._parse_visibility()
+                unsafe = self._parse_unsafe_modifier()
                 if self.match(TokenType.STRUCT):
-                    p.structs.append(self.parse_struct(visibility))
+                    p.structs.append(self.parse_struct(visibility, unsafe))
+                elif self.match(TokenType.FUNC):
+                    p.functions.append(self.parse_function(visibility, unsafe))
+                elif unsafe:
+                    self._error_unsafe_position()
                 elif self.match(TokenType.ENUM):
                     p.enums.append(self.parse_enum(visibility))
                 elif self.match(TokenType.TRAIT):
                     p.traits.append(self.parse_trait(visibility))
                 elif self.match(TokenType.EXTENSION):
                     p.extensions.append(self.parse_extension(visibility))
-                elif self.match(TokenType.FUNC):
-                    p.functions.append(self.parse_function(visibility))
                 elif self.match(TokenType.TYPE):
                     p.type_definitions.append(self.parse_type_definition(visibility))
                 elif self.match(TokenType.STATIC):
@@ -555,6 +587,14 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                     self.error(f"Expected struct, enum, trait, extension, func, type, or static after visibility modifier")
         elif self.match_ident("module"):
             p.module_decls.append(self.parse_module_decl())
+        elif self.match(TokenType.UNSAFE):
+            self.advance()
+            if self.match(TokenType.STRUCT):
+                p.structs.append(self.parse_struct(Visibility.PRIVATE, True))
+            elif self.match(TokenType.FUNC):
+                p.functions.append(self.parse_function(Visibility.PRIVATE, True))
+            else:
+                self._error_unsafe_position()
         elif self.match(TokenType.STRUCT):
             p.structs.append(self.parse_struct())
         elif self.match(TokenType.ENUM):
@@ -589,13 +629,16 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             if self.peek(1).type == TokenType.IDENT and self.peek(1).value == "module":
                 self.error("attributes are not supported on module declarations")
             visibility = self._parse_visibility()
+        unsafe = self._parse_unsafe_modifier()
 
         if self.match(TokenType.FUNC):
             self._reject_misplaced_attributes(attrs, FUNC_STATIC_ATTRIBUTES,
                                               "function declarations")
-            fn = self.parse_function(visibility)
+            fn = self.parse_function(visibility, unsafe)
             fn.attributes = attrs
             p.functions.append(fn)
+        elif unsafe:
+            self._error_unsafe_position()
         elif self.match(TokenType.STATIC):
             self._reject_misplaced_attributes(attrs, FUNC_STATIC_ATTRIBUTES,
                                               "static declarations")

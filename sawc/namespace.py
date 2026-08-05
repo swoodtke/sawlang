@@ -48,6 +48,9 @@ class FunctionSymbol:
     #  - is_blocking: `extern blocking func` (a suspension source)
     is_sync: bool = False
     is_blocking: bool = False
+    # design 130: declared `unsafe func` / `unsafe init`. The declaration is the
+    # obligation; the trigger rule checks it against the body.
+    is_unsafe: bool = False
     visibility: Visibility = Visibility.PRIVATE
     # Member visibility (design 80): the module that DEFINES this method, for the
     # cross-module member-access gate. For std/builtin declarations this is a
@@ -94,6 +97,10 @@ class StructSymbol:
     # See FunctionSymbol.def_module for the std-synthetic-id rationale.
     field_visibility: Dict[str, Visibility] = field(default_factory=dict)
     def_module: Tuple[str, ...] = ()
+    # `unsafe struct` (design 130): this type is unsafe, so naming/binding/
+    # receiving/returning one of its values makes a function unsafe. Held here
+    # rather than read off `ast_node`, which is None for a non-generic struct.
+    is_unsafe: bool = False
     line: int = 0
     column: int = 0
     ast_node: Optional[Struct] = None
@@ -124,6 +131,9 @@ class TraitMethodSymbol:
     self_is_reference: bool = True
     # `sync` trait method (design 22/51): calls through `any` stay sync-callable.
     is_sync: bool = False
+    # `unsafe` trait method (design 130): every conformer's implementation is
+    # unsafe, and so is any call through the requirement.
+    is_unsafe: bool = False
     # Default method body (design 56): the parsed `TraitMethod` AST when the
     # method declares a `{ ... }` default, else None. Carried so a conformer that
     # omits the method can synthesize a per-conformer Method from this body.
@@ -466,6 +476,7 @@ class Namespace:
                 field_order=field_order,
                 type_params=struct.type_params,
                 visibility=struct.visibility,
+                is_unsafe=getattr(struct, 'is_unsafe', False),
                 line=struct.line,
                 column=struct.column,
                 ast_node=struct if struct.type_params else None
@@ -494,6 +505,7 @@ class Namespace:
                 return_type=func.return_type,
                 type_params=func.type_params,
                 visibility=func.visibility,
+                is_unsafe=getattr(func, 'is_unsafe', False),
                 ast_node=func if func.type_params else None
             ))
 

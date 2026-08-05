@@ -560,7 +560,7 @@ class TypeUtilsMixin:
             # Recursively resolve function param and return types
             resolved_params = [self._resolve_type(t) for t in (saw_type.param_types or [])]
             resolved_return = self._resolve_type(saw_type.func_return_type) if saw_type.func_return_type else None
-            return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return, func_is_sync=saw_type.func_is_sync, func_is_escaping=saw_type.func_is_escaping)
+            return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return, func_is_sync=saw_type.func_is_sync, func_is_escaping=saw_type.func_is_escaping, func_is_unsafe=saw_type.func_is_unsafe)
         return saw_type
 
     def _stamp_escaping_roles(self, t: Optional[SawType], is_param: bool = False,

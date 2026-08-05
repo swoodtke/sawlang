@@ -117,6 +117,11 @@ class SawType:
     # store it); an escaping value into a non-escaping slot? YES (safe — the
     # callee promises not to store it). So non-escaping <: escaping.
     func_is_escaping: bool = False
+    # For function types (FUNCTION): True for an `unsafe` function type
+    # (`(UnsafePointer<T>) unsafe sync -> R`, design 130). A closure whose own
+    # body names an unsafe type is an unsafe closure (rule 3 judged per body), so
+    # only an `unsafe`-typed slot accepts it; a safe closure flows into either.
+    func_is_unsafe: bool = False
     # For pointer types (POINTER), True = UnsafePointer (mutable), False = UnsafeConstPointer
     pointer_mutable: Optional[bool] = None
     # For module types (during qualified access)
@@ -166,8 +171,10 @@ class SawType:
             return f"[{self.array_element_type}; {self.array_size}]"
         if self.kind == TypeKind.FUNCTION:
             params = ", ".join(str(t) for t in (self.param_types or []))
-            # Canonical post-parameter effect-slot order: `sync escaping`.
+            # Canonical post-parameter effect-slot order: `unsafe sync escaping`.
             effects = ""
+            if self.func_is_unsafe:
+                effects += " unsafe"
             if self.func_is_sync:
                 effects += " sync"
             if self.func_is_escaping:
@@ -351,7 +358,7 @@ class SawType:
         if self.kind == TypeKind.FUNCTION:
             substituted_params = [t.substitute(type_map) for t in (self.param_types or [])]
             substituted_return = self.func_return_type.substitute(type_map) if self.func_return_type else None
-            return SawType(TypeKind.FUNCTION, param_types=substituted_params, func_return_type=substituted_return, func_is_sync=self.func_is_sync, func_is_escaping=self.func_is_escaping)
+            return SawType(TypeKind.FUNCTION, param_types=substituted_params, func_return_type=substituted_return, func_is_sync=self.func_is_sync, func_is_escaping=self.func_is_escaping, func_is_unsafe=self.func_is_unsafe)
 
         # Primitives and other types don't need substitution
         return self
@@ -1320,6 +1327,12 @@ class Struct(ASTNode):
     fields: List[StructField]
     type_params: List['TypeParameter'] = field(default_factory=list)
     visibility: 'Visibility' = Visibility.PRIVATE
+    # `unsafe struct` (design 130): this type is UNSAFE. A function that names,
+    # binds, receives or returns one of its values is unsafe (rule 3). Unsafety
+    # is NOT transitive — a safe struct with an unsafe FIELD stays safe, and only
+    # the methods that touch the field are unsafe. The compiler requires an
+    # unsafe type's name to start with `Unsafe`.
+    is_unsafe: bool = False
     source_file: str = ""
     doc: Optional[str] = None
 
@@ -1352,6 +1365,7 @@ class TraitMethod(ASTNode):
     self_mutable: bool = False  # True for '&var self'
     self_is_reference: bool = False  # True for '&self' or '&var self'
     is_sync: bool = False  # `func m(...) sync` — a checked suspension-free method
+    is_unsafe: bool = False  # `unsafe func m(...)` — an unsafe requirement (design 130)
     # Default method body (design 56): a trait method declared WITH a `{ ... }`
     # body is a default. Conformers may omit it (the compiler synthesizes a
     # per-conformer Method from this body) or override it. None = required method.
@@ -1425,6 +1439,10 @@ class Method(ASTNode):
     is_derived_compare: bool = False  # True for a compiler-synthesized lexicographic compare() (design 48)
     is_derived_hash: bool = False  # True for a compiler-synthesized field-streaming hash() (design 48)
     is_sync: bool = False  # True for a `sync func` method (checked suspension-free)
+    # `unsafe func` / `unsafe init` (design 130): this method touches an unsafe
+    # type. Declared, never inferred — the trigger rule checks the declaration
+    # against the body rather than supplying it.
+    is_unsafe: bool = False
     # Method-level generic type params (brief 36): the `U` in `func map<U>(...)`,
     # distinct from and in addition to the enclosing extension's own type params.
     type_params: List['TypeParameter'] = field(default_factory=list)
@@ -1512,6 +1530,8 @@ class Function(ASTNode):
     # `sync func` declaration (design 22): body checked transitively
     # suspension-free at definition (ISR/callback style).
     is_sync: bool = False
+    # `unsafe func` declaration (design 130): see Method.is_unsafe.
+    is_unsafe: bool = False
     # Declaration attributes (design 58): `@export` / `@section(...)` lines.
     attributes: List['Attribute'] = field(default_factory=list)
     # Compiler-synthesized (design 80): coroutine-transform-generated functions

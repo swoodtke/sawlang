@@ -245,6 +245,21 @@ class RegistrationMixin:
             )
             return
 
+        # design 130 rule 1: the SEMANTICS come from the `unsafe` keyword, but the
+        # NAME is then enforced, so an unsafe type is visible at every use site
+        # without the reader consulting its declaration. The converse does not
+        # hold — a plain `struct UnsafeDefaults` is an ordinary safe type, since
+        # the keyword is the only thing that confers unsafety.
+        if getattr(struct, 'is_unsafe', False) and not struct.name.startswith("Unsafe"):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"an unsafe type must be named `Unsafe*`, but this one is "
+                f"named `{struct.name}`",
+                struct.line, struct.column,
+                hint=f"rename it to `Unsafe{struct.name}`, or drop the `unsafe` "
+                     f"keyword if the type is safe to name, hold and pass",
+            )
+
         # Check for duplicate fields
         fields = {}
         field_order = []
@@ -282,6 +297,7 @@ class RegistrationMixin:
             visibility=getattr(struct, 'visibility', Visibility.PRIVATE),
             field_visibility=field_visibility,
             def_module=def_module,
+            is_unsafe=getattr(struct, 'is_unsafe', False),
             line=struct.line,
             column=struct.column,
             ast_node=struct if struct.type_params else None
@@ -389,6 +405,7 @@ class RegistrationMixin:
                 self_mutable=method.self_mutable,
                 self_is_reference=method.self_is_reference,
                 is_sync=getattr(method, 'is_sync', False),
+                is_unsafe=getattr(method, 'is_unsafe', False),
                 # Carry the AST so a conformer can synthesize a Method from the
                 # default body (design 56); inherited symbols keep their own
                 # ast_node, so defaults propagate through trait inheritance.
@@ -488,6 +505,7 @@ class RegistrationMixin:
             default_values=default_values,
             visibility=getattr(func, 'visibility', Visibility.PRIVATE),
             is_sync=getattr(func, 'is_sync', False),
+            is_unsafe=getattr(func, 'is_unsafe', False),
             ast_node=func if func.type_params else None,
             decl_node=func
         ))
@@ -1033,6 +1051,7 @@ class RegistrationMixin:
                         self_is_reference=tm_ast.self_is_reference,
                         is_static=False,
                         is_sync=getattr(tm_ast, 'is_sync', False),
+                        is_unsafe=getattr(tm_ast, 'is_unsafe', False),
                         type_params=[],
                         line=extension.line,
                         column=extension.column,
@@ -1510,6 +1529,7 @@ class RegistrationMixin:
                 self_mutable=self_mutable,
                 self_is_reference=method.self_is_reference,
                 extension_bounds=extension_bounds,
+                is_unsafe=getattr(method, 'is_unsafe', False),
                 visibility=getattr(method, 'visibility', Visibility.PRIVATE),
                 def_module=ext_def_module,
                 satisfies_trait=(method.name in trait_method_names

@@ -1,0 +1,11 @@
+// Design 130: `unsafe` precedes the declaration keyword — it is not spelled in
+// the post-parameter effect slot beside `sync`. Writing it there names the right
+// position rather than failing at the return arrow.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `unsafe` goes before the declaration
+
+func poke(reg: Int) unsafe -> Int { reg }
+
+func main() {
+    print("{poke(1)}")
+}

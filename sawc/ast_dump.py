@@ -265,7 +265,8 @@ class ASTDumper:
         if struct.type_params:
             params = ", ".join(tp.name for tp in struct.type_params)
             type_params = f"<{params}>"
-        self._emit(f"Struct {struct.name}{type_params} {{")
+        unsafe = "unsafe " if getattr(struct, 'is_unsafe', False) else ""
+        self._emit(f"{unsafe}Struct {struct.name}{type_params} {{")
         self._indent()
         for field in struct.fields:
             self._emit(f"{field.name}: {self._type_str(field.type)}")
@@ -337,8 +338,9 @@ class ASTDumper:
 
         prefix = "init" if method.is_init else "func"
         static = "[static] " if method.is_static else ""
+        unsafe = "unsafe " if getattr(method, 'is_unsafe', False) else ""
 
-        self._emit(f"{static}{prefix} {method.name}({params_str}) -> {self._type_str(method.return_type)} {{")
+        self._emit(f"{static}{unsafe}{prefix} {method.name}({params_str}) -> {self._type_str(method.return_type)} {{")
         self._indent()
         self._dump_block(method.body)
         self._dedent()
@@ -358,7 +360,8 @@ class ASTDumper:
             params.append(f"{p.name}: {self._type_str(p.type)}{default}")
         params_str = ", ".join(params)
 
-        self._emit(f"Function {func.name}{type_params}({params_str}) -> {self._type_str(func.return_type)} {{")
+        unsafe = "unsafe " if getattr(func, 'is_unsafe', False) else ""
+        self._emit(f"{unsafe}Function {func.name}{type_params}({params_str}) -> {self._type_str(func.return_type)} {{")
         self._indent()
         self._dump_block(func.body)
         self._dedent()

@@ -386,9 +386,12 @@ class DocsBuilder:
             rendered.append(text)
         ret = _type_str(node.return_type)
         sync_txt = " sync" if getattr(node, "is_sync", False) else ""
+        # design 130: `unsafe` precedes the declaration keyword, so it renders
+        # with the visibility prefix rather than in the post-parameter slot.
+        unsafe_txt = "unsafe " if getattr(node, "is_unsafe", False) else ""
         ret_txt = "" if ret in (None, "Void") else " -> " + ret
-        signature = "%s%s(%s)%s%s" % (_vis_prefix(visibility), head,
-                                      ", ".join(rendered), sync_txt, ret_txt)
+        signature = "%s%s%s(%s)%s%s" % (_vis_prefix(visibility), unsafe_txt, head,
+                                        ", ".join(rendered), sync_txt, ret_txt)
 
         return {
             "kind": "init" if is_init else "method" if owner else "func",
@@ -405,6 +408,17 @@ class DocsBuilder:
         }
 
     def _effect(self, node, owner: Optional[str], is_trait_method: bool) -> str:
+        """The declaration's effects, space-separated. `suspending` when the
+        effect graph says the body reaches a suspension point, else `sync`; an
+        `unsafe` declaration (design 130) prefixes that with `unsafe`, so a safe
+        declaration's value is unchanged."""
+        suspension = self._suspension_effect(node, owner, is_trait_method)
+        if getattr(node, "is_unsafe", False):
+            return "unsafe " + suspension
+        return suspension
+
+    def _suspension_effect(self, node, owner: Optional[str],
+                           is_trait_method: bool) -> str:
         """`suspending` when the effect graph says the body reaches a suspension
         point, else `sync`. A declared `sync func` is sync by definition — the
         checker already proved the body suspension-free."""

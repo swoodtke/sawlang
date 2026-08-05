@@ -315,6 +315,7 @@ class GenericsMixin:
             return SawType(TypeKind.FUNCTION, param_types=saw_type.param_types,
                            func_return_type=saw_type.func_return_type,
                            func_is_sync=saw_type.func_is_sync,
+                           func_is_unsafe=saw_type.func_is_unsafe,
                            func_is_escaping=True)
         if k == TypeKind.OPTIONAL and saw_type.inner_type is not None:
             return SawType(TypeKind.OPTIONAL,

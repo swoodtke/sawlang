@@ -120,26 +120,34 @@ class TypeParsingMixin:
                     _parse_tuple_element()
             self.expect(TokenType.RPAREN)
 
-            # Post-parameter effect slot (designs 18/22/16/29): `(T) sync -> U`
-            # (checked suspension-free) and `(T) escaping -> U` (escaping
-            # function value), composing in canonical order `(T) sync escaping ->
-            # U`. Both markers are CONTEXTUAL — after a parenthesized list only
-            # `->` (function type) or a closing delimiter (tuple) may follow, so a
-            # run of these identifiers is unambiguous only when terminated by
-            # `->`. Otherwise this is a tuple and the identifiers are left
-            # unconsumed. This is Swift's `throws`/`async` position.
+            # Post-parameter effect slot (designs 18/22/16/29/130): `(T) sync -> U`
+            # (checked suspension-free), `(T) escaping -> U` (escaping function
+            # value) and `(T) unsafe -> U` (design 130 — a closure whose own body
+            # names an unsafe type), composing in canonical order
+            # `(T) unsafe sync escaping -> U`. `sync`/`escaping` are CONTEXTUAL
+            # identifiers — after a parenthesized list only `->` (function type)
+            # or a closing delimiter (tuple) may follow, so a run of them is
+            # unambiguous only when terminated by `->`. Otherwise this is a tuple
+            # and the identifiers are left unconsumed. `unsafe` is a keyword and
+            # rides the same run so the three read as one slot. This is Swift's
+            # `throws`/`async` position.
             is_sync = False
             is_escaping = False
+            is_unsafe = False
             run = []
             k = 0
-            while (self.peek(k).type == TokenType.IDENT
-                   and self.peek(k).value in ('sync', 'escaping')):
-                run.append(self.peek(k).value)
+            while ((self.peek(k).type == TokenType.IDENT
+                    and self.peek(k).value in ('sync', 'escaping'))
+                   or self.peek(k).type == TokenType.UNSAFE):
+                run.append('unsafe' if self.peek(k).type == TokenType.UNSAFE
+                           else self.peek(k).value)
                 k += 1
             if run and self.peek(k).type == TokenType.ARROW:
                 for kw in run:
                     if kw == 'sync':
                         is_sync = True
+                    elif kw == 'unsafe':
+                        is_unsafe = True
                     else:
                         is_escaping = True
                     self.advance()
@@ -153,6 +161,8 @@ class TypeParsingMixin:
                     fn_type.func_is_sync = True
                 if is_escaping:
                     fn_type.func_is_escaping = True
+                if is_unsafe:
+                    fn_type.func_is_unsafe = True
                 return fn_type
             else:
                 # All-or-nothing labeling (design 63): a partially-labeled tuple

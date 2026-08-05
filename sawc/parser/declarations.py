@@ -83,7 +83,8 @@ class DeclarationsMixin:
             self.skip_newlines()
         return attrs
 
-    def parse_function(self, visibility: Visibility = Visibility.PRIVATE) -> Function:
+    def parse_function(self, visibility: Visibility = Visibility.PRIVATE,
+                       is_unsafe: bool = False) -> Function:
         start = self.current()
         self.expect(TokenType.FUNC)
 
@@ -106,6 +107,7 @@ class DeclarationsMixin:
         if self.match_ident('sync'):
             is_sync = True
             self.advance()
+        self._reject_trailing_unsafe()
 
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)
@@ -124,13 +126,20 @@ class DeclarationsMixin:
             type_params=type_params,
             visibility=visibility,
             is_sync=is_sync,
+            is_unsafe=is_unsafe,
             line=start.line,
             column=start.column,
             source_file=self.source_file
         )
 
-    def parse_struct(self, visibility: Visibility = Visibility.PRIVATE) -> Struct:
-        """Parse a struct declaration: struct Name { field: Type } or struct Box<T> { value: T }"""
+    def parse_struct(self, visibility: Visibility = Visibility.PRIVATE,
+                     is_unsafe: bool = False) -> Struct:
+        """Parse a struct declaration: struct Name { field: Type } or struct Box<T> { value: T }
+
+        `unsafe struct` (design 130) declares an unsafe TYPE: naming, binding,
+        receiving or returning one of its values makes a function unsafe. The
+        name check (`Unsafe*`) is a semantic rule and lives in the typechecker.
+        """
         start = self.current()
         self.expect(TokenType.STRUCT)
 
@@ -173,6 +182,7 @@ class DeclarationsMixin:
             fields=fields,
             type_params=type_params,
             visibility=visibility,
+            is_unsafe=is_unsafe,
             line=start.line,
             column=start.column,
             source_file=self.source_file
@@ -286,8 +296,11 @@ class DeclarationsMixin:
                 if member_doc is not None:
                     # Associated types carry no doc slot; report rather than drop.
                     self._release_doc(member_doc)
-            elif self.match(TokenType.FUNC):
-                method = self.parse_trait_method()
+            elif self.match(TokenType.FUNC, TokenType.UNSAFE):
+                member_unsafe = self._parse_unsafe_modifier()
+                if member_unsafe and not self.match(TokenType.FUNC):
+                    self._error_unsafe_position()
+                method = self.parse_trait_method(member_unsafe)
                 method.doc = self.doc_text(member_doc)
                 methods.append(method)
             else:
@@ -321,7 +334,7 @@ class DeclarationsMixin:
             column=start.column
         )
 
-    def parse_trait_method(self) -> TraitMethod:
+    def parse_trait_method(self, is_unsafe: bool = False) -> TraitMethod:
         """Parse method signature in trait: func name(&self, params...) -> Type"""
         start = self.current()
         self.expect(TokenType.FUNC, "Expected 'func' in trait method")
@@ -341,6 +354,7 @@ class DeclarationsMixin:
         if self.match_ident('sync'):
             is_sync = True
             self.advance()
+        self._reject_trailing_unsafe()
 
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)
@@ -368,6 +382,7 @@ class DeclarationsMixin:
             self_mutable=self_mutable,
             self_is_reference=self_is_reference,
             is_sync=is_sync,
+            is_unsafe=is_unsafe,
             body=body,
             line=start.line,
             column=start.column
@@ -441,14 +456,18 @@ class DeclarationsMixin:
                 # `public(parent)` modifier on an extension method (incl. init +
                 # static). Must be followed by `func` or `init`.
                 method_visibility = self._parse_visibility()
+                member_unsafe = self._parse_unsafe_modifier()
                 if not self.match(TokenType.FUNC, TokenType.INIT):
                     self.error("Expected 'func' or 'init' after visibility modifier "
                                "in extension")
-                method = self.parse_method(method_visibility)
+                method = self.parse_method(method_visibility, member_unsafe)
                 method.doc = self.doc_text(member_doc)
                 methods.append(method)
-            elif self.match(TokenType.FUNC, TokenType.INIT):
-                method = self.parse_method()
+            elif self.match(TokenType.FUNC, TokenType.INIT, TokenType.UNSAFE):
+                member_unsafe = self._parse_unsafe_modifier()
+                if member_unsafe and not self.match(TokenType.FUNC, TokenType.INIT):
+                    self._error_unsafe_position()
+                method = self.parse_method(Visibility.PRIVATE, member_unsafe)
                 method.doc = self.doc_text(member_doc)
                 methods.append(method)
             elif self.match(TokenType.AT):
@@ -614,7 +633,8 @@ class DeclarationsMixin:
             column=start.column
         )
 
-    def parse_method(self, visibility: Visibility = Visibility.PRIVATE) -> Method:
+    def parse_method(self, visibility: Visibility = Visibility.PRIVATE,
+                     is_unsafe: bool = False) -> Method:
         """Parse method definition: func name(&self, ...) -> Type { ... }
            or init method: init(...) { ... }"""
         start = self.current()
@@ -653,6 +673,7 @@ class DeclarationsMixin:
         if self.match_ident('sync'):
             is_sync = True
             self.advance()
+        self._reject_trailing_unsafe()
 
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)
@@ -673,6 +694,7 @@ class DeclarationsMixin:
             self_is_reference=self_is_reference,
             is_static=is_static,
             is_sync=is_sync,
+            is_unsafe=is_unsafe,
             type_params=type_params,
             visibility=visibility,
             line=start.line,

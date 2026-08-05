@@ -1,0 +1,45 @@
+// Design 130: the declaration-level unsafe vocabulary. `unsafe struct` declares
+// an unsafe TYPE, `unsafe func` / `unsafe init` a function that touches one, and
+// `(T) unsafe sync -> R` an unsafe closure type. A plain struct that merely
+// happens to be NAMED `Unsafe*` gets no semantics from its name.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 2
+// 2
+// 3
+// 9
+
+unsafe struct UnsafeMmioReg { addr: Int }
+
+// Not unsafe: the keyword is the only thing that confers unsafety.
+struct UnsafeDefaults { n: Int }
+
+extension UnsafeMmioReg {
+    unsafe init(at: Int) -> UnsafeMmioReg { UnsafeMmioReg(addr: at) }
+    public unsafe func read(&self) -> Int { self.addr }
+}
+
+public unsafe func poke(reg: Int) -> Int { reg + 1 }
+
+// The `unsafe` slot rides the post-parameter effect run beside `sync`, so a
+// function TYPE spells it there.
+func apply(body: (Int) unsafe sync -> Int) -> Int { body(1) }
+
+trait Peripheral {
+    unsafe func probe(&self) -> Int
+}
+
+extension UnsafeMmioReg: Peripheral {
+    unsafe func probe(&self) -> Int { self.addr + 2 }
+}
+
+func main() {
+    let reg = UnsafeMmioReg(at: 7)
+    print("{reg.read()}")
+    print("{poke(1)}")
+    print("{apply({ x in x * 2 })}")
+    let d = UnsafeDefaults(n: 3)
+    print("{d.n}")
+    print("{reg.probe()}")
+}
