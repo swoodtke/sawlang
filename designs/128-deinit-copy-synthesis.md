@@ -1,8 +1,8 @@
 # Design 128 — structural Deinit synthesis + @synthesize ExplicitCopy
 
-STATUS: DECIDED (user, Aug 4-5) — model fully specified below, all open
-questions closed. Dispatch-ready; dispatches with the pending queue
-(129/130), not before the parked-branch integration.
+STATUS: APPROVED (user, Aug 5) — model fully specified below, all open
+questions closed, uniform-marker rule confirmed. Dispatches with the
+pending queue (129/130), after parked-branch integration + wave 2.
 
 ## Problem (from the claims review, HOLDS-WITH-CAVEATS)
 The most common resource-owning shape — `struct Holder { v: Vector<Int> }` —
