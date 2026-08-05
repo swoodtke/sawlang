@@ -31,7 +31,10 @@ extension StringBuilder {
         StringBuilder(buffer: None, length: 0, capacity: 0)
     }
 
-    // Create with initial capacity
+    /// Creates an empty builder with room for `capacity` bytes.
+    ///
+    /// Panics if the allocator refuses the request (design 123, infallible
+    /// tier); `try_with_capacity` reports the failure instead.
     public init(capacity: Int) -> StringBuilder {
         if capacity <= 0 {
             StringBuilder(buffer: None, length: 0, capacity: 0)
@@ -39,9 +42,21 @@ extension StringBuilder {
             if let ptr = unsafe GlobalAllocator().alloc(capacity, 1) {
                 StringBuilder(buffer: ptr, length: 0, capacity: capacity)
             } else {
-                StringBuilder(buffer: None, length: 0, capacity: 0)
+                panic("StringBuilder(capacity:): allocation failed")
             }
         }
+    }
+
+    /// Creates an empty builder with room for `n` bytes, reporting allocator
+    /// exhaustion as `Err(AllocError)`.
+    public func try_with_capacity(n: Int) -> Result<StringBuilder, AllocError> {
+        if n <= 0 {
+            return StringBuilder()
+        }
+        if let ptr = unsafe GlobalAllocator().alloc(n, 1) {
+            return StringBuilder(buffer: ptr, length: 0, capacity: n)
+        }
+        return AllocError(size: n, align: 1)
     }
 
     // Get current length
@@ -54,8 +69,13 @@ extension StringBuilder {
         self.length == 0
     }
 
-    // Append a string. Length comes from the O(1) header (`s.len()`), not a
-    // strlen scan, so interior NUL bytes are preserved and no libc call is made.
+    /// Appends the bytes of `s`.
+    ///
+    /// Length comes from the O(1) header, not a strlen scan, so interior NUL
+    /// bytes are preserved and no libc call is made. Panics if the buffer must
+    /// grow and the allocator refuses (design 123, infallible tier); the
+    /// refused grow used to leave `capacity` short and the copy below then wrote
+    /// past the end of the buffer. `try_append` reports the failure instead.
     public func append(&var self, s: String) {
         let s_len = s.len()
 
@@ -63,13 +83,34 @@ extension StringBuilder {
             return
         }
 
-        // Ensure capacity
-        let needed = self.length + s_len + 1  // +1 for null terminator
-        if needed > self.capacity {
-            self.grow(needed)
+        // +1 for the null terminator.
+        if not self._reserve(self.length + s_len + 1) {
+            panic("StringBuilder.append: allocation failed")
         }
+        self._place(s, s_len)
+    }
 
-        // Copy string bytes one at a time
+    /// Appends the bytes of `s`, reporting allocator exhaustion as
+    /// `Err(AllocError)`.
+    ///
+    /// The builder is unchanged on `Err` — no partial append.
+    public func try_append(&var self, s: String) -> Result<Void, AllocError> {
+        let s_len = s.len()
+        if s_len == 0 {
+            return
+        }
+        let needed = self.length + s_len + 1
+        if not self._reserve(needed) {
+            return AllocError(size: self._grow_target(needed), align: 1)
+        }
+        self._place(s, s_len)
+        return
+    }
+
+    // Internal: copy `s_len` bytes of `s` into the (already reserved) buffer
+    // and re-terminate. Shared by `append` and `try_append` so the two tiers
+    // cannot drift.
+    func _place(&var self, s: String, s_len: Int) {
         if let buf = self.buffer {
             var i = 0
             while i < s_len {
@@ -77,7 +118,6 @@ extension StringBuilder {
                 i = i + 1
             }
             self.length = self.length + s_len
-            // Add null terminator
             buf[self.length] = 0
         }
     }
@@ -90,13 +130,30 @@ extension StringBuilder {
         self.append("{value}")
     }
 
-    // Append a single character (as Int8)
+    /// Appends one byte.
+    ///
+    /// Panics if the buffer must grow and the allocator refuses (design 123,
+    /// infallible tier); `try_append_char` reports the failure instead.
     public func append_char(&var self, c: Int8) {
-        let needed = self.length + 2  // +1 for char, +1 for null
-        if needed > self.capacity {
-            self.grow(needed)
+        // +1 for the byte, +1 for the null terminator.
+        if not self._reserve(self.length + 2) {
+            panic("StringBuilder.append_char: allocation failed")
         }
+        self._place_char(c)
+    }
 
+    /// Appends one byte, reporting allocator exhaustion as `Err(AllocError)`.
+    public func try_append_char(&var self, c: Int8) -> Result<Void, AllocError> {
+        let needed = self.length + 2
+        if not self._reserve(needed) {
+            return AllocError(size: self._grow_target(needed), align: 1)
+        }
+        self._place_char(c)
+        return
+    }
+
+    // Internal: place one byte into the (already reserved) buffer.
+    func _place_char(&var self, c: Int8) {
         if let buf = self.buffer {
             buf[self.length] = c
             self.length = self.length + 1
@@ -112,6 +169,11 @@ extension StringBuilder {
     // yields always re-encodes to `Some`. Assembles the code units with
     // multiplication rather than bit shifts (Saw has no bitwise operators): the
     // shifts are *64 (6 bits), *4096 (12), *262144 (18).
+    //
+    // The `None` answers exactly one question — "is that a scalar value?" — and
+    // never doubles as an out-of-memory report: appending goes through
+    // `append_char`, so allocator exhaustion panics (design 123, infallible
+    // tier) rather than colliding with the invalid-scalar answer.
     public func append_scalar(&var self, scalar: Int) -> Int? {
         if scalar < 0 || scalar > 1114111 {
             return None
@@ -162,6 +224,12 @@ extension StringBuilder {
     // (and may keep appending), and the returned String is freed on its own
     // schedule (no leak, no double-free). Returning `buf as String` would instead
     // hand back a header-less pointer that corrupts on len()/release.
+    //
+    // Panics if the String allocation is refused (design 123): the String layer
+    // is the infallible tier, and returning `""` here — which is what a NULL
+    // from the allocator used to produce — is indistinguishable from a builder
+    // that legitimately has nothing in it. The `""` below is the second case
+    // and only the second case: a builder that was never appended to.
     public func build(&self) -> String {
         if let buf = self.buffer {
             __saw_string_from_bytes(buf, self.length)
@@ -175,12 +243,25 @@ extension StringBuilder {
         self.build()
     }
 
-    // Internal: grow buffer to at least min_capacity
-    public func grow(&var self, min_capacity: Int) {
-        var new_capacity = if self.capacity == 0 { 16 } else { self.capacity * 2 }
-        while new_capacity < min_capacity {
-            new_capacity = new_capacity * 2
+    // Internal: the capacity a growth to `min_capacity` would allocate.
+    func _grow_target(&self, min_capacity: Int) -> Int {
+        var target = if self.capacity == 0 { 16 } else { self.capacity * 2 }
+        while target < min_capacity {
+            target = target * 2
         }
+        target
+    }
+
+    // Internal: ensure `capacity >= min_capacity`. Returns whether the builder
+    // now has that room — FALSE means the allocator refused and the builder is
+    // untouched. The old `grow` returned Void, so `append`/`append_char` copied
+    // into a buffer that had never grown and wrote past its end (RS-1's shape,
+    // repeated here).
+    func _reserve(&var self, min_capacity: Int) -> Bool {
+        if self.capacity >= min_capacity {
+            return true
+        }
+        let new_capacity = self._grow_target(min_capacity)
 
         if let buf = self.buffer {
             // Grow via alloc + copy + dealloc (the seams provide no realloc).
@@ -190,14 +271,17 @@ extension StringBuilder {
                 GlobalAllocator().dealloc(buf, old_capacity, 1)
                 self.buffer = new_buf
                 self.capacity = new_capacity
+                return true
             }
-        } else {
-            if let new_buf = GlobalAllocator().alloc(new_capacity, 1) {
-                self.buffer = new_buf
-                self.capacity = new_capacity
-                new_buf[0] = 0  // Initialize with null terminator
-            }
+            return false
         }
+        if let new_buf = GlobalAllocator().alloc(new_capacity, 1) {
+            self.buffer = new_buf
+            self.capacity = new_capacity
+            new_buf[0] = 0  // Initialize with null terminator
+            return true
+        }
+        false
     }
 }
 

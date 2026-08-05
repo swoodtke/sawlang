@@ -12,47 +12,71 @@
 // as much as its tests, and most of std allocates through the GLOBAL allocator
 // — `String`, `StringBuilder`, `Data`, `Arc`, `Mutex`, `Channel` take no
 // allocator type parameter, so the review's `Vector<T, FailAlloc>` probe
-// technique cannot reach them. `__saw_rt_alloc_deny_after(n)` lets the next `n`
-// allocations succeed and denies every one after that, so a test can drive any
-// OOM path in the library deterministically. It is a facility of the HOSTED
-// default allocator only: std never references it (a freestanding runtime need
-// not provide the symbol), and a test that wants it declares the `extern`
-// itself. Default is inactive, and the inactive cost is one atomic load per
-// allocation — noise against malloc.
+// technique cannot reach them. `__saw_rt_alloc_deny_after(allow, deny)` permits
+// `allow` allocations, refuses the next `deny`, then resumes normal service, so
+// a test can drive any OOM path in the library deterministically.
+//
+// The WINDOW is what makes tier-1 panics testable. A Saw `panic(msg)` assembles
+// its message into a fresh allocation, so under blanket denial every panic
+// reports "string allocation failed" instead of the one the failing method
+// raised. `deny_after(0, 1)` refuses exactly the allocation under test and lets
+// the panic path allocate normally.
+//
+// This is a facility of the HOSTED default allocator only: std never references
+// it (a freestanding runtime need not provide the symbol), and a test that
+// wants it declares the `extern` itself. Default is inactive, and the inactive
+// cost is one atomic load per allocation — noise against malloc.
 
 extern "C" {
     func malloc(size: Int) -> UnsafePointer<Int8>
     func free(ptr: UnsafePointer<Int8>)
 }
 
-// Two statics rather than one signed sentinel: a static initializer takes a
-// plain literal, so "unlimited" is a separate flag rather than a negative
-// budget. ACTIVE = 0 means no limit is in force and BUDGET is not consulted.
+// Separate flag rather than one signed sentinel: a static initializer takes a
+// plain literal, so "no limit in force" is its own zero-valued flag. When
+// ACTIVE is 0 the other two are not consulted. ALLOC_DENY of -1 means "refuse
+// from here on".
 static ALLOC_LIMIT_ACTIVE: Atomic<Int> = Atomic(0)
-static ALLOC_BUDGET: Atomic<Int> = Atomic(0)
+static ALLOC_ALLOW: Atomic<Int> = Atomic(0)
+static ALLOC_DENY: Atomic<Int> = Atomic(0)
 
-// Permit the next `n` allocations and deny every one after that. Any
-// non-negative `n` arms the limit; re-arming resets the budget. A NEGATIVE `n`
-// disarms it, so a test can restore ordinary allocation once it has driven the
-// failure path it came for.
+// Permit `allow` allocations, refuse the next `deny`, then resume normal
+// service. `deny <= 0` refuses everything from that point on. A NEGATIVE
+// `allow` disarms the limit outright, so a test can restore ordinary allocation
+// once it has driven the failure path it came for.
 @export("__saw_rt_alloc_deny_after")
-func rt_alloc_deny_after(n: Int) {
-    if n < 0 {
+func rt_alloc_deny_after(allow: Int, deny: Int) {
+    if allow < 0 {
         ALLOC_LIMIT_ACTIVE.store(0)
         return
     }
-    ALLOC_BUDGET.store(n)
+    ALLOC_ALLOW.store(allow)
+    if deny <= 0 {
+        ALLOC_DENY.store(-1)
+    } else {
+        ALLOC_DENY.store(deny)
+    }
     ALLOC_LIMIT_ACTIVE.store(1)
 }
 
 @export("__saw_rt_alloc")
 func rt_alloc(size: Int, align: Int) -> UnsafePointer<Int8> {
     if ALLOC_LIMIT_ACTIVE.load() != 0 {
-        let left = ALLOC_BUDGET.load()
-        if left <= 0 {
-            return 0 as UnsafePointer<Int8>
+        let allow = ALLOC_ALLOW.load()
+        if allow > 0 {
+            ALLOC_ALLOW.store(allow - 1)
+        } else {
+            let deny = ALLOC_DENY.load()
+            if deny == 0 {
+                // Window spent: disarm so the rest of the program runs normally.
+                ALLOC_LIMIT_ACTIVE.store(0)
+            } else {
+                if deny > 0 {
+                    ALLOC_DENY.store(deny - 1)
+                }
+                return 0 as UnsafePointer<Int8>
+            }
         }
-        ALLOC_BUDGET.store(left - 1)
     }
     malloc(size)
 }

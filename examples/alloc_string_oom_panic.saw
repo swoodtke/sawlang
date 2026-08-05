@@ -13,13 +13,13 @@
 // EXPECT-PANIC-CONTAINS: string allocation failed
 
 extern "C" {
-    func __saw_rt_alloc_deny_after(n: Int)
+    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
 }
 
 func main() {
     var b = StringBuilder()
     b.append("saw")
     // The builder's own buffer is allocated; deny the String `build()` mints.
-    __saw_rt_alloc_deny_after(0)
+    __saw_rt_alloc_deny_after(0, 0)
     print(b.build())
 }
