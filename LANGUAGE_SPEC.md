@@ -29,7 +29,7 @@ implementation wins and this document is the bug.
 1. **Safety without sacrifice** - Memory safety and thread safety by default, with explicit opt-out for low-level control
 2. **Zero-cost abstractions** - High-level constructs compile to efficient machine code
 3. **Expressiveness** - Clean, readable syntax that reduces boilerplate
-4. **Predictability** - No hidden allocations, no garbage collection pauses, deterministic destruction
+4. **Predictability** - Allocation is visible in the type, no garbage collection pauses, deterministic destruction. Two constructs allocate without a signature saying so, and they are the only two: an escaping closure heap-allocates its captured environment, and string interpolation allocates its result buffer (interpolating an integer also routes through libc `snprintf`, which matters for the freestanding profile).
 5. **Progressive disclosure** - Simple things are simple, complex things are possible
 
 ### Non-Goals
@@ -1442,8 +1442,10 @@ enum drop glue. (A `[String; N]` field, like a scalar `String` field, does not
 force the container to declare a policy — String's per-element retain/release is
 compiler-handled.)
 
-The only implicit copies are cheap by contract, so design principle #4 ("no
-hidden allocations") holds: an innocent `=` is never secretly O(n).
+The only implicit copies are cheap by contract, which is the part of design
+principle #4 this section carries: an innocent `=` is never secretly O(n). The
+two allocations no signature announces (a closure environment, an interpolation
+buffer) are named with the principle in §1.
 
 ### Move-Only Types
 

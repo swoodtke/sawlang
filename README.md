@@ -15,9 +15,13 @@ syntax. It has no garbage collector and no lifetimes.
   optionals, and trailing closures.
 - **Zero-cost abstractions** - Generics and traits compile down to specialized
   machine code, with no runtime overhead for the abstraction.
-- **Predictable performance** - No hidden allocations. The only implicit copies
-  are cheap ones, and values are destroyed in a defined order (last in, first
-  out) as they go out of scope.
+- **Predictable performance** - Allocation is visible in the type: the
+  allocating containers carry their allocator as a type parameter, and no
+  assignment is secretly O(n). Two constructs allocate without a signature
+  saying so, and they are the only two — an escaping closure heap-allocates its
+  captured environment, and string interpolation allocates its result buffer.
+  The only implicit copies are cheap ones, and values are destroyed in a defined
+  order (last in, first out) as they go out of scope.
 - **Runs on bare metal** - Saw is freestanding. Pluggable allocators,
   memory-mapped registers, compile-time layout checks, and C-ABI exports let it
   target kernels and embedded systems.
