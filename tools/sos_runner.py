@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""SOS M0 QEMU test harness (design 112).
+"""SOS QEMU test harness (designs 112, 140).
 
-Builds and runs the freestanding SOS kernel under QEMU `virt` (riscv32) and
-asserts its UART output and emulator exit status. This is the mechanical test
-loop the kernel briefs build on — `make sos-test` green means "sawc-built code
-boots, prints, and exits cleanly under QEMU".
+Builds the freestanding SOS kernel — and, for the cases that need one, a root
+server image — runs them under QEMU `virt` (riscv32), and asserts the UART
+transcript and the emulator's exit status. `make sos-test` green means
+"sawc-built code boots, crosses into U-mode, and gets the right answer or the
+right diagnostic".
 
 Every kernel source builds under `--no-hidden-alloc` (design 135): a kernel is
 the audience for that flag, so the gate carries it permanently and any
@@ -13,11 +14,19 @@ rather than shipping.
 
 Pipeline per test case:
   1. sawc   : <src>.saw  -> <name>.o   (--freestanding --no-hidden-alloc
-              --target riscv32-...)
+              --target riscv32-..., --module-path kcore=sos/kernel/core — the
+              shared kernel module carrying the trap handler boot.S calls)
   2. clang  : boot.S     -> boot.o     (shared; assembled once)
   3. clang  : rt.c       -> rt.o       (shared; runtime seams, compiled once)
-  4. ld.lld : link with sos/kernel/virt.ld --gc-sections -> <name>.elf
-  5. qemu   : run with a hard timeout; capture UART stdout + exit status
+  4. the `.payload` blob, if the case has one — EITHER a hand-written `.S`
+     (unit A's U-mode code, unit B's hand-assembled sosimgs) OR a root package
+     built by Blade and pulled in through sos/kernel/rootimg.S's `.incbin`
+  5. ld.lld : link with sos/kernel/virt.ld --gc-sections -> <name>.elf
+  6. qemu   : run with a hard timeout; capture UART stdout + exit status
+
+A root package (`root_pkg`) is a real Blade package with `[sos] emit =
+"sosimg"` in its manifest, so the two-image cases exercise the same build path
+any later SOS process will use rather than a rule written here.
 
 QEMU / ld.lld / clang are HOST PREREQUISITES (like the Python venv), not
 Blade-managed; the harness probes for them up front and fails with an install
@@ -40,6 +49,15 @@ TESTS_DIR = os.path.join(REPO_ROOT, "sos", "tests")
 # `.saw` defining `kmain`. The core carries the trap handler boot.S calls, so
 # the module path is not optional for any case.
 CORE_MODULE = f"kcore={CORE_DIR}"
+
+# Root-server packages. These are real Blade packages built by Blade — the
+# whole point of unit C is that root goes through the same package pipeline any
+# SOS process will, not a bespoke rule in this file.
+BLADE_DIR = os.path.join(REPO_ROOT, "blade")
+TOML_SRC = os.path.join(REPO_ROOT, "libs", "toml", "src")
+SEMVER_SRC = os.path.join(REPO_ROOT, "libs", "semver", "src")
+ROOT_PKG = os.path.join(REPO_ROOT, "sos", "root")
+FAULT_ROOT_PKG = os.path.join(TESTS_DIR, "faulting-root")
 
 TRIPLE = "riscv32-unknown-none-elf"
 MARCH = "rv32imac_zicsr"
@@ -147,6 +165,30 @@ TEST_CASES = [
         "expect_out": "bad root image: segment loads below the root region",
         "expect_clean_exit": False,
     },
+    # --- design 140 unit C: the real two-image boot ------------------------
+    # Kernel and root are separate builds — separate linker scripts, separate
+    # load addresses, root built by Blade from its own package manifest — and
+    # meet only as an appended blob the kernel parses.
+    {
+        "name": "root_server_boot",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": ROOT_PKG,
+        "expect_out": ["SOS M1: kernel up on riscv32",
+                       "root image ok segments=0x00000002",
+                       "prio=0x01010100",
+                       "SOS root: hello from U-mode via ecall"],
+        "expect_clean_exit": True,
+    },
+    {
+        # The grant has to hold against a root that is merely WRONG, not just
+        # against one that behaves.
+        "name": "root_server_oversteps",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": FAULT_ROOT_PKG,
+        "expect_out": ["SOS root: reaching for the kernel",
+                       "fault store-access-fault"],
+        "expect_clean_exit": False,
+    },
 ]
 
 INSTALL_HINTS = {
@@ -230,6 +272,60 @@ def _build_shared(clang):
     return boot_o, rt_o
 
 
+def _build_blade(clang):
+    """Build Blade once with the in-tree compiler; return the binary path.
+
+    The `blade_bootstrap.py` stage0 step, reused: the SOS root packages are
+    built BY BLADE, so the harness needs a Blade to drive.
+    """
+    blade_bin = os.path.join(BUILD_DIR, "blade")
+    _run([sys.executable, SAWC, os.path.join(BLADE_DIR, "src", "main.saw"),
+          "-o", blade_bin,
+          "--module-path", f"toml={TOML_SRC}",
+          "--module-path", f"semver={SEMVER_SRC}"])
+    return blade_bin
+
+
+def _blade_env(clang):
+    env = dict(os.environ)
+    env["SAWC"] = f"{sys.executable} {SAWC}"
+    # macOS's Apple clang mis-drives the riscv integrated assembler; hand Blade
+    # the same clang this harness probed for.
+    env["SOS_CLANG"] = clang
+    return env
+
+
+def _build_root_image(blade_bin, pkg_dir, clang):
+    """`blade build` a root package; return the path to its sosimg.
+
+    Always `--force`: the harness's job is to prove the CURRENT tree boots, and
+    Blade's build avoidance keys on content it cannot see change here (the
+    kernel side, the linker script's meaning).
+    """
+    _run([blade_bin, "build", "--force"], cwd=pkg_dir, env=_blade_env(clang))
+    # The image is named for the PACKAGE, which need not match its directory.
+    images = [f for f in os.listdir(pkg_dir) if f.endswith(".sosimg")]
+    if len(images) != 1:
+        raise ToolError(f"expected exactly one .sosimg in {pkg_dir}, found {images}")
+    return os.path.join(pkg_dir, images[0])
+
+
+def _stitch_root_image(image, clang):
+    """Assemble the `.incbin` stub that pulls `image` into `.payload`.
+
+    The stub names `root.sosimg` and is assembled with `-I` pointing at the
+    build directory, so one committed stub stitches whichever root image the
+    case asked for.
+    """
+    staged = os.path.join(BUILD_DIR, "root.sosimg")
+    shutil.copyfile(image, staged)
+    stub_o = os.path.join(BUILD_DIR, "rootimg.o")
+    _run([clang, f"--target={TRIPLE}", f"-march={MARCH}", f"-mabi={MABI}",
+          "-nostdlib", "-I", BUILD_DIR, "-c",
+          os.path.join(KERNEL_DIR, "rootimg.S"), "-o", stub_o])
+    return stub_o
+
+
 def _build_elf(case, boot_o, rt_o, lld, clang):
     """Compile + link one test case to an ELF; return its path.
 
@@ -256,6 +352,8 @@ def _build_elf(case, boot_o, rt_o, lld, clang):
         _run([clang, f"--target={TRIPLE}", f"-march={MARCH}", f"-mabi={MABI}",
               "-nostdlib", "-c", case["asm"], "-o", payload_o])
         objs.append(payload_o)
+    if case.get("root_pkg"):
+        objs.append(_stitch_root_image(case["_root_image"], clang))
 
     _run([lld, "-T", os.path.join(KERNEL_DIR, "virt.ld"), "--gc-sections",
           "-o", elf, *objs])
@@ -313,6 +411,29 @@ def main():
     except ToolError as e:
         print(f"{CROSS} failed to build boot.S / rt.c\n{e}", file=sys.stderr)
         sys.exit(1)
+
+    # Root packages are built by Blade, so build Blade first — but only if some
+    # case actually needs one.
+    root_pkgs = []
+    for case in TEST_CASES:
+        if case.get("root_pkg") and case["root_pkg"] not in root_pkgs:
+            root_pkgs.append(case["root_pkg"])
+    if root_pkgs:
+        try:
+            blade_bin = _build_blade(clang)
+            print(f"{BOLD}building root images with blade{RESET}")
+            images = {}
+            for pkg in root_pkgs:
+                images[pkg] = _build_root_image(blade_bin, pkg, clang)
+                size = os.path.getsize(images[pkg])
+                print(f"  {os.path.relpath(images[pkg], REPO_ROOT)}  ({size} bytes)")
+            for case in TEST_CASES:
+                if case.get("root_pkg"):
+                    case["_root_image"] = images[case["root_pkg"]]
+            print()
+        except ToolError as e:
+            print(f"{CROSS} failed to build a root image\n{e}", file=sys.stderr)
+            sys.exit(1)
 
     passed = 0
     failed = 0

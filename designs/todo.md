@@ -4204,6 +4204,186 @@ Three units as briefed. Notes worth keeping:
   memory-safety bug on the ImplicitCopy tier, where design 139 changed nothing.
   Repro: `.build/scratch/o_field_retain.saw` (gitignored; inlined above).
 
+## SOS M1 — design 140 (BUILT, branch PARKED for user review)
+
+riscv32 boot-to-root-server. `make sos-test` is 11 cases; the two-image boot
+prints kernel banner -> root banner -> clean exit. SOS-review policy applies:
+the branch is NOT integrated without explicit user sign-off.
+
+**Pins TAKEN as written.** Syscall ABI per §5.7 (number in a7, args a0-a5,
+a0 = status / a1 = value) with the v1 table `0 debug_putc`, `1 exit`. sosimg
+magic `SOSI`, u16 version = 1, u8 segment count, the u32 §7 priority-map field,
+all fixed-width little-endian (design 47). Root as an APPENDED BLOB after the
+kernel image with linker-symbol bounds (`.payload`, `_payload_start` /
+`_payload_end`) rather than a flash partition table. `[sos]` manifest section
+driving a Blade `emit = "sosimg"` target. A U-mode fault or a malformed image
+prints a cause tag and exits FAIL — M0's never-hang discipline kept throughout.
+
+**Pins ADJUSTED (each veto-able; reasons given).**
+- **sosimg field order + padding.** Header fields are ordered and padded so
+  every u32 sits on a 4-byte boundary: magic(4), version(2), seg_count(1),
+  reserved(1), entry(4), prio_map(4) = 16 bytes, then the segment table. The
+  brief's order put `entry` at offset 6. Alignment is what lets the kernel's
+  loader read the header with plain word loads instead of byte assembly.
+- **`entry` is an absolute load address, not an offset.** Nothing relocates on
+  Profile A (physical addresses, PMP not paging), so an offset would only be a
+  base-addition the kernel has to perform and validate. Root is linked at a
+  fixed address by root.ld either way.
+- **Each segment record carries `mem_len` beside `file_len`** (20-byte record,
+  not 13). The pinned record cannot express a segment whose memory image
+  exceeds its file image, so a loader built from it could not zero-fill `.bss`
+  — and root's `.bss` is a 4 KiB arena. The kernel zeroes `[file_len, mem_len)`.
+- **`[sos] native = "<file>"` added** (not anticipated by the brief). A
+  freestanding SOS process needs an `ecall`, which no amount of Saw expresses;
+  root's `src/rt.c` is the syscall stubs plus the `__saw_rt_*` seams, the same
+  minimal-native-surface shape as `sawc/rt/shim.c`. One translation unit.
+- **PMP budget = 4 TOR regions** (8 of QEMU's 16 entries): up to 3 image
+  segments plus the kernel-granted stack. Root links to 2 segments (R+X,
+  R+W), so there is one spare. An image asking for more is rejected as
+  malformed rather than silently under-protected.
+- **Root region pinned at 0x8020_0000..0x8024_0000** (256 KiB) with a 16 KiB
+  stack at the top, recorded in virt.ld's memory map and mirrored by root.ld.
+  The kernel VALIDATES rather than assumes, so a mismatch is a diagnostic.
+- **`boot_smoke` became `no_root_image`.** The kernel now requires a root
+  image; built without one it must say so and FAIL, not exit 0 as if the
+  system had run. The M0 banner assertion moved to the two-image case.
+
+**Open / deferred.** The parsed `prio_map` is reported on the console but not
+yet STORED — there is no Process object until the object-model brief (§7 says
+the kernel stores whatever map the launcher passes; root's is applied
+verbatim). The kernel's `__atomic_*_4` bodies in `sos/kernel/rt.c` and
+`sos/root/src/rt.c` are plain read-modify-write, correct ONLY because v1 is
+uniprocessor with no interrupts enabled (spec §7); enabling interrupts or SMP
+must replace them, and building the Saw object for `rv32ia` would retire them.
+A singleton `static` driver still awaits Once/Lazy (tracker F5), so `console()`
+constructs its `Uart16550` per use.
+
+## Design 140 — DF-findings (SOS M1)
+
+- **DF-140a — OPEN. A bare integer literal outside the TARGET's platform-`Int`
+  range silently wraps; the same source means a different number per profile.**
+  The documented rule is that a bare literal adopting an expected type is
+  range-checked at the literal, and for FIXED-width types it is
+  (`let b: UInt8 = 256` is a clean error). Platform-width `Int`/`UInt` are never
+  checked against the target width:
+
+  ```saw
+  @export("probe")
+  func probe() -> Int {
+      let x: Int = 2149580800      // 0x8020_0000
+      x
+  }
+  ```
+
+  `--target riscv32-unknown-none-elf` emits `ret i32 -2145386496`;
+  `--target aarch64-unknown-none-elf` emits `ret i64 2149580800`. No diagnostic
+  from either. This is squarely in SOS's path: every riscv32 kernel address at
+  or above 0x8000_0000 written as a plain `Int` is silently a negative number,
+  and it means something else again on the arm64 Profile B (§5b) — exactly the
+  two-profile portability the fixed-width discipline exists to protect. The M1
+  kernel dodges it by using `UInt` for every address and machine word, which is
+  the honest type anyway, but nothing makes that choice for the next author.
+  SEPARATELY: `static B: UInt8 = 256` compiles clean, so the fixed-width check
+  that catches the `let` is not applied to `static` initializers at all.
+
+- **DF-140b — OPEN. An import symbol list cannot be wrapped across lines.**
+
+  ```saw
+  import kcore.{
+      console, pmp_reset, pmp_region,
+  }
+  ```
+
+  is `Parse error: Expected symbol name in import`. Design 129 made newlines
+  insignificant inside `(`/`[` and committed `<...>` but left `{}`
+  newline-significant on the grounds that a block or closure is a statement
+  container — which an import list is not. It is a delimited list exactly like
+  an argument list. `sos/tests/umode.saw` imports eleven names and has to run
+  them onto one 120-column line.
+
+- **DF-140c — OPEN. A module-qualified type does not resolve in TYPE position**
+  (it resolves fine in expression position — `toml.TomlDoc.parse(...)` works).
+
+  ```saw
+  // src/lib.saw of module `qual`
+  public struct Section { name: String }
+  public extension Section {
+      public func value(&self, key: String) -> String? { None }
+  }
+  ```
+  ```saw
+  import qual
+  func take(s: &qual.Section, key: String) -> Int {
+      guard let raw = s.value(key) else { return 0 }
+      raw.len()
+  }
+  ```
+
+  Three errors, all downstream of the unresolved parameter type: `undefined
+  variable raw` (the method does not resolve, so the `guard let` binds
+  nothing), then `function take should return Int but body has no value`, then
+  at any call site `argument s expects &qual.Section but got &Section` — the
+  qualified spelling is treated as a distinct nominal type from the imported
+  one. The silent part is the worst of it: a `guard let` over an unresolvable
+  method reports the BINDING as undefined rather than the method. Workaround:
+  import the type bare (`import toml.{TomlSection}`) and write `&TomlSection`,
+  which is what `blade/src/sosimg.saw` does.
+
+- **DF-140d — OPEN. `Result<T?, E>` cannot be auto-wrapped in either
+  direction; both spellings are internal compiler errors.**
+
+  ```saw
+  struct Cfg { v: Int }
+  struct Oops { m: String }
+  extension Oops: Error {
+      func format(&self, into: &var StringBuilder) { into.append(self.m) }
+  }
+
+  func f(flag: Bool) -> Result<Cfg?, Oops> {
+      if flag {
+          return None            // ICE (typechecker)
+      }
+      return Cfg(v: 1)           // ICE (codegen)
+  }
+  ```
+
+  `return None` gives `internal compiler error: None literal at line N has no
+  type information. resolved_type=OPTIONAL, current_return_type=Result<Cfg?,
+  Oops>`; the value return gives `Can only insert {i1, %"Cfg"} at [0] in
+  {{i1, %"Cfg"}}: got %"Cfg"` — the double wrap (into the Optional, then into
+  the Result) is not performed. Independent of error erasure: a `Box<any
+  Error>` error type behaves identically. MATCHING a `Result<T?, E>` and
+  binding through `if let` both work, so the shape is only broken at the
+  auto-wrap boundary. Workaround: an explicitly typed local
+  (`let absent: Cfg? = None; return absent`), used in `load_sos_config`.
+  `Result<T?, E>` is the right signature for "it failed, or there is/isn't
+  one", so this is worth fixing rather than designing around.
+
+- **DF-140e — OPEN, and a MISCOMPILE rather than a clean error. A tail `match`
+  in a Result-returning function, with one arm that diverges and one that
+  yields a bare error value, drops the auto-wrap into `Err`.**
+
+  ```saw
+  func tail_match(flag: Bool) -> Result<Void, Oops> {
+      match source(flag) {
+          case Ok(v) -> {
+              if v < 0 { return Oops(m: "negative") }
+              return
+          },
+          case Err(e) -> e
+      }
+  }
+  ```
+
+  The arms unify to `Oops` (the Ok arm's type is Never), and the match's value
+  is returned RAW: `ret %"Oops" %"match_result"` from a function whose result
+  type is `{ i32, [8 x i8] }`. Caught here only because the LLVM IR verifier
+  rejected it — a pairing whose sizes happened to agree would have compiled to
+  a wrong value. The same shape with a non-diverging Ok arm is fine, and the
+  `if`/`else` spelling of it is fine, so this is specific to a diverging arm
+  suppressing the wrap. Workaround: make both arms statements and `return`
+  below the match (`blade/src/builder.saw`'s `run_tool`).
+
 ## Design 131 — DF-findings (payload-read ownership)
 
 - **DF-131a — FIXED (design 139, Aug 5).** A WHOLE-optional read of a NoCopy or
@@ -5186,8 +5366,13 @@ inlined (the `.build/scratch` probes are gitignored).
   incremental/self-hosting bootstrap; `make blade-bootstrap`).
 - **App-2 SOS kernel (ESP32-P4, riscv32): IN PROGRESS.** M0 DONE (design
   112): Saw kernel boots + prints a UART banner + exits cleanly under
-  QEMU `virt` riscv32 (`make sos-test`). Ultimate milestone: UART "blink"
-  on real P4 hardware. See sos/spec.md §5b (M0 recap) + designs/112.
+  QEMU `virt` riscv32 (`make sos-test`). M1 BUILT (design 140), branch
+  PARKED for user review: trap entry + M/U split + PMP, the two-syscall
+  ecall ABI (§5.7), the sosimg format with a Blade `emit = "sosimg"`
+  target, and `sos/root/` as a real separate package that banners through
+  the syscall and exits 0 — 11 QEMU cases. NEXT: M1b arm64 EL1 parity +
+  HAL extraction, BEFORE the object model. Ultimate milestone: UART
+  "blink" on real P4 hardware. See sos/spec.md §11 + designs/112, /140.
 - **Docs website (sawlang.com): VISION (user, Aug 4) — "eventually", not
   scheduled.** A complete site: installation, usage/tutorial, stdlib API
   reference extracted from source. Component (1) doc comments and (2)

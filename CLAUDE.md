@@ -30,9 +30,15 @@ blade/             # Blade package manager (written in Saw)
 libs/              # Real Saw library packages (semver, toml)
 tools/blade_bootstrap.py  # Self-hosting bootstrap loop
 designs/           # Design briefs + todo.md tracker
-sos/               # SOS kernel: spec.md notes + kernel/ (M0 riscv32 QEMU
-                   #   target: boot.S/virt.ld/rt.c + main.saw) + tests/.
-                   #   `make sos-test` (tools/sos_runner.py) boots it under QEMU
+sos/               # SOS kernel: spec.md notes + kernel/ (riscv32 QEMU target:
+                   #   boot.S trap entry/virt.ld/rt.c + main.saw + core/lib.saw,
+                   #   the module EVERY kernel image shares — drivers, trap
+                   #   frame, ktrap, syscall table, sosimg loader; built with
+                   #   --module-path kcore=sos/kernel/core) + root/ (design 140:
+                   #   the root server, a real Blade package emitting a sosimg
+                   #   via `[sos] emit = "sosimg"`) + tests/.
+                   #   `make sos-test` (tools/sos_runner.py) builds kernel AND
+                   #   root, stitches them, and boots them under QEMU
 ```
 
 ## Python environment

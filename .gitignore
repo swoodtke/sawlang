@@ -15,6 +15,12 @@
 # so it is the first to leave one behind.
 blade/tests/fixtures/**/Saw.lock
 
+# Built SOS process images (design 140): Blade emits these from sos/root and
+# sos/tests/faulting-root on every `make sos-test`.
+*.sosimg
+sos/root/Saw.lock
+sos/tests/faulting-root/Saw.lock
+
 # Python
 __pycache__/
 *.pyc
