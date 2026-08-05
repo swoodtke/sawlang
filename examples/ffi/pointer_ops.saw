@@ -10,7 +10,7 @@ extern "C" {
     func free(ptr: UnsafePointer<Int8>)
 }
 
-func main() {
+unsafe func main() {
     // Allocate memory. `main`'s signature carries no `Unsafe*` type, so every
     // raw-pointer operation is marked `unsafe` (design 81): the binding of the
     // malloc'd pointer, and each deref read/write.

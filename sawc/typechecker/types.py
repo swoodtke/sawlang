@@ -1068,6 +1068,26 @@ class TypeUtilsMixin:
                          "that is checked suspension-free"
                 )
 
+        # design 130: an UNSAFE function value may not flow into a SAFE slot —
+        # the slot's callers were promised they could call it without naming an
+        # unsafe type. The safe direction is safe-value → unsafe-slot. A closure
+        # LITERAL is exempt here because `_check_closure` already judged it
+        # against the very same expected type, with its body's verdict in hand.
+        if (target_type is not None and target_type.kind == TypeKind.FUNCTION
+                and not getattr(target_type, 'func_is_unsafe', False)
+                and not isinstance(expr, ClosureExpr)):
+            src = getattr(expr, 'resolved_type', None)
+            if (src is not None and src.kind == TypeKind.FUNCTION
+                    and getattr(src, 'func_is_unsafe', False)):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot pass an `unsafe` function value where a safe "
+                    f"`{target_type}` is expected",
+                    line, column,
+                    hint="declare the slot `unsafe` in its effect position, or "
+                         "wrap the call in a function that is sound for every input"
+                )
+
         # design 16/29 escaping variance: a non-escaping function VALUE may not
         # flow into an escaping slot. non-escaping <: escaping (the SAFE
         # direction is escaping-value → non-escaping-slot: the callee promises

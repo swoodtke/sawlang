@@ -535,7 +535,7 @@ def _reject_freestanding_macho(target_triple: str = None):
     sys.exit(1)
 
 
-def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None):
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False):
     """Resolve modules, load builtins, and type-check the whole program.
 
     This is the single front half of the compile pipeline: a plain single file
@@ -788,7 +788,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     for mod_path, mod_source in module_sources.items():
         reporter.add_source(mod_path, mod_source)
     typechecker = TypeChecker(reporter, freestanding=freestanding,
-                              runtime_build=runtime_build)
+                              runtime_build=runtime_build,
+                              post_transform=post_transform)
     # design 84: carry the pre-computed suspending std (struct, method) set (std is
     # checked under a separate builtin typechecker, so the main one cannot infer it)
     # so the coroutine transform can embed nested suspending std methods.
@@ -973,7 +974,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                 print("  Applied coroutine transform; re-checking...")
             return _prepare_codegen(source_path, entry_ast, entry_source, verbose,
                                     object_only, target_triple, freestanding,
-                                    module_paths, runtime_build)
+                                    module_paths, runtime_build,
+                                    post_transform=True)
 
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns

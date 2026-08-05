@@ -238,6 +238,17 @@ class StatementsMixin:
             self._resolve_type(expected_return)) or (
             has_self and self._struct_has_pointer_field(struct_name))
 
+        # design 130 trigger rule (3). `self` is deliberately NOT counted: a
+        # struct holding an unsafe FIELD is itself a safe type (rule 4), so
+        # receiving one is not contact — reaching THROUGH it for the field is,
+        # and the body check catches exactly that. This is the granularity that
+        # separates `Vector.pop` from `Vector.push`.
+        saved_unsafe_contact = self._enter_unsafe_scope(
+            method,
+            [self._resolve_type(p.type) for p in method.parameters
+             if p.name != "self" and p.type.kind != TypeKind.SELF],
+            self._resolve_type(expected_return))
+
         # design 54: collection/array literal in return position.
         if expected_return is not None:
             resolved_ret = self._resolve_type(expected_return)
@@ -338,6 +349,12 @@ class StatementsMixin:
         self.moved_bindings = saved_moves
         self.current_type_params = prev_method_type_params
         self._current_fn_unsafe_domain = saved_unsafe_domain
+        self._exit_unsafe_scope(
+            method, saved_unsafe_contact,
+            "init" if method.is_init else "method",
+            f"{struct_name}.{method.name}" if struct_name else method.name,
+            keyword="init" if method.is_init else "func",
+            fix_name="init" if method.is_init else method.name)
         self.namespace.allow_all_access = _saved_aaa
         self._checking_builtins = _saved_cb
 
@@ -681,6 +698,12 @@ class StatementsMixin:
             [self._resolve_type(p.type) for p in func.parameters],
             resolved_return_type)
 
+        # design 130 trigger rule (3): does the body or signature touch an
+        # unsafe type without the declaration saying so?
+        saved_unsafe_contact = self._enter_unsafe_scope(
+            func, [self._resolve_type(p.type) for p in func.parameters],
+            resolved_return_type)
+
         # design 54: a collection/array literal in return position (tail or a
         # top-level `return`) gets the return type as its expected type.
         self._stamp_return_literal_types(func.body, resolved_return_type)
@@ -709,6 +732,8 @@ class StatementsMixin:
             self.current_function = None
             self.moved_bindings = saved_moves
             self._current_fn_unsafe_domain = saved_unsafe_domain
+            self._exit_unsafe_scope(func, saved_unsafe_contact,
+                                    "function", func.name)
             self.namespace.allow_all_access = _saved_aaa
             self._checking_builtins = _saved_cb
             return
@@ -733,6 +758,7 @@ class StatementsMixin:
         self.current_function = None
         self.moved_bindings = saved_moves
         self._current_fn_unsafe_domain = saved_unsafe_domain
+        self._exit_unsafe_scope(func, saved_unsafe_contact, "function", func.name)
         self.namespace.allow_all_access = _saved_aaa
         self._checking_builtins = _saved_cb
 

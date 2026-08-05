@@ -60,6 +60,13 @@ class ExpressionsMixin:
         result = visitor(expr)
         if result is not None:
             expr.resolved_type = result
+            # design 130 rule 3: an expression whose VALUE has an unsafe type is
+            # the function naming/binding one. A closure literal is skipped —
+            # it is judged on its own body inside `_check_closure`, and its
+            # function type mentions the unsafe parameter by construction.
+            if not isinstance(expr, ClosureExpr):
+                self._note_unsafe_contact(
+                    result, expr, "its body names a value of unsafe type")
             # design 81: a call whose result is a raw pointer produces a pointer
             # that flows out INVISIBLY (no `UnsafePointer` type at the call
             # syntax) — binding/using it requires the `unsafe` marker. A cast that
@@ -7049,6 +7056,14 @@ class ExpressionsMixin:
         # its target type is a `sync` function type (e.g. `Mutex.lock`'s param),
         # the closure is a sync context checked transitively suspension-free.
         self._effect_enter_closure(expr, expected_type)
+        # design 130 q3: a closure is judged by the trigger rule on its OWN body.
+        # A closure that never names an unsafe type is SAFE even when passed into
+        # an unsafe function — `v.with_ref(0) { e in e + 1 }` sees only `&T`, and
+        # that is what keeps the reviewed wrappers usable from safe code. Where an
+        # unsafe value genuinely IS handed to a closure, the closure's parameter
+        # type names it and the rule fires here.
+        saved_unsafe_contact = self._unsafe_contact
+        self._unsafe_contact = None
 
         # Bracketed capture list (design 16/29). Borrow captures (`&`/`&var`) are
         # legal ONLY in a closure literal passed directly to a NON-escaping
@@ -7273,8 +7288,27 @@ class ExpressionsMixin:
                 expr.line, expr.column,
                 hint="call the function that takes it inline, e.g. `m.lock { &var x in ... }`"
             )
+        # The closure's own verdict, before the enclosing function's state is
+        # restored. An unsafe closure carries `unsafe` in its TYPE, so it only
+        # fits a slot that declared `(...) unsafe ... -> R`.
+        closure_is_unsafe = self._unsafe_contact is not None
+        unsafe_contact = self._unsafe_contact
+        self._unsafe_contact = saved_unsafe_contact
+        if (closure_is_unsafe and expected_type is not None
+                and expected_type.kind == TypeKind.FUNCTION
+                and not getattr(expected_type, 'func_is_unsafe', False)):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"this closure names a value of unsafe type "
+                f"(`{unsafe_contact[3]}`) but is passed where a safe "
+                f"`{expected_type}` is expected",
+                unsafe_contact[0], unsafe_contact[1],
+                hint="mark the slot `unsafe` in its effect position (e.g. "
+                     "`(UnsafePointer<T>) unsafe sync -> R`), or keep the unsafe "
+                     "work in the function the closure is passed to")
         result_type = SawType(TypeKind.FUNCTION, param_types=param_types,
                               func_return_type=return_type,
+                              func_is_unsafe=closure_is_unsafe,
                               func_is_escaping=expr.escapes)
         # Record the resolved signature so codegen lowers parameter/return types
         # (including reference params) accurately rather than guessing. The

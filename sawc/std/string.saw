@@ -909,7 +909,12 @@ extension String {
     // borrow's result type, chosen at the call site (`s.withCString<Int> { ... }`).
     // The value flows straight out — `s.withCString<Int> { ptr in strlen(ptr) }`
     // — so a scoped C-borrow no longer needs the capture-and-write workaround.
-    public unsafe func withCString<R>(&self, body: (UnsafePointer<Int8>) -> R) -> R {
+    //
+    // The slot is `unsafe` (design 130): `body` receives a raw pointer, so by
+    // the trigger rule any closure written for it is an unsafe closure, and the
+    // effect position is where that is declared. A caller still needs no
+    // ceremony to CALL this — only the callback itself carries the obligation.
+    public unsafe func withCString<R>(&self, body: (UnsafePointer<Int8>) unsafe -> R) -> R {
         body(self as UnsafePointer<Int8>)
     }
 }

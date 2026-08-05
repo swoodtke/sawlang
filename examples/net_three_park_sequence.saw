@@ -10,7 +10,7 @@
 // 65
 
 import std.net.{net_buffer, net_free_buffer, net_would_block, tcp_close, tcp_socketpair, tcp_try_read, tcp_try_write}
-func read_one(fd: Int) -> Int {
+unsafe func read_one(fd: Int) -> Int {
     let buf = unsafe net_buffer(1)
     var v = 0
     var going = true
@@ -27,7 +27,7 @@ func read_one(fd: Int) -> Int {
     return v
 }
 
-func write_byte(fd: Int, b: Int) -> Int {
+unsafe func write_byte(fd: Int, b: Int) -> Int {
     let buf = unsafe net_buffer(1)
     unsafe buf[0] = b as Int8
     var going = true

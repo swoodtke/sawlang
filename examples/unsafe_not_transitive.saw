@@ -1,0 +1,48 @@
+// Design 130 rule 4: unsafety is NOT transitive across types. `Registers` holds
+// an unsafe field and is itself a safe type — safe to name, hold, pass and
+// store. Only the methods that reach THROUGH to the field are unsafe, which is
+// the granularity the old blanket "self-method of a pointer-field struct" rule
+// could not express: `count` and `is_empty` here are as safe as they look.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// false
+// 32
+// held
+
+unsafe struct UnsafeRegBlock { base: Int }
+
+struct Registers {
+    block: UnsafeRegBlock,
+    count: Int
+}
+
+extension Registers: NoCopy {}
+
+extension Registers {
+    // Names the unsafe type, so it declares the keyword.
+    unsafe init(base: Int, count: Int) -> Registers {
+        Registers(block: UnsafeRegBlock(base: base), count: count)
+    }
+
+    // Touches only safe types. No marker, and none is required.
+    func count(&self) -> Int { self.count }
+    func is_empty(&self) -> Bool { self.count == 0 }
+
+    unsafe func address_of(&self, index: Int) -> Int {
+        self.block.base + index * 16
+    }
+}
+
+// A safe type flows through safe code untouched, even holding an unsafe field.
+func describe(regs: &Registers) -> String {
+    if regs.is_empty() { "empty" } else { "held" }
+}
+
+func main() {
+    let regs = Registers(base: 0, count: 2)
+    print("{regs.count()}")
+    print("{regs.is_empty()}")
+    print("{regs.address_of(2)}")
+    print("{describe(&regs)}")
+}

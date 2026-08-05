@@ -18,7 +18,7 @@ extension Res: Deinit {
     func deinit(&var self) { print("deinit {self.id}") }
 }
 
-func read_n(fd: Int) -> Int {
+unsafe func read_n(fd: Int) -> Int {
     let buf = unsafe net_buffer(16)
     var n = 0
     var going = true
@@ -35,7 +35,7 @@ func read_n(fd: Int) -> Int {
     return n
 }
 
-func write_hi(fd: Int) -> Int {
+unsafe func write_hi(fd: Int) -> Int {
     let buf = unsafe net_buffer(2)
     unsafe buf[0] = 104 as Int8
     unsafe buf[1] = 105 as Int8

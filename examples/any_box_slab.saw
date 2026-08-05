@@ -23,10 +23,10 @@ static SHAPE_REGION: [Int8; 64]                                  // 4 chunks * 1
 static SHAPE_HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
 struct ShapeSlab {}
 extension ShapeSlab: Allocator {
-    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+    unsafe func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
         slab_alloc((&SHAPE_REGION) as UnsafePointer<Int8>, 4, 16, &SHAPE_HEAD)
     }
-    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+    unsafe func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
         slab_dealloc(ptr, &SHAPE_HEAD)
     }
 }

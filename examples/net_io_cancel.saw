@@ -17,7 +17,7 @@ struct Res { id: Int }
 extension Res: Deinit { func deinit(&var self) { print(self.id) } }
 extension Res: NoCopy {}
 
-func reader(fd: Int) -> Int {
+unsafe func reader(fd: Int) -> Int {
     let held = Res(id: 55)      // deinit oracle
     let buf = unsafe net_buffer(16)
     var total = 0
@@ -40,7 +40,7 @@ func reader(fd: Int) -> Int {
     return total
 }
 
-func main() {
+unsafe func main() {
     let pair = tcp_socketpair()
     let a = pair.0
     let b = pair.1

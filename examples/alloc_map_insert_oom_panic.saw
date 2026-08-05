@@ -11,7 +11,7 @@ static BUDGET: Atomic<Int> = Atomic(64)
 
 struct FailAlloc {}
 extension FailAlloc: Allocator {
-    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+    unsafe func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
         let left = BUDGET.load()
         if left <= 0 {
             return None
@@ -19,7 +19,7 @@ extension FailAlloc: Allocator {
         BUDGET.store(left - 1)
         GlobalAllocator().alloc(size, align)
     }
-    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+    unsafe func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
         GlobalAllocator().dealloc(ptr, size, align)
     }
 }

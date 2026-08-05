@@ -87,8 +87,16 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     """Type checks a Saw program."""
 
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False,
-                 runtime_build: bool = False):
+                 runtime_build: bool = False, post_transform: bool = False):
         self.reporter = reporter
+        # design 130: True on the RE-CHECK that follows the coroutine transform.
+        # The transform rewrites user bodies in place — a held `&var` param
+        # becomes a frame-resident `UnsafePointer<T>`, a spawned task reaches its
+        # group through an `UnsafeConstPointer<TaskGroup>` — so the post-transform
+        # AST attributes compiler-minted pointers to the user's own function. The
+        # trigger rule therefore judges the SOURCE program, on the first pass
+        # only; everything the transform adds is synthesized and exempt anyway.
+        self.post_transform = post_transform
         # Freestanding profile (design 19/20): gates hosted-only facilities such
         # as Float formatting in print (dtoa is not available without libc).
         self.freestanding = freestanding
@@ -115,6 +123,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._unsafe_marker_depth: int = 0
         self._current_fn_unsafe_domain: bool = False
         self._unsafe_ops_seen: int = 0
+        # design 130 trigger rule: the first contact the function currently being
+        # checked made with an unsafe type, as (line, column, why, type name), or
+        # None. A closure body gets its own scope — rule 3 judges a closure on
+        # its OWN body, so contacts never leak either way across the boundary.
+        self._unsafe_contact = None
         # >0 while checking the operand of a cast whose target is a raw pointer
         # (`(block + 8) as UnsafePointer<Int>`). The `UnsafePointer` type is named
         # IN the expression, so the pointer flow is already visible/greppable — a
@@ -318,6 +331,126 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                  "flows with no `UnsafePointer` type visible at this site; or put "
                  "an `Unsafe*` type in this function's signature to enter the "
                  "marked domain",
+        )
+
+    # ===== Unsafe surface (design 130) =====
+    #
+    # Unsafety is a property of TYPES, declared by `unsafe struct` (plus the
+    # built-in raw pointers), and a function is `unsafe` when it NAMES, BINDS,
+    # RECEIVES or RETURNS a value of one — rule 3. Deliberately broader than
+    # "performs a deref": merely reading `self.buffer` into an iterator is what
+    # made bugs C2/C5 invisible under design 81's line-level marker.
+    #
+    # Two things the rule pointedly does NOT do. Unsafety is not TRANSITIVE
+    # across types (rule 4): `Vector` holds an `UnsafePointer` field and is a
+    # safe type, so only the methods touching the field are unsafe. And it does
+    # not propagate along CALL edges (rule 6): an unsafe function is the reviewed
+    # wrapper, and calling one from safe code needs no ceremony. What makes that
+    # sound is rule 7 — a function whose parameters are all safe types must be
+    # sound for every input, and a precondition is expressed by taking an
+    # unsafe-typed parameter, which drags the obligation into the caller through
+    # rule 3 itself.
+
+    def _type_is_unsafe(self, t) -> bool:
+        """Whether `t` IS an unsafe type: a raw pointer (`UnsafePointer<T>` /
+        `UnsafeConstPointer<T>`) or a struct declared `unsafe struct`."""
+        if t is None:
+            return False
+        if t.kind == TypeKind.POINTER:
+            return True
+        if t.kind == TypeKind.STRUCT and t.struct_name:
+            info = self.get_struct_info(t.struct_name)
+            return info is not None and getattr(info, 'is_unsafe', False)
+        return False
+
+    def _first_unsafe_type(self, t):
+        """The first unsafe type in `t`'s own tree, or None. Walks into
+        optionals, references, arrays, tuples, generic arguments and closure
+        signatures — every place a value of that type can reach the code naming
+        `t`. Struct FIELDS are NOT walked: unsafety is not transitive."""
+        if t is None:
+            return None
+        if self._type_is_unsafe(t):
+            return t
+        for sub in (getattr(t, 'inner_type', None),
+                    getattr(t, 'array_element_type', None),
+                    getattr(t, 'func_return_type', None)):
+            found = self._first_unsafe_type(sub)
+            if found is not None:
+                return found
+        for group in ('type_args', 'element_types', 'param_types'):
+            for sub in (getattr(t, group, None) or []):
+                found = self._first_unsafe_type(sub)
+                if found is not None:
+                    return found
+        return None
+
+    def _type_tree_has_unsafe(self, t) -> bool:
+        return self._first_unsafe_type(t) is not None
+
+    def _note_unsafe_contact(self, t, node, what: str) -> None:
+        """Record that the function being checked touched an unsafe type. Only
+        the FIRST contact is kept — it is the one the diagnostic points at, and
+        one message per function beats one per pointer access."""
+        if self._unsafe_contact is not None:
+            return
+        found = self._first_unsafe_type(t)
+        if found is None:
+            return
+        self._unsafe_contact = (getattr(node, 'line', 0),
+                                getattr(node, 'column', 0), what, str(found))
+
+    def _unsafe_check_exempt(self, node) -> bool:
+        """Compiler-synthesized bodies are exempt from the trigger rule: the
+        coroutine transform's frames and the derived copy/equals/compare/hash
+        bodies traffic in whatever their source type holds, and there is no
+        declaration for an author to mark."""
+        return (self.post_transform
+                or getattr(node, 'is_synthesized', False)
+                or getattr(node, 'is_derived_copy', False)
+                or getattr(node, 'is_derived_equals', False)
+                or getattr(node, 'is_derived_compare', False)
+                or getattr(node, 'is_derived_hash', False))
+
+    def _enter_unsafe_scope(self, node, param_types, return_type):
+        """Begin the trigger-rule check for a function/method/closure body.
+        Returns the saved outer state, which the matching exit restores.
+
+        Signature contact is recorded up front, so a function that RECEIVES or
+        RETURNS an unsafe value is unsafe whether or not its body does anything
+        with it."""
+        saved = self._unsafe_contact
+        self._unsafe_contact = None
+        for pt in (param_types or []):
+            self._note_unsafe_contact(
+                pt, node, "its signature receives a value of unsafe type")
+        self._note_unsafe_contact(
+            return_type, node, "its signature returns a value of unsafe type")
+        return saved
+
+    def _exit_unsafe_scope(self, node, saved, what: str, name: str,
+                           keyword: str = "func", fix_name: str = None) -> None:
+        """Finish the trigger-rule check and restore the outer state. An
+        undeclared function that touched an unsafe type is a clean error naming
+        the type and the fix; the converse is allowed — `unsafe` where the rule
+        would not require it is a promise about the contract, not a lie, and a
+        conformer of an `unsafe` trait requirement needs exactly that."""
+        contact = self._unsafe_contact
+        self._unsafe_contact = saved
+        if contact is None or getattr(node, 'is_unsafe', False):
+            return
+        if self._unsafe_check_exempt(node):
+            return
+        line, column, why, type_name = contact
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"{what} `{name}` is not declared `unsafe`, but {why} "
+            f"(`{type_name}`)",
+            line, column,
+            hint=f"write `unsafe {keyword} {fix_name or name}` — the unsafety belongs in the "
+                 f"signature where every caller can see it; if the operation is "
+                 f"sound for every input, keep the wrapper unsafe and expose a "
+                 f"safe one that checks its arguments",
         )
 
     def _member_gate_allows(self, def_module: Tuple[str, ...],

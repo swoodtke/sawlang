@@ -1,45 +1,68 @@
-// Design 130: the declaration-level unsafe vocabulary. `unsafe struct` declares
-// an unsafe TYPE, `unsafe func` / `unsafe init` a function that touches one, and
-// `(T) unsafe sync -> R` an unsafe closure type. A plain struct that merely
-// happens to be NAMED `Unsafe*` gets no semantics from its name.
+// Design 130: the declaration-level unsafe vocabulary, end to end.
+//   - `unsafe struct` declares an unsafe TYPE, and the compiler enforces the
+//     `Unsafe*` name; a plain struct that merely happens to be NAMED `Unsafe*`
+//     gets no semantics from its name.
+//   - `unsafe func` / `unsafe init` mark a function that names one (rule 3),
+//     and an `unsafe` trait requirement states it once for every conformer.
+//   - `(T) unsafe sync -> R` marks a function TYPE; a closure is judged on its
+//     OWN body, so `{ x in x * 2 }` stays safe and `{ r in r.read() }` does not.
+//   - Calling an unsafe function from a safe one needs no ceremony (rule 6).
+//     `read_register` is what makes that sound (rule 7): every parameter is a
+//     safe type, so it is sound for EVERY input — it checks the index itself.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// 7
 // 2
+// 26
+// 16
 // 2
 // 3
-// 9
+
+static REGISTER_COUNT: Int = 4
+static REGISTER_STRIDE: Int = 4
 
 unsafe struct UnsafeMmioReg { addr: Int }
 
 // Not unsafe: the keyword is the only thing that confers unsafety.
 struct UnsafeDefaults { n: Int }
 
+trait Peripheral {
+    unsafe func probe(&self) -> Int
+}
+
 extension UnsafeMmioReg {
     unsafe init(at: Int) -> UnsafeMmioReg { UnsafeMmioReg(addr: at) }
     public unsafe func read(&self) -> Int { self.addr }
-}
-
-public unsafe func poke(reg: Int) -> Int { reg + 1 }
-
-// The `unsafe` slot rides the post-parameter effect run beside `sync`, so a
-// function TYPE spells it there.
-func apply(body: (Int) unsafe sync -> Int) -> Int { body(1) }
-
-trait Peripheral {
-    unsafe func probe(&self) -> Int
 }
 
 extension UnsafeMmioReg: Peripheral {
     unsafe func probe(&self) -> Int { self.addr + 2 }
 }
 
+unsafe func read_at(offset: Int) -> Int {
+    let reg = UnsafeMmioReg(at: offset)
+    reg.read() + reg.probe()
+}
+
+func read_register(index: Int) -> Int {
+    if index < 0 || index >= REGISTER_COUNT {
+        panic("read_register: index out of range")
+    }
+    read_at(index * REGISTER_STRIDE)
+}
+
+// The closure's parameter names an unsafe type, so the slot carries `unsafe`.
+unsafe func with_register(offset: Int, body: (UnsafeMmioReg) unsafe sync -> Int) -> Int {
+    body(UnsafeMmioReg(at: offset))
+}
+
+// A safe closure flows into an `unsafe` slot; only the reverse is rejected.
+func apply(body: (Int) unsafe sync -> Int) -> Int { body(1) }
+
 func main() {
-    let reg = UnsafeMmioReg(at: 7)
-    print("{reg.read()}")
-    print("{poke(1)}")
+    print("{read_register(0)}")
+    print("{read_register(3)}")
+    print("{with_register(16) { r in r.read() }}")
     print("{apply({ x in x * 2 })}")
     let d = UnsafeDefaults(n: 3)
     print("{d.n}")
-    print("{reg.probe()}")
 }

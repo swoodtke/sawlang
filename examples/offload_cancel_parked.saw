@@ -32,7 +32,7 @@ func worker() -> Int {
     return r
 }
 
-func canceller(addr: Int) {
+unsafe func canceller(addr: Int) {
     let p = addr as UnsafePointer<Bool>
     unsafe p[0] = true               // peer-cancel via the Send cancel-word address
 }

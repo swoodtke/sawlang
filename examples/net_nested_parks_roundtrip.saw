@@ -12,7 +12,7 @@
 // 1
 
 import std.net.{net_buffer, net_free_buffer, net_would_block, tcp_close, tcp_socketpair, tcp_try_read, tcp_try_write}
-func read_n(fd: Int) -> Int {
+unsafe func read_n(fd: Int) -> Int {
     let buf = unsafe net_buffer(16)
     var n = 0
     var going = true
@@ -29,7 +29,7 @@ func read_n(fd: Int) -> Int {
     return n
 }
 
-func write_hi(fd: Int) -> Int {
+unsafe func write_hi(fd: Int) -> Int {
     let buf = unsafe net_buffer(2)
     unsafe buf[0] = 104 as Int8       // 'h'
     unsafe buf[1] = 105 as Int8       // 'i'

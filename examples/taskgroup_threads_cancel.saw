@@ -20,7 +20,7 @@ func victim() -> Int {
     return 77            // the cancelled sentinel
 }
 
-func canceller(target: Int) -> Int {
+unsafe func canceller(target: Int) -> Int {
     yield_now()
     // Write through the cast inline: a `let flag = ...` pointer local would be
     // frame-resident (spans the yield) and non-Send, tripping the gate. `target`

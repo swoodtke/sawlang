@@ -1,0 +1,17 @@
+// Design 130 q3: a closure is judged by the trigger rule on its OWN body. This
+// one names an unsafe type, so it only fits a slot whose effect position says
+// `unsafe` — handing it to a safe function type would launder the obligation
+// out through a signature that promised none.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: this closure names a value of unsafe type
+// EXPECT-ERROR-CONTAINS: mark the slot `unsafe` in its effect position
+
+unsafe struct UnsafeMmioReg { addr: Int }
+
+func run(body: (UnsafeMmioReg) sync -> Int) -> Int {
+    body(UnsafeMmioReg(addr: 4))
+}
+
+func main() {
+    print("{run({ r in r.addr })}")
+}

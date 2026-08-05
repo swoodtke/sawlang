@@ -20,7 +20,7 @@ static UART1:      UnsafeMemory<UartRegs, Device>       = UnsafeMemory(0x1800300
 static BOOT_STACK: UnsafeMemory<[UInt8; 16384], Normal> = UnsafeMemory(0x3FC7C000)
 static EARLY_HEAP: UnsafeMemory<[UInt8; 65536], Normal> = UnsafeMemory(0x3FC80000)
 
-func main() {
+unsafe func main() {
     var run = false
     if run {
         // Poll a read-only status register, then drive two writable ones.

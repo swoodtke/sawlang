@@ -3,11 +3,11 @@
 // EXPECT-OUTPUT:
 // 1
 
-func test_ptr(p: UnsafePointer<Int8>) -> Int {
+unsafe func test_ptr(p: UnsafePointer<Int8>) -> Int {
     1
 }
 
-func test_const_ptr(p: UnsafeConstPointer<Int8>) -> Int {
+unsafe func test_const_ptr(p: UnsafeConstPointer<Int8>) -> Int {
     1
 }
 

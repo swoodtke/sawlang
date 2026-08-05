@@ -9,7 +9,7 @@
 // 1
 
 import std.net.{net_buffer, net_bytes_to_string, net_free_buffer, net_would_block, tcp_close, tcp_socketpair, tcp_try_read, tcp_try_write}
-func server(fd: Int) -> Int {
+unsafe func server(fd: Int) -> Int {
     let buf = unsafe net_buffer(16)
     var n = 0
     var going = true
@@ -40,7 +40,7 @@ func server(fd: Int) -> Int {
     return n
 }
 
-func client(fd: Int) -> Int {
+unsafe func client(fd: Int) -> Int {
     let msg = unsafe net_buffer(2)
     unsafe msg[0] = 104 as Int8    // 'h'
     unsafe msg[1] = 105 as Int8    // 'i'

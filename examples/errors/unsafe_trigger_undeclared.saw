@@ -1,0 +1,19 @@
+// Design 130 rule 3: a function whose body names a value of unsafe type must
+// declare `unsafe`. The old line-level marker fired only on a deref, so a
+// function that merely READ a pointer field and handed it on — `Vector.iter` —
+// looked safe while laundering the obligation away.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not declared `unsafe`
+// EXPECT-ERROR-CONTAINS: names a value of unsafe type
+// EXPECT-ERROR-CONTAINS: write `unsafe func leak_it`
+
+unsafe struct UnsafeMmioReg { addr: Int }
+
+func leak_it(at: Int) -> Int {
+    let reg = UnsafeMmioReg(addr: at)
+    reg.addr
+}
+
+func main() {
+    print("{leak_it(1)}")
+}

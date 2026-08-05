@@ -1,0 +1,14 @@
+// Design 130 rule 3 (q2): a REFERENCE to an unsafe type counts. `&UnsafePointer<T>`
+// hands the callee the same obligation the value does, so the trigger rule looks
+// through the reference rather than at its outermost constructor.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `peek` is not declared `unsafe`
+// EXPECT-ERROR-CONTAINS: receives a value of unsafe type
+
+func peek(p: &UnsafePointer<Int8>) -> Int {
+    0
+}
+
+func main() {
+    print("hi")
+}
