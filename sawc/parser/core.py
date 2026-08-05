@@ -24,7 +24,7 @@ from ast_nodes import (
     ClosureExpr, ClosureParam,
     ImportDecl, ModuleDecl, ExportDecl, Visibility
 )
-from .types import TypeParsingMixin
+from .types import TypeParsingMixin, GenericListTrailingComma
 from .declarations import DeclarationsMixin
 from .statements import StatementsMixin
 from .expressions import ExpressionsMixin
@@ -84,11 +84,64 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         self.allow_trailing_closure = True
         # Track source file for error reporting
         self.source_file = source_file
+        # Newlines-inside-brackets (design 129). `_nl_suppressed[i]` is True for a
+        # NEWLINE token whose innermost enclosing bracket is `(` or `[`;
+        # `_generic_depth` adds the same suppression inside a COMMITTED generic
+        # `<...>` list, which only the parser can recognize. Both feed
+        # `_is_skippable_newline`, which `current`/`peek`/`advance` honor.
+        self._generic_depth = 0
+        self._nl_suppressed, self._unclosed_openers = self._index_brackets()
         # Doc-comment trivia (design 121). Blocks are indexed by the token they
         # precede; a block nobody claims is reported after the parse.
         self.doc_blocks = group_doc_comments(doc_comments)
         self._doc_taken = [False] * len(self.doc_blocks)
         self._doc_at_token = self._index_doc_blocks()
+
+    # Bracket kinds, by opener. `(` and `[` make an enclosed NEWLINE insignificant
+    # (design 129); `{` does NOT — a block or closure is a statement container, so
+    # its newlines keep terminating statements.
+    _BRACKET_PAIRS = {
+        TokenType.LPAREN: TokenType.RPAREN,
+        TokenType.LBRACKET: TokenType.RBRACKET,
+        TokenType.LBRACE: TokenType.RBRACE,
+    }
+    _NEWLINE_SUPPRESSING_OPENERS = (TokenType.LPAREN, TokenType.LBRACKET)
+
+    def _index_brackets(self):
+        """Precompute the bracket structure of the token stream (design 129).
+
+        Returns `(nl_suppressed, unclosed_openers)`:
+        - `nl_suppressed[i]` — True for a NEWLINE token sitting directly inside a
+          `(`/`[` group. A `{` pushed on top of a paren restores significance, so
+          a multi-statement closure passed as an argument still parses as a block.
+        - `unclosed_openers` — the `(`/`[` tokens left open at EOF, in source
+          order, paired with their token index. They anchor the unclosed-bracket
+          diagnostic at the OPENER instead of letting it drift (design 119's
+          interpolation-brace precedent). Because such an opener is never closed,
+          it encloses every later token, so "innermost opener before position p"
+          is just the last entry with index < p.
+
+        The bracket structure is purely positional, so it is computed once here
+        rather than tracked through the parser's many bracket sites (and through
+        its backtracking, which would corrupt a mutable stack). A closer that does
+        not match the open group is left for the parser's own diagnostics.
+        """
+        n = len(self.tokens)
+        nl_suppressed = [False] * n
+        stack = []  # (opener TokenType, index, Token)
+        for i, tok in enumerate(self.tokens):
+            ttype = tok.type
+            if ttype == TokenType.NEWLINE:
+                if stack and stack[-1][0] in self._NEWLINE_SUPPRESSING_OPENERS:
+                    nl_suppressed[i] = True
+            elif ttype in self._BRACKET_PAIRS:
+                stack.append((ttype, i, tok))
+            elif ttype in (TokenType.RPAREN, TokenType.RBRACKET, TokenType.RBRACE):
+                if stack and self._BRACKET_PAIRS[stack[-1][0]] == ttype:
+                    stack.pop()
+        unclosed = [(i, tok) for (opener, i, tok) in stack
+                    if opener in self._NEWLINE_SUPPRESSING_OPENERS]
+        return nl_suppressed, unclosed
 
     def _index_doc_blocks(self) -> dict:
         """Map token index -> doc block index: each block belongs to the first
@@ -173,16 +226,53 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
 
     def error(self, msg: str):
         token = self.current()
+        # A parse that reaches `}` or EOF while a `(`/`[` is still open has run
+        # past the real mistake — those two tokens cannot occur inside a bracket
+        # group that eventually closes. Report the OPENER instead (design 129,
+        # mirroring the design-119 interpolation-brace precedent), since newline
+        # suppression is what let the parse get this far.
+        if token.type in (TokenType.RBRACE, TokenType.EOF):
+            opener = self._innermost_unclosed_opener()
+            if opener is not None:
+                self._unclosed_bracket_error(opener)
         raise SyntaxError(f"Parse error at {token.line}:{token.column}: {msg}")
 
+    def _is_skippable_newline(self, pos: int) -> bool:
+        """True if the token at `pos` is a NEWLINE the current context ignores."""
+        if self.tokens[pos].type != TokenType.NEWLINE:
+            return False
+        return self._generic_depth > 0 or self._nl_suppressed[pos]
+
+    def _skip_suppressed_newlines(self):
+        """Advance past NEWLINEs that are insignificant here (design 129).
+
+        Every token accessor funnels through this, so a wrapped argument list,
+        collection literal, parameter list, or generic list reads exactly like the
+        single-line spelling. Idempotent, and it only moves FORWARD over tokens
+        the current context would ignore anyway — so the many `saved = self.pos` /
+        `self.pos = saved` backtracking sites stay correct.
+        """
+        pos = self.pos
+        n = len(self.tokens)
+        while pos < n and self._is_skippable_newline(pos):
+            pos += 1
+        self.pos = pos
+
     def current(self) -> Token:
+        self._skip_suppressed_newlines()
         if self.pos < len(self.tokens):
             return self.tokens[self.pos]
         return self.tokens[-1]  # EOF
 
     def peek(self, offset: int = 0) -> Token:
-        pos = self.pos + offset
-        if pos < len(self.tokens):
+        self._skip_suppressed_newlines()
+        n = len(self.tokens)
+        pos = self.pos
+        for _ in range(offset):
+            pos += 1
+            while pos < n and self._is_skippable_newline(pos):
+                pos += 1
+        if 0 <= pos < n:
             return self.tokens[pos]
         return self.tokens[-1]
 
@@ -196,11 +286,45 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
 
     def expect(self, token_type: TokenType, msg: str = None) -> Token:
         if self.current().type != token_type:
+            # A closer that never arrives is reported at its OPENER (design 129):
+            # with newlines suppressed inside brackets, an unclosed `(`/`[` runs
+            # the parser far past the mistake, so "Expected ')'" would land on
+            # whatever token happened to stop it. Mirrors the design-119
+            # interpolation-brace precedent.
+            if token_type in (TokenType.RPAREN, TokenType.RBRACKET):
+                opener = self._innermost_unclosed_opener(
+                    TokenType.LPAREN if token_type == TokenType.RPAREN
+                    else TokenType.LBRACKET)
+                if opener is not None:
+                    self._unclosed_bracket_error(opener)
             if msg:
                 self.error(msg)
             else:
                 self.error(f"Expected {token_type.name}, got {self.current().type.name}")
         return self.advance()
+
+    def _innermost_unclosed_opener(self, kind: TokenType = None) -> Optional[Token]:
+        """The innermost never-closed `(`/`[` enclosing the parse position.
+
+        A never-closed opener encloses every token after it, so "innermost before
+        `self.pos`" is just the last entry with a smaller index. `kind` narrows
+        the search to one bracket type.
+        """
+        found = None
+        for index, tok in self._unclosed_openers:
+            if index >= self.pos:
+                break
+            if kind is None or tok.type == kind:
+                found = tok
+        return found
+
+    def _unclosed_bracket_error(self, opener: Token):
+        open_ch, close_ch = (('(', ')') if opener.type == TokenType.LPAREN
+                             else ('[', ']'))
+        raise SyntaxError(
+            f"Parse error at {opener.line}:{opener.column}: "
+            f"unclosed `{open_ch}` — no matching `{close_ch}` before the end of "
+            f"the file (a line break inside brackets does not close them)")
 
     def skip_newlines(self):
         while self.match(TokenType.NEWLINE):
@@ -220,22 +344,36 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         return self.advance()
 
     def parse_type_params(self) -> List[TypeParameter]:
-        """Parse optional type parameters: <T, U, ...>"""
+        """Parse optional type parameters: <T, U, ...>
+
+        A `<` in declaration position is unambiguously generic, so newlines inside
+        the list are insignificant (design 129) and a trailing comma is rejected,
+        matching `_parse_type_args`.
+        """
         if not self.match(TokenType.LT):
             return []
 
         self.advance()  # consume '<'
-        params = []
+        self._generic_depth += 1
+        try:
+            params = []
 
-        # Parse first type parameter
-        params.append(self._parse_single_type_param())
-
-        # Parse additional type parameters
-        while self.match(TokenType.COMMA):
-            self.advance()
+            # Parse first type parameter
             params.append(self._parse_single_type_param())
 
-        self.expect(TokenType.GT, "Expected '>' after type parameters")
+            # Parse additional type parameters
+            while self.match(TokenType.COMMA):
+                comma = self.advance()
+                if self.match(TokenType.GT):
+                    raise GenericListTrailingComma(
+                        f"Parse error at {comma.line}:{comma.column}: a trailing "
+                        f"comma is not allowed in a generic parameter list "
+                        f"(it is allowed in `(...)` and `[...]` lists)")
+                params.append(self._parse_single_type_param())
+
+            self.expect(TokenType.GT, "Expected '>' after type parameters")
+        finally:
+            self._generic_depth -= 1
         return params
 
     def _parse_visibility(self) -> Visibility:

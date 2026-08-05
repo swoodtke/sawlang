@@ -1,0 +1,12 @@
+// An expression-position `f<Int,>(x)` is reached through the speculative
+// "generic list or comparison?" lookahead. Design 129's trailing-comma rejection
+// must survive that lookahead rather than being swallowed into a backtrack and
+// re-reported as something unrecognizable.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a trailing comma is not allowed in a generic argument list
+
+func wrap<T>(v: T) -> T { move v }
+
+func main() {
+    print(wrap<Int,>(5))
+}

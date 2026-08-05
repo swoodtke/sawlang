@@ -212,6 +212,9 @@ class DeclarationsMixin:
                     # Parse additional parameters
                     while self.match(TokenType.COMMA):
                         self.advance()
+                        # Trailing comma (design 129).
+                        if self.match(TokenType.RPAREN):
+                            break
                         param_name = self.expect(TokenType.IDENT, "Expected parameter name").value
                         self.expect(TokenType.COLON, "Expected ':' after parameter name")
                         param_type = self.parse_type()
@@ -771,6 +774,11 @@ class DeclarationsMixin:
             if not self.match(TokenType.COMMA):
                 break
             self.advance()  # consume comma
+
+            # Trailing comma (design 129): the wrapping style this rule serves
+            # puts one parameter per line, so `f(\n  a: Int,\n)` is accepted.
+            if self.match(TokenType.RPAREN):
+                break
 
             # Check for variadic marker (...) - stop parsing parameters
             if self.match(TokenType.ELLIPSIS):

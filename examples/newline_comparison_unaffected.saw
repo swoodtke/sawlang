@@ -1,0 +1,44 @@
+// Design 129 guard rail: suppressing newlines inside brackets must not turn a
+// `<` comparison into a generic argument list. The operands here are split
+// across lines INSIDE a wrapped call — the position where the suppression is
+// live — and must still compare. `a < b` at statement level, where no
+// suppression applies, is checked alongside it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// true false
+// true false
+// true
+
+func show(lo: Bool, hi: Bool) -> String { "{lo} {hi}" }
+
+func main() {
+    let a = 1
+    let b = 2
+
+    // No suppression here: two ordinary statements, two ordinary comparisons.
+    let lt = a < b
+    let gt = a > b
+    print(show(lt, gt))
+
+    // Suppression IS live inside these parentheses. Both arguments stay
+    // comparisons even though each operand pair straddles a line break.
+    print(show(
+        a
+            < b,
+        a
+            > b,
+    ))
+
+    // A comparison as a wrapped argument, mixed with a real generic call in the
+    // same list, so the two readings of `<` sit side by side.
+    print(both(
+        a < b,
+        identity<
+            Bool
+        >(v: true),
+    ))
+}
+
+func identity<T>(v: T) -> T { move v }
+
+func both(lo: Bool, hi: Bool) -> Bool { lo && hi }

@@ -1,0 +1,54 @@
+// Design 129: a parameter list wraps the same way an argument list does, with a
+// trailing comma allowed — free functions, extension methods, inits, and trait
+// method signatures all go through the one parameter parser.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 25
+// 10
+
+struct Tile { w: Int, h: Int }
+
+extension Tile {
+    init(
+        side: Int,
+    ) -> Tile {
+        Tile(w: side, h: side)
+    }
+
+    func area(
+        &self,
+        scale: Int,
+    ) -> Int {
+        self.w * self.h * scale
+    }
+}
+
+trait Measurable {
+    func measure(
+        &self,
+        unit: Int,
+    ) -> Int
+}
+
+extension Tile: Measurable {
+    func measure(&self, unit: Int) -> Int { (self.w + self.h) * unit }
+}
+
+func total(
+    first: Int,
+    second: Int,
+    third: Int,
+) -> Int {
+    first + second + third
+}
+
+func main() {
+    print(total(1, 2, 3))
+
+    let t = Tile(
+        side: 5,
+    )
+    print(t.area(scale: 1))
+    print(t.measure(unit: 1))
+}

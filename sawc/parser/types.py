@@ -15,6 +15,17 @@ from lexer import TokenType
 from ast_nodes import SawType, TypeKind
 
 
+class GenericListTrailingComma(SyntaxError):
+    """A `,` sitting directly before `>` in a generic list (design 129).
+
+    Trailing commas are allowed in the `()`/`[]` lists that the wrapping rule
+    exists to serve, and rejected in `<...>`, which has no wrapping idiom to
+    serve. It is its own exception type so the speculative "is this `<` a generic
+    or a comparison?" backtracking in `parser/expressions.py` can let it through
+    instead of swallowing it and reporting something unrecognizable later.
+    """
+
+
 class TypeParsingMixin:
     """Mixin providing type parsing methods for Parser."""
 
@@ -103,6 +114,9 @@ class TypeParsingMixin:
                 _parse_tuple_element()
                 while self.match(TokenType.COMMA):
                     self.advance()
+                    # Trailing comma (design 129).
+                    if self.match(TokenType.RPAREN):
+                        break
                     _parse_tuple_element()
             self.expect(TokenType.RPAREN)
 
@@ -212,17 +226,31 @@ class TypeParsingMixin:
             self.error(f"Expected type, got {token.type.name}")
 
     def _parse_type_args(self) -> List[SawType]:
-        """Parse type arguments: <Int, String, ...>"""
+        """Parse type arguments: <Int, String, ...>
+
+        Reached only where the parser has COMMITTED to the generic reading, so
+        newlines inside the list are insignificant (design 129) — in type position
+        always, and in expression position (`f<Int>(x)`) once the speculative
+        lookahead in `parse_primary` has entered here. A `<` that turns out to be
+        a comparison never gets this far with its list intact: the lookahead
+        restores the position and the operator parses normally.
+        """
         self.expect(TokenType.LT)
-        type_args = []
+        self._generic_depth += 1
+        try:
+            type_args = [self.parse_type()]
 
-        # Parse first type argument
-        type_args.append(self.parse_type())
+            # Parse additional type arguments
+            while self.match(TokenType.COMMA):
+                comma = self.advance()
+                if self.match(TokenType.GT):
+                    raise GenericListTrailingComma(
+                        f"Parse error at {comma.line}:{comma.column}: a trailing "
+                        f"comma is not allowed in a generic argument list "
+                        f"(it is allowed in `(...)` and `[...]` lists)")
+                type_args.append(self.parse_type())
 
-        # Parse additional type arguments
-        while self.match(TokenType.COMMA):
-            self.advance()
-            type_args.append(self.parse_type())
-
-        self.expect(TokenType.GT, "Expected '>' after type arguments")
+            self.expect(TokenType.GT, "Expected '>' after type arguments")
+        finally:
+            self._generic_depth -= 1
         return type_args

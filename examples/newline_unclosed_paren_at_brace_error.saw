@@ -1,0 +1,12 @@
+// The other way a runaway bracket surfaces: the parse reaches the enclosing `}`
+// while the `(` is still open, so it fails looking for an expression rather than
+// looking for `)`. Design 129 anchors that report at the opener too — a `}` or
+// EOF can never occur inside a `(...)` group that eventually closes.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 11:14: unclosed `(`
+
+func f(a: Int) -> Int { a }
+
+func main() {
+    let x = f(
+}

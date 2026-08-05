@@ -1,0 +1,41 @@
+// Design 129: `[` `]` suppresses newlines exactly like `(` `)`, so array and
+// Vector literals, an index expression, tuple literals and a memberwise struct
+// literal all wrap — each with an optional trailing comma.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// 60
+// 7 8
+// 3 4
+
+struct Point { x: Int, y: Int }
+
+func main() {
+    let arr: [Int; 3] = [
+        10,
+        20,
+        30,
+    ]
+    print(arr[
+        1
+    ])
+
+    let v: Vector<Int> = [
+        10,
+        20,
+        30,
+    ]
+    print(v.get(0)! + v.get(1)! + v.get(2)!)
+
+    let t = (
+        7,
+        8,
+    )
+    print("{t.0} {t.1}")
+
+    let p = Point(
+        x: 3,
+        y: 4,
+    )
+    print("{p.x} {p.y}")
+}
