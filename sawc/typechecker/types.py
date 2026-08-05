@@ -1501,7 +1501,9 @@ class TypeUtilsMixin:
                         ErrorKind.CANNOT_COPY,
                         f"struct `{struct_name}` contains NoCopy field `{field_name}` of type `{field_type}` but does not implement NoCopy",
                         struct_info.line, struct_info.column,
-                        hint=f"add `extension {struct_name}: NoCopy {{ func deinit(var self) {{ ... }} }}`"
+                        hint=f"add `extension {struct_name}: NoCopy {{}}` — a "
+                             f"NoCopy field makes `{struct_name}` move-only, and "
+                             f"its `deinit` is synthesized"
                     )
                     break  # Only report once per struct
 
@@ -1540,7 +1542,9 @@ class TypeUtilsMixin:
                         ErrorKind.CANNOT_COPY,
                         f"struct `{struct_name}` contains ImplicitCopy field `{field_name}` of type `{field_type}` but does not implement ImplicitCopy",
                         struct_info.line, struct_info.column,
-                        hint=f"add `extension {struct_name}: ImplicitCopy {{ func copy(self) -> {struct_name} {{ ... }} }}`"
+                        hint=f"add `@synthesize extension {struct_name}: "
+                             f"ImplicitCopy {{}}` for a memberwise copy, or write "
+                             f"`func copy(&self) -> {struct_name}` by hand"
                     )
                     break  # Only report once per struct
 
@@ -1562,7 +1566,11 @@ class TypeUtilsMixin:
                         ErrorKind.CANNOT_COPY,
                         f"struct `{struct_name}` contains ExplicitCopy field `{field_name}` of type `{field_type}` but does not implement ExplicitCopy",
                         struct_info.line, struct_info.column,
-                        hint=f"add `extension {struct_name}: ExplicitCopy {{ func copy(self) -> {struct_name} {{ ... }} }}` or make it NoCopy"
+                        hint=f"pick a copy policy: `@synthesize extension "
+                             f"{struct_name}: ExplicitCopy {{}}` for a memberwise "
+                             f"deep copy, `func copy(&self) -> {struct_name}` by "
+                             f"hand, or `extension {struct_name}: NoCopy {{}}` to "
+                             f"make it move-only"
                     )
                     break  # Only report once per struct
 
@@ -1760,30 +1768,10 @@ class TypeUtilsMixin:
                     hint=f"add `extension {type_name}: Equatable {{}}`"
                 )
 
-    def _check_deinit_containment(self):
-        """Check that structs containing Deinit fields also implement Deinit."""
-        for struct_name, struct_info in self.namespace.structs.items():
-            # design 44/62: compiler-synthesized coroutine frames (`__Frame_*`) are
-            # exempt — their owning fields (opt-encoded locals, embedded sub-frames,
-            # and a design-62 G1 frame-resident `TaskGroup`) are torn down by the
-            # transform/codegen memberwise drop at the frame's own drop sites, not
-            # via a user Deinit conformance.
-            if struct_name.startswith("__Frame_"):
-                continue
-            # Skip if struct already implements Deinit (or NoCopy/ImplicitCopy/ExplicitCopy which imply Deinit)
-            if (self.namespace.type_conforms_to(struct_name, "Deinit") or
-                self.namespace.type_conforms_to(struct_name, "NoCopy") or
-                self.namespace.type_conforms_to(struct_name, "ImplicitCopy") or
-                self.namespace.type_conforms_to(struct_name, "ExplicitCopy")):
-                continue
-
-            # Check each field
-            for field_name, field_type in struct_info.fields.items():
-                if self._is_deinit_type(field_type):
-                    self._error(
-                        ErrorKind.TYPE_MISMATCH,
-                        f"struct `{struct_name}` contains Deinit field `{field_name}` of type `{field_type}` but does not implement Deinit",
-                        struct_info.line, struct_info.column,
-                        hint=f"add `extension {struct_name}: Deinit {{ func deinit(var self) {{ ... }} }}`"
-                    )
-                    break  # Only report once per struct
+    # design 128 removed `_check_deinit_containment`. Destruction is no longer
+    # something a type has to opt into: a struct holding owning fields gets a
+    # synthesized structural `deinit` (see `_synthesize_implicit_deinits`), and
+    # codegen has always dropped such fields memberwise in reverse declaration
+    # order. What a containing struct must still declare is its COPY policy —
+    # the compiler knows how to destroy a value but not whether the author wants
+    # it duplicated — which is what the three containment checks above enforce.

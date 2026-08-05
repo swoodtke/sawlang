@@ -1,0 +1,61 @@
+// design 128: the synthesized deinit drops fields in REVERSE declaration order,
+// matching the LIFO order locals already drop in. A nested owner recurses, and
+// the two orders agree.
+// EXPECT: success
+// EXPECT-OUTPUT: locals built
+// EXPECT-OUTPUT: drop l2
+// EXPECT-OUTPUT: drop l1
+// EXPECT-OUTPUT: fields built
+// EXPECT-OUTPUT: drop c
+// EXPECT-OUTPUT: drop b
+// EXPECT-OUTPUT: drop a
+// EXPECT-OUTPUT: nested built
+// EXPECT-OUTPUT: drop inner-y
+// EXPECT-OUTPUT: drop inner-x
+
+struct D {
+    tag: String
+}
+
+extension D: Deinit {
+    func deinit(&var self) {
+        print("drop {self.tag}")
+    }
+}
+
+struct Three {
+    a: D,
+    b: D,
+    c: D
+}
+
+struct Wrapper {
+    pair: Two
+}
+
+struct Two {
+    x: D,
+    y: D
+}
+
+func locals() {
+    let l1 = D(tag: "l1")
+    let l2 = D(tag: "l2")
+    print("locals built")
+}
+
+func fields() {
+    let t = Three(a: D(tag: "a"), b: D(tag: "b"), c: D(tag: "c"))
+    print("fields built")
+}
+
+func nested() {
+    let w = Wrapper(pair: Two(x: D(tag: "inner-x"), y: D(tag: "inner-y")))
+    print("nested built")
+}
+
+func main() {
+    locals()
+    fields()
+    nested()
+}

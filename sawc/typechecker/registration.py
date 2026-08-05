@@ -13,7 +13,7 @@ import copy
 from typing import Dict
 from ast_nodes import (
     TypeDefinition, Struct, Enum, Trait, Function, Extension, Method, Parameter,
-    StaticDecl, SawType, TypeKind, Visibility,
+    Program, StaticDecl, SawType, TypeKind, Visibility,
     Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr,
     IntLiteral, FloatLiteral, BoolLiteral, UnaryOp, ArrayLiteral, StructInit,
     FunctionCall, ExpressionStatement, SourceLocationLiteral
@@ -1035,6 +1035,62 @@ class RegistrationMixin:
                     )
                     extension.methods.append(synth)
                     provided.add(mname)
+
+    # Traits whose contract includes destruction: `Deinit` itself, and the three
+    # copy policies that inherit from it. Declaring any of them obliges the type
+    # to have a `deinit` — which, since design 128, the compiler supplies.
+    _RESOURCE_TRAITS = ("Deinit", "NoCopy", "ImplicitCopy", "ExplicitCopy")
+
+    def _synthesize_implicit_deinits(self, program: Program):
+        """Give every resource-conforming type without a hand-written `deinit` a
+        synthesized structural one (design 128).
+
+        Destruction is the one part of the resource contract the compiler always
+        knows how to write: drop each owning field, in reverse declaration order.
+        So `extension Holder: NoCopy {}` no longer has to carry a transcribed
+        `func deinit(&var self) {}` whose only job is to let codegen append that
+        drop glue.
+
+        The synthesized method is an ordinary `deinit` with an EMPTY body. That
+        is the whole implementation: codegen already appends the memberwise
+        field cleanup after a `deinit` body (design 17), so an empty body lowers
+        to exactly the structural drop, and there is no second destruction path
+        to keep in step.
+
+        Runs as a pre-pass over the whole program so it is declaration-order
+        independent: a type whose `deinit` lives in a sibling extension (std's
+        `extension Box: Deinit {...}` + `extension Box: NoCopy {}` split) is
+        already covered and gets nothing. A type that hand-writes `deinit`
+        always wins — there is never both.
+        """
+        have_deinit = {
+            ext.struct_name for ext in program.extensions
+            if any(not m.is_init and m.name == "deinit" for m in ext.methods)
+        }
+        for ext in program.extensions:
+            if ext.struct_name in have_deinit:
+                continue
+            if not any(t in self._RESOURCE_TRAITS for t in ext.conformances):
+                continue
+            ext.methods.append(Method(
+                name="deinit",
+                parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
+                                      is_reference=True,
+                                      reference_mutable=True)],
+                return_type=SawType(TypeKind.VOID),
+                body=Block(statements=[], final_expr=None,
+                           line=ext.line, column=ext.column),
+                self_mutable=True,
+                self_is_reference=True,
+                # Never a documented API surface: `deinit` is called by the
+                # compiler, never by a user, so it stays out of `--emit-docs`
+                # and off the design-80 member gate.
+                is_synthesized=True,
+                line=ext.line,
+                column=ext.column,
+                source_file=getattr(ext, 'source_file', None) or "",
+            ))
+            have_deinit.add(ext.struct_name)
 
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""

@@ -1,0 +1,26 @@
+// design 128: a struct holding an owning field needs no `Deinit` declaration.
+// The compiler synthesizes the structural deinit, so `Outer` compiles as
+// written and still tears `Inner` down exactly once. (Replaces the old
+// errors/deinit_containment.saw, whose error design 128 abolished.)
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: inner cleanup
+
+struct Inner {
+    value: Int
+}
+
+extension Inner: Deinit {
+    func deinit(&var self) {
+        print("inner cleanup")
+    }
+}
+
+struct Outer {
+    inner: Inner
+}
+
+func main() {
+    let o = Outer(inner: Inner(value: 42))
+    print(o.inner.value)
+}

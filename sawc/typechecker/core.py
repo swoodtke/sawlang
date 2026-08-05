@@ -543,7 +543,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for trait in program.traits:
             self._register_trait(trait)
 
-        # Fifth pass: register extensions and their methods
+        # Fifth pass: register extensions and their methods. The structural
+        # `deinit` (design 128) is synthesized first, as a whole-program
+        # pre-pass, so registration sees it like any hand-written one.
+        self._synthesize_implicit_deinits(program)
         for extension in program.extensions:
             self._register_extension(extension)
 
@@ -562,7 +565,6 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_derivable_compare()
         self._check_derivable_hash()
         self._check_ord_hash_require_equatable()
-        self._check_deinit_containment()
 
         # Register extern functions (FFI)
         for extern_block in program.extern_blocks:
@@ -1063,7 +1065,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             self._register_trait(trait)
             ns.make_accessible(trait.name)
 
-        # Register extensions
+        # Register extensions (structural `deinit` synthesized first, design 128)
+        self._synthesize_implicit_deinits(module_ast)
         for extension in module_ast.extensions:
             self._register_extension(extension)
 
@@ -1080,7 +1083,6 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_derivable_compare()
         self._check_derivable_hash()
         self._check_ord_hash_require_equatable()
-        self._check_deinit_containment()
 
         # Register extern functions
         for extern_block in module_ast.extern_blocks:

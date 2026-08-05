@@ -1,0 +1,37 @@
+// design 128: the review's probe — the most common resource-owning shape.
+// `struct Holder { v: Vector<Int> }` under a bare `NoCopy` policy compiles with
+// no hand-written body at all: the deinit is synthesized, and NoCopy's own
+// `deinit` requirement is satisfied by it.
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 6
+// EXPECT-OUTPUT: 2
+
+struct Holder {
+    v: Vector<Int>
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    func total(&self) -> Int {
+        var sum = 0
+        for x in self.v.iter() {
+            sum += x
+        }
+        sum
+    }
+}
+
+func consume(h: Holder) -> Int {
+    h.v.len()
+}
+
+func main() {
+    let h = Holder(v: [1, 2, 3])
+    print(h.v.len())
+    print(h.total())
+
+    let g = Holder(v: [7, 8])
+    print(consume(move g))
+}

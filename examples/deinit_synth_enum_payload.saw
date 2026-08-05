@@ -1,0 +1,62 @@
+// design 128: an enum's structural deinit switches on the tag and drops only
+// the ACTIVE variant's owning payload, payload-deep and in reverse payload
+// order. A payload-free variant is a no-op — no declaration anywhere.
+// EXPECT: success
+// EXPECT-OUTPUT: empty built
+// EXPECT-OUTPUT: one built
+// EXPECT-OUTPUT: drop r1
+// EXPECT-OUTPUT: two built
+// EXPECT-OUTPUT: drop r3
+// EXPECT-OUTPUT: drop r2
+// EXPECT-OUTPUT: vec built
+// EXPECT-OUTPUT: done
+
+struct R {
+    id: Int
+}
+
+extension R: Deinit {
+    func deinit(&var self) {
+        print("drop r{self.id}")
+    }
+}
+
+enum Slot {
+    case Empty,
+    case One(r: R),
+    case Two(first: R, second: R)
+}
+
+enum Payload {
+    case None2,
+    case Some2(v: Vector<Int>)
+}
+
+func empty_slot() {
+    let s = Slot.Empty
+    print("empty built")
+}
+
+func one_slot() {
+    let s = Slot.One(r: R(id: 1))
+    print("one built")
+}
+
+func two_slot() {
+    let s = Slot.Two(first: R(id: 2), second: R(id: 3))
+    print("two built")
+}
+
+func vector_payload() {
+    let nums: Vector<Int> = [1, 2, 3]
+    let p = Payload.Some2(v: move nums)
+    print("vec built")
+}
+
+func main() {
+    empty_slot()
+    one_slot()
+    two_slot()
+    vector_payload()
+    print("done")
+}
