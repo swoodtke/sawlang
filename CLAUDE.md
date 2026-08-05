@@ -34,6 +34,11 @@ sos/               # SOS microkernel (design 140). spec.md is authoritative.
   kernel/          #   virt.ld + main.saw + core/lib.saw — the module EVERY
                    #   kernel image shares (drivers, trap frame, ktrap, the
                    #   object-op dispatch, the sosimg loader)
+  kernel/abi/      #   KERNEL-INTERNAL: every op number/right/status, in one
+                   #   place, shared by the dispatch and the wrappers below
+  kernel/sysapi/   #   the PUBLIC `sos` module the kernel EXPORTS to userspace
+                   #   (vDSO discipline: numbers are not ABI). Typed Saw +
+                   #   @export'd C surface; a process depends on this only
   hal/riscv32/     #   the ONLY arch-aware code: kernel/ (boot.S trap entry,
                    #   board sinks, PMP) + user/ (ecall stub, syscall sinks),
                    #   each with an ABI.md. M1b ADDS hal/arm64/, moves nothing

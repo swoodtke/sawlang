@@ -4229,6 +4229,26 @@ kernel image with linker-symbol bounds (`.payload`, `_payload_start` /
 driving a Blade `emit = "sosimg"` target. A U-mode fault or a malformed image
 prints a cause tag and exits FAIL — M0's never-hang discipline kept throughout.
 
+**Round 3 — API ownership (spec §5.7's vDSO discipline, ratified Aug 5).**
+The typed wrappers moved into a PUBLIC `sos` module owned and exported by the
+kernel package (`sos/kernel/sysapi/`, U-mode library code living in the
+kernel's tree). Every op number, rights bit and status tag lives in ONE
+kernel-internal package (`sos/kernel/abi/`) imported by BOTH the kernel's
+dispatch tables and those wrappers, so the two halves of the contract cannot
+skew and the kernel may renumber freely. Root dropped its own wrapper and stub
+knowledge entirely and imports `sos` as a path dependency; a grep for an op
+name across `sos/root/`, `sos/hal/` and `sos/tests/faulting-root/` sources
+returns nothing. The kernel package also `@export`s a per-op C-ABI surface
+(`sos_system_debug_print`, `sos_system_shutdown`) over the fixed-arity raw
+`sos_syscall1` over the per-arch `ecall` stub — one implementation chain, three
+entry altitudes (typed Saw, typed C, raw), with the Saw wrappers riding the
+same chain rather than a second trap path. The user HAL's own runtime sinks
+call the typed C surface, so the C altitude is exercised on every boot instead
+of only being linked; root additionally calls `print` once, which runs the
+whole C chain and demonstrates design 137's alloc-free formatting inside a
+U-mode process. Each seam doc gained a short note saying which altitude is
+supported for whom.
+
 **Structure the revision landed** (review items 1-5):
 - The format is a SHARED package, `sos/imgformat/` — the two structs, the
   constants, the `static_assert` ABI pin, and the target-independent
@@ -4460,6 +4480,51 @@ constructs its `Uart16550` per use.
   Workaround: prefix the importer's constants (`ELF_PT_LOAD`). Blast radius
   grows with package count — every private constant in every dependency is a
   reserved word for its consumers.
+
+- **DF-140h — OPEN. DF-140f's fix does not cover STD. A module-private `static`
+  in a PRELUDE std module still reserves its name for every user module.**
+  `sawc/std/stringbuilder.saw` declares `static ASCII_ZERO: Int = 48` with no
+  `public`, and StringBuilder is prelude, so it is compiled into everything:
+
+  ```saw
+  static ASCII_ZERO: UInt = 48        // error: static `ASCII_ZERO` is
+                                      // defined multiple times
+  @export("probe")
+  func probe(n: UInt) -> UInt { ASCII_ZERO + n }
+  ```
+
+  Five lines, no dependency, `--freestanding --target riscv32-unknown-none-elf`.
+  DF-140f fixed the dependency case (a private declaration in a package no
+  longer reserves its name downstream); the implicitly-compiled prelude modules
+  were not covered by that sweep, so every private constant in std is still a
+  reserved word for user code. Worse than the dependency case in one way: a user
+  cannot see the colliding name without reading std, and the diagnostic does not
+  say where the other definition is. `sos/rt/common/`'s hex constants carry a
+  `HEX_` prefix to route around it.
+
+- **DF-140i — OPEN. An enum cannot carry ANY methods, so a tagged error type
+  cannot be given behavior or made Printable.** Found giving the `sos` module a
+  `SysError` (design 140 round 3). `extension SysError { func from_status(...) }`
+  is rejected:
+
+  ```
+  error: cannot extend enum `SysError`: only an empty
+  `extension SysError: Equatable|Comparable|Hashable|NoCopy|ImplicitCopy|ExplicitCopy {}`
+  is supported
+  ```
+
+  The consequences compound for exactly the shape an enum is best at. A closed
+  tag set is the right type for a syscall status, but it cannot have a
+  `from_status` constructor (that becomes a free function, so the conversion
+  reads `sys_error(s)` instead of `SysError.from_status(s)`), and — the real
+  cost — it cannot conform to `Error` or `Printable`, so a `SysError` cannot be
+  interpolated into a message and cannot flow through the erased
+  `Result<T, Box<any Error>>` that the rest of the language treats as the
+  error idiom. Every other error type in the tree is a struct for this reason,
+  which is the language pushing authors away from the better-fitting type.
+  Deliberate today (the diagnostic is clear and names what IS allowed), but it
+  is worth a brief: enums are already payload-carrying and matchable, and
+  methods on them are the one thing keeping them second-class.
 
 - **DF-140g — OPEN, a capability gap rather than a bug: a freestanding runtime
   cannot be written in Saw.** Design 140's revision moved every arch-free,

@@ -60,6 +60,13 @@ IMGFORMAT_MODULE = f"imgformat={IMGFORMAT_DIR}"
 SOSRT_DIR = os.path.join(REPO_ROOT, "sos", "rt", "common", "src")
 SOSRT_MODULE = f"sosrt={SOSRT_DIR}"
 
+# The call numbers. Kernel-INTERNAL (sos/spec.md §5.7's vDSO discipline): the
+# dispatch tables here and the `sos` module the kernel exports to userspace
+# share it, and nothing else does. A process links `sos` and never sees a
+# number, so it never needs this path.
+SOSABI_DIR = os.path.join(KERNEL_DIR, "abi", "src")
+SOSABI_MODULE = f"sosabi={SOSABI_DIR}"
+
 # The per-architecture, per-role native halves. M1b adds sos/hal/arm64/...
 # beside these without moving anything here.
 HAL_KERNEL_DIR = os.path.join(REPO_ROOT, "sos", "hal", "riscv32", "kernel")
@@ -201,7 +208,12 @@ TEST_CASES = [
         "expect_out": ["SOS M1: kernel up on riscv32",
                        "root image ok segments=0x00000002",
                        "prio=0x01010100",
-                       "SOS root: hello from U-mode via a System op"],
+                       # The typed SAW altitude.
+                       "SOS root: hello from U-mode via a System op",
+                       # The typed C altitude: `print` -> `__saw_rt_write` ->
+                       # the HAL sink -> the exported `sos_system_debug_print`.
+                       # Also design 137 formatting with no allocator present.
+                       "SOS root: boot handle 1"],
         "expect_clean_exit": True,
     },
     {
@@ -397,7 +409,8 @@ def _build_elf(case, shared_objs, lld, clang):
           "--target-features", MFEATURES,
           "--module-path", CORE_MODULE,
           "--module-path", IMGFORMAT_MODULE,
-          "--module-path", SOSRT_MODULE])
+          "--module-path", SOSRT_MODULE,
+          "--module-path", SOSABI_MODULE])
 
     objs = list(shared_objs) + [obj]
     if case.get("asm"):
