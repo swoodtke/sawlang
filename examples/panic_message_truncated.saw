@@ -1,0 +1,21 @@
+// Design 137: a panic message is assembled in bounded stack scratch, so a very
+// long one is cut. It is cut VISIBLY — the trailing `…` tells the reader they
+// are not looking at the whole message. A silently shortened abort message is a
+// hidden error, and this path exists precisely to be trusted under duress.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: …
+
+func long_reason() -> String {
+    var b = StringBuilder()
+    var i = 0
+    while i < 60 {
+        b.append("0123456789")     // 600 bytes, past the 508-byte message limit
+        i = i + 1
+    }
+    b.build()
+}
+
+func main() {
+    print("built")
+    panic(long_reason())
+}

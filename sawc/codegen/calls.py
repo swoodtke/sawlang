@@ -555,31 +555,84 @@ class CallsMixin:
 
         return dummy
 
+    # A panic message is assembled in this many bytes of stack (design 137).
+    # Four are reserved — three for the truncation marker, one for the trailing
+    # newline — so a message of PANIC_SCRATCH - 4 bytes survives whole and
+    # anything longer is cut and marked.
+    PANIC_SCRATCH = 512
+    TRUNCATION_MARKER = "…"
+
     def _emit_runtime_panic(self, segments):
         """Assemble `segments` into one contiguous buffer and abort via saw_panic.
 
         `segments` is a list of `(i8* ptr, word len)` byte ranges. They are
-        concatenated into a freshly allocated buffer (through __saw_string_alloc,
-        which routes to saw_alloc — freestanding-safe) and handed to the
-        `saw_panic(msg, len)` seam in a single call, so a freestanding handler
-        receives the whole message. `unreachable` terminates the block. Nothing
-        is freed: control never returns.
+        concatenated into a STACK buffer and handed to the `saw_panic(msg, len)`
+        seam in a single call, so a freestanding handler receives the whole
+        message. A trailing newline is appended here; callers pass the message
+        parts only. `unreachable` terminates the block. Nothing is freed:
+        control never returns.
+
+        Design 137: this used to concatenate into a `__saw_string_alloc` block,
+        which made reporting a panic depend on the allocator. That is exactly
+        backwards for the failure this language leans on — a `Vector.push` that
+        panics BECAUSE the allocator refused could not then assemble the message
+        saying so, and design 123 had to give its test seam a deny WINDOW so the
+        panic path could allocate after the allocation under test was refused.
+        The buffer is a stack array now, so the message survives total allocator
+        denial, the freestanding profile, and a kernel with no heap at all.
+
+        Bounded storage means a long message is cut. It is cut VISIBLY: the
+        trailing `…` says the reader is not looking at the whole thing. The cut
+        lands on a byte boundary, which can split a multi-byte scalar — the
+        marker is still stamped, so the message stays self-describing.
+
+        The scratch is allocated in the panicking block rather than the entry
+        block on purpose: the block ends in `unreachable`, so it cannot be
+        re-entered, and a function that merely CONTAINS a panic pays no stack
+        for it.
         """
         word = self.int_type
-        i8ptr = ir.IntType(8).as_pointer()
+        i8 = ir.IntType(8)
+        i8ptr = i8.as_pointer()
+        i32 = ir.IntType(32)
         memcpy_fn = self._libc_func("memcpy", i8ptr, [i8ptr, i8ptr, word])
 
-        total = ir.Constant(word, 0)
-        for _, seg_len in segments:
-            total = self.builder.add(total, seg_len, name="panic_len")
-        buf = self.builder.call(self.functions["__saw_string_alloc"],
-                                [total], name="panic_buf")
+        marker_len = len(self.TRUNCATION_MARKER.encode("utf-8"))
+        text_max = self.PANIC_SCRATCH - marker_len - 1   # marker + '\n'
+
+        buf = self.builder.alloca(ir.ArrayType(i8, self.PANIC_SCRATCH),
+                                  name="panic_buf")
+        base = self.builder.gep(buf, [ir.Constant(i32, 0), ir.Constant(i32, 0)],
+                                inbounds=True, name="panic_base")
+
+        limit = ir.Constant(word, text_max)
         offset = ir.Constant(word, 0)
+        truncated = ir.Constant(ir.IntType(1), 0)
         for seg_ptr, seg_len in segments:
-            dst = self.builder.gep(buf, [offset], name="panic_seg")
-            self.builder.call(memcpy_fn, [dst, seg_ptr, seg_len])
-            offset = self.builder.add(offset, seg_len, name="panic_off")
-        self.builder.call(self.functions["__saw_rt_panic"], [buf, total])
+            room = self.builder.sub(limit, offset, name="panic_room")
+            over = self.builder.icmp_unsigned('>', seg_len, room, name="panic_over")
+            take = self.builder.select(over, room, seg_len, name="panic_take")
+            dst = self.builder.gep(base, [offset], inbounds=True, name="panic_seg")
+            self.builder.call(memcpy_fn, [dst, seg_ptr, take])
+            offset = self.builder.add(offset, take, name="panic_off")
+            truncated = self.builder.or_(truncated, over, name="panic_trunc")
+
+        # Stamp the marker only when something was dropped: a zero-length copy
+        # is the no-op branch, so this stays straight-line code in a block that
+        # must end in `unreachable`.
+        mark_ptr, mark_len = self._raw_bytes_ptr(self.TRUNCATION_MARKER)
+        stamp = self.builder.select(truncated, mark_len, ir.Constant(word, 0),
+                                    name="panic_stamp")
+        self.builder.call(memcpy_fn, [
+            self.builder.gep(base, [offset], inbounds=True, name="panic_mark"),
+            mark_ptr, stamp])
+        offset = self.builder.add(offset, stamp, name="panic_marked")
+
+        self.builder.store(ir.Constant(i8, ord('\n')),
+                           self.builder.gep(base, [offset], inbounds=True,
+                                            name="panic_nl"))
+        total = self.builder.add(offset, ir.Constant(word, 1), name="panic_total")
+        self.builder.call(self.functions["__saw_rt_panic"], [base, total])
         self.builder.unreachable()
 
     def _panic_location_prefix(self, line: int) -> str:
@@ -609,10 +662,8 @@ class CallsMixin:
                                     name="panic_msg_len")
         prefix_ptr, prefix_len = self._raw_bytes_ptr(
             self._panic_location_prefix(getattr(expr, 'line', 0)))
-        nl_ptr, nl_len = self._raw_bytes_ptr("\n")
         self._emit_runtime_panic([(prefix_ptr, prefix_len),
-                                  (msg_val, msg_len),
-                                  (nl_ptr, nl_len)])
+                                  (msg_val, msg_len)])
         return None
 
     def _generate_assert(self, expr: FunctionCall):
@@ -635,10 +686,8 @@ class CallsMixin:
                                     name="assert_msg_len")
         prefix_ptr, prefix_len = self._raw_bytes_ptr(
             self._panic_location_prefix(getattr(expr, 'line', 0)) + "assertion failed: ")
-        suffix_ptr, suffix_len = self._raw_bytes_ptr("\n")
         self._emit_runtime_panic([(prefix_ptr, prefix_len),
-                                  (msg_val, msg_len),
-                                  (suffix_ptr, suffix_len)])
+                                  (msg_val, msg_len)])
 
         self.builder.position_at_end(cont_bb)
         return None

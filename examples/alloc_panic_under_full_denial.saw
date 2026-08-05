@@ -1,0 +1,32 @@
+// Design 137: a panic message assembles with the allocator refusing
+// EVERYTHING. `__saw_rt_alloc_deny_after(0, 0)` denies from that call onward and
+// never re-arms, so nothing between it and the abort may touch the heap.
+//
+// This is the test design 123 could not write. Panic messages were concatenated
+// into a fresh `__saw_string_alloc` block, so under blanket denial every
+// tier-one panic reported a string-allocation failure instead of the failure
+// that actually happened — which is why 123's seam grew a deny WINDOW that let
+// the panic path allocate after refusing the allocation under test. The message
+// is assembled in stack scratch now, so the window is no longer load-bearing.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at alloc_panic_under_full_denial.saw:31: out of frames
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+}
+
+func main() {
+    // Prove the panic message below is not a String built before denial: it is
+    // a literal, and every dynamic part of the line comes from the compiler's
+    // interned constants.
+    print("denial armed")
+    __saw_rt_alloc_deny_after(0, 0)
+
+    // The allocator now refuses every request. A growable Vector confirms it
+    // refuses, and the panic that follows still says what went wrong.
+    match Vector<Int>.try_with_capacity(4) {
+        case Ok(_) -> panic("denial seam did not take effect"),
+        case Err(_) -> {}
+    }
+    panic("out of frames")
+}
