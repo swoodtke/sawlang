@@ -128,7 +128,7 @@ class OptionalsMixin:
 
         # Panic block: emit the panic via the saw_panic seam.
         self.builder.position_at_end(unwrap_panic_bb)
-        self._emit_panic(f"panic: force unwrap of None at line {expr.line}")
+        self._emit_panic("force unwrap of None", line=expr.line)
 
         # OK block: extract and return the value
         self.builder.position_at_end(unwrap_ok_bb)

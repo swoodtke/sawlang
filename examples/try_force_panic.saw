@@ -1,5 +1,7 @@
+// `try!` on an Err panics with the unified `panic at FILE:LINE:` prefix (design
+// 122 unit I): it used to carry a line but no file, in a format of its own.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: panic: try! failed at line 19
+// EXPECT-PANIC-CONTAINS: panic at try_force_panic.saw:21: try! failed
 
 // Test try! (force unwrap) panics on Err
 

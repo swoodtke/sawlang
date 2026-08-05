@@ -2170,8 +2170,16 @@ func get_index(arr: [Int], i: Int) -> Int {   // [Int] slice: illustrative
 
 **Status: implemented.**
 
+- **Every compiler-raised panic names its source location.** Integer overflow,
+  division by zero, shift range, array bounds, force-unwrap of `None` and `try!`
+  on an `Err` all abort through the same prefix `panic()` and `assert()` use:
+  `panic at FILE:LINE: {reason}`. FILE is the source basename (the spelling
+  `#file` produces); LINE is the line of the expression that trapped, not the
+  top of the enclosing function. Both are compile-time constants folded into the
+  message text, so a check still lowers to one constant and one `saw_panic`
+  call, and the format is the same in the hosted and freestanding profiles.
 - **Force-unwrap of `None`** (`opt!`) panics with "force unwrap of None".
-  **`try!` on an `Err`** panics, reporting the source line.
+  **`try!` on an `Err`** panics with "try! failed".
 - **Fixed-array indexing with an out-of-bounds compile-time constant** is a
   **compile error** ("index out of range"), mirroring the tuple-index check.
 - **Fixed-array indexing with a *dynamic* index** is **bounds-checked at

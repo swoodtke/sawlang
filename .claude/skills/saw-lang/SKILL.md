@@ -207,8 +207,11 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   Still rejected: a chained assignment through MORE THAN ONE hop whose RHS suspends
   (`a?.b?.c = s.read()` — `if let` the inner optional first). `?.` indexing is
   unsupported.
-- `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift
-  violations panic ALWAYS (wrap intentionally with `&+ &- &*`).
+- `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift/div-zero
+  violations panic ALWAYS (wrap intentionally with `&+ &- &*`). EVERY panic —
+  the compiler-raised traps included — prints `panic at FILE:LINE: {reason}`,
+  where LINE is the trapping expression's own line (a closure body reports its
+  own line, not the enclosing function's), in both profiles.
 - FAILABLE-RETURNS-RESULT (design 92, non-negotiable): a fallible op SURFACES
   its failure — `Result<T, IoError/…>` (caller must handle/`try`), or `T?` for an
   uninteresting/expected absence. NEVER a `Void` return that drops the error, and

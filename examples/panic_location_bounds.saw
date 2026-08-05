@@ -1,0 +1,17 @@
+// Design 122 unit I: a dynamic out-of-range index reports FILE:LINE, and it is
+// the INDEXING line — not the top of the function and not the caller — so a
+// bounds trap points at the expression that trapped.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at panic_location_bounds.saw:11: index out of range
+
+func pick(i: Int) -> Int {
+    let arr = [10, 20, 30]
+    let before = arr[0]
+    let after = before + 1
+    arr[i]
+}
+
+func main() {
+    var i = 7
+    print(pick(i))
+}

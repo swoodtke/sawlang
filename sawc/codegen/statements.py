@@ -656,6 +656,10 @@ class StatementsMixin:
         INT_MIN/-1 checked, exactly as the corresponding binary operators
         (design 31) -- `x += y` must not silently wrap where `x = x + y` panics.
         Float ops are untouched.
+
+        Unlike the binary-operator path these checks pass no explicit panic line
+        (design 122 unit I): a compound assignment IS the statement, so the line
+        the statement walk already announced is the operator's own line.
         """
         is_float = isinstance(left.type, ir.DoubleType)
 

@@ -99,7 +99,7 @@ class ResultsMixin:
 
         # Panic block: emit the panic via the saw_panic seam.
         self.builder.position_at_end(panic_bb)
-        self._emit_panic(f"panic: try! failed at line {expr.line}")
+        self._emit_panic("try! failed", line=expr.line)
 
         # OK block - extract value
         self.builder.position_at_end(ok_bb)

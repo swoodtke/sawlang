@@ -1,0 +1,18 @@
+// Design 122 unit I: a division-by-zero panic names FILE:LINE, and the LINE is
+// the dividing expression's own. Here the division sits inside a block-bodied
+// value-if, three lines below the `let` statement that contains it, so a
+// location taken from the statement alone would name the wrong line.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at panic_location_divzero.saw:13: division by zero
+
+func main() {
+    let total = 10
+    let parts = 0
+    let split = true
+    let each = if split {
+        total / parts
+    } else {
+        0
+    }
+    print(each)
+}

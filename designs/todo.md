@@ -67,8 +67,27 @@ review — DO NOT DISPATCH. Original ranked findings follow for reference.
 - **RC-3 op-budget does NOT stop a pure-compute spinning task** — starves
   siblings completely; README claims otherwise. (Budget counts only I/O-ish
   ops.)
-- **RC-4 runtime panics missing source location**: overflow/bounds/div-zero/
-  shift have no location at all; force-unwrap/`try!` lack the file.
+- **RC-4 — FIXED (design 122 unit I, Aug 5).** Every compiler-raised panic now
+  carries the design-69 `panic at FILE:LINE: ` prefix: overflow, division by
+  zero, shift range and bounds gained a location they never had, and
+  force-unwrap / `try!` gained the file half (their bespoke `... at line N`
+  texts are gone). The location folds into the message constant — now interned
+  by text through `_raw_bytes_ptr` — so a site still lowers to one constant and
+  one `saw_panic` call. LINE is the TRAPPING EXPRESSION's line: threaded from
+  the AST node where the check has one (binary/unary ops, index, `!`, `try!`),
+  else the line of the statement being lowered, tracked per llvm FUNCTION
+  (`_di_stmt_lines`) so a nested body cannot bleed its line onto its parent; a
+  closure inherits its enclosing function's basename so the FILE:LINE pair stays
+  consistent in a multi-module build. One format in both profiles — a
+  freestanding FILE gate was measured and rejected: it saves only
+  `len(basename) - 4` bytes per site, because the size cost is per-site LINE
+  uniqueness, which the brief keeps unconditionally. Numbers: SOS M0 kernel
+  unchanged at 1420 text / 168 rodata (it has no runtime-check panic sites at
+  all); a synthetic 30-distinct-site freestanding riscv32 kernel 2224 -> 3181
+  text (+957 rodata), of which the FILE half is 482. Tests
+  examples/panic_location_{overflow,bounds,divzero,shift}.saw. Original finding
+  follows: overflow/bounds/div-zero/shift have no location at all;
+  force-unwrap/`try!` lack the file.
 - **RC-5 `--freestanding` on the Mach-O host dies as an uncaught LLVM ERROR**
   abort (ELF cross-targets fine).
 - (Re-confirmed, already open: DF-119b `print(UInt)` renders signed.)

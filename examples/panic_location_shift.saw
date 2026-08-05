@@ -1,0 +1,12 @@
+// Design 122 unit I: a shift-out-of-range panic names FILE:LINE from inside a
+// CLOSURE. A closure body is its own LLVM function with no debug subprogram, so
+// the file half is inherited from the function the closure is written in and the
+// line half comes from the closure's own body — the pair has to stay consistent.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at panic_location_shift.saw:10: shift out of range
+
+func main() {
+    let width = 64
+    let shove = { n: Int in n << width }
+    print(shove(1))
+}

@@ -32,35 +32,45 @@ class OperatorsMixin:
         _generate_cast_expr: Generate code for type casts
     """
 
-    def _emit_panic(self, message: str):
+    def _emit_panic(self, message: str, line: int = 0):
         """Emit a runtime panic via the saw_panic seam, then terminate the block.
 
         The single lowering for every compiler-emitted panic (div/mod by zero,
-        force-unwrap of None, try! on Err, ...): build the constant message as a
-        private byte global (exact text preserved — panic tests match on it) and
-        call saw_panic(ptr, len), which is noreturn. The `unreachable` terminates
-        the block. The caller must have positioned the builder in the panicking
-        block. In the hosted profile saw_panic prints the message and aborts; in
-        the freestanding profile the environment provides saw_panic.
+        integer overflow, shift range, bounds, force-unwrap of None, try! on
+        Err, allocation failure): the whole message is one interned private byte
+        constant handed to saw_panic(ptr, len), which is noreturn. The
+        `unreachable` terminates the block. The caller must have positioned the
+        builder in the panicking block. In the hosted profile saw_panic prints
+        the message and aborts; in the freestanding profile the environment
+        provides saw_panic.
+
+        Design 122 unit I: every one of these carries the SAME
+        `panic at FILE:LINE: ` prefix `panic()`/`assert()` already used. A trap
+        that cannot say which line trapped is the weak link in a safety story
+        built on trapping instead of corrupting memory. `line` is the panicking
+        expression's own line when the caller has an AST node to read; otherwise
+        it is the line of the statement being lowered, which is what a check
+        emitted deep inside an operator helper has to fall back on.
+
+        The location folds into the message constant rather than becoming extra
+        arguments, so a panic site still costs one relocation and one call; the
+        constants are interned by TEXT (via `_raw_bytes_ptr`), so repeated
+        checks on one line share a single global.
+
+        The format is the same in EVERY profile. Gating the FILE half behind
+        `freestanding` was measured and rejected: it saves only
+        `len(basename) - 4` bytes per site (4 bytes for a `main.saw`-sized name)
+        because what actually costs size is that a per-site LINE makes each
+        message unique, which the freestanding build pays either way.
         """
-        msg = message if message.endswith("\n") else message + "\n"
-        encoded = msg.encode('utf-8')
-        n = len(encoded)
-        arr_type = ir.ArrayType(ir.IntType(8), n)
-        panic_global = ir.GlobalVariable(self.module, arr_type,
-                                         name=f".panic_msg.{self.string_counter}")
-        self.string_counter += 1
-        panic_global.global_constant = True
-        panic_global.initializer = ir.Constant(arr_type, bytearray(encoded))
-        panic_global.linkage = 'private'
-        zero = ir.Constant(ir.IntType(32), 0)
-        panic_ptr = self.builder.gep(panic_global, [zero, zero], inbounds=True)
-        # saw_panic takes a platform-width length (design 47).
-        self.builder.call(self.functions["__saw_rt_panic"],
-                          [panic_ptr, ir.Constant(self.int_type, n)])
+        message = self._panic_location_prefix(line or self._di_current_line()) + message
+        if not message.endswith("\n"):
+            message += "\n"
+        msg_ptr, msg_len = self._raw_bytes_ptr(message)
+        self.builder.call(self.functions["__saw_rt_panic"], [msg_ptr, msg_len])
         self.builder.unreachable()
 
-    def _check_divisor_nonzero(self, divisor):
+    def _check_divisor_nonzero(self, divisor, line: int = 0):
         """Guard an integer division/modulo: panic if `divisor` is zero.
 
         Emits `if divisor == 0 { panic } else { continue }` and leaves the
@@ -69,6 +79,9 @@ class OperatorsMixin:
         divide-by-zero, so without this the program silently returns garbage.
         (INT_MIN / -1 overflow is intentionally NOT handled here; integer
         overflow semantics are an open spec question — see todo_jul26.md #5/#7.)
+
+        `line` is the dividing expression's own source line for the panic
+        message (design 122 unit I); 0 falls back to the statement's line.
         """
         zero = ir.Constant(divisor.type, 0)
         is_zero = self.builder.icmp_signed('==', divisor, zero, name="divzero_check")
@@ -78,7 +91,7 @@ class OperatorsMixin:
         self.builder.cbranch(is_zero, panic_bb, cont_bb)
 
         self.builder.position_at_end(panic_bb)
-        self._emit_panic("panic: division by zero")
+        self._emit_panic("division by zero", line=line)
 
         self.builder.position_at_end(cont_bb)
 
@@ -123,13 +136,16 @@ class OperatorsMixin:
         cache[name] = fn
         return fn
 
-    def _checked_arith(self, op: str, left, right, signed: bool):
+    def _checked_arith(self, op: str, left, right, signed: bool, line: int = 0):
         """Emit an overflow-checked integer add/sub/mul (design 31).
 
         Uses the `llvm.{s,u}{add,sub,mul}.with.overflow` intrinsic and branches
         to the standard panic seam ("integer overflow") when the overflow flag is
         set, mirroring the div-by-zero panic-block pattern. Leaves the builder in
         the non-overflowing continuation block and returns the wrapped result.
+
+        `line` is the arithmetic expression's own source line for the panic
+        message (design 122 unit I); 0 falls back to the statement's line.
         """
         intrinsic = self._overflow_intrinsic(op, signed, left.type.width)
         agg = self.builder.call(intrinsic, [left, right], name="ovf")
@@ -142,12 +158,12 @@ class OperatorsMixin:
         self.builder.cbranch(flag, panic_bb, cont_bb)
 
         self.builder.position_at_end(panic_bb)
-        self._emit_panic("panic: integer overflow")
+        self._emit_panic("integer overflow", line=line)
 
         self.builder.position_at_end(cont_bb)
         return result
 
-    def _check_div_no_overflow(self, dividend, divisor):
+    def _check_div_no_overflow(self, dividend, divisor, line: int = 0):
         """Guard a *signed* division/modulo against the `INT_MIN / -1` overflow.
 
         `INT_MIN / -1` is +2^(w-1), unrepresentable in a w-bit signed integer (C
@@ -155,6 +171,9 @@ class OperatorsMixin:
         for both `/` and `%` (see design 31: `%`'s mathematically-zero result is
         defined via the same panic for consistency with division). Emitted beside
         the existing zero-divisor check; leaves the builder in the continue block.
+
+        `line` is the dividing expression's own source line for the panic
+        message (design 122 unit I); 0 falls back to the statement's line.
         """
         ty = dividend.type
         int_min = ir.Constant(ty, -(1 << (ty.width - 1)))
@@ -169,7 +188,7 @@ class OperatorsMixin:
         self.builder.cbranch(is_ovf, panic_bb, cont_bb)
 
         self.builder.position_at_end(panic_bb)
-        self._emit_panic("panic: integer overflow")
+        self._emit_panic("integer overflow", line=line)
 
         self.builder.position_at_end(cont_bb)
 
@@ -196,7 +215,7 @@ class OperatorsMixin:
             return self.builder.or_(left, right, name="ortmp")
         return self.builder.xor(left, right, name="xortmp")
 
-    def _emit_shift(self, op: str, left, right, signed: bool):
+    def _emit_shift(self, op: str, left, right, signed: bool, line: int = 0):
         """Emit `<<` / `>>` with a runtime range check (design 50).
 
         A shift amount that is negative or >= the left operand's bit width panics
@@ -206,7 +225,9 @@ class OperatorsMixin:
         caught too. The compare runs at the amount's own width *before* narrowing,
         so a large amount can't be truncated down into the legal range first.
         `>>` lowers to `ashr` (arithmetic) for a signed left operand, `lshr`
-        (logical) for an unsigned one.
+        (logical) for an unsigned one. `line` is the shifting expression's own
+        source line for the panic message (design 122 unit I); 0 falls back to
+        the statement's line.
         """
         width = left.type.width
         wconst = ir.Constant(right.type, width)
@@ -218,7 +239,7 @@ class OperatorsMixin:
         self.builder.cbranch(oob, panic_bb, cont_bb)
 
         self.builder.position_at_end(panic_bb)
-        self._emit_panic("panic: shift out of range")
+        self._emit_panic("shift out of range", line=line)
 
         self.builder.position_at_end(cont_bb)
         # In-range now (amount < width <= 64): safe to narrow to the shift width.
@@ -253,7 +274,8 @@ class OperatorsMixin:
         cont_bb = func.append_basic_block(name="idx_cont")
         self.builder.cbranch(oob, panic_bb, cont_bb)
         self.builder.position_at_end(panic_bb)
-        self._emit_panic("panic: index out of range")
+        self._emit_panic("index out of range",
+                         line=getattr(index_expr, 'line', 0))
         self.builder.position_at_end(cont_bb)
 
     def _generate_binary_op(self, expr: BinaryOp):
@@ -309,7 +331,8 @@ class OperatorsMixin:
             return self._emit_bitwise(expr.op, left, right)
         elif expr.op in ('<<', '>>'):
             return self._emit_shift(expr.op, left, right,
-                                    self._int_is_signed(expr.left))
+                                    self._int_is_signed(expr.left),
+                                    line=getattr(expr, 'line', 0))
 
         if expr.op == '+':
             if isinstance(left.type, ir.PointerType):
@@ -318,7 +341,8 @@ class OperatorsMixin:
             if is_float:
                 return self.builder.fadd(left, right, name="addtmp")
             # Integer add: overflow panics (design 31).
-            return self._checked_arith('+', left, right, self._int_is_signed(expr.left))
+            return self._checked_arith('+', left, right, self._int_is_signed(expr.left),
+                                       line=getattr(expr, 'line', 0))
 
         elif expr.op == '-':
             if isinstance(left.type, ir.PointerType):
@@ -327,12 +351,14 @@ class OperatorsMixin:
                 return self.builder.gep(left, [neg_right], name="ptr_sub")
             if is_float:
                 return self.builder.fsub(left, right, name="subtmp")
-            return self._checked_arith('-', left, right, self._int_is_signed(expr.left))
+            return self._checked_arith('-', left, right, self._int_is_signed(expr.left),
+                                       line=getattr(expr, 'line', 0))
 
         elif expr.op == '*':
             if is_float:
                 return self.builder.fmul(left, right, name="multmp")
-            return self._checked_arith('*', left, right, self._int_is_signed(expr.left))
+            return self._checked_arith('*', left, right, self._int_is_signed(expr.left),
+                                       line=getattr(expr, 'line', 0))
 
         elif expr.op == '/':
             if is_float:
@@ -344,9 +370,9 @@ class OperatorsMixin:
             # overflow and must use udiv (design 41 item 0 / design 40 L6 sidecar
             # -- an unsigned operand with the high bit set gives the wrong result
             # under sdiv).
-            self._check_divisor_nonzero(right)
+            self._check_divisor_nonzero(right, line=getattr(expr, 'line', 0))
             if self._int_is_signed(expr.left):
-                self._check_div_no_overflow(left, right)
+                self._check_div_no_overflow(left, right, line=getattr(expr, 'line', 0))
                 return self.builder.sdiv(left, right, name="divtmp")
             return self.builder.udiv(left, right, name="udivtmp")
 
@@ -354,9 +380,9 @@ class OperatorsMixin:
             # Modulo only works on integers; same zero-divisor panic as /, and
             # the same signed/unsigned split: srem (with the INT_MIN / -1 overflow
             # panic) for signed operands, urem for unsigned.
-            self._check_divisor_nonzero(right)
+            self._check_divisor_nonzero(right, line=getattr(expr, 'line', 0))
             if self._int_is_signed(expr.left):
-                self._check_div_no_overflow(left, right)
+                self._check_div_no_overflow(left, right, line=getattr(expr, 'line', 0))
                 return self.builder.srem(left, right, name="modtmp")
             return self.builder.urem(left, right, name="umodtmp")
 
@@ -1099,7 +1125,8 @@ class OperatorsMixin:
             # is signed-only (typechecker allows signed Int/fixed-width/Float), so
             # a signed checked subtract is exactly right.
             zero = ir.Constant(operand.type, 0)
-            return self._checked_arith('-', zero, operand, True)
+            return self._checked_arith('-', zero, operand, True,
+                                       line=getattr(expr, 'line', 0))
 
         elif expr.op == 'not':
             # Logical NOT: flip the boolean (XOR with 1)
@@ -1188,8 +1215,8 @@ class OperatorsMixin:
             panic_bb = func.append_basic_block(name="unwrap_ref.panic")
             self.builder.cbranch(is_some, ok_bb, panic_bb)
             self.builder.position_at_end(panic_bb)
-            self._emit_panic(
-                f"panic: force unwrap of None at line {getattr(inner_expr, 'line', 0)}")
+            self._emit_panic("force unwrap of None",
+                             line=getattr(inner_expr, 'line', 0))
             self.builder.position_at_end(ok_bb)
             return self.builder.gep(opt_ptr,
                                     [ir.Constant(ir.IntType(32), 0),

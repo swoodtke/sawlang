@@ -37,6 +37,15 @@ class DebugInfoMixin:
         self._di_func_subprograms = {}      # llvm func name -> DISubprogram
         self._di_func_basename = {}         # llvm func name -> source basename
         self._di_loc_cache = {}             # (func name, line, col) -> DILocation
+        # llvm func name -> the source line of the statement last lowered in it.
+        # Tracked for the runtime-check PANIC messages (design 122 unit I): a
+        # bounds / overflow / shift / div-zero check is emitted deep inside an
+        # operator helper with no AST node to read a line off, so it reads the
+        # line the statement walk last announced. Keyed by FUNCTION for the same
+        # re-entrancy reason the subprogram map is (see the module docstring): a
+        # nested body generation must not bleed its line onto the function it
+        # was generated inside of.
+        self._di_stmt_lines = {}
 
     def _di_setup_module(self):
         """Emit module-level debug metadata (flags + compile unit). Called once,
@@ -116,15 +125,19 @@ class DebugInfoMixin:
         subprogram. A non-positive line is ignored (the previous location is
         inherited) — this is what keeps synthesized line-0 nodes from opening
         `!DILocation(line: 0)` gaps in the table."""
-        if not getattr(self, "_di_enabled", False):
+        if not line or line <= 0:
             return
         if self.builder is None:
             return
         fname = self.builder.function.name
+        # Recorded ahead of the `_di_enabled`/subprogram guards: the design-122
+        # panic prefix wants the statement line whether or not this function
+        # carries debug metadata (a closure or synthesized body has none).
+        self._di_stmt_lines[fname] = line
+        if not getattr(self, "_di_enabled", False):
+            return
         sp = self._di_func_subprograms.get(fname)
         if sp is None:
-            return
-        if not line or line <= 0:
             return
         key = (fname, line, column)
         loc = self._di_loc_cache.get(key)
@@ -133,6 +146,34 @@ class DebugInfoMixin:
                 "line": line, "column": column, "scope": sp})
             self._di_loc_cache[key] = loc
         self.builder.debug_metadata = loc
+
+    def _di_current_line(self):
+        """Source line of the statement currently being lowered, or 0.
+
+        The line half of a compiler-emitted panic's `FILE:LINE` (design 122 unit
+        I). Read at the point the check is emitted, so a bounds/overflow trap
+        buried in an operator helper still names the statement it came from.
+        """
+        if self.builder is None:
+            return 0
+        return self._di_stmt_lines.get(self.builder.function.name, 0)
+
+    def _di_inherit_location(self, inner_llvm_func, outer_llvm_name):
+        """Give a nested body the enclosing function's source file + line.
+
+        A closure gets its own llvm function but no DISubprogram, so without
+        this its panics would pair the ENTRY file's basename (the fallback in
+        `_di_current_basename`) with a line from the closure body — a wrong
+        FILE:LINE pair in any multi-module build. Seeding both halves from the
+        function the closure is written inside of keeps them consistent; the
+        closure's own statements then refine the line as they are lowered.
+        """
+        base = self._di_func_basename.get(outer_llvm_name)
+        if base:
+            self._di_func_basename[inner_llvm_func.name] = base
+        line = self._di_stmt_lines.get(outer_llvm_name)
+        if line:
+            self._di_stmt_lines[inner_llvm_func.name] = line
 
     def _di_current_basename(self):
         """Source basename of the function currently being generated (for panic

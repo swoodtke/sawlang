@@ -146,6 +146,11 @@ class ClosuresMixin:
 
         # Generate closure body
         entry = closure_fn.append_basic_block(name="entry")
+        # design 122 unit I: carry the enclosing function's file + line into the
+        # closure so a panic raised inside it names a consistent FILE:LINE (the
+        # closure has no DISubprogram of its own).
+        if saved_builder is not None:
+            self._di_inherit_location(closure_fn, saved_builder.function.name)
         self.builder = ir.IRBuilder(entry)
         self.variables = {}
         self.variable_types = {}
