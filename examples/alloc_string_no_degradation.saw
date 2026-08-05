@@ -1,0 +1,40 @@
+// Design 123 / review H2 + H3. Six String-layer operations answered allocator
+// exhaustion with a plausible wrong answer:
+//   _substring        -> ""      (so trim() could empty a long string)
+//   to_uppercase      -> self    (the UN-cased string)
+//   to_lowercase      -> self    (the UN-cased string)
+//   replace           -> self    (with NO replacements performed)
+//   Vector.join       -> ""      (a non-empty vector joined to nothing)
+//   Path.join         -> self    (the UN-joined parent path)
+//   String.fromBytes  -> Ok("")  (a Result reporting SUCCESS on failure)
+// Every one collides with a completely legal result, so no caller could detect
+// it. They all panic through `__saw_string_alloc` now.
+//
+// This test drives one of them end to end (`Path.join`, the one whose wrong
+// answer gets a caller to unlink the wrong thing) and asserts the rest still
+// produce correct answers with allocation available.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: string allocation failed
+
+import std.path
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+}
+
+func main() {
+    print("SAW".to_lowercase())             // saw
+    print("saw".to_uppercase())             // SAW
+    print("  saw  ".trim())                 // saw
+    print("a-b-c".replace("-", "+"))        // a+b+c
+    let parts: Vector<String> = ["usr", "local"]
+    print(parts.join("/"))                  // usr/local
+
+    let base = Path(s: "/tmp")
+    print(base.join("data.db").as_str())    // /tmp/data.db
+
+    // Now refuse the allocation the join needs. The old code handed back
+    // `/tmp` — the directory — as if it were the file path.
+    __saw_rt_alloc_deny_after(0, 0)
+    print(base.join("data.db").as_str())
+}

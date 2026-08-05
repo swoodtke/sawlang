@@ -15,8 +15,12 @@ extern "C" {
     //  - __saw_string_len:  O(1) length from the header (no strlen scan)
     //  - __saw_string_alloc: allocate a fresh refcount=1 String buffer of `len`
     //    bytes (+ header + NUL); the returned bytes pointer is a valid String.
+    //    It PANICS rather than returning NULL on allocator exhaustion (design
+    //    123), which is why it is declared non-optional here: `String` is the
+    //    infallible tier and every producer below returns a plain `String`, so
+    //    a NULL had nowhere to go except into a plausible wrong answer.
     func __saw_string_len(s: UnsafePointer<Int8>) -> Int
-    func __saw_string_alloc(len: Int) -> UnsafePointer<Int8>?
+    func __saw_string_alloc(len: Int) -> UnsafePointer<Int8>
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
 }
 
@@ -170,74 +174,74 @@ extension String {
         self.trim_start().trim_end()
     }
 
-    // Create a substring (allocates new memory)
+    // Create a substring (allocates new memory).
+    //
+    // The `""` below is the empty-range answer and nothing else: allocator
+    // exhaustion panics inside `__saw_string_alloc` (design 123). It used to
+    // return `""` for BOTH, so `trim()` on a long string could hand back an
+    // empty one and no caller could tell.
     func _substring(&self, start: Int, length: Int) -> String {
         if length <= 0 {
             ""
         } else {
-            if let new_ptr = unsafe __saw_string_alloc(length) {
-                var i = 0
-                while i < length {
-                    unsafe new_ptr[i] = self.byte_at(start + i)
-                    i = i + 1
-                }
-                unsafe new_ptr[length] = 0 as Int8  // null terminate
-                new_ptr as String
-            } else {
-                ""
+            let new_ptr = unsafe __saw_string_alloc(length)
+            var i = 0
+            while i < length {
+                unsafe new_ptr[i] = self.byte_at(start + i)
+                i = i + 1
             }
+            unsafe new_ptr[length] = 0 as Int8  // null terminate
+            new_ptr as String
         }
     }
 
-    // Convert to uppercase (ASCII only)
+    // Convert to uppercase (ASCII only).
+    //
+    // Returning `self` on allocator exhaustion — the UN-cased string, which is
+    // a perfectly legal result — was one of the six degradations design 123
+    // removed. Exhaustion panics inside `__saw_string_alloc` now.
     public func to_uppercase(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
         } else {
-            if let new_ptr = unsafe __saw_string_alloc(len) {
-                var i = 0
-                while i < len {
-                    let c = self.byte_at(i)
-                    // 'a' = 97, 'z' = 122
-                    if c >= (97 as Int8) && c <= (122 as Int8) {
-                        unsafe new_ptr[i] = c - (32 as Int8)
-                    } else {
-                        unsafe new_ptr[i] = c
-                    }
-                    i = i + 1
+            let new_ptr = unsafe __saw_string_alloc(len)
+            var i = 0
+            while i < len {
+                let c = self.byte_at(i)
+                // 'a' = 97, 'z' = 122
+                if c >= (97 as Int8) && c <= (122 as Int8) {
+                    unsafe new_ptr[i] = c - (32 as Int8)
+                } else {
+                    unsafe new_ptr[i] = c
                 }
-                unsafe new_ptr[len] = 0 as Int8
-                new_ptr as String
-            } else {
-                self
+                i = i + 1
             }
+            unsafe new_ptr[len] = 0 as Int8
+            new_ptr as String
         }
     }
 
-    // Convert to lowercase (ASCII only)
+    // Convert to lowercase (ASCII only). Same tier as `to_uppercase`.
     public func to_lowercase(&self) -> String {
         let len = self.len()
         if len == 0 {
             self
         } else {
-            if let new_ptr = unsafe __saw_string_alloc(len) {
-                var i = 0
-                while i < len {
-                    let c = self.byte_at(i)
-                    // 'A' = 65, 'Z' = 90
-                    if c >= (65 as Int8) && c <= (90 as Int8) {
-                        unsafe new_ptr[i] = c + (32 as Int8)
-                    } else {
-                        unsafe new_ptr[i] = c
-                    }
-                    i = i + 1
+            let new_ptr = unsafe __saw_string_alloc(len)
+            var i = 0
+            while i < len {
+                let c = self.byte_at(i)
+                // 'A' = 65, 'Z' = 90
+                if c >= (65 as Int8) && c <= (90 as Int8) {
+                    unsafe new_ptr[i] = c + (32 as Int8)
+                } else {
+                    unsafe new_ptr[i] = c
                 }
-                unsafe new_ptr[len] = 0 as Int8
-                new_ptr as String
-            } else {
-                self
+                i = i + 1
             }
+            unsafe new_ptr[len] = 0 as Int8
+            new_ptr as String
         }
     }
 
@@ -276,45 +280,46 @@ extension String {
                 // Calculate new size
                 let new_size = self_len - (count * old_len) + (count * new_len)
 
-                if let new_ptr = unsafe __saw_string_alloc(new_size) {
-                    var src_i = 0
-                    var dst_i = 0
+                // Allocator exhaustion panics inside `__saw_string_alloc`
+                // (design 123). Returning `self` here handed back the string
+                // with NO replacements performed, identical in shape to the
+                // legitimate "no match" return above.
+                let new_ptr = unsafe __saw_string_alloc(new_size)
+                var src_i = 0
+                var dst_i = 0
 
-                    while src_i < self_len {
-                        // Check for match
-                        var matches = false
-                        if src_i <= self_len - old_len {
-                            matches = true
-                            var j = 0
-                            while j < old_len && matches {
-                                if self.byte_at(src_i + j) != old.byte_at(j) {
-                                    matches = false
-                                }
-                                j = j + 1
+                while src_i < self_len {
+                    // Check for match
+                    var matches = false
+                    if src_i <= self_len - old_len {
+                        matches = true
+                        var j = 0
+                        while j < old_len && matches {
+                            if self.byte_at(src_i + j) != old.byte_at(j) {
+                                matches = false
                             }
-                        }
-
-                        if matches {
-                            // Copy replacement
-                            var k = 0
-                            while k < new_len {
-                                unsafe new_ptr[dst_i] = new.byte_at(k)
-                                dst_i = dst_i + 1
-                                k = k + 1
-                            }
-                            src_i = src_i + old_len
-                        } else {
-                            unsafe new_ptr[dst_i] = self.byte_at(src_i)
-                            dst_i = dst_i + 1
-                            src_i = src_i + 1
+                            j = j + 1
                         }
                     }
 
-                    unsafe new_ptr[new_size] = 0 as Int8
-                    new_ptr as String
-                } else {
-                    self
+                    if matches {
+                        // Copy replacement
+                        var k = 0
+                        while k < new_len {
+                            unsafe new_ptr[dst_i] = new.byte_at(k)
+                            dst_i = dst_i + 1
+                            k = k + 1
+                        }
+                        src_i = src_i + old_len
+                    } else {
+                        unsafe new_ptr[dst_i] = self.byte_at(src_i)
+                        dst_i = dst_i + 1
+                        src_i = src_i + 1
+                    }
                 }
+
+                unsafe new_ptr[new_size] = 0 as Int8
+                new_ptr as String
             }
         }
     }
@@ -830,42 +835,43 @@ extension String {
         None
     }
 
-    // Build a validated String from raw bytes (brief 38 item 1). Copies the
-    // bytes into a fresh refcount=1 String, then validates UTF-8; on the first
-    // malformed sequence it returns `Err(Utf8Error)` carrying that byte offset
-    // and the candidate is released (no leak). Static: call as
-    // `String.fromBytes(&data)`.
+    /// Builds a validated `String` from raw bytes.
+    ///
+    /// `Err(Utf8Error)` carries the byte offset at which the first malformed
+    /// sequence begins; the partly-built candidate is released, not leaked. The
+    /// `Err` answers exactly one question — "are these bytes UTF-8?" — and
+    /// allocator exhaustion panics rather than joining it (design 123): this
+    /// used to return `Ok("")` on allocation failure, so the one function whose
+    /// whole job is to report a decoding failure reported SUCCESS on a
+    /// different failure and threw away every byte.
+    ///
+    /// Static: call as `String.fromBytes(&data)`.
     public func fromBytes(data: &Data) -> Result<String, Utf8Error> {
         let n = data.len()
         if n == 0 {
             return ""                       // trivially-valid empty string (Ok)
         }
-        if let ptr = unsafe __saw_string_alloc(n) {
-            var i = 0
-            while i < n {
-                if let b = data.get(i) {
-                    unsafe ptr[i] = b as Int8
-                }
-                i = i + 1
+        let ptr = unsafe __saw_string_alloc(n)
+        var i = 0
+        while i < n {
+            if let b = data.get(i) {
+                unsafe ptr[i] = b as Int8
             }
-            unsafe ptr[n] = 0 as Int8
-            let candidate = ptr as String
-            if let off = candidate._utf8_error_offset() {
-                // Malformed: hand back the offset; `candidate` (rc=1) is
-                // released at scope exit.
-                return Utf8Error(offset: off)
-            }
-            // `move` transfers ownership of the owned String into the Ok
-            // payload. As of design 40 item 5 the plain `return candidate` also
-            // works (auto-wrap retains the ImplicitCopy value at the wrap site);
-            // the explicit move is kept as the clearest intent — it consumes
-            // `candidate` outright rather than retain-then-release.
-            return move candidate           // valid: move the owned String out
+            i = i + 1
         }
-        // Allocation failed. The alloc-layer convention (Vector.init(capacity:),
-        // StringBuilder) is to degrade rather than trap; an empty String is the
-        // only value we can hand back here.
-        return ""
+        unsafe ptr[n] = 0 as Int8
+        let candidate = ptr as String
+        if let off = candidate._utf8_error_offset() {
+            // Malformed: hand back the offset; `candidate` (rc=1) is
+            // released at scope exit.
+            return Utf8Error(offset: off)
+        }
+        // `move` transfers ownership of the owned String into the Ok
+        // payload. As of design 40 item 5 the plain `return candidate` also
+        // works (auto-wrap retains the ImplicitCopy value at the wrap site);
+        // the explicit move is kept as the clearest intent — it consumes
+        // `candidate` outright rather than retain-then-release.
+        return move candidate               // valid: move the owned String out
     }
 
     // =========================================================================
@@ -939,39 +945,39 @@ extension Vector<String> {
             // Add separator lengths (count - 1 separators)
             total_len = total_len + (sep_len * (count - 1))
 
-            // Allocate buffer and build result
-            if let buf = __saw_string_alloc(total_len) {
-                var pos = 0
-                var idx = 0
-                while idx < count {
-                    // Add separator before all but first element
-                    if idx > 0 {
-                        var k = 0
-                        while k < sep_len {
-                            buf[pos] = separator.byte_at(k)
-                            pos = pos + 1
-                            k = k + 1
-                        }
+            // Allocate buffer and build result. Allocator exhaustion panics
+            // inside `__saw_string_alloc` (design 123); joining a non-empty
+            // vector into `""` was a plausible wrong answer no caller could
+            // detect.
+            let buf = __saw_string_alloc(total_len)
+            var pos = 0
+            var idx = 0
+            while idx < count {
+                // Add separator before all but first element
+                if idx > 0 {
+                    var k = 0
+                    while k < sep_len {
+                        buf[pos] = separator.byte_at(k)
+                        pos = pos + 1
+                        k = k + 1
                     }
-
-                    // Copy the string
-                    if let s = self.get(idx) {
-                        let s_len = s.len()
-                        var j = 0
-                        while j < s_len {
-                            buf[pos] = s.byte_at(j)
-                            pos = pos + 1
-                            j = j + 1
-                        }
-                    }
-                    idx = idx + 1
                 }
 
-                buf[total_len] = 0 as Int8  // null terminate
-                buf as String
-            } else {
-                ""
+                // Copy the string
+                if let s = self.get(idx) {
+                    let s_len = s.len()
+                    var j = 0
+                    while j < s_len {
+                        buf[pos] = s.byte_at(j)
+                        pos = pos + 1
+                        j = j + 1
+                    }
+                }
+                idx = idx + 1
             }
+
+            buf[total_len] = 0 as Int8  // null terminate
+            buf as String
         }
     }
 }
