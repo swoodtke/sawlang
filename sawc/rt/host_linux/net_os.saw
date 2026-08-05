@@ -55,7 +55,7 @@ static EINPROGRESS: Int = 115
 static AF_INET_LO: Int8 = 2
 static AF_INET_HI: Int8 = 0
 
-func errno_value() -> Int {
+unsafe func errno_value() -> Int {
     unsafe __errno_location()[0] as Int
 }
 
@@ -100,7 +100,7 @@ func rt_last_syserror() -> Int {
 
 // Stamp the Linux sockaddr_in prefix: u16 sin_family = AF_INET (little-endian).
 @export("__saw_rt_sin_set_family")
-func rt_sin_set_family(buf: UnsafePointer<Int8>) {
+unsafe func rt_sin_set_family(buf: UnsafePointer<Int8>) {
     buf[0] = AF_INET_LO
     buf[1] = AF_INET_HI
 }

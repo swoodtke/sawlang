@@ -19,20 +19,20 @@ extern "C" {
 // pthread_mutex_init(m, NULL). The Saw side reserves a conservative slot
 // (pthread_mutex_t <= 64 bytes on the hosted targets) and inits within it.
 @export("__saw_rt_pthread_mutex_init_default")
-func rt_pthread_mutex_init_default(m: UnsafePointer<Int8>) {
+unsafe func rt_pthread_mutex_init_default(m: UnsafePointer<Int8>) {
     pthread_mutex_init(m, 0 as UnsafePointer<Int8>)
 }
 
 // pthread_cond_init(c, NULL). pthread_cond_t is 48 bytes on macOS and glibc;
 // std reserves 64.
 @export("__saw_rt_pthread_cond_init_default")
-func rt_pthread_cond_init_default(c: UnsafePointer<Int8>) {
+unsafe func rt_pthread_cond_init_default(c: UnsafePointer<Int8>) {
     pthread_cond_init(c, 0 as UnsafePointer<Int8>)
 }
 
 // design 117: join an OS thread by its handle VALUE (the pointer-sized
 // pthread_t returned by `__saw_rt_thread_spawn`), passing a NULL retval.
 @export("__saw_rt_thread_join")
-func rt_thread_join(handle: Int) {
+unsafe func rt_thread_join(handle: Int) {
     pthread_join(handle, 0 as UnsafePointer<Int8>)
 }
