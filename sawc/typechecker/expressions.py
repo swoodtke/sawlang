@@ -166,6 +166,10 @@ class ExpressionsMixin:
         TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
     })
 
+    # The platform-width integer pair, for the overload-ranking signedness
+    # tiebreak below.
+    _PLATFORM_INT_KINDS = frozenset({TypeKind.INT, TypeKind.UINT})
+
     def _check_renderable_operand(self, expr_type, sub_expr, verb: str,
                                   where: str = "") -> bool:
         """Whether a value of `expr_type` can be rendered, reporting if not.
@@ -1167,6 +1171,24 @@ class ExpressionsMixin:
                     break
                 if pt.is_optional() and not at.is_optional():
                     penalty += 1  # exact-vs-optional-wrap discriminator
+                elif (at.kind in self._PLATFORM_INT_KINDS
+                        and pt.kind in self._PLATFORM_INT_KINDS
+                        and at.kind != pt.kind):
+                    # Design 137: between platform `Int` and platform `UInt`, the
+                    # EXACT one wins. The two are mutually compatible (design 53,
+                    # so an unsuffixed literal can initialize either), which left
+                    # `f(Int)` and `f(UInt)` tied at EVERY call site — including
+                    # `f(someInt)`, where one is an exact match — and reported
+                    # "ambiguous call" instead of picking. The pair was
+                    # unwritable; `StringBuilder.append` needs both, because the
+                    # signed overload cannot represent the top half of `UInt`.
+                    #
+                    # Deliberately narrow. A bare literal's WIDTH stays flexible,
+                    # so `h(Int)` vs `h(Int8)` called `h(5)` is still the design-55
+                    # ambiguity error (`overload_call_ambiguous_error`): 5 really
+                    # could be either, and signedness is the only axis on which
+                    # the argument type is already committed.
+                    penalty += 1
             if ok:
                 matches.append((cand, penalty, is_generic, mapping))
         if not matches:

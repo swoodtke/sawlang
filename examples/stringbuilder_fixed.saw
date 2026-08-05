@@ -1,0 +1,62 @@
+// Design 137: StringBuilder's FIXED mode — a builder over caller-provided
+// storage that never allocates and never grows. Content that does not fit is
+// cut on a UTF-8 boundary and marked with `…`, so a shortened message says so
+// rather than reading as a complete one.
+//
+// Capacity 16 holds 12 bytes of text: the last four are the three marker bytes
+// and the NUL terminator.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// n = 42
+// false
+// 6
+// false
+// 0
+// abcdefghijkl…
+// true
+// 15
+// aaaaaaaaaaa…
+// 14
+// 97
+
+func overrun(p: UnsafePointer<Int8>) unsafe {
+    var b = StringBuilder(bytes: p, capacity: 16)
+    b.append("abcdefghijklmnop")
+    print(b.build())
+    print(b.is_truncated())
+    print(b.len())
+}   // `b` dies here; the storage below is borrowed, so it must NOT be freed
+
+func cut_on_scalar(p: UnsafePointer<Int8>) unsafe {
+    var b = StringBuilder(bytes: p, capacity: 16)
+    // 11 ASCII bytes then a 3-byte scalar: cutting at 12 would split the scalar,
+    // so the cut backs up to 11 and the marker follows.
+    b.append("aaaaaaaaaaa\u{20AC}")
+    print(b.build())
+    print(b.len())
+}
+
+func main() unsafe {
+    var store: [Int8; 16] = [0, 0, 0, 0, 0, 0, 0, 0,
+                             0, 0, 0, 0, 0, 0, 0, 0]
+    let p = (&store) as UnsafePointer<Int8>
+
+    var fits = StringBuilder(bytes: p, capacity: 16)
+    fits.append("n = ")
+    fits.append(42)
+    print(fits.build())
+    print(fits.is_truncated())
+    print(fits.len())
+
+    // `clear` un-truncates: the storage is empty again.
+    fits.clear()
+    print(fits.is_truncated())
+    print(fits.len())
+
+    overrun(p)
+    cut_on_scalar(p)
+
+    // The borrowed storage outlived both builders intact — a fixed builder's
+    // deinit frees nothing.
+    print(store[0])
+}

@@ -19,16 +19,38 @@ extern "C" {
 // StringBuilder - A mutable string buffer
 // =============================================================================
 
+static ASCII_ZERO: Int = 48
+static MINUS_SIGN: Int8 = 45
+
+// The truncation marker a FIXED builder stamps when content does not fit: `…`
+// (U+2026), whose UTF-8 encoding is these three bytes. A cut message says so —
+// a silently short one is a hidden error (design 137).
+static MARKER_LEN: Int = 3
+static MARKER_BYTE_0: Int = 226
+static MARKER_BYTE_1: Int = 128
+static MARKER_BYTE_2: Int = 166
+
+// The smallest `capacity` a fixed builder accepts: the marker plus the NUL
+// terminator plus one byte of text. Below this there is nothing to say.
+static MIN_FIXED_CAPACITY: Int = 5
+
 struct StringBuilder {
     buffer: UnsafePointer<Int8>?
     length: Int
     capacity: Int
+    // Fixed mode (design 137): the buffer is caller-provided storage that is
+    // never grown and never freed. Overflow truncates and marks instead of
+    // reallocating, which is what lets `panic`, `assert` and `print` assemble a
+    // message with the allocator refusing everything.
+    fixed: Bool
+    truncated: Bool
 }
 
 extension StringBuilder {
     // Create an empty string builder
     public init() -> StringBuilder {
-        StringBuilder(buffer: None, length: 0, capacity: 0)
+        StringBuilder(buffer: None, length: 0, capacity: 0, fixed: false,
+                      truncated: false)
     }
 
     /// Creates an empty builder with room for `capacity` bytes.
@@ -37,14 +59,42 @@ extension StringBuilder {
     /// tier); `try_with_capacity` reports the failure instead.
     public init(capacity: Int) unsafe -> StringBuilder {
         if capacity <= 0 {
-            StringBuilder(buffer: None, length: 0, capacity: 0)
+            StringBuilder()
         } else {
             if let ptr = GlobalAllocator().alloc(capacity, 1) {
-                StringBuilder(buffer: ptr, length: 0, capacity: capacity)
+                StringBuilder(buffer: ptr, length: 0, capacity: capacity,
+                              fixed: false, truncated: false)
             } else {
                 panic("StringBuilder(capacity:): allocation failed")
             }
         }
+    }
+
+    /// Creates a builder over caller-provided storage that never allocates.
+    ///
+    /// `bytes` must address at least `capacity` writable bytes and must outlive
+    /// the builder, which neither grows nor frees them. Content that does not
+    /// fit is TRUNCATED rather than dropped silently: the text is cut on a
+    /// UTF-8 boundary, the marker `…` is stamped in its place, and
+    /// `is_truncated` answers yes from then on.
+    ///
+    /// This is the formatting path that survives an exhausted allocator, so it
+    /// is what `panic`, `assert` and `print("{}", x)` assemble through. Writing
+    /// a `format` body out of `append` calls — rather than out of `"{...}"`
+    /// interpolation, which builds a heap String — is what makes a type
+    /// printable on that path.
+    ///
+    /// The last four bytes of `capacity` are held back for the marker and the
+    /// NUL terminator, so a builder with `capacity` bytes holds `capacity - 4`
+    /// bytes of text. Panics if `capacity` is smaller than
+    /// `MIN_FIXED_CAPACITY`, which leaves no room to say anything at all.
+    public init(bytes: UnsafePointer<Int8>, capacity: Int) unsafe -> StringBuilder {
+        if capacity < MIN_FIXED_CAPACITY {
+            panic("StringBuilder(bytes:capacity:): capacity is too small to format into")
+        }
+        bytes[0] = 0
+        StringBuilder(buffer: bytes, length: 0, capacity: capacity, fixed: true,
+                      truncated: false)
     }
 
     /// Creates an empty builder with room for `n` bytes, reporting allocator
@@ -54,9 +104,18 @@ extension StringBuilder {
             return StringBuilder()
         }
         if let ptr = GlobalAllocator().alloc(n, 1) {
-            return StringBuilder(buffer: ptr, length: 0, capacity: n)
+            return StringBuilder(buffer: ptr, length: 0, capacity: n,
+                                 fixed: false, truncated: false)
         }
         return AllocError(size: n, align: 1)
+    }
+
+    /// Whether content has been cut to fit this builder's fixed storage.
+    ///
+    /// Always `false` for a growable builder. Once true it stays true, and the
+    /// built text ends in `…`.
+    public func is_truncated(&self) -> Bool {
+        self.truncated
     }
 
     // Get current length
@@ -85,6 +144,10 @@ extension StringBuilder {
 
         // +1 for the null terminator.
         if not self._reserve(self.length + s_len + 1) {
+            if self.fixed {
+                self._overflow(s, s_len)
+                return
+            }
             panic("StringBuilder.append: allocation failed")
         }
         self._place(s, s_len)
@@ -101,6 +164,13 @@ extension StringBuilder {
         }
         let needed = self.length + s_len + 1
         if not self._reserve(needed) {
+            // Fixed storage refuses nothing — there is no allocator to fail, so
+            // an `AllocError` here would name a failure that did not happen.
+            // The overflow is reported by the `…` marker and `is_truncated`.
+            if self.fixed {
+                self._overflow(s, s_len)
+                return
+            }
             return AllocError(size: self._grow_target(needed), align: 1)
         }
         self._place(s, s_len)
@@ -122,12 +192,55 @@ extension StringBuilder {
         }
     }
 
-    // Append the decimal rendering of an Int. Overload of `append` (design 55):
-    // `sb.append(42)` and `sb.append("s")` share one name, resolved by argument
-    // type. Reuses the interpolation -> String path (which formats the integer)
-    // rather than re-implementing itoa here. (Replaces the old `append_int`.)
+    /// Appends the decimal rendering of `value`.
+    ///
+    /// Overload of `append` (design 55): `sb.append(42)` and `sb.append("s")`
+    /// share one name, resolved by argument type.
+    ///
+    /// Allocation-free (design 137). It used to route through `"{value}"`,
+    /// which builds a heap String only to copy it straight back out — a hidden
+    /// allocation in the middle of the one formatting path that has to survive
+    /// allocator exhaustion. The digits are emitted most-significant-first by
+    /// repeated division instead, so nothing is staged anywhere.
     public func append(&var self, value: Int) {
-        self.append("{value}")
+        if value < 0 {
+            self.append_char(MINUS_SIGN)
+        }
+        // The magnitude is carried on the NEGATIVE side: `0 - Int.min` overflows
+        // but `Int.min` itself is representable, so every Int works here. `/`
+        // and `%` truncate toward zero, which makes each `%` result the negated
+        // digit.
+        let n = if value < 0 { value } else { 0 - value }
+        var scale = 1
+        var probe = n
+        while probe <= -10 {
+            probe = probe / 10
+            scale = scale * 10
+        }
+        while scale > 0 {
+            let digit = 0 - ((n / scale) % 10)
+            self.append_char(self._scalar_byte(ASCII_ZERO + digit))
+            scale = scale / 10
+        }
+    }
+
+    /// Appends the decimal rendering of `value`.
+    ///
+    /// The unsigned twin of `append(value: Int)`, and equally allocation-free.
+    /// It exists so an unsigned field renders across its whole range: the signed
+    /// overload cannot represent anything above `Int.max`.
+    public func append(&var self, value: UInt) {
+        var scale: UInt = 1
+        var probe = value
+        while probe >= 10 {
+            probe = probe / 10
+            scale = scale * 10
+        }
+        while scale > 0 {
+            let digit = (value / scale) % 10
+            self.append_char(self._scalar_byte(ASCII_ZERO + (digit as Int)))
+            scale = scale / 10
+        }
     }
 
     /// Appends one byte.
@@ -137,6 +250,10 @@ extension StringBuilder {
     public func append_char(&var self, c: Int8) {
         // +1 for the byte, +1 for the null terminator.
         if not self._reserve(self.length + 2) {
+            if self.fixed {
+                self._mark_truncated()
+                return
+            }
             panic("StringBuilder.append_char: allocation failed")
         }
         self._place_char(c)
@@ -146,10 +263,70 @@ extension StringBuilder {
     public func try_append_char(&var self, c: Int8) -> Result<Void, AllocError> {
         let needed = self.length + 2
         if not self._reserve(needed) {
+            if self.fixed {
+                self._mark_truncated()
+                return
+            }
             return AllocError(size: self._grow_target(needed), align: 1)
         }
         self._place_char(c)
         return
+    }
+
+    // Internal (fixed mode): `s` does not fit, so copy the prefix that does and
+    // stamp the truncation marker after it.
+    //
+    // `_reserve` holds MARKER_LEN bytes back from every fit test, so `length`
+    // never passes `capacity - 1 - MARKER_LEN` and the marker always has its
+    // room waiting — no overwriting of text already placed, and no re-scan of
+    // it for a UTF-8 boundary. The cut point in `s` IS scanned back to one: a
+    // message ending in half a scalar is not a message.
+    func _overflow(&var self, s: String, s_len: Int) unsafe {
+        if self.truncated {
+            return                          // already cut; the buffer is full
+        }
+        if let buf = self.buffer {
+            // Reachable only when the content overruns, so this is < s_len.
+            var n = self.capacity - 1 - MARKER_LEN - self.length
+            if n > s_len {
+                n = s_len
+            }
+            while n > 0 && self._is_continuation(s.byte_at(n)) {
+                n = n - 1
+            }
+            var i = 0
+            while i < n {
+                buf[self.length + i] = s.byte_at(i)
+                i = i + 1
+            }
+            self.length = self.length + n
+        }
+        self._mark_truncated()
+    }
+
+    // Internal (fixed mode): stamp `…` at the current end and seal the builder.
+    // Idempotent — once marked, `length` sits at the buffer's text limit, so
+    // every later append re-enters here and returns.
+    func _mark_truncated(&var self) unsafe {
+        if self.truncated {
+            return
+        }
+        self.truncated = true
+        if let buf = self.buffer {
+            buf[self.length] = self._scalar_byte(MARKER_BYTE_0)
+            buf[self.length + 1] = self._scalar_byte(MARKER_BYTE_1)
+            buf[self.length + 2] = self._scalar_byte(MARKER_BYTE_2)
+            self.length = self.length + MARKER_LEN
+            buf[self.length] = 0
+        }
+    }
+
+    // Internal: whether `b` is a UTF-8 continuation byte (0b10xxxxxx). Read as
+    // an unsigned byte value, since Int8 is signed and every continuation byte
+    // has its high bit set.
+    func _is_continuation(&self, b: Int8) -> Bool {
+        let u = if b < 0 { (b as Int) + 256 } else { b as Int }
+        u >= 128 && u < 192
     }
 
     // Internal: place one byte into the (already reserved) buffer.
@@ -210,9 +387,11 @@ extension StringBuilder {
         if u >= 128 { (u - 256) as Int8 } else { u as Int8 }
     }
 
-    // Clear the buffer (keep capacity)
+    // Clear the buffer (keep capacity). A fixed builder is un-truncated by
+    // this: the storage is empty again, so the old cut no longer describes it.
     public func clear(&var self) unsafe {
         self.length = 0
+        self.truncated = false
         if let buf = self.buffer {
             buf[0] = 0
         }
@@ -258,6 +437,11 @@ extension StringBuilder {
     // into a buffer that had never grown and wrote past its end (RS-1's shape,
     // repeated here).
     func _reserve(&var self, min_capacity: Int) unsafe -> Bool {
+        if self.fixed {
+            // Fixed storage never grows, and the last MARKER_LEN bytes are held
+            // back so an overflow always has room to say that it overflowed.
+            return min_capacity <= self.capacity - MARKER_LEN
+        }
         if self.capacity >= min_capacity {
             return true
         }
@@ -288,6 +472,12 @@ extension StringBuilder {
 // StringBuilder is NoCopy
 extension StringBuilder: NoCopy {
     public func deinit(&var self) unsafe {
+        // Fixed storage is borrowed, not owned: the caller's buffer outlives
+        // the builder and freeing it here would be a free of memory this type
+        // never allocated.
+        if self.fixed {
+            return
+        }
         if let buf = self.buffer {
             GlobalAllocator().dealloc(buf, self.capacity, 1)
         }

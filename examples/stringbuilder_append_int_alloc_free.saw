@@ -1,0 +1,47 @@
+// Design 137: `StringBuilder.append(value:)` renders digits directly instead of
+// routing through `"{value}"`, which built a heap String only to copy it back
+// out. The rendering must still be exact at both ends of both integer types —
+// `Int.min` has no positive magnitude, so the digits are carried on the
+// negative side.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 7
+// -7
+// 1234567890
+// 9223372036854775807
+// -9223372036854775808
+// 0
+// 18446744073709551615
+// v=-1|u=1
+
+func rendered(value: Int) -> String {
+    var b = StringBuilder()
+    b.append(value)
+    b.build()
+}
+
+func rendered_unsigned(value: UInt) -> String {
+    var b = StringBuilder()
+    b.append(value)
+    b.build()
+}
+
+func main() {
+    print(rendered(0))
+    print(rendered(7))
+    print(rendered(-7))
+    print(rendered(1234567890))
+    print(rendered(Int.max))
+    print(rendered(Int.min))
+    print(rendered_unsigned(0))
+    print(rendered_unsigned(UInt.max))
+
+    // The signed and unsigned overloads coexist on one builder.
+    var b = StringBuilder()
+    b.append("v=")
+    b.append(-1)
+    b.append("|u=")
+    b.append(1u64 as UInt)
+    print(b.build())
+}

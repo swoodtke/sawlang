@@ -631,32 +631,53 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         `UInt.max` as -1 and printed `-1` (DF-119b, closed by design 122 unit G).
         It is the same body with the sign logic dropped: the magnitude IS the
         value, and the digit loop was already unsigned.
-        """
-        self._emit_print_int_fn("__saw_print_int", signed=True)
-        self._emit_print_int_fn("__saw_print_uint", signed=False)
 
-    def _emit_print_int_fn(self, name: str, signed: bool):
-        """Emit one width-parametric itoa + newline + saw_write formatter."""
+        Design 137 split the itoa out into `__saw_fmt_int`/`__saw_fmt_uint`,
+        which render into a CALLER-PROVIDED buffer and return the byte count.
+        The alloc-free formatting path (`print("n = {}", n)`, a panic message
+        assembled on the stack) needs the digits somewhere other than straight
+        down the output seam, and one itoa serving both keeps `print(n)` and
+        `print("{}", n)` byte-identical by construction. `__saw_print_*` is now
+        that call plus a newline plus one write.
+        """
+        self._emit_fmt_int_fn("__saw_fmt_int", signed=True)
+        self._emit_fmt_int_fn("__saw_fmt_uint", signed=False)
+        self._emit_print_int_fn("__saw_print_int", "__saw_fmt_int")
+        self._emit_print_int_fn("__saw_print_uint", "__saw_fmt_uint")
+
+    # Bytes a `__saw_fmt_*` rendering can occupy: 20 digits for a 64-bit
+    # magnitude plus a sign. Callers size their scratch with this.
+    INT_FMT_MAX = 21
+
+    def _emit_fmt_int_fn(self, name: str, signed: bool):
+        """Emit one width-parametric itoa: `word f(word n, i8* dst)` -> length.
+
+        Renders the decimal digits of `n` into `dst` (which must have room for
+        `INT_FMT_MAX` bytes) and returns how many were written. No newline, no
+        NUL, no output seam — the caller decides where the bytes go.
+        """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
         i64 = ir.IntType(64)        # pointer arithmetic offsets (structural)
         iw = self.int_type          # platform Int width (the value being formatted)
-        void = ir.VoidType()
 
-        fn = ir.Function(self.module, ir.FunctionType(void, [iw]), name=name)
+        fn = ir.Function(self.module, ir.FunctionType(iw, [iw, i8ptr]), name=name)
         self.functions[name] = fn
         n = fn.args[0]; n.name = "n"
+        dst = fn.args[1]; dst.name = "dst"
 
         entry = fn.append_basic_block("entry")
         loop = fn.append_basic_block("loop")
         after = fn.append_basic_block("after")
+        copy = fn.append_basic_block("copy")
+        done_bb = fn.append_basic_block("done")
         b = ir.IRBuilder(entry)
-        # 24 bytes: up to 20 digits/sign for i64 + newline + slack.
+        # Digits are extracted least-significant-first, so they land in a local
+        # scratch back-to-front and are copied forward once the run is known.
+        # 24 bytes: up to 20 digits/sign for i64 + slack.
         buf = b.alloca(ir.ArrayType(i8, 24), name="buf")
         bufp = b.gep(buf, [ir.Constant(i64, 0), ir.Constant(i64, 0)], inbounds=True)
         endp = b.gep(bufp, [ir.Constant(i64, 24)], inbounds=True, name="end")
-        nlpos = b.gep(endp, [ir.Constant(i64, -1)], inbounds=True, name="nlpos")
-        b.store(ir.Constant(i8, ord('\n')), nlpos)
         if signed:
             neg = b.icmp_signed('<', n, ir.Constant(iw, 0), name="neg")
             mag = b.select(neg, b.sub(ir.Constant(iw, 0), n), n, name="mag")
@@ -670,7 +691,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         m = b.phi(iw, name="m")
         writep = b.phi(i8ptr, name="writep")
         m.add_incoming(mag, entry)
-        writep.add_incoming(nlpos, entry)
+        writep.add_incoming(endp, entry)
         digit = b.urem(m, ir.Constant(iw, 10), name="digit")
         ch = b.trunc(b.add(digit, ir.Constant(iw, ord('0'))), i8, name="ch")
         newwritep = b.gep(writep, [ir.Constant(i64, -1)], inbounds=True, name="w")
@@ -690,9 +711,46 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             startp = b.select(neg, signp, newwritep, name="startp")
         else:
             startp = newwritep
-        # saw_write takes a platform-width length (design 47), so measure at iw.
+        # Lengths are platform-width (design 47), matching the write seam.
         length = b.sub(b.ptrtoint(endp, iw), b.ptrtoint(startp, iw), name="len")
-        b.call(self.functions["__saw_rt_write"], [startp, length])
+        # Copy the run forward into the caller's buffer with an explicit loop.
+        # A `memcpy` call here would have to be declared before the stdlib's own
+        # `extern memcpy`, and the freestanding profile should not gain a libc
+        # dependency just to print an integer.
+        b.branch(copy)
+
+        b = ir.IRBuilder(copy)
+        i = b.phi(iw, name="i")
+        i.add_incoming(ir.Constant(iw, 0), after)
+        srcp = b.gep(startp, [i], inbounds=True, name="srcp")
+        dstp = b.gep(dst, [i], inbounds=True, name="dstp")
+        b.store(b.load(srcp, name="byte"), dstp)
+        i_next = b.add(i, ir.Constant(iw, 1), name="i_next")
+        i.add_incoming(i_next, copy)
+        b.cbranch(b.icmp_unsigned('<', i_next, length, name="more"), copy, done_bb)
+
+        b = ir.IRBuilder(done_bb)
+        b.ret(length)
+
+    def _emit_print_int_fn(self, name: str, fmt_name: str):
+        """Emit `void f(word n)`: itoa into a stack buffer, newline, one write."""
+        i8 = ir.IntType(8)
+        i64 = ir.IntType(64)        # pointer arithmetic offsets (structural)
+        iw = self.int_type
+        void = ir.VoidType()
+
+        fn = ir.Function(self.module, ir.FunctionType(void, [iw]), name=name)
+        self.functions[name] = fn
+        n = fn.args[0]; n.name = "n"
+
+        b = ir.IRBuilder(fn.append_basic_block("entry"))
+        buf = b.alloca(ir.ArrayType(i8, 24), name="buf")
+        bufp = b.gep(buf, [ir.Constant(i64, 0), ir.Constant(i64, 0)], inbounds=True)
+        length = b.call(self.functions[fmt_name], [n, bufp], name="len")
+        nlpos = b.gep(bufp, [length], inbounds=True, name="nlpos")
+        b.store(ir.Constant(i8, ord('\n')), nlpos)
+        total = b.add(length, ir.Constant(iw, 1), name="total")
+        b.call(self.functions["__saw_rt_write"], [bufp, total])
         b.ret_void()
 
     def _declare_string_runtime(self):

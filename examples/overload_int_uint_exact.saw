@@ -1,0 +1,45 @@
+// Design 137: between platform `Int` and platform `UInt` the EXACT one wins the
+// overload, so the twins are writable. The two are mutually compatible (an
+// unsuffixed literal has to be able to initialize either), which used to make
+// the pair TIE at every call site — including the ones where one of them was an
+// exact match — and report "ambiguous call" instead of picking. Found writing
+// `StringBuilder.append(value: UInt)`.
+//
+// A bare literal's WIDTH stays flexible: `overload_call_ambiguous_error` still
+// pins `h(Int)` vs `h(Int8)` called `h(5)` as the design-55 ambiguity.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// int
+// uint
+// m-int
+// m-uint
+// int
+// 18446744073709551615
+
+func take(value: Int) -> String { "int" }
+func take(value: UInt) -> String { "uint" }
+
+struct Sink { n: Int }
+extension Sink {
+    func put(&self, value: Int) -> String { "m-int" }
+    func put(&self, value: UInt) -> String { "m-uint" }
+}
+
+func main() {
+    let i: Int = 5
+    let u: UInt = 5
+    print(take(i))
+    print(take(u))
+
+    let s = Sink(n: 0)
+    print(s.put(i))
+    print(s.put(u))
+
+    // An unsuffixed literal is platform `Int`, so it selects the `Int` arm.
+    print(take(7))
+
+    // The unsigned arm reaches the range the signed one cannot represent.
+    var b = StringBuilder()
+    b.append(UInt.max)
+    print(b.build())
+}
