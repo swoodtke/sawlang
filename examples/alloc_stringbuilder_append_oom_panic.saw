@@ -11,7 +11,7 @@
 // EXPECT-PANIC-CONTAINS: StringBuilder.append: allocation failed
 
 extern "C" {
-    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+    func __saw_rt_alloc_deny_after(allow: Int)
 }
 
 func main() {
@@ -19,8 +19,8 @@ func main() {
     b.append("saw")             // fits: 3 bytes + terminator
     print(b.len())              // 3
 
-    // Refuse exactly the grow this append needs.
-    __saw_rt_alloc_deny_after(0, 1)
+    // Refuse everything from here, the grow this append needs included.
+    __saw_rt_alloc_deny_after(0)
     b.append("a much longer run of bytes")
     print(b.len())
 }

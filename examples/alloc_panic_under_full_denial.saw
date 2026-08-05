@@ -1,5 +1,5 @@
 // Design 137: a panic message assembles with the allocator refusing
-// EVERYTHING. `__saw_rt_alloc_deny_after(0, 0)` denies from that call onward and
+// EVERYTHING. `__saw_rt_alloc_deny_after(0)` denies from that call onward and
 // never re-arms, so nothing between it and the abort may touch the heap.
 //
 // This is the test design 123 could not write. Panic messages were concatenated
@@ -12,7 +12,7 @@
 // EXPECT-PANIC-CONTAINS: panic at alloc_panic_under_full_denial.saw:31: out of frames
 
 extern "C" {
-    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+    func __saw_rt_alloc_deny_after(allow: Int)
 }
 
 func main() {
@@ -20,7 +20,7 @@ func main() {
     // a literal, and every dynamic part of the line comes from the compiler's
     // interned constants.
     print("denial armed")
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
 
     // The allocator now refuses every request. A growable Vector confirms it
     // refuses, and the panic that follows still says what went wrong.

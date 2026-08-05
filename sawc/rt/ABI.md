@@ -56,17 +56,19 @@ guarantees `alignof(max_align_t)` >= 16). A runtime that honors alignment may us
 ### `__saw_rt_dealloc(ptr: i8*, size: word, align: word) -> void`
 Free a block previously returned by `__saw_rt_alloc`. Hosted default: `free(ptr)`.
 
-### `__saw_rt_alloc_deny_after(allow: word, deny: word) -> void`
+### `__saw_rt_alloc_deny_after(allow: word) -> void`
 **Hosted test facility (design 123), OPTIONAL for a runtime to provide.**
-Permits `allow` allocations, refuses the next `deny` (returning NULL), then
-resumes normal service; `deny <= 0` refuses everything from that point on, and a
+Permits `allow` more allocations and refuses every one after (returning NULL); a
 NEGATIVE `allow` disarms the limit. This is how the three-tier
 allocation-failure policy reaches the OOM path of a type that takes no allocator
 type parameter (`String`, `StringBuilder`, `Data`, `Arc`, `Mutex`, `Channel`).
-The bounded window matters: a Saw `panic(msg)` assembles its message into a
-fresh allocation, so under blanket denial every panic reports "string allocation
-failed" rather than the one the failing method raised — `deny_after(0, 1)`
-refuses exactly the allocation under test. Nothing in std calls it (a test
+Denial is a MODE, armed and disarmed. Design 137 dropped the second parameter, a
+bounded window that re-armed the allocator by itself: it existed because a Saw
+`panic(msg)` assembled its message into a fresh allocation, so under blanket
+denial every panic reported "string allocation failed" rather than the one the
+failing method raised. Panic messages are assembled in stack scratch now, so a
+test can deny everything and still read the real message; one that wants to keep
+running afterward calls `deny_after(-1)`. Nothing in std calls it (a test
 declares the `extern` itself), so a freestanding runtime may omit the symbol.
 
 ### `__saw_rt_write(ptr: i8*, len: word) -> void`

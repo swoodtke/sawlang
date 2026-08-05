@@ -19,7 +19,7 @@
 import std.path
 
 extern "C" {
-    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+    func __saw_rt_alloc_deny_after(allow: Int)
 }
 
 func main() {
@@ -35,6 +35,6 @@ func main() {
 
     // Now refuse the allocation the join needs. The old code handed back
     // `/tmp` — the directory — as if it were the file path.
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     print(base.join("data.db").as_str())
 }

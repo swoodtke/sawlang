@@ -8,7 +8,7 @@
 import std.data
 
 extern "C" {
-    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+    func __saw_rt_alloc_deny_after(allow: Int)
 }
 
 func main() {
@@ -21,8 +21,8 @@ func main() {
     }
     print(d.len())              // 16 — exactly full
 
-    // Refuse exactly the grow the 17th push needs.
-    __saw_rt_alloc_deny_after(0, 1)
+    // Refuse everything from here, the grow the 17th push needs included.
+    __saw_rt_alloc_deny_after(0)
     d.push(2)
     print(d.len())
 }

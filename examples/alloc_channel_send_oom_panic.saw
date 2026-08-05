@@ -11,7 +11,7 @@
 import std.channel
 
 extern "C" {
-    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+    func __saw_rt_alloc_deny_after(allow: Int)
 }
 
 func main() {
@@ -19,8 +19,8 @@ func main() {
     ch.send(1)
     print(ch.try_receive()!)        // 1 — an ordinary round trip
 
-    // Refuse exactly the queue node this send needs.
-    __saw_rt_alloc_deny_after(0, 1)
+    // Refuse everything from here, the queue node this send needs included.
+    __saw_rt_alloc_deny_after(0)
     ch.send(2)
     print("delivered")
 }

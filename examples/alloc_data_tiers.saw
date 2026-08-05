@@ -21,7 +21,7 @@
 import std.data
 
 extern "C" {
-    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+    func __saw_rt_alloc_deny_after(allow: Int)
 }
 
 func main() {
@@ -37,9 +37,9 @@ func main() {
         d.push(0)
         i = i + 1
     }
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     let pushed = d.try_push(9)
-    __saw_rt_alloc_deny_after(-1, 0)
+    __saw_rt_alloc_deny_after(-1)
     match pushed {
         case Ok(_) -> print("pushed"),
         case Err(e) -> print("push denied: {e}")
@@ -49,9 +49,9 @@ func main() {
     // try_append: the same refusal, reported before any byte is copied.
     var other = Data(capacity: 8)
     other.push(7)
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     let appended = d.try_append(move other)
-    __saw_rt_alloc_deny_after(-1, 0)
+    __saw_rt_alloc_deny_after(-1)
     print(d.get(2)!)                // 3
     match appended {
         case Ok(_) -> print("appended"),
@@ -60,17 +60,17 @@ func main() {
     print(d.get(2)!)                // 3 — still untouched
 
     // try_copy is all-or-nothing: no Data that claims bytes it does not have.
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     let copied = d.try_copy()
-    __saw_rt_alloc_deny_after(-1, 0)
+    __saw_rt_alloc_deny_after(-1)
     match copied {
         case Ok(c) -> print(c.len()),
         case Err(_) -> print("copy denied")
     }
 
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     let made = Data.try_with_capacity(64)
-    __saw_rt_alloc_deny_after(-1, 0)
+    __saw_rt_alloc_deny_after(-1)
     match made {
         case Ok(_) -> print("with_capacity ok"),
         case Err(_) -> print("with_capacity denied")

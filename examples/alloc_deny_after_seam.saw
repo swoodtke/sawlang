@@ -1,20 +1,24 @@
 // Design 123: the hosted default allocator carries an allocation budget so the
 // three-tier failure policy can be tested where it actually bites — the types
-// that take no allocator type parameter. `__saw_rt_alloc_deny_after(allow,
-// deny)` permits `allow` allocations, refuses the next `deny`, then resumes
-// normal service; `deny <= 0` refuses everything from then on, and a negative
+// that take no allocator type parameter. `__saw_rt_alloc_deny_after(allow)`
+// permits `allow` more allocations and refuses every one after; a negative
 // `allow` disarms. This test only proves the seam itself: denial is observed
 // through `Vector.try_with_capacity`, the fallible-tier factory that predates it.
+//
+// Design 137 dropped the second parameter. Denial used to be a bounded WINDOW
+// that re-armed the allocator by itself, because a panic assembled its message
+// into a fresh allocation and blanket denial would have swallowed every panic
+// message. Panic messages come off the stack now, so denial is a plain MODE.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // denied
 // allowed
 // denied
-// allowed
+// denied
 // 8
 
 extern "C" {
-    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+    func __saw_rt_alloc_deny_after(allow: Int)
 }
 
 func try_capacity() -> Bool {
@@ -34,18 +38,18 @@ func report(ok: Bool) {
 
 func main() {
     // Deny everything from here on.
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     report(try_capacity())              // denied
 
-    // One allocation of headroom, then the window closes on the second.
-    __saw_rt_alloc_deny_after(1, 1)
+    // One allocation of headroom, then denial from the second onward — and it
+    // STAYS on, which is the whole difference from the old window.
+    __saw_rt_alloc_deny_after(1)
     report(try_capacity())              // allowed
     report(try_capacity())              // denied
-    // Window spent: service resumed without an explicit disarm.
-    report(try_capacity())              // allowed
+    report(try_capacity())              // denied
 
     // Explicit disarm, then a plain vector grows normally.
-    __saw_rt_alloc_deny_after(-1, 0)
+    __saw_rt_alloc_deny_after(-1)
     var v = Vector<Int>()
     var i = 0
     while i < 8 {

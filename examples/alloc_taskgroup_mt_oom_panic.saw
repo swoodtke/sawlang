@@ -8,7 +8,7 @@
 // EXPECT-PANIC-CONTAINS: TaskGroup(threads:): allocation failed
 
 extern "C" {
-    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+    func __saw_rt_alloc_deny_after(allow: Int)
 }
 
 func work(n: Int) -> Int {
@@ -21,7 +21,7 @@ func main() {
     print(a.join())                     // 6 — the single-threaded engine
 
     // The run-queue mutex is the first allocation this constructor makes.
-    __saw_rt_alloc_deny_after(0, 1)
+    __saw_rt_alloc_deny_after(0)
     var pool = TaskGroup(threads: 2)
     let b = pool.spawn(work(4))
     print(b.join())

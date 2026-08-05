@@ -12,15 +12,18 @@
 // as much as its tests, and most of std allocates through the GLOBAL allocator
 // — `String`, `StringBuilder`, `Data`, `Arc`, `Mutex`, `Channel` take no
 // allocator type parameter, so the review's `Vector<T, FailAlloc>` probe
-// technique cannot reach them. `__saw_rt_alloc_deny_after(allow, deny)` permits
-// `allow` allocations, refuses the next `deny`, then resumes normal service, so
-// a test can drive any OOM path in the library deterministically.
+// technique cannot reach them. `__saw_rt_alloc_deny_after(allow)` permits
+// `allow` more allocations and refuses everything after, so a test can drive
+// any OOM path in the library deterministically. A NEGATIVE `allow` disarms.
 //
-// The WINDOW is what makes tier-1 panics testable. A Saw `panic(msg)` assembles
-// its message into a fresh allocation, so under blanket denial every panic
-// reports "string allocation failed" instead of the one the failing method
-// raised. `deny_after(0, 1)` refuses exactly the allocation under test and lets
-// the panic path allocate normally.
+// Denial is a MODE, armed and disarmed (design 137). It used to be a bounded
+// window — `deny_after(allow, deny)` refused exactly `deny` allocations and
+// then re-armed itself — because a Saw `panic(msg)` assembled its message into
+// a fresh allocation, so under blanket denial every panic reported "string
+// allocation failed" instead of the one the failing method raised. Panic
+// messages are assembled in stack scratch now, so nothing needs the allocator
+// to come back on its own, and a test that wants to keep running after the
+// failure it came for says so with an explicit `deny_after(-1)`.
 //
 // This is a facility of the HOSTED default allocator only: std never references
 // it (a freestanding runtime need not provide the symbol), and a test that
@@ -34,28 +37,20 @@ extern "C" {
 
 // Separate flag rather than one signed sentinel: a static initializer takes a
 // plain literal, so "no limit in force" is its own zero-valued flag. When
-// ACTIVE is 0 the other two are not consulted. ALLOC_DENY of -1 means "refuse
-// from here on".
+// ACTIVE is 0 the allowance is not consulted.
 static ALLOC_LIMIT_ACTIVE: Atomic<Int> = Atomic(0)
 static ALLOC_ALLOW: Atomic<Int> = Atomic(0)
-static ALLOC_DENY: Atomic<Int> = Atomic(0)
 
-// Permit `allow` allocations, refuse the next `deny`, then resume normal
-// service. `deny <= 0` refuses everything from that point on. A NEGATIVE
+// Permit `allow` more allocations, then refuse every one after. A NEGATIVE
 // `allow` disarms the limit outright, so a test can restore ordinary allocation
 // once it has driven the failure path it came for.
 @export("__saw_rt_alloc_deny_after")
-func rt_alloc_deny_after(allow: Int, deny: Int) {
+func rt_alloc_deny_after(allow: Int) {
     if allow < 0 {
         ALLOC_LIMIT_ACTIVE.store(0)
         return
     }
     ALLOC_ALLOW.store(allow)
-    if deny <= 0 {
-        ALLOC_DENY.store(-1)
-    } else {
-        ALLOC_DENY.store(deny)
-    }
     ALLOC_LIMIT_ACTIVE.store(1)
 }
 
@@ -66,16 +61,7 @@ func rt_alloc(size: Int, align: Int) unsafe -> UnsafePointer<Int8> {
         if allow > 0 {
             ALLOC_ALLOW.store(allow - 1)
         } else {
-            let deny = ALLOC_DENY.load()
-            if deny == 0 {
-                // Window spent: disarm so the rest of the program runs normally.
-                ALLOC_LIMIT_ACTIVE.store(0)
-            } else {
-                if deny > 0 {
-                    ALLOC_DENY.store(deny - 1)
-                }
-                return 0 as UnsafePointer<Int8>
-            }
+            return 0 as UnsafePointer<Int8>
         }
     }
     malloc(size)

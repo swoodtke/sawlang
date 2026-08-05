@@ -22,25 +22,25 @@ import std.mutex.{Mutex}
 import std.channel
 
 extern "C" {
-    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+    func __saw_rt_alloc_deny_after(allow: Int)
 }
 
 func main() {
     let a = Arc<Int>(value: 5)
     print(a.strong_count())             // 1 — a real block
 
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     let arc_made = Arc<Int>.try_make(6)
-    __saw_rt_alloc_deny_after(-1, 0)
+    __saw_rt_alloc_deny_after(-1)
     match arc_made {
         case Ok(made) -> print(made.strong_count()),
         case Err(_) -> print("arc denied")
     }
     print(a.strong_count())             // 1 — the live Arc is unaffected
 
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     let mutex_made = Mutex<Int>.try_make(7)
-    __saw_rt_alloc_deny_after(-1, 0)
+    __saw_rt_alloc_deny_after(-1)
     match mutex_made {
         case Ok(made) -> print(made.get()),
         case Err(_) -> print("mutex denied")
@@ -48,18 +48,20 @@ func main() {
     let m = Mutex<Int>(value: 1)
     print(m.lock { &var c in c > 0 })    // true — a real mutex still locks
 
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     let chan_made = Channel<Int>.try_make()
-    __saw_rt_alloc_deny_after(-1, 0)
+    __saw_rt_alloc_deny_after(-1)
     match chan_made {
         case Ok(_) -> print("channel ok"),
         case Err(_) -> print("channel denied")
     }
 
     // try_send reports a refused queue node rather than eating the message.
+    // Denial is a mode, so the retry below needs it explicitly turned back off.
     let ch = Channel<Int>()
-    __saw_rt_alloc_deny_after(0, 1)
+    __saw_rt_alloc_deny_after(0)
     let sent = ch.try_send(99)
+    __saw_rt_alloc_deny_after(-1)
     match sent {
         case Ok(_) -> print("sent"),
         case Err(_) -> ch.send(42)

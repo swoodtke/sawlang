@@ -21,7 +21,7 @@
 // saw and more
 
 extern "C" {
-    func __saw_rt_alloc_deny_after(allow: Int, deny: Int)
+    func __saw_rt_alloc_deny_after(allow: Int)
 }
 
 func main() {
@@ -30,9 +30,9 @@ func main() {
     print(b.build())            // saw
 
     // Deny everything: this append needs 3 + 16 + 1 > 16 bytes, so it must grow.
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     let appended = b.try_append("0123456789abcdef")
-    __saw_rt_alloc_deny_after(-1, 0)
+    __saw_rt_alloc_deny_after(-1)
     match appended {
         case Ok(_) -> print("appended"),
         case Err(e) -> print("append denied: {e}")
@@ -44,9 +44,9 @@ func main() {
     // fills capacity 4, so one more byte has to grow.
     var c = StringBuilder(capacity: 4)
     c.append("abc")
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     let charred = c.try_append_char(100)
-    __saw_rt_alloc_deny_after(-1, 0)
+    __saw_rt_alloc_deny_after(-1)
     match charred {
         case Ok(_) -> print("char appended"),
         case Err(_) -> print("char denied")
@@ -54,9 +54,9 @@ func main() {
     print(c.len())              // 3 — untouched
 
     // The fallible capacity factory.
-    __saw_rt_alloc_deny_after(0, 0)
+    __saw_rt_alloc_deny_after(0)
     let made = StringBuilder.try_with_capacity(64)
-    __saw_rt_alloc_deny_after(-1, 0)
+    __saw_rt_alloc_deny_after(-1)
     match made {
         case Ok(_) -> print("capacity ok"),
         case Err(_) -> print("capacity denied")
