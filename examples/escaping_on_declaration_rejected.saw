@@ -1,0 +1,17 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `escaping` applies to function TYPES, not declarations
+//
+// Design 141. The declaration effect slot and the function-type effect slot are
+// spelled the same way, so `escaping` on a `func` reads plausible -- but a named
+// declaration has no captured environment to outlive the call that received it,
+// so it is always free to escape and the word means nothing there. Before this
+// the slot parser left the identifier unconsumed and the failure surfaced as a
+// bare `Expected LBRACE, got IDENT` pointing one token past the mistake.
+
+func apply(x: Int) escaping -> Int {
+    x + 1
+}
+
+func main() {
+    print(apply(1))
+}

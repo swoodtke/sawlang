@@ -492,7 +492,28 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         if self.match(TokenType.UNSAFE):
             self.error("`unsafe` comes before `sync` in the effect slot — "
                        "write `... unsafe sync ...`")
+        self._reject_escaping_in_decl_slot()
         return is_unsafe, is_sync
+
+    def _reject_escaping_in_decl_slot(self) -> None:
+        """`escaping` in a DECLARATION's effect slot (design 141).
+
+        The slot is shared with the function-type grammar, where `escaping` is
+        one of the four spellings, so writing it on a `func` reads plausible.
+        It is not: `escaping` describes what a caller may do with a function
+        VALUE — store it past the call that received it — and a named
+        declaration has no environment to outlive, so it is always free to
+        escape. Without this the slot parser simply left the identifier
+        unconsumed and the block parse failed with a bare `Expected LBRACE`,
+        pointing past the real mistake.
+        """
+        if self.match_ident('escaping'):
+            self.error(
+                "`escaping` applies to function TYPES, not declarations — a "
+                "named function has no environment and may always escape. "
+                "Write it on the parameter that receives the value "
+                "(`body: (Int) escaping -> Int`); the declaration slot takes "
+                "`unsafe`, `sync` and `borrows`")
 
     def _at_toplevel_start(self) -> bool:
         """True if the current token can begin a top-level declaration."""

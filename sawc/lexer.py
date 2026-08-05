@@ -84,7 +84,9 @@ class TokenType(Enum):
     WRAP_MUL = auto()       # &* wrapping (two's-complement) multiplication
     NOT = auto()            # 'not' keyword for logical not
     MOVE = auto()           # 'move' keyword for ownership transfer
-    UNSAFE = auto()         # 'unsafe' expression-prefix marker (design 81)
+    UNSAFE = auto()         # 'unsafe' effect-slot marker (designs 130/136)
+    BORROWS = auto()        # 'borrows' effect-slot marker (design 141)
+    LEND = auto()           # 'lend' body statement (design 141)
     ASSIGN = auto()
     PLUS_ASSIGN = auto()    # += compound assignment
     MINUS_ASSIGN = auto()   # -= compound assignment
@@ -190,6 +192,14 @@ KEYWORDS = {
     'not': TokenType.NOT,
     'move': TokenType.MOVE,
     'unsafe': TokenType.UNSAFE,
+    # design 141. `borrows` fills the effect slot (`func [](i: Int) borrows -> T`)
+    # and `lend` marks the borrow window in the body. Unlike `sync`/`escaping`,
+    # which stay contextual identifiers, both are RESERVED: `lend` opens a
+    # statement, where a contextual read would collide with a call to a function
+    # named `lend`, and `borrows` is reserved with it so the pair reads as one
+    # feature. Neither name appears as an identifier anywhere in the corpus.
+    'borrows': TokenType.BORROWS,
+    'lend': TokenType.LEND,
     'as': TokenType.AS,
     'try': TokenType.TRY,
     'catch': TokenType.CATCH,
