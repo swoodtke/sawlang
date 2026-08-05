@@ -110,6 +110,13 @@ extension Holder: ExplicitCopy {}               // memberwise deep .copy()
 Both bodies are EMPTY — the `deinit` is synthesized either way. Only the copy
 policy is your call. (A `String`/closure/owning-enum field is compiler-handled
 and forces nothing.)
+**`Deinit` is NOT declarable** (design 131): `extension T: Deinit {...}` is a
+compile error naming the three policies. A hand-written `deinit` body goes
+INSIDE the policy conformance (`extension Res: NoCopy { func deinit(&var self)
+{...} }`) — the requirement is inherited, so that is the only spelling. A type
+declaring just `Deinit` had a destructor and no transfer rule, so `let s = r`
+silently aliased it and both halves ran deinit. `T: Deinit` as a generic BOUND
+is still fine.
 ```saw
 var w = move v         // v now invalid (use-after-move = compile error)
 var u = w.copy()       // explicit duplicate
@@ -237,6 +244,26 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   Still rejected: a chained assignment through MORE THAN ONE hop whose RHS suspends
   (`a?.b?.c = s.read()` — `if let` the inner optional first). `?.` indexing is
   unsupported.
+- **PAYLOAD READS ARE PLACES (design 131).** `o!`, the `??` left operand, and an
+  `if let`/`guard let` binding all name storage the optional still owns, so the
+  payload's copy tier decides the read — same table as everywhere else. BORROW
+  (`o!.m()`, `&o!`, `o!.field`, a `?.` hop) is always free. A VALUE READ
+  (`let a = o!`, a by-value arg, a return, an operand) is bitwise for trivial,
+  a RETAIN for ImplicitCopy (the optional keeps its own reference — so
+  `var o: String? = "v"; let a = o!; o = None; print(a)` prints `v`), and a
+  clean ERROR for ExplicitCopy/NoCopy naming the consuming spellings. `a ?? b`
+  yields an owned value, so both arms follow the value-read row. Two consuming
+  forms:
+  - **`move o!`** — compile-time, zero cost, retires the WHOLE binding (no husk,
+    no partial move); still panics if dynamically None. LOCALS ONLY —
+    `move h.field!` is the no-partial-moves error.
+  - **`o.take()`** — `Optional.take(&var self) -> T?`. Writes `None` into the
+    place and returns the payload owned, so it works on a FIELD (the move-out
+    `move` can't do). Needs a mutable place, exclusivity-checked like any
+    `&var self` method. Checked spelling `o.take()!`.
+  `if let a = move o` is the consuming binding. Whole-optional ops are unchanged
+  (`let y = x` retains, `move x` retires). A payload read out of a CALL RESULT
+  (`v.get(0)!`, `if let x = f()`) is unaffected — that value is already yours.
 - `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift/div-zero
   violations panic ALWAYS (wrap intentionally with `&+ &- &*`). EVERY panic —
   the compiler-raised traps included — prints `panic at FILE:LINE: {reason}`,

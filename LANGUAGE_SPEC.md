@@ -1026,6 +1026,75 @@ then takes the last hop over it. A chained assignment whose RHS suspends
 (`x?.y = stream.read()`) lowers to a None-guarded read-modify-writeback, so the
 RHS runs only on the written path. `?.` indexing (`a?[i]`) is still out of scope.
 
+#### Payload reads: the place rule
+
+Every payload-extraction form — `o!`, the left operand of `??`, and an
+`if let` / `guard let` / match payload binding — denotes a **place**, the same
+way `s.field` does. It names storage the optional still owns, so the read is
+governed by the payload's entry in [the Copy trait family](#the-copy-trait-family)
+table, with no exemption for any extraction form:
+
+| Use of the place | trivial | ImplicitCopy | ExplicitCopy | NoCopy |
+|---|---|---|---|---|
+| Borrow in place (`o!.m()`, `&o!`, `o!.field`, a `?.` hop) | ok | ok | ok | ok |
+| Value read (`let a = o!`, by-value argument, return, operand) | bitwise | retain | error | error |
+| `o!.copy()` | — | ok | ok (deep) | rejected |
+| `move o!` | ok | ok | ok | ok |
+| `o.take()` | ok | ok | ok | ok |
+
+A borrow reads the payload where it sits and costs nothing. A value read makes a
+second owner, so an `ImplicitCopy` payload is retained at the extraction and the
+optional keeps its own reference:
+
+```saw
+var name: String? = "Ada"
+let owned = name!        // retains; `name` still owns its payload
+name = None              // releases the optional's reference
+print(owned)             // prints: Ada
+```
+
+An `ExplicitCopy` or `NoCopy` payload is never duplicated implicitly, so a value
+read is refused and the error names the three consuming spellings:
+
+```saw
+var file = File.open(Path(s: "/var/log/app.log"))   // File?
+let f = file!
+// error: cannot read the payload out of `file` in let binding:
+//        `File` implements NoCopy
+// hint: use `move file!` to transfer the whole binding, or `file.take()`
+//       to move the payload out in place
+```
+
+**`move o!`** is the compile-time transfer. It retires the whole binding — there
+is no husk state, no partial move, and no runtime writeback, so it means exactly
+what `move o` means, spelled at the projection. It still unwraps, so it panics if
+the optional is dynamically `None`, and it costs nothing at run time. Because it
+retires a *binding*, it is legal only on a local; `move h.field!` is the ordinary
+no-partial-moves error.
+
+**`Optional.take(&var self) -> T?`** is the runtime transfer. It writes `None`
+into the place and returns what was there, owned. That reaches places `move`
+cannot — above all a struct field, which is the move-out that no-partial-moves
+otherwise forbids. It needs a mutable place and is exclusivity-checked like any
+other `&var self` method. The checked spelling is `o.take()!`:
+
+```saw
+struct Logger { sink: File? }
+extension Logger: NoCopy {}
+
+func close_sink(l: &var Logger) {
+    if let f = l.sink.take() {   // `l.sink` is None afterwards
+        drop_file(move f)
+    }
+}
+```
+
+An `if let` binding follows the value-read row; `if let a = move o` is its
+consuming form and retires `o`. `a ?? b` yields an owned value, so both arms hand
+over their own reference. Whole-optional operations are unaffected: `let y = x`
+on a `T?` already retained through the owning-enum rule, and `move x` already
+retired the binding.
+
 **Call-site optional auto-wrap** (`designs/57`, DF3). The implicit `T → T?` wrap
 also applies at **call boundaries**: a bare `T` argument auto-wraps into a `T?`
 parameter at every call form (free function, method, static method,
@@ -1468,6 +1537,20 @@ claim: the cost of every transfer is now readable at the use site.
   trivially-copyable tier is exactly the destructor-free tier. The `deinit`
   itself is synthesized (see [Synthesized destruction](#synthesized-destruction));
   declaring the policy is all you write.
+- **`Deinit` is not declarable on its own.** `extension T: Deinit {...}` is a
+  compile error naming the three policies. A type that declared only `Deinit`
+  had a destructor and no transfer rule, so `let s = r` fell through every arm
+  of the checkpoint and both halves ran `deinit`. A hand-written `deinit` body
+  goes inside the policy conformance, where the requirement is inherited:
+
+  ```saw
+  extension Res: NoCopy {
+      func deinit(&var self) { close(self.fd) }
+  }
+  ```
+
+  `T: Deinit` remains legal as a generic bound; only the conformance form is
+  gone.
 - **`ImplicitCopy` and `ExplicitCopy` are mutually exclusive** on one type.
 
 ```saw
@@ -1528,6 +1611,11 @@ in **reverse index order** at scope death, composing with the enclosing struct/
 enum drop glue. (A `[String; N]` field, like a scalar `String` field, does not
 force the container to declare a policy — String's per-element retain/release is
 compiler-handled.)
+
+**Optional payloads follow the same table.** Reading the payload out of an
+optional that someone else still owns is a read out of storage, so it is
+governed by the payload's own policy — see
+[Payload reads](#payload-reads-the-place-rule).
 
 The only implicit copies are cheap by contract, which is the part of design
 principle #4 this section carries: an innocent `=` is never secretly O(n). The
@@ -1819,6 +1907,11 @@ The compiler inserts `deinit()` calls at all scope exit points—including norma
 You rarely write the body. Any struct or enum that owns something gets a
 memberwise `deinit` synthesized from its fields, so a hand-written one is for
 raw resources only; see [Synthesized destruction](#synthesized-destruction).
+
+`Deinit` is never conformed to directly. It is the base every copy policy
+inherits, so a hand-written body goes inside `NoCopy`, `ExplicitCopy`, or
+`ImplicitCopy` — see [The Copy trait family](#the-copy-trait-family). As a
+generic bound (`T: Deinit`) it works like any other trait.
 
 **Important:** Manual `deinit()` calls are not allowed. Calling `obj.deinit()` is a compile-time error to prevent double-free and use-after-free bugs. For early cleanup, use a nested scope or `move` the value to a consuming function.
 

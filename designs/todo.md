@@ -18,6 +18,22 @@ DRAFTS** (Deinit/ExplicitCopy synthesis — LANDED, see below;
 newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
 
+**131 LANDED (Aug 5)** — payload-read ownership. Every payload-extraction form
+(`o!`, the `??` left operand, an `if let`/`guard let` binding) is now a PLACE,
+governed by the payload's copy tier like every other read, and `Deinit` is
+non-declarable so no type can carry a destructor without a transfer rule. Closes
+**DF-124b** and **DF-128a** (both detailed below). The consuming reads are
+`move o!` (compile-time, retires the whole binding, locals only) and the new
+`Optional.take(&var self) -> T?` (runtime, swaps `None` in, reaches a FIELD);
+`TaskHandle.join` migrated onto `take()`, retiring the tree's last
+`__saw_forget` call site. 108 types migrated off standalone `Deinit`
+conformances — 74 of them had no copy policy at all and are now `NoCopy`.
+
+Found and fixed on the way: `??` never checkpointed its DEFAULT operand, so
+`let s = opt ?? other` aliased `other` and double-freed it (the ExplicitCopy
+repro aborted with SIGTRAP). One related hole is filed rather than fixed —
+**DF-131a** below (a whole-optional read of a NoCopy/ExplicitCopy payload).
+
 **130 LANDED (Aug 5)** — the unsafe model is rebuilt and design 81's marking
 rules are superseded (that brief now carries a SUPERSEDED header). Marking is
 per-DECLARATION: `unsafe struct` for a type (with the `Unsafe*` name enforced),
@@ -407,6 +423,44 @@ noted live-range packing of locals; do both in one sizing brief.
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
 
+## Design 131 — DF-findings (payload-read ownership)
+
+- **DF-131a — FILED, not fixed (found while implementing design 131, Aug 5;
+  PRE-EXISTING). A WHOLE-optional read of a NoCopy or ExplicitCopy payload
+  aliases and double-drops.** Design 131 made the PAYLOAD read policy-driven, but
+  the optional ITSELF still has no tier: `_is_no_copy_type` / `_is_explicit_copy_type`
+  key off a struct/enum name, and `Optional<T>` has neither, so the checkpoint
+  falls through to the default bitwise path:
+
+  ```saw
+  struct Res { id: Int }
+  extension Res: NoCopy {
+      func deinit(&var self) { print("drop res {self.id}") }
+  }
+
+  func main() {
+      let o: Res? = Res(id: 1)
+      let p = o                 // no move required, no copy performed
+      print("ok")
+  }                             // prints "drop res 1" TWICE
+  ```
+
+  This is DF-128a's disease one wrapper out. The brief said whole-optional
+  operations were unchanged because `let y = x` "already retains via the
+  owning-enum arm" — true for an ImplicitCopy payload (`is_implicit_copy_enum`
+  covers it, and codegen's `_transfer_needs_copy` retains an owning OPTIONAL read
+  out of a container slot), but there is no corresponding arm that REFUSES when
+  the payload is move-only. An `Optional<Vector<Int>>` behaves the same way.
+
+  NOT fixed here because the natural fix — an `Optional<T>` inherits T's copy
+  policy at the checkpoint — has a blast radius the brief did not scope. It makes
+  `let y = x` on a `Vector<Int>?` demand `move x`, and `.copy()` on an optional is
+  currently rejected outright ("type `Vector<Int, GlobalAllocator>?` is not
+  Copy"), so the only spelling left would be `move`. Whether containment should
+  follow (does `struct H { r: Res? }` become move-only?) is the same design
+  question one level up. Worth a small brief; the repro above is five lines.
+  Repro: `.build/scratch/p131_e.saw` (gitignored; inlined above).
+
 ## Design 124 — DF-findings (TaskGroup eager teardown)
 
 - **DF-124a — FIXED (design 124, Aug 5).** Frame-field reads had no ownership
@@ -430,10 +484,22 @@ noted live-range packing of locals; do both in one sizing brief.
   against the VALUE's type, not the destination field's, since an opt-encoded
   destination is `T?` while the read is the bare payload.
 
-- **DF-128a — DECIDED (user, Aug 5): design 131 owns the fix** (`Deinit`
-  becomes NON-DECLARABLE — a policy is required, deinit bodies live inside the
-  policy conformance; the checkpoint gains the defensive arm). Original
-  finding follows: **a `Deinit`-only type aliases and
+- **DF-128a — FIXED (design 131, Aug 5).** `Deinit` is non-declarable:
+  `extension T: Deinit {...}` is a compile error naming the three copy policies,
+  and a hand-written `deinit` body lives inside the policy conformance (the
+  requirement is inherited). That makes the unpoliced state unreachable rather
+  than diagnosed — a type with a destructor now always has a transfer rule, so
+  the checkpoint's missing arm cannot be entered; it was added anyway as an
+  internal-error tripwire. Containment follows for free: the migrated `Res` is
+  `NoCopy`, so `struct Pair { a: Res }` hits the existing NoCopy containment
+  error. Migration was 108 types — 74 with no policy at all became `NoCopy` (the
+  semantic the fallthrough should have had), 34 folded into a policy they already
+  declared; `Vector` was the one judgment call, keeping its `deinit` on the plain
+  unconditional extension because its destruction covers every `T` while its
+  `ExplicitCopy` conformance is bounded `<T: Copy>`. Tests:
+  `errors/deinit_needs_copy_policy`, `errors/deinit_policy_migration_moves`,
+  `deinit_policy_containment`. `T: Deinit` as a generic BOUND is untouched.
+  Original finding follows: **a `Deinit`-only type aliases and
   double-frees (found while probing for design 128, Aug 5; PRE-EXISTING —
   reproduces with design 128 reverted).** A type whose only resource conformance
   is `Deinit` falls through every arm of the value-transfer checkpoint, so a
@@ -551,9 +617,26 @@ noted live-range packing of locals; do both in one sizing brief.
   formatter grows a case. Hit while writing a test that printed
   `v.get(0)` — `Vector.get` returns `T?`, so this is easy to reach by accident.
 
-- **DF-124b — DECIDED (user, Aug 5): design 131 owns the fix** (payload reads
-  become policy-driven places; `move o!` + `Optional.take()` are the consuming
-  forms). Original finding follows.
+- **DF-124b — FIXED (design 131, Aug 5).** Every payload-extraction form — `o!`,
+  the `??` left operand, an `if let`/`guard let` binding — now denotes a PLACE,
+  and the Copy family governs the read exactly as it governs every other read.
+  `_is_aliasing_expr` sees through a force-unwrap (`o!` aliases iff `o` does, so
+  `f()!` stays a fresh temporary), and the retain lands AT the extraction rather
+  than at the enclosing transfer site, because a `let` initializer never reaches
+  the transfer-site copy path. `??` also gained a checkpoint on its DEFAULT
+  operand, which had never been checked at all — `let s = opt ?? other` aliased
+  `other` and double-freed it (found while implementing; the ExplicitCopy repro
+  aborted with SIGTRAP). The consuming forms are `move o!` (compile-time, retires
+  the whole binding, locals only) and `Optional.take(&var self) -> T?` (runtime,
+  swaps `None` into the place, reaches a FIELD). `TaskHandle.join` — which
+  EXPLOITED the non-retaining read via `let r = ptr[0]!` + `__saw_forget` —
+  migrated onto `self.result_ptr[0].take()!`; no .saw file calls `__saw_forget`
+  any more, though it stays a builtin for the unsafe domain. The coroutine
+  transform's frame reads are exempt (`frame_place_read`): the transform runs
+  after the type-check that already judged those reads un-projected, and the
+  whole program is then re-checked, so weighing in again would double-retain an
+  ImplicitCopy payload and reject a NoCopy one the frame is moving out.
+  Original finding follows.
   DF-124a's root cause is not confined to coroutine frames: reading a payload out
   of ANY optional with `!` neither retains it nor clears the source's ownership,
   so the reader gets a non-owning alias. Five lines, no coroutines, no unsafe:

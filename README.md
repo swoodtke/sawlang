@@ -522,7 +522,17 @@ Saw provides deterministic memory management without garbage collection:
 - **Cleanup is written for you.** Any struct or enum that owns something gets a
   `deinit` synthesized from its fields, dropped in reverse declaration order at
   scope exit. You write a `deinit` by hand only for a raw resource such as a
-  file descriptor; it runs before the field drops.
+  file descriptor; it runs before the field drops, and it goes inside the copy
+  policy's conformance (`extension Res: NoCopy { func deinit(&var self) {...} }`)
+  — every policy already requires `Deinit`, and a type with a destructor but no
+  policy has no transfer rule.
+- **Reading a payload out of an optional obeys the same table.** `o!`, the left
+  operand of `??`, and an `if let` binding all name storage the optional still
+  owns, so the payload's tier decides what the read costs. Borrowing in place
+  (`o!.len()`) is free; a value read retains an `ImplicitCopy` payload and is
+  refused for `ExplicitCopy`/`NoCopy`. The consuming reads are `move o!`, which
+  retires the whole binding, and `o.take()`, which writes `None` back into the
+  place and hands you the payload — including out of a struct field.
 - **Reference types** (`&T`, `&var T`) for borrowing, checked for exclusivity at
   compile time.
 - **The Law of Exclusivity**: a `&var` (mutable) reference must not overlap any
