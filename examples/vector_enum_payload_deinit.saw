@@ -21,6 +21,9 @@ enum Slot {
     case Empty
 }
 
+// design 139: an owning enum names its transfer class, like an owning struct.
+extension Slot: NoCopy {}
+
 func main() {
     var v = Vector<Slot>()
     let s0 = Slot.Occupied(r: R(id: 7))

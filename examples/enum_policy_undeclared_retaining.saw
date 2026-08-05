@@ -1,0 +1,46 @@
+// design 139: the parity BOUNDARY. Only the two owning tiers are demanded of an
+// enum. `Dep` carries a String and an Int — a retain and a bitwise copy, both of
+// which the compiler performs on its own — so it keeps working with no
+// declaration at all, exactly as a String-field struct does. Asking for a policy
+// here would be asking about a decision the author does not have to make.
+//
+// The copy is a real one: both `d` and `e` render their payload, and the enum's
+// drop releases each reference exactly once.
+//
+// (Deliberately does NOT overwrite `d` while `e` is live. That path is broken
+// independently of the copy tier — see DF-139a — and asserting it here would
+// lock in a defect this design did not introduce and does not fix.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Path(cfg.toml)
+// Path(cfg.toml)
+// Ver(3)
+
+enum Dep {
+    case Path(name: String),
+    case Ver(n: Int)
+}
+
+func show(d: &Dep) {
+    match d {
+        case Path(name) -> print("Path({name})"),
+        case Ver(n) -> print("Ver({n})")
+    }
+}
+
+func build() -> String {
+    var b = StringBuilder()
+    b.append("cfg")
+    b.append(".toml")
+    b.build()
+}
+
+func main() {
+    let d = Dep.Path(name: build())
+    let e = d
+    show(d: &d)
+    show(d: &e)
+
+    let v = Dep.Ver(n: 3)
+    show(d: &v)
+}

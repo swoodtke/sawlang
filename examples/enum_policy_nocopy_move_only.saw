@@ -1,0 +1,29 @@
+// design 139: a declared enum policy is what the checkpoint reads, so an owning
+// enum behaves exactly like an owning struct. `Reel` is move-only: the transfer
+// to `s` needs `move`, the moved-from `r` is retired, and the tape drops exactly
+// once — where the pre-139 bitwise alias dropped it twice.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// built
+// moved
+// drop 4
+
+struct Tape { id: Int }
+
+extension Tape: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+
+enum Reel {
+    case Loaded(t: Tape),
+    case Empty
+}
+
+extension Reel: NoCopy {}
+
+func main() {
+    let r = Reel.Loaded(t: Tape(id: 4))
+    print("built")
+    let s = move r
+    print("moved")
+}

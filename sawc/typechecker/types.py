@@ -1814,6 +1814,59 @@ class TypeUtilsMixin:
                     )
                     break  # Only report once per struct
 
+    def _check_enum_policy_declared(self):
+        """An enum with an owning payload must DECLARE its copy policy (design 139).
+
+        The struct parity rule. A struct holding a `Vector` or a `File` has had
+        to name its transfer class since design 9, because the compiler knows how
+        to DESTROY such a value but not whether the author wants it duplicated.
+        An enum with the same payload was answering that question by itself —
+        silently, and only for the ImplicitCopy case; a `Vector` or `File`
+        payload got no tier at all and every transfer bitwise-aliased it.
+
+        So the same question is now asked of enums, in the same words. Only the
+        two OWNING tiers are demanded: an enum whose payloads are trivial or
+        ImplicitCopy keeps working undeclared, exactly as a String-field struct
+        does, because the compiler handles those transfers on its own.
+
+        A GENERIC enum is judged on its declaration, where a payload of type `T`
+        is opaque and contributes no tier — so `Result` and any user
+        `enum Wrap<T>` are never asked to declare something that depends on how
+        they are instantiated. Each instantiation gets its tier from the
+        structural join instead.
+        """
+        for enum_name, enum_info in self.namespace.enums.items():
+            if self.namespace.declared_copy_tier(enum_name) != 'free':
+                continue
+            for variant_name, payloads in enum_info.variants.items():
+                offender = next(
+                    ((fname, ftype) for fname, ftype in payloads
+                     if self.namespace.copy_tier(ftype) in ('explicit', 'nocopy')),
+                    None)
+                if offender is None:
+                    continue
+                field_name, field_type = offender
+                tier = self.namespace.copy_tier(field_type)
+                trait = 'NoCopy' if tier == 'nocopy' else 'ExplicitCopy'
+                if tier == 'nocopy':
+                    hint = (f"add `extension {enum_name}: NoCopy {{}}` — a NoCopy "
+                            f"payload makes `{enum_name}` move-only, and its "
+                            f"`deinit` is synthesized")
+                else:
+                    hint = (f"pick a copy policy: `@synthesize extension "
+                            f"{enum_name}: ExplicitCopy {{}}` for a payload-deep "
+                            f"copy, or `extension {enum_name}: NoCopy {{}}` to "
+                            f"make it move-only")
+                self._error(
+                    ErrorKind.CANNOT_COPY,
+                    f"enum `{enum_name}` carries {trait} payload `{field_name}` "
+                    f"of type `{field_type}` in variant `{variant_name}` but "
+                    f"does not implement {trait}",
+                    getattr(enum_info, 'line', 0), getattr(enum_info, 'column', 0),
+                    hint=hint
+                )
+                break  # Only report once per enum
+
     def _check_copy_trait_exclusivity(self):
         """ImplicitCopy and ExplicitCopy are mutually exclusive on one type."""
         for struct_name in self.namespace.structs:

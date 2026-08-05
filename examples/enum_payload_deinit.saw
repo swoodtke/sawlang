@@ -6,8 +6,11 @@
 // Brief 23 item 1 implemented this: `_needs_cleanup` now detects an enum whose
 // active variant carries a cleanup-needing payload, and `_emit_enum_cleanup_at`
 // switches on the tag and releases that variant's payload fields (reverse order)
-// via the shared `_emit_drop_at` drop glue. Enums dodge the containment rules,
-// so an undeclared `Crate` holding a Deinit payload is cleaned automatically.
+// via the shared `_emit_drop_at` drop glue.
+//
+// design 139: the cleanup is still automatic, but the containment rules no
+// longer stop at structs — `Crate` owns an `R`, so it declares the same
+// move-only policy a struct holding one would.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 100
@@ -27,6 +30,8 @@ enum Crate {
     case Full(r: R),
     case Empty
 }
+
+extension Crate: NoCopy {}
 
 func main() {
     let b = Crate.Full(r: R(id: 7))

@@ -953,32 +953,43 @@ class RegistrationMixin:
     # to the `_derived_*_types` set codegen consults.
     _ENUM_DERIVABLE_TRAITS = ("Equatable", "Comparable", "Hashable")
 
-    def _register_enum_derivable_extension(self, extension: Extension):
-        """Register an `extension E: <Equatable|Comparable|Hashable> {}` on an
-        enum (designs 32 / 48).
+    # design 139: the copy policies an enum may DECLARE, giving enums the same
+    # struct parity designs 9/128/131 built up. `NoCopy` is a bare marker — it
+    # adds no method, so it needs no `@synthesize`. The two copying policies
+    # derive a payload-deep `copy` and are gated on the marker exactly as the
+    # struct path gates its memberwise one.
+    _ENUM_POLICY_TRAITS = ("NoCopy", "ImplicitCopy", "ExplicitCopy")
 
-        Enums don't carry methods today, so the only extension supported on one
-        is an empty opt-in into a derivable trait: it registers the conformance
-        and records the enum for the corresponding synthesized operation
-        (emitted inline by codegen). A custom method, an unsupported conformance,
-        or type assignments are rejected here.
+    def _register_enum_derivable_extension(self, extension: Extension):
+        """Register an empty opt-in extension on an enum: a derivable trait
+        (designs 32 / 48) or a copy policy (design 139).
+
+        Enums don't carry methods, so the only extension supported on one is an
+        empty conformance: it registers the conformance and records the enum for
+        whatever operation the compiler then synthesizes inline. A custom method,
+        an unsupported conformance, or type assignments are rejected here.
         """
         enum_name = extension.struct_name
         confs = extension.conformances
-        if (len(confs) != 1 or confs[0] not in self._ENUM_DERIVABLE_TRAITS
+        supported = self._ENUM_DERIVABLE_TRAITS + self._ENUM_POLICY_TRAITS
+        if (len(confs) != 1 or confs[0] not in supported
                 or extension.methods or extension.type_assignments):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot extend enum `{enum_name}`: only an empty "
-                f"`extension {enum_name}: Equatable|Comparable|Hashable {{}}` "
-                f"is supported",
+                f"`extension {enum_name}: "
+                f"Equatable|Comparable|Hashable|NoCopy|ImplicitCopy|ExplicitCopy "
+                f"{{}}` is supported",
                 extension.line, extension.column,
-                hint="enums support Equatable/Comparable/Hashable opt-in "
-                     "(synthesized); other methods and conformances on enums are "
-                     "not available"
+                hint="enums support the derivable traits and a copy policy as "
+                     "empty opt-ins (synthesized); other methods and "
+                     "conformances on enums are not available"
             )
             return
         trait = confs[0]
+        if trait in self._ENUM_POLICY_TRAITS:
+            self._register_enum_copy_policy(extension, trait)
+            return
         # Same gate as the struct path (design 128): an enum's payload-deep body
         # is derived only when the author asks for it.
         self._demand_synthesize_marker(
@@ -993,6 +1004,26 @@ class RegistrationMixin:
         elif trait == "Hashable":
             self._derived_hash_types.add(enum_name)
             self._hashable_types.add(enum_name)
+
+    def _register_enum_copy_policy(self, extension: Extension, trait: str):
+        """Register a declared copy policy on an enum (design 139).
+
+        Structs have had to name their transfer class since design 9; enums got
+        it inferred from their payloads instead, which meant an author could not
+        SAY that an owning enum was move-only and the compiler could not hold
+        them to it. Declaring the policy is now how an owning enum is written,
+        and `_check_enum_policy_declared` refuses a bare one.
+
+        `ImplicitCopy` and `ExplicitCopy` derive a payload-deep `copy` — None of
+        the enum's business to write, since the active variant is chosen at
+        runtime — so both take the `@synthesize` marker. `NoCopy` adds nothing
+        to derive and takes none, matching `extension Holder: NoCopy {}`.
+        """
+        enum_name = extension.struct_name
+        if trait != "NoCopy":
+            self._demand_synthesize_marker(extension, trait, "copy")
+            self._derived_copy_enums.add(enum_name)
+        self.namespace.register_conformance(enum_name, trait)
 
     def _trait_and_ancestors(self, trait_name: str):
         """Yield `trait_name` and all its ancestor traits (transitive parents),
@@ -1095,6 +1126,15 @@ class RegistrationMixin:
             if ext.struct_name in have_deinit:
                 continue
             if not any(t in self._RESOURCE_TRAITS for t in ext.conformances):
+                continue
+            # An ENUM is destroyed structurally, by the tag-switch glue codegen
+            # emits (`_emit_enum_cleanup_at`), not through a `deinit` method —
+            # and `_emit_drop_at` prefers a method when one exists, RETURNING
+            # before it reaches that glue. Synthesizing an empty `deinit` here
+            # would therefore replace the payload cleanup with nothing and leak
+            # the active variant. Enums could not declare a resource trait at all
+            # until design 139, so this loop never met one before.
+            if self.get_enum_info(ext.struct_name) is not None:
                 continue
             ext.methods.append(Method(
                 name="deinit",

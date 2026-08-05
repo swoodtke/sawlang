@@ -1,6 +1,11 @@
 // design 128: an enum's structural deinit switches on the tag and drops only
 // the ACTIVE variant's owning payload, payload-deep and in reverse payload
-// order. A payload-free variant is a no-op — no declaration anywhere.
+// order. A payload-free variant is a no-op.
+//
+// design 139: the DEINIT is still synthesized, but an owning enum now names its
+// transfer class the way an owning struct always has — `Slot` and `Payload`
+// each declare `NoCopy` below. Only the policy is the author's call; nothing
+// about the drop order these cases assert depends on it.
 // EXPECT: success
 // EXPECT-OUTPUT: empty built
 // EXPECT-OUTPUT: one built
@@ -27,10 +32,14 @@ enum Slot {
     case Two(first: R, second: R)
 }
 
+extension Slot: NoCopy {}
+
 enum Payload {
     case None2,
     case Some2(v: Vector<Int>)
 }
+
+extension Payload: NoCopy {}
 
 func empty_slot() {
     let s = Slot.Empty

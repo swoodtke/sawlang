@@ -829,11 +829,56 @@ path must be per-stack). The generics model was not touched.
   short-circuit is lifted on the same terms as the calls stage 1 already lifts.
   Repro: `.build/scratch/d133_order.saw` (gitignored; inlined above).
 
+## Design 139 — DF-findings (the enum policy tier)
+
+- **DF-139a — FILED, not fixed (found while implementing design 139, Aug 5;
+  PRE-EXISTING and INDEPENDENT of the copy tier). Overwriting a binding
+  RELEASES its old value even when a live copy of it exists**, so the copy is
+  left dangling. The copy tier is not involved: it reproduces on a plain
+  `String` field, on a `String?` field, and on an undeclared owning enum, and
+  it reproduces IDENTICALLY before and after design 139 (only the flavour of
+  garbage differs — a stale buffer before, an empty string after).
+
+  ```saw
+  func build(n: Int) -> String {
+      var b = StringBuilder()
+      b.append("val-")
+      b.append(n)
+      b.build()
+  }
+
+  struct Plain { s: String }
+
+  func main() {
+      var h = Plain(s: build(1))
+      let c = h.s              // a retain IS marked here
+      h.s = build(2)
+      print("c={c} h={h.s}")   // prints `c=c= h=val-` — c dangles
+  }
+  ```
+
+  The same shape one level up, with an enum: `var d = Dep.Path(name: build())`,
+  `let e = d`, then `d = Dep.Ver(n: 3)` — `e`'s String is gone. Reading is fine
+  (a copy that outlives nothing prints correctly); it is the ASSIGNMENT over the
+  source that releases a payload the copy still owns. Both the field-assignment
+  path and the whole-binding path are affected.
+
+  Suspected: the assignment's release of the old value runs without consulting
+  the retain the transfer checkpoint marked at the read, or the marked retain is
+  not reaching codegen on this path. Wants its own brief — it is a
+  memory-safety bug on the ImplicitCopy tier, where design 139 changed nothing.
+  Repro: `.build/scratch/o_field_retain.saw` (gitignored; inlined above).
+
 ## Design 131 — DF-findings (payload-read ownership)
 
-- **DF-131a — FILED, not fixed (found while implementing design 131, Aug 5;
-  PRE-EXISTING). A WHOLE-optional read of a NoCopy or ExplicitCopy payload
-  aliases and double-drops.** Design 131 made the PAYLOAD read policy-driven, but
+- **DF-131a — FIXED (design 139, Aug 5).** A WHOLE-optional read of a NoCopy or
+  ExplicitCopy payload aliased and double-dropped. Closed by giving every type
+  exactly one copy tier: `Namespace.copy_tier` joins a wrapper's tier from its
+  parts, so `Optional<T>`, tuples, fixed arrays, enum payloads and `Result<T, E>`
+  are each no weaker than what they wrap, and the move checkpoint is one lookup
+  into it. The original filing follows.
+
+  Design 131 made the PAYLOAD read policy-driven, but
   the optional ITSELF still has no tier: `_is_no_copy_type` / `_is_explicit_copy_type`
   key off a struct/enum name, and `Optional<T>` has neither, so the checkpoint
   falls through to the default bitwise path:
