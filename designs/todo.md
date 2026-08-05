@@ -146,8 +146,19 @@ std's own io loops) — all in LANGUAGE_SPEC + the saw-lang skill.
 **124 LANDED (Aug 5)** — RS-3 closed; a group is a scope, not an extender.
 Landing it needed a frame-field ownership fix (DF-124a, folded in). Two things
 it did NOT close: the general `opt!` read-out-of-optional gap DF-124a's root
-cause belongs to (DF-124b, stopped for a user decision) and the brief's item 3
-box reclamation, which is unimplementable as written (DF-124c).
+cause belongs to (DF-124b, closed by design 131) and the brief's item 3 box
+reclamation, unimplementable as written (DF-124c) — **closed by design 134**,
+which moved the result and cancel word into group-owned cells so the frame box
+could go at Done.
+
+**134 LANDED (Aug 5)** — closes DF-124c. Three moves: group-owned result/cancel
+cells, the frame box released at completion, and a generation-counted slot free
+list. A group now costs O(live + unjoined-result tasks); measured 200,000 slots
+/ 31.0 MB -> 4 slots / 1.5 MB on 200k short tasks through one group. Found and
+fixed on the way: writing to a field of a GENERIC struct instance was rejected
+outright (the write path resolved the field against the generic symbol and saw
+the abstract `T` while the read path substituted) —
+`examples/generic_struct_field_assign.saw`.
 
 **122 LANDED (Aug 5)** — units A-I plus the folded-in RS-6, per-item closures
 inline below. Two things it did NOT close: RS-5's fourth hole (DF-122a, stopped
@@ -1071,9 +1082,25 @@ path must be per-stack). The generics model was not touched.
   encoding it owns; this wants its own brief. Repro:
   `.build/scratch/probe_df124b.saw` (gitignored; inlined above).
 
-- **DF-124c — APPROVED (user, Aug 5): design 134 owns the fix** (group-owned
-  result/cancel cells + generation-counted slot free-list; sequenced LAST,
-  after 133, so the executor is quiet). Original finding follows: **design 124
+- **DF-124c — CLOSED (design 134, Aug 5).** Mechanism, as the brief specified it:
+  `__result` and `__cancel` moved OUT of the coroutine frame into a per-task CELL
+  the group owns, allocated at spawn beside the slot (`__ResultCell<T>` /
+  `__VoidCell`, held erased as `Box<any __TaskCell>` so the group never names
+  `T` and the box teardown still runs the right destructor). A spawn-root frame
+  carries only a `__cellp` pointer to it, so NOTHING outside the frame points
+  into it and `TaskGroup.__complete` releases the frame box at Done — design 124
+  item 3, now implementable. The slot then goes on a free list, and handles
+  became `(slot, generation)` pairs so a stale handle is a defined outcome rather
+  than a read of its successor: `TaskHandle.join` panics ("this task's result was
+  already joined"), `VoidTaskHandle.join` returns, `cancel` no-ops.
+  `cancel_addr()` — the case that motivated the finding — PINS its slot: the raw
+  address it hands a peer must outlive the task and carries no generation to
+  check, so that one slot keeps its cell and gives up reuse. Measured on 200k
+  short tasks through one group: 200,000 slots / 31.0 MB peak RSS before,
+  4 slots / 1.5 MB after. Fences: `taskgroup_slot_reuse_o_live`,
+  `taskgroup_slot_reuse_mt`, `taskgroup_stale_handle_join`,
+  `taskgroup_stale_handle_cancel`, with the design-124 fences green throughout.
+  Original finding follows: **design 124
   item 3 was NOT implemented as written; the frame box is retained (Aug 5).** The brief asked
   that "the `tasks` vector slot become reclaimable at Done (drop the Box
   eagerly)". That is unimplementable alongside the brief's own items 1-2, which

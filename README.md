@@ -360,6 +360,12 @@ outlives a task is its result, which `join()` hands to the caller.
 `TaskGroup(threads: N)` opts into running on multiple threads, with `Send` checked
 at every spawn; the default stays single-threaded and deterministic.
 
+The task's frame goes at completion too, along with the run-queue slot it
+occupied, so a group costs what is running rather than what has ever run. A
+server that spawns 200,000 short handlers into one group holds four slots if four
+are in flight. `group.count()` reports the slots held: live tasks, plus tasks
+whose result nobody has joined yet.
+
 ```saw
 import std.task          // `yield_now` lives in std.task
 

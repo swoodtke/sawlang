@@ -3073,12 +3073,13 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   until a send. The drive loop is `sync` (built from `resume`), which is what
   lets the group's `Deinit` run it. A multi-threaded `TaskGroup(threads: N)`
   keeps its own worker-drained queue (design 75).
-- **`TaskHandle<T>`** owns nothing — raw pointers into the group-owned heap frame.
-  `join()` drives the group then TAKES the frame's `__result` exactly once
-  (force-unwrap read + a slot clear, so teardown drops nothing), and the caller
-  owns that value outright: it stays valid after the task is gone. Dropping an
-  unjoined handle is fine: the result stays in the frame and is dropped once at
-  group teardown — exactly-once either way.
+- **`TaskHandle<T>`** owns nothing. It records the task's `(slot, generation)` in
+  its group plus raw pointers into that task's group-owned CELL, which holds the
+  result and the cancel word (design 134). The cell is not part of the frame and
+  outlives it. `join()` drives the group then TAKES the result exactly once,
+  leaving `None` behind, and the caller owns that value outright: it stays valid
+  after the task is gone. Dropping an unjoined handle is fine — the result stays
+  in the cell and is dropped once at group teardown, exactly-once either way.
 - **Eager per-task destruction (design 124).** A task's owned values are released
   when THE TASK completes, not when its group is torn down. Params and
   across-suspend locals are frame fields, so the transform emits a `__release` at
@@ -3091,6 +3092,33 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   `accept`-loop server reclaims each connection as it finishes rather than
   accumulating them, and a task that reads to EOF sees it as soon as its sibling
   writer completes. A cancelled-then-completed task takes the same path.
+- **Task slot lifecycle (design 134).** The frame ALLOCATION is reclaimed on the
+  same schedule as the values inside it. When a task reports Done the scheduler
+  releases its frame box outright, and the slot it occupied — the run-queue entry
+  and its scheduler bookkeeping — goes on the group's free list for the next
+  `spawn` to claim. A group therefore costs O(live tasks + tasks whose result
+  nobody has joined) rather than O(tasks ever spawned), so a long-running server
+  no longer grows in task count. `group.count()` reports the slots held.
+
+  What made this possible is that nothing points into a frame any more. The
+  result and the cancel word live in a per-task CELL the group owns, allocated at
+  spawn beside the slot; the cell is typed (it holds a `T?`) but the group holds
+  it erased, so the group never names `T` and the box teardown still runs the
+  right destructor. A `Void` task's cell holds only the cancel word, so its slot
+  is reclaimed at completion; a task with a result keeps its slot until `join`
+  takes the value.
+
+  Reuse is safe because a handle is an `(index, generation)` pair. Each slot
+  carries a counter that advances when the slot retires, so a handle to a task
+  that has come and gone is recognisably STALE and every handle operation checks
+  before it acts. The outcomes are defined, never a read of whatever occupies the
+  slot next: `TaskHandle.join` panics ("this task's result was already joined")
+  because it cannot invent a second result, `VoidTaskHandle.join` returns (the
+  task is finished, which is what the call was asking), and `cancel` is a no-op
+  on both. `cancel_addr()` is the one exception to reuse: the raw address it
+  hands a peer must outlive the task and carries no generation for the peer to
+  check, so taking it PINS the slot — that slot keeps its cell and is never
+  handed out again, while its generation still retires normally.
 - **Structured join = LIFO destruction (design 18 C1).** The group's `Deinit`
   runs the executor to completion of every child, then tears each frame down.
   Because the group is declared before the resources its tasks use and before its
@@ -3098,11 +3126,12 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   are still alive — and handles die before the frames they point into. Task
   frames are self-contained (spawn strips references, paper 18), so no scope
   ordering hazard arises. NO forced destroy anywhere.
-- **Cancellation** is cooperative (design 18 C1). `handle.cancel()` sets a
-  frame-resident `__cancel` word through the handle's raw pointer; task code reads
-  it with `cancelled()` (rewritten to the frame's word) and returns through normal
-  control flow — frame locals drop exactly once. There is no forced destroy and no
-  implicit cancellation at suspension points.
+- **Cancellation** is cooperative (design 18 C1). `handle.cancel()` sets the
+  `__cancel` word in the task's cell through the handle's raw pointer; task code
+  reads it with `cancelled()` (rewritten to the same word) and returns through
+  normal control flow — frame locals drop exactly once. There is no forced
+  destroy and no implicit cancellation at suspension points. Cancelling a task
+  that already finished and was reclaimed is a defined no-op.
 - **Implicit yield + the cooperative fairness budget (designs 89-b/89-c/127).** A
   suspending call IS a yield point: when a read / accept / sleep / channel-receive
   PARKS (would-block / empty / deadline-not-reached) it cedes to the scheduler
@@ -3186,8 +3215,11 @@ engine (no threads, no lock).
   `TaskHandle.cancel_addr() -> Int` yields the `__cancel` word's address (a `Send`
   `Int`) so a canceller task can set it from a worker thread; the target observes it
   via `cancelled()` (the `__cancel` byte is set-once monotonic — race-free,
-  eventually consistent, cooperative). The 21b thread-per-task `spawn`/`Task`/`Channel`
-  engine is separate and untouched — the two engines coexist.
+  eventually consistent, cooperative). The word is in the task's cell, which the
+  group keeps alive, so a write that lands after the task finished is inert rather
+  than undefined; taking the address pins the slot (design 134, above). The 21b
+  thread-per-task `spawn`/`Task`/`Channel` engine is separate and untouched — the
+  two engines coexist.
 
 Now-closed gaps (design 62), each landed with tests:
 - **`if let` / `guard let` over a suspending call (G2).** `if let x = f() { ... }`

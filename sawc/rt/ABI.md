@@ -514,8 +514,9 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
 ### What is ALREADY Saw (the executor proper)
 
 `std/taskgroup.saw` + `std/task.saw`: the `TaskGroup` run queue (parallel
-`tasks`/`done`/`remaining`/`active` vectors), the ambient scheduler
-`__saw_exec_run(term_group, term_slot)` + its sweep helpers, `__enqueue`,
+`tasks`/`cells`/`done`/`remaining`/`active`/`gen`/`pin` vectors + the `free` slot
+list, design 134), the ambient scheduler
+`__saw_exec_run(term_group, term_slot, term_gen)` + its sweep helpers, `__enqueue`,
 `__saw_exec_run_root`, the MT fork-join drain `__drain_mt`/`__saw_exec_worker`,
 `TaskHandle`/`VoidTaskHandle` `join`/`cancel`/`cancel_addr`, `yield_now`, and
 the `Task<T>` join/deinit. These call the reactor externs
@@ -532,16 +533,17 @@ frame code + these calls.
 
 | concern  | entry point (shape)                                   | status |
 |----------|-------------------------------------------------------|--------|
-| enqueue  | `__enqueue(&var TaskGroup, box: Box<any Resumable>) -> Int` | exists (Saw) |
+| enqueue  | `__enqueue(&var TaskGroup, box: Box<any Resumable>, cell: Box<any __TaskCell>) -> Int` | exists (Saw) |
 | drive    | `__saw_exec_run_root(box: Box<any Resumable>)`            | exists (Saw) |
-| join     | `__saw_exec_run(term_group: Int, term_slot: Int)`     | exists (Saw) |
+| join     | `__saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int)` | exists (Saw) |
 | drive/park (single-frame) | `__saw_exec_park(wake: Int)`             | stage 2 ✓ — carved the `_make_entry_executor` `Pending` body into this one Saw call (wake>0 → sleep; wake<0 → reactor poll -1; 0 → return). The trivial resume-until-done loop STAYS synthesized (lead pin: the design-45 allocation-free fast path is contract, and post-carve the loop carries zero policy). |
 | park (io) | `__saw_exec_io_register(fd: Int, dir: Int, token: Int)`  | stage 2 ✓ — Saw wrapper the `io_wait`/offload park lowerings + the outside-frame `io_wait` codegen path call instead of the raw `__saw_rt_reactor_register` extern |
 | wake     | `__saw_exec_reactor_wake()`                                | stage 2 ✓ — Saw wrapper over `__saw_rt_reactor_wake` (`TaskHandle`/`VoidTaskHandle.cancel` call it) |
 | sleep    | `__saw_exec_sleep(ms: Int)`                                | stage 2 ✓ — promoted from a codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ms` |
 
 `spawn` itself stays the synthesized `__spawn_<f>` helper (frame-shaped, cannot
-be generic-erased) whose only executor touch is `__enqueue`. The `Task<T>`
+be generic-erased) whose executor touches are `__enqueue` and the `__gen_at`
+read that completes the handle's `(slot, generation)` identity. The `Task<T>`
 thread engine's only executor touch is `__saw_rt_thread_spawn`/`_join`
 (stage 4 routes these through a `Thread` surface).
 

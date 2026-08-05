@@ -485,7 +485,19 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   gone) and an unjoined result drops once at group teardown. Cancelled-then-
   completed follows the same path. So a long-lived group accumulates nothing, and
   a task-local resource is NOT a way to extend a lifetime — hold it in the
-  spawner if you need it to outlast the task. Suspending calls yield
+  spawner if you need it to outlast the task. **The SLOT goes too (design 134):**
+  the frame allocation is released at completion and its run-queue slot returns to
+  a free list, so a group costs O(live + unjoined-result tasks) rather than
+  O(tasks ever spawned) — an accept loop that serves 200k connections holds as
+  many slots as it has connections IN FLIGHT (`group.count()` reports them). The
+  result and the cancel word live in a group-owned cell that outlives the frame,
+  which is what lets the frame go; a `Void` task's slot is reclaimed at
+  completion, a task with a result keeps its slot until `join` takes the value.
+  Handles are `(slot, generation)` pairs, so a handle to a task that has come and
+  gone can never reach whatever occupies its slot next: joining an already-joined
+  `TaskHandle` panics, joining a finished `VoidTaskHandle` returns, and `cancel`
+  is a no-op on both. `cancel_addr()` pins its slot (a raw address must stay
+  valid), giving up reuse for that one slot. Suspending calls yield
   IMPLICITLY when they park (a task doing I/O never needs `yield_now`); `yield_now`
   (design 114: `import std.task` — no longer prelude) is now needed only where the
   compute budget does not reach (the bounds below). Fairness backstop — ONE op-count
