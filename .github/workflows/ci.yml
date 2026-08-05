@@ -91,6 +91,53 @@ jobs:
       - name: Differential lexer sweep (make lexdiff)
         run: make lexdiff
 
+  # AST dump acceptance harness (design 126 R11), the parser-port oracle: dump
+  # every tracked .saw file and require the dump to be complete (no node type
+  # falls through a dispatcher) and byte-stable across runs. Parse-only, so
+  # unlike lexdiff it needs no clang and builds no Saw binary.
+  astdiff:
+    name: astdiff (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install llvmlite
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r sawc/requirements.txt
+
+      - name: AST dump sweep (make astdiff)
+        run: make astdiff
+
+  # Compiler output determinism (design 126 R2): compile a corpus sample twice
+  # under differing PYTHONHASHSEED and require byte-identical IR.
+  irdet:
+    name: irdet (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Install llvmlite
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r sawc/requirements.txt
+
+      - name: Determinism sweep (make irdet)
+        run: make irdet
+
   # SOS M0 (design 112): build the freestanding riscv32 kernel and run it under
   # QEMU `virt`, asserting the UART banner + emulator exit status. Ubuntu only —
   # brew qemu on the macOS runner is slow/flaky and Linux coverage suffices.

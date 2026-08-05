@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff irdet
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet
 
 # Default target
 all: test
@@ -34,6 +34,12 @@ sos-test:
 # Zero mismatches is the acceptance bar.
 lexdiff:
 	@python3 tools/lexdiff.py
+
+# AST dump acceptance harness (design 126 R11), the parser-port oracle: dump
+# every tracked .saw file and require the dump to be COMPLETE (no node type
+# falls through a dispatcher) and byte-stable across runs.
+astdiff:
+	@python3 tools/astdiff.py
 
 # Compiler output determinism (design 126 R2): compile a corpus sample twice,
 # in fresh processes under differing PYTHONHASHSEED, and require byte-identical

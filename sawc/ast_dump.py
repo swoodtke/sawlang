@@ -1,7 +1,26 @@
 """
 AST Dumper for Saw Language
 
-Dumps the AST with type annotations for debugging purposes.
+Emits the canonical textual AST. Two consumers:
+
+  * `sawc <file> --emit-ast`, for debugging;
+  * `tools/astdiff.py` (`make astdiff`), the acceptance oracle for the coming
+    Saw parser port -- the same role `tools/lexdiff.py` plays for the lexer.
+
+Because it is an oracle, two properties are load-bearing (design 126 R11):
+
+  * COMPLETE. Every AST node type has an arm. A node type with no arm used to
+    fall through to `<unknown ...>` -- silently, in the middle of an otherwise
+    plausible dump -- so `ReferenceExpr` (308 occurrences in the corpus) and
+    `WhileExpr` in statement position (280) were simply invisible. Fallbacks are
+    still emitted rather than raising, but they are RECORDED in `self.unknown`
+    so the harness can fail on them instead of a caller having to grep.
+  * DETERMINISTIC. Field order is fixed by hand-written emit sequences, and
+    nothing address-like reaches the output. `node_id` is deliberately EXCLUDED
+    unless `ids=True`: ids are stable within a run but carry no cross-
+    implementation meaning, so a Saw port must not have to reproduce them.
+
+The format is documented in `docs/AST_DUMP.md`, which the port is written against.
 """
 
 from typing import Any, Optional
@@ -15,23 +34,70 @@ from ast_nodes import (
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex, MemberAccess, StructInit,
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain, MethodCall, SelfExpr,
     IfLetExpr, EnumInit, MatchArm, MatchExpr, RangeExpr, ClosureExpr, ClosureParam,
-    SawType, TypeParameter, Argument, ExternFunction
+    SawType, TypeParameter, Argument, ExternFunction,
+    # design 126 R11: the previously-uncovered node types.
+    ReferenceExpr, UnsafeExpr, MapLiteral, SetLiteral, SourceLocationLiteral,
+    BindOptional, OptionalEvalExpr, OptionalChainAssign, OptionalWrap,
+    ResultOkWrap, ResultErrWrap, ErasedErrWrap, TryExpr, TryCatchExpr,
+    DestructuringLet, CompoundAssignStatement, StaticDecl,
+    Pattern, WildcardPattern, BindingPattern, LiteralPattern, RangePattern,
+    TuplePattern, EnumPattern,
+    CaptureSpec, Attribute, ImportDecl, ModuleDecl, ExportDecl, StaticAssert,
 )
 
 
 class ASTDumper:
     """Dumps AST nodes with type annotations."""
 
-    def __init__(self, include_stdlib: bool = False):
+    def __init__(self, include_stdlib: bool = False, ids: bool = False):
         self.indent = 0
         self.include_stdlib = include_stdlib
+        self.ids = ids
         self.output_lines: list[str] = []
+        # Node type names that hit a dispatcher fallback during this dump.
+        # `tools/astdiff.py` requires this to stay empty over the whole corpus.
+        self.unknown: list[str] = []
+        self._tagged_lines: set[int] = set()
 
     def dump(self, program: Program) -> str:
         """Dump the entire program AST."""
         self.output_lines = []
+        self.unknown = []
+        self._tagged_lines = set()
         self._dump_program(program)
         return "\n".join(self.output_lines)
+
+    def _unknown(self, kind: str, node) -> None:
+        """Record and emit a dispatcher miss. Never silent."""
+        name = type(node).__name__
+        self.unknown.append(f"{kind}:{name}")
+        self._emit(f"<unknown {kind}: {name}>")
+
+    def _id_tag(self, node) -> str:
+        """Deprecated inline form, kept for the `MatchArm` header which is not
+        emitted through a dispatcher. Prefer `_tagged`."""
+        if not self.ids:
+            return ""
+        return f" #{getattr(node, 'node_id', 0)}"
+
+    def _tagged(self, node, dump_fn) -> None:
+        """Run `dump_fn(node)` and, with `--ids`, append ` #N` to the HEADER line
+        it produced.
+
+        Doing it here rather than in each arm is what keeps `--ids` uniform: a
+        per-arm tag has to be remembered ~60 times and was silently missing from
+        every pre-existing arm. A node reachable through two dispatchers (a
+        `while` is both statement and expression) is tagged once -- the first
+        wrapper to claim the line wins.
+        """
+        start = len(self.output_lines)
+        dump_fn(node)
+        if not self.ids or len(self.output_lines) <= start:
+            return
+        if start in self._tagged_lines:
+            return
+        self._tagged_lines.add(start)
+        self.output_lines[start] += f" #{getattr(node, 'node_id', 0)}"
 
     def _emit(self, text: str):
         """Emit a line with current indentation."""
@@ -50,9 +116,69 @@ class ASTDumper:
             return "<?>"
         return str(t)
 
+    def _quote(self, s: Optional[str]) -> str:
+        if s is None:
+            return '""'
+        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
     def _dump_program(self, prog: Program):
         self._emit("Program {")
         self._indent()
+
+        # Module / import / export declarations (design 126 R11). These were
+        # never dumped, so an oracle comparing two parsers could not see the
+        # module header at all. They are not ASTNode subclasses yet (that is a
+        # later brief), which is exactly why they were easy to miss.
+        if getattr(prog, 'module_decls', None):
+            self._emit("module_decls: [")
+            self._indent()
+            for md in prog.module_decls:
+                vis = "public " if md.is_public else ""
+                kind = " (inline)" if md.is_inline else ""
+                self._emit(f"{vis}module {md.name}{kind}")
+                if md.is_inline and md.body is not None:
+                    self._indent()
+                    self._dump_program(md.body)
+                    self._dedent()
+            self._dedent()
+            self._emit("]")
+
+        if getattr(prog, 'imports', None):
+            self._emit("imports: [")
+            self._indent()
+            for imp in prog.imports:
+                path = ".".join(imp.path)
+                if imp.is_glob:
+                    self._emit(f"import {path}.*")
+                elif imp.symbols:
+                    self._emit(f"import {path}.{{{', '.join(imp.symbols)}}}")
+                elif imp.alias:
+                    self._emit(f"import {path} as {imp.alias}")
+                else:
+                    self._emit(f"import {path}")
+            self._dedent()
+            self._emit("]")
+
+        if getattr(prog, 'exports', None):
+            self._emit("exports: [")
+            self._indent()
+            for ex in prog.exports:
+                path = ".".join(ex.path)
+                suffix = ".*" if ex.is_glob else (f" as {ex.alias}" if ex.alias else "")
+                self._emit(f"export {path}{suffix}")
+            self._dedent()
+            self._emit("]")
+
+        if getattr(prog, 'static_asserts', None):
+            self._emit("static_asserts: [")
+            self._indent()
+            for sa in prog.static_asserts:
+                self._emit(f"static_assert {self._quote(sa.message)}")
+                self._indent()
+                self._dump_expression(sa.condition)
+                self._dedent()
+            self._dedent()
+            self._emit("]")
 
         # Type definitions
         if prog.type_definitions:
@@ -257,6 +383,9 @@ class ASTDumper:
             self._dedent()
 
     def _dump_statement(self, stmt: Statement):
+        self._tagged(stmt, self._dump_statement_node)
+
+    def _dump_statement_node(self, stmt: Statement):
         if isinstance(stmt, LetStatement):
             mut = "var" if stmt.mutable else "let"
             type_ann = f": {self._type_str(stmt.type_annotation)}" if stmt.type_annotation else ""
@@ -330,10 +459,60 @@ class ASTDumper:
             self._dedent()
             self._dedent()
 
+        elif isinstance(stmt, DestructuringLet):
+            mut = "var" if stmt.mutable else "let"
+            self._emit(f"DestructuringLet {mut}")
+            self._indent()
+            self._emit("pattern:")
+            self._indent()
+            self._dump_pattern(stmt.pattern)
+            self._dedent()
+            self._emit("value:")
+            self._indent()
+            self._dump_expression(stmt.value)
+            self._dedent()
+            self._dedent()
+
+        elif isinstance(stmt, CompoundAssignStatement):
+            unsafe = " unsafe" if stmt.is_unsafe else ""
+            self._emit(f"CompoundAssignStatement {stmt.op}{unsafe}")
+            self._indent()
+            self._emit("target:")
+            self._indent()
+            self._dump_expression(stmt.target)
+            self._dedent()
+            self._emit("value:")
+            self._indent()
+            self._dump_expression(stmt.value)
+            self._dedent()
+            self._dedent()
+
+        elif isinstance(stmt, StaticAssert):
+            self._emit(f"StaticAssert {self._quote(stmt.message)}")
+            self._indent()
+            self._dump_expression(stmt.condition)
+            self._dedent()
+
+        # `WhileExpr` and `ForLoop` are reachable through BOTH dispatchers: the
+        # parser puts a `while` straight into `Block.statements` while a `for`
+        # used for its value arrives as an expression. Neither had an arm on its
+        # other side, which made 280 `while` statements dump as `<unknown>`.
+        elif isinstance(stmt, (WhileExpr, Expression)):
+            self._dump_expression(stmt)
+
         else:
-            self._emit(f"<unknown statement: {type(stmt).__name__}>")
+            self._unknown("statement", stmt)
 
     def _dump_expression(self, expr: Expression):
+        if expr is None:
+            # A genuinely absent child, not a coverage gap: a bare `return` in a
+            # `Result<Void, E>` function auto-wraps into a `ResultOkWrap` whose
+            # value is `Ok(())`, i.e. no expression at all.
+            self._emit("<none>")
+            return
+        self._tagged(expr, self._dump_expression_node)
+
+    def _dump_expression_node(self, expr: Expression):
         if isinstance(expr, IntLiteral):
             self._emit(f"IntLiteral({expr.value}) : Int")
 
@@ -561,8 +740,21 @@ class ASTDumper:
                 bindings = ""
                 if arm.bindings:
                     bindings = f"({', '.join(arm.bindings)})"
-                self._emit(f"case {arm.variant_name}{bindings} ->")
+                self._emit(f"case {arm.variant_name}{bindings} ->{self._id_tag(arm)}")
                 self._indent()
+                # A pattern arm carries its shape here rather than in
+                # variant_name/bindings; without this the whole design-63
+                # pattern family never reached the dump.
+                if arm.pattern is not None:
+                    self._emit("pattern:")
+                    self._indent()
+                    self._dump_pattern(arm.pattern)
+                    self._dedent()
+                if arm.guard is not None:
+                    self._emit("guard:")
+                    self._indent()
+                    self._dump_expression(arm.guard)
+                    self._dedent()
                 self._dump_expression(arm.body)
                 self._dedent()
             self._dedent()
@@ -607,7 +799,7 @@ class ASTDumper:
             self._dedent()
 
         elif isinstance(expr, RangeExpr):
-            self._emit("RangeExpr ..")
+            self._emit(f"RangeExpr {'..=' if expr.is_inclusive else '..'}")
             self._indent()
             self._emit("start:")
             self._indent()
@@ -640,8 +832,195 @@ class ASTDumper:
             self._dump_block(expr)
             self._dedent()
 
+        elif isinstance(expr, ForLoop):
+            # A `for` in value position; the statement dispatcher renders the
+            # same shape.
+            self._dump_statement(expr)
+
+        elif isinstance(expr, ReferenceExpr):
+            sigil = "&var" if expr.mutable else "&"
+            arg = " (argument position)" if expr.in_argument_position else ""
+            self._emit(f"ReferenceExpr {sigil}{arg}")
+            self._indent()
+            self._dump_expression(expr.expr)
+            self._dedent()
+
+        elif isinstance(expr, UnsafeExpr):
+            self._emit(f"UnsafeExpr unsafe")
+            self._indent()
+            self._dump_expression(expr.expression)
+            self._dedent()
+
+        elif isinstance(expr, MapLiteral):
+            self._emit(f"MapLiteral [{len(expr.entries)} entries]")
+            self._indent()
+            for i, (k, v) in enumerate(expr.entries):
+                self._emit(f"key[{i}]:")
+                self._indent()
+                self._dump_expression(k)
+                self._dedent()
+                self._emit(f"value[{i}]:")
+                self._indent()
+                self._dump_expression(v)
+                self._dedent()
+            self._dedent()
+
+        elif isinstance(expr, SetLiteral):
+            self._emit(f"SetLiteral [{len(expr.elements)} elements]")
+            self._indent()
+            for i, elem in enumerate(expr.elements):
+                self._emit(f"[{i}]:")
+                self._indent()
+                self._dump_expression(elem)
+                self._dedent()
+            self._dedent()
+
+        elif isinstance(expr, SourceLocationLiteral):
+            self._emit(f"SourceLocationLiteral #{expr.kind}")
+
+        elif isinstance(expr, BindOptional):
+            self._emit(f"BindOptional ?")
+            self._indent()
+            self._dump_expression(expr.expr)
+            self._dedent()
+
+        elif isinstance(expr, OptionalEvalExpr):
+            self._emit(f"OptionalEvalExpr")
+            self._indent()
+            self._dump_expression(expr.expr)
+            self._dedent()
+
+        elif isinstance(expr, OptionalChainAssign):
+            self._emit(f"OptionalChainAssign")
+            self._indent()
+            self._emit("target:")
+            self._indent()
+            self._dump_expression(expr.target)
+            self._dedent()
+            self._emit("value:")
+            self._indent()
+            self._dump_expression(expr.value)
+            self._dedent()
+            self._dedent()
+
+        # The four typechecker-inserted wraps (design 30/56/57). The parser never
+        # builds them, so they appear only in a post-typecheck dump.
+        elif isinstance(expr, OptionalWrap):
+            self._emit(f"OptionalWrap : {self._type_str(expr.target_type)}")
+            self._indent()
+            self._dump_expression(expr.value)
+            self._dedent()
+
+        elif isinstance(expr, ResultOkWrap):
+            self._emit(f"ResultOkWrap : {self._type_str(expr.result_type)}")
+            self._indent()
+            self._dump_expression(expr.value)
+            self._dedent()
+
+        elif isinstance(expr, ResultErrWrap):
+            self._emit(f"ResultErrWrap : {self._type_str(expr.result_type)}")
+            self._indent()
+            self._dump_expression(expr.value)
+            self._dedent()
+
+        elif isinstance(expr, ErasedErrWrap):
+            self._emit(f"ErasedErrWrap to any {expr.trait_name} : "
+                       f"{self._type_str(expr.result_type)}")
+            self._indent()
+            self._dump_expression(expr.value)
+            self._dedent()
+
+        elif isinstance(expr, TryExpr):
+            self._emit(f"TryExpr {expr.variant}")
+            self._indent()
+            self._dump_expression(expr.expr)
+            if expr.catch_block is not None:
+                self._emit("catch:")
+                self._indent()
+                self._dump_block(expr.catch_block)
+                self._dedent()
+            self._dedent()
+
+        elif isinstance(expr, TryCatchExpr):
+            binding = f" ({expr.error_binding})" if expr.error_binding else ""
+            self._emit(f"TryCatchExpr{binding}")
+            self._indent()
+            self._emit("try:")
+            self._indent()
+            self._dump_block(expr.try_block)
+            self._dedent()
+            self._emit("catch:")
+            self._indent()
+            self._dump_block(expr.catch_block)
+            self._dedent()
+            self._dedent()
+
         else:
-            self._emit(f"<unknown expression: {type(expr).__name__}>")
+            self._unknown("expression", expr)
+
+    # ---------------------------------------------------------------- patterns
+    def _dump_pattern(self, pat: Optional[Pattern]):
+        if pat is None:
+            self._emit("<no pattern>")
+            return
+        self._tagged(pat, self._dump_pattern_node)
+
+    def _dump_pattern_node(self, pat: Pattern):
+        """Patterns (design 63). Previously dumped NOWHERE: `MatchArm.pattern`
+        was not read at all, so every literal / range / tuple / nested-enum arm
+        rendered as a bare `case ->` and all six pattern classes were invisible
+        to the oracle."""
+        if pat is None:
+            self._emit("<no pattern>")
+
+        elif isinstance(pat, WildcardPattern):
+            self._emit(f"WildcardPattern _")
+
+        elif isinstance(pat, BindingPattern):
+            self._emit(f"BindingPattern {pat.name}")
+
+        elif isinstance(pat, LiteralPattern):
+            self._emit(f"LiteralPattern")
+            self._indent()
+            self._dump_expression(pat.value)
+            self._dedent()
+
+        elif isinstance(pat, RangePattern):
+            op = "..=" if pat.is_inclusive else ".."
+            self._emit(f"RangePattern {op}")
+            self._indent()
+            self._emit("start:")
+            self._indent()
+            self._dump_expression(pat.start)
+            self._dedent()
+            self._emit("end:")
+            self._indent()
+            self._dump_expression(pat.end)
+            self._dedent()
+            self._dedent()
+
+        elif isinstance(pat, TuplePattern):
+            self._emit(f"TuplePattern [{len(pat.elements)} elements]")
+            self._indent()
+            for i, sub in enumerate(pat.elements):
+                self._emit(f"[{i}]:")
+                self._indent()
+                self._dump_pattern(sub)
+                self._dedent()
+            self._dedent()
+
+        elif isinstance(pat, EnumPattern):
+            self._emit(f"EnumPattern {pat.variant_name}")
+            self._indent()
+            for i, sub in enumerate(pat.subpatterns):
+                self._emit(f"[{i}]:")
+                self._indent()
+                self._dump_pattern(sub)
+                self._dedent()
+            self._dedent()
+
+        else:
+            self._unknown("pattern", pat)
 
     def _expr_summary(self, expr: Expression) -> str:
         """Get a short summary of an expression for inline display."""
@@ -661,11 +1040,32 @@ class ASTDumper:
             return f"{expr.enum_name}.{expr.variant_name}"
         elif isinstance(expr, MethodCall):
             return f"...{expr.method_name}()"
+        elif isinstance(expr, FunctionCall):
+            return f"{expr.name}(...)"
+        elif isinstance(expr, StructInit):
+            return f"{expr.struct_name}(...)"
+        elif isinstance(expr, ArrayLiteral):
+            return f"[{len(expr.elements)} elements]"
+        elif isinstance(expr, UnaryOp):
+            return f"{expr.op}{self._expr_summary(expr.operand)}"
+        elif isinstance(expr, BinaryOp):
+            return (f"{self._expr_summary(expr.left)} {expr.op} "
+                    f"{self._expr_summary(expr.right)}")
+        elif isinstance(expr, StringInterpolation):
+            return '"..."'
+        elif isinstance(expr, SourceLocationLiteral):
+            return f"#{expr.kind}"
+        elif isinstance(expr, CastExpr):
+            return f"{self._expr_summary(expr.expr)} as {self._type_str(expr.target_type)}"
+        elif isinstance(expr, MemberAccess):
+            return f"{self._expr_summary(expr.object)}.{expr.member}"
         else:
+            self.unknown.append(f"summary:{type(expr).__name__}")
             return f"<{type(expr).__name__}>"
 
 
-def dump_ast(program: Program, include_stdlib: bool = False) -> str:
+def dump_ast(program: Program, include_stdlib: bool = False,
+             ids: bool = False) -> str:
     """Dump a program's AST to a string."""
-    dumper = ASTDumper(include_stdlib)
+    dumper = ASTDumper(include_stdlib, ids=ids)
     return dumper.dump(program)

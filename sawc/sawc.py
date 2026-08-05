@@ -1159,6 +1159,11 @@ Examples:
     parser.add_argument("-c", action="store_true", help="Compile to object file (.o) without linking, no main() required")
     parser.add_argument("--emit-ir", action="store_true", help="Only emit LLVM IR, don't compile")
     parser.add_argument("--emit-ast", action="store_true", help="Dump typed AST for debugging")
+    parser.add_argument("--ids", action="store_true",
+                        help="With --emit-ast: include each node's stable node_id. "
+                             "Off by default -- ids are stable within a run but "
+                             "carry no cross-implementation meaning, so the "
+                             "canonical dump (the parser-port oracle) omits them.")
     parser.add_argument("--emit-docs", action="store_true", dest="emit_docs",
                         help="Type-check and emit documentation JSON instead of "
                              "code (design 121). Covers the entry module and every "
@@ -1259,7 +1264,7 @@ Examples:
             sys.exit(1)
 
         # Dump AST
-        ast_output = dump_ast(ast)
+        ast_output = dump_ast(ast, ids=args.ids)
         print(ast_output)
 
     elif args.emit_ir:
