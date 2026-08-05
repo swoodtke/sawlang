@@ -24,10 +24,10 @@ static JOB_REGION: [Int8; 64]                                    // 4 chunks * 1
 static JOB_HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
 struct JobSlab {}
 extension JobSlab: Allocator {
-    unsafe func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
         slab_alloc((&JOB_REGION) as UnsafePointer<Int8>, 4, 16, &JOB_HEAD)
     }
-    unsafe func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
         slab_dealloc(ptr, &JOB_HEAD)
     }
 }

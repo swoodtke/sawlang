@@ -26,19 +26,19 @@ unsafe struct UnsafeMmioReg { addr: Int }
 struct UnsafeDefaults { n: Int }
 
 trait Peripheral {
-    unsafe func probe(&self) -> Int
+    func probe(&self) unsafe -> Int
 }
 
 extension UnsafeMmioReg {
-    unsafe init(at: Int) -> UnsafeMmioReg { UnsafeMmioReg(addr: at) }
-    public unsafe func read(&self) -> Int { self.addr }
+    init(at: Int) unsafe -> UnsafeMmioReg { UnsafeMmioReg(addr: at) }
+    public func read(&self) unsafe -> Int { self.addr }
 }
 
 extension UnsafeMmioReg: Peripheral {
-    unsafe func probe(&self) -> Int { self.addr + 2 }
+    func probe(&self) unsafe -> Int { self.addr + 2 }
 }
 
-unsafe func read_at(offset: Int) -> Int {
+func read_at(offset: Int) unsafe -> Int {
     let reg = UnsafeMmioReg(at: offset)
     reg.read() + reg.probe()
 }
@@ -51,7 +51,7 @@ func read_register(index: Int) -> Int {
 }
 
 // The closure's parameter names an unsafe type, so the slot carries `unsafe`.
-unsafe func with_register(offset: Int, body: (UnsafeMmioReg) unsafe sync -> Int) -> Int {
+func with_register(offset: Int, body: (UnsafeMmioReg) unsafe sync -> Int) unsafe -> Int {
     body(UnsafeMmioReg(at: offset))
 }
 

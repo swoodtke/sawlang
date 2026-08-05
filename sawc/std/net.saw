@@ -98,19 +98,19 @@ func net_would_block(r: Int) -> Bool {
 // A heap read buffer, allocated ONCE per stream and reused across reads (freed
 // with `net_free_buffer`). NOT per-call: the socket read/write paths themselves
 // (`tcp_try_read`/`tcp_try_write`) allocate nothing — they take this pointer.
-unsafe func net_buffer(size: Int) -> UnsafePointer<Int8> {
+func net_buffer(size: Int) unsafe -> UnsafePointer<Int8> {
     if let p = GlobalAllocator().alloc(size, 1) {
         return p
     }
     panic("net_buffer: out of memory")
 }
 
-unsafe func net_free_buffer(buf: UnsafePointer<Int8>, size: Int) {
+func net_free_buffer(buf: UnsafePointer<Int8>, size: Int) unsafe {
     GlobalAllocator().dealloc(buf, size, 1)
 }
 
 // Bytes -> owned String (convenience for tests / text protocols).
-unsafe func net_bytes_to_string(buf: UnsafePointer<Int8>, len: Int) -> String {
+func net_bytes_to_string(buf: UnsafePointer<Int8>, len: Int) unsafe -> String {
     __saw_string_from_bytes(buf, len)
 }
 
@@ -173,13 +173,13 @@ func tcp_connect_check(fd: Int, port: Int) -> Int {
 
 // Nonblocking read: byte count (0 = peer closed / EOF), the would-block sentinel
 // (-2), or -1 on error.
-unsafe func tcp_try_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
+func tcp_try_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
     net_sentinel(__saw_rt_tcp_read(fd, buf, len))
 }
 
 // Nonblocking write: bytes written (may be < len), the would-block sentinel (-2),
 // or -1 on error.
-unsafe func tcp_try_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
+func tcp_try_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
     net_sentinel(__saw_rt_tcp_write(fd, buf, len))
 }
 
@@ -190,7 +190,7 @@ func tcp_close(fd: Int) {
 
 // A connected, nonblocking AF_UNIX stream pair for tests (no external network).
 // Returns (a, b); (-1, -1) on failure.
-unsafe func tcp_socketpair() -> (Int, Int) {
+func tcp_socketpair() unsafe -> (Int, Int) {
     var fds = FdPair(a: 0 as Int32, b: 0 as Int32)
     let fp = (&fds) as UnsafePointer<Int32>
     if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, fp) == 0 {
@@ -212,7 +212,7 @@ static INVALID_FD: Int32 = -1
 // a NEGATED SysError tag (design 117): the owning types keep the tag for a
 // precise IoError. The pointer work is confined here (raw layer); TcpStream.read
 // drives it behind an io_wait park.
-unsafe func net_read_once(fd: Int, into: &var Data) -> Int {
+func net_read_once(fd: Int, into: &var Data) unsafe -> Int {
     if let ptr = GlobalAllocator().alloc(READ_CHUNK, 1) {
         let r = __saw_rt_tcp_read(fd, ptr, READ_CHUNK)
         if r > 0 {
@@ -226,13 +226,13 @@ unsafe func net_read_once(fd: Int, into: &var Data) -> Int {
 
 // One nonblocking write of the tail of `s` starting at `off`. Returns bytes
 // written (may be < remaining) or a NEGATED SysError tag (design 117).
-unsafe func net_write_str_once(fd: Int, s: String, off: Int) -> Int {
+func net_write_str_once(fd: Int, s: String, off: Int) unsafe -> Int {
     let ptr = s as UnsafePointer<Int8>
     __saw_rt_tcp_write(fd, ptr + off, s.len() - off)
 }
 
 // One nonblocking write of the tail of `bytes` starting at `off`.
-unsafe func net_write_data_once(fd: Int, bytes: &Data, off: Int) -> Int {
+func net_write_data_once(fd: Int, bytes: &Data, off: Int) unsafe -> Int {
     let ptr = bytes.byte_ptr()
     __saw_rt_tcp_write(fd, ptr + off, bytes.len() - off)
 }

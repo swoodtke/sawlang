@@ -24,7 +24,7 @@ func reader_data(s: TcpStream) -> Int {
     }
 }
 
-unsafe func agitator(addr: Int, peer: TcpStream) {
+func agitator(addr: Int, peer: TcpStream) unsafe {
     let p = addr as UnsafePointer<Bool>
     p[0] = true              // cancel reader #1
     let _ = peer.write("XY")        // make reader #2's fd readable

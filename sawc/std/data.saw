@@ -110,7 +110,7 @@ extension Data {
     }
 
     // Get the capacity of the underlying buffer
-    public unsafe func capacity(&self) -> Int {
+    public func capacity(&self) unsafe -> Int {
         if let inner = self.inner {
             inner[0].capacity
         } else {
@@ -123,7 +123,7 @@ extension Data {
     // =========================================================================
 
     // Get byte at index (returns None if out of bounds)
-    public unsafe func get(&self, index: Int) -> UInt8? {
+    public func get(&self, index: Int) unsafe -> UInt8? {
         if index < 0 || index >= self.length {
             return None
         }
@@ -145,7 +145,7 @@ extension Data {
     /// accessor rule made it panic instead, matching `Vector.set`: nothing in
     /// the tree ever read the flag, so a bad index silently did nothing — the
     /// ignorable-sentinel shape design 92 rules out.
-    public unsafe func set(&var self, index: Int, value: UInt8) {
+    public func set(&var self, index: Int, value: UInt8) unsafe {
         if index < 0 || index >= self.length {
             panic("Data.set: index out of range")
         }
@@ -186,7 +186,7 @@ extension Data {
     }
 
     // Internal: store one byte into the (already reserved) buffer.
-    unsafe func _place(&var self, value: UInt8) {
+    func _place(&var self, value: UInt8) unsafe {
         if let inner = self.inner {
             let buf = inner[0].buffer
             buf[self.offset + self.length] = value
@@ -208,7 +208,7 @@ extension Data {
     }
 
     // Remove and return the last byte (returns None if empty)
-    public unsafe func pop(&var self) -> UInt8? {
+    public func pop(&var self) unsafe -> UInt8? {
         if self.length == 0 {
             return None
         }
@@ -261,7 +261,7 @@ extension Data {
     }
 
     // Internal: copy `other`'s live bytes into the (already reserved) buffer.
-    unsafe func _place_data(&var self, other: &Data) {
+    func _place_data(&var self, other: &Data) unsafe {
         if let self_inner = self.inner {
             if let other_inner = other.inner {
                 let dest = self_inner[0].buffer as UnsafePointer<Int8>
@@ -280,7 +280,7 @@ extension Data {
     // with no per-byte overhead. `src`/`len` must describe `len` valid bytes.
     // Panics if the buffer must grow and the allocator refuses (design 123,
     // infallible tier); `try_append_bytes` reports the failure.
-    public unsafe func append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) {
+    public func append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe {
         if len <= 0 {
             return
         }
@@ -292,7 +292,7 @@ extension Data {
 
     // The fallible twin of `append_bytes` (design 123). The buffer is unchanged
     // on `Err`.
-    public unsafe func try_append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) -> Result<Void, AllocError> {
+    public func try_append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe -> Result<Void, AllocError> {
         if len <= 0 {
             return
         }
@@ -305,7 +305,7 @@ extension Data {
     }
 
     // Internal: copy `len` bytes from `src` into the (already reserved) buffer.
-    unsafe func _place_bytes(&var self, src: UnsafePointer<Int8>, len: Int) {
+    func _place_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe {
         if let inner = self.inner {
             let dest = inner[0].buffer as UnsafePointer<Int8>
             memcpy(dest + self.offset + self.length, src, len)
@@ -316,7 +316,7 @@ extension Data {
     // A pointer to this Data's first live byte (offset applied). The pointer-typed
     // signature is the design-81 visible marker; std.net's write path uses it to
     // stream bytes to a socket without copying. Empty Data yields a null pointer.
-    public unsafe func byte_ptr(&self) -> UnsafePointer<Int8> {
+    public func byte_ptr(&self) unsafe -> UnsafePointer<Int8> {
         if let inner = self.inner {
             (inner[0].buffer as UnsafePointer<Int8>) + self.offset
         } else {
@@ -330,7 +330,7 @@ extension Data {
 
     // Create a slice of this Data (shares underlying buffer)
     // Returns None if bounds are invalid
-    public unsafe func slice(&var self, start: Int, end: Int) -> Data? {
+    public func slice(&var self, start: Int, end: Int) unsafe -> Data? {
         if start < 0 || end < start || end > self.length {
             return None
         }
@@ -416,7 +416,7 @@ extension Data {
     // Create an iterator over the bytes
     // TODO: Iterator doesn't increment refcount, so it can become invalid if
     // source Data is deallocated. Should add refcount management to be safe.
-    public unsafe func iter(&self) -> DataIterator {
+    public func iter(&self) unsafe -> DataIterator {
         DataIterator(inner: self.inner, offset: self.offset, length: self.length, index: 0)
     }
 
@@ -460,7 +460,7 @@ extension Data {
     // now has that room — FALSE means the allocator refused and the Data is
     // untouched. The old `ensure_capacity` returned Void, so `push`/`append`/
     // `append_bytes` wrote past a buffer that had never grown (RS-1's shape).
-    unsafe func _reserve(&var self, min_capacity: Int) -> Bool {
+    func _reserve(&var self, min_capacity: Int) unsafe -> Bool {
         let current_cap = self.capacity()
         if current_cap >= min_capacity {
             return true
@@ -489,7 +489,7 @@ extension Data {
     // to self.inner, old_data still exists and its deinit will be called at scope
     // end, causing double-free or use-after-free issues despite refcount manipulation.
     // Need to investigate proper ownership transfer patterns in Saw.
-    unsafe func _make_unique(&var self) {
+    func _make_unique(&var self) unsafe {
         guard let inner = self.inner else {
             return
         }
@@ -516,7 +516,7 @@ extension Data {
 
     // Internal: exclusive ownership plus `min_capacity` bytes of room. Returns
     // whether both were obtained; FALSE leaves the Data untouched.
-    unsafe func _reserve_unique(&var self, min_capacity: Int) -> Bool {
+    func _reserve_unique(&var self, min_capacity: Int) unsafe -> Bool {
         // First ensure we have exclusive ownership
         if let inner = self.inner {
             if inner[0].refcount > 1 {
@@ -531,7 +531,7 @@ extension Data {
     // Internal: allocate a control block plus a `capacity`-byte buffer.
     // Returns whether both allocations succeeded; on a partial failure the
     // control block is released and the Data is left with no buffer at all.
-    unsafe func _allocate_buffer(&var self, capacity: Int) -> Bool {
+    func _allocate_buffer(&var self, capacity: Int) unsafe -> Bool {
         // The control block's real size/alignment, not a 64-bit-only literal:
         // `DataBuffer` is 24 bytes on a 64-bit target and 12 on riscv32 — the
         // live SOS target — where the hardcoded 24 over-allocated and then told
@@ -561,7 +561,7 @@ extension Data {
 
 // Data uses reference counting for memory management
 extension Data: NoCopy {
-    public unsafe func deinit(&var self) {
+    public func deinit(&var self) unsafe {
         if let inner = self.inner {
             inner[0].refcount = inner[0].refcount - 1
 
@@ -593,7 +593,7 @@ struct DataIterator {
 extension DataIterator: Iterator {
     type Item = UInt8
 
-    public unsafe func next(&var self) -> UInt8? {
+    public func next(&var self) unsafe -> UInt8? {
         if self.index >= self.length {
             return None
         }

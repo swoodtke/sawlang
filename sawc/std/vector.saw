@@ -44,7 +44,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// tier). It used to hand back an EMPTY vector, so a caller that asked to
     /// reserve a megabyte and got nothing carried on as if it had succeeded.
     /// `try_with_capacity` is the twin that reports the failure.
-    public unsafe init(capacity: Int) -> Vector<T, A> {
+    public init(capacity: Int) unsafe -> Vector<T, A> {
         if capacity <= 0 {
             Vector<T, A>(buffer: None, length: 0, capacity: 0)
         } else {
@@ -64,7 +64,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// The `AllocError` carries the byte size and alignment of the request that
     /// failed. A non-positive `n` needs no allocation and succeeds with an
     /// empty vector.
-    public unsafe func try_with_capacity(n: Int) -> Result<Vector<T, A>, AllocError> {
+    public func try_with_capacity(n: Int) unsafe -> Result<Vector<T, A>, AllocError> {
         if n <= 0 {
             return Vector<T, A>()
         }
@@ -88,7 +88,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 
     // Get element at index (returns None if out of bounds)
-    public unsafe func get(&self, index: Int) -> T? {
+    public func get(&self, index: Int) unsafe -> T? {
         if index < 0 || index >= self.length {
             None
         } else {
@@ -128,7 +128,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // this vector, reallocating the buffer and dangling the borrow — the exact
     // iterator-invalidation this API prevents. Confinement does not cover a
     // container-internal borrow, so the borrow may not span a suspension.
-    public unsafe func with_var_ref<R>(&var self, index: Int, body: (&var T) sync -> R) -> R {
+    public func with_var_ref<R>(&var self, index: Int, body: (&var T) sync -> R) unsafe -> R {
         if index < 0 || index >= self.length {
             panic("Vector.with_var_ref: index out of range")
         }
@@ -141,7 +141,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 
     // Immutable twin of `with_var_ref`: an in-place `&T` borrow of the element.
     // Bounds-checked on the same terms.
-    public unsafe func with_ref<R>(&self, index: Int, body: (&T) sync -> R) -> R {
+    public func with_ref<R>(&self, index: Int, body: (&T) sync -> R) unsafe -> R {
         if index < 0 || index >= self.length {
             panic("Vector.with_ref: index out of range")
         }
@@ -168,7 +168,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// rule retired that: a direct accessor on a safe type panics rather than
     /// quietly doing less than its name promises, and `value` is consumed either
     /// way, so the no-op also dropped the caller's element on the floor.
-    public unsafe func set(&var self, index: Int, value: T) {
+    public func set(&var self, index: Int, value: T) unsafe {
         if index < 0 || index >= self.length {
             panic("Vector.set: index out of range")
         }
@@ -186,7 +186,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// `length` advanced past `capacity` — every later `get`, iteration and the
     /// final `deinit` then read and freed out of bounds, from fully safe code
     /// with no diagnostic.
-    public unsafe func push(&var self, value: T) {
+    public func push(&var self, value: T) unsafe {
         if not self._reserve(self.length + 1) {
             panic("Vector.push: allocation failed")
         }
@@ -214,7 +214,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// The vector is unchanged on `Err`. `value` is destroyed at that point
     /// (it deinits at scope exit rather than being handed back); reserve first
     /// with `try_reserve` when the value must survive a refusal.
-    public unsafe func try_push(&var self, value: T) -> Result<Void, AllocError> {
+    public func try_push(&var self, value: T) unsafe -> Result<Void, AllocError> {
         let wanted = self.length + 1
         if not self._reserve(wanted) {
             let bytes = self._grow_target(wanted) * sizeof<T>()
@@ -243,7 +243,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 
     // Remove and return the last element
-    public unsafe func pop(&var self) -> T? {
+    public func pop(&var self) unsafe -> T? {
         if self.length == 0 {
             None
         } else {
@@ -277,7 +277,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // neither retained nor dropped; the two live values just change slots. A
     // T-level `move buf[i]` cannot express this (partial moves are forbidden,
     // design 35), hence the byte loop. No `T: Copy` bound is needed.
-    public unsafe func swap(&var self, i: Int, j: Int) {
+    public func swap(&var self, i: Int, j: Int) unsafe {
         // No-op on identical indices — swapping a slot with itself is pointless
         // and the byte loop would still be a correct identity, but short-circuit.
         if i == j {
@@ -313,7 +313,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // worst of the three unchecked accessors — `buf[index] = value` past the
     // end is an out-of-bounds WRITE, i.e. heap corruption reachable from fully
     // safe code.
-    public unsafe func swap_out(&var self, index: Int, value: T) -> T {
+    public func swap_out(&var self, index: Int, value: T) unsafe -> T {
         if index < 0 || index >= self.length {
             panic("Vector.swap_out: index out of range")
         }
@@ -344,7 +344,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // untouched (old buffer, old capacity, old length), which is what lets
     // every caller choose its tier. This reporting return is the RS-1 fix:
     // the old `grow()` returned Void and left `push` to write past the end.
-    unsafe func _reserve(&var self, min_capacity: Int) -> Bool {
+    func _reserve(&var self, min_capacity: Int) unsafe -> Bool {
         if self.capacity >= min_capacity {
             return true
         }
@@ -394,7 +394,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 // declarable on its own, and the bounded conformance is the wrong home for a
 // requirement that holds for every `T`.
 extension Vector<T, A: Allocator = GlobalAllocator> {
-    public unsafe func deinit(&var self) {
+    public func deinit(&var self) unsafe {
         if let buf = self.buffer {
             var i = 0
             while i < self.length {
@@ -424,7 +424,7 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
     /// Panics if the allocator refuses (design 123, infallible tier); it used
     /// to return a SHORTER vector, so a "copy" could silently be missing
     /// elements. `try_copy` reports the failure instead.
-    public unsafe func copy(&self) -> Vector<T, A> {
+    public func copy(&self) unsafe -> Vector<T, A> {
         var result = Vector<T, A>(capacity: self.capacity)
         var i = 0
         while i < self.length {
@@ -444,7 +444,7 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     /// The whole buffer is reserved up front, so the element loop cannot
     /// allocate and the result is either a complete copy or an `Err` — never a
     /// partial one.
-    public unsafe func try_copy(&self) -> Result<Vector<T, A>, AllocError> {
+    public func try_copy(&self) unsafe -> Result<Vector<T, A>, AllocError> {
         var result = Vector<T, A>()
         let _ = try result.try_reserve(self.length)
         var i = 0
@@ -491,7 +491,7 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // a borrow iterator would have to hold the container borrowed for the
     // whole loop, which is exactly what `with_ref`/`with_var_ref` already
     // offer per element, and it is where a NoCopy element type is reached.
-    public unsafe func iter(&self) -> VectorIterator<T> {
+    public func iter(&self) unsafe -> VectorIterator<T> {
         VectorIterator<T>(buffer: self.buffer, length: self.length, index: 0)
     }
 
@@ -567,7 +567,7 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // A concrete iterator yielding `(index, element)` pairs for `for` loops
     // (design 53). Mirrors `iter()`/VectorIterator's bounds; `T: Copy` because
     // each element is produced by value.
-    public unsafe func enumerated(&self) -> EnumeratedIterator<T> {
+    public func enumerated(&self) unsafe -> EnumeratedIterator<T> {
         EnumeratedIterator<T>(buffer: self.buffer, length: self.length, index: 0)
     }
 }
@@ -667,7 +667,7 @@ struct VectorIterator<T> {
 extension VectorIterator<T: Copy>: Iterator {
     type Item = T
 
-    public unsafe func next(&var self) -> T? {
+    public func next(&var self) unsafe -> T? {
         if self.index < self.length {
             let idx = self.index
             self.index = self.index + 1
@@ -698,7 +698,7 @@ struct EnumeratedIterator<T> {
 extension EnumeratedIterator<T: Copy>: Iterator {
     type Item = (Int, T)
 
-    public unsafe func next(&var self) -> (Int, T)? {
+    public func next(&var self) unsafe -> (Int, T)? {
         if self.index < self.length {
             let idx = self.index
             self.index = self.index + 1

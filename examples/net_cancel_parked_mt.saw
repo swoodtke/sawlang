@@ -21,7 +21,7 @@ func parker(fd: Int) -> Int {
     return -1
 }
 
-unsafe func canceller(addr: Int) -> Int {
+func canceller(addr: Int) unsafe -> Int {
     let p = addr as UnsafePointer<Bool>
     p[0] = true                  // peer-cancel from another worker thread
     return 0

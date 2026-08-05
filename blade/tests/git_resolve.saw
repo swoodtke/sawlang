@@ -10,7 +10,7 @@ extern "C" {
     func system(command: UnsafePointer<Int8>) -> Int32
 }
 
-unsafe func sh(cmd: String) -> Bool {
+func sh(cmd: String) unsafe -> Bool {
     // Subshell so the quiet-redirect does not hijack a trailing `>>` in `cmd`.
     let full = "( {cmd} ) > /dev/null 2>&1"
     system(full as UnsafePointer<Int8>) == (0 as Int32)

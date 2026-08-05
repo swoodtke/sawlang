@@ -18,12 +18,12 @@ extern "C" {
 
 // Marked domain: the `UnsafePointer` parameter is the visible marker, so every
 // raw-pointer operation in this body is free.
-unsafe func fill(p: UnsafePointer<Int8>) {
+func fill(p: UnsafePointer<Int8>) unsafe {
     p[0] = 65
     p[1] = p[0]
 }
 
-unsafe func main() {
+func main() unsafe {
     if let base = malloc(16) {   // binding a produced pointer: marker
         fill(base)                      // passing a pointer through: free
         // The cast names `UnsafePointer`, so `base + 1` is visible — no marker.

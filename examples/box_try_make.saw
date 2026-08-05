@@ -25,8 +25,8 @@ extension Res: NoCopy {
 // Always fails: exercises the fallible factory's Err path deterministically.
 struct NullAlloc {}
 extension NullAlloc: Allocator {
-    unsafe func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? { None }
-    unsafe func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {}
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? { None }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {}
 }
 
 func main() {

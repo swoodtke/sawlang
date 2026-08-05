@@ -9,7 +9,7 @@ extern "C" {
     func malloc(size: UInt) -> UnsafePointer<Int8>?
 }
 
-unsafe func take() -> Int {
+func take() unsafe -> Int {
     let p = unsafe malloc(8 as UInt)
     0
 }

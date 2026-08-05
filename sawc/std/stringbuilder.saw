@@ -35,7 +35,7 @@ extension StringBuilder {
     ///
     /// Panics if the allocator refuses the request (design 123, infallible
     /// tier); `try_with_capacity` reports the failure instead.
-    public unsafe init(capacity: Int) -> StringBuilder {
+    public init(capacity: Int) unsafe -> StringBuilder {
         if capacity <= 0 {
             StringBuilder(buffer: None, length: 0, capacity: 0)
         } else {
@@ -49,7 +49,7 @@ extension StringBuilder {
 
     /// Creates an empty builder with room for `n` bytes, reporting allocator
     /// exhaustion as `Err(AllocError)`.
-    public unsafe func try_with_capacity(n: Int) -> Result<StringBuilder, AllocError> {
+    public func try_with_capacity(n: Int) unsafe -> Result<StringBuilder, AllocError> {
         if n <= 0 {
             return StringBuilder()
         }
@@ -110,7 +110,7 @@ extension StringBuilder {
     // Internal: copy `s_len` bytes of `s` into the (already reserved) buffer
     // and re-terminate. Shared by `append` and `try_append` so the two tiers
     // cannot drift.
-    unsafe func _place(&var self, s: String, s_len: Int) {
+    func _place(&var self, s: String, s_len: Int) unsafe {
         if let buf = self.buffer {
             var i = 0
             while i < s_len {
@@ -153,7 +153,7 @@ extension StringBuilder {
     }
 
     // Internal: place one byte into the (already reserved) buffer.
-    unsafe func _place_char(&var self, c: Int8) {
+    func _place_char(&var self, c: Int8) unsafe {
         if let buf = self.buffer {
             buf[self.length] = c
             self.length = self.length + 1
@@ -211,7 +211,7 @@ extension StringBuilder {
     }
 
     // Clear the buffer (keep capacity)
-    public unsafe func clear(&var self) {
+    public func clear(&var self) unsafe {
         self.length = 0
         if let buf = self.buffer {
             buf[0] = 0
@@ -230,7 +230,7 @@ extension StringBuilder {
     // from the allocator used to produce — is indistinguishable from a builder
     // that legitimately has nothing in it. The `""` below is the second case
     // and only the second case: a builder that was never appended to.
-    public unsafe func build(&self) -> String {
+    public func build(&self) unsafe -> String {
         if let buf = self.buffer {
             __saw_string_from_bytes(buf, self.length)
         } else {
@@ -257,7 +257,7 @@ extension StringBuilder {
     // untouched. The old `grow` returned Void, so `append`/`append_char` copied
     // into a buffer that had never grown and wrote past its end (RS-1's shape,
     // repeated here).
-    unsafe func _reserve(&var self, min_capacity: Int) -> Bool {
+    func _reserve(&var self, min_capacity: Int) unsafe -> Bool {
         if self.capacity >= min_capacity {
             return true
         }
@@ -287,7 +287,7 @@ extension StringBuilder {
 
 // StringBuilder is NoCopy
 extension StringBuilder: NoCopy {
-    public unsafe func deinit(&var self) {
+    public func deinit(&var self) unsafe {
         if let buf = self.buffer {
             GlobalAllocator().dealloc(buf, self.capacity, 1)
         }

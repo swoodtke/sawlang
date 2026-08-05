@@ -21,7 +21,7 @@ extension Registers: NoCopy {}
 
 extension Registers {
     // Names the unsafe type, so it declares the keyword.
-    unsafe init(base: Int, count: Int) -> Registers {
+    init(base: Int, count: Int) unsafe -> Registers {
         Registers(block: UnsafeRegBlock(base: base), count: count)
     }
 
@@ -29,7 +29,7 @@ extension Registers {
     func count(&self) -> Int { self.count }
     func is_empty(&self) -> Bool { self.count == 0 }
 
-    unsafe func address_of(&self, index: Int) -> Int {
+    func address_of(&self, index: Int) unsafe -> Int {
         self.block.base + index * 16
     }
 }

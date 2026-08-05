@@ -86,7 +86,7 @@ extension Task<T> {
     /// Blocks the calling thread. A task yields its result once: joining a
     /// second time, or joining a handle whose task was already joined at scope
     /// exit, panics.
-    public unsafe func join(&var self) -> T {
+    public func join(&var self) unsafe -> T {
         if self.joined {
             // Already joined (or inert): no result to hand back. Misuse —
             // panic deterministically (design 49).
@@ -111,7 +111,7 @@ extension Task<T> {
 extension Task<T>: NoCopy {
     /// Joins the task unless `join` already did, drops the unclaimed result, and
     /// frees the control block.
-    public unsafe func deinit(&var self) {
+    public func deinit(&var self) unsafe {
         // An unjoined task is joined at scope exit (structured concurrency), its
         // unclaimed result dropped, and the control block freed.
         if not self.joined {

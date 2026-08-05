@@ -57,7 +57,7 @@ struct ProcJob {
 // program name, exactly as execvp wants). `capture != 0` redirects the child's
 // stdout into a pipe this job owns. Returns the job handle (> 0) or -tag.
 @export("__saw_rt_proc_spawn")
-unsafe func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, capture: Int) -> Int {
+func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, capture: Int) unsafe -> Int {
     var fds = PipeFds(r: NO_FD, w: NO_FD)
     if capture != 0 {
         if pipe((&fds) as UnsafePointer<Int8>) != (0 as Int32) {
@@ -103,7 +103,7 @@ unsafe func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, 
 // Read up to `len` bytes of the child's captured stdout. Returns the byte count
 // (0 = EOF, and 0 immediately for a job spawned without capture) or -tag.
 @export("__saw_rt_proc_read_stdout")
-unsafe func rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
+func rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
     let p = job as UnsafePointer<ProcJob>
     let fd = p[0].stdout_fd
     if fd < (0 as Int32) {
@@ -119,7 +119,7 @@ unsafe func rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) ->
 // Reap the child and release the job. Returns the RAW POSIX wait status (>= 0,
 // decoded by std — the exit byte and the signal bits both matter) or -tag.
 @export("__saw_rt_proc_wait")
-unsafe func rt_proc_wait(job: Int) -> Int {
+func rt_proc_wait(job: Int) unsafe -> Int {
     let raw = job as UnsafePointer<Int8>
     let p = job as UnsafePointer<ProcJob>
     let fd = p[0].stdout_fd

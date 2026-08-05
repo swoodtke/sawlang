@@ -14,15 +14,15 @@
 static REGION: [Int8; 256]
 static HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
 
-unsafe func region_ptr() -> UnsafePointer<Int8> {
+func region_ptr() unsafe -> UnsafePointer<Int8> {
     (&REGION) as UnsafePointer<Int8>
 }
 
-unsafe func ok(p: UnsafePointer<Int8>?) -> Int {
+func ok(p: UnsafePointer<Int8>?) unsafe -> Int {
     if let _x = p { 1 } else { 0 }
 }
 
-unsafe func main() {
+func main() unsafe {
     // Hand out all 4 chunks (64 bytes each). `slab_alloc` and `region_ptr` both
     // return raw pointers, so each binding is marked `unsafe` (design 81); the
     // one marker covers the nested `region_ptr()` producer too.

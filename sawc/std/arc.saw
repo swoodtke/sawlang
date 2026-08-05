@@ -37,7 +37,7 @@ extension Arc<T> {
     /// infallible tier). It used to build an INERT `Arc` — `value` silently
     /// dropped, `strong_count()` reporting 0, and any forwarded payload method
     /// dereferencing a null block. `try_make` reports the failure instead.
-    public unsafe init(value: T) -> Arc<T> {
+    public init(value: T) unsafe -> Arc<T> {
         let size = 16 + sizeof<T>()
         if let block = GlobalAllocator().alloc(size, 16) {
             let strong_ptr = block as UnsafePointer<Int>
@@ -56,7 +56,7 @@ extension Arc<T> {
     /// as `Err(AllocError)`.
     ///
     /// `value` is destroyed on the failure path rather than leaked.
-    public unsafe func try_make(value: T) -> Result<Arc<T>, AllocError> {
+    public func try_make(value: T) unsafe -> Result<Arc<T>, AllocError> {
         let size = 16 + sizeof<T>()
         if let block = GlobalAllocator().alloc(size, 16) {
             let strong_ptr = block as UnsafePointer<Int>
@@ -72,7 +72,7 @@ extension Arc<T> {
 
     // Number of strong owners (for tests/diagnostics; a racy snapshot). The
     // `else` is unreachable — see the field comment.
-    public unsafe func strong_count(&self) -> Int {
+    public func strong_count(&self) unsafe -> Int {
         if let block = self.ptr {
             let strong_ptr = block as UnsafePointer<Int>
             strong_ptr[0]
@@ -86,7 +86,7 @@ extension Arc<T> {
 // `deinit` lives inside that conformance (design 131: `Deinit` is the policy
 // hierarchy's base, inherited, never declared on its own).
 extension Arc<T>: ImplicitCopy {
-    public unsafe func deinit(&var self) {
+    public func deinit(&var self) unsafe {
         if let block = self.ptr {
             let strong_ptr = block as UnsafePointer<Int>
             let old = __saw_atomic_sub_i64_release(strong_ptr, 1)
@@ -108,7 +108,7 @@ extension Arc<T>: ImplicitCopy {
     }
 
     // Retain: a live reference keeps the block alive, so monotonic is enough.
-    public unsafe func copy(&self) -> Arc<T> {
+    public func copy(&self) unsafe -> Arc<T> {
         if let block = self.ptr {
             let strong_ptr = block as UnsafePointer<Int>
             __saw_atomic_add_i64(strong_ptr, 1)

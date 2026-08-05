@@ -18,7 +18,7 @@ extension Res: NoCopy {
     func deinit(&var self) { print("deinit {self.id}") }
 }
 
-unsafe func read_n(fd: Int) -> Int {
+func read_n(fd: Int) unsafe -> Int {
     let buf = net_buffer(16)
     var n = 0
     var going = true
@@ -35,7 +35,7 @@ unsafe func read_n(fd: Int) -> Int {
     return n
 }
 
-unsafe func write_hi(fd: Int) -> Int {
+func write_hi(fd: Int) unsafe -> Int {
     let buf = net_buffer(2)
     buf[0] = 104 as Int8
     buf[1] = 105 as Int8

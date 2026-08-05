@@ -3828,7 +3828,8 @@ printing are unavailable. See `designs/19-freestanding-profile.md` for the full 
 struct already has a stable **declaration-order, natural-ABI layout** (see
 [Structs](#structs)), so C-compatibility is the language rule rather than an
 opt-in — export signatures are gated by a C-safe type whitelist instead. There
-are **no** `unsafe` blocks/functions/traits — unsafety is type-carried (see
+are **no** `unsafe` blocks and no unsafe regions: unsafety is type-carried, and a
+declaration that touches an unsafe type declares the effect in its signature (see
 [Unsafe Code](#unsafe-code) below). Still *planned*: C-varargs on the export
 side. (The spec's `*Char`/`*var Void` shorthand is illustrative; the implemented
 spelling is `UnsafePointer<T>` / `UnsafeConstPointer<T>`.)
@@ -4039,8 +4040,8 @@ Failing to declare it is a clean error naming the type and the fix:
 ```
 error: method `Vector.push` is not declared `unsafe`, but its body names a value
        of unsafe type (`UnsafePointer<T>`)
-  hint: write `unsafe func push` — the unsafety belongs in the signature where
-        every caller can see it
+  hint: write `func push(...) unsafe` — the unsafety belongs in the signature
+        where every caller can see it
 ```
 
 **Derivation does not propagate.** A value or reference of a *safe* type produced
@@ -4054,24 +4055,37 @@ needs to make it.
 
 #### Spelling
 
-On a declaration, `unsafe` follows the visibility modifier and precedes the
-declaration keyword:
+`unsafe` is an effect, and a declaration spells its effects in the
+post-parameter slot beside `sync`, in the canonical order `unsafe sync`:
 
 ```saw
-public unsafe func push(&var self, value: T) { ... }
-unsafe init(at: Int) -> UnsafeMmioReg { ... }
+public func push(&var self, value: T) unsafe { ... }
+func with_var_ref<R>(&var self, i: Int, body: (&var T) sync -> R) unsafe -> R
+init(at: Int) unsafe -> UnsafeMmioReg { ... }
 ```
 
-On a function **type** it rides the post-parameter effect slot, in the canonical
-order `unsafe sync escaping`:
+A function **type** uses the same slot, with `escaping` completing the order
+`unsafe sync escaping`:
 
 ```saw
-func with_raw<R>(&self, body: (UnsafePointer<T>) unsafe sync -> R) -> R
+func with_raw<R>(&self, body: (UnsafePointer<T>) unsafe sync -> R) unsafe -> R
 ```
 
-Writing `unsafe` in the post-parameter slot of a *declaration* is a clean error
-pointing at the right position. `--emit-docs` reports the modifier in the
-`signature` field and prefixes the `effect` field with `unsafe`.
+A signature therefore reads identically whether it is declared or written as a
+type. `unsafe struct` is the one prefix that remains: a struct declaration has no
+parameter list and so no slot, and the enforced `Unsafe*` name already carries
+the unsafety to every use site.
+
+Writing `unsafe` in front of a `func` or an `init` names the slot instead:
+
+```
+error: `unsafe` goes after the parameter list, not before `func` — write
+       `func name(...) unsafe -> T` (the effect slot, before `sync`)
+```
+
+Reversing the order (`sync unsafe`) is rejected the same way. `--emit-docs`
+renders the slot in the `signature` field and prefixes the `effect` field with
+`unsafe`.
 
 #### Closures
 
@@ -4079,7 +4093,7 @@ A closure is judged by the trigger rule on its **own body**. A closure that neve
 names an unsafe type is safe even when passed into an unsafe function:
 
 ```saw
-unsafe func with_ref<R>(&self, i: Int, body: (&T) sync -> R) -> R
+func with_ref<R>(&self, i: Int, body: (&T) sync -> R) unsafe -> R
 v.with_ref(0) { e in e + 1 }        // the closure sees only `&T`: safe
 ```
 
@@ -4129,7 +4143,7 @@ the removed `ref_at`.
 // The obligation rides the type; the function that touches it says so.
 static UART0: UnsafeMemory<UartRegs, Device> = UnsafeMemory(0x1800_0000)
 
-unsafe func poke(addr: Int) {
+func poke(addr: Int) unsafe {
     let p = addr as UnsafePointer<Int32>
     p[0] = 42                              // placement-move through a raw pointer
 }
@@ -4255,8 +4269,9 @@ let sp = BOOT_STACK.end()                        // stack top for early boot
 slab_init(EARLY_HEAP.ptr(), EARLY_HEAP.len())    // hand the region to a slab
 ```
 
-Fabricating an address is in the same trust bucket as the `UnsafePointer` family
-(unsafe blocks remain deferred; the naming convention is the marker).
+Fabricating an address is in the same trust bucket as the `UnsafePointer` family:
+`UnsafeMemory` is an unsafe type, so every function that reaches through one
+declares `unsafe` in its effect slot.
 
 ### Allocators (`Allocator` trait, `GlobalAllocator`, public `A` parameter)
 

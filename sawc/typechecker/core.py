@@ -326,7 +326,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         return saved
 
     def _exit_unsafe_scope(self, node, saved, what: str, name: str,
-                           keyword: str = "func", fix_name: str = None) -> None:
+                           fixit: str = None) -> None:
         """Finish the trigger-rule check and restore the outer state. An
         undeclared function that touched an unsafe type is a clean error naming
         the type and the fix; the converse is allowed — `unsafe` where the rule
@@ -344,10 +344,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             f"{what} `{name}` is not declared `unsafe`, but {why} "
             f"(`{type_name}`)",
             line, column,
-            hint=f"write `unsafe {keyword} {fix_name or name}` — the unsafety belongs in the "
-                 f"signature where every caller can see it; if the operation is "
-                 f"sound for every input, keep the wrapper unsafe and expose a "
-                 f"safe one that checks its arguments",
+            hint=f"write `{fixit or ('func ' + name + '(...) unsafe')}` — the "
+                 f"unsafety belongs in the signature where every caller can see "
+                 f"it; if the operation is sound for every input, keep the "
+                 f"wrapper unsafe and expose a safe one that checks its "
+                 f"arguments",
             # The verdict runs during teardown, after `current_method` /
             # `current_function` are cleared, so `_error`'s auto-detection would
             # fall back to the ENTRY module and point a multi-module diagnostic

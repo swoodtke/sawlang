@@ -553,8 +553,9 @@ Saw provides deterministic memory management without garbage collection:
 - **Unsafety is carried in the type, and declared by the function**: raw
   pointers live in `Unsafe*` types, and so does anything you declare with
   `unsafe struct` (the compiler enforces the name). A function that names, binds,
-  receives or returns one of those values must say `unsafe func`, or the compiler
-  rejects it and names the type. There are no `unsafe` blocks and no unsafe
+  receives or returns one of those values declares the effect after its parameter
+  list — `func push(&var self, value: T) unsafe`, the slot `sync` already used —
+  or the compiler rejects it and names the type. There are no `unsafe` blocks and no unsafe
   regions. Unsafety is not transitive: `Vector` holds a raw pointer and is still
   a safe type, so only the methods that reach through to it are marked. Calling
   an unsafe function from safe code needs no ceremony — a function whose
@@ -602,7 +603,8 @@ Saw is freestanding: the same language targets bare metal.
 - **Memory-mapped I/O**: `UnsafeMemory<T, Use>` is a compiler-known view of memory
   at a fixed address, with volatile `read()`/`write()` for device registers and
   field-offset projection. It is an unsafe type, so a driver method that touches
-  a register block is `unsafe func` and reads as one at every call site.
+  a register block carries `unsafe` in its signature and reads as one at every
+  call site.
 - **Compile-time layout checks**: `static_assert(sizeof<UartRegs>() == 0x1C,
   "...")` fails the build when a register block's layout drifts, at no runtime
   cost.

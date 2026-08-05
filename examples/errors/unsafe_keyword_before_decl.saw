@@ -1,0 +1,13 @@
+// Design 136: `unsafe` is an effect, and a declaration spells its effects after
+// the parameter list — exactly where the matching function TYPE spells them.
+// Writing it in front of `func` is the pre-136 spelling, so the error names the
+// slot instead of failing somewhere later in the signature.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `unsafe` goes after the parameter list
+// EXPECT-ERROR-CONTAINS: write `func name(...) unsafe -> T`
+
+unsafe func poke(reg: Int) -> Int { reg }
+
+func main() {
+    print("{poke(1)}")
+}

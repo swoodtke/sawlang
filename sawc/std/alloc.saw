@@ -78,8 +78,8 @@ extern "C" {
 /// really came from this allocator, with this layout) is expressed by taking an
 /// unsafe-typed parameter, which is what carries the obligation to the caller.
 trait Allocator {
-    unsafe func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>?
-    unsafe func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int)
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>?
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe
 }
 
 // =============================================================================
@@ -94,11 +94,11 @@ trait Allocator {
 struct GlobalAllocator {}
 
 extension GlobalAllocator: Allocator {
-    public unsafe func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+    public func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
         __saw_rt_alloc(size, align)
     }
 
-    public unsafe func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+    public func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
         __saw_rt_dealloc(ptr, size, align)
     }
 }

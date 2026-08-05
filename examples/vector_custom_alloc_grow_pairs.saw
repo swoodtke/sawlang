@@ -16,11 +16,11 @@ static DEALLOCS: Atomic<Int> = Atomic(0)
 
 struct CountAlloc {}
 extension CountAlloc: Allocator {
-    unsafe func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
         ALLOCS.fetch_add(1)
         GlobalAllocator().alloc(size, align)
     }
-    unsafe func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
         DEALLOCS.fetch_add(1)
         GlobalAllocator().dealloc(ptr, size, align)
     }

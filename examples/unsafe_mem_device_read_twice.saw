@@ -13,7 +13,7 @@ struct Sensor { reading: ReadOnly<UInt32> }
 
 static BACKING: [UInt8; 4]
 
-unsafe func main() {
+func main() unsafe {
     let base = ((&BACKING) as UnsafePointer<Int8>) as Int
     let dev = UnsafeMemory<Sensor, Device>(base)
 

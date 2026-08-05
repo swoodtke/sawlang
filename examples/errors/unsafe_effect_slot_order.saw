@@ -1,0 +1,12 @@
+// Design 136: the effect slot has one canonical order, `unsafe sync` — the same
+// order a function type spells (`(T) unsafe sync escaping -> R`). Writing the two
+// the other way round is a clean error naming the order, so one contract never
+// has two spellings.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `unsafe` comes before `sync` in the effect slot
+
+func poke(reg: Int) sync unsafe -> Int { reg }
+
+func main() {
+    print("{poke(1)}")
+}

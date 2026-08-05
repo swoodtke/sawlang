@@ -52,7 +52,7 @@ static EPOLL_EVENT_SIZE: Int = 12
 static POLL_EVENTS: Int = 64
 
 @export("__saw_rt_reactor_create")
-unsafe func rt_reactor_create() -> Int {
+func rt_reactor_create() unsafe -> Int {
     let epfd = epoll_create1(0 as Int32)
     var fds = PipeFds(r: 0 as Int32, w: 0 as Int32)
     pipe((&fds) as UnsafePointer<Int8>)
@@ -69,7 +69,7 @@ unsafe func rt_reactor_create() -> Int {
 // Arm one-shot readiness on `fd` for read (w==0) or write (w!=0). `token` is the
 // parked frame's `__wake`-word ADDRESS (design 91), stored as epoll_event.data.
 @export("__saw_rt_reactor_register")
-unsafe func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) {
+func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe {
     let rp = r as UnsafePointer<Reactor>
     let epfd = rp[0].fd
     var ev = EpollEv(lo: 0, hi: 0)
@@ -90,7 +90,7 @@ unsafe func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) {
 // then drain the self-wake pipe. Returns the ready-event count. Per-call heap
 // event buffer keeps concurrent polls independent (design 117).
 @export("__saw_rt_reactor_poll")
-unsafe func rt_reactor_poll(r: Int, timeout_ms: Int) -> Int {
+func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
     let rp = r as UnsafePointer<Reactor>
     let epfd = rp[0].fd
     let wr = rp[0].wake_r
@@ -120,7 +120,7 @@ unsafe func rt_reactor_poll(r: Int, timeout_ms: Int) -> Int {
 }
 
 @export("__saw_rt_reactor_wake")
-unsafe func rt_reactor_wake(r: Int) {
+func rt_reactor_wake(r: Int) unsafe {
     let rp = r as UnsafePointer<Reactor>
     let ww = rp[0].wake_w
     var byte: Int8 = 1
@@ -128,7 +128,7 @@ unsafe func rt_reactor_wake(r: Int) {
 }
 
 @export("__saw_rt_reactor_destroy")
-unsafe func rt_reactor_destroy(r: Int) {
+func rt_reactor_destroy(r: Int) unsafe {
     let rp = r as UnsafePointer<Reactor>
     close(rp[0].fd as Int32)
     close(rp[0].wake_r as Int32)

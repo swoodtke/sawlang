@@ -334,8 +334,8 @@ class StatementsMixin:
             method, saved_unsafe_contact,
             "init" if method.is_init else "method",
             f"{struct_name}.{method.name}" if struct_name else method.name,
-            keyword="init" if method.is_init else "func",
-            fix_name="init" if method.is_init else method.name)
+            fixit=("init(...) unsafe" if method.is_init
+                   else f"func {method.name}(...) unsafe"))
         self.namespace.allow_all_access = _saved_aaa
         self._checking_builtins = _saved_cb
 

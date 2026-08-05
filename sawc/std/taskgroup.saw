@@ -242,7 +242,7 @@ extension TaskGroup {
     // the run-queue mutex and, at drain time, spawns a worker pool. Spawning into a
     // group built this way turns on the Send-on-frames gate (a frame that crosses
     // to another worker must be Send).
-    public unsafe init(threads: Int) -> TaskGroup {
+    public init(threads: Int) unsafe -> TaskGroup {
         let t = Vector<Box<any Resumable>>()
         let d = Vector<Bool>()
         let r = Vector<Int>()
@@ -296,7 +296,7 @@ extension TaskGroup {
     // (idempotent). `&self` is the group's FINAL storage address here (called on the
     // real binding via a `&var self` method / a `__group[0]` pointer deref), so the
     // recorded address stays valid until `__unregister` in Deinit.
-    unsafe func __register(&var self) {
+    func __register(&var self) unsafe {
         if self.registered {
             return
         }
@@ -308,7 +308,7 @@ extension TaskGroup {
     // design 89: unlink this group from the ambient scheduler list (Deinit, after
     // its members have drained). Walks the intrusive list to fix the predecessor's
     // `next`. Single-threaded, so no synchronization is needed.
-    unsafe func __unregister(&var self) {
+    func __unregister(&var self) unsafe {
         if not self.registered {
             return
         }
@@ -338,7 +338,7 @@ extension TaskGroup {
     // scheduler (`__saw_exec_run`, below) so siblings across ALL groups interleave.
     // This method now serves ONLY the MT fork-join drain (workers >= 2), called by
     // an MT group's `join`/`Deinit`. Idempotent (a fully-drained group is a no-op).
-    unsafe func __run_all(&var self) {
+    func __run_all(&var self) unsafe {
         if self.workers >= 2 {
             if let _lk = self.lock {
                 self.__drain_mt()
@@ -354,7 +354,7 @@ extension TaskGroup {
     // full drain is a clean no-op). No task is pushed during a drain (enqueue is
     // main-thread-only and the main thread is blocked here), so the run queue is
     // size-stable and `tasks` is read-only while the workers run.
-    unsafe func __drain_mt(&var self) {
+    func __drain_mt(&var self) unsafe {
         var live = 0
         var c = 0
         while c < self.tasks.len() {
@@ -390,7 +390,7 @@ extension TaskGroup {
 // distinct frames run in parallel while a claimed frame is owned by exactly one
 // worker (D6). Returns `Void` — a `Void` spawn body (design 102 item 1) needs no
 // result slot, so the old dummy-`Int` return is gone.
-unsafe func __saw_exec_worker(addr: Int) {
+func __saw_exec_worker(addr: Int) unsafe {
     let g = addr as UnsafePointer<TaskGroup>
     // `g[0]` derefs the shared group through a raw pointer (this free function
     // gets the group's ADDRESS across the `spawn` boundary as a Send `Int`); each
@@ -548,7 +548,7 @@ unsafe func __saw_exec_worker(addr: Int) {
 // task's result was already taken, leaving `None` in the slot). Declared before
 // NoCopy so the `NoCopy: Deinit` supertrait is satisfied.
 extension TaskGroup: NoCopy {
-    public unsafe func deinit(&var self) {
+    public func deinit(&var self) unsafe {
         if self.workers >= 2 {
             // MT: fork-join drain over this group's own queue (design 75).
             self.__run_all()
@@ -600,7 +600,7 @@ extension TaskHandle<T> {
     // Drive the group until this task is Done, then TAKE its result. The take is
     // exactly-once: `take()` moves the payload out of the frame slot and leaves
     // `None` behind, so the frame's later teardown drops nothing.
-    public unsafe func join(&self) -> T {
+    public func join(&self) unsafe -> T {
         if self.group_ptr[0].workers >= 2 {
             // MT: fork-join drain over the group's own queue (design 75).
             self.group_ptr[0].__run_all()
@@ -617,7 +617,7 @@ extension TaskHandle<T> {
     // Cooperative cancellation (design 18 C1, NO forced destroy): set the frame's
     // `__cancel` word. The task observes it where IT checks (`cancelled()`) or at
     // a cancellation-aware wait, and returns through normal control flow.
-    public unsafe func cancel(&self) {
+    public func cancel(&self) unsafe {
         self.cancel_ptr[0] = true
         // design 102 item 2: rouse a blocked reactor poll so an ALREADY-io-parked
         // target observes the cancel now (not only at its pre-park check).
@@ -631,7 +631,7 @@ extension TaskHandle<T> {
     // from a worker thread; the target observes it via `cancelled()` on its next
     // check (the `__cancel` byte is set-once monotonic — race-free, eventually
     // consistent, cooperative-cancellation semantics).
-    public unsafe func cancel_addr(&self) -> Int {
+    public func cancel_addr(&self) unsafe -> Int {
         self.cancel_ptr as Int
     }
 }
@@ -659,7 +659,7 @@ struct VoidTaskHandle {
 extension VoidTaskHandle {
     // Drive the group until this task is Done. No result to take — the void body
     // ran purely for its effects.
-    public unsafe func join(&self) {
+    public func join(&self) unsafe {
         if self.group_ptr[0].workers >= 2 {
             self.group_ptr[0].__run_all()
         } else {
@@ -667,13 +667,13 @@ extension VoidTaskHandle {
         }
     }
 
-    public unsafe func cancel(&self) {
+    public func cancel(&self) unsafe {
         self.cancel_ptr[0] = true
         // design 102 item 2: rouse a blocked reactor poll (see TaskHandle.cancel).
         __saw_exec_reactor_wake()
     }
 
-    public unsafe func cancel_addr(&self) -> Int {
+    public func cancel_addr(&self) unsafe -> Int {
         self.cancel_ptr as Int
     }
 }
@@ -692,7 +692,7 @@ extension VoidTaskHandle: NoCopy {
 // spanning ALL groups and skipping frames active on the C stack (reentrancy).
 
 // Any not-done, not-active, ready (remaining == 0) frame anywhere in the list?
-unsafe func __saw_exec_any_ready() -> Bool {
+func __saw_exec_any_ready() unsafe -> Bool {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
@@ -713,7 +713,7 @@ unsafe func __saw_exec_any_ready() -> Bool {
 }
 
 // Does the group at `gaddr` still have a not-done frame?
-unsafe func __saw_exec_group_has_live(gaddr: Int) -> Bool {
+func __saw_exec_group_has_live(gaddr: Int) unsafe -> Bool {
     let g = gaddr as UnsafePointer<TaskGroup>
     let n = g[0].tasks.len()
     var i = 0
@@ -730,7 +730,7 @@ unsafe func __saw_exec_group_has_live(gaddr: Int) -> Bool {
 // Termination predicate. term_group == 0 -> ALL (no live frame anywhere);
 // term_group != 0 & term_slot < 0 -> GROUP (no live frame in that group);
 // term_group != 0 & term_slot >= 0 -> FRAME (that group's slot is done).
-unsafe func __saw_exec_should_stop(term_group: Int, term_slot: Int) -> Bool {
+func __saw_exec_should_stop(term_group: Int, term_slot: Int) unsafe -> Bool {
     if term_group != 0 {
         let g = term_group as UnsafePointer<TaskGroup>
         if term_slot >= 0 {
@@ -757,7 +757,7 @@ unsafe func __saw_exec_should_stop(term_group: Int, term_slot: Int) -> Bool {
 // >= 0 — a frame still parked (word == -1) stays parked (no thundering herd, and
 // no reliance on every op re-verifying). If the poll TIMED OUT (events == 0),
 // advance sleepers by the elapsed deadline. Skips frames active on the C stack.
-unsafe func __saw_exec_wake_io(events: Int, deadline: Int) {
+func __saw_exec_wake_io(events: Int, deadline: Int) unsafe {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
@@ -800,7 +800,7 @@ unsafe func __saw_exec_wake_io(events: Int, deadline: Int) {
 // fd: if a parked frame is cancelled, wake it (it re-checks cancelled() at its park
 // loop top and bails) instead of polling. (`cancel()` additionally self-wakes the
 // reactor so an MT worker blocked in poll returns promptly rather than at its cap.)
-unsafe func __saw_exec_any_cancelled_io() -> Bool {
+func __saw_exec_any_cancelled_io() unsafe -> Bool {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
@@ -834,7 +834,7 @@ unsafe func __saw_exec_any_cancelled_io() -> Bool {
 // only reader of the latch — would never run. This pre-poll scan is what makes
 // the design-91 "persistent latch word" promise hold in the single-threaded
 // sweep (the MT worker gets the same guarantee from its bounded 50 ms poll).
-unsafe func __saw_exec_any_latched_io() -> Bool {
+func __saw_exec_any_latched_io() unsafe -> Bool {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
@@ -861,7 +861,7 @@ unsafe func __saw_exec_any_latched_io() -> Bool {
 
 // Pure-sleep advance: subtract the parked deadline from every sleeper so the
 // shortest wakes first. Skips frames active on the C stack.
-unsafe func __saw_exec_advance_sleep(deadline: Int) {
+func __saw_exec_advance_sleep(deadline: Int) unsafe {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
@@ -891,7 +891,7 @@ unsafe func __saw_exec_advance_sleep(deadline: Int) {
 // Reentrancy-safe: a frame currently `active` on the C stack is skipped, so a
 // nested drive (task joins task; a nested group's Deinit) never re-enters a live
 // coroutine nor nests a second loop — it yields to the ONE scheduler.
-unsafe func __saw_exec_run(term_group: Int, term_slot: Int) {
+func __saw_exec_run(term_group: Int, term_slot: Int) unsafe {
     while not __saw_exec_should_stop(term_group, term_slot) {
         // Phase 1: resume every ready frame across all groups until none is ready
         // (re-checked from the head each pass, so a just-spawned frame is caught).

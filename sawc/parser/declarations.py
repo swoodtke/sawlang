@@ -83,8 +83,7 @@ class DeclarationsMixin:
             self.skip_newlines()
         return attrs
 
-    def parse_function(self, visibility: Visibility = Visibility.PRIVATE,
-                       is_unsafe: bool = False) -> Function:
+    def parse_function(self, visibility: Visibility = Visibility.PRIVATE) -> Function:
         start = self.current()
         self.expect(TokenType.FUNC)
 
@@ -98,16 +97,12 @@ class DeclarationsMixin:
         parameters, _, _ = self.parse_parameters()  # Ignore self_mutable/self_is_reference for regular functions
         self.expect(TokenType.RPAREN)
 
-        # Post-parameter effect slot (designs 18/22): `func f(...) sync [-> T]`.
-        # The body is a checked suspension-free context. `sync` is CONTEXTUAL —
-        # after the parameter list only `->`, `{`, or a newline-then-`{` may
-        # follow, so a bare identifier here is unambiguous (Swift's
-        # `throws`/`async` position; no keyword reservation).
-        is_sync = False
-        if self.match_ident('sync'):
-            is_sync = True
-            self.advance()
-        self._reject_trailing_unsafe()
+        # Post-parameter effect slot (designs 18/22, design 136):
+        # `func f(...) unsafe sync [-> T]`. `sync` makes the body a checked
+        # suspension-free context; `unsafe` declares that the signature or body
+        # touches an unsafe type (design 130's trigger rule). The slot spells the
+        # effects exactly as the matching function TYPE does.
+        is_unsafe, is_sync = self._parse_effect_slot()
 
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)
@@ -297,10 +292,12 @@ class DeclarationsMixin:
                     # Associated types carry no doc slot; report rather than drop.
                     self._release_doc(member_doc)
             elif self.match(TokenType.FUNC, TokenType.UNSAFE):
-                member_unsafe = self._parse_unsafe_modifier()
-                if member_unsafe and not self.match(TokenType.FUNC):
-                    self._error_unsafe_position()
-                method = self.parse_trait_method(member_unsafe)
+                # A prefix `unsafe` reaches here only to be reported: a trait
+                # requirement spells the effect after its parameter list, like
+                # every other signature (design 136).
+                if self._parse_unsafe_modifier():
+                    self._error_unsafe_prefix()
+                method = self.parse_trait_method()
                 method.doc = self.doc_text(member_doc)
                 methods.append(method)
             else:
@@ -334,7 +331,7 @@ class DeclarationsMixin:
             column=start.column
         )
 
-    def parse_trait_method(self, is_unsafe: bool = False) -> TraitMethod:
+    def parse_trait_method(self) -> TraitMethod:
         """Parse method signature in trait: func name(&self, params...) -> Type"""
         start = self.current()
         self.expect(TokenType.FUNC, "Expected 'func' in trait method")
@@ -346,15 +343,12 @@ class DeclarationsMixin:
         parameters, self_mutable, self_is_reference = self.parse_parameters()
         self.expect(TokenType.RPAREN)
 
-        # Post-parameter effect slot (designs 22/16/51): `func m(...) sync -> T`.
-        # A `sync` trait method is a checked suspension-free context — and, once
-        # erased, stays sync-callable through `any` (the effect follows the trait
-        # signature). Contextual, same as on free functions / extension methods.
-        is_sync = False
-        if self.match_ident('sync'):
-            is_sync = True
-            self.advance()
-        self._reject_trailing_unsafe()
+        # Post-parameter effect slot (designs 22/16/51, design 136):
+        # `func m(...) unsafe sync -> T`. A `sync` trait method is a checked
+        # suspension-free context — and, once erased, stays sync-callable through
+        # `any` (the effect follows the trait signature). An `unsafe` requirement
+        # states the effect once for every conformer.
+        is_unsafe, is_sync = self._parse_effect_slot()
 
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)
@@ -456,18 +450,20 @@ class DeclarationsMixin:
                 # `public(parent)` modifier on an extension method (incl. init +
                 # static). Must be followed by `func` or `init`.
                 method_visibility = self._parse_visibility()
-                member_unsafe = self._parse_unsafe_modifier()
+                if self._parse_unsafe_modifier():
+                    self._error_unsafe_prefix()
                 if not self.match(TokenType.FUNC, TokenType.INIT):
                     self.error("Expected 'func' or 'init' after visibility modifier "
                                "in extension")
-                method = self.parse_method(method_visibility, member_unsafe)
+                method = self.parse_method(method_visibility)
                 method.doc = self.doc_text(member_doc)
                 methods.append(method)
             elif self.match(TokenType.FUNC, TokenType.INIT, TokenType.UNSAFE):
-                member_unsafe = self._parse_unsafe_modifier()
-                if member_unsafe and not self.match(TokenType.FUNC, TokenType.INIT):
-                    self._error_unsafe_position()
-                method = self.parse_method(Visibility.PRIVATE, member_unsafe)
+                # design 136: a prefix `unsafe` on a method or an `init` is the
+                # old spelling; report it against the effect slot.
+                if self._parse_unsafe_modifier():
+                    self._error_unsafe_prefix()
+                method = self.parse_method(Visibility.PRIVATE)
                 method.doc = self.doc_text(member_doc)
                 methods.append(method)
             elif self.match(TokenType.AT):
@@ -633,8 +629,7 @@ class DeclarationsMixin:
             column=start.column
         )
 
-    def parse_method(self, visibility: Visibility = Visibility.PRIVATE,
-                     is_unsafe: bool = False) -> Method:
+    def parse_method(self, visibility: Visibility = Visibility.PRIVATE) -> Method:
         """Parse method definition: func name(&self, ...) -> Type { ... }
            or init method: init(...) { ... }"""
         start = self.current()
@@ -663,17 +658,12 @@ class DeclarationsMixin:
         parameters, self_mutable, self_is_reference, is_static = self.parse_method_parameters()
         self.expect(TokenType.RPAREN)
 
-        # Post-parameter effect slot (designs 18/22, design 24 item 3): an
-        # extension method may be `func name(...) sync [-> T]` (ISR/callback
-        # style). `sync` is CONTEXTUAL here for the same reason as on a free
-        # function — after the parameter list only `->`, `{`, or a newline may
-        # follow, so a bare identifier is unambiguous. The body is a checked
-        # suspension-free context (`Method.is_sync`, honored by the effect graph).
-        is_sync = False
-        if self.match_ident('sync'):
-            is_sync = True
-            self.advance()
-        self._reject_trailing_unsafe()
+        # Post-parameter effect slot (designs 18/22, design 24 item 3, design
+        # 136): an extension method or `init` may be
+        # `func name(...) unsafe sync [-> T]`. `sync` makes the body a checked
+        # suspension-free context (`Method.is_sync`, honored by the effect
+        # graph); `unsafe` declares contact with an unsafe type.
+        is_unsafe, is_sync = self._parse_effect_slot()
 
         # Return type (optional, defaults to void)
         return_type = SawType(TypeKind.VOID)

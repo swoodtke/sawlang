@@ -60,7 +60,7 @@ func rt_alloc_deny_after(allow: Int, deny: Int) {
 }
 
 @export("__saw_rt_alloc")
-unsafe func rt_alloc(size: Int, align: Int) -> UnsafePointer<Int8> {
+func rt_alloc(size: Int, align: Int) unsafe -> UnsafePointer<Int8> {
     if ALLOC_LIMIT_ACTIVE.load() != 0 {
         let allow = ALLOC_ALLOW.load()
         if allow > 0 {
@@ -82,6 +82,6 @@ unsafe func rt_alloc(size: Int, align: Int) -> UnsafePointer<Int8> {
 }
 
 @export("__saw_rt_dealloc")
-unsafe func rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+func rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
     free(ptr)
 }

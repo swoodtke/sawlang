@@ -760,7 +760,7 @@ class ExpressionsMixin:
             # expression, and a bare "unexpected token" would leave the reader to
             # work out that the whole model changed under them.
             self.error("`unsafe` is not an expression prefix — mark the "
-                       "enclosing declaration instead (`unsafe func f(...)`), "
+                       "enclosing declaration instead (`func f(...) unsafe`), "
                        "and delete the marker here")
 
         else:

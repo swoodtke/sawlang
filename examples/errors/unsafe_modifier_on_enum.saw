@@ -1,8 +1,11 @@
-// Design 130: only a `struct`, a `func` and an extension `init` carry the
-// `unsafe` modifier. Every other declaration inherits its unsafety from the
-// types it names, so marking one is a clean error rather than a silent no-op.
+// Design 136: `unsafe struct` is the one declaration that keeps the prefix — a
+// struct has no signature, so it has no effect slot to spell. Every other
+// declaration either carries the effect after its parameter list or inherits its
+// unsafety from the types it names, so a prefix here is a clean error rather
+// than a silent no-op.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: `unsafe` may only precede `struct`, `func` or `init`
+// EXPECT-ERROR-CONTAINS: `unsafe` may only precede `struct`
+// EXPECT-ERROR-CONTAINS: post-parameter effect slot
 
 unsafe enum Mode { case Read, case Write }
 

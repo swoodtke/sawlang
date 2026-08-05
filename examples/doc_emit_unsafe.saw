@@ -1,11 +1,12 @@
-//! The `--emit-docs` unsafe surface (design 130).
+//! The `--emit-docs` unsafe surface (designs 130 + 136).
 //
-// The modifier reaches the documented surface from both positions it can occupy:
-// `signature` carries it verbatim, `effect` prefixes the suspension effect with
-// it, and a struct gets an explicit `unsafe` field — without that last one a
-// generator could not tell `unsafe struct UnsafeMmioReg` from the plain
-// `UnsafeDefaults`, whose name says nothing about it. A safe caller of an unsafe
-// function is documented safe, which is design 130's rule 6.
+// The effect reaches the documented surface from both positions it can occupy:
+// `signature` renders the post-parameter slot the source spells (design 136),
+// `effect` prefixes the suspension effect with it, and a struct gets an explicit
+// `unsafe` field — without that last one a generator could not tell
+// `unsafe struct UnsafeMmioReg` from the plain `UnsafeDefaults`, whose name says
+// nothing about it. A safe caller of an unsafe function is documented safe,
+// which is design 130's rule 6.
 
 // EXPECT: docs
 // COMPILE-FLAGS: --emit-docs
@@ -16,12 +17,12 @@
 //     {
 //       "name": "doc_emit_unsafe",
 //       "source": "doc_emit_unsafe.saw",
-//       "doc": "The `--emit-docs` unsafe surface (design 130).",
+//       "doc": "The `--emit-docs` unsafe surface (designs 130 + 136).",
 //       "items": [
 //         {
 //           "kind": "func",
 //           "name": "poke",
-//           "signature": "public unsafe func poke(reg: Int) -> Int",
+//           "signature": "public func poke(reg: Int) unsafe -> Int",
 //           "visibility": "public",
 //           "generics": [],
 //           "params": [
@@ -35,7 +36,7 @@
 //           "effect": "unsafe sync",
 //           "self": null,
 //           "doc": null,
-//           "line": 92
+//           "line": 93
 //         },
 //         {
 //           "kind": "func",
@@ -54,7 +55,7 @@
 //           "effect": "sync",
 //           "self": null,
 //           "doc": null,
-//           "line": 94
+//           "line": 95
 //         },
 //         {
 //           "kind": "struct",
@@ -66,7 +67,7 @@
 //           "conformances": [],
 //           "fields": [],
 //           "doc": null,
-//           "line": 90
+//           "line": 91
 //         },
 //         {
 //           "kind": "struct",
@@ -78,7 +79,7 @@
 //           "conformances": [],
 //           "fields": [],
 //           "doc": null,
-//           "line": 88
+//           "line": 89
 //         }
 //       ]
 //     }
@@ -89,6 +90,6 @@ unsafe struct UnsafeMmioReg { addr: Int }
 
 struct UnsafeDefaults { n: Int }
 
-public unsafe func poke(reg: Int) -> Int { reg + 1 }
+public func poke(reg: Int) unsafe -> Int { reg + 1 }
 
 public func safe_poke(reg: Int) -> Int { poke(reg) }

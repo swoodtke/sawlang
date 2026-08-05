@@ -12,7 +12,7 @@
 
 static BUF: [UInt8; 32]
 
-unsafe func main() {
+func main() unsafe {
     let base = ((&BUF) as UnsafePointer<Int8>) as Int
     let whole = UnsafeMemory<[UInt8; 32], Normal>(base)
     // A second view based 8 bytes into the SAME buffer: shifted[i] aliases

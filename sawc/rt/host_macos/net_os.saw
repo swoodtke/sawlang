@@ -59,7 +59,7 @@ static SIN_LEN: Int8 = 16
 static AF_INET: Int8 = 2
 
 // The current thread's errno (sign-extended to a platform word). Private helper.
-unsafe func errno_value() -> Int {
+func errno_value() unsafe -> Int {
     __error()[0] as Int
 }
 
@@ -107,7 +107,7 @@ func rt_last_syserror() -> Int {
 // `buf` is a pointer param (the marked unsafe domain), so the byte stores need
 // no `unsafe` marker.
 @export("__saw_rt_sin_set_family")
-unsafe func rt_sin_set_family(buf: UnsafePointer<Int8>) {
+func rt_sin_set_family(buf: UnsafePointer<Int8>) unsafe {
     buf[0] = SIN_LEN
     buf[1] = AF_INET
 }

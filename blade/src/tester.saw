@@ -45,7 +45,7 @@ public extension Tester {
     // Run `cmd` through the shell with output suppressed (so the report stays
     // clean — a test's own stdout/stderr is not what we judge, only its status).
     // Passes iff the raw wait status is exactly 0.
-    public unsafe func shell_ok(&self, cmd: String) -> Bool {
+    public func shell_ok(&self, cmd: String) unsafe -> Bool {
         let quiet = "{cmd} > /dev/null 2>&1"
         let ptr = quiet as UnsafePointer<Int8>
         system(ptr) == (0 as Int32)
@@ -57,7 +57,7 @@ public extension Tester {
     // report stays clean, while a compile error or a test's failure reason is
     // SURFACED, never swallowed (design 97: `blade test` must not hide why a
     // test could not compile or run). Passes iff the raw wait status is exactly 0.
-    public unsafe func shell_ok_loud(&self, cmd: String) -> Bool {
+    public func shell_ok_loud(&self, cmd: String) unsafe -> Bool {
         let quiet = "{cmd} > /dev/null"
         let ptr = quiet as UnsafePointer<Int8>
         system(ptr) == (0 as Int32)

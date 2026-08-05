@@ -16,6 +16,6 @@ static DIRENT_NAME_OFFSET: Int = 19
 // The NUL-terminated name inside a `struct dirent` returned by `readdir`.
 // `entry` must be non-NULL (std checks readdir's own result first).
 @export("__saw_rt_fs_dirent_name")
-unsafe func rt_fs_dirent_name(entry: UnsafePointer<Int8>) -> UnsafePointer<Int8> {
+func rt_fs_dirent_name(entry: UnsafePointer<Int8>) unsafe -> UnsafePointer<Int8> {
     entry + DIRENT_NAME_OFFSET
 }

@@ -36,7 +36,7 @@ extension Mutex<T> {
     /// infallible tier). It used to build an INERT mutex whose `lock` returned
     /// `false` without ever running the critical section. `try_make` reports
     /// the failure instead.
-    public unsafe init(value: T) -> Mutex<T> {
+    public init(value: T) unsafe -> Mutex<T> {
         let size = 64 + sizeof<T>()
         if let block = GlobalAllocator().alloc(size, 16) {
             __saw_rt_pthread_mutex_init_default(block)
@@ -52,7 +52,7 @@ extension Mutex<T> {
     /// `Err(AllocError)`.
     ///
     /// `value` is destroyed on the failure path rather than leaked.
-    public unsafe func try_make(value: T) -> Result<Mutex<T>, AllocError> {
+    public func try_make(value: T) unsafe -> Result<Mutex<T>, AllocError> {
         let size = 64 + sizeof<T>()
         if let block = GlobalAllocator().alloc(size, 16) {
             __saw_rt_pthread_mutex_init_default(block)
@@ -86,7 +86,7 @@ extension Mutex<T> {
     /// self-deadlocks. `body` is a `sync` function type (design 22), so
     /// suspending inside the critical section is a compile error and calling
     /// `body` does not make `lock` itself suspend.
-    public unsafe func lock(&self, body: (&var T) sync -> Bool) -> Bool {
+    public func lock(&self, body: (&var T) sync -> Bool) unsafe -> Bool {
         let block = self.block
         pthread_mutex_lock(block)
         let payload_ptr = (block + 64) as UnsafePointer<T>
@@ -99,7 +99,7 @@ extension Mutex<T> {
 // Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
 // requirement is already satisfied.
 extension Mutex<T>: NoCopy {
-    public unsafe func deinit(&var self) {
+    public func deinit(&var self) unsafe {
         let block = self.block
         let payload_ptr = (block + 64) as UnsafePointer<T>
         __saw_deinit_in_place(payload_ptr)
@@ -115,7 +115,7 @@ extension Mutex<T: Copy> {
     ///
     /// Not optional (design 123): the `None` only ever meant "this mutex was
     /// built by an allocation that failed", and construction panics now.
-    public unsafe func get(&self) -> T {
+    public func get(&self) unsafe -> T {
         let block = self.block
         pthread_mutex_lock(block)
         let payload_ptr = (block + 64) as UnsafePointer<T>

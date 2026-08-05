@@ -391,13 +391,14 @@ class DocsBuilder:
                 text += " = " + e["default"]
             rendered.append(text)
         ret = _type_str(node.return_type)
-        sync_txt = " sync" if getattr(node, "is_sync", False) else ""
-        # design 130: `unsafe` precedes the declaration keyword, so it renders
-        # with the visibility prefix rather than in the post-parameter slot.
-        unsafe_txt = "unsafe " if getattr(node, "is_unsafe", False) else ""
+        # design 136: both effects ride the post-parameter slot, in the canonical
+        # order `unsafe sync` — so a rendered signature reads exactly as the
+        # source spells it, and as the matching function TYPE does.
+        effect_txt = (" unsafe" if getattr(node, "is_unsafe", False) else "")
+        effect_txt += (" sync" if getattr(node, "is_sync", False) else "")
         ret_txt = "" if ret in (None, "Void") else " -> " + ret
-        signature = "%s%s%s(%s)%s%s" % (_vis_prefix(visibility), unsafe_txt, head,
-                                        ", ".join(rendered), sync_txt, ret_txt)
+        signature = "%s%s(%s)%s%s" % (_vis_prefix(visibility), head,
+                                      ", ".join(rendered), effect_txt, ret_txt)
 
         return {
             "kind": "init" if is_init else "method" if owner else "func",

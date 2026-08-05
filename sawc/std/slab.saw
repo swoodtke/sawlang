@@ -56,7 +56,7 @@ struct SlabHead {
 // The returned chunk is UNINITIALIZED memory — the caller (e.g. `Box.make`)
 // placement-moves a value into it. `None` feeds the three-tier failure model:
 // an infallible factory panics on it, a fallible one returns `Err`.
-unsafe func slab_alloc(region: UnsafePointer<Int8>, chunk_count: Int, chunk_size: Int, head: &SlabHead) -> UnsafePointer<Int8>? {
+func slab_alloc(region: UnsafePointer<Int8>, chunk_count: Int, chunk_size: Int, head: &SlabHead) unsafe -> UnsafePointer<Int8>? {
     // 1. Reuse a freed chunk if the free-list is non-empty (LIFO pop).
     while true {
         let f = head.free.load()
@@ -92,7 +92,7 @@ unsafe func slab_alloc(region: UnsafePointer<Int8>, chunk_count: Int, chunk_size
 // chunk previously handed out by `slab_alloc` over the SAME `head`. The chunk's
 // payload is already dead (the caller ran its deinit); this reuses the chunk's
 // first word to link it into the free-list.
-unsafe func slab_dealloc(ptr: UnsafePointer<Int8>, head: &SlabHead) {
+func slab_dealloc(ptr: UnsafePointer<Int8>, head: &SlabHead) unsafe {
     let addr = ptr as Int
     let link = ptr as UnsafePointer<Int>
     while true {

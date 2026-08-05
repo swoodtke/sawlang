@@ -15,7 +15,7 @@ struct Pair { x: Int, y: Int }
 static SLOT: Pair
 static HEAP: [Int; 4]
 
-unsafe func main() {
+func main() unsafe {
     let sbase = ((&SLOT) as UnsafePointer<Int8>) as Int
     let view = UnsafeMemory<Pair, Normal>(sbase)
 

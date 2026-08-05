@@ -65,6 +65,15 @@ auto-detection fell back to the ENTRY module — a blade diagnostic about
 declaration's own file. Still open: the oversized-`unsafe`-function
 decomposition already filed below.
 
+**136 LANDED (Aug 5) — 130's spelling correction.** `unsafe` moved out of the
+declaration prefix and into the post-parameter effect slot beside `sync`
+(`func f(...) unsafe -> T`, canonical order `unsafe sync`), so a declaration's
+signature reads identically to its function TYPE; `unsafe struct` keeps the
+prefix (no parameter list, no slot). All 262 declarations re-spelled tree-wide,
+IR unchanged apart from the debug-info column of each moved keyword. The prefix
+is now a parse error carrying the mirror of 130's fixit, and so is the reversed
+`sync unsafe`.
+
 **128 LANDED (Aug 5)** — the P4 structural-synthesis line is closed. Deinit is
 implicit (a synthesized memberwise `deinit` for any owning struct/enum, dropping
 in reverse declaration order; enums payload-deep on the active variant), the

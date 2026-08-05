@@ -443,33 +443,56 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     MAX_PARSE_ERRORS = 10
 
     def _parse_unsafe_modifier(self) -> bool:
-        """Consume a leading `unsafe` declaration modifier, if present (design
-        130). It sits after the visibility modifier and before the declaration
-        keyword — `public unsafe func push(...)`, `unsafe struct UnsafeMmioReg`
-        — mirroring the `unsafe` slot on a function TYPE
-        (`(UnsafePointer<T>) unsafe sync -> R`)."""
+        """Consume a prefix `unsafe` declaration modifier, if present.
+
+        Since design 136 the only declaration that carries one is
+        `unsafe struct`: a struct has no signature, so the effect slot every
+        other declaration uses does not exist for it, and the enforced `Unsafe*`
+        name carries the visibility instead. A prefix in front of anything else
+        is reported by `_error_unsafe_prefix`.
+        """
         if self.match(TokenType.UNSAFE):
             self.advance()
             return True
         return False
 
-    def _error_unsafe_position(self) -> None:
-        """The `unsafe` modifier was consumed but the declaration that follows
-        cannot carry it (design 130). Only a `struct`, a `func` and an extension
-        `init` are markable: a type declares its own unsafety, and every other
-        declaration inherits it from the types it names."""
-        self.error("`unsafe` may only precede `struct`, `func` or `init` "
-                   f"(design 130), got {self.current().type.name}")
+    def _error_unsafe_prefix(self) -> None:
+        """A prefix `unsafe` in front of a declaration that is not a `struct`
+        (design 136). A declaration's signature reads identically to its
+        function TYPE, so the effect rides the post-parameter slot beside
+        `sync` — the fixit names that position."""
+        if self.match(TokenType.FUNC, TokenType.INIT):
+            keyword = "func" if self.match(TokenType.FUNC) else "init"
+            head = "func name(...)" if keyword == "func" else "init(...)"
+            self.error(f"`unsafe` goes after the parameter list, not before "
+                       f"`{keyword}` — write `{head} unsafe -> T` (the effect "
+                       f"slot, before `sync`)")
+        self.error("`unsafe` may only precede `struct` — every other "
+                   "declaration carries it in the post-parameter effect slot "
+                   "(`func f(...) unsafe -> T`), got "
+                   f"{self.current().type.name}")
 
-    def _reject_trailing_unsafe(self) -> None:
-        """`unsafe` belongs BEFORE the declaration keyword, not in the
-        post-parameter effect slot beside `sync` (design 130). A declaration that
-        spells it there gets a clean error pointing at the right position rather
-        than a confusing parse failure at the return arrow."""
+    def _parse_effect_slot(self):
+        """The post-parameter effect slot of a declaration (design 136):
+        `unsafe` then `sync`, in the order and spelling a function TYPE already
+        uses (`(T) unsafe sync -> R`). Both are optional. `sync` is CONTEXTUAL —
+        after the parameter list only `->`, `{`, or a newline-then-`{` may
+        follow, so a bare identifier here is unambiguous (Swift's
+        `throws`/`async` position; no keyword reservation). Returns
+        `(is_unsafe, is_sync)`.
+        """
+        is_unsafe = False
+        is_sync = False
         if self.match(TokenType.UNSAFE):
-            self.error("`unsafe` goes before the declaration, not after the "
-                       "parameter list — write `unsafe func name(...)` "
-                       "(after any visibility modifier)")
+            self.advance()
+            is_unsafe = True
+        if self.match_ident('sync'):
+            self.advance()
+            is_sync = True
+        if self.match(TokenType.UNSAFE):
+            self.error("`unsafe` comes before `sync` in the effect slot — "
+                       "write `... unsafe sync ...`")
+        return is_unsafe, is_sync
 
     def _at_toplevel_start(self) -> bool:
         """True if the current token can begin a top-level declaration."""
@@ -567,12 +590,12 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 # Parse visibility and then the declaration
                 visibility = self._parse_visibility()
                 unsafe = self._parse_unsafe_modifier()
+                if unsafe and not self.match(TokenType.STRUCT):
+                    self._error_unsafe_prefix()
                 if self.match(TokenType.STRUCT):
                     p.structs.append(self.parse_struct(visibility, unsafe))
                 elif self.match(TokenType.FUNC):
-                    p.functions.append(self.parse_function(visibility, unsafe))
-                elif unsafe:
-                    self._error_unsafe_position()
+                    p.functions.append(self.parse_function(visibility))
                 elif self.match(TokenType.ENUM):
                     p.enums.append(self.parse_enum(visibility))
                 elif self.match(TokenType.TRAIT):
@@ -591,10 +614,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             self.advance()
             if self.match(TokenType.STRUCT):
                 p.structs.append(self.parse_struct(Visibility.PRIVATE, True))
-            elif self.match(TokenType.FUNC):
-                p.functions.append(self.parse_function(Visibility.PRIVATE, True))
             else:
-                self._error_unsafe_position()
+                self._error_unsafe_prefix()
         elif self.match(TokenType.STRUCT):
             p.structs.append(self.parse_struct())
         elif self.match(TokenType.ENUM):
@@ -629,16 +650,15 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             if self.peek(1).type == TokenType.IDENT and self.peek(1).value == "module":
                 self.error("attributes are not supported on module declarations")
             visibility = self._parse_visibility()
-        unsafe = self._parse_unsafe_modifier()
+        if self._parse_unsafe_modifier():
+            self._error_unsafe_prefix()
 
         if self.match(TokenType.FUNC):
             self._reject_misplaced_attributes(attrs, FUNC_STATIC_ATTRIBUTES,
                                               "function declarations")
-            fn = self.parse_function(visibility, unsafe)
+            fn = self.parse_function(visibility)
             fn.attributes = attrs
             p.functions.append(fn)
-        elif unsafe:
-            self._error_unsafe_position()
         elif self.match(TokenType.STATIC):
             self._reject_misplaced_attributes(attrs, FUNC_STATIC_ATTRIBUTES,
                                               "static declarations")

@@ -5,7 +5,7 @@
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: is not declared `unsafe`
 // EXPECT-ERROR-CONTAINS: names a value of unsafe type
-// EXPECT-ERROR-CONTAINS: write `unsafe func leak_it`
+// EXPECT-ERROR-CONTAINS: write `func leak_it(...) unsafe`
 
 unsafe struct UnsafeMmioReg { addr: Int }
 

@@ -68,7 +68,7 @@ func ntohs(net: UInt16) -> Int {
 }
 
 // A 127.0.0.1:port sockaddr with the OS-correct family prefix.
-unsafe func loopback_sockaddr(port: Int) -> SockAddrIn {
+func loopback_sockaddr(port: Int) unsafe -> SockAddrIn {
     var sa = SockAddrIn(family: 0 as UInt16, port: htons(port), addr: LOOPBACK_BE, zero: 0 as UInt64)
     __saw_rt_sin_set_family((&sa) as UnsafePointer<Int8>)
     sa
@@ -78,7 +78,7 @@ unsafe func loopback_sockaddr(port: Int) -> SockAddrIn {
 // Returns the listen fd (>= 0) or -tag. errno is captured BEFORE close(), which
 // would otherwise clobber it.
 @export("__saw_rt_tcp_listen")
-unsafe func rt_tcp_listen(port: Int) -> Int {
+func rt_tcp_listen(port: Int) unsafe -> Int {
     let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
     if fd < (0 as Int32) {
         return -__saw_rt_last_syserror()
@@ -101,7 +101,7 @@ unsafe func rt_tcp_listen(port: Int) -> Int {
 
 // The actual local port a (possibly ephemeral) listen fd is bound to.
 @export("__saw_rt_tcp_local_port")
-unsafe func rt_tcp_local_port(fd: Int) -> Int {
+func rt_tcp_local_port(fd: Int) unsafe -> Int {
     var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
     let ap = (&sa) as UnsafePointer<Int8>
     var len: Int32 = SOCKADDR_IN_LEN
@@ -113,7 +113,7 @@ unsafe func rt_tcp_local_port(fd: Int) -> Int {
 // Nonblocking accept: a nonblocking connection fd (>= 0), or -tag
 // (-SYS_WOULD_BLOCK when no client is waiting).
 @export("__saw_rt_tcp_accept")
-unsafe func rt_tcp_accept(listen_fd: Int) -> Int {
+func rt_tcp_accept(listen_fd: Int) unsafe -> Int {
     var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
     let ap = (&sa) as UnsafePointer<Int8>
     var len: Int32 = SOCKADDR_IN_LEN
@@ -129,7 +129,7 @@ unsafe func rt_tcp_accept(listen_fd: Int) -> Int {
 // Start a nonblocking connect to 127.0.0.1:port. Returns a connecting fd (>= 0;
 // including the EINPROGRESS "wait for writable" case) or -tag on a real failure.
 @export("__saw_rt_tcp_connect_start")
-unsafe func rt_tcp_connect_start(port: Int) -> Int {
+func rt_tcp_connect_start(port: Int) unsafe -> Int {
     let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
     if fd < (0 as Int32) {
         return -__saw_rt_last_syserror()
@@ -153,7 +153,7 @@ unsafe func rt_tcp_connect_start(port: Int) -> Int {
 // 90). Returns 0 = connected, -SYS_IN_PROGRESS = still connecting (re-park), or
 // -tag = a real failure.
 @export("__saw_rt_tcp_connect_check")
-unsafe func rt_tcp_connect_check(fd: Int, port: Int) -> Int {
+func rt_tcp_connect_check(fd: Int, port: Int) unsafe -> Int {
     var sa = loopback_sockaddr(port)
     let ap = (&sa) as UnsafePointer<Int8>
     let r = connect(fd as Int32, ap, SOCKADDR_IN_LEN)
@@ -172,7 +172,7 @@ unsafe func rt_tcp_connect_check(fd: Int, port: Int) -> Int {
 
 // Nonblocking read: byte count (0 = EOF), or -tag (-SYS_WOULD_BLOCK on a would-block).
 @export("__saw_rt_tcp_read")
-unsafe func rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
+func rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
     let n = read(fd as Int32, buf, len)
     if n >= 0 {
         return n
@@ -182,7 +182,7 @@ unsafe func rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
 
 // Nonblocking write: bytes written (may be < len), or -tag.
 @export("__saw_rt_tcp_write")
-unsafe func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
+func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
     let n = write(fd as Int32, buf, len)
     if n >= 0 {
         return n
@@ -197,7 +197,7 @@ unsafe func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int {
 // =============================================================================
 
 @export("__saw_rt_fs_unlink")
-unsafe func rt_fs_unlink(path: UnsafePointer<Int8>) -> Int {
+func rt_fs_unlink(path: UnsafePointer<Int8>) unsafe -> Int {
     if unlink(path) == (0 as Int32) {
         0
     } else {
@@ -206,7 +206,7 @@ unsafe func rt_fs_unlink(path: UnsafePointer<Int8>) -> Int {
 }
 
 @export("__saw_rt_fs_rename")
-unsafe func rt_fs_rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) -> Int {
+func rt_fs_rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) unsafe -> Int {
     if rename(oldpath, newpath) == (0 as Int32) {
         0
     } else {
@@ -215,7 +215,7 @@ unsafe func rt_fs_rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<In
 }
 
 @export("__saw_rt_fs_mkdir")
-unsafe func rt_fs_mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int {
+func rt_fs_mkdir(path: UnsafePointer<Int8>, mode: Int) unsafe -> Int {
     if mkdir(path, mode) == (0 as Int32) {
         0
     } else {
@@ -224,7 +224,7 @@ unsafe func rt_fs_mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int {
 }
 
 @export("__saw_rt_fs_rmdir")
-unsafe func rt_fs_rmdir(path: UnsafePointer<Int8>) -> Int {
+func rt_fs_rmdir(path: UnsafePointer<Int8>) unsafe -> Int {
     if rmdir(path) == (0 as Int32) {
         0
     } else {
@@ -233,7 +233,7 @@ unsafe func rt_fs_rmdir(path: UnsafePointer<Int8>) -> Int {
 }
 
 @export("__saw_rt_fs_chdir")
-unsafe func rt_fs_chdir(path: UnsafePointer<Int8>) -> Int {
+func rt_fs_chdir(path: UnsafePointer<Int8>) unsafe -> Int {
     if chdir(path) == (0 as Int32) {
         0
     } else {
@@ -242,7 +242,7 @@ unsafe func rt_fs_chdir(path: UnsafePointer<Int8>) -> Int {
 }
 
 @export("__saw_rt_env_set")
-unsafe func rt_env_set(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int) -> Int {
+func rt_env_set(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int) unsafe -> Int {
     if setenv(name, value, overwrite as Int32) == (0 as Int32) {
         0
     } else {
@@ -251,7 +251,7 @@ unsafe func rt_env_set(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, ov
 }
 
 @export("__saw_rt_env_unset")
-unsafe func rt_env_unset(name: UnsafePointer<Int8>) -> Int {
+func rt_env_unset(name: UnsafePointer<Int8>) unsafe -> Int {
     if unsetenv(name) == (0 as Int32) {
         0
     } else {

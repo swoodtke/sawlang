@@ -16,7 +16,7 @@ import std.net.{net_buffer, net_free_buffer, net_would_block, tcp_close, tcp_soc
 struct Res { id: Int }
 extension Res: NoCopy { func deinit(&var self) { print(self.id) } }
 
-unsafe func reader(fd: Int) -> Int {
+func reader(fd: Int) unsafe -> Int {
     let held = Res(id: 55)      // deinit oracle
     let buf = net_buffer(16)
     var total = 0
@@ -39,7 +39,7 @@ unsafe func reader(fd: Int) -> Int {
     return total
 }
 
-unsafe func main() {
+func main() unsafe {
     let pair = tcp_socketpair()
     let a = pair.0
     let b = pair.1

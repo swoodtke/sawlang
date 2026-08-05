@@ -22,7 +22,7 @@ struct Timer {
 // 16 writable bytes standing in for the register block.
 static BACKING: [UInt8; 16]
 
-unsafe func main() {
+func main() unsafe {
     let base = ((&BACKING) as UnsafePointer<Int8>) as Int
     let t = UnsafeMemory<Timer, Device>(base)
 

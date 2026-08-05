@@ -9,7 +9,7 @@ extern "C" {
 
 // Run a shell command quietly; true iff it exits 0. The subshell keeps the
 // quiet-redirect from hijacking a trailing `>>` inside `cmd`.
-unsafe func sh(cmd: String) -> Bool {
+func sh(cmd: String) unsafe -> Bool {
     let full = "( {cmd} ) > /dev/null 2>&1"
     let ptr = full as UnsafePointer<Int8>
     system(ptr) == (0 as Int32)

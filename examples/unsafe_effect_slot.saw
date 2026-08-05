@@ -1,0 +1,77 @@
+// Design 136: `unsafe` is spelled in the post-parameter effect slot, so a
+// declaration's signature reads exactly like the function TYPE that matches it —
+// including the canonical `unsafe sync` order the type grammar already used.
+// Every declaration shape carries it there: a free function, an extension `init`,
+// a method combining both effects, a trait requirement, and a function that both
+// declares `unsafe` and suspends.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 10
+// 8
+// 5
+
+import std.task
+
+static REGISTER_COUNT: Int = 4
+static REGISTER_STRIDE: Int = 4
+
+// A struct has no signature, so its unsafety keeps the prefix.
+unsafe struct UnsafeMmioReg { addr: Int }
+
+trait Peripheral {
+    // The requirement states the effect once, for every conformer.
+    func probe(&self) unsafe -> Int
+}
+
+extension UnsafeMmioReg {
+    init(at: Int) unsafe -> UnsafeMmioReg { UnsafeMmioReg(addr: at) }
+
+    // Both effects, in the canonical order.
+    public func read(&self) unsafe sync -> Int { self.addr }
+}
+
+extension UnsafeMmioReg: Peripheral {
+    func probe(&self) unsafe -> Int { self.addr + 2 }
+}
+
+func read_at(offset: Int) unsafe -> Int {
+    let reg = UnsafeMmioReg(at: offset)
+    reg.read() + reg.probe()
+}
+
+// Unsafe AND suspending: the slot declares the unsafety, the effect graph infers
+// the suspension, and the two do not interfere.
+func drain(offset: Int) unsafe -> Int {
+    let reg = UnsafeMmioReg(at: offset)
+    yield_now()
+    reg.read()
+}
+
+// Safe wrappers: every parameter is a safe type, so each is sound for every
+// input and checks the index itself.
+func read_register(index: Int) -> Int {
+    if index < 0 || index >= REGISTER_COUNT {
+        panic("read_register: index out of range")
+    }
+    read_at(index * REGISTER_STRIDE)
+}
+
+func drain_register(index: Int) -> Int {
+    if index < 0 || index >= REGISTER_COUNT {
+        panic("drain_register: index out of range")
+    }
+    drain(index * REGISTER_STRIDE)
+}
+
+func main() {
+    print("{read_register(0)}")
+    print("{read_register(1)}")
+    print("{drain_register(2)}")
+    // A closure hands the unsafe value on through a slot that says `unsafe`.
+    print("{with_register(4) { r in r.read() + 1 }}")
+}
+
+func with_register(offset: Int, body: (UnsafeMmioReg) unsafe sync -> Int) unsafe -> Int {
+    body(UnsafeMmioReg(at: offset))
+}

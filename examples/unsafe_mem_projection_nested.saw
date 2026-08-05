@@ -26,7 +26,7 @@ struct Block {
 
 static BACKING: [UInt8; 24]
 
-unsafe func main() {
+func main() unsafe {
     let base = ((&BACKING) as UnsafePointer<Int8>) as Int
     let blk = UnsafeMemory<Block, Normal>(base)
     // A UInt32-element view over the same store: element i == byte offset 4*i.
