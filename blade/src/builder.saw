@@ -14,6 +14,7 @@ import src.layout.*
 import src.manifest.*
 import src.resolver.*
 import src.lock.*
+import src.sosimg.*
 import std.directory.{Directory}
 import std.env.{Env}
 import std.file.{File}
@@ -263,8 +264,140 @@ public extension Builder {
         }
     }
 
+    // Run one build tool, turning a non-zero exit or a failed launch into a
+    // BuildError. Used by the sosimg pipeline, which drives three of them.
+    func run_tool(&self, cmd: &Command, what: String) -> Result<Void, BuildError> {
+        // Both arms are STATEMENTS and the Ok result is returned below. A tail
+        // `match` with one diverging arm and one bare-error arm miscompiles
+        // (DF-140e) — the arms unify to the error type and the auto-wrap into
+        // `Err` is dropped, so the function returns a raw BuildError.
+        match cmd.run() {
+            case Ok(code) -> {
+                if code != (0 as Int32) {
+                    return BuildError(msg: "{what} failed", code: code)
+                }
+            },
+            case Err(e) -> {
+                return BuildError(msg: "could not launch {what}: {e.program_name()}")
+            }
+        }
+        return
+    }
+
+    // Build an SOS process image (design 140 unit B; sos/spec.md §6).
+    //
+    // `sawc --freestanding` for the Saw half, the cross `clang` for the one
+    // native translation unit a freestanding SOS process needs (its syscall
+    // stub — no amount of Saw emits an `ecall`), `ld.lld` with the package's
+    // linker script to place it at its fixed load address, then ELF -> sosimg.
+    // The kernel gets a header it can walk with a handful of aligned loads and
+    // never has to know what an ELF is.
+    func build_sos_image(&self, cfg: &SosConfig, force: Bool) -> Result<Int, BuildError> {
+        guard let source_file = self.find_source_file() else {
+            return BuildError(msg: "No main.saw or lib.saw found")
+        }
+        let name = self.manifest.name()
+        let image = "{name}.sosimg"
+
+        let res = try self.resolve_deps()
+
+        let hash = self.build_hash(&res)
+        if not force {
+            if read_file(".blade/build-hash").equals(hash) {
+                if File.exists(Path(s: image)) {
+                    print("    Finished {image} (up to date)")
+                    return 0
+                }
+            }
+        }
+
+        print("   Compiling {name} v{self.manifest.version()} (sosimg, {cfg.target})")
+        let _ = Directory.create(Path(s: ".blade"))
+
+        let obj = ".blade/{name}.o"
+        let elf = ".blade/{name}.elf"
+
+        var saw = self.compiler_command()
+        saw.arg(source_file)
+        saw.arg("-o")
+        saw.arg(obj)
+        saw.arg("--freestanding")
+        saw.arg("--target")
+        saw.arg(cfg.target)
+        var i = 0
+        while i < res.len() {
+            saw.arg("--module-path")
+            saw.arg("{res.name(i)}={self.dep_dir(&res, i)}/src")
+            i = i + 1
+        }
+        try self.run_tool(&saw, "sawc")
+
+        var objects = Vector<String>()
+        objects.push(obj)
+
+        if not cfg.native.is_empty() {
+            let native_obj = ".blade/{name}.native.o"
+            var cc = Command(program: sos_clang())
+            cc.arg("--target={cfg.target}")
+            cc.arg("-march={cfg.march}")
+            cc.arg("-mabi={cfg.mabi}")
+            cc.arg("-ffreestanding")
+            cc.arg("-fno-builtin")
+            cc.arg("-ffunction-sections")
+            cc.arg("-fdata-sections")
+            cc.arg("-nostdlib")
+            cc.arg("-O2")
+            cc.arg("-c")
+            cc.arg(cfg.native)
+            cc.arg("-o")
+            cc.arg(native_obj)
+            try self.run_tool(&cc, "clang")
+            objects.push(native_obj)
+        }
+
+        var ld = Command(program: sos_ld())
+        ld.arg("-T")
+        ld.arg(cfg.linker_script)
+        ld.arg("--gc-sections")
+        ld.arg("-o")
+        ld.arg(elf)
+        var o = 0
+        while o < objects.len() {
+            if let object = objects.get(o) {
+                ld.arg(object)
+            }
+            o = o + 1
+        }
+        try self.run_tool(&ld, "ld.lld")
+
+        match write_sosimg(Path(s: elf), Path(s: image), cfg.prio_map) {
+            case Ok(size) -> {
+                if let f = File.create(Path(s: ".blade/build-hash")) {
+                    let data = hash.to_data()
+                    f.write(move data)
+                }
+                print("    Finished {image} ({size} bytes)")
+                0
+            },
+            case Err(e) -> BuildError(msg: "could not emit {image}: {e.text()}")
+        }
+    }
+
     // Compile the project. `force` bypasses build avoidance.
+    //
+    // A package whose manifest carries `[sos]` builds to an SOS process image
+    // rather than a host executable — a different linker, a different output,
+    // and no host runtime at all.
     public func build(&self, force: Bool) -> Result<Int, BuildError> {
+        var sos_cfg: SosConfig? = None
+        match load_sos_config(self.manifest.root_dir) {
+            case Ok(found) -> { sos_cfg = found },
+            case Err(e) -> { return BuildError(msg: "Saw.toml [sos]: {e}") }
+        }
+        if let cfg = sos_cfg {
+            return self.build_sos_image(&cfg, force)
+        }
+
         guard let source_file = self.find_source_file() else {
             return BuildError(msg: "No main.saw or lib.saw found")
         }

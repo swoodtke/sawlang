@@ -1,0 +1,504 @@
+// sosimg — the SOS process-image build target (design 140 unit B; sos/spec.md §6)
+//
+// A package whose manifest carries `[sos] emit = "sosimg"` builds to a flat SOS
+// image instead of a host executable. The kernel that loads it is a microkernel:
+// it will not carry an ELF reader, so Blade does the reading here and hands the
+// kernel a header it can walk with a handful of aligned loads.
+//
+// This module owns two things — the `[sos]` manifest section, and the ELF32 ->
+// sosimg conversion. Driving the compiler, the assembler and the linker is the
+// builder's job (src/builder.saw), which calls in here for both.
+//
+// FORMAT (mirrored by the loader in sos/kernel/core/lib.saw; keep the two in
+// step — the comment there is the normative copy):
+//
+//   HEADER (SOSIMG_HEADER_LEN bytes)
+//     0   4  magic      'S' 'O' 'S' 'I'
+//     4   2  version    = SOSIMG_VERSION
+//     6   1  seg_count
+//     7   1  reserved   (0)
+//     8   4  entry      ABSOLUTE load address of the first instruction
+//     12  4  prio_map   spec §7 band -> level, one byte per band, low byte
+//                       first: background, low, normal, high
+//   SEGMENT TABLE (seg_count records of SOSIMG_SEG_LEN bytes)
+//     0   4  file_off   offset from the IMAGE BASE to the segment's bytes
+//     4   4  load_addr
+//     8   4  file_len
+//     12  4  mem_len    >= file_len; the loader zero-fills the tail (.bss)
+//     16  1  flags      bit 0 R, bit 1 W, bit 2 X
+//     17  3  reserved   (0)
+//
+// Every field is fixed-width little-endian — the design-47 discipline — so a
+// 32-bit and a 64-bit SOS profile read identical bytes.
+
+// The toml types are imported BARE, not reached through a `toml.` qualifier: a
+// module-qualified name does not resolve in TYPE position (DF-140c), so
+// `&TomlSection` is the only spelling that works for `band_level`'s parameter.
+import toml.{TomlDoc, TomlSection}
+import std.data.{Data}
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+// =============================================================================
+// Errors
+// =============================================================================
+
+public struct SosError {
+    message: String
+}
+
+public extension SosError {
+    public init(msg: String) -> SosError {
+        SosError(message: msg)
+    }
+
+    public func text(&self) -> String {
+        self.message
+    }
+}
+
+public extension SosError: Error {
+    public func format(&self, into: &var StringBuilder) {
+        into.append(self.message)
+    }
+}
+
+// =============================================================================
+// Format constants
+// =============================================================================
+
+public static SOSIMG_VERSION: UInt = 1
+public static SOSIMG_HEADER_LEN: Int = 16
+public static SOSIMG_SEG_LEN: Int = 20
+
+// sosimg segment permission bits.
+static SOS_PERM_R: UInt = 1
+static SOS_PERM_W: UInt = 2
+static SOS_PERM_X: UInt = 4
+
+// ELF32 offsets and values (the only ELF this module knows).
+static ELF_CLASS_OFF: Int = 4
+static ELF_DATA_OFF: Int = 5
+static ELF_CLASS_32: UInt = 1
+static ELF_DATA_LSB: UInt = 1
+static ELF_ENTRY_OFF: Int = 24
+static ELF_PHOFF_OFF: Int = 28
+static ELF_PHENTSIZE_OFF: Int = 42
+static ELF_PHNUM_OFF: Int = 44
+static ELF32_PHDR_LEN: Int = 32
+
+static PHDR_TYPE: Int = 0
+static PHDR_OFFSET: Int = 4
+static PHDR_VADDR: Int = 8
+static PHDR_FILESZ: Int = 16
+static PHDR_MEMSZ: Int = 20
+static PHDR_FLAGS: Int = 24
+
+static PT_LOAD: UInt = 1
+static PF_X: UInt = 1
+static PF_W: UInt = 2
+static PF_R: UInt = 4
+
+// Segment payloads are placed on this boundary so the kernel's word-granular
+// copy never straddles one. Not required by the format; kindness to the loader.
+static SEGMENT_ALIGN: Int = 4
+
+// spec §7: eight system priority levels, four named bands.
+static PRIORITY_LEVEL_MAX: Int = 7
+static BAND_COUNT: Int = 4
+static BITS_PER_BAND: Int = 8
+
+// =============================================================================
+// `[sos]` manifest section
+// =============================================================================
+
+/// What `[sos]` says about how to build this package's image.
+public struct SosConfig {
+    public target: String
+    public march: String
+    public mabi: String
+    public linker_script: String
+    /// A single C or assembly translation unit linked alongside the Saw object,
+    /// or "" for none. A freestanding SOS process needs at least a syscall stub,
+    /// which no amount of Saw can express — that is what this is for.
+    public native: String
+    /// The spec §7 band -> level map, packed one byte per band, low byte first:
+    /// background, low, normal, high.
+    public prio_map: UInt
+}
+
+/// Defaults matching spec §7's initial map: apps cluster at levels 0-1 and
+/// levels 2-7 are headroom for drivers and services.
+static DEFAULT_BACKGROUND: Int = 0
+static DEFAULT_LOW: Int = 1
+static DEFAULT_NORMAL: Int = 1
+static DEFAULT_HIGH: Int = 1
+
+func band_level(section: &TomlSection, band: String, fallback: Int) -> Result<Int, SosError> {
+    guard let raw = section.table_value("priorities", band) else {
+        return fallback
+    }
+    guard let level = raw.to_int() else {
+        return SosError(msg: "[sos] priorities.{band}: `{raw}` is not an integer")
+    }
+    if level < 0 || level > PRIORITY_LEVEL_MAX {
+        return SosError(msg: "[sos] priorities.{band}: level {level} is outside 0..{PRIORITY_LEVEL_MAX}")
+    }
+    level
+}
+
+/// Read the `[sos]` section of `<dir>/Saw.toml`. Returns None when the package
+/// has no `[sos]` section — an ordinary host package, built the ordinary way.
+public func load_sos_config(dir: Path) -> Result<SosConfig?, Box<any Error>> {
+    let manifest_path = dir.join("Saw.toml")
+    guard var file = File.open(manifest_path) else {
+        return SosError(msg: "could not open {manifest_path.as_str()}")
+    }
+    guard let data = file.read() else {
+        return SosError(msg: "could not read {manifest_path.as_str()}")
+    }
+    let content = try data.to_string()
+    let doc = try TomlDoc.parse(content)
+
+    guard let section = doc.get_section("sos") else {
+        // The absent case is spelled through a typed local: a bare
+        // `return None` from a `Result<T?, E>` is an internal compiler error
+        // (DF-140c's neighbour, DF-140d).
+        let absent: SosConfig? = None
+        return absent
+    }
+
+    let emit = section.get("emit") ?? ""
+    if not emit.equals("sosimg") {
+        return SosError(msg: "[sos] emit: expected \"sosimg\", got `{emit}`")
+    }
+
+    let target = section.get("target") ?? ""
+    if target.is_empty() {
+        return SosError(msg: "[sos] target is required (the cross-compilation triple)")
+    }
+    let linker_script = section.get("linker-script") ?? ""
+    if linker_script.is_empty() {
+        return SosError(msg: "[sos] linker-script is required (an SOS image has a fixed load address)")
+    }
+
+    let background = try band_level(&section, "background", DEFAULT_BACKGROUND)
+    let low = try band_level(&section, "low", DEFAULT_LOW)
+    let normal = try band_level(&section, "normal", DEFAULT_NORMAL)
+    let high = try band_level(&section, "high", DEFAULT_HIGH)
+    let packed = pack_priorities(background, low, normal, high)
+
+    // riscv32 defaults: the `virt`/ESP32-P4 Profile A baseline.
+    //
+    // Typed local again (DF-140d): returning the value directly would have to
+    // auto-wrap twice — into the Optional and then into the Result — and that
+    // is an internal compiler error.
+    let found: SosConfig? = SosConfig(
+        target: target,
+        march: section.get("march") ?? "rv32imac_zicsr",
+        mabi: section.get("mabi") ?? "ilp32",
+        linker_script: linker_script,
+        native: section.get("native") ?? "",
+        prio_map: packed,
+    )
+    return found
+}
+
+/// The cross-compiler driving the native translation unit. An SOS image is
+/// built for a bare-metal triple, so this is never the host toolchain by
+/// accident — `SOS_CLANG` names it when the default is wrong (macOS's Apple
+/// clang mis-drives the riscv integrated assembler).
+public func sos_clang() -> String {
+    Env.get("SOS_CLANG") ?? "clang"
+}
+
+/// The linker. `SOS_LD` overrides.
+public func sos_ld() -> String {
+    Env.get("SOS_LD") ?? "ld.lld"
+}
+
+/// Pack the four band levels into the header's `prio_map` word, low byte first.
+public func pack_priorities(background: Int, low: Int, normal: Int, high: Int) -> UInt {
+    var packed = background as UInt
+    packed = packed | ((low as UInt) << BITS_PER_BAND)
+    packed = packed | ((normal as UInt) << (BITS_PER_BAND * 2))
+    packed = packed | ((high as UInt) << (BITS_PER_BAND * 3))
+    packed
+}
+
+// =============================================================================
+// Little-endian byte access
+// =============================================================================
+
+func u8_at(d: &Data, off: Int) -> UInt? {
+    guard let b = d.get(off) else {
+        return None
+    }
+    b as UInt
+}
+
+func u16_at(d: &Data, off: Int) -> UInt? {
+    guard let b0 = d.get(off) else {
+        return None
+    }
+    guard let b1 = d.get(off + 1) else {
+        return None
+    }
+    (b0 as UInt) | ((b1 as UInt) << 8)
+}
+
+func u32_at(d: &Data, off: Int) -> UInt? {
+    guard let b0 = d.get(off) else {
+        return None
+    }
+    guard let b1 = d.get(off + 1) else {
+        return None
+    }
+    guard let b2 = d.get(off + 2) else {
+        return None
+    }
+    guard let b3 = d.get(off + 3) else {
+        return None
+    }
+    (b0 as UInt) | ((b1 as UInt) << 8) | ((b2 as UInt) << 16) | ((b3 as UInt) << 24)
+}
+
+func put_u8(out: &var Data, v: UInt) {
+    out.push((v & 0xFF) as UInt8)
+}
+
+func put_u16(out: &var Data, v: UInt) {
+    put_u8(&var out, v)
+    put_u8(&var out, v >> 8)
+}
+
+func put_u32(out: &var Data, v: UInt) {
+    put_u8(&var out, v)
+    put_u8(&var out, v >> 8)
+    put_u8(&var out, v >> 16)
+    put_u8(&var out, v >> 24)
+}
+
+// =============================================================================
+// ELF32 -> sosimg
+// =============================================================================
+
+// One PT_LOAD program header, reduced to what the format carries. All fields
+// are trivially copyable, so this needs no copy policy.
+struct SegSpec {
+    file_off: Int
+    load_addr: UInt
+    file_len: Int
+    mem_len: Int
+    flags: UInt
+}
+
+func sos_flags(elf_flags: UInt) -> UInt {
+    // ELF spells the bits X=1, W=2, R=4; sosimg spells them R=1, W=2, X=4.
+    var f: UInt = 0
+    if (elf_flags & PF_R) != 0 {
+        f = f | SOS_PERM_R
+    }
+    if (elf_flags & PF_W) != 0 {
+        f = f | SOS_PERM_W
+    }
+    if (elf_flags & PF_X) != 0 {
+        f = f | SOS_PERM_X
+    }
+    f
+}
+
+func align_up(v: Int, align: Int) -> Int {
+    let rem = v % align
+    if rem == 0 {
+        v
+    } else {
+        v + (align - rem)
+    }
+}
+
+func check_elf_header(elf: &Data) -> Result<Void, SosError> {
+    if elf.len() < ELF32_PHDR_LEN {
+        return SosError(msg: "linked image is too short to be an ELF")
+    }
+    let m0 = u8_at(&elf, 0) ?? 0
+    let m1 = u8_at(&elf, 1) ?? 0
+    let m2 = u8_at(&elf, 2) ?? 0
+    let m3 = u8_at(&elf, 3) ?? 0
+    // 0x7F 'E' 'L' 'F'
+    if m0 != 0x7F || m1 != 69 || m2 != 76 || m3 != 70 {
+        return SosError(msg: "linked image is not an ELF")
+    }
+    if (u8_at(&elf, ELF_CLASS_OFF) ?? 0) != ELF_CLASS_32 {
+        return SosError(msg: "linked image is not ELF32 (sosimg addresses are 32-bit)")
+    }
+    if (u8_at(&elf, ELF_DATA_OFF) ?? 0) != ELF_DATA_LSB {
+        return SosError(msg: "linked image is not little-endian")
+    }
+    return
+}
+
+func collect_segments(elf: &Data) -> Result<Vector<SegSpec>, SosError> {
+    try check_elf_header(&elf)
+
+    guard let phoff_raw = u32_at(&elf, ELF_PHOFF_OFF) else {
+        return SosError(msg: "truncated ELF header (no program-header offset)")
+    }
+    guard let phentsize = u16_at(&elf, ELF_PHENTSIZE_OFF) else {
+        return SosError(msg: "truncated ELF header (no program-header size)")
+    }
+    guard let phnum = u16_at(&elf, ELF_PHNUM_OFF) else {
+        return SosError(msg: "truncated ELF header (no program-header count)")
+    }
+    if phentsize != (ELF32_PHDR_LEN as UInt) {
+        return SosError(msg: "unexpected ELF program-header size {phentsize}")
+    }
+
+    let phoff = phoff_raw as Int
+    var segments = Vector<SegSpec>()
+    var i = 0
+    while i < (phnum as Int) {
+        let rec = phoff + i * ELF32_PHDR_LEN
+        guard let ptype = u32_at(&elf, rec + PHDR_TYPE) else {
+            return SosError(msg: "truncated ELF program header {i}")
+        }
+        if ptype == PT_LOAD {
+            guard let p_offset = u32_at(&elf, rec + PHDR_OFFSET) else {
+                return SosError(msg: "truncated ELF program header {i}")
+            }
+            guard let p_vaddr = u32_at(&elf, rec + PHDR_VADDR) else {
+                return SosError(msg: "truncated ELF program header {i}")
+            }
+            guard let p_filesz = u32_at(&elf, rec + PHDR_FILESZ) else {
+                return SosError(msg: "truncated ELF program header {i}")
+            }
+            guard let p_memsz = u32_at(&elf, rec + PHDR_MEMSZ) else {
+                return SosError(msg: "truncated ELF program header {i}")
+            }
+            guard let p_flags = u32_at(&elf, rec + PHDR_FLAGS) else {
+                return SosError(msg: "truncated ELF program header {i}")
+            }
+            // A zero-length PT_LOAD carries nothing and would only cost the
+            // kernel a PMP region.
+            if p_memsz != 0 {
+                segments.push(SegSpec(
+                    file_off: p_offset as Int,
+                    load_addr: p_vaddr,
+                    file_len: p_filesz as Int,
+                    mem_len: p_memsz as Int,
+                    flags: sos_flags(p_flags),
+                ))
+            }
+        }
+        i = i + 1
+    }
+
+    if segments.len() == 0 {
+        return SosError(msg: "linked image has no loadable segments")
+    }
+    move segments
+}
+
+/// Convert a linked ELF32 image into a sosimg carrying `prio_map`.
+public func elf_to_sosimg(elf: &Data, prio_map: UInt) -> Result<Data, SosError> {
+    let segments = try collect_segments(&elf)
+
+    guard let entry = u32_at(&elf, ELF_ENTRY_OFF) else {
+        return SosError(msg: "truncated ELF header (no entry point)")
+    }
+
+    let count = segments.len()
+    // Where each segment's bytes land in the output: after the header and the
+    // table, each on a SEGMENT_ALIGN boundary.
+    var placed = Vector<Int>()
+    var cursor = SOSIMG_HEADER_LEN + count * SOSIMG_SEG_LEN
+    var i = 0
+    while i < count {
+        cursor = align_up(cursor, SEGMENT_ALIGN)
+        placed.push(cursor)
+        if let seg = segments.get(i) {
+            cursor = cursor + seg.file_len
+        }
+        i = i + 1
+    }
+
+    var out = Data(capacity: cursor)
+    // Header.
+    put_u8(&var out, 83)            // 'S'
+    put_u8(&var out, 79)            // 'O'
+    put_u8(&var out, 83)            // 'S'
+    put_u8(&var out, 73)            // 'I'
+    put_u16(&var out, SOSIMG_VERSION)
+    put_u8(&var out, count as UInt)
+    put_u8(&var out, 0)             // reserved
+    put_u32(&var out, entry)
+    put_u32(&var out, prio_map)
+
+    // Segment table.
+    var t = 0
+    while t < count {
+        guard let seg = segments.get(t) else {
+            return SosError(msg: "internal: segment {t} vanished")
+        }
+        guard let off = placed.get(t) else {
+            return SosError(msg: "internal: placement {t} vanished")
+        }
+        put_u32(&var out, off as UInt)
+        put_u32(&var out, seg.load_addr)
+        put_u32(&var out, seg.file_len as UInt)
+        put_u32(&var out, seg.mem_len as UInt)
+        put_u8(&var out, seg.flags)
+        put_u8(&var out, 0)
+        put_u8(&var out, 0)
+        put_u8(&var out, 0)
+        t = t + 1
+    }
+
+    // Segment bytes, padded to the placements computed above.
+    var s = 0
+    while s < count {
+        guard let seg = segments.get(s) else {
+            return SosError(msg: "internal: segment {s} vanished")
+        }
+        guard let off = placed.get(s) else {
+            return SosError(msg: "internal: placement {s} vanished")
+        }
+        while out.len() < off {
+            put_u8(&var out, 0)
+        }
+        var b = 0
+        while b < seg.file_len {
+            guard let byte = elf.get(seg.file_off + b) else {
+                return SosError(msg: "segment {s} runs past the end of the linked image")
+            }
+            out.push(byte)
+            b = b + 1
+        }
+        s = s + 1
+    }
+
+    move out
+}
+
+/// Read `elf_path`, convert it, and write the image to `img_path`.
+public func write_sosimg(elf_path: Path, img_path: Path, prio_map: UInt) -> Result<Int, SosError> {
+    guard var f = File.open(elf_path) else {
+        return SosError(msg: "could not open {elf_path.as_str()}")
+    }
+    guard let elf = f.read() else {
+        return SosError(msg: "could not read {elf_path.as_str()}")
+    }
+    let img = try elf_to_sosimg(&elf, prio_map)
+    let size = img.len()
+    guard let out = File.create(img_path) else {
+        return SosError(msg: "could not create {img_path.as_str()}")
+    }
+    guard let written = out.write(move img) else {
+        return SosError(msg: "could not write {img_path.as_str()}")
+    }
+    if written != size {
+        return SosError(msg: "short write to {img_path.as_str()} ({written} of {size} bytes)")
+    }
+    size
+}

@@ -1,0 +1,8 @@
+[package]
+name = "sosdefaults"
+version = "0.1.0"
+
+[sos]
+emit = "sosimg"
+target = "riscv32-unknown-none-elf"
+linker-script = "root.ld"

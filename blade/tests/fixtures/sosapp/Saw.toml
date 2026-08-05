@@ -1,0 +1,10 @@
+[package]
+name = "sosapp"
+version = "0.2.0"
+
+[sos]
+emit = "sosimg"
+target = "riscv32-unknown-none-elf"
+linker-script = "app.ld"
+native = "src/rt.c"
+priorities = { background = 0, low = 2, normal = 3, high = 7 }

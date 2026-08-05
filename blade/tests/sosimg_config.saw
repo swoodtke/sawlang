@@ -1,0 +1,52 @@
+// Test: the `[sos]` manifest section (design 140 unit B).
+//
+// Covers the three shapes that matter — a fully specified image target, one
+// leaning on the spec §7 defaults, and an ordinary package with no `[sos]`
+// section at all (which must read as "absent", not as an error).
+
+import src.sosimg.{load_sos_config, pack_priorities}
+import std.path.{Path}
+
+func main() {
+    match load_sos_config(Path(s: "tests/fixtures/sosapp")) {
+        case Ok(found) -> {
+            guard let cfg = found else {
+                panic("sosapp declares [sos] emit = \"sosimg\"")
+            }
+            assert(cfg.target.equals("riscv32-unknown-none-elf"), "target")
+            assert(cfg.linker_script.equals("app.ld"), "linker-script")
+            assert(cfg.native.equals("src/rt.c"), "native")
+            // Unspecified: the riscv32 Profile A baseline.
+            assert(cfg.march.equals("rv32imac_zicsr"), "march default")
+            assert(cfg.mabi.equals("ilp32"), "mabi default")
+            // background 0, low 2, normal 3, high 7 -> low byte first.
+            assert(cfg.prio_map == pack_priorities(0, 2, 3, 7), "prio_map packing")
+            assert(cfg.prio_map == 0x07030200, "prio_map wire layout")
+        },
+        case Err(e) -> panic("sosapp [sos] should parse: {e}")
+    }
+
+    match load_sos_config(Path(s: "tests/fixtures/sosdefaults")) {
+        case Ok(found) -> {
+            guard let cfg = found else {
+                panic("sosdefaults declares [sos]")
+            }
+            // spec §7's initial map: apps cluster at levels 0-1.
+            assert(cfg.prio_map == pack_priorities(0, 1, 1, 1), "default band map")
+            assert(cfg.native.is_empty(), "no native translation unit")
+        },
+        case Err(e) -> panic("sosdefaults [sos] should parse: {e}")
+    }
+
+    // An ordinary package: absent, not an error.
+    match load_sos_config(Path(s: "tests/fixtures/deps_ok")) {
+        case Ok(found) -> {
+            guard let _ = found else {
+                print("sosimg_config: ok")
+                return
+            }
+            panic("deps_ok has no [sos] section")
+        },
+        case Err(e) -> panic("a package without [sos] should not error: {e}")
+    }
+}

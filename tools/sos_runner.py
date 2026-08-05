@@ -74,21 +74,14 @@ CROSS = f"{RED}✗{RESET}"
 # whether the emulator should exit cleanly (True → status 0) or fail (False).
 TEST_CASES = [
     {
-        "name": "boot_smoke",
+        # The kernel exists to hand control to root. Built with no image
+        # appended it must say so and FAIL — never exit quietly as if the
+        # system had run.
+        "name": "no_root_image",
         "src": os.path.join(KERNEL_DIR, "main.saw"),
-        "expect_out": [
-            # The banner, written through the UART driver (design 112).
-            "SOS M0: hello from Saw on riscv32",
-            # Design 137: the same console reached by `print` with format
-            # arguments, through the `__saw_rt_write` seam. Integers rendered
-            # into stack scratch, a user `Printable` streamed through its own
-            # `format` — with no allocator in this profile at all.
-            "uart at 268435456 lsr-mask 32",
-            "ram [2147483648 +8388608]",
-            "stage 0 ok",
-            "stage 2 ok",
-        ],
-        "expect_clean_exit": True,
+        "expect_out": ["SOS M1: kernel up on riscv32",
+                       "bad root image: no root image appended"],
+        "expect_clean_exit": False,
     },
     {
         "name": "trap_fault",
@@ -124,6 +117,34 @@ TEST_CASES = [
         "src": os.path.join(TESTS_DIR, "umode.saw"),
         "asm": os.path.join(TESTS_DIR, "payload_badcall.S"),
         "expect_out": "fault bad-syscall-number",
+        "expect_clean_exit": False,
+    },
+    # --- design 140 unit B: the sosimg format and the kernel's loader -------
+    # These images are assembled by hand (sos/tests/payload_*.S), so they pin
+    # the format independently of Blade's emitter — two producers, one loader.
+    {
+        "name": "root_image_load",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "asm": os.path.join(TESTS_DIR, "payload_sosimg.S"),
+        "expect_out": ["SOS M1: kernel up on riscv32",
+                       "root image ok segments=0x00000001 entry=0x80200000 prio=0x01010100",
+                       "SOS-R"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "root_image_bad_magic",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "asm": os.path.join(TESTS_DIR, "payload_badmagic.S"),
+        "expect_out": "bad root image: bad magic",
+        "expect_clean_exit": False,
+    },
+    {
+        # The check that matters most: an image may not aim a segment at the
+        # kernel. Rejected before a byte is copied.
+        "name": "root_image_bad_segment",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "asm": os.path.join(TESTS_DIR, "payload_badsegment.S"),
+        "expect_out": "bad root image: segment loads below the root region",
         "expect_clean_exit": False,
     },
 ]
