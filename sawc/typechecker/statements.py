@@ -984,6 +984,8 @@ class StatementsMixin:
         initializer is checked BEFORE the shadowing binding is defined, such a
         use resolves to the shadowed binding, so its presence proves intent."""
         import dataclasses
+        # Within-one-walk cycle guard over physical nodes; see design 126 R2 --
+        # this is not identity that outlives the traversal.
         seen = set()
         stack = [node]
         while stack:

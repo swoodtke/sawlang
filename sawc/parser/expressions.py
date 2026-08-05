@@ -1730,6 +1730,9 @@ class ExpressionsMixin:
         `{`; deeper sub-lines (rare: an interpolation spanning lines) keep
         their column and offset the line. Unset positions (0) are stamped with
         the brace position so no node is left reporting 1:1 (design 99)."""
+        # `_seen` is a within-one-walk cycle guard over physical nodes (the
+        # rebase walks arbitrary `vars(node)` graphs, which can alias), not the
+        # persistent identity design 126 R2 replaced.
         if _seen is None:
             _seen = set()
         if node is None or id(node) in _seen:

@@ -704,6 +704,9 @@ class Namespace:
             return True
         if _visiting is None:
             _visiting = set()
+        # `id()` here is a within-one-query cycle guard over Namespace objects,
+        # not the persistent node identity design 126 R2 replaced: the set dies
+        # with the recursion and must compare physical objects.
         _visiting.add(id(self))
         for module_sym in self.modules.values():
             ns = getattr(module_sym, 'namespace', None)
