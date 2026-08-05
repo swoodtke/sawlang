@@ -294,6 +294,18 @@ claim (122 unit I), both being made true rather than softened. Both are now
 true; 127 added the qualifying clause that says HOW (loop iterations of a task
 body are charged).
 
+**Follow-up filed by design 127:** the compute budget cannot reach a loop the
+coroutine transform cannot state-split. `_split_for` rejects a suspension inside
+a `for` over a NON-RANGE iterable ("use a `while` loop"), so 127 skips such a
+loop and everything nested inside it — instrumenting one would turn working
+programs into compile errors. A long `for x in v.iter()` in a task body
+therefore still starves siblings. Lifting it means teaching `_split_for` to
+state-split an arbitrary iterator (hold the iterator in the frame and split
+around `next()`), which also retires the existing rejection. Same shape, lower
+value: a compute loop inside a SYNC callee is likewise unreachable — that one
+wants the instrumentation to follow sync call edges out of a task body, which
+would make sync helpers suspending and needs a design decision first. [127]
+
 **Follow-up filed by design 130:** decompose the oversized functions the
 unsafe migration marks wholly-unsafe — `__saw_exec_worker` (~150 lines), the
 `rt/host_*/reactor.saw` bodies, `rt/common/os_ops.saw` — so the "an unsafe
