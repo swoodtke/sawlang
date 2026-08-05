@@ -21,6 +21,7 @@ enum OperationResult {
 
 // Payload-carrying enums opt in to payload-deep `==` with an empty extension
 // body (design 32). Payload-free enums like Color auto-conform.
+@synthesize
 extension OperationResult: Equatable {}
 
 func test_simple_equality() {

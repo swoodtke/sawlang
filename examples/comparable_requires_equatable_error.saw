@@ -9,6 +9,7 @@ struct Tagged {
     rank: Int
 }
 
+@synthesize
 extension Tagged: Comparable {}
 
 func main() {

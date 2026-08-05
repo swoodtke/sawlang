@@ -10,6 +10,7 @@ enum OperationResult {
 }
 
 // design 32: payload-carrying enums opt in to payload-deep `==`.
+@synthesize
 extension OperationResult: Equatable {}
 
 func make_success(n: Int) -> OperationResult {

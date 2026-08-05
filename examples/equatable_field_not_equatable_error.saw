@@ -13,6 +13,7 @@ struct Outer {
     tag: Int
 }
 
+@synthesize
 extension Outer: Equatable {}
 
 func main() {

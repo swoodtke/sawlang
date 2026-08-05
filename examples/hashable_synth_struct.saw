@@ -13,7 +13,9 @@ struct Named {
     name: String
 }
 
+@synthesize
 extension Named: Equatable {}
+@synthesize
 extension Named: Hashable {}
 
 func main() {

@@ -9,7 +9,9 @@
 static DROPS: Atomic<Int> = Atomic(0)
 struct Counted { id: Int }
 extension Counted: Deinit { func deinit(&var self) { DROPS.fetch_add(1) } }
+@synthesize
 extension Counted: Equatable {}
+@synthesize
 extension Counted: Hashable {}
 
 func main() {

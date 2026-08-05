@@ -12,6 +12,7 @@ struct Version {
     minor: Int
 }
 
+@synthesize
 extension Version: Comparable {}
 
 func maxOf<T: Comparable>(a: T, b: T) -> T {

@@ -15,6 +15,7 @@ enum Shape {
     case Unit
 }
 
+@synthesize
 extension Shape: Equatable {}
 
 func main() {

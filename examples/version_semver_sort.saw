@@ -24,6 +24,7 @@ struct Version {
     patch: Int
 }
 
+@synthesize
 extension Version: Comparable {}
 
 func main() {

@@ -5,7 +5,9 @@
 
 struct Counted { id: Int }
 extension Counted: Deinit { func deinit(&var self) {} }
+@synthesize
 extension Counted: Equatable {}
+@synthesize
 extension Counted: Hashable {}
 
 func main() {

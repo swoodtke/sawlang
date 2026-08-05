@@ -12,6 +12,7 @@ struct Named {
     name: String
 }
 
+@synthesize
 extension Named: Equatable {}
 
 func main() {

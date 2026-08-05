@@ -9,6 +9,7 @@ struct Reverse {
     value: Int
 }
 
+@synthesize
 extension Reverse: Equatable {}
 
 extension Reverse: Comparable {

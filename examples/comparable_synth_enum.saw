@@ -15,7 +15,9 @@ enum Priority {
     case Custom(level: Int)
 }
 
+@synthesize
 extension Priority: Equatable {}
+@synthesize
 extension Priority: Comparable {}
 
 func main() {

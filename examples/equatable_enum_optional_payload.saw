@@ -13,6 +13,7 @@ enum Cell {
     case Blank
 }
 
+@synthesize
 extension Cell: Equatable {}
 
 func main() {

@@ -8,6 +8,7 @@ struct Keyed {
     label: String
 }
 
+@synthesize
 extension Keyed: Hashable {}
 
 func main() {

@@ -75,8 +75,9 @@ extension Duration {
 }
 
 // Duration is a trivial (POD) struct, so it auto-conforms to Equatable; the
-// synthesized compare runs over the single `nanos` field, i.e. numeric order.
+// `@synthesize`d compare runs over the single `nanos` field, i.e. numeric order.
 /// Durations order by length.
+@synthesize
 extension Duration: Comparable {
 }
 
