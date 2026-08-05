@@ -436,7 +436,10 @@ compiler pre-port restructures R1 declared AST contract + R2 stable NodeId +
 R11 astdiff oracle as the port-order prerequisites (then AST+parser next,
 coro_transform last).
 
-**P4 — element places / generalized accessors (user question, Aug 5):**
+**~~P4 — element places / generalized accessors~~ PROMOTED to design 141
+(user, Aug 5): `borrows` effect-slot keyword + `lend` bodies; queued after
+139.** Original entry follows:
+**(user question, Aug 5):**
 `with_ref`/`with_var_ref` are `_read`/`_modify` accessors spelled as closure
 ceremony because indexing yields VALUES, not places. The successor design:
 `v[i]` becomes a PLACE backed by the existing scoped-borrow machinery, with
