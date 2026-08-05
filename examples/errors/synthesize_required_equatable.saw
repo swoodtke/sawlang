@@ -1,0 +1,15 @@
+// design 128: a declared-but-empty conformance derives nothing without the
+// marker. Writing the conformance means the body is yours unless you ask.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Named` declares `Equatable` with no `equals`
+// EXPECT-ERROR-CONTAINS: mark the extension `@synthesize`
+
+struct Named {
+    name: String
+}
+
+extension Named: Equatable {}
+
+func main() {
+    print(Named(name: "a") == Named(name: "a"))
+}

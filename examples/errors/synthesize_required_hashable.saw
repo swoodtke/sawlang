@@ -1,0 +1,18 @@
+// design 128: the same rule reaches Hashable.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Keyed` declares `Hashable` with no `hash`
+
+struct Keyed {
+    label: String
+}
+
+@synthesize
+extension Keyed: Equatable {}
+
+extension Keyed: Hashable {}
+
+func main() {
+    var m: Map<Keyed, Int> = {:}
+    m.insert(Keyed(label: "a"), 1)
+    print(m.len())
+}

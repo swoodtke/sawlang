@@ -1,0 +1,18 @@
+// design 128: `@synthesize` on a copy policy derives a MEMBERWISE copy, so a
+// field that cannot be copied at all is a clean error naming the field.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot derive copy() for `Holder`: field `f`
+// EXPECT-ERROR-CONTAINS: implements NoCopy and cannot be copied
+
+import std.file
+
+struct Holder {
+    f: File
+}
+
+@synthesize
+extension Holder: ExplicitCopy {}
+
+func main() {
+    print(1)
+}

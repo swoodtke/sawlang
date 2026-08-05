@@ -13,7 +13,7 @@ import copy
 from typing import Dict
 from ast_nodes import (
     TypeDefinition, Struct, Enum, Trait, Function, Extension, Method, Parameter,
-    Program, StaticDecl, SawType, TypeKind, Visibility,
+    Program, StaticDecl, SawType, TypeKind, Visibility, has_synthesize,
     Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr,
     IntLiteral, FloatLiteral, BoolLiteral, UnaryOp, ArrayLiteral, StructInit,
     FunctionCall, ExpressionStatement, SourceLocationLiteral
@@ -961,6 +961,11 @@ class RegistrationMixin:
             )
             return
         trait = confs[0]
+        # Same gate as the struct path (design 128): an enum's payload-deep body
+        # is derived only when the author asks for it.
+        self._demand_synthesize_marker(
+            extension, trait,
+            {"Equatable": "equals", "Comparable": "compare"}.get(trait, "hash"))
         self.namespace.register_conformance(enum_name, trait)
         if trait == "Equatable":
             self._derived_equals_types.add(enum_name)
@@ -1092,6 +1097,37 @@ class RegistrationMixin:
             ))
             have_deinit.add(ext.struct_name)
 
+    def _demand_synthesize_marker(self, extension: Extension, trait: str,
+                                  method_name: str) -> None:
+        """Require `@synthesize` on a declared conformance that would otherwise
+        derive `method_name` from an empty body (design 128).
+
+        One rule across every synthesizable trait: writing the conformance means
+        the body is yours unless you explicitly ask the compiler for it. The
+        marker is the author's acknowledgment that a memberwise body is being
+        generated over whatever fields the type happens to have — so adding a
+        field silently changes `==`, `compare`, `hash` or `copy`, and that should
+        be something they opted into.
+
+        AUTO-conformance is untouched: a POD struct and a payload-free enum still
+        conform to Equatable/Hashable with no declaration, hence no marker.
+
+        Reports and returns; the caller synthesizes anyway, so one missing marker
+        surfaces as exactly one error rather than also tripping the downstream
+        "does not implement required method" conformance check.
+        """
+        if has_synthesize(extension):
+            return
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"`{extension.struct_name}` declares `{trait}` with no "
+            f"`{method_name}`: a derived body must be requested explicitly",
+            extension.line, extension.column,
+            hint=f"mark the extension `@synthesize` to derive `{method_name}` "
+                 f"memberwise, or write `{method_name}` by hand",
+            source_file=getattr(extension, 'source_file', None)
+        )
+
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
         # Enum derivable opt-in (designs 32/48): intercept before the struct
@@ -1117,11 +1153,20 @@ class RegistrationMixin:
         # typechecker and emitted memberwise by codegen, where every field's
         # copy tier is known regardless of declaration order. Structs needing
         # derivation are recorded for a post-registration NoCopy-field check.
-        declares_copy_policy = ("ImplicitCopy" in extension.conformances or
-                                "ExplicitCopy" in extension.conformances)
+        # Every derivation below is gated on `@synthesize` (design 128): the
+        # marker is what turns a declared-but-empty conformance into a derived
+        # body. `derived_any` records whether the marker did any work, so a
+        # `@synthesize` that derives nothing is itself reported.
+        derived_any = False
+        declared_copy_policy = next(
+            (t for t in ("ImplicitCopy", "ExplicitCopy")
+             if t in extension.conformances), None)
+        declares_copy_policy = declared_copy_policy is not None
         has_copy_method = any(not m.is_init and m.name == "copy"
                               for m in extension.methods)
         if declares_copy_policy and not has_copy_method:
+            self._demand_synthesize_marker(extension, declared_copy_policy, "copy")
+            derived_any = True
             synthesized = Method(
                 name="copy",
                 parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
@@ -1148,6 +1193,8 @@ class RegistrationMixin:
         has_equals_method = any(not m.is_init and m.name == "equals"
                                 for m in extension.methods)
         if declares_equatable and not has_equals_method:
+            self._demand_synthesize_marker(extension, "Equatable", "equals")
+            derived_any = True
             synth_eq = Method(
                 name="equals",
                 parameters=[
@@ -1181,6 +1228,8 @@ class RegistrationMixin:
         if declares_comparable:
             self._comparable_types.add(extension.struct_name)
         if declares_comparable and not has_compare_method:
+            self._demand_synthesize_marker(extension, "Comparable", "compare")
+            derived_any = True
             synth_cmp = Method(
                 name="compare",
                 parameters=[
@@ -1212,6 +1261,8 @@ class RegistrationMixin:
         if declares_hashable:
             self._hashable_types.add(extension.struct_name)
         if declares_hashable and not has_hash_method:
+            self._demand_synthesize_marker(extension, "Hashable", "hash")
+            derived_any = True
             synth_hash = Method(
                 name="hash",
                 parameters=[
@@ -1234,6 +1285,21 @@ class RegistrationMixin:
             )
             extension.methods.append(synth_hash)
             self._derived_hash_types.add(extension.struct_name)
+
+        # A marker that derived nothing is a mistake worth naming: either the
+        # conformance already has a hand-written body (so nothing is derived) or
+        # the trait has no derivation at all (Printable, a user trait).
+        if has_synthesize(extension) and not derived_any:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`@synthesize` on `extension {extension.struct_name}` derives "
+                f"nothing",
+                extension.line, extension.column,
+                hint="the derivable conformances are ImplicitCopy/ExplicitCopy "
+                     "(`copy`), Equatable (`equals`), Comparable (`compare`) and "
+                     "Hashable (`hash`), each with no hand-written body",
+                source_file=getattr(extension, 'source_file', None)
+            )
 
         # Default method bodies (design 56): for every trait this extension
         # conforms to — and every ancestor trait it thereby inherits — synthesize

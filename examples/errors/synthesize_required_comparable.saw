@@ -1,0 +1,18 @@
+// design 128: Comparable takes the marker too — it has no auto-conformance, so
+// EVERY Comparable conformance is written, and every derived one is marked.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Point` declares `Comparable` with no `compare`
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+@synthesize
+extension Point: Equatable {}
+
+extension Point: Comparable {}
+
+func main() {
+    print(Point(x: 1, y: 2) < Point(x: 1, y: 3))
+}

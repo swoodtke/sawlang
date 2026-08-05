@@ -1,0 +1,15 @@
+// design 128: an enum's payload-deep derivation is gated exactly like a
+// struct's — the enum path is not a back door around the marker.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Shape` declares `Equatable` with no `equals`
+
+enum Shape {
+    case Dot,
+    case Line(len: Int)
+}
+
+extension Shape: Equatable {}
+
+func main() {
+    print(Shape.Dot == Shape.Dot)
+}

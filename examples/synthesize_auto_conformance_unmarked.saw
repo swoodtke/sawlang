@@ -1,0 +1,33 @@
+// design 128: AUTO-conformance is untouched by the marker rule. A trivial (POD)
+// struct and a payload-free enum still conform to Equatable and Hashable with no
+// declaration — and therefore nothing to mark. Only a WRITTEN conformance needs
+// `@synthesize`.
+// EXPECT: success
+// EXPECT-OUTPUT: true
+// EXPECT-OUTPUT: false
+// EXPECT-OUTPUT: true
+// EXPECT-OUTPUT: false
+// EXPECT-OUTPUT: 2
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+enum Color {
+    case Red,
+    case Green
+}
+
+func main() {
+    print(Point(x: 1, y: 2) == Point(x: 1, y: 2))
+    print(Point(x: 1, y: 2) == Point(x: 1, y: 3))
+    print(Color.Red == Color.Red)
+    print(Color.Red == Color.Green)
+
+    // Auto-Hashable carries the POD struct into a Map with no declaration.
+    var seen: Map<Point, Int> = {:}
+    seen.insert(Point(x: 1, y: 2), 10)
+    seen.insert(Point(x: 3, y: 4), 20)
+    print(seen.len())
+}
