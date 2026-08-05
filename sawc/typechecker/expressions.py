@@ -4717,6 +4717,10 @@ class ExpressionsMixin:
             return
         import dataclasses
         stack = [value]
+        # `id()` is correct here and is NOT the identity design 126 R2 removed:
+        # this is a within-one-traversal cycle guard over physical objects, it
+        # never outlives the call, and it must treat two equal-but-distinct nodes
+        # as distinct.
         seen = set()
         while stack:
             cur = stack.pop()
@@ -7652,7 +7656,11 @@ class ExpressionsMixin:
         This allows using match in the catch block to differentiate errors.
         """
         # Create unique name based on expression id
-        union_name = f"_CatchError_{id(expr)}"
+        # Named from the node's stable id, not its address (design 126 R2): this
+        # name reaches codegen and the emitted type table, so deriving it from
+        # `id()` made the compiler's output differ run to run for any program
+        # using a multi-error `try`/`catch`.
+        union_name = f"_CatchError_{expr.node_id}"
 
         # Build variants - each error type becomes a variant with 'value' field
         variants = {}

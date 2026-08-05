@@ -341,7 +341,7 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     for ext in getattr(builtin_ast, 'extensions', []):
         sname = getattr(ext, 'struct_name', None)
         for m in ext.methods:
-            node = builtin_tc._suspend_nodes.get(id(m))
+            node = builtin_tc._suspend_nodes.get(m.node_id)
             if node is not None and node.suspends:
                 std_suspending.add((sname, m.name))
     builtin_ns._std_suspending_methods = std_suspending

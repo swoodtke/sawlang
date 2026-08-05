@@ -82,7 +82,7 @@ class CollectionsMixin:
         tmp_ptr = self._entry_alloca(cont_val.type, name=type_name.lower() + "lit")
         self.builder.store(cont_val, tmp_ptr)
 
-        tmpname = f"__collit_{id(expr)}"
+        tmpname = f"__collit_{expr.node_id}"
         self.variables[tmpname] = tmp_ptr
         self.variable_types[tmpname] = ct
         try:

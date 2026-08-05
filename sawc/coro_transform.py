@@ -1762,9 +1762,11 @@ class _FrameBuilder:
     def _collect_calls(self):
         """Walk the whole body for nested suspending call sites (top-level OR
         inside control-flow bodies). Each embeds a callee frame by value; `sub`
-        names its field. Keyed by statement identity so the CFG walk can recover a
-        call's sub-frame field. A suspending call buried in an expression position
-        (not a bare `let x = g(...)` / `g(...)` statement) is rejected honestly."""
+        names its field. Keyed by statement identity (`node_id`, design 126 R2 --
+        which the ANF/try hoists' synthesized statements carry too, from the same
+        global counter) so the CFG walk can recover a call's sub-frame field. A
+        suspending call buried in an expression position (not a bare
+        `let x = g(...)` / `g(...)` statement) is rejected honestly."""
         self.calls = []
         self.call_by_id = {}
         # design 62 G3: cooperative `ch.receive()` call sites lowered INLINE (no
@@ -1786,19 +1788,19 @@ class _FrameBuilder:
             if rinfo is not None:
                 rinfo['idx'] = len(self.recv_calls)
                 self.recv_calls.append(rinfo)
-                self.recv_by_id[id(s)] = rinfo
+                self.recv_by_id[s.node_id] = rinfo
                 return
             binfo = self._classify_blk(s)
             if binfo is not None:
                 binfo['idx'] = len(self.blk_calls)
                 self.blk_calls.append(binfo)
-                self.blk_by_id[id(s)] = binfo
+                self.blk_by_id[s.node_id] = binfo
                 return
             info = self._classify_call(s)
             if info is not None:
                 info['sub'] = f"__sub{len(self.calls)}"
                 self.calls.append(info)
-                self.call_by_id[id(s)] = info
+                self.call_by_id[s.node_id] = info
                 return
             # design 74 (A5-rest, shape 1): a buried suspending METHOD call in a
             # driven body — reject cleanly (anchored, naming the workaround) rather
@@ -2522,18 +2524,18 @@ class _FrameBuilder:
             return
         # design 62 G3: a cooperative `ch.receive()` — lower inline to the
         # try_receive+yield_now loop against this frame (no callee frame).
-        rinfo = self.recv_by_id.get(id(s))
+        rinfo = self.recv_by_id.get(s.node_id)
         if rinfo is not None:
             self._emit_recv_call(rinfo)
             return
         # design 103 (A6): a blocking-extern call — offload it to a worker thread
         # and park on the job's pipe (start -> io_wait -> take).
-        binfo = self.blk_by_id.get(id(s))
+        binfo = self.blk_by_id.get(s.node_id)
         if binfo is not None:
             self._emit_blk_call(binfo)
             return
         # A nested suspending call: embed + drive the callee sub-frame.
-        info = self.call_by_id.get(id(s))
+        info = self.call_by_id.get(s.node_id)
         if info is not None:
             self._emit_nested_call(info, loop_ctx)
             return
@@ -4117,13 +4119,13 @@ def transform_program(program, typechecker, imported_ast=None):
     # transform is otherwise entry-module-only, but a NON-generic method frame is
     # self-contained (its resume is a fresh state machine on the frame struct,
     # spliced into the entry AST), so it can be embedded cross-module. `merge_programs`
-    # shares method AST objects (list concat), so `id(method)` still matches the
-    # effect nodes. The ORIGINAL method stays in its module as harmless dead code
+    # shares method AST objects (list concat), so `method.node_id` still matches
+    # the effect nodes. The ORIGINAL method stays in its module as harmless dead code
     # (its calls were all rewritten to the embedded drive). Generic-struct / method-
     # generic methods stay unsupported (rejected at the call site).
-    _entry_ext_ids = {id(e) for e in program.extensions}
+    _entry_ext_ids = {e.node_id for e in program.extensions}
     _imported_exts = ([e for e in getattr(imported_ast, 'extensions', [])
-                       if id(e) not in _entry_ext_ids] if imported_ast is not None else [])
+                       if e.node_id not in _entry_ext_ids] if imported_ast is not None else [])
     _all_exts = list(program.extensions) + _imported_exts
     # design 45 item 1: a suspending `main` is auto-wrapped in an entry executor.
     main_suspends = (getattr(typechecker, "_main_suspends", False)
@@ -4154,7 +4156,7 @@ def transform_program(program, typechecker, imported_ast=None):
     for ext in _all_exts:
         sname = getattr(ext, 'struct_name', None)
         for m in ext.methods:
-            node = _nodes_for_methods.get(id(m))
+            node = _nodes_for_methods.get(m.node_id)
             if node is not None and node.suspends:
                 suspending_methods.add((sname, m.name))
     typechecker._suspending_methods_set = suspending_methods
@@ -4192,19 +4194,19 @@ def transform_program(program, typechecker, imported_ast=None):
     # not reach them.
     # design 84: a nested suspending METHOD call embeds the callee METHOD's frame
     # (with a `__recv` pointer into the receiver's caller-frame storage). Effect
-    # edges to a method are keyed by `id(Method)`, so map every method AST to its
+    # edges to a method are keyed by `Method.node_id`, so map every method AST to its
     # (struct, method, extension) to follow those edges and build the frames.
     methods_by_id = {}
     # design 95: keyed by the resolved-signature FRAME KEY (not (struct, name)),
     # so two overloads of the same method name each map to their OWN AST — a
     # name-only key collapsed them (second overwrote first → mis-resolution).
-    methods_by_key = {}   # frame_key -> id(method) — for the body scan
+    methods_by_key = {}   # frame_key -> method.node_id — for the body scan
     for ext in _all_exts:
         sname = getattr(ext, 'struct_name', None)
         for m in ext.methods:
-            methods_by_id[id(m)] = (sname, m, ext)
+            methods_by_id[m.node_id] = (sname, m, ext)
             methods_by_key[_method_frame_key(
-                sname, m.name, getattr(m, 'mangled_symbol', None))] = id(m)
+                sname, m.name, getattr(m, 'mangled_symbol', None))] = m.node_id
     # design 95: `method_roots` is keyed by the resolved-signature frame key.
     method_root_keys = set(method_roots.keys())
     _susp_methods_set = typechecker._suspending_methods_set
@@ -4271,7 +4273,7 @@ def transform_program(program, typechecker, imported_ast=None):
                     break
 
     closure = []
-    method_closure = {}   # id(method) -> (struct_name, method_ast, extension)
+    method_closure = {}   # method.node_id -> (struct_name, method_ast, extension)
     seen = set()
     work = [("fn", n) for n in (list(seed_names) + list(promoted))]
     while work:
@@ -4316,7 +4318,7 @@ def transform_program(program, typechecker, imported_ast=None):
             method_closure[key] = (sname, mast, ext)
             if getattr(mast, 'body', None) is not None:
                 work.extend(_scan_method_callees(mast.body))
-            node = nodes.get(id(mast))
+            node = nodes.get(mast.node_id)
         if node is not None:
             for e in node.edges:
                 t = nodes.get(e.target)
@@ -4412,7 +4414,7 @@ def transform_program(program, typechecker, imported_ast=None):
     # drive; it re-parses fresh on the recursive pass anyway, so stripping the shared
     # object would not persist).
     for _fbkey, ext, mast in nested_method_fbs:
-        if id(ext) in _entry_ext_ids:
+        if ext.node_id in _entry_ext_ids:
             removed_methods.append((ext, mast))
     gsm = getattr(typechecker, "_driven_generic_struct_methods", {}) or {}
     for frame_key, info in method_roots.items():

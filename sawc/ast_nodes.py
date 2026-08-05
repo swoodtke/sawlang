@@ -2,7 +2,9 @@
 Saw Language AST Node Definitions
 """
 
+import copy as _copy
 import dataclasses
+import itertools
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 from enum import Enum, auto
@@ -437,15 +439,49 @@ class ExportDecl:
 # subclasses keep declaring their own payload fields positionally, exactly as
 # before, and `line=`/`column=`/`node_id=` are always passed by keyword.
 #
-# `node_id` (design 126 R2) is a monotonic per-parse identifier assigned at
-# construction. It is the compiler's ONLY node identity: nothing may key a map or
-# derive a generated name from Python's `id()`, which is neither stable across
-# runs nor expressible in the eventual Saw port.
+# `node_id` (design 126 R2) is the compiler's ONLY node identity. Nothing may key
+# a map or derive a generated name from Python's `id()`, which is an address:
+# neither stable across runs (so compiler output was not reproducible) nor
+# expressible in the eventual Saw port.
+#
+# It is assigned from ONE process-global counter, via `default_factory`, so every
+# node gets a distinct id no matter who builds it -- the parser, the interpolation
+# sub-parser, a per-module parser, or the ~180 nodes the coroutine transform
+# synthesizes. A per-instance counter would collide across modules, and a plain
+# `= 0` default would give every synthesized node the same id.
+_NODE_ID_COUNTER = itertools.count(1)
+
+
+def _next_node_id() -> int:
+    return next(_NODE_ID_COUNTER)
+
+
 @dataclass(kw_only=True)
 class ASTNode:
     line: int = 0
     column: int = 0
-    node_id: int = 0
+    node_id: int = field(default_factory=_next_node_id)
+
+    def __deepcopy__(self, memo):
+        """Copy the subtree, but give every copied node a FRESH `node_id`.
+
+        This is what keeps `node_id` faithful to the `id()` semantics it
+        replaces. The compiler clones AST subtrees to monomorphize generic
+        templates and to synthesize trait defaults per conformer; a plain
+        deepcopy copies the id field, so two live instantiations would share one
+        identity. They would then collide in the effect graph (merging their
+        suspend analysis), in the coroutine transform's method tables (last
+        clone wins), and in the `_CatchError_<id>` union type name (one
+        instantiation's layout silently reused for another). Distinct objects
+        get distinct ids -- exactly as distinct addresses did.
+        """
+        cls = self.__class__
+        new = cls.__new__(cls)
+        memo[id(self)] = new
+        for k, v in self.__dict__.items():
+            setattr(new, k, _copy.deepcopy(v, memo))
+        new.node_id = _next_node_id()
+        return new
 
 
 # Expressions

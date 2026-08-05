@@ -107,8 +107,10 @@ class EffectsMixin:
 
     # ------------------------------------------------------------------ setup
     def _effect_init(self):
-        # Keyed by ("fn", name) for free functions, id(Method) for methods,
-        # and id(ClosureExpr) for closures.
+        # Keyed by ("fn", name) for free functions, `Method.node_id` for methods,
+        # and `ClosureExpr.node_id` for closures (design 126 R2 -- these were
+        # `id()`, i.e. addresses). The two shapes stay distinguishable: a
+        # free-function key is a tuple, a method/closure key a plain int.
         self._suspend_nodes: Dict[Any, SuspendNode] = {}
         self._suspend_stack: List[SuspendNode] = []
         # design 44: free-function names driven by a `__saw_drive(...)` /
@@ -246,7 +248,7 @@ class EffectsMixin:
         return node
 
     def _effect_enter_method(self, struct_name, method):
-        key = id(method)
+        key = method.node_id
         node = self._suspend_nodes.get(key)
         if node is None:
             mname = getattr(method, "name", "?")
@@ -272,7 +274,7 @@ class EffectsMixin:
         return node
 
     def _effect_enter_closure(self, closure, expected_type):
-        key = id(closure)
+        key = closure.node_id
         sync_reason = None
         if expected_type is not None and getattr(expected_type, "func_is_sync", False):
             sync_reason = "a `sync` closure context"
@@ -327,7 +329,7 @@ class EffectsMixin:
     def _effect_call_method(self, method_info, short: str, line: int):
         ast = getattr(method_info, "ast_node", None)
         if ast is not None:
-            self._effect_add_edge(id(ast), short, line)
+            self._effect_add_edge(ast.node_id, short, line)
 
     def _effect_indirect_call(self, func_type, line: int):
         """A call through a function-typed value. Non-`sync` => conservatively

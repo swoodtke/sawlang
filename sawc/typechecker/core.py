@@ -3,6 +3,7 @@ Saw Language Type Checker
 Performs type checking and semantic analysis on the AST.
 """
 
+import itertools
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from ast_nodes import (
@@ -37,6 +38,9 @@ from .expressions import ExpressionsMixin
 from .effects import EffectsMixin
 
 
+_BINDING_ID_COUNTER = itertools.count(1)
+
+
 @dataclass
 class VariableInfo:
     """Information about a variable in scope."""
@@ -44,6 +48,12 @@ class VariableInfo:
     mutable: bool
     line: int
     column: int
+    # A stable identity for this BINDING, used to key move state (design 126 R2).
+    # Previously that map was keyed by `id(var_info)`, which forced the map to
+    # keep the object alive so the address could not be recycled onto a later
+    # binding; an explicit counter removes both the address dependence and that
+    # keep-alive obligation.
+    binding_id: int = field(default_factory=lambda: next(_BINDING_ID_COUNTER))
 
 
 class Scope:
@@ -114,10 +124,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Each entry is (expected_type: Optional[SawType], is_infinite: bool, has_break: bool)
         self.loop_break_info: List[Tuple[Optional[SawType], bool, bool]] = []
         # Per-function, scope-aware move state for use-after-move detection.
-        # Keyed by id() of the binding's VariableInfo (its identity), so that
-        # same-named bindings in different functions/scopes never interact and
-        # a `let`/`var` shadow gets fresh state. The VariableInfo object is kept
-        # alive in the value tuple, so the id() key can never be reused.
+        # Keyed by the binding's `VariableInfo.binding_id`, so that same-named
+        # bindings in different functions/scopes never interact and a `let`/`var`
+        # shadow gets fresh state.
         # value = (var_info, name, move_line, move_column)
         self.moved_bindings: Dict[int, Tuple['VariableInfo', str, int, int]] = {}
         # Structs whose copy() is compiler-derived (memberwise), checked for

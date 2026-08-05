@@ -416,7 +416,7 @@ class DocsBuilder:
         # so a suspending user function was reported `sync`.
         nodes = getattr(self.typechecker, "_suspend_nodes", {}) or {}
         if owner is not None and not is_trait_method:
-            entry = nodes.get(id(node))
+            entry = nodes.get(node.node_id)
         else:
             entry = nodes.get(("fn", getattr(node, "mangled_symbol", None)
                                or node.name))

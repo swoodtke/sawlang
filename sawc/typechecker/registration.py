@@ -184,7 +184,7 @@ class RegistrationMixin:
         scope = outer_scope
         while scope is not None:
             for var_info in scope.variables.values():
-                outer_ids.add(id(var_info))
+                outer_ids.add(var_info.binding_id)
             scope = scope.parent
 
         self._check_block(body)

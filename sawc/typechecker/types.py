@@ -976,7 +976,7 @@ class TypeUtilsMixin:
     # ------------------------------------------------------------------
     # Per-function, scope-aware may-move state (design 15).
     #
-    # State is a dict keyed by id(VariableInfo) -> (var_info, name, line, col).
+    # State is a dict keyed by VariableInfo.binding_id -> (var_info, name, line, col).
     # The binding's VariableInfo is its identity: same-named bindings in
     # different functions or shadowing scopes are distinct objects, so they
     # never interact (the flat-set bug from brief 03). A snapshot is a plain
@@ -985,21 +985,21 @@ class TypeUtilsMixin:
 
     def _binding_move_info(self, var_info):
         """Return (name, line, col) if this binding is moved-from, else None."""
-        entry = self.moved_bindings.get(id(var_info))
+        entry = self.moved_bindings.get(var_info.binding_id)
         if entry is None:
             return None
         _, name, line, col = entry
         return name, line, col
 
     def _is_binding_moved(self, var_info) -> bool:
-        return id(var_info) in self.moved_bindings
+        return var_info.binding_id in self.moved_bindings
 
     def _mark_binding_moved(self, var_info, name: str, line: int, column: int):
-        self.moved_bindings[id(var_info)] = (var_info, name, line, column)
+        self.moved_bindings[var_info.binding_id] = (var_info, name, line, column)
 
     def _revive_binding(self, var_info):
         """Clear moved-state for a binding (revival by assignment)."""
-        self.moved_bindings.pop(id(var_info), None)
+        self.moved_bindings.pop(var_info.binding_id, None)
 
     def _snapshot_moves(self) -> dict:
         return dict(self.moved_bindings)
