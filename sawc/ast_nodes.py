@@ -563,10 +563,6 @@ class Identifier(Expression):
     name: str
     type_args: Optional[List['SawType']] = None  # For generic type access: Option<Int>
 
-    # The name resolved to a module-level `static`, not a local binding
-    # (design 126 R1).
-    is_static_ref: bool = annotation(False)
-
 
 @dataclass
 class BinaryOp(Expression):
@@ -742,15 +738,12 @@ class MemberAccess(Expression):
     resolved_module_symbol: Optional[Any] = annotation(None)
     resolved_static_name: Optional[str] = annotation(None)
     resolved_struct_name: Optional[str] = annotation(None)
-    resolved_function_name: Optional[str] = annotation(None)
     # `.0` / `.x` on a tuple: the positional index it projects.
     tuple_field_index: Optional[int] = annotation(None)
     # A builtin integer bound (`Int.max`): (type name, member).
     int_limit: Optional[tuple] = annotation(None)
     # Projection into an UnsafeMemory register block (design 112).
     um_projection: bool = annotation(False)
-    # Read as a presence test today; declared so it is an ordinary False default.
-    synthesized_access: bool = annotation(False)
 
 
 @dataclass
@@ -998,7 +991,6 @@ class MethodCall(Expression):
     # --- UnsafeMemory method plan (design 81/112) ---
     um_method: Optional[str] = annotation(None)
     um_scalar_type: Optional['SawType'] = annotation(None)
-    um_use_name: Optional[str] = annotation(None)            # "Device" | "Normal"
     um_volatile: bool = annotation(False)
     resolved_init_params: Optional[List[str]] = annotation(None)
 

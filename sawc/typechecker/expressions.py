@@ -363,7 +363,6 @@ class ExpressionsMixin:
             # Module-level static (design 41): read like an immutable binding.
             static_sym = self.namespace.get_static(expr.name)
             if static_sym is not None and self.namespace.is_accessible(expr.name):
-                expr.is_static_ref = True
                 return static_sym.type
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
@@ -3695,7 +3694,6 @@ class ExpressionsMixin:
                 "cannot access an under-specified `UnsafeMemory` value",
                 expr.line, expr.column)
             return None
-        expr.um_use_name = use_name
         expr.um_volatile = (use_name == "Device")
 
         if method in ("read", "write"):
@@ -3787,10 +3785,14 @@ class ExpressionsMixin:
     def _check_field_visible(self, struct_info, field_name: str,
                              type_name: str, expr) -> None:
         """Member visibility gate (design 80): a struct field is private-by-default
-        outside its defining module. Compiler-synthesized access (flagged nodes
-        or a synthesized enclosing function) is exempt by provenance — the gate
-        enforces SOURCE-level access only."""
-        if getattr(expr, 'synthesized_access', False) or self._in_synthesized_context():
+        outside its defining module. Compiler-synthesized access is exempt by
+        provenance — the gate enforces SOURCE-level access only.
+
+        Provenance comes from the enclosing function alone. There was also a
+        per-node `synthesized_access` flag tested here, but nothing in the
+        compiler ever set it (design 126 R1 removed it): it read as a second
+        exemption route and was always False."""
+        if self._in_synthesized_context():
             return
         def_module = getattr(struct_info, 'def_module', ())
         fv = getattr(struct_info, 'field_visibility', None) or {}
@@ -3808,10 +3810,10 @@ class ExpressionsMixin:
         """Member visibility gate (design 80) for an extension method / init /
         static. Private-by-default outside the defining module; a method that
         satisfies a conformed trait's requirement is always callable (trait
-        dispatch). Synthesized call nodes are exempt by provenance."""
+        dispatch). A synthesized enclosing function is exempt by provenance."""
         if method_info is None:
             return
-        if getattr(expr, 'synthesized_access', False) or self._in_synthesized_context():
+        if self._in_synthesized_context():
             return
         if getattr(method_info, 'satisfies_trait', False):
             return
@@ -3861,7 +3863,6 @@ class ExpressionsMixin:
                         expr.resolved_module = obj_type.module_name
                         return SawType(TypeKind.ENUM, enum_name=expr.member, symbol=symbol)
                     elif symbol.kind == SymbolKind.FUNCTION:
-                        expr.resolved_function_name = expr.member
                         expr.resolved_module = obj_type.module_name
                         return SawType(TypeKind.FUNCTION,
                                      param_types=symbol.param_types,
@@ -3940,7 +3941,6 @@ class ExpressionsMixin:
                     expr.resolved_module = expr.object.name
                     return SawType(TypeKind.ENUM, enum_name=expr.member, symbol=symbol)
                 elif symbol.kind == SymbolKind.FUNCTION:
-                    expr.resolved_function_name = expr.member
                     expr.resolved_module = expr.object.name
                     return SawType(TypeKind.FUNCTION,
                                  param_types=symbol.param_types,
@@ -4337,12 +4337,11 @@ class ExpressionsMixin:
             # Member visibility (design 80): memberwise struct-literal construction
             # cross-module requires ALL fields visible (else use a visible init).
             # Runs after the design-66 function-call reinterpretation above, so it
-            # only fires for a genuine struct literal. Synthesized literal lowerings
-            # (flagged) are exempt by provenance.
-            if not getattr(expr, 'synthesized_access', False):
-                for _fname in struct_info.field_order:
-                    self._check_field_visible(struct_info, _fname,
-                                              expr.struct_name, expr)
+            # only fires for a genuine struct literal. (`_check_field_visible`
+            # itself exempts a synthesized enclosing function.)
+            for _fname in struct_info.field_order:
+                self._check_field_visible(struct_info, _fname,
+                                          expr.struct_name, expr)
             expr.resolved_init_params = None
             for field_name, field_value in expr.field_inits:
                 declared_type = struct_info.fields[field_name]

@@ -253,6 +253,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Closure counter for unique names
         self.closure_counter = 0
+        # design 126 R1: llvmlite values codegen produces for a ClosureExpr and
+        # then needs again at the `spawn` site (the generated body function, the
+        # env pointer, the env destructor), keyed by `ClosureExpr.node_id`.
+        # These used to be stamped ONTO the AST node, which made codegen a
+        # mutator of the tree the effect and monomorphization passes walk -- and
+        # under Saw's ownership rules would force `&var Program` through the
+        # whole back end for what is really a side table.
+        self.closure_values: dict[int, tuple] = {}
 
         # Variable types for closure captures (name -> SawType)
         self.variable_types: dict[str, SawType] = {}

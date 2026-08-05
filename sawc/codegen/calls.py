@@ -1330,9 +1330,9 @@ class CallsMixin:
         # Build the closure: heap env (escapes=True was set by the typechecker),
         # plus the generated body fn and env pointer/destructor.
         self._generate_closure(closure_expr)
-        closure_fn = closure_expr._cg_closure_fn
-        env_val = closure_expr._cg_env_value  # i8* (null if no captures)
-        env_dtor = getattr(closure_expr, 'codegen_env_dtor', None)
+        # i8* env is null if the closure has no captures (design 126 R1: these
+        # come from the generator's side table, not from the AST node).
+        closure_fn, env_val, env_dtor = self.closure_values[closure_expr.node_id]
 
         # Control block: { pthread_t tid (i8*), i8* env, T result }.
         cb_ty = ir.LiteralStructType([i8ptr, i8ptr, slot_llvm])

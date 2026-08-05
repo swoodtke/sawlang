@@ -246,7 +246,7 @@ class ClosuresMixin:
         # captures are copied bitwise. A generated env-destructor runs the
         # captures' drop glue exactly once and frees the block; for spawn the
         # trampoline invokes it on the task thread after the body returns.
-        expr.codegen_env_dtor = None
+        env_dtor = None
         if captures and env_struct_type:
             if escapes:
                 i64 = self.int_type  # design 47: saw_alloc size/align are platform-width
@@ -307,7 +307,7 @@ class ClosuresMixin:
                 self.builder.store(cap_value, field_ptr)
             env_ptr_val = self.builder.bitcast(env_alloca, env_ptr_type, name="env_ptr")
             if escapes:
-                expr.codegen_env_dtor = self._generate_env_dtor(
+                env_dtor = self._generate_env_dtor(
                     env_struct_type, captures, closure_name, cap_saw_types, modes,
                     cap_off)
         else:
@@ -318,7 +318,7 @@ class ClosuresMixin:
         # The value carries its own destructor so it can be dropped wherever it
         # flows (bound / struct field / Vector / returned).
         dtor_ptr_type = ir.PointerType(ir.FunctionType(ir.VoidType(), [env_ptr_type]))
-        dtor_val = (expr.codegen_env_dtor if expr.codegen_env_dtor is not None
+        dtor_val = (env_dtor if env_dtor is not None
                     else ir.Constant(dtor_ptr_type, None))
 
         # Create closure struct: { fn_ptr, env_ptr, dtor_ptr }
@@ -331,9 +331,10 @@ class ClosuresMixin:
 
         # Expose the generated function and env pointer to `spawn` codegen, which
         # calls the closure body directly from a trampoline and needs the env's
-        # heap pointer to hand to the task thread.
-        expr._cg_closure_fn = closure_fn
-        expr._cg_env_value = env_ptr_val
+        # heap pointer to hand to the task thread. Side table, not an AST field
+        # (design 126 R1): LLVM values must never ride the tree that the effect
+        # and monomorphization passes walk.
+        self.closure_values[expr.node_id] = (closure_fn, env_ptr_val, env_dtor)
 
         return closure_val
 
