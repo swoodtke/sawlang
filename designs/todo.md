@@ -396,7 +396,10 @@ noted live-range packing of locals; do both in one sizing brief.
   against the VALUE's type, not the destination field's, since an opt-encoded
   destination is `T?` while the read is the bare payload.
 
-- **DF-128a — STOPPED, needs a user decision. A `Deinit`-only type aliases and
+- **DF-128a — DECIDED (user, Aug 5): design 131 owns the fix** (`Deinit`
+  becomes NON-DECLARABLE — a policy is required, deinit bodies live inside the
+  policy conformance; the checkpoint gains the defensive arm). Original
+  finding follows: **a `Deinit`-only type aliases and
   double-frees (found while probing for design 128, Aug 5; PRE-EXISTING —
   reproduces with design 128 reverted).** A type whose only resource conformance
   is `Deinit` falls through every arm of the value-transfer checkpoint, so a
@@ -514,7 +517,9 @@ noted live-range packing of locals; do both in one sizing brief.
   formatter grows a case. Hit while writing a test that printed
   `v.get(0)` — `Vector.get` returns `T?`, so this is easy to reach by accident.
 
-- **DF-124b — STOPPED, needs a user decision (found by design 124, Aug 5).**
+- **DF-124b — DECIDED (user, Aug 5): design 131 owns the fix** (payload reads
+  become policy-driven places; `move o!` + `Optional.take()` are the consuming
+  forms). Original finding follows.
   DF-124a's root cause is not confined to coroutine frames: reading a payload out
   of ANY optional with `!` neither retains it nor clears the source's ownership,
   so the reader gets a non-owning alias. Five lines, no coroutines, no unsafe:
