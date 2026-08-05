@@ -1,0 +1,44 @@
+// Design 123 / RS-1, the finding that started the brief. `Vector.push` called
+// `grow()`, which returned silently when the allocator refused, and then wrote
+// the element at `buf[length]` where `length == capacity` — one element PAST
+// the buffer — and bumped `length` past `capacity`. Every later `get`,
+// iteration and the final `deinit` read and freed out of bounds. Proven on main
+// with a 2-element `Vector<Int, FailAlloc>`: `len after failed-grow push = 3`
+// and `get(2)` read back the value stored off the end, exit 0, no diagnostic.
+//
+// `push` is the infallible tier, so it panics now.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Vector.push: allocation failed
+
+// Denies every allocation after the first `budget` of them, so the vector gets
+// a real buffer and then loses the grow.
+static BUDGET: Atomic<Int> = Atomic(1)
+
+struct FailAlloc {}
+extension FailAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+        let left = BUDGET.load()
+        if left <= 0 {
+            return None
+        }
+        BUDGET.store(left - 1)
+        GlobalAllocator().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    var v = Vector<Int, FailAlloc>()
+    var i = 0
+    // The first push allocates capacity 4; pushes 2-4 fit; push 5 must grow and
+    // the allocator is out of budget by then.
+    while i < 4 {
+        v.push(i)
+        i = i + 1
+    }
+    print(v.len())      // 4 — everything so far is real
+    v.push(99)          // grow denied -> panic, never an out-of-bounds write
+    print(v.len())
+}

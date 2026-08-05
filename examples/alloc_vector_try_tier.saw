@@ -1,0 +1,72 @@
+// Design 123: Vector's fallible tier. `try_push`, `try_reserve`, `try_copy` and
+// `try_with_capacity` all report allocator exhaustion as `Err(AllocError)` and
+// leave the vector exactly as it was — no partial application, no silent
+// truncation. A denying allocator drives every one of them.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4
+// push denied: allocation of 64 bytes (align 8) failed
+// 4
+// 3
+// reserve denied
+// 4
+// copy denied
+// budget restored
+// 5
+
+static BUDGET: Atomic<Int> = Atomic(1)
+
+struct FailAlloc {}
+extension FailAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+        let left = BUDGET.load()
+        if left <= 0 {
+            return None
+        }
+        BUDGET.store(left - 1)
+        GlobalAllocator().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    var v = Vector<Int, FailAlloc>()
+    var i = 0
+    while i < 4 {
+        v.push(i)
+        i = i + 1
+    }
+    print(v.len())                       // 4
+
+    // try_push: the grow is refused, the error carries the exact request
+    // (capacity 4 -> 8 elements of 8 bytes), and the vector is untouched.
+    match v.try_push(99) {
+        case Ok(_) -> print("pushed"),
+        case Err(e) -> print("push denied: {e}")
+    }
+    print(v.len())                       // still 4
+    print(v.get(3)!)                     // 3 — content untouched by the refusal
+
+    // try_reserve: same refusal, reported before anything is written.
+    match v.try_reserve(100) {
+        case Ok(_) -> print("reserved"),
+        case Err(_) -> print("reserve denied")
+    }
+    print(v.len())                       // still 4
+
+    // try_copy: all-or-nothing, so a refused buffer is an Err, not a short copy.
+    match v.try_copy() {
+        case Ok(c) -> print(c.len()),
+        case Err(_) -> print("copy denied")
+    }
+
+    // With budget restored the same calls succeed.
+    BUDGET.store(8)
+    print("budget restored")
+    match v.try_push(99) {
+        case Ok(_) -> print(v.len()),    // 5
+        case Err(_) -> print("push denied")
+    }
+}

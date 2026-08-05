@@ -465,6 +465,39 @@ inlined (the `.build/scratch` probes are gitignored).
   `start_col`). Until then the two lexers differ on this one rare construct by
   design.
 
+## Design 123 — DF-findings
+
+- **DF-123a — ICE: a STATIC method call on the enclosing generic struct, spelled
+  with the extension's own type parameters (found by design 123 unit B, Aug 5;
+  PRE-EXISTING — reproduced on a clean tree at `2381350`).** Writing
+  `Vector<T, A>.try_with_capacity(n)` inside a `Vector<T, A>` extension body
+  compiles to `internal compiler error: maximum recursion depth exceeded` and
+  takes the WHOLE compilation unit with it: because std is merged in, every
+  program in the suite then fails to compile, including `hello.saw`. The
+  constructor spelling of the same thing (`Vector<T, A>(capacity: n)`, used by
+  `copy`/`map` for years) is fine — only the STATIC-METHOD path is affected.
+  Minimal repro (`.build/scratch/probe_static_self.saw`):
+  ```saw
+  struct Holder<T> { v: T }
+  extension Holder<T> {
+      public func make(v: T) -> Holder<T> { Holder<T>(v: v) }
+      public func remake(&self) -> Holder<T> { Holder<T>.make(self.v) }  // ICE
+  }
+  func main() { let h = Holder<Int>.make(3)  print(h.remake().v) }
+  ```
+  Diagnosis from the traceback: `calls.py::_generate_static_method_call` calls
+  `generics.py::_ensure_monomorphized_struct("Holder", [T])` with the type
+  ARGUMENT still being the type PARAMETER `T`, and `types.py::_get_llvm_type`
+  line 136 resolves `T` through `self.type_param_context["T"]`, which maps `T` to
+  itself — an unbounded self-recursion. The constructor path never reaches
+  `_ensure_monomorphized_struct` with an unsubstituted parameter, which is why it
+  survives. Two things to fix: substitute through `type_param_context` before
+  monomorphizing, and give `_get_llvm_type` a self-mapping guard so any future
+  variant is a clean error rather than an ICE that fails every compilation.
+  design 123 did NOT code around this — `Vector.try_copy` reserves through the
+  instance method `try_reserve` instead, which is the better implementation
+  anyway (one allocation, no intermediate) and never needed the static spelling.
+
 ## Design 122 — DF-findings
 
 - **DF-122a — STOPPED, needs a user decision (design 122 unit D4, Aug 4).**

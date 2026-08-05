@@ -38,7 +38,12 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         Vector<T, A>(buffer: None, length: 0, capacity: 0)
     }
 
-    // Create a vector with pre-allocated capacity
+    /// Creates an empty vector with room for `capacity` elements.
+    ///
+    /// Panics if the allocator refuses the request (design 123, infallible
+    /// tier). It used to hand back an EMPTY vector, so a caller that asked to
+    /// reserve a megabyte and got nothing carried on as if it had succeeded.
+    /// `try_with_capacity` is the twin that reports the failure.
     public init(capacity: Int) -> Vector<T, A> {
         if capacity <= 0 {
             Vector<T, A>(buffer: None, length: 0, capacity: 0)
@@ -48,20 +53,17 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
                 let typed_ptr = raw_ptr as UnsafePointer<T>
                 Vector<T, A>(buffer: typed_ptr, length: 0, capacity: capacity)
             } else {
-                // Allocation failed, return empty vector
-                Vector<T, A>(buffer: None, length: 0, capacity: 0)
+                panic("Vector(capacity:): allocation failed")
             }
         }
     }
 
-    // Fallible capacity factory (design 19 three-tier failure model, tier 2).
-    // Where `init(capacity:)` silently degrades to an empty vector on OOM, this
-    // hands the caller the failure: on allocator exhaustion it returns
-    // `Err(AllocError)` carrying the byte size and alignment of the request that
-    // failed, so a site that genuinely handles OOM locally can react (and log
-    // context) instead of proceeding with a smaller-than-asked buffer. The
-    // success path is identical to `init(capacity:)`. A non-positive request
-    // needs no allocation and trivially succeeds with an empty vector.
+    /// Creates an empty vector with room for `n` elements, reporting allocator
+    /// exhaustion as `Err(AllocError)` rather than panicking.
+    ///
+    /// The `AllocError` carries the byte size and alignment of the request that
+    /// failed. A non-positive `n` needs no allocation and succeeds with an
+    /// empty vector.
     public func try_with_capacity(n: Int) -> Result<Vector<T, A>, AllocError> {
         if n <= 0 {
             return Vector<T, A>()
@@ -165,11 +167,20 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Add an element to the end
+    /// Appends `value` to the end.
+    ///
+    /// Panics if the buffer must grow and the allocator refuses (design 123,
+    /// infallible tier). `try_push` is the twin that reports the failure, and
+    /// `try_reserve` is how you make a later `push` allocation-free.
+    ///
+    /// This was the RS-1 heap overflow: `grow()` returned silently on failure,
+    /// so the placement write below landed one element PAST the buffer and
+    /// `length` advanced past `capacity` — every later `get`, iteration and the
+    /// final `deinit` then read and freed out of bounds, from fully safe code
+    /// with no diagnostic.
     public func push(&var self, value: T) {
-        // Grow if needed
-        if self.length >= self.capacity {
-            self.grow()
+        if not self._reserve(self.length + 1) {
+            panic("Vector.push: allocation failed")
         }
         // Add the element. `buf[self.length] = value` is the PLACEMENT-MOVE
         // primitive (see LANGUAGE_SPEC "Placement writes"): the slot at
@@ -182,7 +193,45 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         if let buf = self.buffer {
             buf[self.length] = value
             self.length = self.length + 1
+        } else {
+            // Unreachable: a successful `_reserve` leaves capacity >= 1, which
+            // this type's invariant pairs with a live buffer. Panicking beats
+            // the silent element-on-the-floor drop this branch used to be.
+            panic("Vector.push: buffer is empty")
         }
+    }
+
+    /// Appends `value`, reporting allocator exhaustion as `Err(AllocError)`.
+    ///
+    /// The vector is unchanged on `Err`. `value` is destroyed at that point
+    /// (it deinits at scope exit rather than being handed back); reserve first
+    /// with `try_reserve` when the value must survive a refusal.
+    public func try_push(&var self, value: T) -> Result<Void, AllocError> {
+        let wanted = self.length + 1
+        if not self._reserve(wanted) {
+            let bytes = self._grow_target(wanted) * sizeof<T>()
+            return AllocError(size: bytes, align: alignof<T>())
+        }
+        if let buf = self.buffer {
+            buf[self.length] = value
+            self.length = self.length + 1
+        }
+        return
+    }
+
+    /// Reserves room for `additional` more elements, reporting allocator
+    /// exhaustion as `Err(AllocError)`.
+    ///
+    /// On `Ok` the next `additional` pushes cannot allocate, so they cannot
+    /// fail. Capacity is never reduced and a non-positive `additional` is a
+    /// no-op.
+    public func try_reserve(&var self, additional: Int) -> Result<Void, AllocError> {
+        let wanted = self.length + additional
+        if not self._reserve(wanted) {
+            let bytes = self._grow_target(wanted) * sizeof<T>()
+            return AllocError(size: bytes, align: alignof<T>())
+        }
+        return
     }
 
     // Remove and return the last element
@@ -268,9 +317,29 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Internal: grow the buffer capacity
-    public func grow(&var self) {
-        let new_capacity = if self.capacity == 0 { 4 } else { self.capacity * 2 }
+    // Internal: the capacity a growth to `min_capacity` would allocate.
+    // Geometric (double, from a floor of 4) unless the caller asked for more.
+    // Split out so a failed `_reserve` can report the exact byte size that was
+    // refused without `_reserve` having to carry an error payload.
+    func _grow_target(&self, min_capacity: Int) -> Int {
+        let doubled = if self.capacity == 0 { 4 } else { self.capacity * 2 }
+        if doubled < min_capacity {
+            min_capacity
+        } else {
+            doubled
+        }
+    }
+
+    // Internal: ensure `capacity >= min_capacity`. Returns whether the vector
+    // now has that room — FALSE means the allocator refused and the vector is
+    // untouched (old buffer, old capacity, old length), which is what lets
+    // every caller choose its tier. This reporting return is the RS-1 fix:
+    // the old `grow()` returned Void and left `push` to write past the end.
+    func _reserve(&var self, min_capacity: Int) -> Bool {
+        if self.capacity >= min_capacity {
+            return true
+        }
+        let new_capacity = self._grow_target(min_capacity)
         let new_byte_size = new_capacity * sizeof<T>()
 
         if let buf = self.buffer {
@@ -283,14 +352,17 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
                 A().dealloc(raw_ptr, old_byte_size, alignof<T>())
                 self.buffer = new_raw as UnsafePointer<T>
                 self.capacity = new_capacity
+                return true
             }
-        } else {
-            // First allocation
-            if let raw_ptr = A().alloc(new_byte_size, alignof<T>()) {
-                self.buffer = raw_ptr as UnsafePointer<T>
-                self.capacity = new_capacity
-            }
+            return false
         }
+        // First allocation
+        if let raw_ptr = A().alloc(new_byte_size, alignof<T>()) {
+            self.buffer = raw_ptr as UnsafePointer<T>
+            self.capacity = new_capacity
+            return true
+        }
+        false
     }
 
 }
@@ -332,8 +404,11 @@ extension Vector<T, A: Allocator = GlobalAllocator>: Deinit {
 // (Deinit is provided unconditionally above; ExplicitCopy: Deinit is satisfied
 // by that separate conformance.)
 extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
-    // Deep copy: allocate a fresh buffer (through the SAME allocator `A`) and
-    // copy each element. The copy of a `Vector<T, A>` is a `Vector<T, A>`.
+    /// Duplicates the vector and every element through the same allocator `A`.
+    ///
+    /// Panics if the allocator refuses (design 123, infallible tier); it used
+    /// to return a SHORTER vector, so a "copy" could silently be missing
+    /// elements. `try_copy` reports the failure instead.
     public func copy(&self) -> Vector<T, A> {
         var result = Vector<T, A>(capacity: self.capacity)
         var i = 0
@@ -344,6 +419,27 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
             i = i + 1
         }
         move result
+    }
+}
+
+extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
+    /// Duplicates the vector, reporting allocator exhaustion as
+    /// `Err(AllocError)`.
+    ///
+    /// The whole buffer is reserved up front, so the element loop cannot
+    /// allocate and the result is either a complete copy or an `Err` — never a
+    /// partial one.
+    public func try_copy(&self) -> Result<Vector<T, A>, AllocError> {
+        var result = Vector<T, A>()
+        let _ = try result.try_reserve(self.length)
+        var i = 0
+        while i < self.length {
+            if let buf = self.buffer {
+                result.push(buf[i].copy())
+            }
+            i = i + 1
+        }
+        return move result
     }
 }
 
@@ -405,6 +501,9 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // extension for the same reason `each` needs it: an element is handed to the
     // closure BY VALUE, which is a copy at the source (see the COPY-FAMILY note
     // above).
+    // Panics on allocator exhaustion, through `push` (design 123, infallible
+    // tier). It used to drop transformed values on the floor and hand back a
+    // short result vector.
     public func map<U>(&self, transform: (T) -> U) -> Vector<U, A> {
         var result = Vector<U, A>()
         var i = 0
