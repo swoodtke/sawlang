@@ -223,7 +223,7 @@ class StructsMixin:
                 return self._generate_enum_init(enum_init)
 
         # Handle module-qualified enum variant access: lib.Color.Red
-        if isinstance(expr.object, MemberAccess) and hasattr(expr, 'resolved_module'):
+        if isinstance(expr.object, MemberAccess) and expr.resolved_module is not None:
             # The typechecker resolved this as a module-qualified enum variant
             # expr.object is something like lib.Color (a MemberAccess to an enum type)
             enum_name = expr.object.member  # The enum name (e.g., "Color")

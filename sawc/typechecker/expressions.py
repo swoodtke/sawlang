@@ -1284,7 +1284,11 @@ class ExpressionsMixin:
         substitutes to an optional does NOT auto-wrap — wrapping must be explicit
         there.
         """
-        if arg_value is not None and hasattr(arg_value, 'autowrap_to_optional'):
+        # Clear any wrap decided by an earlier candidate before deciding again.
+        # (`autowrap_to_optional` is a declared field since design 126 R1, so the
+        # old `hasattr` guard here was always true -- it read as conditional but
+        # never was.)
+        if arg_value is not None:
             arg_value.autowrap_to_optional = None
         if arg_type is None or expected_type is None:
             return True
@@ -2576,8 +2580,7 @@ class ExpressionsMixin:
                     column=expr.column
                 )
                 result = self._check_struct_init(struct_init)
-                if hasattr(struct_init, 'resolved_init_params'):
-                    expr.resolved_init_params = struct_init.resolved_init_params
+                expr.resolved_init_params = struct_init.resolved_init_params
                 # Design 53: a matched init may have appended default-valued named
                 # arguments; carry the augmented field-init list to codegen, which
                 # otherwise rebuilds it from the (possibly empty) argument list.
@@ -3883,7 +3886,7 @@ class ExpressionsMixin:
                         if len(variant_params) == 0:
                             result = SawType(TypeKind.ENUM, enum_name=obj_type.enum_name, type_args=type_args, symbol=enum_info)
                             # Preserve module resolution info for codegen
-                            if hasattr(expr.object, 'resolved_module'):
+                            if getattr(expr.object, 'resolved_module', None) is not None:
                                 expr.resolved_module = expr.object.resolved_module
                             return result
                         else:

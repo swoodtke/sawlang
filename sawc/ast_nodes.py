@@ -2,9 +2,40 @@
 Saw Language AST Node Definitions
 """
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 from enum import Enum, auto
+
+
+def annotation(default=None, **kwargs):
+    """Declare a cross-pass ANNOTATION field (design 126 R1).
+
+    An annotation is metadata one pass stamps for a later one -- a resolved
+    symbol, a dispatch decision, a plan -- as opposed to tree STRUCTURE (an
+    operand, a body, an argument list). The distinction matters because the
+    compiler has two kinds of reflective walker:
+
+      * child walkers (the coroutine transform's hoist / CFG scans) must visit
+        only structure. An annotation may ALIAS a node reachable elsewhere, or
+        hold a derived node that a later pass rebuilds, so following one makes a
+        walker visit the same call twice or visit a stale copy.
+      * `substitute_ast_types` (the monomorphizer) must visit EVERYTHING,
+        annotations included -- that is exactly the RC-2 bug R1 fixes.
+
+    So annotations stay declared, typed and visible to `dataclasses.fields()`,
+    and child walkers filter them out with `structural_fields()`.
+    """
+    md = dict(kwargs.pop("metadata", {}))
+    md["saw_annotation"] = True
+    return field(default=default, metadata=md, **kwargs)
+
+
+def structural_fields(node):
+    """`dataclasses.fields(node)` minus the cross-pass annotations -- i.e. the
+    fields that are genuine tree structure. See `annotation()`."""
+    return [f for f in dataclasses.fields(node)
+            if not f.metadata.get("saw_annotation", False)]
 
 
 class TypeKind(Enum):
@@ -428,6 +459,22 @@ class ASTNode:
 @dataclass(kw_only=True)
 class Expression(ASTNode):
     resolved_type: Optional['SawType'] = None
+    # Annotations the typechecker may stamp on ANY expression, verified by
+    # walking the AST of 220 corpus programs (design 126 R1):
+    #   autowrap_to_optional -- a bare `T` passed where `T?` is expected: holds
+    #                           the FULL `T?` type codegen builds around the
+    #                           value (design 57 DF3); None = no wrap
+    #   expected_type        -- the type pushed down from context, kept for
+    #                           literals/collection literals that need it
+    #   needs_copy           -- the move checker decided this operand is copied
+    #   closure_lend         -- a closure operand is lent, not transferred
+    #   _unsafe_reported     -- an unsafe-marker diagnostic already fired here,
+    #                           so the check does not report the same node twice
+    autowrap_to_optional: Optional['SawType'] = annotation(None)
+    expected_type: Optional['SawType'] = annotation(None)
+    needs_copy: bool = annotation(False)
+    closure_lend: bool = annotation(False)
+    _unsafe_reported: bool = annotation(False)
 
 
 @dataclass
@@ -480,6 +527,10 @@ class Identifier(Expression):
     name: str
     type_args: Optional[List['SawType']] = None  # For generic type access: Option<Int>
 
+    # The name resolved to a module-level `static`, not a local binding
+    # (design 126 R1).
+    is_static_ref: bool = annotation(False)
+
 
 @dataclass
 class BinaryOp(Expression):
@@ -523,6 +574,11 @@ class ReferenceExpr(Expression):
     mutable: bool = False  # True for &var, False for &
     in_argument_position: bool = False  # Set by the parser for call arguments
 
+    # Erasure of a concrete referent to `&any Trait` (design 51 / 126 R1): the
+    # concrete type being erased and the trait it is erased to.
+    erase_concrete: Optional['SawType'] = annotation(None)
+    erase_to_trait: Optional[str] = annotation(None)
+
 
 @dataclass
 class CastExpr(Expression):
@@ -551,6 +607,27 @@ class FunctionCall(Expression):
     name: str
     arguments: List[Argument]
     type_args: Optional[List['SawType']] = None  # For generic calls: identity<Int>(x)
+
+    # --- typechecker -> codegen call plan (design 126 R1) ---------------------
+    # Binding of source arguments to the callee's LOGICAL parameters (design 66):
+    # one slot per parameter holding the source-argument index, or None for a
+    # slot the callee fills from its default. None (the whole field) means the
+    # legacy positional path -- arguments already line up.
+    arg_plan: Optional[List[Optional[int]]] = annotation(None)
+    # The callee's mangled symbol, once overload resolution has picked one.
+    resolved_symbol: Optional[str] = annotation(None)
+    # Set when the call resolves to a STRUCT initializer rather than a function;
+    # holds the init's parameter names (design 126 R1 note: distinct from
+    # StructInit.resolved_init_params, which is the same idea on the literal).
+    resolved_init_params: Optional[List[str]] = annotation(None)
+    resolved_field_inits: Optional[List[tuple]] = annotation(None)
+    # Builtin construction forms the typechecker recognizes by name.
+    is_atomic_construct: bool = annotation(False)
+    is_unsafe_mem_construct: bool = annotation(False)
+    # `spawn(f(...))`: f's return type, needed to build the task handle.
+    spawn_result_type: Optional['SawType'] = annotation(None)
+    # True once generic type arguments were INFERRED rather than written.
+    type_args_inferred: bool = annotation(False)
 
 
 @dataclass
@@ -584,6 +661,10 @@ class ArrayLiteral(Expression):
     instead (design 54 Part 4)."""
     elements: List[Expression]
 
+    # Set when the expected type made this literal build a Vector rather than a
+    # fixed array (design 54 Part 4 / design 126 R1).
+    vector_container_type: Optional['SawType'] = annotation(None)
+
 
 @dataclass
 class MapLiteral(Expression):
@@ -609,12 +690,31 @@ class ArrayIndex(Expression):
     array_expr: Expression
     index: Expression  # Can be any expression that evaluates to Int
 
+    # Projection into an UnsafeMemory register block (design 112, R1).
+    um_projection: bool = annotation(False)
+
 
 @dataclass
 class MemberAccess(Expression):
     """Access a member/field of an expression."""
     object: Expression
     member: str
+
+    # --- typechecker -> codegen (design 126 R1) ---
+    # A qualified access `mod.name` that resolved through a module.
+    resolved_module: Optional[str] = annotation(None)
+    resolved_module_symbol: Optional[Any] = annotation(None)
+    resolved_static_name: Optional[str] = annotation(None)
+    resolved_struct_name: Optional[str] = annotation(None)
+    resolved_function_name: Optional[str] = annotation(None)
+    # `.0` / `.x` on a tuple: the positional index it projects.
+    tuple_field_index: Optional[int] = annotation(None)
+    # A builtin integer bound (`Int.max`): (type name, member).
+    int_limit: Optional[tuple] = annotation(None)
+    # Projection into an UnsafeMemory register block (design 112).
+    um_projection: bool = annotation(False)
+    # Read as a presence test today; declared so it is an ordinary False default.
+    synthesized_access: bool = annotation(False)
 
 
 @dataclass
@@ -625,6 +725,8 @@ class StructInit(Expression):
     type_args: Optional[List['SawType']] = None  # For generic structs: Box<Int> has type_args=[Int]
     # Resolution metadata (filled in by type checker)
     resolved_init_params: Optional[List[str]] = None  # None = field init, List = custom init params
+    # The literal actually resolved to a custom `init`, i.e. a call (design 126 R1).
+    as_function_call: Optional['FunctionCall'] = annotation(None)
 
 
 @dataclass
@@ -790,6 +892,13 @@ class TryExpr(Expression):
     variant: str  # "propagate", "optional", or "force"
     catch_block: Optional['Block'] = None  # For inline catch: try expr catch { ... }
 
+    # --- typechecker -> codegen (design 126 R1) ---
+    # The concrete Result enum this `try` unwraps.
+    result_enum_type: Optional['SawType'] = annotation(None)
+    # Propagating into an ERASED `Result<T, Box<any Error>>`: the boxing
+    # descriptor codegen needs to erase the concrete error on the way out.
+    erase_propagate: Optional[Dict[str, Any]] = annotation(None)
+
 
 @dataclass
 class TryCatchExpr(Expression):
@@ -804,6 +913,12 @@ class TryCatchExpr(Expression):
     try_block: 'Block'
     catch_block: 'Block'
     error_binding: Optional[str] = None  # Optional name for caught error (default: "error")
+
+    # The catch's error type (design 30 Ruling 2). For a MULTI-error catch this
+    # is the synthesized `_CatchError_<id>` union enum and `error_types` lists
+    # its members (design 126 R1).
+    error_type: Optional['SawType'] = annotation(None)
+    error_types: Optional[List['SawType']] = annotation(None)
 
 
 @dataclass
@@ -820,6 +935,36 @@ class MethodCall(Expression):
     # when the call supplies none. Inference is future work, so a generic method
     # requires these to be written explicitly.
     type_args: Optional[List['SawType']] = None
+
+    # --- typechecker -> codegen call plan (design 126 R1) ---------------------
+    # See FunctionCall.arg_plan / .resolved_symbol -- same meaning here.
+    arg_plan: Optional[List[Optional[int]]] = annotation(None)
+    resolved_symbol: Optional[str] = annotation(None)
+    # Dispatch shape decided during checking.
+    existential_dispatch: Optional[str] = annotation(None)   # trait name, for `any Trait` vtable dispatch
+    is_field_call: bool = annotation(False)                  # calling a closure-typed FIELD, not a method
+    field_call_unwrap: bool = annotation(False)
+    array_builtin: Optional[str] = annotation(None)          # "len" | "swap" on a fixed array
+    is_chan_recv: bool = annotation(False)                   # cooperative Channel.receive()
+    # Auto-forwarding through a smart pointer: the payload type reached through
+    # Arc<T> / Box<T> when the method lives on T rather than on the wrapper.
+    arc_forward_payload_type: Optional['SawType'] = annotation(None)
+    box_forward_payload_type: Optional['SawType'] = annotation(None)
+    # Erased-existential operations (design 56 N3): the box/downcast descriptors
+    # codegen needs. Dicts today; their shape lives at the writer sites.
+    erased_box_make: Optional[Dict[str, Any]] = annotation(None)
+    erased_downcast: Optional[Dict[str, Any]] = annotation(None)
+    # The call turned out to be an enum-variant construction.
+    resolved_enum_init: Optional['EnumInit'] = annotation(None)
+    # `group.spawn(f(...))`: the spawned root's name, consumed by the coroutine
+    # transform to build f's frame.
+    spawn_root: Optional[str] = annotation(None)
+    # --- UnsafeMemory method plan (design 81/112) ---
+    um_method: Optional[str] = annotation(None)
+    um_scalar_type: Optional['SawType'] = annotation(None)
+    um_use_name: Optional[str] = annotation(None)            # "Device" | "Normal"
+    um_volatile: bool = annotation(False)
+    resolved_init_params: Optional[List[str]] = annotation(None)
 
 
 @dataclass
@@ -839,6 +984,9 @@ class IfLetExpr(Expression):
     then_branch: 'Block'
     else_branch: Optional['Block'] = None
     pattern: Optional['Pattern'] = None
+    # The coroutine transform CFG-split this binding across a suspension
+    # (design 104 item 1 / design 126 R1).
+    _coro_split: bool = annotation(False)
 
 
 @dataclass
@@ -852,6 +1000,9 @@ class GuardLetStatement(ASTNode):
     mutable: bool  # True for 'guard var', False for 'guard let'
     else_branch: 'Block'  # Must contain early exit (return, break, etc.)
     pattern: Optional['Pattern'] = None
+    # The coroutine transform CFG-split this binding across a suspension
+    # (design 104 item 1 / design 126 R1).
+    _coro_split: bool = annotation(False)
 
 
 @dataclass
@@ -946,6 +1097,15 @@ class MatchExpr(Expression):
     """Match expression: match value { case Variant1 -> expr1, case Variant2 -> expr2 }"""
     matched_expr: Expression
     arms: List[MatchArm]
+
+    # --- typechecker -> codegen match plan (design 126 R1) ---
+    # The enum being switched on, for the classic variant lowering.
+    matched_enum_type: Optional['SawType'] = annotation(None)
+    # Set when the arms need the GENERAL pattern lowering (literals, ranges,
+    # tuples, guards) rather than the enum-variant switch; then
+    # `matched_scrutinee_type` carries the scrutinee's type.
+    use_general_match: bool = annotation(False)
+    matched_scrutinee_type: Optional['SawType'] = annotation(None)
 
 
 @dataclass
@@ -1247,6 +1407,10 @@ class Method(ASTNode):
     is_synthesized: bool = False
     source_file: str = ""
     doc: Optional[str] = None
+    # The per-overload / per-instantiation codegen symbol, stamped by
+    # registration once overloads are numbered; None means "use `name`"
+    # (design 126 R1).
+    mangled_symbol: Optional[str] = annotation(None)
 
 
 @dataclass
@@ -1314,6 +1478,8 @@ class Function(ASTNode):
     is_synthesized: bool = False
     source_file: str = ""
     doc: Optional[str] = None
+    # See Method.mangled_symbol (design 126 R1).
+    mangled_symbol: Optional[str] = annotation(None)
 
 
 @dataclass

@@ -345,9 +345,8 @@ class CallsMixin:
                 line=expr.line,
                 column=expr.column
             )
-            # Copy resolved_init_params if it was set during typechecking
-            if hasattr(expr, 'resolved_init_params'):
-                struct_init.resolved_init_params = expr.resolved_init_params
+            # Carry the matched-init decision from typechecking (None = memberwise).
+            struct_init.resolved_init_params = expr.resolved_init_params
             return self._generate_struct_init(struct_init)
 
         # Check if this is a call to a generic function. Design 105: a generic
@@ -795,7 +794,7 @@ class CallsMixin:
                 return self._generate_static_method_call(expr, struct_name)
 
         # Check if typechecker resolved this as an enum init (e.g., lib.Color.Custom(...))
-        if hasattr(expr, 'resolved_enum_init'):
+        if expr.resolved_enum_init is not None:
             return self._generate_enum_init(expr.resolved_enum_init)
 
         # Check if this is actually an enum initialization
@@ -1635,8 +1634,7 @@ class CallsMixin:
         # design 27 item 3: carry the matched-init decision from the typechecker
         # (`_check_module_struct_init`) so a module-qualified custom init
         # dispatches to its initializer instead of a zeroed memberwise build.
-        if hasattr(expr, 'resolved_init_params'):
-            struct_init.resolved_init_params = expr.resolved_init_params
+        struct_init.resolved_init_params = expr.resolved_init_params
 
         return self._generate_struct_init(struct_init)
 

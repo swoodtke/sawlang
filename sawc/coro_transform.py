@@ -45,6 +45,7 @@ from ast_nodes import (
     StringInterpolation, ArrayLiteral, MapLiteral, SetLiteral, StructInit,
     TupleLiteral, UnsafeExpr, NilCoalesce, OptionalChain, BindOptional,
     OptionalEvalExpr, OptionalChainAssign, OptionalWrap,
+    structural_fields,
 )
 
 
@@ -323,7 +324,7 @@ def _rewrite_node(node, encmap):
     if isinstance(node, Identifier) and node.name in encmap:
         return _read_field(node.name, encmap[node.name], node.line, node.column)
     if isinstance(node, ASTNode):
-        for f in dataclasses.fields(node):
+        for f in structural_fields(node):
             setattr(node, f.name, _rewrite_val(getattr(node, f.name), encmap))
     return node
 
@@ -1382,7 +1383,7 @@ class _FrameBuilder:
                         f"suspension-spanning `if let`/`guard let` body in "
                         f"`{self.name}` is not supported; rename the inner binding",
                         getattr(n, 'line', 0) or 0, 0, source_file=self.src_file)
-                for f in dataclasses.fields(n):
+                for f in structural_fields(n):
                     v = getattr(n, f.name)
                     if isinstance(v, list):
                         for x in v:
@@ -1603,7 +1604,7 @@ class _FrameBuilder:
                 found[0] = True
                 return
             if isinstance(n, ASTNode):
-                for f in dataclasses.fields(n):
+                for f in structural_fields(n):
                     scan_val(getattr(n, f.name))
 
         def scan_val(v):
@@ -1642,7 +1643,7 @@ class _FrameBuilder:
             if isinstance(n, (WhileExpr, ForLoop)):
                 return
             if isinstance(n, ASTNode):
-                for f in dataclasses.fields(n):
+                for f in structural_fields(n):
                     scan_val(getattr(n, f.name))
 
         def scan_val(v):
@@ -2242,7 +2243,7 @@ class _FrameBuilder:
             elif isinstance(n, MethodCall) and self._method_call_suspends(n):
                 found.append(("method", n))
             if isinstance(n, ASTNode):
-                for f in dataclasses.fields(n):
+                for f in structural_fields(n):
                     v = getattr(n, f.name)
                     if isinstance(v, list):
                         for x in v:
@@ -3110,7 +3111,7 @@ class _FrameBuilder:
         if isinstance(node, Identifier) and node.name in self.encmap:
             return _read_field(node.name, self.encmap[node.name], node.line, node.column)
         if isinstance(node, ASTNode):
-            for f in dataclasses.fields(node):
+            for f in structural_fields(node):
                 setattr(node, f.name,
                         self._rewrite_expr_val(getattr(node, f.name), forgets))
         return node
@@ -3158,7 +3159,7 @@ class _FrameBuilder:
                 walk(n.value)
                 return
             if isinstance(n, ASTNode):
-                for f in dataclasses.fields(n):
+                for f in structural_fields(n):
                     walk(getattr(n, f.name))
 
         walk(cexpr.body)
@@ -3827,7 +3828,7 @@ def _rewrite_spawn_sites(node):
         call.resolved_type = getattr(node, 'resolved_type', None)
         return call
     if isinstance(node, ASTNode):
-        for f in dataclasses.fields(node):
+        for f in structural_fields(node):
             setattr(node, f.name, _rewrite_spawn_val(getattr(node, f.name)))
     return node
 
@@ -3900,7 +3901,7 @@ def _rewrite_drive_sites(node, roots):
         node.arguments = [_ref_arg_to_ptr(a) for a in inner.arguments]
         return node
     if isinstance(node, ASTNode):
-        for f in dataclasses.fields(node):
+        for f in structural_fields(node):
             _rewrite_drive_fields(getattr(node, f.name), roots)
     return node
 
@@ -3929,7 +3930,7 @@ def _iter_method_calls(node):
     if isinstance(node, MethodCall):
         yield node
     if isinstance(node, ASTNode):
-        for f in dataclasses.fields(node):
+        for f in structural_fields(node):
             v = getattr(node, f.name)
             if isinstance(v, (list, tuple)):
                 for x in v:
@@ -3962,7 +3963,7 @@ def _inline_static_refs(val, const_statics):
             v.value = _rw(v.value)
             return v
         if isinstance(v, ASTNode):
-            for f in dataclasses.fields(v):
+            for f in structural_fields(v):
                 setattr(v, f.name, _rw(getattr(v, f.name)))
             return v
         return v
