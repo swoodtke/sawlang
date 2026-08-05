@@ -24,6 +24,13 @@ public enum BladeCommand {
     case Unknown(cmd: String)
 }
 
+// design 139: `Run` carries an owned `Vector<String>`, so the enum names its
+// transfer class like any owning type. ExplicitCopy rather than NoCopy because
+// `get_command` hands an owned command out of a borrowed `Cli` — that is a
+// duplication, and it should be a visible one.
+@synthesize
+public extension BladeCommand: ExplicitCopy {}
+
 // =============================================================================
 // CLI Parsing
 // =============================================================================
@@ -41,6 +48,11 @@ public extension ParseError {
 public struct Cli {
     public command: BladeCommand
 }
+
+// The containment cascade: `Cli` holds an ExplicitCopy field, so it picks the
+// same policy its field has.
+@synthesize
+public extension Cli: ExplicitCopy {}
 
 public extension Cli {
     // Parse command line arguments into a Cli struct
@@ -144,8 +156,9 @@ public extension Cli {
         }
     }
 
-    // Get the parsed command
+    // Get the parsed command. Hands out an owned copy — `self` is borrowed, so
+    // the command cannot be moved out of it.
     public func get_command(&self) -> BladeCommand {
-        self.command
+        self.command.copy()
     }
 }

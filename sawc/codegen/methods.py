@@ -211,11 +211,32 @@ class MethodsMixin:
             ], name=f"{field_name}_ptr")
             field_val = self.builder.load(field_ptr, name=field_name)
 
-            # Does this field's type carry its own copy()? (ImplicitCopy or
-            # ExplicitCopy). If so, invoke it; otherwise the load is a bitwise copy.
+            # design 139: two field kinds have their copy derived INLINE and so
+            # own no `copy` symbol for the lookup below to find. Both must be
+            # handled before it, because falling through would either raise on a
+            # symbol that cannot exist (an enum) or, worse, silently bitwise-alias
+            # an owning field (an optional, whose conformance name is None, so it
+            # never even reached the check).
             conf_name = self._get_type_name_for_conformance(field_type) if field_type else None
             conformances = self.namespace.get_conformances(conf_name) if conf_name else []
-            if "ImplicitCopy" in conformances or "ExplicitCopy" in conformances:
+            # A field annotated with a bare enum name reaches here tagged STRUCT
+            # (the parser defaults an unknown capitalized name that way, and not
+            # every path re-resolves it), so retag before asking.
+            enum_field = (self.namespace._normalize_struct_enum(field_type)
+                          if field_type is not None else None)
+            inline_enum_copy = (
+                enum_field is not None
+                and enum_field.kind == TypeKind.ENUM
+                and enum_field.enum_name is not None
+                and self.namespace.declared_copy_tier(enum_field.enum_name)
+                in ('implicit', 'explicit'))
+            if inline_enum_copy:
+                field_val = self._emit_enum_deep_copy(field_val, enum_field)
+            elif field_type is not None and field_type.kind == TypeKind.OPTIONAL:
+                field_val = self._emit_optional_deep_copy(field_val, field_type)
+            # Does this field's type carry its own copy()? (ImplicitCopy or
+            # ExplicitCopy). If so, invoke it; otherwise the load is a bitwise copy.
+            elif "ImplicitCopy" in conformances or "ExplicitCopy" in conformances:
                 copy_fn = self._field_copy_fn(field_type)
                 if copy_fn is None:
                     # The field's type declares a copy policy, so it HAS a
