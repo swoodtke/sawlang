@@ -133,6 +133,13 @@ let s = {1, 2, 3}                   // Set<Int>
 let e: Map<String,Int> = {:}        // empty map needs annotation
 // {} and {expr} are ALWAYS closures — use Set<T>() / Set.of(x)
 ```
+- No bare block statement (design 122): a closure literal alone in statement
+  position is a compile error ("never called") — call it `{ ... }()` or bind it.
+  Narrow a lifetime by extracting a function.
+- `let n = <Void expr>` is a type error (bind nothing, or `let _ = ...`), and a
+  top-level `func`/`extern` named after a built-in (`print`/`assert`/`sleep`/
+  `spawn`/`sizeof`/…) is a duplicate-definition error — the call site always
+  resolves to the built-in, so the declaration could never run.
 - Map/Set keys: `Hashable + Equatable` and copyable-with-retain
   (NoCopy keys rejected). Values unrestricted. Iteration order
   unspecified — sort `keys()` for determinism.

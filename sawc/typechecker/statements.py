@@ -16,7 +16,7 @@ from ast_nodes import (
     BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, RangeExpr,
     Identifier, MemberAccess, ArrayIndex, TupleIndex, MoveExpr, IntLiteral,
-    FunctionCall, StructInit, SelfExpr,
+    FunctionCall, StructInit, SelfExpr, ClosureExpr,
     SawType, TypeKind,
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     WildcardPattern, BindingPattern, TuplePattern,
@@ -909,6 +909,24 @@ class StatementsMixin:
         self._check_continue_statement(stmt)
 
     def visit_ExpressionStatement(self, stmt: ExpressionStatement):
+        # Design 122 unit D: a closure LITERAL alone in statement position is
+        # never called and its value is discarded, so every statement inside it
+        # silently does not run. Because `{ ... }` is always a closure (the
+        # collection-literal rule), that is what a reader writing a bare block
+        # for an anonymous scope gets — the one place the language quietly did
+        # nothing. It is now an error naming both fixes.
+        if isinstance(stmt.expression, ClosureExpr):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "closure literal is never called: `{ ... }` in statement "
+                "position builds a closure and discards it, so its body does "
+                "not run",
+                stmt.expression.line, stmt.expression.column,
+                hint="call it — `{ ... }()` — or bind it (`let f = { ... }`). "
+                     "`{ ... }` is always a closure in Saw; there is no bare "
+                     "block statement"
+            )
+            return
         self._check_expression(stmt.expression)
 
     def _stamp_return_literal_types(self, body, return_type):
@@ -1077,6 +1095,20 @@ class StatementsMixin:
 
         # Infer or check type
         value_type = self._check_expression(stmt.value)
+
+        # Design 122 unit D: binding a `Void` expression produces no value, so
+        # there is nothing to name. It used to type-check and then ICE in codegen
+        # on `alloca(void)` with an empty reason; it is a plain type error.
+        if value_type is not None and value_type.kind == TypeKind.VOID:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot bind `{stmt.name}` to an expression of type `Void` "
+                f"— it produces no value",
+                stmt.line, stmt.column,
+                hint="call it as a statement on its own line, or write "
+                     "`let _ = ...` if the point is to evaluate it and discard"
+            )
+            return
 
         # Design 107: rule on the same-scope redefinition now that the
         # initializer is checked. A derived redefinition REPLACES the old binding

@@ -789,7 +789,11 @@ literal** when it is `,` (`{a, b, ...}`), and a **closure/block** otherwise —
 empty/singleton collections `Map<K, V>()`, `Set<T>()`, `Set.of(x)`). The choice
 is made by bounded parser lookahead with no type feedback. Duplicate map keys:
 last wins. Each element is consumed exactly as an `insert`/`push` argument
-(moves for owning types).
+(moves for owning types). A consequence, made explicit by design 122: **there is
+no bare block statement.** A closure literal alone in statement position would
+build a closure and discard it, so none of its body would run — that is a
+compile error naming the two real spellings (call it, `{ ... }()`, or bind it).
+To narrow a value's lifetime, extract a function.
 
 ### Structs
 

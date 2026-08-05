@@ -1,0 +1,14 @@
+// Design 122 unit D3: binding a `Void` expression names a value that does not
+// exist. It used to pass type checking and then crash codegen on `alloca(void)`,
+// surfacing as `internal compiler error:` with an EMPTY reason. It is a plain
+// type error at the binding, with the two real spellings in the hint.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot bind `n` to an expression of type `Void`
+// EXPECT-ERROR-CONTAINS: `let _ = ...`
+
+func nothing() { }
+
+func main() {
+    let n = nothing()
+    print(1)
+}

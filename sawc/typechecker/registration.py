@@ -25,6 +25,24 @@ from namespace import (
 )
 
 
+# Call names the compiler INTERCEPTS in `_check_function_call`
+# (typechecker/expressions.py) before any user overload set is consulted. A
+# top-level declaration of one of these in user code could never be reached, and
+# used to be dropped in silence — the arity/type error at the call site then
+# blamed the caller (design 122 unit D / review RS-5). Declaring one is now a
+# duplicate-definition error. std/builtin.saw are exempt: `std.task.yield_now`
+# is deliberately a wrapper whose body calls the intercepted intrinsic.
+BUILTIN_CALL_NAMES = frozenset({
+    "print", "panic", "assert", "sleep", "spawn", "cancelled", "yield_now",
+    "io_wait", "sizeof", "alignof",
+    # compiler-internal intrinsics (also intercepted, also unreachable if
+    # redeclared)
+    "__saw_test_suspend", "__saw_suspend", "__saw_io_park", "__saw_box_data",
+    "__saw_blk_start", "__saw_blk_done", "__saw_blk_pipe_fd", "__saw_blk_take",
+    "__saw_drive", "__saw_drive_steps", "__saw_deinit_in_place", "__saw_forget",
+})
+
+
 class RegistrationMixin:
     """Mixin providing registration methods for TypeChecker.
 
@@ -399,6 +417,11 @@ class RegistrationMixin:
         "defined multiple times" error now fires only at the declaration-site
         collision below (identical post-alias / bare-type-param signatures).
         """
+        # Design 122 unit D: a name the compiler intercepts at every call site
+        # cannot be redefined — the declaration would never be reachable.
+        if self._reject_builtin_redefinition(func, "function"):
+            return
+
         # Default parameter values (design 53) must be trailing.
         self._check_trailing_defaults(func.parameters, func.line, func.column,
                                       f"function `{func.name}`")
@@ -637,8 +660,38 @@ class RegistrationMixin:
                     if sym.decl_node is not None:
                         sym.decl_node.mangled_symbol = mangled
 
+    def _reject_builtin_redefinition(self, decl, what: str) -> bool:
+        """Report (and refuse to register) a user declaration whose name the
+        compiler intercepts at every call site. Returns True when rejected.
+
+        std and builtin.saw are exempt: they own these names, and
+        `std.task.yield_now` is deliberately a wrapper over the intrinsic of the
+        same name.
+        """
+        name = getattr(decl, 'name', None)
+        if name not in BUILTIN_CALL_NAMES:
+            return False
+        source = getattr(decl, 'source_file', None)
+        if self._vis_module_for_source(source)[:1] == ("<std>",):
+            return False
+        self._error(
+            ErrorKind.DUPLICATE_FUNCTION,
+            f"`{name}` is a compiler built-in and cannot be redefined",
+            decl.line, decl.column, source_file=source,
+            hint=f"every `{name}(...)` call resolves to the built-in, so this "
+                 f"{what} could never be called — give it a different name"
+        )
+        return True
+
     def _register_extern_function(self, extern_func):
         """Register an external (FFI) function signature."""
+        # Design 122 unit D: an extern declaration of an intercepted name is
+        # unreachable for the same reason a Saw one is (this is how an
+        # `extern "C" { blocking func sleep(...) }` silently lost to the
+        # built-in and produced a confusing type error two lines away).
+        if self._reject_builtin_redefinition(extern_func, "declaration"):
+            return
+
         # Resolve types for extern functions
         param_types = [self._resolve_type(p.type) for p in extern_func.parameters]
         param_names = [p.name for p in extern_func.parameters]

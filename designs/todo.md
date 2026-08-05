@@ -260,6 +260,62 @@ inlined (the `.build/scratch` probes are gitignored).
   `start_col`). Until then the two lexers differ on this one rare construct by
   design.
 
+## Design 122 — DF-findings
+
+- **DF-122a — STOPPED, needs a user decision (design 122 unit D4, Aug 4).**
+  Mutating a BY-VALUE closure capture is accepted and silently does nothing
+  observable. The brief's D4 said fix it if it is a contained codegen bug and
+  STOP if it opens a semantics question. It opens one; the diagnosis:
+
+  **Model.** `codegen/closures.py::_generate_closure` builds an *env of values*
+  for every capture mode except `ref`/`ref_var`. At closure-body entry each such
+  capture is LOADED out of the env into a fresh local alloca
+  (`cap_value = load(field_ptr); alloca; store`), and the name is bound to that
+  alloca. So every write inside the body hits a PER-CALL copy that is discarded
+  when the call returns; the env field is never written back. Two consequences,
+  both silent:
+  ```saw
+  func make_counter() -> () -> Int {
+      var n = 0
+      { n = n + 1
+        n = n + 10
+        n }                  // escaping closure, plain capture of `n`
+  }
+  // c() three times -> 11, 11, 11   (mutation visible WITHIN a call, lost after)
+
+  func each3(body: (Int) -> Bool) { body(1) body(2) body(3) }
+  var sum = 0
+  each3({ n in sum = sum + n  true })
+  print(sum)                 // 0 — the real `sum` never moves
+  // `each3({ [&var sum] n in ... })` prints 6 — the borrow capture is correct
+  ```
+
+  **Why the named "contained codegen fix" is NOT available.** Binding the name
+  straight to the env field (so writes persist) contradicts a RATIFIED property:
+  LANGUAGE_SPEC.md (designs 71/73) states an escaping closure is `ImplicitCopy`
+  over a refcounted env that "is immutable and shared … there is no observable
+  mutation through a shared env, so the sharing is semantically invisible."
+  Persisting writes makes `let g = f` (a refcount bump) share MUTABLE state, and
+  an MT `TaskGroup`/`spawn` copy would share it across threads with no
+  synchronization — the Send audit checks capture TYPES, not env aliasing. So
+  "persist" is a new capture semantics (a boxed/shared capture mode + Send
+  rules), not a bug fix.
+
+  **The two candidate semantics.**
+  1. REJECT (recommended): assigning to a by-value capture is a compile error
+     pointing at `[&var x]` (non-escaping) or `Arc<Mutex<T>>` (escaping). This
+     ENFORCES the immutable-env model the spec already ratifies rather than
+     deciding anything new. **Measured blast radius: ZERO** — an instrumented
+     build that flags assignment to a plain/move/copy capture reports no hit in
+     the 1041-test suite, blade + libs/toml + libs/semver, the selfhost lexer, or
+     the SOS kernel. Cost: the counter-closure idiom stays unwritable without an
+     `Arc<Mutex<Int>>` (and `Box` has no mutable access path today — stdlib M2).
+  2. PERSIST via a new capture mode (e.g. `[box n]`): a per-closure mutable cell
+     in the env. Needs a Send story for copies and an answer for what two copies
+     of one closure observe. A design brief, not a fix.
+  Whichever is chosen, the current behavior (accept the write, discard it) is the
+  one option the reviewer called "the worst of the three".
+
 ## Design 119 — DF-findings (lexer-pilot follow-ups)
 
 - **DF-119a — FIXED (design 119 Part A, Aug 4).** Unsigned integer relational

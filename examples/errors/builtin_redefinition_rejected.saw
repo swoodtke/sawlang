@@ -1,0 +1,14 @@
+// Design 122 unit D2: `assert`/`print`/... are intercepted at every call site,
+// so a user declaration of one could never be called. It used to be dropped in
+// silence, and the arity error at the call site then blamed the CALLER
+// ("`assert` takes exactly two positional arguments") for a call that matched
+// the user's own declaration perfectly. It is now a duplicate definition.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `assert` is a compiler built-in and cannot be redefined
+// EXPECT-ERROR-CONTAINS: could never be called
+
+func assert(a: Int) -> Int { a * 2 }
+
+func main() {
+    print(assert(21))
+}
