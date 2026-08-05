@@ -1,0 +1,12 @@
+//! Design 142 fixture: one of two modules extending `Reading` with a
+//! signature-IDENTICAL `kind`. Declaring it is legal — this module has no way to
+//! know the other exists.
+// EXPECT: skip
+
+import modules.ext142_base.{Reading}
+
+public extension Reading {
+    public func kind(&self) -> Int {
+        1
+    }
+}

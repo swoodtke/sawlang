@@ -1,0 +1,13 @@
+//! Design 142 fixture: hands out a `Data` the caller never had to import
+//! `std.data` to receive.
+// EXPECT: skip
+
+import std.data
+
+public func make_bytes() -> Data {
+    var d = Data()
+    d.push(0x12u8)
+    d.push(0x34u8)
+    d.push(0x56u8)
+    move d
+}

@@ -1,0 +1,11 @@
+//! Design 142 fixture: extends a type it does not own. Only files that import
+//! THIS module see `scaled`.
+// EXPECT: skip
+
+import modules.ext142_base.{Reading}
+
+public extension Reading {
+    public func scaled(&self, by: Int) -> Int {
+        self.raw * by
+    }
+}

@@ -117,6 +117,10 @@ class EnumSymbol:
     variant_order: List[str] = field(default_factory=list)
     type_params: List[TypeParameter] = field(default_factory=list)
     visibility: Visibility = Visibility.PRIVATE
+    # The module that DEFINES this enum. Read by the design-142 orphan rule (a
+    # conformance is declarable only where the type or the trait is defined);
+    # see FunctionSymbol.def_module for the std-synthetic-id rationale.
+    def_module: Tuple[str, ...] = ()
     ast_node: Optional[SawEnum] = None
 
 
@@ -149,6 +153,9 @@ class TraitSymbol:
     associated_types: List[str] = field(default_factory=list)
     parent_traits: List[str] = field(default_factory=list)
     visibility: Visibility = Visibility.PRIVATE
+    # The module that DEFINES this trait — the other place design 142's orphan
+    # rule permits a conformance to be declared.
+    def_module: Tuple[str, ...] = ()
 
 
 @dataclass

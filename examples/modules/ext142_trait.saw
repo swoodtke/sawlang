@@ -1,0 +1,16 @@
+//! Design 142 fixture: owns the TRAIT, and conforms a foreign type to it. That
+//! is the orphan rule's second permitted home — the trait's author knows what
+//! the contract means, so the conformance is theirs to write.
+// EXPECT: skip
+
+import modules.ext142_base.{Reading}
+
+public trait Describable {
+    func describe(&self) -> String
+}
+
+public extension Reading: Describable {
+    public func describe(&self) -> String {
+        "reading {self.raw}"
+    }
+}

@@ -1,0 +1,17 @@
+//! Design 142 fixture: the module an entry imports. It imports `ext142_far`,
+//! which is therefore only a TRANSITIVE dependency of that entry.
+// EXPECT: skip
+
+import modules.ext142_base.{Reading}
+import modules.ext142_far
+// Pulls `ext142_dup_b` into the LINK without putting it in any entry's import
+// list — so an entry that imports only `ext142_dup_a` still sees one `kind`.
+import modules.ext142_dup_b
+
+public func make_reading() -> Reading {
+    Reading(raw: 21)
+}
+
+public func scaled_here(r: &Reading) -> Int {
+    r.scaled(by: 3)
+}

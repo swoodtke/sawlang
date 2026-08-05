@@ -10,7 +10,7 @@ Usage:
 """
 
 import copy
-from typing import Dict
+from typing import Dict, List, Tuple
 from ast_nodes import (
     TypeDefinition, Struct, Enum, Trait, Function, Extension, Method, Parameter,
     Program, StaticDecl, SawType, TypeKind, Visibility, has_synthesize,
@@ -349,6 +349,8 @@ class RegistrationMixin:
             variant_order=variant_order,
             type_params=enum.type_params,
             visibility=getattr(enum, 'visibility', Visibility.PRIVATE),
+            def_module=self._vis_module_for_source(
+                getattr(enum, 'source_file', None)),
             ast_node=enum if enum.type_params else None
         ))
 
@@ -423,7 +425,9 @@ class RegistrationMixin:
             methods=methods,
             associated_types=assoc_type_names,
             parent_traits=trait.parent_traits,
-            visibility=getattr(trait, 'visibility', Visibility.PRIVATE)
+            visibility=getattr(trait, 'visibility', Visibility.PRIVATE),
+            def_module=self._vis_module_for_source(
+                getattr(trait, 'source_file', None))
         ))
 
     def _register_function(self, func: Function):
@@ -594,6 +598,16 @@ class RegistrationMixin:
                                             names[:arity]))
         return keys
 
+    @staticmethod
+    def _module_symbol_tag(module: Tuple[str, ...]) -> str:
+        """A defining module rendered for an LLVM symbol name: identifier-safe,
+        stable, and distinct per module (`("<std>", "data")` -> `std_data`)."""
+        parts = [p for p in module if p != "<std>"]
+        if module[:1] == ("<std>",):
+            parts = ["std"] + parts
+        raw = "_".join(parts) if parts else "root"
+        return "".join(c if (c.isalnum() or c == "_") else "_" for c in raw)
+
     def _stamp_overload_symbols(self):
         """Assign each member of a 2+ overload set a type-signature-suffixed
         codegen symbol (design 55), stamping both the FunctionSymbol and its
@@ -677,6 +691,25 @@ class RegistrationMixin:
                     sym.mangled_name = mangled
                     if sym.decl_node is not None:
                         sym.decl_node.mangled_symbol = mangled
+                # Design 142: two modules may each extend one type with the same
+                # method name and the SAME signature — legal declarations that
+                # only a call site seeing both can complain about. Their
+                # signature manglings are identical, so discriminate the codegen
+                # symbols by defining module; otherwise the two definitions
+                # collide in the LLVM symbol table before anyone calls either.
+                by_symbol: Dict[str, List] = {}
+                for sym in overloads:
+                    if sym.mangled_name:
+                        by_symbol.setdefault(sym.mangled_name, []).append(sym)
+                for shared, clashing in by_symbol.items():
+                    if len(clashing) < 2:
+                        continue
+                    for sym in clashing:
+                        tag = self._module_symbol_tag(
+                            getattr(sym, 'def_module', ()) or ())
+                        sym.mangled_name = f"{shared}$M${tag}"
+                        if sym.decl_node is not None:
+                            sym.decl_node.mangled_symbol = sym.mangled_name
 
     def _reject_builtin_redefinition(self, decl, what: str) -> bool:
         """Report (and refuse to register) a user declaration whose name the
@@ -1218,9 +1251,79 @@ class RegistrationMixin:
         )
         return True
 
+    # Traits the compiler derives structurally and never accepts as a written
+    # conformance — rejected on their own terms elsewhere, so the orphan rule
+    # stays out of their diagnostics.
+    _STRUCTURAL_MARKER_TRAITS = frozenset({"Send", "Sync", "Deinit"})
+
+    def _check_conformance_coherence(self, extension: Extension) -> bool:
+        """The ORPHAN RULE (design 142): `extension T: Trait` is declarable only
+        in the module that defines `T` or the module that defines `Trait`.
+        Returns True if a violation was reported.
+
+        Method scoping could be made import-relative because a method is chosen
+        at a call site, where "which ones can I see" is a fair question. A
+        conformance cannot: it mints a per-(type, trait) vtable and backs a
+        semantic contract, so two import-scoped conformances of one pair would
+        let a `Map` built in one module and probed in another disagree about
+        hashing — an incoherence no use-site error can catch, because neither
+        site is wrong. Pinning conformances to an owner makes them global, which
+        is also why they need no import scoping of their own.
+        """
+        if not extension.conformances:
+            return False
+        if getattr(extension, 'is_synthesized', False):
+            return False
+        ext_module = self._vis_module_for_source(
+            getattr(extension, 'source_file', None))
+        type_name = extension.struct_name
+        type_sym = (self.namespace.lookup_struct(type_name)
+                    or self.namespace.lookup_enum(type_name))
+        type_module = getattr(type_sym, 'def_module', None) if type_sym else None
+        if type_module is not None and type_module == ext_module:
+            return False
+
+        reported = False
+        for trait_name in extension.conformances:
+            simple = trait_name.rsplit('.', 1)[-1]
+            if simple in self._STRUCTURAL_MARKER_TRAITS:
+                continue
+            trait_sym = self.get_trait_info(simple)
+            if trait_sym is None:
+                continue  # unknown trait — reported by the conformance loop
+            trait_module = getattr(trait_sym, 'def_module', ()) or ()
+            if trait_module == ext_module:
+                continue
+
+            owner_hint = []
+            if type_module is not None:
+                owner_hint.append(
+                    f"`{self._module_label(type_module)}` (which defines "
+                    f"`{type_name}`)")
+            if trait_module:
+                owner_hint.append(
+                    f"`{self._module_label(trait_module)}` (which defines "
+                    f"`{simple}`)")
+            where = " or ".join(owner_hint) if owner_hint else "the owning module"
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{type_name}` cannot be conformed to `{simple}` here: this "
+                f"module defines neither the type nor the trait",
+                extension.line, extension.column,
+                hint=f"declare the conformance in {where}. A conformance is "
+                     f"program-wide — two modules minting one for the same "
+                     f"(type, trait) pair would disagree about what `{simple}` "
+                     f"means for `{type_name}`",
+                source_file=getattr(extension, 'source_file', None)
+            )
+            reported = True
+        return reported
+
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
         if self._reject_deinit_conformance(extension):
+            return
+        if self._check_conformance_coherence(extension):
             return
         # Enum derivable opt-in (designs 32/48): intercept before the struct
         # lookup so `extension Color: Equatable {}` doesn't hit "undefined struct".
@@ -1451,6 +1554,15 @@ class RegistrationMixin:
             # resolved. init overloading (name-based) and specialized-extension
             # method tables keep the strict "already defined" rule.
             allow_overload = (not method.is_init) and (not is_specialized)
+            # Design 142: the method tables are shared across every module in the
+            # link, so a same-named method registered by an UNRELATED module is
+            # not a redeclaration — the two modules need not know about each
+            # other. Only a clash within one defining module is a duplicate; a
+            # cross-module one is diagnosed at a call site that sees both.
+            if (method_key in target_methods
+                    and (getattr(target_methods[method_key], 'def_module', ())
+                         != ext_def_module)):
+                allow_overload = True
             if method_key in target_methods and not allow_overload:
                 if method.is_init:
                     self._error(
@@ -1567,6 +1679,10 @@ class RegistrationMixin:
                     default_values[new_offset:], param_names[new_offset:])
                 collides = False
                 for other in struct_info.method_overloads.get(method.name, []):
+                    # Design 142: only a repeat within this defining module is a
+                    # declaration-site duplicate (see the note above).
+                    if (getattr(other, 'def_module', ()) or ()) != ext_def_module:
+                        continue
                     o_off = 0 if other.is_init else 1
                     other_keys = self._overload_shape_keys(
                         other.param_types[o_off:], other.type_params,

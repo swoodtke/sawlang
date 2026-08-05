@@ -4,7 +4,7 @@ Performs type checking and semantic analysis on the AST.
 """
 
 import itertools
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
 from ast_nodes import (
     Program, Function, Block, Statement, Expression,
@@ -173,6 +173,15 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # Current module path during multi-module type checking
         self.current_module_path: Tuple[str, ...] = ()
+
+        # Design 142: the modules the file being checked DIRECTLY imports, as
+        # defining-module tuples (a user `import a.b` -> ("a", "b"); a
+        # `import std.data` -> ("<std>", "data"), matching `_vis_module_for_source`).
+        # Extension-method lookup consults exactly this set plus the current
+        # module and the receiver type's own module — a transitive dependency
+        # injects nothing. Empty in the single-file compilation path, where every
+        # declaration shares the `()` module.
+        self.current_direct_imports: Set[Tuple[str, ...]] = set()
 
         # Register built-in functions
         self._register_builtins()
@@ -402,12 +411,77 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             visibility, symbol_module=def_module, accessor_module=accessor,
             package_root=package_root)
 
-    def _process_std_import(self, imp, ns, builtin_namespace) -> None:
+    # ------------------------------------------------------------------ #
+    # Extension scoping (design 142).
+    #
+    # Design 80 asked only "is this member's visibility permissive enough?".
+    # That let ANY module in the link inject its `public` extension methods onto
+    # a type for the whole program: a transitive dependency you never imported —
+    # and cannot name — monkey-patched your types, with silent cross-dependency
+    # collisions and an add-a-dependency-changes-resolution hazard behind it.
+    #
+    # Method lookup now consults extensions from exactly three places: the
+    # current module, the modules this file DIRECTLY imports, and the receiver
+    # type's own defining module (its inherent API — a value can reach you
+    # without the import). So `public` on an extension means what it means
+    # everywhere else: importers of my module get this.
+    #
+    # Two exemptions, both principled rather than pragmatic:
+    #  - a method satisfying a trait requirement is reached through the
+    #    CONFORMANCE, which the orphan rule pins to the type's or the trait's own
+    #    module and which is therefore coherent program-wide (design 142 part 2);
+    #  - std is one library and one scoping domain. Its files are separate
+    #    modules for privacy (design 82), but they extend each other's types on
+    #    purpose (`std.string` defines `Vector<String>.join`), and the prelude
+    #    rules already govern which std NAMES a file may write unimported.
+    # ------------------------------------------------------------------ #
+    def _ext_scope_allows(self, method_info, struct_info) -> bool:
+        """Whether an extension method is IN SCOPE for the code being checked
+        (design 142). Orthogonal to `_member_gate_allows`, which asks whether its
+        visibility permits the access; a method must pass both."""
+        # The coroutine transform re-checks its own output, splicing bodies from
+        # every module into one AST — provenance no longer describes an import
+        # graph there. The rule is a source-level one, like the unsafe trigger.
+        if self.post_transform or self._in_synthesized_context():
+            return True
+        if getattr(method_info, 'satisfies_trait', False):
+            return True
+        def_module = getattr(method_info, 'def_module', ()) or ()
+        if not def_module:
+            # Single-file compilation: every declaration shares the `()` module.
+            return True
+        if def_module[:1] == ("<std>",):
+            return True
+        accessor = self._accessor_vis_module()
+        if def_module == accessor:
+            return True
+        # A nested module sees its ancestors' declarations by construction (their
+        # public symbols are injected into its namespace, not imported).
+        if accessor[:len(def_module)] == def_module:
+            return True
+        recv_module = getattr(struct_info, 'def_module', ()) or ()
+        if def_module == recv_module:
+            return True
+        return def_module in self.current_direct_imports
+
+    @staticmethod
+    def _module_label(module: Tuple[str, ...]) -> str:
+        """How a defining module is spelled in a diagnostic — the same text the
+        reader would put after `import`."""
+        if module[:1] == ("<std>",):
+            return "std." + ".".join(module[1:])
+        return ".".join(module) if module else "this module"
+
+    def _process_std_import(self, imp, ns, builtin_namespace) -> Optional[str]:
         """Make the requested std symbols accessible for an `import std.<module>`
         (design 82 Part B). The symbols already live in `builtin_namespace` and
         are merged into `ns`; a prelude import simply un-gates the requested
         names (and registers the module for qualified `mod.Name` access). Non-
-        prelude std stays compiler-known but hidden until imported."""
+        prelude std stays compiler-known but hidden until imported.
+
+        Returns the std module's leaf name (`data` for `import std.data`), which
+        the caller records as a direct import, or None if the import was
+        malformed."""
         file_symbols = getattr(builtin_namespace, '_std_file_symbols', {}) or {}
         # `import std.net[...]` -> leaf module = the component after `std`.
         path = list(imp.path)
@@ -419,7 +493,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 ErrorKind.UNKNOWN_TYPE,
                 "`import std` needs a module (e.g. `import std.net`)",
                 getattr(imp, 'line', 0), getattr(imp, 'column', 0))
-            return
+            return None
         leaf = path[1]
         available = file_symbols.get(leaf)
         if available is None:
@@ -428,7 +502,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 f"unknown std module `std.{leaf}`",
                 getattr(imp, 'line', 0), getattr(imp, 'column', 0),
                 hint="std modules are: " + ", ".join(sorted(file_symbols)))
-            return
+            return None
 
         def _expose(name, local):
             # Register an aliased copy so the local name resolves to the symbol
@@ -468,6 +542,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # `path`) is a common local-variable name, and a module alias would
         # shadow it (`data.push(...)` misparsed as module access). Bare names
         # (and `.{A, B}`) are the supported std import forms.
+        return leaf
 
     def _decl_is_std_sourced(self, node) -> bool:
         """Whether a declaration comes from a std/builtin source file. Used so a
@@ -961,6 +1036,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             for trait_name, assoc in src_map.items():
                 dst_map.setdefault(trait_name, assoc)
 
+        # Design 142: the defining modules this file DIRECTLY imports, collected
+        # as the import list is processed. Extension-method lookup consults
+        # exactly these (plus the current module and the receiver's own), so a
+        # transitive dependency injects nothing.
+        direct_imports: Set[Tuple[str, ...]] = set()
+
         # Process imports - register imported modules in this namespace
         for imp in getattr(module_ast, 'imports', []):
             imp_path = tuple(imp.path)
@@ -979,12 +1060,15 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             # (merged into `ns`); the import just makes the requested names
             # accessible (non-prelude std is compiler-known but not auto-visible).
             if imp.path and imp.path[0] == 'std':
-                self._process_std_import(imp, ns, builtin_namespace)
+                std_leaf = self._process_std_import(imp, ns, builtin_namespace)
+                if std_leaf is not None:
+                    direct_imports.add(("<std>", std_leaf))
                 continue
 
             if imp.is_glob:
                 # import foo.* -> copy all public symbols to local namespace
                 base_path = imp_path[:-1] if imp_path and imp_path[-1] == '*' else imp_path
+                direct_imports.add(base_path)
                 if base_path in checked_modules:
                     source_ast, source_ns = checked_modules[base_path]
                     for name, sym in source_ns.structs.items():
@@ -1016,6 +1100,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                             ns.make_accessible(name)
             elif imp.symbols:
                 # import foo.{A, B} -> copy specific symbols to local namespace
+                direct_imports.add(imp_path)
                 if imp_path in checked_modules:
                     _, source_ns = checked_modules[imp_path]
                     aliases = imp.symbol_aliases or {}
@@ -1075,6 +1160,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     )
             else:
                 # import foo.bar -> register module for qualified access
+                direct_imports.add(imp_path)
                 if imp_path in checked_modules:
                     alias = imp.alias or (imp.path[-1] if imp.path else "")
                     _, source_ns = checked_modules[imp_path]
@@ -1091,6 +1177,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             if not mod_decl.is_inline:
                 # External module declaration
                 mod_path = (mod_decl.name,)
+                direct_imports.add(mod_path)
                 if mod_path in checked_modules:
                     _, source_ns = checked_modules[mod_path]
                     from namespace import ModuleSymbol
@@ -1106,8 +1193,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Save old state
         old_namespace = self.namespace
         old_module_path = self.current_module_path
+        old_direct_imports = self.current_direct_imports
         self.namespace = ns
         self.current_module_path = module_path
+        self.current_direct_imports = direct_imports
 
         # Validate: exports are only allowed in init.saw files (same rule as the
         # single-file path; enforced here so the unified pipeline still catches
@@ -1190,6 +1279,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     # Error in inline module
                     self.namespace = old_namespace
                     self.current_module_path = old_module_path
+                    self.current_direct_imports = old_direct_imports
                     return None
 
                 # Register the inline module in this module's namespace
@@ -1286,6 +1376,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Restore old state
         self.namespace = old_namespace
         self.current_module_path = old_module_path
+        self.current_direct_imports = old_direct_imports
 
         # Whole-program `sync` effect analysis (design 22). The entry module is
         # checked last, after every other module's bodies have contributed their

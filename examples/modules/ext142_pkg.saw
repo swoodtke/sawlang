@@ -1,0 +1,12 @@
+//! Design 142 fixture: a `public(package)` extension on a type from another
+//! module. Package visibility and import scoping are separate gates — a caller
+//! must be in the package AND import this module.
+// EXPECT: skip
+
+import modules.ext142_base.{Reading}
+
+public(package) extension Reading {
+    public(package) func halved(&self) -> Int {
+        self.raw / 2
+    }
+}

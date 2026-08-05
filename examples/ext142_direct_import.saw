@@ -1,0 +1,19 @@
+// Design 142: the same call the transitive-leak test rejects compiles once the
+// defining module is imported DIRECTLY — that is all `public` on an extension
+// has ever meant elsewhere in the language. The owning module's own extension
+// (`doubled`) needs no import at all: it is the type's inherent API.
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: 63
+
+import modules.ext142_base.{Reading}
+import modules.ext142_near
+import modules.ext142_far
+
+func main() {
+    let r = ext142_near.make_reading()
+    print(r.scaled(by: 2))
+    print(r.doubled())
+    print(ext142_near.scaled_here(&r))
+}

@@ -1,0 +1,22 @@
+//! Design 142 fixture: the module that OWNS `Reading`. Its own extension is the
+//! type's inherent API — in scope for anyone holding a `Reading`, imported or not.
+// EXPECT: skip
+
+public struct Reading {
+    public raw: Int
+}
+
+public extension Reading {
+    public func doubled(&self) -> Int {
+        self.raw * 2
+    }
+}
+
+// The orphan rule's first permitted home: the module that defines the TYPE.
+public extension Reading: Printable {
+    public func format(&self, into: &var StringBuilder) {
+        into.append("Reading(")
+        into.append(self.raw)
+        into.append(")")
+    }
+}

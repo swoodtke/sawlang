@@ -1,0 +1,12 @@
+//! Design 142 fixture: the other module extending `Reading` with `tag`. Its
+//! signature differs, so a file importing both resolves the two by the ordinary
+//! overload rules.
+// EXPECT: skip
+
+import modules.ext142_base.{Reading}
+
+public extension Reading {
+    public func tag(&self, n: Int) -> Int {
+        self.raw + n
+    }
+}

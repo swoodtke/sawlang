@@ -1,0 +1,11 @@
+//! Design 142 fixture: one of two independent modules that extend `Reading`
+//! with a `tag` method. This one takes no argument.
+// EXPECT: skip
+
+import modules.ext142_base.{Reading}
+
+public extension Reading {
+    public func tag(&self) -> Int {
+        self.raw + 1
+    }
+}

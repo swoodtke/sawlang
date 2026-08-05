@@ -1,0 +1,10 @@
+//! Design 142 fixture: the other signature-identical `kind` on `Reading`.
+// EXPECT: skip
+
+import modules.ext142_base.{Reading}
+
+public extension Reading {
+    public func kind(&self) -> Int {
+        2
+    }
+}

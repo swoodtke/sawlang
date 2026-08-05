@@ -1,0 +1,16 @@
+// Design 142 rule 3: a type's OWN module is always in scope. This entry never
+// writes `import std.data` — it could not even name `Data` — but a `Data` value
+// reaches it anyway, and the inherent API comes with the value. Without this
+// rule, every type would have to be imported by every file a value of it flowed
+// through.
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 18
+
+import modules.ext142_bytes
+
+func main() {
+    let d = ext142_bytes.make_bytes()
+    print(d.len())
+    print(d.get(0)! as Int)
+}

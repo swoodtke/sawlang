@@ -5047,19 +5047,90 @@ class ExpressionsMixin:
         return SawType(TypeKind.STRUCT, struct_name=name)
 
     def _lookup_method(self, struct_info, method_name: str, type_args: List[SawType] = None):
-        """Look up a method, checking specialized extensions first."""
+        """Look up a method, checking specialized extensions first.
+
+        Extension scoping (design 142): a method whose defining module is out of
+        scope here does not exist here. What a file can see is its own
+        extensions, its direct imports', and the receiver type's own — never a
+        transitive dependency's."""
         # First, check if there's a specialized extension matching the type args
         if type_args and struct_info.specialized_methods:
             spec_key = self._make_specialization_key(type_args)
             if spec_key in struct_info.specialized_methods:
                 specialized = struct_info.specialized_methods[spec_key]
-                if method_name in specialized:
-                    return specialized[method_name]
+                sm = specialized.get(method_name)
+                if sm is not None and self._ext_scope_allows(sm, struct_info):
+                    return sm
 
         # Fall back to generic methods
-        if method_name in struct_info.methods:
-            return struct_info.methods[method_name]
+        m = struct_info.methods.get(method_name)
+        if m is not None:
+            if self._ext_scope_allows(m, struct_info):
+                return m
+            # `methods` keeps the FIRST-registered overload as the
+            # representative, and registration order follows the topological
+            # module order — so an out-of-scope module's extension can occupy the
+            # slot while this file's own is right behind it in the overload list.
+            for cand in struct_info.method_overloads.get(method_name, []):
+                if self._ext_scope_allows(cand, struct_info):
+                    return cand
 
+        return None
+
+    def _scoped_method_overloads(self, struct_name: str, method_name: str,
+                                 struct_info) -> List:
+        """The overloads of `method_name` this file may see (design 142)."""
+        return [s for s in self.namespace.lookup_method_overloads(
+                    struct_name, method_name)
+                if self._ext_scope_allows(s, struct_info)]
+
+    def _out_of_scope_method_modules(self, struct_info, method_name: str,
+                                     type_args: List[SawType] = None) -> List[str]:
+        """The modules that define `method_name` on this type but are not in
+        scope here (design 142) — what the "no method" diagnostic names so the
+        reader learns which import to add rather than concluding the method does
+        not exist."""
+        candidates = list(struct_info.method_overloads.get(method_name, []))
+        m = struct_info.methods.get(method_name)
+        if m is not None and m not in candidates:
+            candidates.append(m)
+        if type_args and struct_info.specialized_methods:
+            spec_key = self._make_specialization_key(type_args)
+            spec = struct_info.specialized_methods.get(spec_key) or {}
+            if method_name in spec:
+                candidates.append(spec[method_name])
+        labels = []
+        for sym in candidates:
+            if self._ext_scope_allows(sym, struct_info):
+                continue
+            label = self._module_label(getattr(sym, 'def_module', ()) or ())
+            if label not in labels:
+                labels.append(label)
+        return sorted(labels)
+
+    def _first_cross_module_method_clash(self, overloads):
+        """Two in-scope extension methods from DIFFERENT modules that no
+        tie-break rule could separate (design 142).
+
+        Declaring both is legal — neither module need know the other exists, and
+        under the old global registry the loser was simply shadowed. It is the
+        call site that cannot choose, so that is where the error belongs, naming
+        both defining modules."""
+        shaped = []
+        for sym in overloads:
+            off = 0 if sym.is_init else 1
+            shaped.append((sym, self._overload_shape_keys(
+                sym.param_types[off:], sym.type_params,
+                (sym.default_values[off:] if sym.default_values else []),
+                sym.param_names[off:])))
+        for i in range(len(shaped)):
+            for j in range(i + 1, len(shaped)):
+                a, keys_a = shaped[i]
+                b, keys_b = shaped[j]
+                if not (keys_a & keys_b):
+                    continue
+                if (getattr(a, 'def_module', ()) or ()) != (getattr(b, 'def_module', ()) or ()):
+                    return (a, b)
         return None
 
     # Generic bounds that grant `.copy()` in an abstract generic body.
@@ -6089,11 +6160,34 @@ class ExpressionsMixin:
         # resolves through the exact-match resolver (before effect edges are
         # recorded), then feeds the shared downstream machinery.
         if method_info is not None:
-            method_overloads = self.namespace.lookup_method_overloads(
-                struct_name, expr.method_name)
+            method_overloads = self._scoped_method_overloads(
+                struct_name, expr.method_name, struct_info)
             if len(method_overloads) > 1:
+                # Design 142: two visible extensions of one type may share a name
+                # (they resolve by the ordinary overload rules), but a
+                # signature-identical pair from two modules is unresolvable here.
+                clash = self._first_cross_module_method_clash(method_overloads)
+                if clash is not None:
+                    a, b = clash
+                    self._error(
+                        ErrorKind.DUPLICATE_FUNCTION,
+                        f"ambiguous method `{expr.method_name}` on `{struct_name}`: "
+                        f"`{self._module_label(a.def_module)}` and "
+                        f"`{self._module_label(b.def_module)}` both extend it with "
+                        f"an indistinguishable signature",
+                        expr.line, expr.column,
+                        hint="import only one of the two modules here, or move the "
+                             "call into a file that sees a single definition")
+                    return None
                 return self._check_overloaded_method_call(
                     expr, struct_name, method_overloads, obj_type, type_subst)
+            # Design 142: a method can carry a module-discriminated codegen
+            # symbol while only ONE of its overloads is visible here — the other
+            # lives in a module this file does not import. The overload path
+            # never runs, so stamp the resolved symbol ourselves; without it
+            # codegen would mangle the plain name and find no definition.
+            if getattr(method_info, 'mangled_name', ''):
+                expr.resolved_symbol = method_info.mangled_name
         # Arc payload access via method forwarding (design 21b E2). When a method
         # is not found on `Arc<T>` itself but exists on the payload `T` with an
         # immutable `&self` receiver, forward the call to the payload through an
@@ -6142,12 +6236,34 @@ class ExpressionsMixin:
                         and struct_name.startswith("__Frame_")):
                     expr.field_call_unwrap = True
                     return self._check_field_call(expr, field_type.inner_type)
-            # Collect available methods from both generic and specialized
-            available = list(struct_info.methods.keys())
+            # Design 142: the method may exist, just not here. Name the module
+            # that defines it and the import that would bring it into scope —
+            # otherwise the reader concludes the method is missing and writes a
+            # second copy of it.
+            unimported = self._out_of_scope_method_modules(
+                struct_info, expr.method_name, obj_type.type_args)
+            if unimported:
+                mods = ", ".join(f"`{m}`" for m in unimported)
+                one = unimported[0]
+                self._error(
+                    ErrorKind.UNDEFINED_FUNCTION,
+                    f"type `{struct_name}` has no method `{expr.method_name}` "
+                    f"in scope here",
+                    expr.line, expr.column,
+                    hint=f"{mods} extends `{struct_name}` with `{expr.method_name}`, "
+                         f"but this file does not import it — add `import {one}`"
+                )
+                return None
+            # Collect available methods from both generic and specialized,
+            # excluding any this file cannot see.
+            available = [n for n, sym in struct_info.methods.items()
+                         if self._ext_scope_allows(sym, struct_info)]
             if obj_type.type_args:
                 spec_key = self._make_specialization_key(obj_type.type_args)
                 if spec_key in struct_info.specialized_methods:
-                    available.extend(struct_info.specialized_methods[spec_key].keys())
+                    available.extend(
+                        n for n, sym in struct_info.specialized_methods[spec_key].items()
+                        if self._ext_scope_allows(sym, struct_info))
             self._error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 f"type `{struct_name}` has no method `{expr.method_name}`",

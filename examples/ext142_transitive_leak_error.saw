@@ -1,0 +1,16 @@
+// Design 142: a TRANSITIVE dependency injects nothing. This entry imports
+// `ext142_near`, which imports `ext142_far`, which extends `Reading` with
+// `scaled`. Before design 142 that method was callable here — any module in the
+// link monkey-patched the type for the whole program. Now it is out of scope,
+// and the diagnostic names the module to import.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no method `scaled` in scope here
+// EXPECT-ERROR-CONTAINS: add `import modules.ext142_far`
+
+import modules.ext142_base.{Reading}
+import modules.ext142_near
+
+func main() {
+    let r = ext142_near.make_reading()
+    print(r.scaled(by: 2))
+}
