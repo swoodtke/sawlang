@@ -35,9 +35,7 @@ public struct LockData {
     revs: Vector<String>
 }
 
-extension LockData: NoCopy {
-    public func deinit(&var self) {}
-}
+extension LockData: NoCopy {}
 
 public extension LockData {
     public init() -> LockData {

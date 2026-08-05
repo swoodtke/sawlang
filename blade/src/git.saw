@@ -15,9 +15,7 @@ public struct GitTags {
     revs: Vector<String>       // commit sha
 }
 
-extension GitTags: NoCopy {
-    public func deinit(&var self) {}
-}
+extension GitTags: NoCopy {}
 
 public extension GitTags {
     public init() -> GitTags {

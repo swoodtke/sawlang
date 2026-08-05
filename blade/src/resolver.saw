@@ -67,9 +67,7 @@ public struct Resolution {
     revs: Vector<String>        // "" for path
 }
 
-extension Resolution: NoCopy {
-    public func deinit(&var self) {}
-}
+extension Resolution: NoCopy {}
 
 public extension Resolution {
     public init() -> Resolution {
@@ -125,9 +123,7 @@ struct ReqList {
     requirers: Vector<String>
 }
 
-extension ReqList: NoCopy {
-    public func deinit(&var self) {}
-}
+extension ReqList: NoCopy {}
 
 extension ReqList {
     public init() -> ReqList {

@@ -272,11 +272,7 @@ public struct LexResult {
     public docs: Vector<DocComment>
 }
 
-extension LexResult: NoCopy {
-    public func deinit(&var self) {
-        // The two Vectors clean up their own storage.
-    }
-}
+extension LexResult: NoCopy {}
 
 // =============================================================================
 // Keyword table (mirrors sawc/lexer.py KEYWORDS). Note: module/import/export/

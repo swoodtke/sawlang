@@ -77,11 +77,7 @@ public struct DepList {
     deps: Vector<Dependency>
 }
 
-extension DepList: NoCopy {
-    public func deinit(&var self) {
-        // Vector handles its own cleanup
-    }
-}
+extension DepList: NoCopy {}
 
 public extension DepList {
     public init() -> DepList {

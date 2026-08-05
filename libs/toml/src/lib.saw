@@ -63,11 +63,7 @@ public struct TomlTable {
     values: Vector<TomlValue>
 }
 
-extension TomlTable: NoCopy {
-    public func deinit(&var self) {
-        // Vector handles its own cleanup
-    }
-}
+extension TomlTable: NoCopy {}
 
 public extension TomlTable {
     public init(k: String) -> TomlTable {
@@ -101,11 +97,7 @@ public struct TomlSection {
     tables: Vector<TomlTable>
 }
 
-extension TomlSection: NoCopy {
-    public func deinit(&var self) {
-        // Vector handles its own cleanup
-    }
-}
+extension TomlSection: NoCopy {}
 
 public extension TomlSection {
     public init(section_name: String) -> TomlSection {
@@ -231,11 +223,7 @@ public struct TomlDoc {
     sections: Vector<TomlSection>
 }
 
-extension TomlDoc: NoCopy {
-    public func deinit(&var self) {
-        // Vector handles its own cleanup
-    }
-}
+extension TomlDoc: NoCopy {}
 
 public extension TomlDoc {
     public init() -> TomlDoc {
