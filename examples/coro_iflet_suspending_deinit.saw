@@ -2,13 +2,16 @@
 // returns an owning `Res?`; the hoisted `Res?` temp's payload must deinit EXACTLY
 // ONCE on BOTH branches — once when the Some path consumes/holds it, and never on
 // the None path (the temp is None, its drop flag reads not-live). The deinit oracle
-// prints 900+id, so the single trailing `907` proves exactly-once for worker(7)
-// and the absence of any deinit for worker(0).
+// prints 900+id, so the single `907` proves exactly-once for worker(7) and the
+// absence of any deinit for worker(0).
+//
+// design 124: the payload drops at worker(7)'s own completion — the first
+// `join()` drives it to Done, and the release runs before that join returns.
 // EXPECT: success
 // EXPECT-OUTPUT:
+// 907
 // 7
 // -1
-// 907
 
 import std.task
 struct Res { id: Int }
@@ -36,5 +39,6 @@ func main() {
     let h2 = group.spawn(worker(0))    // None
     print(h1.join())   // 7
     print(h2.join())   // -1
-    // group teardown: worker(7)'s Res(7) drops exactly once (907); worker(0) none
+    // worker(7)'s Res(7) dropped exactly once (907) at its completion; worker(0)
+    // never built one
 }

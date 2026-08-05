@@ -2,10 +2,13 @@
 // consumer drains the items already in the channel, then — finding it empty and
 // cancelled — returns through normal control flow (NO forced destroy), with
 // deinit-oracle cleanup.
+//
+// design 124: `held` drops at the consumer's own completion, so the oracle
+// prints before `join()` returns the sum.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// 30
 // 55
+// 30
 
 import std.task
 import std.channel.{Channel}
@@ -40,5 +43,4 @@ func main() {
     let h = group.spawn(consumer(ch.copy()))
     h.cancel()          // consumer drains 10, 20 then exits on empty+cancelled
     print(h.join())     // 30
-    // scope exit: held 55 drops exactly once
 }

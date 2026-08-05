@@ -2,11 +2,13 @@
 // receives the one buffered value, observes cancellation at a `cancelled()` check,
 // and returns through normal control flow (NO forced destroy) — WITHOUT calling the
 // second `receive()`, which would otherwise suspend forever on the empty channel.
-// The Res deinit oracle proves exactly-once cleanup at frame teardown.
+// The Res deinit oracle proves exactly-once cleanup at frame teardown, which
+// design 124 puts at the task's own completion — so 77 prints before `join()`
+// returns 100.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// 100
 // 77
+// 100
 
 import std.channel.{Channel}
 struct Res { id: Int }
@@ -30,5 +32,4 @@ func main() {
     let h = group.spawn(worker(ch.copy()))
     h.cancel()          // set before the group is driven
     print(h.join())     // 100
-    // scope exit: held 77 drops exactly once
 }

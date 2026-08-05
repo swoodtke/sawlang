@@ -1050,6 +1050,18 @@ class ResourcesMixin:
         """Whether transferring `value_expr` into a new owner must copy/retain."""
         if getattr(value_expr, 'needs_copy', False):
             return True
+        # design 124: a coroutine frame holds an across-suspend local in a
+        # `T?`-encoded field and reads it as `self.name!`. The ForceUnwrap hides
+        # the underlying field access from every check below (and from the
+        # typechecker's transfer checkpoint), so such a transfer used to take a
+        # non-retaining alias while the field kept its drop flag — the frame then
+        # released the payload out from under the value it had handed on. The
+        # frame keeps ownership of its field, so this read is a DUPLICATION,
+        # exactly like `v[i]` / `obj.field` below; the `move` spelling of the same
+        # read is not marked (it transfers the frame's own reference via
+        # `__saw_forget` instead).
+        if getattr(value_expr, 'frame_owning_read', False):
+            return self._frame_read_needs_copy(value_expr)
         # `self` and inner-block tails aren't marked by the checkpoint; retain
         # when they alias an ImplicitCopy value (copy() == cheap retain).
         if isinstance(value_expr, (Identifier, MemberAccess, ArrayIndex,
@@ -1095,6 +1107,44 @@ class ResourcesMixin:
             return False
         return False
 
+    def _frame_owning_read_copy(self, value_expr) -> bool:
+        """True when `value_expr` is a design-124-marked frame-field read whose
+        payload must be retained at an assignment site (the assignment paths
+        decide the retain themselves rather than going through
+        `_gen_transfer_value`)."""
+        return (getattr(value_expr, 'frame_owning_read', False)
+                and self._frame_read_needs_copy(value_expr))
+
+    def _frame_read_needs_copy(self, value_expr) -> bool:
+        """Whether a design-124-marked frame-field read must retain its payload.
+
+        Mirrors the container-slot rules in `_transfer_needs_copy`, applied to the
+        UNWRAPPED payload type: retain an ImplicitCopy value (`copy()` == a
+        refcount bump), an owning aggregate, or an escaping closure env. A NoCopy
+        payload is never duplicated — it can only leave the frame through an
+        explicit `move`, which takes the `__saw_forget` path instead.
+
+        An un-annotated node is left alone: some synthesized frame reads never
+        pass the typechecker, and without a resolved type there is nothing to
+        copy against — the pre-124 aliasing behavior is what the rest of the
+        pipeline already expects there."""
+        if getattr(value_expr, 'resolved_type', None) is None:
+            return False
+        t = self._expr_type(value_expr)
+        if t is None:
+            return False
+        if self.type_param_context:
+            t = t.substitute(self.type_param_context)
+        behavior = self._get_cleanup_behavior(t)
+        if behavior == "no_copy":
+            return False
+        if behavior == "implicit_copy":
+            return True
+        if t.kind == TypeKind.FUNCTION and getattr(t, 'func_is_escaping', False):
+            return True
+        return (self._needs_cleanup(t)
+                and t.kind in (TypeKind.STRUCT, TypeKind.ENUM, TypeKind.OPTIONAL))
+
     def _needs_copy_for_struct_init(self, value_expr, field_type: SawType) -> bool:
         """Check if a value expression needs copy() called during struct initialization.
 
@@ -1127,6 +1177,13 @@ class ResourcesMixin:
         if isinstance(value_expr, MoveExpr):
             # Move expressions transfer ownership, no copy needed
             return False
+
+        # design 124: a frame-field read (`self.name!`) initializing a struct
+        # field is the same duplication a `MemberAccess` source is — see
+        # `_transfer_needs_copy`. Without this a `Wrap(s: s)` built in a driven
+        # body aliased the frame's `s`, which eager teardown then freed.
+        if getattr(value_expr, 'frame_owning_read', False):
+            return self._frame_read_needs_copy(value_expr)
 
         if isinstance(value_expr, Identifier):
             # Identifier refers to an existing variable - needs copy

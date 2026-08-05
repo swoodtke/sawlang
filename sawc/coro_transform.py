@@ -290,10 +290,27 @@ def _enc_cleanup(enc):
 #             (brief 23) drops the inner value exactly once at frame death, and
 #             nothing at all in the None state). Read as `self.name!`.
 
-def _read_field(name, encoding, line=0, column=0):
+def _read_field(name, encoding, line=0, column=0, owning_read=False):
+    """The rewritten read of frame field `name`.
+
+    `owning_read` marks a read of the WHOLE binding that is not a `move` — the
+    frame keeps the field (and its drop flag), so if the read lands in a transfer
+    position the new owner must take its own reference. Codegen cannot see that
+    through the `!`: `self.name!` is a ForceUnwrap, and the ownership checkpoint
+    only recognizes bare place expressions (Identifier/MemberAccess/…), so the
+    transfer took a non-retaining alias AND left the field's flag set. Before
+    design 124 that stayed hidden — the frame outlived every reader — but with
+    eager teardown the field is released at task completion and the alias
+    dangles. `frame_owning_read` tells `_transfer_needs_copy` to apply the same
+    read-out-of-storage discipline the closure-capture materialization already
+    spells with `.copy()`. A `move` read does NOT carry it: that path records a
+    `__saw_forget`, which transfers the frame's own reference instead."""
     acc = _self_field(name, line, column)
     if encoding in ("opt", "opt_closure"):
-        return ForceUnwrap(expr=acc, line=line, column=column)
+        fu = ForceUnwrap(expr=acc, line=line, column=column)
+        if owning_read:
+            fu.frame_owning_read = True
+        return fu
     if encoding == "ref":
         # design 88 (D6): the reference name reads through the frame's pointer
         # field — `self.name[0]` — yielding an lvalue of the pointee type. Member
@@ -2402,13 +2419,28 @@ class _FrameBuilder:
             is_synthesized=True,
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
+        # design 124: the frame's end-of-scope teardown, called at every `return
+        # Done` site so a completed task's owned values die WITH THE TASK rather
+        # than with its group. Not part of the `Resumable` protocol — the frame
+        # releases itself from inside `resume`, so the executor needs no new
+        # method and the erased vtable is unchanged.
+        release = Method(
+            name="__release",
+            parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
+                                  is_reference=True, reference_mutable=True)],
+            return_type=SawType(TypeKind.VOID),
+            body=Block(statements=self._release_seq(), final_expr=None),
+            self_mutable=True, self_is_reference=True, is_sync=True,
+            is_synthesized=True,
+            line=func.line, column=func.column,
+            source_file=getattr(func, 'source_file', ""))
         # Every frame conforms to the builtin `Resumable` trait (design 52b item
         # 1): the conformance is what lets a frame be erased into
         # `Box<any Resumable>` for the heterogeneous run queue. Concrete drives
         # (nested sub-frames, the entry executor, `__saw_drive_*`) still bind `resume`
         # statically — conformance only synthesizes a vtable at an erasure site.
         resume_ext = Extension(struct_name=self.frame_name,
-                               methods=[resume, wake_reason, is_cancelled],
+                               methods=[resume, wake_reason, is_cancelled, release],
                                conformances=["Resumable"],
                                line=func.line, column=func.column,
                                source_file=getattr(func, 'source_file', ""))
@@ -2947,6 +2979,9 @@ class _FrameBuilder:
                         name="__saw_forget", arguments=[Argument(name=None,
                             value=MemberAccess(object=_self_field(sub),
                                                member="__result"))])))
+            # design 124: this is a `return g(...)` tail — the coroutine ends here,
+            # so it is a Done exit like any other and owes the same eager release.
+            done_body.append(self._release_call())
             done_lit = _int(0)  # patched to the done-state marker after assembly
             self._done_lits.append(done_lit)
             done_body.append(AssignStatement(
@@ -2964,6 +2999,17 @@ class _FrameBuilder:
                         name="__saw_forget", arguments=[Argument(name=None,
                             value=MemberAccess(object=_self_field(sub),
                                                member="__result"))])))
+            elif (target is None and not callee_fb.is_void
+                  and _enc_cleanup(callee_fb.result_enc)):
+                # design 124: a DISCARDED nested result (`let _ = g()` / a bare
+                # `g()` whose callee returns an owned value) has no target to move
+                # into, so the sub-frame's `__result` used to sit live until the
+                # whole frame was torn down. Clear the slot here instead — that IS
+                # the drop, at the statement that discarded it, matching `let _ =`
+                # everywhere else in the language.
+                done_body.append(AssignStatement(
+                    target=MemberAccess(object=_self_field(sub), member="__result"),
+                    value=NoneLiteral()))
             done_body.append(AssignStatement(
                 target=_self_field("__state"), value=_int(after)))
         pending_body = [
@@ -3111,7 +3157,8 @@ class _FrameBuilder:
             return _read_field(name, enc, getattr(node, 'line', 0),
                                getattr(node, 'column', 0))
         if isinstance(node, Identifier) and node.name in self.encmap:
-            return _read_field(node.name, self.encmap[node.name], node.line, node.column)
+            return _read_field(node.name, self.encmap[node.name], node.line,
+                               node.column, owning_read=True)
         if isinstance(node, ASTNode):
             for f in structural_fields(node):
                 setattr(node, f.name,
@@ -3357,9 +3404,10 @@ class _FrameBuilder:
 
     def _done_seq(self, value, forgets):
         """End the coroutine at an explicit `return value`: store the result, run
-        any drop-flag clears for locals moved into the result, mark done, signal
-        Done. The result store loads the value first, so the following `__saw_forget`
-        clears the source flag without disturbing the moved value."""
+        any drop-flag clears for locals moved into the result, release everything
+        else the frame owns (design 124), mark done, signal Done. The result store
+        loads the value first, so the following `__saw_forget` clears the source
+        flag without disturbing the moved value."""
         seq = []
         if value is not None and not self.is_void:
             seq.append(AssignStatement(target=_self_field("__result"), value=value))
@@ -3368,10 +3416,83 @@ class _FrameBuilder:
             # is no result slot to store into.
             seq.append(ExpressionStatement(expression=value))
         seq.extend(self._forgets(forgets))
+        seq.append(self._release_call())
         done_lit = _int(0)  # patched to the done-state marker after CFG assembly
         self._done_lits.append(done_lit)
         seq.append(AssignStatement(target=_self_field("__state"), value=done_lit))
         seq.append(ReturnStatement(value=_poll("Done")))
+        return seq
+
+    # ------------------------------------------------------------------ #
+    # design 124: eager per-task teardown — a group is a SCOPE, not a
+    # lifetime extender.
+    #
+    # A frame's params and across-suspend locals are struct FIELDS, so without
+    # this they lived until the frame box itself was torn down — i.e. until the
+    # owning TaskGroup's Deinit. That made a completed task's `TcpStream` (and
+    # every other owned value) outlive the task by the whole life of the group:
+    # the README's accept-loop server leaked one fd per served connection, and
+    # the sibling reader/writer pattern deadlocked outright (the reader waited
+    # for an EOF that only the writer's drop could produce, and that drop waited
+    # on the reader).
+    #
+    # `__release` is the frame's end-of-scope teardown, emitted at EVERY exit the
+    # state machine has (both `return Done` sites). It drops exactly what a
+    # returning ordinary function would drop, in the same LIFO order, and keeps
+    # exactly one thing alive: `__result`, which `join()` moves out (or which the
+    # box teardown drops once at group teardown if nobody joins). The scheduler
+    # words (`__state`/`__wake`/`__io_tok`/`__cancel`) also stay put — a handle
+    # may still `cancel()` a completed task, and the reactor may still latch a
+    # stale token into `__wake`, so those slots must remain addressable for the
+    # frame's whole life.
+    #
+    # Clearing a drop-flagged field to `None` IS the drop (the None/Some tag is
+    # the flag), which makes the release idempotent and makes the later memberwise
+    # box teardown a no-op on the same field — no double drop.
+    # ------------------------------------------------------------------ #
+    def _release_call(self):
+        return ExpressionStatement(expression=MethodCall(
+            object=SelfExpr(), method_name="__release", arguments=[]))
+
+    def _owned_frame_fields(self):
+        """(name, encoding, declared type) for every frame field this frame OWNS,
+        in declaration order. Excludes `__result` (survives to `join`/teardown),
+        the non-owning `__recv`/reference pointers, the POD scheduler words, and
+        the sub-frame fields (each sub-frame releases itself at ITS own Done — a
+        parent can never complete while a sub-frame is mid-flight, since it is
+        parked in the drive block until the callee reports Done)."""
+        owned = []
+        for p in self.params:
+            owned.append((p.name, self.encmap[p.name], p.type))
+        for lname, lt in self.frame_locals:
+            owned.append((lname, self.encmap[lname], lt))
+        # design 62 G3: a DISCARDED cooperative `receive()` parks its moved-out
+        # value in a `__rcvN` holder (already `T?`-shaped, its own tag the flag).
+        for rc in self.recv_calls:
+            if rc['target'] is None:
+                owned.append((f"__rcv{rc['idx']}", "self_opt", rc['elem_type']))
+        return owned
+
+    def _release_seq(self):
+        """The body of `__release`: drop every owned field in reverse declaration
+        order (LIFO, matching both ordinary scope exit and the struct teardown in
+        codegen/resources.py)."""
+        seq = []
+        for name, enc, t in reversed(self._owned_frame_fields()):
+            if _enc_cleanup(enc):
+                seq.append(AssignStatement(target=_self_field(name),
+                                           value=NoneLiteral()))
+            elif enc == "plain" and _is_taskgroup(t):
+                # design 62 G1: a frame-resident TaskGroup is plain-encoded (it must
+                # stay addressable for `group.spawn`'s `&group` receiver), so it has
+                # no drop flag to clear. Overwrite it with the same always-valid
+                # empty placeholder its zero-init uses: the assignment deinits the
+                # old group — structured-joining ITS children first, exactly what
+                # the task's own scope exit would have done — and installs a fresh
+                # empty one that drops for free at box teardown.
+                seq.append(AssignStatement(
+                    target=_self_field(name),
+                    value=FunctionCall(name="TaskGroup", arguments=[])))
         return seq
 
 

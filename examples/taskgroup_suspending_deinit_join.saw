@@ -1,13 +1,17 @@
 // design 62 G1: structured join via the frame-resident group's Deinit. A
 // suspending `orchestrate` spawns children with observable side effects and does
 // NOT join — the group's Deinit runs its executor to completion of every child
-// during the frame's normal-control-flow cleanup (LIFO), even though the parent
+// during the frame's normal-control-flow cleanup, even though the parent
 // suspended (`sleep`) between spawn and scope exit. The Log oracle prints each
-// child's id as its frame is torn down (Done), proving the drain.
+// child's id as its frame is torn down, proving the drain.
+//
+// design 124: each child releases its own locals AT COMPLETION, so the ids come
+// out in COMPLETION order (1 then 2 — the scheduler drives them round-robin),
+// not the reverse order in which the group's Deinit used to pop their boxes.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// 2
 // 1
+// 2
 // 7
 // 99
 

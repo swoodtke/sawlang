@@ -344,6 +344,9 @@ class StatementsMixin:
                 # Apply copy behavior for ImplicitCopy types
                 if isinstance(stmt.value, Identifier):
                     value = self._generate_copy(value, var_type)
+                elif self._frame_owning_read_copy(stmt.value):
+                    # design 124: see the field-assignment path below.
+                    value = self._generate_copy(value, self._expr_type(stmt.value))
 
                 # Wrap in optional if assigning T to T?
                 expected_type = self._get_llvm_type(var_type)
@@ -414,6 +417,15 @@ class StatementsMixin:
             # already moved at the value-transfer checkpoint.
             if field_saw is not None and isinstance(stmt.value, Identifier):
                 value = self._generate_copy(value, field_saw)
+            elif self._frame_owning_read_copy(stmt.value):
+                # design 124: a coroutine frame reading one of its own owned
+                # locals (`self.name!`) into another field — `__result` at a
+                # `return loc`, a sub-frame's param slot — duplicates it: the
+                # source field keeps its drop flag and is released at the task's
+                # eager teardown. Copy against the VALUE's type, not the field's:
+                # an opt-encoded destination is `T?` while the value is the bare
+                # payload (the optional wrap happens further down).
+                value = self._generate_copy(value, self._expr_type(stmt.value))
 
             # Check if we need to wrap in optional (non-optional value for optional
             # field). Use `_is_optional_type` (a 2-element {i1, T}) rather than a

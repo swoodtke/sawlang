@@ -4,10 +4,13 @@
 // deinit-oracle cleanup. This is the cooperative cancellation contract: a task
 // checks `cancelled()` before it would park (io_wait), exactly like the channel
 // cancellation-aware receive idiom.
+//
+// design 124: `held` drops at the reader's own completion, before `join()`
+// returns the byte count.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// 3
 // 55
+// 3
 
 import std.net.{net_buffer, net_free_buffer, net_would_block, tcp_close, tcp_socketpair, tcp_try_read, tcp_try_write}
 struct Res { id: Int }
@@ -55,5 +58,4 @@ func main() {
     print(h.join())     // 3
     tcp_close(a)
     tcp_close(b)
-    // group teardown: reader's held Res(55) drops exactly once
 }

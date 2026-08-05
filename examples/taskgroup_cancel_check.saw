@@ -1,12 +1,15 @@
 // design 52b item 6: cooperative cancellation observed at an explicit check, with
 // deinit-oracle cleanup (NO forced destroy). The handle cancels the task before
 // it is driven; the task sees `cancelled()` on its first check and returns
-// through normal control flow. Its Deinit local drops exactly once at teardown.
+// through normal control flow. Its Deinit local drops exactly once.
+//
+// design 124: a cancelled-then-completed task takes the same eager path as any
+// other, so `held` drops when the task returns — before `join()` hands back -1.
 // EXPECT: success
 // EXPECT-OUTPUT:
+// 77
 // -1
 // 9
-// 77
 
 import std.task
 struct Res { id: Int }
@@ -32,5 +35,4 @@ func main() {
     h.cancel()          // request cancellation
     print(h.join())     // worker observes it on the first check -> -1
     print(9)
-    // scope exit: group teardown drops the frame -> held 77 (exactly once)
 }

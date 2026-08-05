@@ -88,7 +88,14 @@ class StructsMixin:
                 value = self._coerce_int_to_field(value, field_type, value_expr)
 
             if field_type and self._needs_copy_for_struct_init(value_expr, field_type):
-                value = self._generate_copy(value, field_type)
+                # design 124: a frame-field read (`self.name!`) is the bare
+                # PAYLOAD, while an opt-encoded destination field is `T?` (the
+                # wrap happens below). Retain against the value's own type or the
+                # copy glue is handed the wrong shape.
+                copy_type = field_type
+                if getattr(value_expr, 'frame_owning_read', False):
+                    copy_type = self._expr_type(value_expr) or field_type
+                value = self._generate_copy(value, copy_type)
 
             field_values[field_name] = value
 

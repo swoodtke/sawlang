@@ -1,0 +1,38 @@
+// design 124: a TaskGroup is a lifetime SCOPE, not a lifetime extender. A task's
+// owned values are released when the TASK completes, not when the group is torn
+// down — so a loop that spawns and joins one task at a time reclaims each task's
+// resources before starting the next, and the deinit oracle prints 1..5 BEFORE
+// the post-loop marker.
+//
+// This is the review probe from designs/reviews/2026-08-04-language-design-claims.md
+// (RS-3 / claim 8). Before eager teardown it printed the marker first and then
+// 5 4 3 2 1 — every task's value held to the end of the group's life.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// 3
+// 4
+// 5
+// 999
+
+import std.task
+struct R { id: Int }
+extension R: Deinit { func deinit(&var self) { print(self.id) } }
+extension R: NoCopy {}
+
+func worker(r: R) -> Int {
+    yield_now()
+    7
+}
+
+func main() {
+    var group = TaskGroup()
+    var i = 1
+    while i <= 5 {
+        let h = group.spawn(worker(R(id: i)))
+        let _ = h.join()
+        i = i + 1
+    }
+    print(999)
+}
