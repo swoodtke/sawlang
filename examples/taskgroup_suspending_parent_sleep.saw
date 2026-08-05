@@ -10,8 +10,7 @@
 // 30
 
 struct Res { id: Int }
-extension Res: Deinit { func deinit(&var self) { print(900 + self.id) } }
-extension Res: NoCopy {}
+extension Res: NoCopy { func deinit(&var self) { print(900 + self.id) } }
 
 func child(n: Int) -> Int {
     sleep(n)             // child sleeps (driven by the group's executor)

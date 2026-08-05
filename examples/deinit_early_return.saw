@@ -8,7 +8,7 @@
 struct Counter {
     id: Int
 }
-extension Counter: Deinit {
+extension Counter: NoCopy {
     func deinit(&var self) {
         print(self.id)
     }

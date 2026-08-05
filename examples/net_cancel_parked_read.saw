@@ -16,8 +16,7 @@ import std.net.{TcpStream}
 static DEINITS: Atomic<Int> = Atomic(0)
 
 struct Res { id: Int }
-extension Res: Deinit { func deinit(&var self) { DEINITS.fetch_add(1) } }
-extension Res: NoCopy {}
+extension Res: NoCopy { func deinit(&var self) { DEINITS.fetch_add(1) } }
 
 func reader(s: TcpStream) {
     let _held = Res(id: 1)          // deinit oracle: drops exactly once on exit

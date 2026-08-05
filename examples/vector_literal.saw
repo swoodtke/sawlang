@@ -15,12 +15,9 @@ struct Bag {
     items: Vector<Int>
 }
 
-extension Bag: Deinit {
+extension Bag: NoCopy {
     func deinit(&var self) {
     }
-}
-
-extension Bag: NoCopy {
 }
 
 func total(xs: Vector<Int>) -> Int {

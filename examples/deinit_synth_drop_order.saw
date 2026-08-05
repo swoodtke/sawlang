@@ -17,26 +17,34 @@ struct D {
     tag: String
 }
 
-extension D: Deinit {
+extension D: NoCopy {
     func deinit(&var self) {
         print("drop {self.tag}")
     }
 }
 
+// Each container declares the move-only policy its move-only field forces on it
+// (design 131 containment); every `deinit` here is still synthesized.
 struct Three {
     a: D,
     b: D,
     c: D
 }
 
+extension Three: NoCopy {}
+
 struct Wrapper {
     pair: Two
 }
+
+extension Wrapper: NoCopy {}
 
 struct Two {
     x: D,
     y: D
 }
+
+extension Two: NoCopy {}
 
 func locals() {
     let l1 = D(tag: "l1")

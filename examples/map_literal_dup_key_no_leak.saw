@@ -15,10 +15,9 @@
 static DEINITS: Atomic<Int> = Atomic(0)
 
 struct Val { id: Int }
-extension Val: Deinit {
+extension Val: NoCopy {
     func deinit(&var self) { DEINITS.fetch_add(1) }
 }
-extension Val: NoCopy {}
 
 // Build a literal whose key 1 appears twice, then read the deinit count while
 // the map is still live and return it. Only the shadowed Val(id: 10) has been

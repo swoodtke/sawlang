@@ -12,8 +12,7 @@
 
 import std.channel.{Channel}
 struct Res { id: Int }
-extension Res: Deinit { func deinit(&var self) { print(self.id) } }
-extension Res: NoCopy {}
+extension Res: NoCopy { func deinit(&var self) { print(self.id) } }
 
 func worker(ch: Channel<Int>) -> Int {
     let held = Res(id: 77)       // deinit oracle

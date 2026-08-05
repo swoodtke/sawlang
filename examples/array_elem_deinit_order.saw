@@ -8,7 +8,7 @@
 // d1
 
 struct D { v: Int }
-extension D: Deinit {
+extension D: NoCopy {
     func deinit(&var self) { print("d{self.v}") }
 }
 

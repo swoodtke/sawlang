@@ -8,7 +8,7 @@ struct Resource {
     value: Int
 }
 
-extension Resource: Deinit {
+extension Resource: NoCopy {
     func deinit(&var self) {
         __saw_test_suspend()
     }

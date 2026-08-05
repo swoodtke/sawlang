@@ -38,7 +38,7 @@ class ResourcesMixin:
         """Get the registry key for an interface-conformance lookup.
 
         Interface conformances are registered under the *base* (unmangled) name
-        of a type: `extension Box<T>: Deinit` registers 'Box', which then holds
+        of a type: `extension Box<T>: NoCopy` registers 'Box', which then holds
         for every monomorphization `Box<Int>`, `Box<String>`, ... So a generic
         instantiation is looked up by its base name, NOT by a name that embeds
         the type arguments. (The method *symbol* for the monomorphized deinit/

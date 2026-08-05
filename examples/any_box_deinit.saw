@@ -15,7 +15,7 @@ struct Res { id: Int }
 extension Res: Shape {
     func area(&self) -> Int { self.id * 10 }
 }
-extension Res: Deinit {
+extension Res: NoCopy {
     func deinit(&var self) { print("gone {self.id}") }
 }
 

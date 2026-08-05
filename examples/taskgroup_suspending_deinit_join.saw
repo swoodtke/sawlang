@@ -17,8 +17,7 @@
 
 import std.task
 struct Log { id: Int }
-extension Log: Deinit { func deinit(&var self) { print(self.id) } }
-extension Log: NoCopy {}
+extension Log: NoCopy { func deinit(&var self) { print(self.id) } }
 
 func child(n: Int) -> Int {
     let l = Log(id: n)      // dropped (prints n) when the child frame tears down

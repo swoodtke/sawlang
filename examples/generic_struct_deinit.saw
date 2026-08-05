@@ -19,7 +19,7 @@ struct Crate<T> {
     value: T
 }
 
-extension Crate<T>: Deinit {
+extension Crate<T>: NoCopy {
     func deinit(&var self) {
         print("box deinit")
     }

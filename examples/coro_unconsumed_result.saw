@@ -9,7 +9,7 @@
 // 1
 
 struct Tracker { id: Int }
-extension Tracker: Deinit {
+extension Tracker: NoCopy {
     func deinit(&var self) { print(self.id) }
 }
 

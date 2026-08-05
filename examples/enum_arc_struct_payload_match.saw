@@ -11,7 +11,6 @@
 // 1
 
 struct Payload { tag: Int, handle: Arc<Int> }
-extension Payload: Deinit { func deinit(&var self) {} }
 extension Payload: ImplicitCopy {
     func copy(&self) -> Payload { Payload(tag: self.tag, handle: self.handle.copy()) }
 }

@@ -387,7 +387,13 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 // compiler-internal `__saw_deinit_in_place` intrinsic (usable only inside a deinit
 // body). Elements popped/moved out first decrement `length`, so the loop below
 // never touches them and cannot double-free.
-extension Vector<T, A: Allocator = GlobalAllocator>: Deinit {
+// design 131: Vector's copy POLICY is the bounded `ExplicitCopy` below, but its
+// destruction is unconditional — a `Vector<File>` has no `copy()` and still owns
+// elements that must be destroyed. So the `deinit` body lives on the plain
+// unconditional extension rather than inside a conformance: `Deinit` is not
+// declarable on its own, and the bounded conformance is the wrong home for a
+// requirement that holds for every `T`.
+extension Vector<T, A: Allocator = GlobalAllocator> {
     public unsafe func deinit(&var self) {
         if let buf = self.buffer {
             var i = 0
@@ -410,8 +416,8 @@ extension Vector<T, A: Allocator = GlobalAllocator>: Deinit {
 // The bound `<T: Copy>` is required because copy() duplicates each element via
 // T's copy path. Elements that are not Copy (e.g. Vector<File>) make
 // `.copy()` a compile error naming the element type at monomorphization.
-// (Deinit is provided unconditionally above; ExplicitCopy: Deinit is satisfied
-// by that separate conformance.)
+// (The `deinit` body is on the unconditional extension above, so it covers every
+// `T`; the `ExplicitCopy: Deinit` requirement is satisfied by that method.)
 extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
     /// Duplicates the vector and every element through the same allocator `A`.
     ///

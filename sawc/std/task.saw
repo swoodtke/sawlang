@@ -106,10 +106,9 @@ extension Task<T> {
     }
 }
 
-// Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
-// requirement is already satisfied.
-/// A handle joins its task when it goes out of scope.
-extension Task<T>: Deinit {
+/// A task handle is not copyable — one owner, one join — and joins its task
+/// when it goes out of scope.
+extension Task<T>: NoCopy {
     /// Joins the task unless `join` already did, drops the unclaimed result, and
     /// frees the control block.
     public unsafe func deinit(&var self) {
@@ -124,10 +123,6 @@ extension Task<T>: Deinit {
             }
         }
     }
-}
-
-/// A task handle is not copyable — one owner, one join.
-extension Task<T>: NoCopy {
 }
 
 // design 114: the public cooperative-yield primitive. `yield_now()` hands

@@ -15,8 +15,7 @@
 
 import std.task
 struct Res { id: Int }
-extension Res: Deinit { func deinit(&var self) { print(900 + self.id) } }
-extension Res: NoCopy {}
+extension Res: NoCopy { func deinit(&var self) { print(900 + self.id) } }
 
 func producer(n: Int) -> Res {
     yield_now()

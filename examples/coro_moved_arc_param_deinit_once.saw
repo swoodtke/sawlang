@@ -16,7 +16,7 @@
 // EXPECT-OUTPUT: 999
 
 struct Res { id: Int }
-extension Res: Deinit {
+extension Res: NoCopy {
     func deinit(&var self) { print("deinit {self.id}") }
 }
 

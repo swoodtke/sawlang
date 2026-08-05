@@ -16,7 +16,7 @@ struct Res { id: Int }
 struct Other { v: Int }
 extension Res: Shape { func area(&self) -> Int { self.id } }
 extension Other: Shape { func area(&self) -> Int { self.v } }
-extension Res: Deinit { func deinit(&var self) { print("gone {self.id}") } }
+extension Res: NoCopy { func deinit(&var self) { print("gone {self.id}") } }
 
 func main() {
     // HIT: payload moved out; deinit fires once when `r` leaves scope.

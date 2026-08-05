@@ -4,9 +4,9 @@
 // EXPECT-ERROR-CONTAINS: cannot project field `f` of type `F` through an optional chain
 
 struct F { h: Int }
-extension F: Deinit { func deinit(&var self) {} }
+extension F: NoCopy { func deinit(&var self) {} }
 struct Wrap { f: F, n: Int }
-extension Wrap: Deinit { func deinit(&var self) {} }
+extension Wrap: NoCopy { func deinit(&var self) {} }
 
 func mk() -> Wrap? { return Wrap(f: F(h: 1), n: 2) }
 

@@ -18,8 +18,7 @@
 
 import std.task
 struct R { id: Int }
-extension R: Deinit { func deinit(&var self) { print(self.id) } }
-extension R: NoCopy {}
+extension R: NoCopy { func deinit(&var self) { print(self.id) } }
 
 func worker(r: R) -> Int {
     yield_now()

@@ -10,7 +10,7 @@
 static DROPS: Atomic<Int> = Atomic(0)
 
 struct Elem { id: Int }
-extension Elem: Deinit {
+extension Elem: NoCopy {
     func deinit(&var self) { DROPS.fetch_add(1) }
 }
 

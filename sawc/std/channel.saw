@@ -235,9 +235,9 @@ extension Channel<T: Send> {
     }
 }
 
-// Deinit is registered before ImplicitCopy so the `ImplicitCopy: Deinit`
-// supertrait requirement is already satisfied when ImplicitCopy is checked.
-extension Channel<T: Send>: Deinit {
+// A Channel handle copies by retaining the shared block, so its policy is
+// ImplicitCopy and its `deinit` lives inside that conformance (design 131).
+extension Channel<T: Send>: ImplicitCopy {
     public unsafe func deinit(&var self) {
         if let block = self.block {
             let refcount = (block + 128) as UnsafePointer<Int>
@@ -267,9 +267,7 @@ extension Channel<T: Send>: Deinit {
             }
         }
     }
-}
 
-extension Channel<T: Send>: ImplicitCopy {
     // Retain: a live handle keeps the queue alive, so monotonic is enough.
     public unsafe func copy(&self) -> Channel<T> {
         if let block = self.block {

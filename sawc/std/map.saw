@@ -462,10 +462,7 @@ extension Map<K: Hashable + Equatable, V: Copy, A: Allocator = GlobalAllocator> 
 // deinit body suffices because the compiler appends the field cleanup — the
 // slots Vector's own deinit drops every occupied slot's key/value and frees the
 // buffer.
-extension Map<K, V, A: Allocator = GlobalAllocator>: Deinit {
+extension Map<K, V, A: Allocator = GlobalAllocator>: NoCopy {
     public func deinit(&var self) {
     }
-}
-
-extension Map<K, V, A: Allocator = GlobalAllocator>: NoCopy {
 }

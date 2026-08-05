@@ -8,7 +8,7 @@
 // EXPECT-ERROR-CONTAINS: requires `T: Copy`
 
 struct Res { name: String }
-extension Res: Deinit {
+extension Res: NoCopy {
     func deinit(&var self) { print("deinit {self.name}") }
 }
 

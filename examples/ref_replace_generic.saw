@@ -13,7 +13,7 @@ trait Named { func name(&self) -> String }
 
 struct Dog { public tag: Int }
 extension Dog: Named { func name(&self) -> String { "dog" } }
-extension Dog: Deinit { func deinit(&var self) { print("drop dog {self.tag}") } }
+extension Dog: NoCopy { func deinit(&var self) { print("drop dog {self.tag}") } }
 
 struct Cat { public tag: Int }
 extension Cat: Named { func name(&self) -> String { "cat" } }

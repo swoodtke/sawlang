@@ -15,7 +15,7 @@ struct R {
     id: Int
 }
 
-extension R: Deinit {
+extension R: NoCopy {
     func deinit(&var self) {
         print("drop r{self.id}")
     }

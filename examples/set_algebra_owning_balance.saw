@@ -12,7 +12,6 @@
 // 1
 
 struct AK { id: Int, rc: Arc<Int> }
-extension AK: Deinit { func deinit(&var self) {} }
 extension AK: ImplicitCopy { func copy(&self) -> AK { AK(id: self.id, rc: self.rc.copy()) } }
 extension AK: Equatable { func equals(&self, other: AK) -> Bool { self.id == other.id } }
 extension AK: Hashable { func hash(&self, h: &var Hasher) { self.id.hash(&var h) } }

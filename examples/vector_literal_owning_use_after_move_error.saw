@@ -6,7 +6,7 @@
 // EXPECT-ERROR-CONTAINS: moved
 
 struct Elem { id: Int }
-extension Elem: Deinit {
+extension Elem: NoCopy {
     func deinit(&var self) { print(self.id) }
 }
 

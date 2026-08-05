@@ -10,7 +10,7 @@
 struct A {
     id: Int
 }
-extension A: Deinit {
+extension A: NoCopy {
     func deinit(&var self) {
         print("A")
     }
@@ -19,7 +19,7 @@ extension A: Deinit {
 struct B {
     a: A
 }
-extension B: Deinit {
+extension B: NoCopy {
     func deinit(&var self) {
         print("B")
     }
@@ -28,7 +28,7 @@ extension B: Deinit {
 struct C {
     b: B
 }
-extension C: Deinit {
+extension C: NoCopy {
     func deinit(&var self) {
         print("C")
     }

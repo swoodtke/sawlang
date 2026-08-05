@@ -12,7 +12,7 @@
 // 9
 
 struct R { id: Int }
-extension R: Deinit {
+extension R: NoCopy {
     func deinit(&var self) { print(self.id) }
 }
 

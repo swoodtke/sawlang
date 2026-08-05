@@ -8,7 +8,7 @@
 // EXPECT-OUTPUT: deinit 20
 
 struct Cell { public id: Int }
-extension Cell: Deinit {
+extension Cell: NoCopy {
     func deinit(&var self) { print("deinit {self.id}") }
 }
 extension Cell {

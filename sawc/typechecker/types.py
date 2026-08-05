@@ -1257,6 +1257,24 @@ class TypeUtilsMixin:
                                      line, column)
             return
 
+        # design 131: a type carrying a deinit but NO copy policy used to fall
+        # through every arm below and take the default bitwise path — an alias
+        # whose two halves each ran `deinit` (DF-128a). Declaring `Deinit` alone
+        # is now rejected at the conformance, so this state is unreachable; the
+        # arm stays as a tripwire, because reaching it silently is a double free.
+        if (self._is_deinit_type(src_type)
+                and not self._is_no_copy_type(src_type)
+                and not self._is_explicit_copy_type(src_type)
+                and not self._is_implicit_copy_type(src_type)):
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                f"internal error: `{src_type}` carries a deinit but no copy "
+                f"policy, so this transfer has no defined ownership rule",
+                line, column,
+                hint="this is a compiler bug — a copy policy is required at the "
+                     "conformance, so no such type should exist"
+            )
+            return
 
         if self._is_no_copy_type(src_type):
             if self._is_aliasing_expr(expr):

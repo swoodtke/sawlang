@@ -13,7 +13,7 @@
 // EXPECT-OUTPUT: deinit 2
 
 struct Tracker { public id: Int }
-extension Tracker: Deinit {
+extension Tracker: NoCopy {
     func deinit(&var self) { print("deinit {self.id}") }
 }
 

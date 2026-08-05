@@ -4,7 +4,7 @@
 // EXPECT-ERROR-CONTAINS: moved
 
 struct Res { v: Int }
-extension Res: Deinit {
+extension Res: NoCopy {
     func deinit(&var self) { print(self.v) }
 }
 

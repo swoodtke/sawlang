@@ -98,7 +98,7 @@ extension Mutex<T> {
 
 // Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
 // requirement is already satisfied.
-extension Mutex<T>: Deinit {
+extension Mutex<T>: NoCopy {
     public unsafe func deinit(&var self) {
         let block = self.block
         let payload_ptr = (block + 64) as UnsafePointer<T>
@@ -106,9 +106,6 @@ extension Mutex<T>: Deinit {
         pthread_mutex_destroy(block)
         GlobalAllocator().dealloc(block, 64 + sizeof<T>(), 16)
     }
-}
-
-extension Mutex<T>: NoCopy {
 }
 
 // Snapshot the payload under the lock. Requires `T: Copy` so the read

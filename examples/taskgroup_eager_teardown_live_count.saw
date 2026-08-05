@@ -22,8 +22,7 @@ extension Held {
         Held(id: tag)
     }
 }
-extension Held: Deinit { func deinit(&var self) { LIVE.fetch_add(0 - 1) } }
-extension Held: NoCopy {}
+extension Held: NoCopy { func deinit(&var self) { LIVE.fetch_add(0 - 1) } }
 
 func worker(h: Held) -> Int {
     yield_now()

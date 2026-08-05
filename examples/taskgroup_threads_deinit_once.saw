@@ -13,12 +13,11 @@ import std.task
 static DROPS: Atomic<Int> = Atomic(0)
 
 struct Res { id: Int }
-extension Res: Deinit {
+extension Res: NoCopy {
     func deinit(&var self) {
         DROPS.fetch_add(1)
     }
 }
-extension Res: NoCopy {}
 
 func makeRes(id: Int) -> Res {
     yield_now()

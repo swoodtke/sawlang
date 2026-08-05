@@ -13,8 +13,7 @@
 
 import std.task
 struct Res { id: Int }
-extension Res: Deinit { func deinit(&var self) { print(self.id) } }
-extension Res: NoCopy {}
+extension Res: NoCopy { func deinit(&var self) { print(self.id) } }
 
 func worker() -> Int {
     let held = Res(id: 77)      // deinit oracle

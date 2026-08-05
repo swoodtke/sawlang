@@ -18,7 +18,7 @@ struct Res { id: Int }
 extension Res {
     func peek(&self) -> Int { self.id }
 }
-extension Res: Deinit {
+extension Res: NoCopy {
     func deinit(&var self) { print("gone {self.id}") }
 }
 

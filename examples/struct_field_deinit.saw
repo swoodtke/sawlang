@@ -9,7 +9,7 @@
 struct Inner {
     id: Int
 }
-extension Inner: Deinit {
+extension Inner: NoCopy {
     func deinit(&var self) {
         print("inner deinit")
     }
@@ -18,7 +18,7 @@ extension Inner: Deinit {
 struct Outer {
     inner: Inner
 }
-extension Outer: Deinit {
+extension Outer: NoCopy {
     func deinit(&var self) {
         print("outer body")
         // field `inner` is released automatically AFTER this body runs

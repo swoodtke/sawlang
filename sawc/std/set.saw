@@ -192,10 +192,7 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = GlobalAllocator> {
 // suffices — the compiler appends the field cleanup, and the Map's own deinit
 // drops every element. Deinit is registered before NoCopy so the
 // `NoCopy: Deinit` supertrait is satisfied.
-extension Set<T, A: Allocator = GlobalAllocator>: Deinit {
+extension Set<T, A: Allocator = GlobalAllocator>: NoCopy {
     public func deinit(&var self) {
     }
-}
-
-extension Set<T, A: Allocator = GlobalAllocator>: NoCopy {
 }

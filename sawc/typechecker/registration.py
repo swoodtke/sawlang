@@ -1083,9 +1083,9 @@ class RegistrationMixin:
 
         Runs as a pre-pass over the whole program so it is declaration-order
         independent: a type whose `deinit` lives in a sibling extension (std's
-        `extension Box: Deinit {...}` + `extension Box: NoCopy {}` split) is
-        already covered and gets nothing. A type that hand-writes `deinit`
-        always wins — there is never both.
+        `Vector`, whose body is on the unconditional extension while its policy
+        conformance is bounded) is already covered and gets nothing. A type that
+        hand-writes `deinit` always wins — there is never both.
         """
         have_deinit = {
             ext.struct_name for ext in program.extensions
@@ -1147,8 +1147,41 @@ class RegistrationMixin:
             source_file=getattr(extension, 'source_file', None)
         )
 
+    def _reject_deinit_conformance(self, extension: Extension) -> bool:
+        """design 131: `Deinit` is NON-DECLARABLE. Report and return True if this
+        extension declares it.
+
+        `Deinit` is still a real trait — the base of the policy hierarchy, and
+        legal as a generic BOUND (`T: Deinit`). What is gone is the standalone
+        CONFORMANCE form, because a type that declares only `Deinit` matched no
+        arm of the value-transfer checkpoint: the compiler knew how to destroy it
+        but nothing said whether it could be duplicated, so `let s = r` took the
+        default bitwise path and both copies ran `deinit` (DF-128a). Requiring a
+        copy policy makes that state unreachable rather than diagnosed.
+
+        A hand-written `deinit` body lives inside the policy conformance
+        (`extension Res: NoCopy { func deinit(&var self) {...} }`) — the
+        requirement is inherited, so nothing else about design 128's synthesis or
+        prefix-hook semantics changes.
+        """
+        if "Deinit" not in extension.conformances:
+            return False
+        name = extension.struct_name
+        self._error(
+            ErrorKind.CANNOT_COPY,
+            f"`{name}` declares a deinit but no copy policy",
+            extension.line, extension.column,
+            hint=f"declare one of `extension {name}: NoCopy {{}}` (move-only), "
+                 f"`ExplicitCopy`, or `ImplicitCopy`, and put the `deinit` body "
+                 f"inside it — every copy policy already requires `Deinit`",
+            source_file=getattr(extension, 'source_file', None)
+        )
+        return True
+
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
+        if self._reject_deinit_conformance(extension):
+            return
         # Enum derivable opt-in (designs 32/48): intercept before the struct
         # lookup so `extension Color: Equatable {}` doesn't hit "undefined struct".
         if self.get_enum_info(extension.struct_name) is not None:

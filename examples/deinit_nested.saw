@@ -7,7 +7,7 @@
 struct Inner {
     value: Int
 }
-extension Inner: Deinit {
+extension Inner: NoCopy {
     func deinit(&var self) {
         print("inner deinit")
     }
@@ -15,7 +15,7 @@ extension Inner: Deinit {
 struct Outer {
     inner: Inner
 }
-extension Outer: Deinit {
+extension Outer: NoCopy {
     func deinit(&var self) {
         print("outer deinit")
         // Do we need to manually call self.inner.deinit()?

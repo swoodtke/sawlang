@@ -1,0 +1,21 @@
+// Design 131: DF-128a's repro, migrated to the policy the fallthrough SHOULD
+// have had. As `NoCopy`, `let s = r` is the ordinary move-required error instead
+// of a silent alias that double-frees — and containment reaches one level up, so
+// `Pair` holding a `Res` must pick a policy of its own.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Res` which implements NoCopy
+// EXPECT-ERROR-CONTAINS: struct `Pair` contains NoCopy field `a` of type `Res`
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+struct Pair { a: Res }
+
+func main() {
+    let r = Res(id: 7)
+    let s = r
+    print("alive {s.id}")
+}
