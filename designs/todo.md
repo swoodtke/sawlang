@@ -5,6 +5,79 @@ Open items ONLY. Landed work lives in `designs/NN-*.md` + git history
 landed recaps). Conventions: cite source designs in [brackets]; VERIFY
 items need a probe before being treated as real work.
 
+## Review sweep (Aug 4) — TRIAGED (user, Aug 4 evening), briefs 122-127
+Four reviewer reports in `designs/reviews/2026-08-04-*.md`; probe repros live
+there. Triage outcome: **122** fix batch (RS-2/4/5, RC-1/4/5, P2, DF-119b —
+wave 1); **123** allocator-failure policy pass, design-19 tiers (RS-1 — wave
+2); **124** TaskGroup EAGER teardown (RS-3, user chose scope-not-extender —
+wave 2); **125** docs sweep + README catch-up + README joins the docs
+convention + soften no-hidden-allocations (P3 — wave 1); **126** pre-port trio
+R1/R2/R11 incl. the RC-2 substitution bug (wave 1); **127** op-budget loop-
+backedge preemption (RC-3, user chose fix-not-soften — wave 2); **128/129
+DRAFTS** (Deinit/ExplicitCopy synthesis; newlines-in-brackets) awaiting user
+review — DO NOT DISPATCH. Original ranked findings follow for reference.
+
+**P0 — proven memory-safety / correctness (stdlib + runtime):**
+- **RS-1 allocator-failure corruption class.** `Vector.push` writes past the
+  buffer and bumps length when `grow()` fails silently; same shape in
+  `StringBuilder.append/append_char`, `Data.push/append/append_bytes`,
+  `Command.append_arg`. Root cause is systemic: std has ~9 different answers to
+  "the allocator said no" (panic / Err / degrade / corrupt / drop / inert
+  object). One design-19-three-tier pass would subsume five other findings.
+- **RS-2 `Vector.iter()` double-frees owning elements** (safe code, no unsafe,
+  proven deinit-twice). `set` also leaks the overwritten element;
+  `String.byte_at` reads OOB heap from a safe signature; `Data.to_string`
+  mints invalid UTF-8.
+- **RS-3 TaskGroup is a lifetime EXTENDER, not a scope.** Task-owned values are
+  released at group teardown, not task completion — the README's own
+  accept-loop server leaks one fd + frame per connection for the group's life,
+  and the sibling reader/writer EOF pattern deadlocks (verified hang).
+  Contradicts the deterministic-destruction claim. [design-claims #1]
+- **RS-4 `std.process.Command` is `system()` string-concat with no quoting** —
+  `arg("; echo INJECTED")` executes; `arg("one two")` word-splits.
+- **RS-5 silent-wrong-answer holes** (vs the never-hide-errors rule): a bare
+  `{ }` statement is a discarded uncalled closure (statements never run, no
+  warning); an escaping closure's captured mutable state resets per call
+  (`make_counter()` → 1,1,1); a user `func print`/`assert` is silently
+  dropped; `let n = <Void expr>` typechecks then ICEs with an empty message.
+
+**P1 — compiler bugs found by review:**
+- **RC-1 `--emit-docs` labels every suspending USER function `"sync"`** (only
+  hardcoded std names emit `"suspending"`, docs_emit.py) — design 121 bug.
+- **RC-2 monomorphization misses grafted types**: `substitute_ast_types` walks
+  `dataclasses.fields()` only, so ~10 runtime-grafted `SawType` annotations
+  survive un-substituted (compiler-preport hazard 1; live bug).
+- **RC-3 op-budget does NOT stop a pure-compute spinning task** — starves
+  siblings completely; README claims otherwise. (Budget counts only I/O-ish
+  ops.)
+- **RC-4 runtime panics missing source location**: overflow/bounds/div-zero/
+  shift have no location at all; force-unwrap/`try!` lack the file.
+- **RC-5 `--freestanding` on the Mach-O host dies as an uncaught LLVM ERROR**
+  abort (ELF cross-targets fine).
+- (Re-confirmed, already open: DF-119b `print(UInt)` renders signed.)
+
+**P2 — portability (SOS-relevant):** `Directory.list` hardcodes the macOS
+dirent offset (Linux differs); `Data` hardcodes `sizeof(DataBuffer)=24`
+(wrong on riscv32). Design 92 half-applied in std.file/std.directory
+(`open`/`read`/`write` still cause-erasing Optionals).
+
+**P3 — docs debt (20 findings):** README lags at design 111 (needs
+119/120/121); spec still carries pre-110 "is rejected" text for `a = b`
+through `&var`, wrong `-o` default (also in --help); README calls CLAUDE.md
+"authoritative always-current" while CLAUDE.md exempts itself and its digest
+header still says 109. Skill was fully current. Convention decision needed:
+does README join the docs-update contract?
+
+**P4 — design/gap briefs to consider:** structural `Deinit`/`ExplicitCopy`
+synthesis (the Equatable model; hand-transcription is pure tax); DF-121a
+newline-in-brackets (new evidence: a 210-char one-line signature in
+blade/src/resolver.saw); std gaps ranked G1 bit intrinsics (S–M), G2
+checked/saturating arithmetic (S, tracker already wants it), G3 slices
+(L, language-level), G4 radix/hex formatting (S), G5 iterator adaptors (M);
+compiler pre-port restructures R1 declared AST contract + R2 stable NodeId +
+R11 astdiff oracle as the port-order prerequisites (then AST+parser next,
+coro_transform last).
+
 ## Design 116 — DF-findings (self-hosting lexer pilot, IN PROGRESS)
 The lexer port (`selfhost/lexer`) is the pilot's measurement instrument;
 language pain hit while writing it is the explicit product. Policy (user, Aug 4):
