@@ -706,6 +706,10 @@ class CallsMixin:
         if getattr(expr, 'array_builtin', None) is not None:
             return self._generate_array_builtin(expr)
 
+        # `o.take()` (design 131): the consuming payload read.
+        if getattr(expr, 'optional_take', False):
+            return self._generate_optional_take(expr)
+
         # Erased-box downcasting `b.is<T>()` / `b.take<T>()` (design 72). `take`
         # consumes the box: clear the receiver binding's drop flag (like a move)
         # so scope-exit teardown does not double-free the shell take already freed.
@@ -1682,6 +1686,24 @@ class CallsMixin:
         base_ptr = self._entry_alloca(base_val.type, name="lvalue_temp")
         self.builder.store(base_val, base_ptr)
         return base_ptr
+
+    def _generate_optional_take(self, expr: MethodCall):
+        """Lower `o.take()` — `Optional.take(&var self) -> T?` (design 131).
+
+        Address the receiver place, load what is there, store `None` over it, and
+        return the loaded optional. The load is the caller's now: nothing is
+        retained (the place gave up its reference) and nothing is released (the
+        place no longer holds one), so the payload's single reference simply
+        changes hands. `is_some = false` is the whole of the None state — the
+        payload bytes left behind are never read again.
+        """
+        opt_ptr = self._get_lvalue_pointer(expr.object)
+        taken = self.builder.load(opt_ptr, name="taken")
+        none_val = ir.Constant(taken.type, ir.Undefined)
+        none_val = self.builder.insert_value(
+            none_val, ir.Constant(ir.IntType(1), 0), 0, name="take_none")
+        self.builder.store(none_val, opt_ptr)
+        return taken
 
     def _generate_array_builtin(self, expr: MethodCall):
         """Lower a fixed-array builtin (design 72 L12/M1).

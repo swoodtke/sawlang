@@ -369,12 +369,21 @@ class ExpressionsMixin:
         # every struct (design 35). Only whole bindings are movable. Reject with
         # a diagnostic naming the field/element and its base.
         if expr.path is not None:
+            # design 131: `move h.s!` is still a partial move — the payload sits
+            # inside a field, and retiring it would leave `h` half-owned. The
+            # field-safe consuming read is `h.s.take()`.
+            hint = ("move the whole value (`move " + expr.variable + "`) or "
+                    "restructure so the piece is its own binding")
+            if expr.unwrap:
+                hint = (f"`move` at an optional projection retires the whole "
+                        f"BINDING, which a field cannot do; use "
+                        f"`{self._render_lvalue_path(expr.path)}.take()` to move "
+                        f"the payload out and leave `None` behind")
             self._error(
                 ErrorKind.CANNOT_COPY,
                 self._partial_move_message(expr.path),
                 expr.line, expr.column,
-                hint="move the whole value (`move " + expr.variable + "`) or "
-                     "restructure so the piece is its own binding"
+                hint=hint
             )
             return None
 
@@ -411,6 +420,22 @@ class ExpressionsMixin:
 
         # Record the move against the binding's identity.
         self._mark_binding_moved(var_info, expr.variable, expr.line, expr.column)
+
+        # design 131: `move o!` transfers the binding and yields the PAYLOAD.
+        # The binding is retired whole — no husk, no writeback — so the only
+        # extra work here is unwrapping the result type.
+        if expr.unwrap:
+            if var_info.type.kind != TypeKind.OPTIONAL:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot force unwrap non-optional type `{var_info.type}`",
+                    expr.line, expr.column,
+                    hint=f"`move {expr.variable}!` is the payload-yielding move; "
+                         f"`{expr.variable}` is not an optional, so write "
+                         f"`move {expr.variable}`"
+                )
+                return var_info.type
+            return var_info.type.inner_type
 
         return var_info.type
 
@@ -3014,6 +3039,14 @@ class ExpressionsMixin:
                     expr.name,
                     VariableInfo(inner_type, expr.mutable, expr.line, expr.column)
                 )
+                # design 131: the binding is a VALUE READ of the payload. Out of
+                # a place the scrutinee keeps, that read follows the copy policy
+                # — retain for ImplicitCopy, refused for ExplicitCopy/NoCopy
+                # (`if let a = move o` is the consuming form). A fresh temporary
+                # scrutinee already handed its payload over and is unchanged.
+                self._check_payload_read(expr.optional_expr, inner_type, expr,
+                                         "an `if let` binding",
+                                         expr.line, expr.column)
         # Move dataflow (design 15 rule 6): branches merge as union of the
         # non-diverging paths, from a shared entry state.
         entry_moves = self._snapshot_moves()
@@ -4427,6 +4460,51 @@ class ExpressionsMixin:
             return inner_type
         return inner_type.inner_type
 
+    def _check_optional_take(self, expr: MethodCall,
+                             opt_type: SawType) -> Optional[SawType]:
+        """Check `o.take()` — `Optional.take(&var self) -> T?` (design 131).
+
+        The runtime consuming read: it writes `None` into the place and returns
+        what was there, owned. Because the write is a real store rather than a
+        static retirement, it reaches places `move` cannot — above all a struct
+        FIELD, where no-partial-moves forbids `move h.s` and design 131's
+        `move h.s!` with it.
+
+        Checked like any `&var self` method: the receiver must be a mutable
+        place, and its path joins the enclosing call's exclusivity entries.
+        """
+        if expr.arguments:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`take()` takes no arguments, got {len(expr.arguments)}",
+                expr.line, expr.column
+            )
+            return None
+        if not self._is_lvalue(expr.object):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "`take()` needs a place to write `None` back into",
+                expr.line, expr.column,
+                hint="call it on a variable, field, or element — the payload of "
+                     "a temporary is already yours, so read it with `!`"
+            )
+            return None
+        imm_root = self._assign_target_immutable_struct_root(expr.object)
+        if imm_root is not None:
+            self._error(
+                ErrorKind.IMMUTABLE_ASSIGNMENT,
+                f"cannot call `take()` on immutable variable `{imm_root}`: "
+                f"it writes `None` back into the place",
+                expr.line, expr.column,
+                hint="consider using `var` instead of `let` to make it mutable",
+            )
+        # Mark for codegen and for the enclosing call's exclusivity sweep: a
+        # by-value argument that TAKES is a mutable access to its receiver path.
+        expr.optional_take = True
+        self._check_call_exclusivity([], [], receiver=expr.object,
+                                     receiver_mutable=True)
+        return opt_type
+
     def _check_nil_coalesce(self, expr: NilCoalesce) -> Optional[SawType]:
         """Check nil coalescing: expr ?? default - returns T."""
         opt_type = self._check_expression(expr.expr)
@@ -4446,6 +4524,16 @@ class ExpressionsMixin:
                 f"optional inner type `{opt_type.inner_type}` does not match default type `{default_type}`",
                 expr.line, expr.column
             )
+        # design 131: `a ?? b` always yields an owned value, so BOTH arms are
+        # transfers. The left arm extracts a payload out of `a` and takes the
+        # place rule; the right arm is an ordinary transfer that had never been
+        # checkpointed at all — so `let s = opt ?? other` used to alias `other`
+        # and double-free it.
+        self._check_payload_read(expr.expr, opt_type.inner_type, expr,
+                                 "the result of `??`", expr.line, expr.column)
+        self._check_value_transfer(expr.default, opt_type.inner_type,
+                                   "the default operand of `??`",
+                                   expr.default.line, expr.default.column)
         return default_type
 
     def _check_optional_chain(self, expr: OptionalChain) -> Optional[SawType]:
@@ -5748,6 +5836,15 @@ class ExpressionsMixin:
         # routed above through the Copy machinery.
         if obj_type.kind == TypeKind.ARRAY:
             return self._check_array_method(expr, obj_type)
+
+        # `o.take()` — the consuming payload read (design 131). Swaps `None` into
+        # the place and hands the payload back owned, so it works on any
+        # `&var`-reachable place INCLUDING a FIELD, which is the move-out that
+        # no-partial-moves otherwise forbids.
+        if (obj_type.kind == TypeKind.OPTIONAL
+                and expr.method_name == "take"
+                and not getattr(expr, 'type_args', None)):
+            return self._check_optional_take(expr, obj_type)
 
         _prim_ext_name = {
             TypeKind.STRING: "String",

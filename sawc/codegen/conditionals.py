@@ -11,7 +11,7 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import IfExpr, IfLetExpr, GuardLetStatement, TypeKind
+from ast_nodes import IfExpr, IfLetExpr, GuardLetStatement, MoveExpr, TypeKind
 
 # Sentinel for "this name had no prior binding" when snapshotting/restoring a
 # shadowed enclosing binding across an if-let then-branch (design 100).
@@ -171,6 +171,22 @@ class ConditionalsMixin:
             return None
         return then_val
 
+    def _optional_binding_owns(self, node) -> bool:
+        """Whether an `if let` / `guard let` binding OWNS the payload it bound —
+        and must therefore release it when its scope ends.
+
+        Three ways the payload becomes the binding's: a `move` scrutinee handed
+        the whole optional over, a fresh temporary minted a value nobody else
+        holds, or the design-131 place rule retained a second reference out of a
+        place the scrutinee keeps. A plain read of a trivial payload owns
+        nothing (there is nothing to release), and a non-retained read out of a
+        place is still owned by that place — releasing it here would double-free.
+        """
+        src = node.optional_expr
+        return (isinstance(src, MoveExpr)
+                or self._is_owned_temporary(src)
+                or getattr(node, 'payload_needs_copy', False))
+
     def _generate_if_let_expression(self, expr: IfLetExpr):
         """Generate code for if let/var optional binding.
 
@@ -240,8 +256,13 @@ class ConditionalsMixin:
             # For 'if let', create a copy; for 'if var', we store and use reference
             # Currently, we always create a local variable (copy semantics for if let)
             # For if var reference semantics, we'd need to track the original optional's alloca
-            alloca = self._entry_alloca(inner_val.type, name=expr.name)
-            self.builder.store(inner_val, alloca)
+            # design 131: out of a PLACE scrutinee the binding is a value read,
+            # so it takes its own reference to the payload (the scrutinee keeps
+            # its). That makes the binding an owner, which `owns_binding` below
+            # picks up so it is released at the end of the then-branch.
+            bound_val = self._retain_read_payload(expr, inner_val)
+            alloca = self._entry_alloca(bound_val.type, name=expr.name)
+            self.builder.store(bound_val, alloca)
             self.variables[expr.name] = alloca
 
             # Store the type of the bound variable for type inference
@@ -259,7 +280,7 @@ class ConditionalsMixin:
         # second teardown aborts). The flag mirrors regular-local cleanup.
         inner_type = self.variable_types.get(expr.name) if expr.pattern is None else None
         owns_binding = (inner_type is not None
-                        and self._is_owned_temporary(expr.optional_expr)
+                        and self._optional_binding_owns(expr)
                         and self._needs_cleanup(inner_type))
         drop_flag = None
         if owns_binding:
@@ -525,9 +546,12 @@ class ConditionalsMixin:
                 self._emit_drop_at(slot, inner_saw)
             return
 
-        # Store in a local variable
-        alloca = self._entry_alloca(inner_val.type, name=stmt.name)
-        self.builder.store(inner_val, alloca)
+        # Store in a local variable. design 131: a place scrutinee makes this a
+        # value read, so the binding takes its own reference (see the if-let
+        # twin) and becomes an owner in the cleanup registration below.
+        bound_val = self._retain_read_payload(stmt, inner_val)
+        alloca = self._entry_alloca(bound_val.type, name=stmt.name)
+        self.builder.store(bound_val, alloca)
         self.variables[stmt.name] = alloca
 
         # Store the type of the bound variable for type inference
@@ -537,13 +561,15 @@ class ConditionalsMixin:
         # Register the guard binding for cleanup in the ENCLOSING scope (brief 23
         # item 2). A guard binding deliberately outlives the guard and lives to
         # the end of the surrounding block, so -- unlike an if-let binding -- its
-        # cleanup belongs to the enclosing scope, not a guard-local one. Same
-        # sole-ownership gate as if-let: only a fresh owned-temporary source makes
-        # this binding the sole owner; a named/field optional is cleaned by its
-        # own binding, so registering here too would double-free.
+        # cleanup belongs to the enclosing scope, not a guard-local one. It owns
+        # its payload either because the source was a fresh temporary (which
+        # handed the payload over) or because the design-131 place rule retained
+        # it here; a non-retained read out of a named/field optional is cleaned
+        # by that optional's own binding, so registering it here would
+        # double-free.
         inner_type = self.variable_types.get(stmt.name)
         if (inner_type is not None
-                and self._is_owned_temporary(stmt.optional_expr)
+                and self._optional_binding_owns(stmt)
                 and self._needs_cleanup(inner_type)
                 and self.cleanup_stack):
             # Capture the guard binding's storage (design 100); flag is None —

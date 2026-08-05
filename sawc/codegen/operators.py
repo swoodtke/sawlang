@@ -1179,6 +1179,21 @@ class OperatorsMixin:
         # Load the value
         value = self.builder.load(self.variables[var_name], name=f"{var_name}_moved")
 
+        # design 131: `move o!` yields the PAYLOAD of the moved optional. The
+        # binding is retired exactly as `move o` retires it (flag cleared below,
+        # no writeback), so this is a pure projection of the already-loaded
+        # value — plus the force-unwrap's None panic.
+        if expr.unwrap:
+            is_some = self.builder.extract_value(value, 0, name="move_is_some")
+            func = self.builder.function
+            ok_bb = func.append_basic_block(name="move_unwrap.ok")
+            panic_bb = func.append_basic_block(name="move_unwrap.panic")
+            self.builder.cbranch(is_some, ok_bb, panic_bb)
+            self.builder.position_at_end(panic_bb)
+            self._emit_panic("force unwrap of None", line=expr.line)
+            self.builder.position_at_end(ok_bb)
+            value = self.builder.extract_value(value, 1, name="move_unwrapped")
+
         # Mark as moved - skip deinit and prevent further use.
         self.moved_variables.add(var_name)
         # Clear the runtime drop flag (design 42): on a path that reaches this

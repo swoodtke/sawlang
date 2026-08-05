@@ -18,7 +18,9 @@ extension Res: NoCopy {
 }
 
 func consume(r: Res?) -> Int {
-    if let v = r {
+    // `move r` is the consuming unwrap (design 131): a NoCopy payload is never
+    // read out of a place, so the binding takes the whole optional with it.
+    if let v = move r {
         v.id
     } else {
         -1

@@ -1,0 +1,66 @@
+// Design 131: the retain a payload read takes is balanced by exactly one
+// release — no double-free, no leak. `Tag` prints on every copy and every drop,
+// so each function below must show ONE copy (the extraction) and TWO drops (the
+// reader and the source that kept its own).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// copy
+// bang 1
+// drop
+// drop
+// copy
+// iflet 2
+// drop
+// drop
+// copy
+// coalesce 3
+// drop
+// drop
+// copy
+// local 4
+// drop
+// drop
+
+struct Tag { id: Int }
+
+extension Tag: ImplicitCopy {
+    func copy(&self) -> Tag {
+        print("copy")
+        Tag(id: self.id)
+    }
+    func deinit(&var self) { print("drop") }
+}
+
+struct Slot { t: Tag? }
+
+func read_bang() {
+    let s = Slot(t: Tag(id: 1))
+    let a = s.t!
+    print("bang {a.id}")
+}
+
+func read_iflet() {
+    let s = Slot(t: Tag(id: 2))
+    if let b = s.t {
+        print("iflet {b.id}")
+    }
+}
+
+func read_coalesce() {
+    let s = Slot(t: Tag(id: 3))
+    let c = s.t ?? Tag(id: 9)
+    print("coalesce {c.id}")
+}
+
+func read_local() {
+    let o: Tag? = Tag(id: 4)
+    let d = o!
+    print("local {d.id}")
+}
+
+func main() {
+    read_bang()
+    read_iflet()
+    read_coalesce()
+    read_local()
+}

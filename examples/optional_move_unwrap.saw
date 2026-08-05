@@ -1,0 +1,32 @@
+// Design 131: `move o!` is the compile-time consuming payload read. It retires
+// the WHOLE binding — no husk, no partial move, no runtime writeback — and
+// yields the payload, so a NoCopy resource leaves its optional exactly once. It
+// still unwraps, so it panics on a dynamically-None optional.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// took 3
+// drop res 3
+// took 5
+// drop res 5
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+func consume(r: Res) {
+    print("took {r.id}")
+}
+
+func main() {
+    var o: Res? = Res(id: 3)
+    let g = move o!
+    consume(move g)
+
+    // `if let a = move o` is the same transfer spelled as a binding.
+    var p: Res? = Res(id: 5)
+    if let a = move p {
+        consume(move a)
+    }
+}

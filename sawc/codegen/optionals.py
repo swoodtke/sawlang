@@ -113,6 +113,13 @@ class OptionalsMixin:
 
         Extracts the value from an optional, panicking at runtime if the
         optional is None.
+
+        design 131: when the typechecker marked this unwrap `payload_needs_copy`
+        it is a VALUE READ out of a place the source keeps (`let a = o!`,
+        `f(o!)`, `return o!`), so the extracted payload is retained here — at the
+        extraction — and the new owner's later drop is balanced. Borrow uses
+        (`o!.m()`, `&o!`, `o!.field`) are never marked, so they still read in
+        place with no traffic.
         """
         optional_val = self._generate_expression(expr.expr)
 
@@ -132,13 +139,44 @@ class OptionalsMixin:
 
         # OK block: extract and return the value
         self.builder.position_at_end(unwrap_ok_bb)
-        return self.builder.extract_value(optional_val, 1, name="unwrapped")
+        payload = self.builder.extract_value(optional_val, 1, name="unwrapped")
+        return self._retain_read_payload(expr, payload)
+
+    def _retain_read_payload(self, node, payload):
+        """design 131: honor a `payload_needs_copy` mark on a payload-extraction
+        node by retaining the extracted value against the payload's own type."""
+        if not getattr(node, 'payload_needs_copy', False):
+            return payload
+        payload_type = self._payload_saw_type(node)
+        if payload_type is None:
+            return payload
+        return self._generate_copy(payload, payload_type)
+
+    def _payload_saw_type(self, node) -> SawType:
+        """The Saw type of the payload a design-131 extraction node yields."""
+        src = getattr(node, 'optional_expr', None) or getattr(node, 'expr', None)
+        if src is None:
+            return None
+        opt_type = self._expr_type(src)
+        if opt_type is None or opt_type.kind != TypeKind.OPTIONAL:
+            return None
+        inner = opt_type.inner_type
+        if inner is not None and self.type_param_context:
+            inner = inner.substitute(self.type_param_context)
+        return inner
 
     def _generate_nil_coalesce(self, expr: NilCoalesce):
         """Generate code for nil coalescing (expr ?? default).
 
         Returns the unwrapped value if present, otherwise evaluates and
         returns the default expression.
+
+        design 131: `a ?? b` yields an OWNED value, so each arm hands over its
+        own reference. The Some arm retains the payload it read out of `a` (when
+        the typechecker's place rule says so); the None arm goes through the
+        ordinary transfer path, which retains a named/field default. Retaining
+        per-ARM rather than on the merged result is what keeps a fresh default
+        (`opt ?? "fallback"`) from being over-retained.
         """
         optional_val = self._generate_expression(expr.expr)
 
@@ -156,12 +194,13 @@ class OptionalsMixin:
         # Some branch - extract the value
         self.builder.position_at_start(some_bb)
         some_val = self.builder.extract_value(optional_val, 1, name="some_value")
+        some_val = self._retain_read_payload(expr, some_val)
         self.builder.branch(merge_bb)
         some_bb = self.builder.block
 
         # None branch - evaluate default
         self.builder.position_at_start(none_bb)
-        none_val = self._generate_expression(expr.default)
+        none_val = self._gen_transfer_value(expr.default)
         self.builder.branch(merge_bb)
         none_bb = self.builder.block
 

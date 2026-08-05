@@ -1277,6 +1277,11 @@ class StatementsMixin:
             if stmt.name != "_":
                 info = VariableInfo(inner_type, stmt.mutable, stmt.line, stmt.column)
                 self.current_scope.define(stmt.name, info)
+                # design 131: same value-read row as `if let` — see
+                # `_check_payload_read`.
+                self._check_payload_read(stmt.optional_expr, inner_type, stmt,
+                                         "a `guard let` binding",
+                                         stmt.line, stmt.column)
 
     def _assign_target_immutable_array(self, target):
         """If an lvalue chain indexes into an immutable fixed array, return that

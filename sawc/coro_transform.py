@@ -408,7 +408,8 @@ def _enc_cleanup(enc):
 #             (brief 23) drops the inner value exactly once at frame death, and
 #             nothing at all in the None state). Read as `self.name!`.
 
-def _read_field(name, encoding, line=0, column=0, owning_read=False):
+def _read_field(name, encoding, line=0, column=0, owning_read=False,
+                move_read=False):
     """The rewritten read of frame field `name`.
 
     `owning_read` marks a read of the WHOLE binding that is not a `move` — the
@@ -422,19 +423,38 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False):
     dangles. `frame_owning_read` tells `_transfer_needs_copy` to apply the same
     read-out-of-storage discipline the closure-capture materialization already
     spells with `.copy()`. A `move` read does NOT carry it: that path records a
-    `__saw_forget`, which transfers the frame's own reference instead."""
+    `__saw_forget`, which transfers the frame's own reference instead.
+
+    `move_read` marks the opposite case: the frame hands its own reference over
+    through the paired `__saw_forget`, so the read is a transfer even for a
+    NoCopy payload.
+
+    EVERY node this returns is additionally stamped `frame_place_read` (design
+    131). The transform rewrites a local into a projection of the frame — a
+    MemberAccess, a `self.name!`, a pointer deref — and the language's place rule
+    would then re-judge, as an ordinary read out of somebody else's storage, a
+    read whose ownership the transform has ALREADY settled on the pre-transform
+    AST (which the typechecker saw, and annotated, as the plain local it was).
+    Judging it twice would double-retain an ImplicitCopy payload and reject a
+    NoCopy one that the frame is legitimately moving out."""
     acc = _self_field(name, line, column)
+    acc.frame_place_read = True
     if encoding in ("opt", "opt_closure"):
         fu = ForceUnwrap(expr=acc, line=line, column=column)
+        fu.frame_place_read = True
         if owning_read:
             fu.frame_owning_read = True
+        if move_read:
+            fu.frame_move_read = True
         return fu
     if encoding == "ref":
         # design 88 (D6): the reference name reads through the frame's pointer
         # field — `self.name[0]` — yielding an lvalue of the pointee type. Member
         # access, compound-assignment mutation, and method calls on it all flow
         # normally (the identical `self.__recv[0]` receiver rewrite of design 45 0c).
-        return ArrayIndex(array_expr=acc, index=_int(0), line=line, column=column)
+        deref = ArrayIndex(array_expr=acc, index=_int(0), line=line, column=column)
+        deref.frame_place_read = True
+        return deref
     return acc
 
 
@@ -3270,8 +3290,19 @@ class _FrameBuilder:
             enc = self.encmap[name]
             if _enc_cleanup(enc):
                 forgets.append(name)
-            return _read_field(name, enc, getattr(node, 'line', 0),
-                               getattr(node, 'column', 0))
+            read = _read_field(name, enc, getattr(node, 'line', 0),
+                               getattr(node, 'column', 0),
+                               move_read=_enc_cleanup(enc))
+            # design 131: `move o!` moved the binding AND projected the payload.
+            # The `move` half is what the field read + `__saw_forget` above
+            # express; re-apply the `!` so the expression still has the payload's
+            # type. (A "self_opt"-encoded field reads as the whole `T?`, so
+            # without this the unwrap would simply vanish.)
+            if getattr(node, 'unwrap', False) and not isinstance(read, ForceUnwrap):
+                read = ForceUnwrap(expr=read, line=getattr(node, 'line', 0),
+                                   column=getattr(node, 'column', 0))
+                read.frame_place_read = True
+            return read
         if isinstance(node, Identifier) and node.name in self.encmap:
             return _read_field(node.name, self.encmap[node.name], node.line,
                                node.column, owning_read=True)

@@ -1,0 +1,40 @@
+// Design 131: a payload read out of a place is a VALUE READ, so an ImplicitCopy
+// payload is RETAINED at the extraction. Before this, every extraction form
+// handed back a non-owning alias — releasing the source then left the reader
+// pointing at freed bytes (DF-124b). Each of the four forms below reads the
+// payload, then clears the source, then prints: the text must survive.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// v1
+// w2
+// x3
+// y4
+
+struct H { s: String? }
+
+func main() {
+    // `o!` out of a local.
+    var o: String? = "v{1}"
+    let a = o!
+    o = None
+    print(a)
+
+    // `if let` out of a struct field.
+    var h = H(s: "w{2}")
+    if let b = h.s {
+        h.s = None
+        print(b)
+    }
+
+    // `o!` out of a struct field.
+    var h2 = H(s: "x{3}")
+    let c = h2.s!
+    h2.s = None
+    print(c)
+
+    // the `??` left operand.
+    var o2: String? = "y{4}"
+    let d = o2 ?? "fallback"
+    o2 = None
+    print(d)
+}

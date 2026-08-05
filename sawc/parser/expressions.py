@@ -340,9 +340,19 @@ class ExpressionsMixin:
                     is_partial = True
                 else:
                     break
+            # design 131: a trailing `!` makes this `move o!` — the move at an
+            # optional projection. Consumed here (rather than left to the
+            # postfix parser) so the whole thing stays ONE MoveExpr: the move
+            # retires the binding `o`, and the `!` only picks the payload out of
+            # the value it yields.
+            unwrap = False
+            if self.match(TokenType.EXCLAIM):
+                self.advance()
+                unwrap = True
             return MoveExpr(
                 variable=base_token.value,
                 path=node if is_partial else None,
+                unwrap=unwrap,
                 line=move_token.line,
                 column=move_token.column
             )

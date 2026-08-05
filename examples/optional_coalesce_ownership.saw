@@ -1,0 +1,27 @@
+// Design 131: `a ?? b` yields an OWNED value, so each arm hands over its own
+// reference — the Some arm retains the payload it read out of `a`, the None arm
+// takes the ordinary transfer path. Before this the default operand was never
+// checkpointed at all, so a named default was aliased and double-freed.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// some ab
+// none zz
+// zz
+// ab
+
+func main() {
+    let fallback = "z{"z"}"
+    let some: String? = "a{"b"}"
+    let none: String? = None
+
+    // Some arm: reads out of `some`, which keeps its own reference.
+    let a = some ?? fallback
+    print("some {a}")
+
+    // None arm: takes a reference to `fallback`, which stays valid.
+    let b = none ?? fallback
+    print("none {b}")
+
+    print(fallback)
+    print(some!)
+}

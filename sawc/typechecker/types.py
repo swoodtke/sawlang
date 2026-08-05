@@ -14,7 +14,7 @@ from ast_nodes import (
     SawType, TypeKind, Visibility,
     Expression, Identifier, MoveExpr, ReferenceExpr, IntLiteral, Block,
     MemberAccess, ArrayIndex, TupleIndex, SelfExpr, ClosureExpr,
-    BindOptional, OptionalEvalExpr
+    BindOptional, OptionalEvalExpr, ForceUnwrap
 )
 from errors import ErrorKind
 from namespace import (
@@ -970,8 +970,108 @@ class TypeUtilsMixin:
     _ALIASING_EXPR_TYPES = (Identifier, MemberAccess, ArrayIndex, TupleIndex)
 
     def _is_aliasing_expr(self, expr: Expression) -> bool:
-        """True if `expr` reads a value out of existing owned storage."""
+        """True if `expr` reads a value out of existing owned storage.
+
+        design 131: a force-unwrap is transparent here. `o!` is a PROJECTION of
+        `o` — it names the payload sitting inside storage `o` still owns, exactly
+        as `s.field` names storage `s` owns. So `o!` aliases iff `o` does: a
+        payload read out of a local/field/element is a place, while `f()!` (the
+        payload of a fresh temporary the caller already owns) is not.
+        """
+        if isinstance(expr, ForceUnwrap):
+            return self._is_aliasing_expr(expr.expr)
         return isinstance(expr, self._ALIASING_EXPR_TYPES)
+
+    # ------------------------------------------------------------------
+    # design 131 — the policy-driven place rule for optional payload reads.
+    #
+    # Every payload-extraction form (`o!`, the `??` left operand, an
+    # `if let`/`guard let` binding) reads out of storage the source keeps. The
+    # Copy family decides what that read costs, using the SAME table as every
+    # other read: trivial payloads copy bitwise, ImplicitCopy retains, and
+    # ExplicitCopy/NoCopy refuse and name the three consuming spellings.
+    # ------------------------------------------------------------------
+
+    def _payload_read_policy(self, payload_type: Optional[SawType]) -> str:
+        """The copy tier a payload read must honor: one of
+        'trivial' / 'retain' / 'explicit' / 'nocopy'."""
+        if payload_type is None:
+            return 'trivial'
+        # An opaque generic type parameter's tier is unknowable here, and each
+        # instantiation decides it for itself. Keep the pre-131 bitwise read
+        # rather than guess a retain that a `Vector` instantiation would turn
+        # into a silent deep copy.
+        if (payload_type.kind == TypeKind.STRUCT
+                and payload_type.struct_name in getattr(self, 'current_type_params', {})):
+            return 'trivial'
+        if self._is_no_copy_type(payload_type):
+            return 'nocopy'
+        if self._is_explicit_copy_type(payload_type):
+            return 'explicit'
+        if self.namespace.is_trivially_copyable(payload_type):
+            return 'trivial'
+        # Everything left duplicates by RETAINING what it owns: an ImplicitCopy
+        # value, an owning enum/optional/tuple/struct, an escaping closure env.
+        return 'retain'
+
+    def _check_payload_read(self, source: Optional[Expression],
+                            payload_type: Optional[SawType],
+                            node, context: str, line: int, column: int):
+        """The value-read row for a payload extracted from `source`.
+
+        `source` is the optional being read (the `if let` scrutinee, the `??`
+        left operand); `node` is the AST node codegen will consult. A `move`
+        source or a fresh temporary is already owned by the reader, so only a
+        PLACE source is checked.
+        """
+        if source is None or not self._is_aliasing_expr(source):
+            return
+        # A coroutine-frame field read carries the transform's own ownership
+        # bookkeeping: a `move` read hands the frame's reference over through
+        # `__saw_forget`, a non-`move` read is retained by codegen's frame-read
+        # path (design 124), and a `self_opt` field IS the optional, drop flag
+        # and all. The transform runs AFTER the type-check that already judged
+        # these reads in their original, un-projected form, and the whole program
+        # is then re-checked — so weighing in here would judge one read twice:
+        # an ImplicitCopy payload would be retained a second time (a leak), and a
+        # NoCopy payload the frame is legitimately moving out would be rejected.
+        # (The mark rides the unwrap for a `o!` value read and the SOURCE for an
+        # `if let` / `??` over a frame field.)
+        if (getattr(node, 'frame_place_read', False)
+                or getattr(source, 'frame_place_read', False)):
+            return
+        policy = self._payload_read_policy(payload_type)
+        if policy == 'retain':
+            node.payload_needs_copy = True
+        elif policy in ('nocopy', 'explicit'):
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                f"cannot read the payload out of `{self._render_place(source)}` "
+                f"in {context}: `{payload_type}` implements "
+                f"{'NoCopy' if policy == 'nocopy' else 'ExplicitCopy'}",
+                line, column,
+                hint=self._payload_read_hint(source, policy)
+            )
+
+    def _render_place(self, expr: Expression) -> str:
+        """A source-shaped rendering of a place expression, for diagnostics."""
+        if isinstance(expr, ForceUnwrap):
+            return self._render_place(expr.expr) + "!"
+        try:
+            return self._render_lvalue_path(expr)
+        except Exception:
+            return "the optional"
+
+    def _payload_read_hint(self, source: Expression, policy: str) -> str:
+        """The consuming spellings a refused payload read can be rewritten to."""
+        path = self._render_place(source)
+        parts = []
+        if policy == 'explicit':
+            parts.append(f"`{path}!.copy()` for an explicit deep copy")
+        if isinstance(source, Identifier):
+            parts.append(f"`move {path}!` to transfer the whole binding")
+        parts.append(f"`{path}.take()` to move the payload out in place")
+        return "use " + ", ".join(parts[:-1]) + (", or " if len(parts) > 1 else "") + parts[-1]
 
     # ------------------------------------------------------------------
     # Per-function, scope-aware may-move state (design 15).
@@ -1145,6 +1245,18 @@ class TypeUtilsMixin:
             if isinstance(expr, (Identifier, MemberAccess, ArrayIndex, TupleIndex)):
                 expr.closure_lend = True
             return
+
+        # design 131: `o!` in a value position is a payload read out of storage
+        # `o` still owns. Route it to the shared place rule, which applies the
+        # same four-tier table with the hints that fit a projection (`o!.copy()`
+        # / `move o!` / `o.take()`) — and marks the RETAIN on the unwrap node,
+        # where codegen performs it, rather than on the transfer site (a `let`
+        # initializer never reaches the transfer-site copy path).
+        if isinstance(expr, ForceUnwrap):
+            self._check_payload_read(expr.expr, src_type, expr, context,
+                                     line, column)
+            return
+
 
         if self._is_no_copy_type(src_type):
             if self._is_aliasing_expr(expr):
@@ -1401,6 +1513,16 @@ class TypeUtilsMixin:
             elif isinstance(value, MoveExpr):
                 entries.append(('moved', (value.variable, ()), value,
                                 value.line, value.column))
+            elif getattr(value, 'optional_take', False):
+                # design 131: a by-value argument is normally snapshot semantics
+                # and stays out of the access set — but `o.take()` WRITES `None`
+                # back into its receiver while the call is being set up, so its
+                # receiver path is a mutable access of this call, exactly like a
+                # `&var` argument. `f(&var h, h.s.take())` is a real conflict.
+                path = self._build_access_path(value.object)
+                if path is not None:
+                    entries.append(('mut', path, value.object,
+                                    value.line, value.column))
             elif isinstance(value, ClosureExpr):
                 # design 16/29 item 4: the borrow captures of a non-escaping
                 # closure argument are hidden reference parameters of THIS call,

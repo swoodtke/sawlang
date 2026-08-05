@@ -511,10 +511,25 @@ class Expression(ASTNode):
     #                           literals/collection literals that need it
     #   needs_copy           -- the move checker decided this operand is copied
     #   closure_lend         -- a closure operand is lent, not transferred
+    #   payload_needs_copy   -- design 131: this node EXTRACTS an optional's
+    #                           payload out of storage the source keeps (`o!`,
+    #                           the `??` left operand, an `if let` binding), and
+    #                           the place rule says the extraction retains. The
+    #                           retain happens AT the extraction, not at the
+    #                           enclosing transfer site, so that a `let`
+    #                           initializer -- which never reaches the
+    #                           transfer-site copy path -- is covered too.
+    #   frame_place_read     -- design 131: the coroutine transform synthesized
+    #                           this place out of a frame field. Its ownership
+    #                           was settled on the pre-transform AST, so the
+    #                           place rule must not re-judge it on the second
+    #                           type-check pass.
     autowrap_to_optional: Optional['SawType'] = annotation(None)
     expected_type: Optional['SawType'] = annotation(None)
     needs_copy: bool = annotation(False)
     closure_lend: bool = annotation(False)
+    payload_needs_copy: bool = annotation(False)
+    frame_place_read: bool = annotation(False)
 
 
 @dataclass
@@ -594,6 +609,11 @@ class MoveExpr(Expression):
     """
     variable: str  # The root binding name being moved
     path: Optional['Expression'] = None  # Projected lvalue for a partial move
+    # design 131: `move o!` — the move is spelled at an optional PROJECTION.
+    # It still retires the whole binding (there is no husk state and no partial
+    # move); the `!` only says the result is the payload, and it still panics if
+    # the optional is dynamically None.
+    unwrap: bool = False
 
 
 @dataclass
@@ -780,8 +800,21 @@ class SourceLocationLiteral(Expression):
 
 @dataclass
 class ForceUnwrap(Expression):
-    """Force unwrap: expr!"""
+    """Force unwrap: expr!
+
+    Two marks the coroutine transform stamps on the `self.name!` reads it
+    synthesizes for opt-encoded frame fields (design 124 / 131). Both say the
+    frame — not the language's ordinary place rule — decides this read's
+    ownership, because the transform pairs it with its own bookkeeping:
+      frame_owning_read -- a non-`move` whole-binding read; the frame KEEPS the
+                           field, so codegen retains at the transfer site.
+      frame_move_read   -- a `move` read; the paired `__saw_forget` hands the
+                           frame's own reference over, so it is a transfer even
+                           for a NoCopy payload.
+    """
     expr: Expression
+    frame_owning_read: bool = annotation(False)
+    frame_move_read: bool = annotation(False)
 
 
 @dataclass
@@ -965,6 +998,9 @@ class MethodCall(Expression):
     field_call_unwrap: bool = annotation(False)
     array_builtin: Optional[str] = annotation(None)          # "len" | "swap" on a fixed array
     is_chan_recv: bool = annotation(False)                   # cooperative Channel.receive()
+    # design 131: `o.take()` — `Optional.take(&var self) -> T?`. Swaps `None`
+    # into the receiver place and returns the payload owned.
+    optional_take: bool = annotation(False)
     # Auto-forwarding through a smart pointer: the payload type reached through
     # Arc<T> / Box<T> when the method lives on T rather than on the wrapper.
     arc_forward_payload_type: Optional['SawType'] = annotation(None)
@@ -1021,6 +1057,10 @@ class GuardLetStatement(ASTNode):
     # The coroutine transform CFG-split this binding across a suspension
     # (design 104 item 1 / design 126 R1).
     _coro_split: bool = annotation(False)
+    # design 131: the bound payload is read out of a place the scrutinee keeps,
+    # and the place rule says the binding retains it (and therefore owns it, so
+    # it is released at the end of the guarded scope). See `Expression`.
+    payload_needs_copy: bool = annotation(False)
 
 
 @dataclass

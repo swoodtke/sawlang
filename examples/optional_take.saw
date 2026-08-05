@@ -1,0 +1,49 @@
+// Design 131: `Optional.take(&var self) -> T?` is the runtime consuming read.
+// It swaps `None` into the place and hands the payload back owned — so unlike
+// `move o!` it reaches a struct FIELD, which is the move-out that
+// no-partial-moves otherwise forbids. The place is observably None afterwards.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// took 3
+// local is None
+// took 5
+// field is None
+// take of None gives None
+// drop res 5
+// drop res 3
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+struct H { r: Res? }
+extension H: NoCopy {}
+
+func main() {
+    var o: Res? = Res(id: 3)
+    let g = o.take()!
+    print("took {g.id}")
+    if let _ = o {
+        print("local still bound")
+    } else {
+        print("local is None")
+    }
+
+    var h = H(r: Res(id: 5))
+    let f = h.r.take()!
+    print("took {f.id}")
+    if let _ = h.r {
+        print("field still bound")
+    } else {
+        print("field is None")
+    }
+
+    // Taking twice is well defined: the second take finds None.
+    if let _ = h.r.take() {
+        print("take of None gave a payload")
+    } else {
+        print("take of None gives None")
+    }
+}

@@ -1,0 +1,20 @@
+// Design 131: `move o!` retires the whole binding, not just the payload — there
+// is no husk state to keep using. Touching `o` afterwards is the ordinary
+// use-after-move error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable `o`
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+func main() {
+    var o: Res? = Res(id: 3)
+    let g = move o!
+    print("g {g.id}")
+    if let _ = o {
+        print("unreachable")
+    }
+}
