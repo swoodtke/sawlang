@@ -1,13 +1,18 @@
-// MakeBoxOr — the fallible constructor (design 42 item 1, three-tier model tier
-// 2). Success returns `Ok(Box)`; on allocator failure it returns
+// `Box.try_make` — the fallible constructor (design 42 item 1, three-tier model
+// tier 2; named `make_or` until design 123 made `try_` the one spelling of the
+// fallible tier). Success returns `Ok(Box)`; on allocator failure it returns
 // `Err(AllocError)` carrying the request's size/align AND cleanly deinits the
 // value (never leaks it). The failure path is forced with an always-None probe
 // allocator and a deinit-printing payload — "gone 2" proves the clean drop.
+// The interpolated `Err` also covers AllocError's design-123 Printable/Error
+// conformance.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 7
 // gone 2
 // 8
+// gone 3
+// allocation of 8 bytes (align 8) failed
 
 struct Res { id: Int }
 extension Res {
@@ -26,15 +31,21 @@ extension NullAlloc: Allocator {
 
 func main() {
     // Success (GlobalAllocator, Int payload): Ok, value() reads 7.
-    match Box<Int>.make_or(7) {
+    match Box<Int>.try_make(7) {
         case Ok(b) -> print(b.value()),   // 7
         case Err(e) -> print(e.size)
     }
 
     // Failure (NullAlloc, Deinit payload): the value is cleanly deinit'd inside
-    // make_or's scope exit ("gone 2"), then Err carries size = sizeof(Res) = 8.
-    match Box<Res, NullAlloc>.make_or(Res(id: 2)) {
+    // try_make's scope exit ("gone 2"), then Err carries size = sizeof(Res) = 8.
+    match Box<Res, NullAlloc>.try_make(Res(id: 2)) {
         case Ok(b) -> print(b.peek()),
         case Err(e) -> print(e.size)      // gone 2, then 8
+    }
+
+    // AllocError is Printable (design 123), so an OOM can be logged directly.
+    match Box<Res, NullAlloc>.try_make(Res(id: 3)) {
+        case Ok(b) -> print(b.peek()),
+        case Err(e) -> print("{e}")
     }
 }

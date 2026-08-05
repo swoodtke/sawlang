@@ -350,7 +350,7 @@ class MethodsMixin:
 
         # Push a param cleanup scope (mirrors `_generate_function`): an owned
         # param a static factory does NOT move out on some path must be dropped
-        # there, not leaked — this is what makes `Box.make_or`'s failure path
+        # there, not leaked — this is what makes `Box.try_make`'s failure path
         # deinit the un-moved `value` cleanly (design 42).
         self.cleanup_stack.append([])
 

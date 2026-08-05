@@ -2,7 +2,7 @@
 // allocator `JobSlab` — a zero-field unit struct whose storage is a static
 // region — backs `Box<Job, JobSlab>` (`type JobBox`). Box is the slab's
 // consumer: fixed-size Job chunks, not a variable-size Vector. Proves:
-//   * N allocations succeed, the (N+1)th `make_or` returns Err (exhaustion),
+//   * N allocations succeed, the (N+1)th `try_make` returns Err (exhaustion),
 //   * scope death returns the chunks (Box deinit routes dealloc through JobSlab),
 //   * re-allocation then succeeds over the reclaimed chunks.
 //
@@ -45,7 +45,7 @@ func fill_and_exhaust() -> Int {
     print(b4.tid())   // 4
 
     // 5th allocation: the slab is full -> the fallible factory returns Err.
-    match Box<Job, JobSlab>.make_or(Job(id: 5, priority: 50)) {
+    match Box<Job, JobSlab>.try_make(Job(id: 5, priority: 50)) {
         case Ok(bad) -> bad.tid(),
         case Err(e) -> 999
     }

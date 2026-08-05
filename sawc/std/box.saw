@@ -8,31 +8,32 @@
 //
 // FACTORY SURFACE (design 42 item 1, "report the surface chosen"): the two
 // constructors are STATIC METHODS on Box, reached through the brief-28
-// static-factory path — `Box<T>.make(v)` and `Box<T>.make_or(v)`. Static methods
+// static-factory path — `Box<T>.make(v)` and `Box<T>.try_make(v)`. Static methods
 // on the generic struct were chosen over free `MakeBox`/`MakeBoxOr` functions
 // because the struct's own type arguments (and their `A = GlobalAllocator` default) are
 // supplied and defaulted at the call site by the same generics machinery Vector's
 // `try_with_capacity` already uses, with no free-function type-inference gap.
-// `make` IS the D4-pinned infallible `MakeBox`; `make_or` is the fallible
-// `MakeBoxOr`.
+// `make` IS the D4-pinned infallible `MakeBox`; `try_make` is the fallible
+// `MakeBoxOr` (design 123 renamed it from `make_or`: the fallible tier is spelled
+// `try_` everywhere in std, with no second spelling).
 //
 // There is no `init(value:)`: allocation is a fallible action, and the three-tier
 // failure model (design 19) wants that split visible — `make` panics on OOM
-// (infallible tier), `make_or` returns `Err` (fallible tier). A memberwise
+// (infallible tier), `try_make` returns `Err` (fallible tier). A memberwise
 // `Box(ptr:)` still exists (used internally) but is a raw wrapper, not the API.
 
 struct Box<T, A: Allocator = GlobalAllocator> {
     // Points directly at the heap `T`. Always valid in a live Box: `make` panics
-    // rather than construct a null Box, and `make_or` returns `Err` without
-    // constructing one, so no inert/None state exists (unlike Arc's OOM path).
+    // rather than construct a null Box, and `try_make` returns `Err` without
+    // constructing one, so no inert/None state exists.
     ptr: UnsafePointer<T>
 }
 
 extension Box<T, A: Allocator = GlobalAllocator> {
-    // MakeBox — the infallible constructor. Allocates one `T`-sized chunk through
-    // `A`, placement-moves `value` into it, and wraps it. On allocator failure it
-    // PANICS (design 19 three-tier model, infallible tier): a kernel's `__saw_rt_panic`
-    // handler decides the policy (oops / kill-task / reboot).
+    /// Allocates one `T` through `A` and moves `value` into it.
+    ///
+    /// Panics if the allocator refuses the request. This is the infallible
+    /// tier; `try_make` is the twin that reports the failure instead.
     public func make(value: T) -> Box<T, A> {
         let size = sizeof<T>()
         let align = alignof<T>()
@@ -50,15 +51,15 @@ extension Box<T, A: Allocator = GlobalAllocator> {
         // __saw_rt_panic seam — a kernel's handler decides the policy (oops /
         // kill-task / reboot). `panic` returns Never, so control never continues
         // past it and no return value is needed on this path.
-        panic("allocation failed")
+        panic("Box.make: allocation failed")
     }
 
-    // MakeBoxOr — the fallible constructor. Identical success path; on allocator
-    // failure returns `Err(AllocError)` carrying the request's size/align instead
-    // of panicking. Because `value` is NOT moved on the failure path, it stays a
-    // live local and its `deinit` runs at scope exit — the value is cleanly
-    // destroyed, never leaked (design 42's "value cleanly deinit'd on failure").
-    public func make_or(value: T) -> Result<Box<T, A>, AllocError> {
+    /// Allocates one `T` through `A` and moves `value` into it, reporting
+    /// allocator exhaustion as `Err(AllocError)`.
+    ///
+    /// On the failure path `value` is not moved anywhere, so it deinits at
+    /// scope exit: the value is destroyed cleanly, never leaked.
+    public func try_make(value: T) -> Result<Box<T, A>, AllocError> {
         let size = sizeof<T>()
         let align = alignof<T>()
         if let raw = unsafe A().alloc(size, align) {

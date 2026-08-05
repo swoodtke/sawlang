@@ -1,3 +1,39 @@
+//! Allocation: the `Allocator` trait, `GlobalAllocator`, and `AllocError`.
+//!
+//! ## What happens when the allocator says no
+//!
+//! Every allocating operation in the standard library answers that question
+//! one of two ways, and the name tells you which.
+//!
+//! An operation with an infallible signature — `Vector.push`, `Box.make`,
+//! `StringBuilder.append`, `Map.insert`, a constructor — **panics** on
+//! allocation failure. It never truncates, never returns a plausible
+//! substitute value, and never hands back an object that has quietly stopped
+//! working. In the freestanding profile the panic reaches `__saw_rt_panic`,
+//! so a kernel picks the policy (oops, kill the task, reboot).
+//!
+//! Every such operation has a `try_`-prefixed twin that returns
+//! `Result<_, AllocError>` instead: `try_push`, `try_make`,
+//! `try_with_capacity`, `try_insert`, `try_append`. That is the surface for
+//! code that handles exhaustion locally rather than dying of it, and it is
+//! the surface a freestanding or kernel caller is expected to use. `try_`
+//! never partially applies its operation — on `Err` the container is exactly
+//! as it was.
+//!
+//! ```saw
+//! var frames = Vector<Frame, FrameSlab>()
+//! match frames.try_push(Frame(id: 1)) {
+//!     case Ok(_) -> print("queued"),
+//!     case Err(e) -> print("out of frame memory: {e}")
+//! }
+//! ```
+//!
+//! A type parameterized by its allocator (`Vector<T, A>`, `Box<T, A>`,
+//! `Map<K, V, A>`, `Set<T, A>`) is the freestanding toolkit, and the `try_`
+//! tier is its primary surface. Types with no allocator parameter — `String`,
+//! `StringBuilder`, `Data`, `Arc`, `Mutex`, `Channel` — allocate through
+//! `GlobalAllocator`.
+
 // Allocator trait, GlobalAllocator allocator, and AllocError
 // Part of the Saw standard library — design 19 §4, brief 28 (stage 3)
 //
@@ -29,10 +65,13 @@ extern "C" {
 // Allocator trait (design 19 §4)
 // =============================================================================
 
-// The allocation contract. `alloc` returns None on failure (the caller decides:
-// infallible APIs panic, fallible factories return Err — design 19 three-tier
-// model). `dealloc` must be handed the same size/align the block was allocated
-// with (the seams carry no per-block metadata; the container remembers layout).
+/// The allocation contract every container routes through.
+///
+/// An implementation reports exhaustion by returning `None` from `alloc`; what
+/// happens next is the caller's tier, not the allocator's (see the module
+/// documentation). `dealloc` must be handed the same `size`/`align` the block
+/// was allocated with: the seams carry no per-block metadata, so the container
+/// remembers the layout.
 trait Allocator {
     func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>?
     func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int)
@@ -63,12 +102,26 @@ extension GlobalAllocator: Allocator {
 // AllocError — failure context for fallible factories (design 19 open-Q tier 2)
 // =============================================================================
 
-// Carried by the `Err` of a fallible factory (e.g. `Vector.try_with_capacity`)
-// so an out-of-memory site can be logged with context. `size` is the byte count
-// the failed request asked for; `align` is its alignment. (When a public
-// allocator type parameter arrives in stage 4, an allocator identity/tag can
-// join these fields.)
+/// The error every `try_` operation reports: the allocator refused a request.
+///
+/// `size` is the byte count that was asked for and `align` its alignment, so an
+/// out-of-memory site can be logged with enough context to tell a 24-byte
+/// control block apart from a doubling buffer. It conforms to `Error`, so it
+/// boxes into a `Result<T, Box<any Error>>` boundary like any other error, and
+/// it is `Printable`.
 struct AllocError {
+    /// Byte count of the request that failed.
     public size: Int
+    /// Alignment of the request that failed.
     public align: Int
+}
+
+extension AllocError: Error {
+    public func format(&self, into: &var StringBuilder) {
+        into.append("allocation of ")
+        into.append(self.size)
+        into.append(" bytes (align ")
+        into.append(self.align)
+        into.append(") failed")
+    }
 }

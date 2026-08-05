@@ -1675,7 +1675,7 @@ let shared2 = shared          // copy() called, strong count increases
 print(shared2.strong_count()) // 2
 
 // Box<T, A>: owned heap allocation without sharing (NoCopy — move to transfer).
-// Static factories: `.make` (panics on OOM) and `.make_or` (fallible).
+// Static factories: `.make` (panics on OOM) and `.try_make` (fallible).
 let boxed = Box<Int>.make(42)
 print(boxed.value())          // 42
 ```
@@ -3935,13 +3935,13 @@ it is not hidden behind `init`):
 ```saw
 let a = Box<Int>.make(42)          // MakeBox — infallible; PANICS on OOM
                                    //   (three-tier model, infallible tier)
-match Box<Int>.make_or(42) {       // MakeBoxOr — fallible tier
+match Box<Int>.try_make(42) {       // fallible tier
     case Ok(b)  -> print(b.value())
     case Err(e) -> print(e.size)   // AllocError with size/align context
 }
 ```
 
-On the `make_or` failure path the value is cleanly `deinit`'d at scope exit
+On the `try_make` failure path the value is cleanly `deinit`'d at scope exit
 (never leaked). `make` places the value with the placement-move primitive
 (`ptr[0] = move value`) and, on allocator failure, panics. Payload access:
 
@@ -3979,7 +3979,7 @@ type JobBox = Box<Job, JobSlab>          // the kernel idiom
 The region reaches the slab as `(&STATIC) as UnsafePointer<Int8>` — a reference,
 cast to a raw pointer, over a bare-declared (writable `.bss`) static. `alloc`
 returns `None` on exhaustion (feeding the three-tier model: `make` panics on it,
-`make_or` returns `Err`); `dealloc` pushes the chunk back onto the free-list.
+`try_make` returns `Err`); `dealloc` pushes the chunk back onto the free-list.
 The chunk size must be ≥ 8 bytes (a freed chunk stores the free-list link in its
 own first word) and ≥ the payload. The CAS loops are lock-free; classic ABA is
 possible and accepted at this stage (documented in `std/slab.saw`).

@@ -5324,10 +5324,10 @@ class ExpressionsMixin:
         # declared signature, so it was not covered by the signature-level pass).
         self._check_object_safety(trait_name, expr.line, expr.column)
 
-        if expr.method_name == "make_or":
+        if expr.method_name == "try_make":
             self._error(
                 ErrorKind.TYPE_MISMATCH,
-                "`Box<any Trait>.make_or(...)` is not yet supported — use "
+                "`Box<any Trait>.try_make(...)` is not yet supported — use "
                 "`Box<any Trait>.make(...)` (the fallible erased factory is deferred)",
                 expr.line, expr.column)
             return None
@@ -5371,7 +5371,7 @@ class ExpressionsMixin:
             'trait': trait_name,
             'concrete': concrete,
             'allocator': allocator,
-            'make_or': False,
+            'try_make': False,
         }
         return box_result
 
@@ -5565,7 +5565,7 @@ class ExpressionsMixin:
         if (isinstance(expr.object, Identifier) and expr.object.name == "Box"
                 and getattr(expr.object, 'type_args', None)
                 and expr.object.type_args[0].kind == TypeKind.EXISTENTIAL
-                and expr.method_name in ("make", "make_or")):
+                and expr.method_name in ("make", "try_make")):
             return self._check_erased_box_make(expr, expr.object.type_args[0])
         # design 52b item 2: `group.spawn(f(args))` on a TaskGroup receiver. Peek
         # the receiver type (a bare identifier / member — the group local) and

@@ -784,7 +784,7 @@ class GenericsMixin:
         self.current_return_type = substituted_return
 
         # Param cleanup scope (design 42 + design 65). An owned by-value param —
-        # whether of a static factory (`Box<T, A>.make_or`) OR an instance method
+        # whether of a static factory (`Box<T, A>.try_make`) OR an instance method
         # (`Map._hash_code`/`_key_eq`'s owning KEY) — that is NOT moved out on some
         # path must be RELEASED at scope exit rather than leaked. Each owning param
         # is registered with a drop flag; every recognized move (explicit `move`,
