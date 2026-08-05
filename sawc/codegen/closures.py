@@ -153,6 +153,7 @@ class ClosuresMixin:
             self._di_inherit_location(closure_fn, saved_builder.function.name)
         self.builder = ir.IRBuilder(entry)
         self.variables = {}
+        self.void_variables = set()
         self.variable_types = {}
         self.cleanup_stack = []
         self.drop_flags = {}

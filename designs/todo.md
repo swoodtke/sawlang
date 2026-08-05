@@ -1019,9 +1019,27 @@ inlined (the `.build/scratch` probes are gitignored).
   instance method `try_reserve` instead, which is the better implementation
   anyway (one allocation, no intermediate) and never needed the static spelling.
 
-- **DF-123b — ICE: a generic local typed by the method's own type parameter,
-  when that parameter instantiates to `Void` (found by design 123 unit G, Aug
-  5).** `Mutex.lock<R>`'s natural body binds the closure result so the unlock can
+- **DF-123b — FIXED (design 132 unit C, Aug 5): it COMPILES, rather than being
+  rejected.** The brief allowed either; compiling it is what unblocks the
+  `lock<R>` shape M1 wants, and a `Void`-instantiated local is well-defined —
+  it just has no storage. Two changes, both in codegen. (1)
+  `statements.py::_generate_let_statement` skips the alloca when the value's
+  LLVM type is void and records the name in the new `void_variables` set, which
+  `core.py::visit_Identifier` reads back as no value (the block-tail and return
+  paths already treat a valueless result as `ret void`). (2)
+  `methods.py::_generate_function` decides void-vs-value from the EMITTED
+  signature rather than `func.return_type`: for a generic instantiation the
+  declared type is still the type PARAMETER, so an `R = Void` free function took
+  the value branch and asserted building an `undef` of void. The generic METHOD
+  path (`generics.py`) already substituted its return type and needed nothing.
+  The typechecker is untouched — the design-122 error for a CONCRETE
+  `let n = <Void expr>` still stands; only the per-instantiation case, which the
+  abstract body check cannot see, now lowers. Test
+  `examples/generic_local_at_void.saw`: a generic method at `R = Void` and at
+  `R = Int`, statements on both sides of the void binding, an inferred `R`, and
+  a free generic function whose void-valued local is read twice.
+  Original finding follows.
+  `Mutex.lock<R>`'s natural body binds the closure result so the unlock can
   run before the return:
   ```saw
   public func lock<R>(&self, body: (&var T) sync -> R) -> R {

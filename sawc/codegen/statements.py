@@ -269,9 +269,24 @@ class StatementsMixin:
         # derivation), retiring its scope-exit cleanup so it never double-frees.
         self._drop_redefined_same_scope(stmt.name)
 
+        # A local at `Void` has no storage to name (design 132 unit C / DF-123b).
+        # The typechecker already rejects a CONCRETE `let n = <Void expr>`
+        # (design 122), but a local typed by the method's own type parameter is
+        # checked abstractly and only becomes Void at an instantiation — which is
+        # the natural body of `Mutex.lock<R>`, where a critical section that
+        # computes nothing is the common case. That reached `alloca(void)` and
+        # tripped an llvmlite assertion, surfacing as an `internal compiler
+        # error:` with an EMPTY message. There is nothing to store and nothing to
+        # clean up, so record the name as void-valued and read it back as Void.
+        if isinstance(value.type, ir.VoidType):
+            self.void_variables.add(stmt.name)
+            self.variables.pop(stmt.name, None)
+            return
+
         alloca = self._entry_alloca(value.type, name=stmt.name)
         self.builder.store(value, alloca)
         self.variables[stmt.name] = alloca
+        self.void_variables.discard(stmt.name)
 
         # Track variable type for resource management
         if var_type:

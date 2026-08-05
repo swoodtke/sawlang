@@ -763,6 +763,7 @@ class GenericsMixin:
         # drop-flag allocas (design 42) belong to THIS llvm function and must not
         # leak into another; save/restore so the caller's scopes are untouched.
         self.variables = {}
+        self.void_variables = set()
         saved_cleanup_stack = self.cleanup_stack
         saved_drop_flags = self.drop_flags
         saved_moved_variables = self.moved_variables
@@ -877,6 +878,7 @@ class GenericsMixin:
 
         # Clear variables for this method
         self.variables = {}
+        self.void_variables = set()
 
         # Set type param context
         old_context = self.type_param_context

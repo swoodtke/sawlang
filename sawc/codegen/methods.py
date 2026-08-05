@@ -72,6 +72,7 @@ class MethodsMixin:
 
         # Clear variables and cleanup stack for this method
         self.variables = {}
+        self.void_variables = set()
         self.variable_types = {}
         self.cleanup_stack = []
         self.drop_flags = {}
@@ -323,6 +324,7 @@ class MethodsMixin:
 
         # Clear variables and cleanup stack for this method
         self.variables = {}
+        self.void_variables = set()
         self.variable_types = {}
         self.cleanup_stack = []
         self.drop_flags = {}
@@ -378,6 +380,7 @@ class MethodsMixin:
 
         # Clear variables and cleanup stack for this method
         self.variables = {}
+        self.void_variables = set()
         self.variable_types = {}
         self.cleanup_stack = []
         self.drop_flags = {}
@@ -439,6 +442,7 @@ class MethodsMixin:
 
         # Clear variables and cleanup stack for this function
         self.variables = {}
+        self.void_variables = set()
         self.variable_types = {}
         self.cleanup_stack = []
         self.drop_flags = {}
@@ -491,13 +495,18 @@ class MethodsMixin:
         # Generate function body (block manages its own cleanup scope)
         result = self._generate_block(func.body)
 
-        # Handle return - cleanup parameter scope before returning
-        if func.return_type.kind == TypeKind.VOID:
+        # Handle return - cleanup parameter scope before returning. Read the
+        # emitted signature, not `func.return_type`: for a generic instantiation
+        # the declared type is still the type PARAMETER, so an `R = Void`
+        # instantiation took the value-returning branch below and tried to build
+        # an `undef` of void (design 132 unit C / DF-123b).
+        returns_void = isinstance(llvm_func.function_type.return_type, ir.VoidType)
+        if func.return_type.kind == TypeKind.VOID or returns_void:
             if not self.builder.block.is_terminated:
                 # Cleanup parameter scope before return
                 self._cleanup_all_scopes()
                 # For main(), return 0 instead of void
-                if func.name == "main":
+                if func.name == "main" and not returns_void:
                     self.builder.ret(ir.Constant(ir.IntType(32), 0))
                 else:
                     self.builder.ret_void()

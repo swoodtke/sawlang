@@ -189,6 +189,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Symbol table for variables (name -> alloca instruction)
         self.variables: dict = {}
 
+        # Locals whose type instantiated to `Void` (design 132 unit C). They get
+        # no alloca — LLVM has no void storage — so they live here instead and
+        # read back as Void. Only a generic local can land in this state; a
+        # concrete `let n = <Void expr>` is a typechecker error (design 122).
+        self.void_variables: set = set()
+
         # Function table
         self.functions: dict = {}
 
@@ -2366,6 +2372,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def visit_Identifier(self, expr: Identifier):
         if expr.name not in self.variables:
+            # A local whose type instantiated to `Void` has no storage to load
+            # (design 132 unit C): it names no value, so reading it yields none.
+            # The block-tail and return paths already treat a valueless result as
+            # `ret_void`.
+            if expr.name in self.void_variables:
+                return None
             # Module-level static (design 41): load through its global.
             if expr.name in self.static_globals:
                 gv = self.static_globals[expr.name]
