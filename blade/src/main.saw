@@ -26,9 +26,11 @@ func print_help() {
     print("")
     print("Commands:")
     print("  build       Compile the current project (honors Saw.lock)")
+    print("              --force rebuilds; --target <triple> cross-compiles")
     print("  update      Re-resolve dependencies and rewrite Saw.lock")
     print("  run         Build and run the project")
     print("  test        Compile and run the project's tests/")
+    print("  clean       Remove build output (--target <triple> for just one)")
     print("  tree        Print the resolved dependency graph")
     print("  add <name>  Add a dependency (--path <dir> | --git <url> [--version <req>])")
     print("  new <name>  Create a new Saw project")
@@ -104,6 +106,17 @@ func create_new_project(name: String) -> Int {
         return 1
     }
 
+    // Create .gitignore. A package generates two directories and neither
+    // belongs in version control: `.build/` holds every build's output
+    // (design 143) and `.blade/` holds Blade's dependency checkouts. A new
+    // package is an application, so its `Saw.lock` IS committed — that is what
+    // pins the build for everyone who checks it out.
+    let ignore_content = "# Build output — one directory per target\n.build/\n\n# Blade's dependency checkouts\n.blade/\n"
+    let ignore_path = project_path.join(".gitignore")
+    if not write_new_file(ignore_path, ignore_content) {
+        return 1
+    }
+
     print("     Created binary (application) `{name}` package")
     print("")
     print("To get started:")
@@ -120,11 +133,23 @@ func main() {
     match cli.Cli.parse() {
         case Ok(parsed_cli) -> {
             match parsed_cli.command {
-                case Build(force) -> {
+                case Build(force, target) -> {
                     match manifest.Manifest.load() {
                         case Ok(m) -> {
-                            let b = builder.Builder(m: m)
+                            let b = builder.Builder(m: m, target: target)
                             match b.build(force) {
+                                case Ok(_) -> {},
+                                case Err(e) -> print("error: {e.message}")
+                            }
+                        },
+                        case Err(e) -> print("error: {e}")
+                    }
+                },
+                case Clean(target) -> {
+                    match manifest.Manifest.load() {
+                        case Ok(m) -> {
+                            let b = builder.Builder(m: m, target: target)
+                            match b.clean() {
                                 case Ok(_) -> {},
                                 case Err(e) -> print("error: {e.message}")
                             }

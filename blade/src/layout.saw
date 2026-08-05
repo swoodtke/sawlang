@@ -1,0 +1,191 @@
+// Layout — where a package's build output lives (design 143).
+//
+// Everything a Blade command produces goes under `<package>/.build/<target>/`:
+// the compiled binary, the incremental stamp that decides whether a rebuild is
+// needed, and `blade test`'s test binaries. `<target>` is the sawc `--target`
+// triple, or `host` for the default hosted build — so building one package for
+// two targets yields two directories instead of two builds fighting over one
+// filename.
+//
+// Two consequences worth stating, because they are the point of the design:
+// a package root never holds an artifact (one `.build/` ignore rule covers
+// every package, and nothing beside the source is generated), and the
+// up-to-date check is per-target (a riscv32 build can never satisfy an arm64
+// check, nor an arm64 binary answer for a riscv32 one).
+
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
+
+// The one directory every package's build output goes under.
+func build_root() -> String {
+    ".build"
+}
+
+// The directory segment for a build that names no target — the default hosted
+// one, which lets sawc pick the host triple itself.
+func host_segment() -> String {
+    "host"
+}
+
+// =============================================================================
+// Directory helpers on Path
+// =============================================================================
+
+public extension Path {
+    // Create this directory and any missing parents, `mkdir -p` style. True
+    // when the directory exists afterwards; false, having reported why, when it
+    // could not be created.
+    //
+    // Blade needs this because sawc does not create its own output directory:
+    // without it a build into a fresh `.build/<target>/` fails inside the
+    // compiler, on a path the user never wrote.
+    public func ensure_dir(&self) -> Bool {
+        if Directory.exists(self) {
+            return true
+        }
+        if let up = self.parent() {
+            if not up.ensure_dir() {
+                return false
+            }
+        }
+        match Directory.create(self) {
+            case Ok(_) -> true,
+            case Err(e) -> {
+                print("error: could not create {self.as_str()}: {e}")
+                false
+            }
+        }
+    }
+
+    // Remove this path and everything under it. A directory is emptied first
+    // (`Directory.remove` takes only an empty one); anything else is unlinked.
+    // A path that is already absent is success — the caller asked for it to be
+    // gone, and it is.
+    //
+    // The error is erased (the manifest's idiom): every failure here is an
+    // `IoError` that boxes at the return boundary, and callers render it with
+    // `{e}` rather than matching on it.
+    public func remove_tree(&self) -> Result<Void, Box<any Error>> {
+        if not Directory.exists(self) {
+            return
+        }
+        // Listing is also the directory test: opendir(3) on a regular file
+        // fails with ENOTDIR, and that is exactly the case `File.remove` wants.
+        let entries = match Directory.list(self) {
+            case Ok(v) -> move v,
+            case Err(_) -> {
+                try File.remove(self)
+                return
+            }
+        }
+        var i = 0
+        while i < entries.len() {
+            if let child = entries.get(i) {
+                try child.remove_tree()
+            }
+            i = i + 1
+        }
+        try Directory.remove(self)
+        return
+    }
+}
+
+// =============================================================================
+// BuildLayout
+// =============================================================================
+
+public struct BuildLayout {
+    // The sawc `--target` triple this build is for. Empty means the default
+    // hosted build; no triple is the empty string, so it cannot be mistaken for
+    // one.
+    target: String
+}
+
+public extension BuildLayout {
+    // The layout for a default hosted build.
+    public init() -> BuildLayout {
+        BuildLayout(target: "")
+    }
+
+    // The layout for an explicit sawc target triple. An empty `triple` is the
+    // hosted default, which is how a command with no `--target` spells itself.
+    public init(triple: String) -> BuildLayout {
+        BuildLayout(target: triple)
+    }
+
+    // The directory segment naming this target: the triple, or `host`.
+    public func target_name(&self) -> String {
+        if self.target.is_empty() {
+            host_segment()
+        } else {
+            self.target
+        }
+    }
+
+    // The value to pass to sawc's `--target`, or None for a hosted build (sawc
+    // then picks the host triple itself, which is not always spelled the same
+    // way twice — better to leave it unsaid than to guess it).
+    public func triple(&self) -> String? {
+        if self.target.is_empty() {
+            None
+        } else {
+            self.target
+        }
+    }
+
+    // `<package>/.build/<target>` — the directory holding this build.
+    public func dir(&self) -> String {
+        "{build_root()}/{self.target_name()}"
+    }
+
+    // Where a named artifact of this build lands.
+    public func artifact(&self, name: String) -> String {
+        "{self.dir()}/{name}"
+    }
+
+    // The incremental stamp: the content hash of the last successful build FOR
+    // THIS TARGET. Per-target is what makes it trustworthy — one shared stamp
+    // would let a build for one target report another's as up to date.
+    public func stamp(&self) -> String {
+        "{self.dir()}/build-hash"
+    }
+
+    // Where `blade test` puts the binaries it compiles.
+    public func tests_dir(&self) -> String {
+        "{self.dir()}/tests"
+    }
+
+    // Create this build directory. False, having reported why, when it could
+    // not be created.
+    public func ensure(&self) -> Bool {
+        Path(s: self.dir()).ensure_dir()
+    }
+
+    // Create the test-binary directory (and the build directory above it).
+    public func ensure_tests_dir(&self) -> Bool {
+        Path(s: self.tests_dir()).ensure_dir()
+    }
+
+    // Remove this target's build directory. Other targets are left alone.
+    public func clean(&self) -> Bool {
+        match Path(s: self.dir()).remove_tree() {
+            case Ok(_) -> true,
+            case Err(e) -> {
+                print("error: could not remove {self.dir()}: {e}")
+                false
+            }
+        }
+    }
+
+    // Remove the whole `.build/` tree — every target this package has built.
+    public func clean_all() -> Bool {
+        match Path(s: build_root()).remove_tree() {
+            case Ok(_) -> true,
+            case Err(e) -> {
+                print("error: could not remove {build_root()}: {e}")
+                false
+            }
+        }
+    }
+}

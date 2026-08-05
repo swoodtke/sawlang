@@ -1,11 +1,16 @@
 // B4: Saw.lock serialization is deterministic (byte-identical) and round-trips
 // through the parser. Uses the chain/app path fixture (app -> a -> b).
+import src.layout.*
 import src.lock.*
 import src.resolver.*
 import src.manifest.*
 import std.path.{Path}
 
 func main() {
+    // The written lock below needs its directory to exist; making it here
+    // rather than relying on an earlier test keeps the suite order-independent.
+    assert(Path(s: ".build/scratch").ensure_dir(), "scratch directory available")
+
     match Manifest.load_from(Path(s: "tests/fixtures/chain/app")) {
         case Ok(m) -> {
             match resolve(m) {

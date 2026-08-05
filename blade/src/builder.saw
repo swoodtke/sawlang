@@ -4,8 +4,13 @@
 // honor an existing Saw.lock), write the lock, compile the root with one
 // `--module-path <name>=<checkout>/src` per resolved dependency (B0), and skip
 // the compile entirely when nothing reachable has changed (content-hash build
-// avoidance in .blade/build-hash; `--force` bypasses it).
+// avoidance; `--force` bypasses it).
+//
+// Design 143: every artifact lands in `.build/<target>/`, never beside the
+// source, and the up-to-date stamp lives there too — so it answers for one
+// target only.
 
+import src.layout.*
 import src.manifest.*
 import src.resolver.*
 import src.lock.*
@@ -89,11 +94,19 @@ func append_dir_saw(b: &var StringBuilder, dir: String) {
 
 public struct Builder {
     manifest: Manifest
+    layout: BuildLayout
 }
 
 public extension Builder {
+    // A builder for the default hosted build.
     public init(m: Manifest) -> Builder {
-        Builder(manifest: m)
+        Builder(manifest: m, layout: BuildLayout())
+    }
+
+    // A builder for an explicit sawc target triple; an empty `target` is the
+    // hosted default, which is how a command with no `--target` spells itself.
+    public init(m: Manifest, target: String) -> Builder {
+        Builder(manifest: m, layout: BuildLayout(triple: target))
     }
 
     // The compiler command. Honours a `SAWC` override so an in-tree compiler can
@@ -150,6 +163,17 @@ public extension Builder {
         None
     }
 
+    // True when this package builds a program rather than a library.
+    //
+    // There is no manifest field for the distinction — the source layout IS the
+    // declaration: `src/main.saw` (or a root `main.saw`) is an application, a
+    // package whose only entry is `src/lib.saw` is a library. Design 143 hangs
+    // the lockfile policy on it: an application commits its `Saw.lock`, a
+    // library does not.
+    public func is_application(&self) -> Bool {
+        File.exists(Path(s: "src/main.saw")) || File.exists(Path(s: "main.saw"))
+    }
+
     // The local directory a resolved dependency lives in: the path dir itself,
     // or the git checkout under .blade/deps/.
     public func dep_dir(&self, res: &Resolution, i: Int) -> String {
@@ -186,6 +210,12 @@ public extension Builder {
     // - Lock present + DRIFTED (deps edited in Saw.toml): refuse to silently
     //   re-resolve; error toward `blade update`.
     //
+    // The write happens for an APPLICATION only (design 143). An application's
+    // lockfile pins its reproducible build and is committed; a library's
+    // resolution belongs to whoever consumes it, so Blade does not leave one
+    // behind in a library that the author would then have to know not to commit.
+    // `blade update` still writes one either way — that is the explicit ask.
+    //
     // (Path deps have exactly one candidate — the depended-on package's own
     // manifest version — so an honored re-resolve is deterministic and equals the
     // lock. Pinning a git dep to its locked rev without re-resolution is future
@@ -205,8 +235,10 @@ public extension Builder {
         match resolve(self.manifest) {
             case Ok(res) -> {
                 if not honor {
-                    let mhash = manifest_deps_hash(self.manifest)
-                    let _ = write_lock(&res, mhash, Path(s: "Saw.lock"))
+                    if self.is_application() {
+                        let mhash = manifest_deps_hash(self.manifest)
+                        let _ = write_lock(&res, mhash, Path(s: "Saw.lock"))
+                    }
                 }
                 move res
             },
@@ -237,28 +269,47 @@ public extension Builder {
             return BuildError(msg: "No main.saw or lib.saw found")
         }
         let output_name = self.manifest.name()
+        let output_path = self.layout.artifact(output_name)
 
         // Resolve dependencies + write the lock.
         let res = try self.resolve_deps()
 
-        // Build avoidance: skip the compile when nothing reachable changed.
+        // Build avoidance: skip the compile when nothing reachable changed AND
+        // this target's artifact is actually there. Both halves are per-target,
+        // so a build for one target never reports another's work as its own —
+        // and an artifact left over from an older layout, sitting beside the
+        // source where Blade used to put it, is simply not consulted.
         let hash = self.build_hash(&res)
-        let hash_path = Path(s: ".blade/build-hash")
         if not force {
-            if read_file(".blade/build-hash").equals(hash) {
-                if File.exists(Path(s: output_name)) {
-                    print("    Finished {output_name} (up to date)")
+            if read_file(self.layout.stamp()).equals(hash) {
+                if File.exists(Path(s: output_path)) {
+                    print("    Finished {output_path} (up to date)")
                     return 0
                 }
             }
         }
 
-        print("   Compiling {output_name} v{self.manifest.version()}")
+        if let triple = self.layout.triple() {
+            print("   Compiling {output_name} v{self.manifest.version()} (target {triple})")
+        } else {
+            print("   Compiling {output_name} v{self.manifest.version()}")
+        }
+
+        // sawc does not create its own output directory, so this has to exist
+        // before the compiler runs — otherwise the build fails deep inside the
+        // compiler, naming a path the user never wrote.
+        if not self.layout.ensure() {
+            return BuildError(msg: "could not create {self.layout.dir()}")
+        }
 
         var cmd = self.compiler_command()
         cmd.arg(source_file)
         cmd.arg("-o")
-        cmd.arg(output_name)
+        cmd.arg(output_path)
+        if let triple = self.layout.triple() {
+            cmd.arg("--target")
+            cmd.arg(triple)
+        }
         var i = 0
         while i < res.len() {
             let name = res.name(i)
@@ -274,20 +325,41 @@ public extension Builder {
             }
         }
         if exit_code == (0 as Int32) {
-            // Record the successful build's hash (create .blade first).
-            let _ = Directory.create(Path(s: ".blade"))
-            // A stamp we cannot write only costs the next build its cache hit.
-            match File.create(hash_path) {
+            // Record this target's build hash beside its artifact. A stamp we
+            // cannot write only costs the next build its cache hit.
+            match File.create(Path(s: self.layout.stamp())) {
                 case Ok(f) -> {
                     let _ = f.write(hash.to_data())
                 },
                 case Err(_) -> print("    (could not record the build hash)")
             }
-            print("    Finished {output_name}")
+            print("    Finished {output_path}")
             0
         } else {
             BuildError(msg: "sawc failed", code: exit_code)
         }
+    }
+
+    // `blade clean`: remove build output (design 143). Without a target that is
+    // the whole `.build/` tree — every target this package has ever built; with
+    // one it is that target's directory alone, leaving the others intact.
+    //
+    // Only generated files live there, so this can never take a source file
+    // with it. Dependency checkouts under `.blade/deps/` are SOURCE, not output,
+    // and survive — cleaning a build should not cost a re-clone.
+    public func clean(&self) -> Result<Int, BuildError> {
+        if let triple = self.layout.triple() {
+            if not self.layout.clean() {
+                return BuildError(msg: "could not clean {self.layout.dir()}")
+            }
+            print("     Removed {self.layout.dir()} (target {triple})")
+        } else {
+            if not self.layout.clean_all() {
+                return BuildError(msg: "could not clean the build directory")
+            }
+            print("     Removed the build directory")
+        }
+        0
     }
 
     // Print the resolved dependency graph (design 64 B7).
@@ -365,7 +437,7 @@ public extension Builder {
             case Err(e) -> { return e }
         }
 
-        let binary_name = "./{self.manifest.name()}"
+        let binary_name = "./{self.layout.artifact(self.manifest.name())}"
         print("     Running `{binary_name}`")
 
         var cmd = Command(program: binary_name)

@@ -7,6 +7,7 @@
 // per-test ok/FAILED plus a summary. Execution is sequential (parallelism is a
 // later refinement). No new language surface: the test harness is just Saw.
 
+import src.layout.*
 import src.manifest.*
 import src.resolver.*
 import std.directory.{Directory}
@@ -24,11 +25,14 @@ extern "C" {
 
 public struct Tester {
     manifest: Manifest
+    layout: BuildLayout
 }
 
 public extension Tester {
+    // Tests are compiled and RUN, so they are built for the host — the one
+    // target this machine can execute.
     public init(m: Manifest) -> Tester {
-        Tester(manifest: m)
+        Tester(manifest: m, layout: BuildLayout())
     }
 
     // The compiler command. `blade build` shells out to `sawc`; the tester does
@@ -132,12 +136,15 @@ public extension Tester {
             }
         }
 
-        // A scratch directory for compiled test binaries (created if absent;
-        // create() failing because it already exists is harmless — the design-92
-        // Result is intentionally discarded here, the directory exists either way).
-        let _ = Directory.create(Path(s: ".blade"))
-        let out_dir = Path(s: ".blade/tests")
-        let _ = Directory.create(out_dir)
+        // Where the compiled test binaries go (design 143): under the same
+        // per-target build directory as everything else Blade produces. sawc
+        // will not create it, so a failure here has to stop the run rather than
+        // become N identical compile errors.
+        let out_dir = Path(s: self.layout.tests_dir())
+        if not self.layout.ensure_tests_dir() {
+            print("error: could not create {self.layout.tests_dir()}")
+            return 1
+        }
 
         print("   Testing {self.manifest.name()} v{self.manifest.version()}")
 

@@ -1,6 +1,7 @@
 // B6: the build path — resolve a path dependency, then compile the app with
 // `--module-path <dep>=<dir>/src` and run it. Exercises B0 + B3 + B6 together
 // on the buildapp fixture (app imports the `greet` dependency).
+import src.layout.*
 import src.resolver.*
 import src.manifest.*
 import std.env.{Env}
@@ -24,6 +25,11 @@ func compiler() -> String {
 }
 
 func main() {
+    // This test writes a binary into the scratch directory, and sawc does not
+    // create its output directory. Making it here rather than relying on some
+    // earlier test having made it is what keeps the suite order-independent.
+    assert(Path(s: ".build/scratch").ensure_dir(), "scratch directory available")
+
     let app = "tests/fixtures/buildapp/app"
     match Manifest.load_from(Path(s: app)) {
         case Ok(m) -> {

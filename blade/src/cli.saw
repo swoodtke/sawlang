@@ -7,11 +7,15 @@
 
 import std.env.{Env}
 import std.process.{Command}
+// `target` is a sawc target triple, or the empty string for the default hosted
+// build (design 143). Empty is a safe way to say "unspecified" here: no triple
+// is the empty string, so it can never be mistaken for one.
 public enum BladeCommand {
-    case Build(force: Bool),
+    case Build(force: Bool, target: String),
     case Update,
     case Run(args: Vector<String>),
     case Test,
+    case Clean(target: String),
     case New(name: String),
     case Tree,
     case Add(name: String, kind: String, loc: String, version: String),
@@ -53,16 +57,33 @@ public extension Cli {
 
         if cmd.equals("build") {
             var force = false
+            var target = ""
             var i = 2
             while i < args.len() {
                 if let a = args.get(i) {
                     if a.equals("--force") {
                         force = true
+                    } else if a.equals("--target") {
+                        i = i + 1
+                        target = args.get(i) ?? ""
                     }
                 }
                 i = i + 1
             }
-            Cli(command: BladeCommand.Build(force: force))
+            Cli(command: BladeCommand.Build(force: force, target: target))
+        } else if cmd.equals("clean") {
+            var target = ""
+            var i = 2
+            while i < args.len() {
+                if let a = args.get(i) {
+                    if a.equals("--target") {
+                        i = i + 1
+                        target = args.get(i) ?? ""
+                    }
+                }
+                i = i + 1
+            }
+            Cli(command: BladeCommand.Clean(target: target))
         } else if cmd.equals("update") {
             Cli(command: BladeCommand.Update)
         } else if cmd.equals("run") {

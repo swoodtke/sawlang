@@ -1,0 +1,78 @@
+// Design 143: build output lives under `<package>/.build/<target>/`, one
+// directory per target, and nothing a build produces lands beside the source.
+//
+// The end-to-end proof is the bootstrap loop (it builds Blade for two targets
+// and checks the artifacts); this test pins the layout rules themselves — what
+// each path is, that two targets never share one, and that creating and
+// removing a build directory both work.
+import src.layout.*
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
+
+func main() {
+    // ---------------------------------------------------------------- host
+    let host = BuildLayout()
+    assert(host.target_name().equals("host"), "an unnamed target is `host`")
+    assert(host.dir().equals(".build/host"), "host builds go in .build/host")
+    assert(host.artifact("blade").equals(".build/host/blade"), "artifact path")
+    assert(host.stamp().equals(".build/host/build-hash"), "stamp beside the artifact")
+    assert(host.tests_dir().equals(".build/host/tests"), "test binaries too")
+    // A hosted build passes no --target: sawc picks the host triple itself.
+    if let t = host.triple() {
+        panic("a hosted layout named a triple: {t}")
+    }
+
+    // ------------------------------------------------------- explicit target
+    let cross = BuildLayout(triple: "riscv32-unknown-none-elf")
+    assert(cross.target_name().equals("riscv32-unknown-none-elf"), "target names itself")
+    assert(cross.dir().equals(".build/riscv32-unknown-none-elf"), "its own directory")
+    guard let triple = cross.triple() else {
+        panic("an explicit layout named no triple")
+    }
+    assert(triple.equals("riscv32-unknown-none-elf"), "the triple reaches sawc")
+
+    // The whole point: two targets of one package never collide. Same artifact
+    // name, same stamp name, different directories.
+    assert(not host.artifact("blade").equals(cross.artifact("blade")), "artifacts differ")
+    assert(not host.stamp().equals(cross.stamp()), "stamps differ")
+
+    // An empty triple is how a command with no --target spells itself, and it
+    // means the same thing as naming no target at all.
+    let implied = BuildLayout(triple: "")
+    assert(implied.dir().equals(host.dir()), "an empty target is the hosted one")
+
+    // ------------------------------------------------- create, fill, remove
+    // A made-up target, so this never touches the directory the running test
+    // binary was built into.
+    let scratch = BuildLayout(triple: "layout-test-target")
+    let dir = Path(s: scratch.dir())
+
+    assert(scratch.ensure(), "the build directory is created")
+    assert(Directory.exists(dir), "and it is there")
+    assert(scratch.ensure(), "creating it again is fine")
+
+    // Nested, with a file in it — `clean` has to walk, not just rmdir.
+    assert(scratch.ensure_tests_dir(), "the test directory is created")
+    let marker = Path(s: "{scratch.tests_dir()}/marker")
+    match File.create(marker) {
+        case Ok(f) -> {
+            match f.write("artifact\n".to_data()) {
+                case Ok(_) -> {},
+                case Err(e) -> panic("could not write the marker: {e}")
+            }
+        },
+        case Err(e) -> panic("could not create the marker: {e}")
+    }
+    assert(File.exists(marker), "the marker is there")
+
+    assert(scratch.clean(), "the target's build directory is removed")
+    assert(not Directory.exists(dir), "and it is gone, contents and all")
+    assert(scratch.clean(), "removing an absent directory is success")
+
+    // Cleaning one target leaves the others alone — this test binary is sitting
+    // in the host directory right now.
+    assert(Directory.exists(Path(s: host.dir())), "the host build survived")
+
+    print("build_layout: ok")
+}
