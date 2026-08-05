@@ -1,0 +1,41 @@
+// Design 123: the hosted default allocator carries an allocation BUDGET so the
+// three-tier failure policy can be tested where it actually bites — the types
+// that take no allocator type parameter. `__saw_rt_alloc_deny_after(n)` lets
+// the next `n` allocations through and denies the rest; a negative argument
+// disarms it. This test only proves the seam itself: denial is observed through
+// `Vector.try_with_capacity`, the fallible-tier factory that predates it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// denied
+// allowed
+// 8
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(n: Int)
+}
+
+func main() {
+    // Deny everything from here on.
+    __saw_rt_alloc_deny_after(0)
+    match Vector<Int>.try_with_capacity(4) {
+        case Ok(_) -> print("allowed"),
+        case Err(_) -> print("denied")
+    }
+
+    // One allocation of headroom, then denial again.
+    __saw_rt_alloc_deny_after(1)
+    match Vector<Int>.try_with_capacity(4) {
+        case Ok(_) -> print("allowed"),
+        case Err(_) -> print("denied")
+    }
+
+    // Disarmed: ordinary allocation resumes, so a plain vector grows normally.
+    __saw_rt_alloc_deny_after(-1)
+    var v = Vector<Int>()
+    var i = 0
+    while i < 8 {
+        v.push(i)
+        i = i + 1
+    }
+    print(v.len())
+}

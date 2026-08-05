@@ -56,6 +56,15 @@ guarantees `alignof(max_align_t)` >= 16). A runtime that honors alignment may us
 ### `__saw_rt_dealloc(ptr: i8*, size: word, align: word) -> void`
 Free a block previously returned by `__saw_rt_alloc`. Hosted default: `free(ptr)`.
 
+### `__saw_rt_alloc_deny_after(n: word) -> void`
+**Hosted test facility (design 123), OPTIONAL for a runtime to provide.** Lets
+the next `n` allocations succeed and makes every one after that return NULL, so
+the three-tier allocation-failure policy has a deterministic way to reach the
+OOM path of a type that takes no allocator type parameter (`String`,
+`StringBuilder`, `Data`, `Arc`, `Mutex`, `Channel`). Re-arming resets the
+budget; a NEGATIVE `n` disarms it. Nothing in std calls it — a test declares the
+`extern` itself — so a freestanding runtime may omit the symbol entirely.
+
 ### `__saw_rt_write(ptr: i8*, len: word) -> void`
 The output primitive behind `print`. Writes `len` bytes from `ptr` to standard
 output. The hosted default routes through C stdio (`fwrite`+`fflush`) so `print`

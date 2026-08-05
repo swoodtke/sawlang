@@ -19,6 +19,9 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     # Allocation / output / panic
     "__saw_rt_alloc",
     "__saw_rt_dealloc",
+    # Hosted-only test facility (design 123): arm an allocation budget so an
+    # OOM path can be driven deterministically. std never calls it.
+    "__saw_rt_alloc_deny_after",
     "__saw_rt_write",
     "__saw_rt_panic",
     # Time
