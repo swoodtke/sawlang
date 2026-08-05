@@ -595,9 +595,10 @@ blocking-FFI offload); member visibility with a curated prelude; earned
 shadowing; source-location literals; pluggable allocators; and the freestanding
 toolkit (memory-mapped I/O, `static_assert`, and C-ABI exports).
 
-The authoritative, always-current feature list lives in
-[CLAUDE.md](CLAUDE.md); the full language reference is in
-[LANGUAGE_SPEC.md](LANGUAGE_SPEC.md).
+[LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) is the authoritative language reference —
+when it and the compiler disagree, the compiler wins and the spec is the bug.
+[CLAUDE.md](CLAUDE.md) is the compiler development guide; the language-state
+paragraph at its end is an orientation summary, not a feature list of record.
 
 ## Blade Package Manager
 

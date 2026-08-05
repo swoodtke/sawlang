@@ -100,13 +100,17 @@ Design decisions are made WITH the user, recorded as `designs/NN-*.md`
 briefs, implemented by dispatched agents (one at a time on `main`;
 concurrent only in isolated worktrees, cherry-picked back — linear
 history, no merge commits). Each brief lands in small per-unit commits,
-full suite green each. Docs convention: spec + saw-lang skill get
-feature updates (NOT this file). Standing policy: fix user-facing bugs
+full suite green each. Docs convention (design 125): LANGUAGE_SPEC.md
+(authoritative), the saw-lang skill, AND README.md get feature updates
+— NOT this file, whose digest below is only an orientation summary.
+README carries the user-facing subset: anything a reader would pick Saw
+for, plus the CLI / stdlib surfaces it already lists. User-facing prose
+follows the saw-docs skill. Standing policy: fix user-facing bugs
 on discovery unless genuinely ambiguous (then tracker + flag). Record
 language pain hit while writing Saw as DF-findings in the tracker.
 
 ## Language state (orientation digest — details in spec/skill)
-Landed through design 109 (Aug 3): full trait system (default bodies,
+Landed through design 121 (Aug 4): full trait system (default bodies,
 `any Trait` existentials, Equatable/Comparable/Hashable/Printable/
 Error), overloading + labeled arguments (lenient model), generics with
 default type params + default VALUES that drive inference (108) +
