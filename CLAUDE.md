@@ -113,7 +113,7 @@ on discovery unless genuinely ambiguous (then tracker + flag). Record
 language pain hit while writing Saw as DF-findings in the tracker.
 
 ## Language state (orientation digest — details in spec/skill)
-Landed through design 130 (Aug 5): full trait system (default bodies,
+Landed through design 136 (Aug 5): full trait system (default bodies,
 `any Trait` existentials, Equatable/Comparable/Hashable/Printable/
 Error), overloading + labeled arguments (lenient model), generics with
 default type params + default VALUES that drive inference (108) +
@@ -161,14 +161,20 @@ StringBuilder); File/Data/Channel/Mutex/net/IoError/Utf8Error/process/
 env/time — and `yield_now` (std.task, design 114; the cooperative-yield
 wrapper over the now stdlib-internal intrinsic) — need
 `import std.<module>` — so a user type named `IoError`/`File` no longer
-collides. Unsafe surface (design 130, superseding 81's marking rules):
+collides. Unsafe surface (design 130 + 136, superseding 81's marking rules):
 unsafety is type-carried and DECLARED per declaration — `unsafe struct` marks a
 type (compiler-enforced `Unsafe*` name; a plain `struct UnsafeDefaults` gets no
-semantics), `unsafe func`/`unsafe init` mark a function whose body or signature
-NAMES, BINDS, RECEIVES or RETURNS one of its values (a `&UnsafePointer<T>`
-counts), and `(T) unsafe sync -> R` marks a function TYPE. NOT transitive
+semantics); a function whose body or signature NAMES, BINDS, RECEIVES or
+RETURNS an unsafe-typed value (a `&UnsafePointer<T>` counts) is declared with
+`unsafe` in the POST-PARAMETER effect slot beside `sync` —
+`func f(...) unsafe -> T`, matching the type grammar `(T) unsafe sync -> R`
+(prefix spelling is an error with a fixit; 136). A function TYPE may carry
+`unsafe` iff its signature names an unsafe type (a safe-signature `unsafe`
+type is the rule-7 teaching error); closures INHERIT the enclosing function's
+unsafe domain (no closure-level marker — confinement is a signature, i.e. a
+small named `unsafe` helper). NOT transitive
 (`Vector` holds a raw pointer and stays a safe type — only the methods reaching
-through it are marked); closures judged on their OWN body; calling an unsafe
+through it are marked); calling an unsafe
 function from safe code needs no ceremony, made sound by the rule that a
 function with all-safe parameters must be sound for every input (a precondition
 is spelled as an unsafe-typed parameter). The line-level `unsafe` expression
@@ -178,7 +184,25 @@ every indexed accessor is checked — direct accessors panic out of range
 `String.byte_at`/`substring`), `get`-shaped ones return `None`; no silent
 no-ops, no clamps, no ignorable status flags.
 `Vector.with_ref`/`with_var_ref` (scoped, invalidation-proof element borrow)
-replaced `ref_at`. Doc comments (121):
+replaced `ref_at`. The Aug-5 batch (122-131): every runtime-check panic
+carries `panic at FILE:LINE:` (122); ONE allocator-failure policy —
+infallible ops panic naming their method, `try_` twins return
+`Result<_, AllocError>` all-or-nothing (123); TaskGroup teardown is EAGER —
+a group is a scope, task-owned values deinit at task completion via a
+synthesized frame `__release` (124); the op budget charges LOOP BACKEDGES in
+task bodies so pure-compute spinners cannot starve siblings (sync callees
+exempt — the speed escape hatch; 127); structural Deinit is IMPLICIT and
+every DECLARED empty-conformance derivation (Equatable/Comparable/Hashable/
+ExplicitCopy/ImplicitCopy) is gated on `@synthesize`; `var self` receivers
+rejected (128); newlines are insignificant inside `()`/`[]`/committed
+generic `<>` with trailing commas in the first two, unclosed brackets error
+at the OPENER (129); payload reads are policy-driven PLACES — `o!`/`??`/
+`if let` follow the payload's copy policy (ImplicitCopy retains;
+ExplicitCopy/NoCopy demand `move o!` on a local, `o!.copy()`, or
+`Optional.take(&var self)` — the field-safe move-out `TaskHandle.join` now
+uses); `Deinit` is NON-declarable — a copy-policy conformance carries any
+hand-written deinit body, which PREFIXES the synthesized field drops (131).
+Doc comments (121):
 `///` (following decl) + `//!` (module) lexed as trivia in BOTH lexers
 (lexdiff parity, `--docs` dump), parser-attached with unattached-doc
 errors, `--emit-docs` JSON of the typechecked surface (design-80 gate on
