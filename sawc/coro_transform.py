@@ -4136,8 +4136,9 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
             let __cp    = (&__cellp[0].__cancel) as UnsafePointer<Bool>
             var __box   = Box<any Resumable>.make(__Frame_f(<params>..., __cellp: __cellp))
             let __slot  = __group[0].__enqueue(move __box, move __cbox)
+            let __gen   = __group[0].__gen_at(__slot)
             TaskHandle<T>(result_ptr: __rp, cancel_ptr: __cp, group_ptr: __group,
-                          slot: __slot)
+                          slot: __slot, generation: __gen)
         }
 
     Both pointers address the CELL, never the frame — that is the whole point of
@@ -4217,13 +4218,21 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
                          arguments=[
                              Argument(name=None, value=MoveExpr(variable="__box", path=None)),
                              Argument(name=None, value=MoveExpr(variable="__cbox", path=None))])),
+        # design 134: the slot's generation completes the handle's identity, so a
+        # handle outliving its task never addresses the task that replaced it.
+        LetStatement(name="__gen", type_annotation=None, mutable=False,
+                     value=MethodCall(
+                         object=ArrayIndex(array_expr=Identifier(name="__group"), index=_int(0)),
+                         method_name="__gen_at",
+                         arguments=[Argument(name=None, value=Identifier(name="__slot"))])),
     ])
     if fb.is_void:
         handle = StructInit(
             struct_name="VoidTaskHandle", type_args=None,
             field_inits=[("cancel_ptr", Identifier(name="__cp")),
                          ("group_ptr", Identifier(name="__group")),
-                         ("slot", Identifier(name="__slot"))])
+                         ("slot", Identifier(name="__slot")),
+                         ("generation", Identifier(name="__gen"))])
         ret_type = SawType(TypeKind.STRUCT, struct_name="VoidTaskHandle")
         helper_params = [Parameter(name="__group", type=tg_ptr)] + \
                         [Parameter(name=p.name, type=p.type) for p in params]
@@ -4237,7 +4246,8 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
         field_inits=[("result_ptr", Identifier(name="__rp")),
                      ("cancel_ptr", Identifier(name="__cp")),
                      ("group_ptr", Identifier(name="__group")),
-                     ("slot", Identifier(name="__slot"))])
+                     ("slot", Identifier(name="__slot")),
+                     ("generation", Identifier(name="__gen"))])
     ret_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle", type_args=[T])
     helper_params = [Parameter(name="__group", type=tg_ptr)] + \
                     [Parameter(name=p.name, type=p.type) for p in params]

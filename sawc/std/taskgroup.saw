@@ -250,6 +250,18 @@ struct TaskGroup {
     // so no two workers ever resume the same frame (D6 one-thread-at-a-time). Set
     // under the lock at claim, cleared under the lock at the resume's outcome.
     active: Vector<Bool>
+    // design 134: the slot free-list and its generation counters. A slot with
+    // nothing left to hold goes on `free` for the next `spawn` to claim, and its
+    // generation retires so a handle to the task that used to live there is
+    // recognisably STALE rather than silently addressing its successor. That is
+    // what makes reuse safe: design 124 forbade compaction precisely because
+    // indices were handles, and a generation makes an index a handle again.
+    // `pin` marks a slot whose raw cancel ADDRESS escaped through `cancel_addr()`
+    // — that address has to outlive the task, so the slot keeps its cell and is
+    // never handed out again.
+    gen: Vector<Int>
+    free: Vector<Int>
+    pin: Vector<Bool>
     // design 75 (A2): requested worker count. 0/1 => the single-threaded engine
     // (byte-identical to the pre-75 group); >=2 => the multi-threaded fork-join
     // drain (a mutex-protected shared queue drained by `workers` OS threads).
@@ -284,7 +296,10 @@ extension TaskGroup {
         let d = Vector<Bool>()
         let r = Vector<Int>()
         let a = Vector<Bool>()
-        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, workers: 1, lock: None, next: 0, registered: false)
+        let gn = Vector<Int>()
+        let fr = Vector<Int>()
+        let pn = Vector<Bool>()
+        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, workers: 1, lock: None, next: 0, registered: false)
     }
 
     // design 75 (A2): opt in to multi-threaded execution with `n` worker threads.
@@ -299,6 +314,9 @@ extension TaskGroup {
         let d = Vector<Bool>()
         let r = Vector<Int>()
         let a = Vector<Bool>()
+        let gn = Vector<Int>()
+        let fr = Vector<Int>()
+        let pn = Vector<Bool>()
         var w = threads
         if w < 1 {
             w = 1
@@ -318,7 +336,7 @@ extension TaskGroup {
                 panic("TaskGroup(threads:): allocation failed")
             }
         }
-        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, workers: w, lock: lk, next: 0, registered: false)
+        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, workers: w, lock: lk, next: 0, registered: false)
     }
 
     // The number of task slots this group currently holds (design 134): live
@@ -326,7 +344,7 @@ extension TaskGroup {
     // RECLAIMED when it has nothing left to hold, so a long-lived group's count
     // tracks concurrency rather than the number of tasks ever spawned.
     public func count(&self) -> Int {
-        self.tasks.len()
+        self.tasks.len() - self.free.len()
     }
 
     // Enqueue an erased frame together with its result/cancel cell (compiler-
@@ -342,13 +360,70 @@ extension TaskGroup {
         }
         let t: Box<any Resumable>? = move task
         let c: Box<any __TaskCell>? = move cell
-        let slot = self.tasks.len()
-        self.tasks.push(move t)
-        self.cells.push(move c)
-        self.done.push(false)
-        self.remaining.push(0)
-        self.active.push(false)
+        // design 134: claim a RECLAIMED slot if there is one, else grow. A reused
+        // slot already carries the retired generation the recycle left behind, so
+        // the task landing here is distinguishable from the one that left.
+        var slot = -1
+        if let idx = self.free.pop() {
+            slot = idx
+        }
+        if slot < 0 {
+            slot = self.tasks.len()
+            self.tasks.push(None)
+            self.cells.push(None)
+            self.done.push(true)
+            self.remaining.push(0)
+            self.active.push(false)
+            self.gen.push(1)
+            self.pin.push(false)
+        }
+        self.tasks.set(slot, move t)
+        self.cells.set(slot, move c)
+        self.done.set(slot, false)
+        self.remaining.set(slot, 0)
+        self.active.set(slot, false)
         slot
+    }
+
+    // This slot's current generation — half of the (index, generation) pair every
+    // handle records at spawn (design 134).
+    func __gen_at(&self, slot: Int) -> Int {
+        self.gen.get(slot)!
+    }
+
+    // Does `(slot, generation)` still name the task it was minted for? A handle to
+    // a task whose slot has been reclaimed answers `true` here, and every handle
+    // operation checks it before touching the slot or the cell it points at — so
+    // a stale handle is a DEFINED outcome, never a read of a successor's state.
+    func __stale(&self, slot: Int, generation: Int) -> Bool {
+        if slot < 0 || slot >= self.gen.len() {
+            return true
+        }
+        self.gen.get(slot)! != generation
+    }
+
+    // Retire `slot` (design 134). Its generation always advances, so every handle
+    // minted for the departing task goes stale at once. A slot whose raw cancel
+    // ADDRESS escaped through `cancel_addr()` stops there: a bare `Int` carries no
+    // generation for the peer to check, so the cell has to stay valid and the
+    // index is never handed out again. Every other slot releases its cell and
+    // joins the free list.
+    func __recycle(&var self, slot: Int) {
+        self.gen.set(slot, self.gen.get(slot)! + 1)
+        if self.pin.get(slot)! {
+            return
+        }
+        self.cells.set(slot, None)
+        self.free.push(slot)
+    }
+
+    // `cancel_addr()` handed a peer this slot's raw cancel-word address, so the
+    // slot gives up reuse for the group's lifetime (see `__recycle`).
+    func __pin(&var self, slot: Int, generation: Int) {
+        if self.__stale(slot, generation) {
+            return
+        }
+        self.pin.set(slot, true)
     }
 
     // design 134: a task reached Done. Mark the slot and RELEASE ITS FRAME BOX
@@ -361,11 +436,19 @@ extension TaskGroup {
     //
     // Every scan skips a done slot before touching `tasks`, so the `None` left
     // behind is never dereferenced. The MT caller holds the run-queue lock.
+    // A task with a joinable result keeps its slot until `join` takes the value
+    // (or until group teardown drops it once — design 124's never-joined path).
+    // A `Void` task leaves nothing behind, so its slot is reclaimed right here;
+    // that is what keeps an accept-loop group O(live) rather than O(ever-spawned).
     func __complete(&var self, slot: Int) {
         self.done.set(slot, true)
         self.remaining.set(slot, 0)
         self.active.set(slot, false)
         self.tasks.set(slot, None)
+        let keeps = self.cells.with_ref<Bool>(slot, { c in c!.__carries_result() })
+        if not keeps {
+            self.__recycle(slot)
+        }
     }
 
     // design 89: link this single-threaded group into the ambient scheduler list
@@ -633,7 +716,7 @@ extension TaskGroup: NoCopy {
             // meanwhile), then unlink from the ambient list. Frames still alive
             // elsewhere (other groups) are untouched; we drop only our own boxes.
             let me = (&self) as UnsafePointer<TaskGroup> as Int
-            __saw_exec_run(me, -1)
+            __saw_exec_run(me, -1, 0)
             self.__unregister()
         }
         // Release every slot explicitly, here rather than in the memberwise field
@@ -670,17 +753,29 @@ struct TaskHandle<T> {
     result_ptr: UnsafePointer<T?>
     cancel_ptr: UnsafePointer<Bool>
     group_ptr: UnsafePointer<TaskGroup>
-    // design 89: this frame's slot index in its group's queue (stable — a group's
-    // queue only appends). `join` drives the ambient scheduler until THIS slot is
-    // done, so it returns as soon as its own task finishes (siblings may still run).
+    // design 89 + 134: this task's slot index in its group's queue, paired with
+    // the generation the slot carried when the task was spawned. `join` drives the
+    // ambient scheduler until THIS slot is done, so it returns as soon as its own
+    // task finishes (siblings may still run); the generation is what tells a live
+    // task apart from a successor occupying the same reclaimed index.
     slot: Int
+    generation: Int
 }
 
 extension TaskHandle<T> {
     // Drive the group until this task is Done, then TAKE its result. The take is
     // exactly-once: `take()` moves the payload out of the CELL and leaves `None`
-    // behind, so the cell's later teardown drops nothing.
+    // behind, so the cell's later teardown drops nothing. Taking the result is
+    // also what RECLAIMS the slot (design 134) — the cell has nothing left to
+    // hold, so the index goes back on the group's free list and this handle,
+    // along with any copy of the task's identity, retires with it.
+    //
+    // Joining twice therefore panics rather than returning a second value: there
+    // is only ever one result and this call already moved it out.
     public func join(&self) unsafe -> T {
+        if self.group_ptr[0].__stale(self.slot, self.generation) {
+            panic("TaskHandle.join: this task's result was already joined")
+        }
         if self.group_ptr[0].workers >= 2 {
             // MT: fork-join drain over the group's own queue (design 75).
             self.group_ptr[0].__run_all()
@@ -689,15 +784,23 @@ extension TaskHandle<T> {
             // done. Reentrancy-safe — if the joining task is itself running on the
             // scheduler (task joins task), the sweep skips frames active on the C
             // stack and never re-enters a live coroutine.
-            __saw_exec_run(self.group_ptr as Int, self.slot)
+            __saw_exec_run(self.group_ptr as Int, self.slot, self.generation)
         }
-        self.result_ptr[0].take()!
+        let r = self.result_ptr[0].take()!
+        self.group_ptr[0].__recycle(self.slot)
+        move r
     }
 
     // Cooperative cancellation (design 18 C1, NO forced destroy): set the cell's
     // `__cancel` word. The task observes it where IT checks (`cancelled()`) or at
     // a cancellation-aware wait, and returns through normal control flow.
+    // Cancelling a task that has already finished and been reclaimed is a defined
+    // no-op (design 134) — there is nothing left to ask to stop, and the stale
+    // handle must not reach a successor sharing its slot.
     public func cancel(&self) unsafe {
+        if self.group_ptr[0].__stale(self.slot, self.generation) {
+            return
+        }
         self.cancel_ptr[0] = true
         // design 102 item 2: rouse a blocked reactor poll so an ALREADY-io-parked
         // target observes the cancel now (not only at its pre-park check).
@@ -712,8 +815,11 @@ extension TaskHandle<T> {
     // check (the `__cancel` byte is set-once monotonic — race-free, eventually
     // consistent, cooperative-cancellation semantics). The address is into the
     // task's CELL (design 134), which the group keeps alive for its own lifetime,
-    // so a write that lands after the task finished is defined and inert.
+    // so a write that lands after the task finished is defined and inert. Taking
+    // the address PINS the slot: it keeps its cell and gives up reuse, because a
+    // bare `Int` carries no generation for the peer to check against.
     public func cancel_addr(&self) unsafe -> Int {
+        self.group_ptr[0].__pin(self.slot, self.generation)
         self.cancel_ptr as Int
     }
 }
@@ -736,26 +842,40 @@ struct VoidTaskHandle {
     cancel_ptr: UnsafePointer<Bool>
     group_ptr: UnsafePointer<TaskGroup>
     slot: Int
+    generation: Int
 }
 
 extension VoidTaskHandle {
     // Drive the group until this task is Done. No result to take — the void body
-    // ran purely for its effects.
+    // ran purely for its effects. A `Void` task's slot is reclaimed AT completion
+    // (nothing outlives it), so joining one that already finished is a defined
+    // no-op rather than a panic: the question "is it done yet" has an answer, and
+    // the answer is yes.
     public func join(&self) unsafe {
+        if self.group_ptr[0].__stale(self.slot, self.generation) {
+            return
+        }
         if self.group_ptr[0].workers >= 2 {
             self.group_ptr[0].__run_all()
         } else {
-            __saw_exec_run(self.group_ptr as Int, self.slot)
+            __saw_exec_run(self.group_ptr as Int, self.slot, self.generation)
         }
     }
 
+    // A defined no-op once the task has finished and its slot was reclaimed
+    // (see `TaskHandle.cancel`).
     public func cancel(&self) unsafe {
+        if self.group_ptr[0].__stale(self.slot, self.generation) {
+            return
+        }
         self.cancel_ptr[0] = true
         // design 102 item 2: rouse a blocked reactor poll (see TaskHandle.cancel).
         __saw_exec_reactor_wake()
     }
 
+    // Pins the slot, exactly as `TaskHandle.cancel_addr` does.
     public func cancel_addr(&self) unsafe -> Int {
+        self.group_ptr[0].__pin(self.slot, self.generation)
         self.cancel_ptr as Int
     }
 }
@@ -811,11 +931,16 @@ func __saw_exec_group_has_live(gaddr: Int) unsafe -> Bool {
 
 // Termination predicate. term_group == 0 -> ALL (no live frame anywhere);
 // term_group != 0 & term_slot < 0 -> GROUP (no live frame in that group);
-// term_group != 0 & term_slot >= 0 -> FRAME (that group's slot is done).
-func __saw_exec_should_stop(term_group: Int, term_slot: Int) unsafe -> Bool {
+// term_group != 0 & term_slot >= 0 -> FRAME (that group's slot is done, at the
+// generation `term_gen` the joiner asked about — design 134: a reclaimed slot may
+// already host a DIFFERENT task, and a mismatch means ours finished long ago).
+func __saw_exec_should_stop(term_group: Int, term_slot: Int, term_gen: Int) unsafe -> Bool {
     if term_group != 0 {
         let g = term_group as UnsafePointer<TaskGroup>
         if term_slot >= 0 {
+            if g[0].__stale(term_slot, term_gen) {
+                return true
+            }
             let d = g[0].done.get(term_slot)!
             return d
         }
@@ -973,8 +1098,8 @@ func __saw_exec_advance_sleep(deadline: Int) unsafe {
 // Reentrancy-safe: a frame currently `active` on the C stack is skipped, so a
 // nested drive (task joins task; a nested group's Deinit) never re-enters a live
 // coroutine nor nests a second loop — it yields to the ONE scheduler.
-func __saw_exec_run(term_group: Int, term_slot: Int) unsafe {
-    while not __saw_exec_should_stop(term_group, term_slot) {
+func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
+    while not __saw_exec_should_stop(term_group, term_slot, term_gen) {
         // Phase 1: resume every ready frame across all groups until none is ready
         // (re-checked from the head each pass, so a just-spawned frame is caught).
         while __saw_exec_any_ready() {
@@ -1001,7 +1126,7 @@ func __saw_exec_run(term_group: Int, term_slot: Int) unsafe {
                         } else {
                             g[0].remaining.set(i, oc.wake)
                         }
-                        if __saw_exec_should_stop(term_group, term_slot) {
+                        if __saw_exec_should_stop(term_group, term_slot, term_gen) {
                             return
                         }
                     }
@@ -1011,7 +1136,7 @@ func __saw_exec_run(term_group: Int, term_slot: Int) unsafe {
                 cur = nx
             }
         }
-        if __saw_exec_should_stop(term_group, term_slot) {
+        if __saw_exec_should_stop(term_group, term_slot, term_gen) {
             return
         }
         // Phase 2: nothing ready. Scan all groups for the earliest sleep deadline
@@ -1078,5 +1203,5 @@ func __saw_exec_run_root(rootbox: Box<any Resumable>) {
     // (design 134): every occupied slot carries a cell, with no special case for
     // the root.
     let _ = root.__enqueue(move rootbox, Box<any __TaskCell>.make(__VoidCell(__cancel: false)))
-    __saw_exec_run(0, -1)
+    __saw_exec_run(0, -1, 0)
 }

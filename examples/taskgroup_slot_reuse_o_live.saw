@@ -1,0 +1,59 @@
+// design 134: a long-lived group costs O(LIVE tasks), not O(tasks ever spawned.)
+//
+// This is the accept-loop shape — one group that outlives thousands of short
+// handlers — measured the way design 124's live-count fence measures resources:
+// with a counter rather than a print order. 64 waves of 3 concurrent handlers
+// run through ONE group. `count()` reports the slots the group is holding, so
+// the peak across every wave is the CONCURRENCY (3), not the total (192): each
+// handler's slot is reclaimed at completion and the next wave lands right back
+// in it. Before design 134 the peak read 192 — every slot a task ever occupied
+// was still there, holding a frame box the task had finished with.
+//
+// `LIVE` re-checks design 124's own promise at the same time: the values those
+// frames owned are released at completion, not at teardown.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// peak 3
+// final 0
+// live 0
+
+import std.task
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Held { id: Int }
+extension Held {
+    init(tag: Int) -> Held {
+        LIVE.fetch_add(1)
+        Held(id: tag)
+    }
+}
+extension Held: NoCopy { func deinit(&var self) { LIVE.fetch_add(0 - 1) } }
+
+func handler(h: Held) {
+    yield_now()
+    let _ = h.id
+}
+
+func main() {
+    var group = TaskGroup()
+    var peak = 0
+    var wave = 0
+    while wave < 64 {
+        var i = 0
+        while i < 3 {
+            // The handle is dropped at once, exactly as an accept loop drops it.
+            let _h = group.spawn(handler(Held(tag: i)))
+            i = i + 1
+        }
+        let held = group.count()
+        if held > peak {
+            peak = held
+        }
+        sleep(1)          // park main; the sweep runs the wave to completion
+        wave = wave + 1
+    }
+    print("peak {peak}")
+    print("final {group.count()}")
+    print("live {LIVE.load()}")
+}

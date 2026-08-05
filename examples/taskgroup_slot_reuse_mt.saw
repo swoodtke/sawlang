@@ -1,0 +1,49 @@
+// design 134: slot reuse holds for a MULTI-THREADED group too.
+//
+// The MT engine drains on demand rather than eagerly, so the wave shape is
+// "spawn four, join to drain, repeat". The reclamation is the same: a worker
+// records completion under the run-queue lock and `__complete` releases the
+// frame box and returns the slot there, so eight waves of four tasks occupy four
+// slots total rather than thirty-two.
+//
+// Counts and sums only — never interleaving (MT tests must stay deterministic).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// peak 4
+// final 0
+// ran 32
+
+import std.task
+
+static RAN: Atomic<Int> = Atomic(0)
+
+func worker(n: Int) {
+    yield_now()
+    RAN.fetch_add(n)
+}
+
+func main() {
+    var group = TaskGroup(threads: 2)
+    var peak = 0
+    var wave = 0
+    while wave < 8 {
+        var i = 0
+        while i < 4 {
+            let h = group.spawn(worker(1))
+            if i == 3 {
+                let held = group.count()
+                if held > peak {
+                    peak = held
+                }
+                // An MT join drains the whole group (design 75 fork-join), so
+                // every task in this wave is done when it returns.
+                h.join()
+            }
+            i = i + 1
+        }
+        wave = wave + 1
+    }
+    print("peak {peak}")
+    print("final {group.count()}")
+    print("ran {RAN.load()}")
+}

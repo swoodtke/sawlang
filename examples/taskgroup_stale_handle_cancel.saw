@@ -1,0 +1,58 @@
+// design 134: a stale handle cannot reach the task that took over its slot.
+//
+// The sharp edge of slot reuse. `a` is joined, so its slot is reclaimed and `b`
+// — spawned next — lands in the very same index. Cancelling through `a` at that
+// point would, without a generation, set the cancel word of `b`: a task nobody
+// asked to stop, dying for a request aimed at a task that finished long ago.
+//
+// The generation makes it a no-op instead. `b` runs to completion and reports 2;
+// a cancelled run would report -2. Joining an already-finished VOID task is the
+// same question with a benign answer, so it returns rather than panicking.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 2
+// void joined twice
+// 0
+
+import std.task
+
+static VOID_RAN: Atomic<Int> = Atomic(0)
+
+func slow(tag: Int) -> Int {
+    var n = 0
+    while n < 4 {
+        if cancelled() {
+            return 0 - tag
+        }
+        yield_now()
+        n = n + 1
+    }
+    tag
+}
+
+func tick() {
+    yield_now()
+    VOID_RAN.fetch_add(1)
+}
+
+func main() {
+    var group = TaskGroup()
+
+    let a = group.spawn(slow(1))
+    print(a.join())            // 1 — and slot 0 is reclaimed here
+
+    let b = group.spawn(slow(2))   // takes slot 0 back
+    a.cancel()                     // stale: must not touch `b`
+    print(b.join())                // 2, not -2
+
+    // A Void task's slot is reclaimed at completion, so its handle goes stale on
+    // its own. Both a second join and a late cancel are defined no-ops.
+    let v = group.spawn(tick())
+    v.join()
+    v.join()
+    v.cancel()
+    print("void joined twice")
+
+    print(group.count())       // 0 — every slot back on the free list
+}

@@ -1,0 +1,22 @@
+// design 134: joining the same task twice is a DEFINED error, not a stale read.
+//
+// `join` moves the result out of the task's cell and reclaims its slot, which
+// retires the slot's generation — so the handle that just joined no longer names
+// a live task. The second call notices that and panics, naming what went wrong.
+// It must never fall through to whatever occupies the slot next.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: already joined
+
+import std.task
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(work(21))
+    print(h.join())
+    print(h.join())
+}
