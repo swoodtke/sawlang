@@ -1,7 +1,7 @@
-# Design 129 — DRAFT: newlines inside brackets (DO NOT DISPATCH)
+# Design 129 — newlines inside brackets
 
-STATUS: DRAFT for user review (Aug 4). Grammar change; needs a user decision
-on the rule before dispatch. Closes DF-121a when landed.
+STATUS: APPROVED (user, Aug 4) — rule as proposed, both recommendations
+adopted (see Decided). Dispatch-ready. Closes DF-121a when landed.
 
 ## Problem
 A newline anywhere inside a call/parameter list is a parse error
@@ -34,17 +34,19 @@ of scope).
   the design-119 interpolation-brace precedent), since newline-suppression
   makes runaway-consumption errors otherwise drift to EOF.
 
-## Open questions for the user
-- Trailing comma: allow `f(a,\n  b,\n)`? (Recommended: yes for `()`/`[]`
-  literals + calls — it is the wrapping style the rule exists to serve.)
-- Does `<` suppression apply in TYPE position only, or also at
-  expression-position generic calls `f<Int>(x)`? (Recommended: both, since
-  the parser already disambiguates; the risk case `a < b\n > c` never
-  enters generic commitment.)
+## Decided (user, Aug 4)
+- **Trailing comma: allowed** `[user]` for `()`/`[]` literals, calls, and
+  parameter lists — it is the wrapping style the rule exists to serve. NOT
+  for generic `<>` lists (no wrapping idiom served there).
+- **`<` suppression applies in BOTH positions** `[user]` — type position and
+  expression-position generic calls `f<Int>(x)` — since the parser already
+  disambiguates; the risk case `a < b\n > c` never enters generic
+  commitment. Comparisons must stay comparisons (test this).
 
-## Shape of the work once approved
+## Shape of the work
 parser/core.py newline-skip discipline + opener-anchored unclosed errors;
-tests: wrapped calls/params/literals/generics, the DF-121a repro compiles,
+tests: wrapped calls/params/literals/generics, trailing commas in `()`/`[]`
+(and rejected in `<>`), the DF-121a repro compiles,
 unclosed-bracket error position, `a < b` comparisons unaffected; rewrap
 resolver.saw:271 as the dogfood proof; spec grammar note + skill; DF-121a
 closed.
