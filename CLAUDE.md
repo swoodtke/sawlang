@@ -30,15 +30,24 @@ blade/             # Blade package manager (written in Saw)
 libs/              # Real Saw library packages (semver, toml)
 tools/blade_bootstrap.py  # Self-hosting bootstrap loop
 designs/           # Design briefs + todo.md tracker
-sos/               # SOS kernel: spec.md notes + kernel/ (riscv32 QEMU target:
-                   #   boot.S trap entry/virt.ld/rt.c + main.saw + core/lib.saw,
-                   #   the module EVERY kernel image shares — drivers, trap
-                   #   frame, ktrap, syscall table, sosimg loader; built with
-                   #   --module-path kcore=sos/kernel/core) + root/ (design 140:
-                   #   the root server, a real Blade package emitting a sosimg
-                   #   via `[sos] emit = "sosimg"`) + tests/.
-                   #   `make sos-test` (tools/sos_runner.py) builds kernel AND
-                   #   root, stitches them, and boots them under QEMU
+sos/               # SOS microkernel (design 140). spec.md is authoritative.
+  kernel/          #   virt.ld + main.saw + core/lib.saw — the module EVERY
+                   #   kernel image shares (drivers, trap frame, ktrap, the
+                   #   object-op dispatch, the sosimg loader)
+  hal/riscv32/     #   the ONLY arch-aware code: kernel/ (boot.S trap entry,
+                   #   board sinks, PMP) + user/ (ecall stub, syscall sinks),
+                   #   each with an ABI.md. M1b ADDS hal/arm64/, moves nothing
+  rt/common/       #   arch-free role-free Saw helpers (hex, ascii) — kernel
+  rt/common_c/     #   + every process; support.c is the C that must stay C
+                   #   (mem*, atomics, arena, seams) — ONE copy, see DF-140g
+  imgformat/       #   the sosimg layout, shared by BOTH consumers: Blade via a
+                   #   path dependency, the kernel via --module-path
+  root/            #   the root server: a real Blade package, `[sos] emit =
+                   #   "sosimg"`, banners via a System op and shuts down
+  tests/           #   kernel entries + hand-assembled payloads/images
+                   # `make sos-test` (tools/sos_runner.py) builds kernel AND
+                   # root, stitches them, boots them under QEMU. Kernel builds
+                   # need --module-path kcore=/imgformat=/sosrt=
 ```
 
 ## Python environment

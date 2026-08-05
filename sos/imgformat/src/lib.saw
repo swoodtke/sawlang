@@ -1,0 +1,138 @@
+//! The sosimg process-image format (design 140; sos/spec.md §6, §7).
+//!
+//! ONE definition of the format, shared by everyone who touches it: Blade
+//! emits images (`blade/src/sosimg.saw`), the kernel loads them
+//! (`sos/kernel/core/lib.saw`). Before this package the layout lived twice —
+//! as a comment beside Blade's byte emitters and as a family of offset
+//! constants in the kernel — which is exactly the arrangement where a format
+//! change lands on one side only.
+//!
+//! DEPENDENCY-LIGHT ON PURPOSE. This module names nothing but primitives: no
+//! `Data`, no `File`, no allocation. That is what lets the same source compile
+//! into a freestanding riscv32 kernel and into a host binary. Each consumer
+//! keeps its OWN I/O — Blade emits bytes through its module-private `Data`
+//! extensions, the kernel overlays these structs with `UnsafeMemory` views —
+//! and shares only the layout and the target-independent rules.
+//!
+//! WIRE LAYOUT. Every field is fixed-width and LITTLE-ENDIAN (the design-47
+//! discipline), so the 32-bit and 64-bit SOS profiles (§5b) read identical
+//! bytes. The field order is chosen so every `UInt32` sits on a 4-byte
+//! boundary and the structs need no interior padding: that is what makes the
+//! kernel's overlay EXACT, and what lets it read a header with one view
+//! construction instead of a dozen offset computations. The `static_assert`s
+//! below are the ABI pin — a field added or a width changed becomes a compile
+//! error here rather than a silent misparse at boot.
+//!
+//! A big-endian profile would have to byte-assemble instead of overlaying;
+//! riscv32 and arm64 are both little-endian, so neither does today.
+
+/// The image header: 16 bytes at offset 0, followed immediately by
+/// `seg_count` segment records.
+public struct SosimgHeader {
+    /// `SOSIMG_MAGIC` — the bytes 'S','O','S','I' read as a little-endian word.
+    public magic: UInt32,
+    /// `SOSIMG_VERSION`. A loader refuses anything it does not know.
+    public version: UInt16,
+    /// How many `SosimgSeg` records follow. A loader bounds this against its
+    /// own budget (the kernel's is its PMP region count).
+    public seg_count: UInt8,
+    public reserved0: UInt8,
+    /// ABSOLUTE load address of the first instruction. Not an offset: nothing
+    /// relocates on Profile A, so an offset would only be an addition every
+    /// loader has to perform and re-validate.
+    public entry: UInt32,
+    /// The §7 band -> level map, one byte per band, low byte first:
+    /// background, low, normal, high. Build-time metadata and a REQUEST — the
+    /// launcher may honor, clamp or override it (§7). The kernel applies
+    /// root's verbatim because root is trusted by construction (§12).
+    public prio_map: UInt32,
+}
+
+/// One loadable segment: 20 bytes, `seg_count` of them from offset 16.
+public struct SosimgSeg {
+    /// Offset from the IMAGE BASE to this segment's bytes.
+    public file_off: UInt32,
+    public load_addr: UInt32,
+    /// Bytes present in the image.
+    public file_len: UInt32,
+    /// Bytes the segment occupies once loaded. `mem_len > file_len` is how a
+    /// `.bss` tail is expressed; the loader zero-fills the difference.
+    public mem_len: UInt32,
+    /// `SEG_FLAG_R` | `SEG_FLAG_W` | `SEG_FLAG_X`.
+    public flags: UInt8,
+    public reserved0: UInt8,
+    public reserved1: UInt8,
+    public reserved2: UInt8,
+}
+
+// The ABI pin. These sizes are the format; a layout edit that skews them stops
+// the build here instead of corrupting a boot.
+static_assert(sizeof<SosimgHeader>() == 16, "sosimg header must be exactly 16 bytes")
+static_assert(sizeof<SosimgSeg>() == 20, "sosimg segment record must be exactly 20 bytes")
+
+/// 'S','O','S','I' as a little-endian word.
+public static SOSIMG_MAGIC: UInt32 = 0x49534F53
+public static SOSIMG_VERSION: UInt16 = 1
+
+/// Segment permission bits. This order — R = 1, W = 2, X = 4 — is deliberately
+/// the same as a RISC-V PMP config's low three bits, so the kernel installs a
+/// segment's permissions without translating them. (ELF numbers them the other
+/// way round; Blade converts when it reads the linked image.)
+public static SEG_FLAG_R: UInt8 = 1
+public static SEG_FLAG_W: UInt8 = 2
+public static SEG_FLAG_X: UInt8 = 4
+
+public extension SosimgHeader {
+    /// Are these bytes a sosimg at all?
+    public func has_magic(&self) -> Bool {
+        self.magic == SOSIMG_MAGIC
+    }
+
+    /// Is this a version this build understands?
+    public func has_known_version(&self) -> Bool {
+        self.version == SOSIMG_VERSION
+    }
+
+    /// Everything a header can be judged on WITHOUT knowing where the image
+    /// lives or how big it is. A loader still has to bound `seg_count` against
+    /// its own budget and check every segment against its own memory map —
+    /// those are target decisions and stay with the target.
+    public func is_wellformed(&self) -> Bool {
+        self.has_magic() && self.has_known_version() && self.seg_count > 0u8
+    }
+}
+
+public extension SosimgSeg {
+    public func is_readable(&self) -> Bool {
+        (self.flags & SEG_FLAG_R) != 0u8
+    }
+
+    public func is_writable(&self) -> Bool {
+        (self.flags & SEG_FLAG_W) != 0u8
+    }
+
+    public func is_executable(&self) -> Bool {
+        (self.flags & SEG_FLAG_X) != 0u8
+    }
+
+    /// A segment's memory image can never be smaller than its file image.
+    public func mem_covers_file(&self) -> Bool {
+        self.mem_len >= self.file_len
+    }
+
+    /// Write-without-read is not a meaningful grant, and a segment that grants
+    /// neither read nor execute is not worth a region. (RISC-V additionally
+    /// RESERVES the W-without-R PMP encoding, so on Profile A this is not just
+    /// tidiness — it is a configuration the hardware does not define.)
+    public func has_sane_perms(&self) -> Bool {
+        if self.is_writable() && not self.is_readable() {
+            return false
+        }
+        self.is_readable() || self.is_executable()
+    }
+
+    /// Everything a segment can be judged on without a memory map.
+    public func is_wellformed(&self) -> Bool {
+        self.mem_covers_file() && self.has_sane_perms()
+    }
+}

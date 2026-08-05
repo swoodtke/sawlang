@@ -9,11 +9,29 @@ import std.directory.{Directory}
 import std.file.{File}
 import std.path.{Path}
 
-// libc exit — lets `blade test` set a nonzero process exit code when a test
-// fails (so CI fails the build). exit() terminates the process immediately.
+// libc exit — lets a failing command set a nonzero process exit code, so a
+// script or a CI job notices. exit() terminates the process immediately.
+//
+// EVERY failing path must go through here. Until design 140 only `blade test`
+// did: `blade build` printed "error: ..." and exited 0, so a broken build
+// looked exactly like a good one to anything reading the status. That is how a
+// stale lockfile silently shipped a stale image.
 extern "C" {
     func exit(code: Int32)
 }
+
+/// Report a failed command and exit non-zero. Never returns.
+func fail(message: String, code: Int32) {
+    print("error: {message}")
+    let status = if code == (0 as Int32) {
+        1 as Int32
+    } else {
+        code
+    }
+    exit(status)
+}
+
+static EXIT_FAILURE: Int32 = 1
 
 // =============================================================================
 // Help and Version
@@ -139,10 +157,10 @@ func main() {
                             let b = builder.Builder(m: m, target: target)
                             match b.build(force) {
                                 case Ok(_) -> {},
-                                case Err(e) -> print("error: {e.message}")
+                                case Err(e) -> fail(e.message, e.exit_code)
                             }
                         },
-                        case Err(e) -> print("error: {e}")
+                        case Err(e) -> fail("{e}", EXIT_FAILURE)
                     }
                 },
                 case Clean(target) -> {
@@ -163,10 +181,10 @@ func main() {
                             let b = builder.Builder(m: m)
                             match b.update() {
                                 case Ok(_) -> {},
-                                case Err(e) -> print("error: {e.message}")
+                                case Err(e) -> fail(e.message, e.exit_code)
                             }
                         },
-                        case Err(e) -> print("error: {e}")
+                        case Err(e) -> fail("{e}", EXIT_FAILURE)
                     }
                 },
                 case Run(args) -> {
@@ -175,10 +193,10 @@ func main() {
                             let b = builder.Builder(m: m)
                             match b.run(move args) {
                                 case Ok(_) -> {},
-                                case Err(e) -> print("error: {e.message}")
+                                case Err(e) -> fail(e.message, e.exit_code)
                             }
                         },
-                        case Err(e) -> print("error: {e}")
+                        case Err(e) -> fail("{e}", EXIT_FAILURE)
                     }
                 },
                 case Test -> {
@@ -200,7 +218,7 @@ func main() {
                             let b = builder.Builder(m: m)
                             b.tree()
                         },
-                        case Err(e) -> print("error: {e}")
+                        case Err(e) -> fail("{e}", EXIT_FAILURE)
                     }
                 },
                 case Add(name, kind, loc, version) -> {
@@ -209,14 +227,16 @@ func main() {
                             let b = builder.Builder(m: m)
                             match b.add_dep(name, kind, loc, version) {
                                 case Ok(_) -> {},
-                                case Err(e) -> print("error: {e.message}")
+                                case Err(e) -> fail(e.message, e.exit_code)
                             }
                         },
-                        case Err(e) -> print("error: {e}")
+                        case Err(e) -> fail("{e}", EXIT_FAILURE)
                     }
                 },
                 case New(name) -> {
-                    let _ = create_new_project(name)
+                    if create_new_project(name) != 0 {
+                        exit(EXIT_FAILURE)
+                    }
                 },
                 case Help -> {
                     print_help()
@@ -228,12 +248,14 @@ func main() {
                     print("error: unknown command `{cmd}`")
                     print("")
                     print_help()
+                    exit(EXIT_FAILURE)
                 }
             }
         },
         case Err(e) -> {
             print("error: {e.message}")
             print_help()
+            exit(EXIT_FAILURE)
         }
     }
 }

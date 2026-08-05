@@ -1,0 +1,7 @@
+[package]
+name = "imgformat"
+version = "0.1.0"
+
+# No dependencies, deliberately: this package is consumed by a FREESTANDING
+# kernel as well as by the host-side Blade, so it may name nothing but
+# primitives. See src/lib.saw.

@@ -5,3 +5,6 @@ version = "0.1.0"
 [dependencies]
 toml = { path = "../libs/toml" }
 semver = { path = "../libs/semver" }
+# The sosimg layout, shared with the kernel that loads the images this emits
+# (sos/kernel/core reaches the same sources through --module-path).
+imgformat = { path = "../sos/imgformat" }

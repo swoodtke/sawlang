@@ -9,32 +9,17 @@
 // sosimg conversion. Driving the compiler, the assembler and the linker is the
 // builder's job (src/builder.saw), which calls in here for both.
 //
-// FORMAT (mirrored by the loader in sos/kernel/core/lib.saw; keep the two in
-// step — the comment there is the normative copy):
-//
-//   HEADER (SOSIMG_HEADER_LEN bytes)
-//     0   4  magic      'S' 'O' 'S' 'I'
-//     4   2  version    = SOSIMG_VERSION
-//     6   1  seg_count
-//     7   1  reserved   (0)
-//     8   4  entry      ABSOLUTE load address of the first instruction
-//     12  4  prio_map   spec §7 band -> level, one byte per band, low byte
-//                       first: background, low, normal, high
-//   SEGMENT TABLE (seg_count records of SOSIMG_SEG_LEN bytes)
-//     0   4  file_off   offset from the IMAGE BASE to the segment's bytes
-//     4   4  load_addr
-//     8   4  file_len
-//     12  4  mem_len    >= file_len; the loader zero-fills the tail (.bss)
-//     16  1  flags      bit 0 R, bit 1 W, bit 2 X
-//     17  3  reserved   (0)
-//
-// Every field is fixed-width little-endian — the design-47 discipline — so a
-// 32-bit and a 64-bit SOS profile read identical bytes.
+// The FORMAT is not defined here. It is the `imgformat` package — a path
+// dependency shared with the kernel that loads these images — so the layout
+// exists once and the two sides cannot drift. What lives here is the writing:
+// ELF32 in, sosimg bytes out. The kernel does the mirror-image job by
+// overlaying the same structs on the bytes this produces.
 
 // The toml types are imported BARE, not reached through a `toml.` qualifier: a
 // module-qualified name does not resolve in TYPE position (DF-140c), so
 // `&TomlSection` is the only spelling that works for `band_level`'s parameter.
 import toml.{TomlDoc, TomlSection}
+import imgformat.{SosimgHeader, SosimgSeg, SOSIMG_MAGIC, SOSIMG_VERSION, SEG_FLAG_R, SEG_FLAG_W, SEG_FLAG_X}
 import std.data.{Data}
 import std.env.{Env}
 import std.file.{File}
@@ -65,19 +50,8 @@ public extension SosError: Error {
 }
 
 // =============================================================================
-// Format constants
+// ELF32 constants (the only ELF this module knows)
 // =============================================================================
-
-public static SOSIMG_VERSION: UInt = 1
-public static SOSIMG_HEADER_LEN: Int = 16
-public static SOSIMG_SEG_LEN: Int = 20
-
-// sosimg segment permission bits.
-static SOS_PERM_R: UInt = 1
-static SOS_PERM_W: UInt = 2
-static SOS_PERM_X: UInt = 4
-
-// ELF32 offsets and values (the only ELF this module knows).
 static ELF_CLASS_OFF: Int = 4
 static ELF_DATA_OFF: Int = 5
 static ELF_CLASS_32: UInt = 1
@@ -119,9 +93,10 @@ public struct SosConfig {
     public march: String
     public mabi: String
     public linker_script: String
-    /// A single C or assembly translation unit linked alongside the Saw object,
-    /// or "" for none. A freestanding SOS process needs at least a syscall stub,
-    /// which no amount of Saw can express — that is what this is for.
+    /// C/assembly translation units linked alongside the Saw object, as a
+    /// SPACE-SEPARATED list, or "" for none. A freestanding SOS process needs
+    /// at least a syscall stub, which no amount of Saw can express; in practice
+    /// it names its architecture's HAL plus the shared runtime support.
     public native: String
     /// The spec §7 band -> level map, packed one byte per band, low byte first:
     /// background, low, normal, high.
@@ -227,83 +202,119 @@ public func pack_priorities(background: Int, low: Int, normal: Int, high: Int) -
 }
 
 // =============================================================================
-// Little-endian byte access
+// Little-endian byte access — a module-private extension on `Data`
 // =============================================================================
+//
+// These read and write ONE `Data`, so they are methods on it rather than free
+// functions taking it (the house idiom). Extending a std type from a package is
+// safe precisely because design-80/82 visibility makes an unmarked extension
+// MODULE-PRIVATE: none of this is visible outside src/sosimg.saw, so it cannot
+// collide with anyone else's idea of what `Data.u32_at` should mean. If the
+// pattern ever earns a wider audience it belongs in std, not `public` here.
+//
+// Reads are Optional because an offset past the end is a MALFORMED IMAGE, not a
+// programmer error — the caller turns a None into a diagnostic naming the file.
 
-func u8_at(d: &Data, off: Int) -> UInt? {
-    guard let b = d.get(off) else {
-        return None
+extension Data {
+    func u8_at(&self, off: Int) -> UInt? {
+        guard let b = self.get(off) else {
+            return None
+        }
+        b as UInt
     }
-    b as UInt
-}
 
-func u16_at(d: &Data, off: Int) -> UInt? {
-    guard let b0 = d.get(off) else {
-        return None
+    func u16_at(&self, off: Int) -> UInt? {
+        guard let b0 = self.get(off) else {
+            return None
+        }
+        guard let b1 = self.get(off + 1) else {
+            return None
+        }
+        (b0 as UInt) | ((b1 as UInt) << 8)
     }
-    guard let b1 = d.get(off + 1) else {
-        return None
-    }
-    (b0 as UInt) | ((b1 as UInt) << 8)
-}
 
-func u32_at(d: &Data, off: Int) -> UInt? {
-    guard let b0 = d.get(off) else {
-        return None
+    func u32_at(&self, off: Int) -> UInt? {
+        guard let b0 = self.get(off) else {
+            return None
+        }
+        guard let b1 = self.get(off + 1) else {
+            return None
+        }
+        guard let b2 = self.get(off + 2) else {
+            return None
+        }
+        guard let b3 = self.get(off + 3) else {
+            return None
+        }
+        (b0 as UInt) | ((b1 as UInt) << 8) | ((b2 as UInt) << 16) | ((b3 as UInt) << 24)
     }
-    guard let b1 = d.get(off + 1) else {
-        return None
-    }
-    guard let b2 = d.get(off + 2) else {
-        return None
-    }
-    guard let b3 = d.get(off + 3) else {
-        return None
-    }
-    (b0 as UInt) | ((b1 as UInt) << 8) | ((b2 as UInt) << 16) | ((b3 as UInt) << 24)
-}
 
-func put_u8(out: &var Data, v: UInt) {
-    out.push((v & 0xFF) as UInt8)
-}
+    func put_u8(&var self, v: UInt) {
+        self.push((v & 0xFF) as UInt8)
+    }
 
-func put_u16(out: &var Data, v: UInt) {
-    put_u8(&var out, v)
-    put_u8(&var out, v >> 8)
-}
+    func put_u16(&var self, v: UInt) {
+        self.put_u8(v)
+        self.put_u8(v >> 8)
+    }
 
-func put_u32(out: &var Data, v: UInt) {
-    put_u8(&var out, v)
-    put_u8(&var out, v >> 8)
-    put_u8(&var out, v >> 16)
-    put_u8(&var out, v >> 24)
+    func put_u32(&var self, v: UInt) {
+        self.put_u8(v)
+        self.put_u8(v >> 8)
+        self.put_u8(v >> 16)
+        self.put_u8(v >> 24)
+    }
+
+    /// Append the 16-byte header, field by field in declaration order — the
+    /// same order `imgformat` declares and the kernel overlays.
+    func put_header(&var self, h: &SosimgHeader) {
+        self.put_u32(h.magic as UInt)
+        self.put_u16(h.version as UInt)
+        self.put_u8(h.seg_count as UInt)
+        self.put_u8(h.reserved0 as UInt)
+        self.put_u32(h.entry as UInt)
+        self.put_u32(h.prio_map as UInt)
+    }
+
+    /// Append one 20-byte segment record.
+    func put_seg(&var self, s: &SosimgSeg) {
+        self.put_u32(s.file_off as UInt)
+        self.put_u32(s.load_addr as UInt)
+        self.put_u32(s.file_len as UInt)
+        self.put_u32(s.mem_len as UInt)
+        self.put_u8(s.flags as UInt)
+        self.put_u8(s.reserved0 as UInt)
+        self.put_u8(s.reserved1 as UInt)
+        self.put_u8(s.reserved2 as UInt)
+    }
 }
 
 // =============================================================================
 // ELF32 -> sosimg
 // =============================================================================
 
-// One PT_LOAD program header, reduced to what the format carries. All fields
-// are trivially copyable, so this needs no copy policy.
-struct SegSpec {
-    file_off: Int
-    load_addr: UInt
-    file_len: Int
-    mem_len: Int
-    flags: UInt
+// One PT_LOAD program header, carried as the sosimg record it will become plus
+// the one thing that record does NOT hold: where the bytes live in the LINKED
+// ELF. `record.file_off` is an offset into the image being built and is only
+// known once placement runs, so the two cannot be the same field.
+// All fields are trivially copyable, so this needs no copy policy.
+struct PlacedSeg {
+    elf_off: Int
+    record: SosimgSeg
 }
 
-func sos_flags(elf_flags: UInt) -> UInt {
-    // ELF spells the bits X=1, W=2, R=4; sosimg spells them R=1, W=2, X=4.
-    var f: UInt = 0
+func sos_flags(elf_flags: UInt) -> UInt8 {
+    // ELF spells the bits X=1, W=2, R=4; sosimg spells them R=1, W=2, X=4 (to
+    // match a RISC-V PMP config, so the kernel installs them untranslated).
+    var f: UInt8 = 0u8
     if (elf_flags & PF_R) != 0 {
-        f = f | SOS_PERM_R
+        f = f | SEG_FLAG_R
     }
     if (elf_flags & PF_W) != 0 {
-        f = f | SOS_PERM_W
+        f = f | SEG_FLAG_W
     }
     if (elf_flags & PF_X) != 0 {
-        f = f | SOS_PERM_X
+        f = f | SEG_FLAG_X
     }
     f
 }
@@ -321,33 +332,33 @@ func check_elf_header(elf: &Data) -> Result<Void, SosError> {
     if elf.len() < ELF32_PHDR_LEN {
         return SosError(msg: "linked image is too short to be an ELF")
     }
-    let m0 = u8_at(&elf, 0) ?? 0
-    let m1 = u8_at(&elf, 1) ?? 0
-    let m2 = u8_at(&elf, 2) ?? 0
-    let m3 = u8_at(&elf, 3) ?? 0
+    let m0 = elf.u8_at(0) ?? 0
+    let m1 = elf.u8_at(1) ?? 0
+    let m2 = elf.u8_at(2) ?? 0
+    let m3 = elf.u8_at(3) ?? 0
     // 0x7F 'E' 'L' 'F'
     if m0 != 0x7F || m1 != 69 || m2 != 76 || m3 != 70 {
         return SosError(msg: "linked image is not an ELF")
     }
-    if (u8_at(&elf, ELF_CLASS_OFF) ?? 0) != ELF_CLASS_32 {
+    if (elf.u8_at(ELF_CLASS_OFF) ?? 0) != ELF_CLASS_32 {
         return SosError(msg: "linked image is not ELF32 (sosimg addresses are 32-bit)")
     }
-    if (u8_at(&elf, ELF_DATA_OFF) ?? 0) != ELF_DATA_LSB {
+    if (elf.u8_at(ELF_DATA_OFF) ?? 0) != ELF_DATA_LSB {
         return SosError(msg: "linked image is not little-endian")
     }
     return
 }
 
-func collect_segments(elf: &Data) -> Result<Vector<SegSpec>, SosError> {
+func collect_segments(elf: &Data) -> Result<Vector<PlacedSeg>, SosError> {
     try check_elf_header(&elf)
 
-    guard let phoff_raw = u32_at(&elf, ELF_PHOFF_OFF) else {
+    guard let phoff_raw = elf.u32_at(ELF_PHOFF_OFF) else {
         return SosError(msg: "truncated ELF header (no program-header offset)")
     }
-    guard let phentsize = u16_at(&elf, ELF_PHENTSIZE_OFF) else {
+    guard let phentsize = elf.u16_at(ELF_PHENTSIZE_OFF) else {
         return SosError(msg: "truncated ELF header (no program-header size)")
     }
-    guard let phnum = u16_at(&elf, ELF_PHNUM_OFF) else {
+    guard let phnum = elf.u16_at(ELF_PHNUM_OFF) else {
         return SosError(msg: "truncated ELF header (no program-header count)")
     }
     if phentsize != (ELF32_PHDR_LEN as UInt) {
@@ -355,39 +366,45 @@ func collect_segments(elf: &Data) -> Result<Vector<SegSpec>, SosError> {
     }
 
     let phoff = phoff_raw as Int
-    var segments = Vector<SegSpec>()
+    var segments = Vector<PlacedSeg>()
     var i = 0
     while i < (phnum as Int) {
         let rec = phoff + i * ELF32_PHDR_LEN
-        guard let ptype = u32_at(&elf, rec + PHDR_TYPE) else {
+        guard let ptype = elf.u32_at(rec + PHDR_TYPE) else {
             return SosError(msg: "truncated ELF program header {i}")
         }
         if ptype == PT_LOAD {
-            guard let p_offset = u32_at(&elf, rec + PHDR_OFFSET) else {
+            guard let p_offset = elf.u32_at(rec + PHDR_OFFSET) else {
                 return SosError(msg: "truncated ELF program header {i}")
             }
-            guard let p_vaddr = u32_at(&elf, rec + PHDR_VADDR) else {
+            guard let p_vaddr = elf.u32_at(rec + PHDR_VADDR) else {
                 return SosError(msg: "truncated ELF program header {i}")
             }
-            guard let p_filesz = u32_at(&elf, rec + PHDR_FILESZ) else {
+            guard let p_filesz = elf.u32_at(rec + PHDR_FILESZ) else {
                 return SosError(msg: "truncated ELF program header {i}")
             }
-            guard let p_memsz = u32_at(&elf, rec + PHDR_MEMSZ) else {
+            guard let p_memsz = elf.u32_at(rec + PHDR_MEMSZ) else {
                 return SosError(msg: "truncated ELF program header {i}")
             }
-            guard let p_flags = u32_at(&elf, rec + PHDR_FLAGS) else {
+            guard let p_flags = elf.u32_at(rec + PHDR_FLAGS) else {
                 return SosError(msg: "truncated ELF program header {i}")
             }
             // A zero-length PT_LOAD carries nothing and would only cost the
             // kernel a PMP region.
             if p_memsz != 0 {
-                segments.push(SegSpec(
-                    file_off: p_offset as Int,
-                    load_addr: p_vaddr,
-                    file_len: p_filesz as Int,
-                    mem_len: p_memsz as Int,
+                // `file_off` is filled in by placement below; everything else
+                // is known now.
+                let record = SosimgSeg(
+                    file_off: 0u32,
+                    load_addr: p_vaddr as UInt32,
+                    file_len: p_filesz as UInt32,
+                    mem_len: p_memsz as UInt32,
                     flags: sos_flags(p_flags),
-                ))
+                    reserved0: 0u8,
+                    reserved1: 0u8,
+                    reserved2: 0u8,
+                )
+                segments.push(PlacedSeg(elf_off: p_offset as Int, record: record))
             }
         }
         i = i + 1
@@ -401,74 +418,67 @@ func collect_segments(elf: &Data) -> Result<Vector<SegSpec>, SosError> {
 
 /// Convert a linked ELF32 image into a sosimg carrying `prio_map`.
 public func elf_to_sosimg(elf: &Data, prio_map: UInt) -> Result<Data, SosError> {
-    let segments = try collect_segments(&elf)
+    var segments = try collect_segments(&elf)
 
-    guard let entry = u32_at(&elf, ELF_ENTRY_OFF) else {
+    guard let entry = elf.u32_at(ELF_ENTRY_OFF) else {
         return SosError(msg: "truncated ELF header (no entry point)")
     }
 
     let count = segments.len()
-    // Where each segment's bytes land in the output: after the header and the
-    // table, each on a SEGMENT_ALIGN boundary.
-    var placed = Vector<Int>()
-    var cursor = SOSIMG_HEADER_LEN + count * SOSIMG_SEG_LEN
+    let header_len = sizeof<SosimgHeader>()
+    let seg_len = sizeof<SosimgSeg>()
+
+    // PLACEMENT: decide where each segment's bytes land in the output — after
+    // the header and the table, each on a SEGMENT_ALIGN boundary — and record
+    // it in the segment's own `file_off`, which is what the table will carry.
+    var cursor = header_len + count * seg_len
     var i = 0
     while i < count {
         cursor = align_up(cursor, SEGMENT_ALIGN)
-        placed.push(cursor)
-        if let seg = segments.get(i) {
-            cursor = cursor + seg.file_len
+        guard var placed = segments.get(i) else {
+            return SosError(msg: "internal: segment {i} vanished")
         }
+        placed.record.file_off = cursor as UInt32
+        cursor = cursor + (placed.record.file_len as Int)
+        segments.set(i, placed)
         i = i + 1
     }
 
     var out = Data(capacity: cursor)
-    // Header.
-    put_u8(&var out, 83)            // 'S'
-    put_u8(&var out, 79)            // 'O'
-    put_u8(&var out, 83)            // 'S'
-    put_u8(&var out, 73)            // 'I'
-    put_u16(&var out, SOSIMG_VERSION)
-    put_u8(&var out, count as UInt)
-    put_u8(&var out, 0)             // reserved
-    put_u32(&var out, entry)
-    put_u32(&var out, prio_map)
 
-    // Segment table.
+    let header = SosimgHeader(
+        magic: SOSIMG_MAGIC,
+        version: SOSIMG_VERSION,
+        seg_count: count as UInt8,
+        reserved0: 0u8,
+        entry: entry as UInt32,
+        prio_map: prio_map as UInt32,
+    )
+    out.put_header(&header)
+
     var t = 0
     while t < count {
-        guard let seg = segments.get(t) else {
+        guard let placed = segments.get(t) else {
             return SosError(msg: "internal: segment {t} vanished")
         }
-        guard let off = placed.get(t) else {
-            return SosError(msg: "internal: placement {t} vanished")
-        }
-        put_u32(&var out, off as UInt)
-        put_u32(&var out, seg.load_addr)
-        put_u32(&var out, seg.file_len as UInt)
-        put_u32(&var out, seg.mem_len as UInt)
-        put_u8(&var out, seg.flags)
-        put_u8(&var out, 0)
-        put_u8(&var out, 0)
-        put_u8(&var out, 0)
+        out.put_seg(&placed.record)
         t = t + 1
     }
 
-    // Segment bytes, padded to the placements computed above.
+    // Segment bytes, padded out to the placements decided above.
     var s = 0
     while s < count {
-        guard let seg = segments.get(s) else {
+        guard let placed = segments.get(s) else {
             return SosError(msg: "internal: segment {s} vanished")
         }
-        guard let off = placed.get(s) else {
-            return SosError(msg: "internal: placement {s} vanished")
-        }
+        let off = placed.record.file_off as Int
+        let len = placed.record.file_len as Int
         while out.len() < off {
-            put_u8(&var out, 0)
+            out.put_u8(0)
         }
         var b = 0
-        while b < seg.file_len {
-            guard let byte = elf.get(seg.file_off + b) else {
+        while b < len {
+            guard let byte = elf.get(placed.elf_off + b) else {
                 return SosError(msg: "segment {s} runs past the end of the linked image")
             }
             out.push(byte)

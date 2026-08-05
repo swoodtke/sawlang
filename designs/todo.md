@@ -4210,14 +4210,48 @@ riscv32 boot-to-root-server. `make sos-test` is 11 cases; the two-image boot
 prints kernel banner -> root banner -> clean exit. SOS-review policy applies:
 the branch is NOT integrated without explicit user sign-off.
 
-**Pins TAKEN as written.** Syscall ABI per §5.7 (number in a7, args a0-a5,
-a0 = status / a1 = value) with the v1 table `0 debug_putc`, `1 exit`. sosimg
+REVISED after the first user review (five items + a rebase onto designs
+132/133). The numbered-syscall pin below is SUPERSEDED by the object-op model.
+
+**Pins TAKEN as written.** Syscall ABI per §5.7: a0 = HANDLE, a7 = OP, args
+a1-a5, returns a0 = status / a1 = value, and EVERY syscall is an object op
+(ratified Aug 5) — the earlier `0 debug_putc` / `1 exit` numbered table is
+gone. The v1 object is the **System** singleton with ops `debug_print` and
+`shutdown(status)`, rights-gated on DEBUG / SHUTDOWN; `exit` is deliberately
+absent because process exit belongs to the future Process object. Dispatch is
+§3's shape verbatim: handle-table lookup -> object type -> op table -> rights
+check -> op. Root receives the System handle at boot (§12), in the first
+argument register, so a Saw `_start(boot_handle: UInt)` just takes it. sosimg
 magic `SOSI`, u16 version = 1, u8 segment count, the u32 §7 priority-map field,
 all fixed-width little-endian (design 47). Root as an APPENDED BLOB after the
 kernel image with linker-symbol bounds (`.payload`, `_payload_start` /
 `_payload_end`) rather than a flash partition table. `[sos]` manifest section
 driving a Blade `emit = "sosimg"` target. A U-mode fault or a malformed image
 prints a cause tag and exits FAIL — M0's never-hang discipline kept throughout.
+
+**Structure the revision landed** (review items 1-5):
+- The format is a SHARED package, `sos/imgformat/` — the two structs, the
+  constants, the `static_assert` ABI pin, and the target-independent
+  well-formedness predicates. Consumed by BOTH sides and by both mechanisms:
+  Blade through a manifest path-dependency, the kernel through
+  `--module-path`. Kernel-specific bounds (ROOT_LOAD_BASE, the PMP budget)
+  stay kernel-side.
+- The kernel loader reads through TYPED VIEWS — `UnsafeMemory<SosimgHeader,
+  Normal>(addr).read()`, then `seg.mem_len` — not offset arithmetic. The whole
+  offset-constant family is gone. The validation logic and its overflow-careful
+  order are unchanged; only the fetches are.
+- Blade's byte helpers are a module-PRIVATE `extension Data`, called as
+  methods. Being private is load-bearing: `blade/tests/sosimg_wire.saw` cannot
+  reach them and brings its own reader, so a bug in the helpers cannot cancel
+  itself out.
+- `sos/rt/common/` (Saw, arch-free and role-free) + `sos/rt/common_c/support.c`
+  (the C that must stay C, once) + `sos/hal/riscv32/{kernel,user}/` with an
+  ABI.md per side. The ~200 duplicated lines across the two rt.c files are
+  gone. NO arm64 directories were created: M1b adds them without moving
+  anything.
+- `[sos] native` is a space-separated LIST pointing into the HAL, so a root
+  package's own sources name no architecture.
+- Lockfiles committed for `sos/root` and `sos/tests/faulting-root` (app policy).
 
 **Pins ADJUSTED (each veto-able; reasons given).**
 - **sosimg field order + padding.** Header fields are ordered and padded so
@@ -4247,6 +4281,28 @@ prints a cause tag and exits FAIL — M0's never-hang discipline kept throughout
 - **`boot_smoke` became `no_root_image`.** The kernel now requires a root
   image; built without one it must say so and FAIL, not exit 0 as if the
   system had run. The M0 banner assertion moved to the two-image case.
+- **`debug_print` carries ONE CHARACTER in a1, not a (ptr, len) pair.** Passing
+  process memory to the kernel needs bounds machinery that belongs with
+  MemoryObject — the kernel would have to know which ranges the caller was
+  granted, which is Process-object state M1 does not have. One character per
+  op is seL4's `DebugPutChar` shape and keeps the op honest about what it can
+  check. The typed wrapper hides it: root writes `system.debug_print(msg)`.
+- **`umode_bad_syscall` became `umode_bad_calls`** and inverted. Under the
+  object-op model a bad op or a bad handle is an ERROR, not a fault: the kernel
+  returns a `SysError` status and the process runs on. The payload now checks
+  three statuses itself (OK on a valid call, BAD_OP, BAD_HANDLE) and shuts down
+  with 7 only if all three matched, so the emulator's exit code is the
+  assertion.
+
+**Bug found and fixed while revising (standing fix-on-discovery policy).**
+`blade build` exited 0 on a failed build — only `blade test` ever called
+`exit()`, so every other command printed `error: ...` and reported success.
+A stale `sos/root/Saw.lock` therefore produced a "successful" build that
+silently shipped the PREVIOUS image, and the SOS suite booted it without
+noticing. Every failing path in `blade/src/main.saw` now exits non-zero
+(carrying `BuildError.exit_code` where there is one), and `sos_runner.py`
+deletes an existing image before rebuilding so a stale artifact cannot stand in
+for a fresh one.
 
 **Open / deferred.** The parsed `prio_map` is reported on the console but not
 yet STORED — there is no Process object until the object-model brief (§7 says
@@ -4383,6 +4439,51 @@ constructs its `Uart16550` per use.
   `if`/`else` spelling of it is fine, so this is specific to a diverging arm
   suppressing the wrap. Workaround: make both arms statements and `return`
   below the match (`blade/src/builder.saw`'s `run_tool`).
+
+- **DF-140f — OPEN. A module-PRIVATE `static` collides across a selective
+  import.** Found stressing the module system with the shared `imgformat`
+  package (design 140 revision). `blade/src/sosimg.saw` declares
+  `static PT_LOAD: UInt = 1` with no `public`. A test module doing
+  `import src.sosimg.{elf_to_sosimg}` — one function, by name — cannot then
+  declare its own `PT_LOAD`:
+
+  ```
+  error: ambiguous static `PT_LOAD`: defined in both `src.sosimg` and `<entry>`
+  ```
+
+  So a private static in an imported module reserves its NAME in every importer
+  while remaining inaccessible to them, which is the worst of both rules. The
+  contrast in the same file is sharp: `src/sosimg.saw`'s module-private
+  `extension Data { func u32_at ... }` is correctly invisible to the same test
+  (`method u32_at of Data is private and not accessible from this module`), so
+  extension methods get the design-80/82 treatment and statics do not.
+  Workaround: prefix the importer's constants (`ELF_PT_LOAD`). Blast radius
+  grows with package count — every private constant in every dependency is a
+  reserved word for its consumers.
+
+- **DF-140g — OPEN, a capability gap rather than a bug: a freestanding runtime
+  cannot be written in Saw.** Design 140's revision moved every arch-free,
+  role-free runtime helper it could into `sos/rt/common/` (Saw). Three things
+  could not go, and together they are why `sos/rt/common_c/support.c` still
+  exists:
+  1. **No mutable module state.** A bump allocator needs a cursor that survives
+     between calls. `static` is const-initialized and immortal, and the only
+     mutable static is `Atomic`, so there is no way to write one.
+  2. **No way to reserve a region.** The arena needs N bytes of `.bss`. A Saw
+     `static` cannot declare uninitialized backing storage, and `UnsafeMemory`
+     needs an address the program does not have a way to obtain.
+  3. **The seams cannot be exported.** `__saw_rt_alloc` / `__saw_rt_panic` /
+     `__saw_rt_write` are reserved names that only `--runtime-build` may
+     `@export` (design 113b), and that mode is scoped to authoring `sawc/rt/`
+     — an object-only, sync-only build of the host runtime, not a kernel or a
+     process image.
+
+  Consequence: every freestanding Saw target — kernel, process, and any
+  embedded program — must carry a C file to be a complete program at all. That
+  is a real limit on the "kernels and embedded first" claim, and it is worth a
+  brief: either a sanctioned way for a non-`sawc/rt` build to supply the seams,
+  or `static var` plus a `.bss` reservation so the arena can be Saw. (1) and
+  (2) would also close the F5 singleton-driver gap.
 
 ## Design 131 — DF-findings (payload-read ownership)
 

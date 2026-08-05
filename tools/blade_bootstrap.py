@@ -37,6 +37,10 @@ TOML_DIR = os.path.join(REPO, "libs", "toml")
 SEMVER_DIR = os.path.join(REPO, "libs", "semver")
 TOML_SRC = os.path.join(TOML_DIR, "src")
 SEMVER_SRC = os.path.join(SEMVER_DIR, "src")
+# The sosimg layout package (design 140): Blade's `emit = "sosimg"` target
+# shares it with the SOS kernel, so stage0 needs it mapped like any other dep.
+IMGFORMAT_DIR = os.path.join(REPO, "sos", "imgformat")
+IMGFORMAT_SRC = os.path.join(IMGFORMAT_DIR, "src")
 LIB_DIRS = [("toml", TOML_DIR), ("semver", SEMVER_DIR)]
 STAGE0 = os.path.join(REPO, ".build", "blade0")
 
@@ -205,7 +209,8 @@ def main():
     print("== stage0: sawc builds blade ==")
     r = run([PY, SAWC, os.path.join(BLADE_DIR, "src", "main.saw"),
              "-o", STAGE0, "--module-path", f"toml={TOML_SRC}",
-             "--module-path", f"semver={SEMVER_SRC}"])
+             "--module-path", f"semver={SEMVER_SRC}",
+             "--module-path", f"imgformat={IMGFORMAT_SRC}"])
     if r.returncode != 0:
         fail("stage0 build", r.stdout + r.stderr)
 

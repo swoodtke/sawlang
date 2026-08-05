@@ -50,6 +50,25 @@ TESTS_DIR = os.path.join(REPO_ROOT, "sos", "tests")
 # the module path is not optional for any case.
 CORE_MODULE = f"kcore={CORE_DIR}"
 
+# The sosimg layout, shared with the Blade target that emits images. The kernel
+# reaches it through --module-path; Blade reaches the same sources through a
+# manifest path-dependency. One definition, two consumption mechanisms.
+IMGFORMAT_DIR = os.path.join(REPO_ROOT, "sos", "imgformat", "src")
+IMGFORMAT_MODULE = f"imgformat={IMGFORMAT_DIR}"
+
+# Arch-free, role-free Saw runtime helpers, shared with every process build.
+SOSRT_DIR = os.path.join(REPO_ROOT, "sos", "rt", "common", "src")
+SOSRT_MODULE = f"sosrt={SOSRT_DIR}"
+
+# The per-architecture, per-role native halves. M1b adds sos/hal/arm64/...
+# beside these without moving anything here.
+HAL_KERNEL_DIR = os.path.join(REPO_ROOT, "sos", "hal", "riscv32", "kernel")
+RT_COMMON_C_DIR = os.path.join(REPO_ROOT, "sos", "rt", "common_c")
+
+# sos/tests/payload_badcall.S shuts down with this when all of its own checks
+# passed. Kept in step with the `.equ EXPECTED_CODE` there.
+PAYLOAD_CHECKS_PASSED = 7
+
 # Root-server packages. These are real Blade packages built by Blade — the
 # whole point of unit C is that root goes through the same package pipeline any
 # SOS process will, not a bespoke rule in this file.
@@ -131,11 +150,17 @@ TEST_CASES = [
         "expect_clean_exit": False,
     },
     {
-        "name": "umode_bad_syscall",
+        # A caller's mistake is an ERROR, not a fault: an unknown op and an
+        # unknown handle each come back as a status word and the process runs
+        # on. The payload checks all three statuses itself and shuts down with
+        # PAYLOAD_CHECKS_PASSED only if every one matched, so the emulator's
+        # exit code IS the assertion.
+        "name": "umode_bad_calls",
         "src": os.path.join(TESTS_DIR, "umode.saw"),
         "asm": os.path.join(TESTS_DIR, "payload_badcall.S"),
-        "expect_out": "fault bad-syscall-number",
+        "expect_out": "SOS M1: entering U-mode",
         "expect_clean_exit": False,
+        "expect_status": PAYLOAD_CHECKS_PASSED,
     },
     # --- design 140 unit B: the sosimg format and the kernel's loader -------
     # These images are assembled by hand (sos/tests/payload_*.S), so they pin
@@ -176,7 +201,7 @@ TEST_CASES = [
         "expect_out": ["SOS M1: kernel up on riscv32",
                        "root image ok segments=0x00000002",
                        "prio=0x01010100",
-                       "SOS root: hello from U-mode via ecall"],
+                       "SOS root: hello from U-mode via a System op"],
         "expect_clean_exit": True,
     },
     {
@@ -222,7 +247,7 @@ def _find_clang():
     if os.environ.get("SOS_CLANG"):
         candidates.append(os.environ["SOS_CLANG"])
     candidates += ["clang", "/opt/homebrew/opt/llvm/bin/clang", "/usr/local/opt/llvm/bin/clang"]
-    probe_src = os.path.join(KERNEL_DIR, "boot.S")
+    probe_src = os.path.join(HAL_KERNEL_DIR, "boot.S")
     for cand in candidates:
         path = shutil.which(cand) or (cand if os.path.exists(cand) else None)
         if not path:
@@ -261,15 +286,25 @@ def _probe_tools():
 
 
 def _build_shared(clang):
-    """Assemble boot.S and compile rt.c once; return (boot.o, rt.o)."""
+    """Build the kernel's native objects once; return them as a list.
+
+    The kernel's C/asm is the riscv32 kernel HAL (boot + trap entry, the board
+    sinks, the PMP helpers) plus the shared runtime support every SOS build
+    links — the same `support.c` a root package names in its `[sos] native`.
+    """
     boot_o = os.path.join(BUILD_DIR, "boot.o")
-    rt_o = os.path.join(BUILD_DIR, "rt.o")
+    sink_o = os.path.join(BUILD_DIR, "sink.o")
+    support_o = os.path.join(BUILD_DIR, "support.o")
     _run([clang, f"--target={TRIPLE}", f"-march={MARCH}", f"-mabi={MABI}",
-          "-nostdlib", "-c", os.path.join(KERNEL_DIR, "boot.S"), "-o", boot_o])
-    _run([clang, f"--target={TRIPLE}", f"-march={MARCH}", f"-mabi={MABI}",
-          "-ffreestanding", "-fno-builtin", "-ffunction-sections", "-fdata-sections",
-          "-nostdlib", "-O2", "-c", os.path.join(KERNEL_DIR, "rt.c"), "-o", rt_o])
-    return boot_o, rt_o
+          "-nostdlib", "-c", os.path.join(HAL_KERNEL_DIR, "boot.S"), "-o", boot_o])
+    for src, obj in ((os.path.join(HAL_KERNEL_DIR, "sink.c"), sink_o),
+                     (os.path.join(RT_COMMON_C_DIR, "support.c"), support_o)):
+        # -fno-builtin: support.c DEFINES memcpy, and without it LLVM may
+        # rewrite its byte loop into a call to itself.
+        _run([clang, f"--target={TRIPLE}", f"-march={MARCH}", f"-mabi={MABI}",
+              "-ffreestanding", "-fno-builtin", "-ffunction-sections",
+              "-fdata-sections", "-nostdlib", "-O2", "-c", src, "-o", obj])
+    return [boot_o, sink_o, support_o]
 
 
 def _build_blade(clang):
@@ -282,7 +317,8 @@ def _build_blade(clang):
     _run([sys.executable, SAWC, os.path.join(BLADE_DIR, "src", "main.saw"),
           "-o", blade_bin,
           "--module-path", f"toml={TOML_SRC}",
-          "--module-path", f"semver={SEMVER_SRC}"])
+          "--module-path", f"semver={SEMVER_SRC}",
+          "--module-path", IMGFORMAT_MODULE])
     return blade_bin
 
 
@@ -302,7 +338,15 @@ def _build_root_image(blade_bin, pkg_dir, clang):
     Blade's build avoidance keys on content it cannot see change here (the
     kernel side, the linker script's meaning).
     """
+    # Delete first: a build that fails must not leave the PREVIOUS image lying
+    # around to be booted as if it were current. (Blade used to exit 0 on a
+    # failed build, which is exactly how a stale image once passed this suite.)
+    for stale in os.listdir(pkg_dir):
+        if stale.endswith(".sosimg"):
+            os.remove(os.path.join(pkg_dir, stale))
+
     _run([blade_bin, "build", "--force"], cwd=pkg_dir, env=_blade_env(clang))
+
     # The image is named for the PACKAGE, which need not match its directory.
     images = [f for f in os.listdir(pkg_dir) if f.endswith(".sosimg")]
     if len(images) != 1:
@@ -326,7 +370,7 @@ def _stitch_root_image(image, clang):
     return stub_o
 
 
-def _build_elf(case, boot_o, rt_o, lld, clang):
+def _build_elf(case, shared_objs, lld, clang):
     """Compile + link one test case to an ELF; return its path.
 
     A case may name an extra `.S` payload, which lands in the `.payload` section
@@ -344,9 +388,11 @@ def _build_elf(case, boot_o, rt_o, lld, clang):
     _run([sys.executable, SAWC, case["src"], "-o", obj,
           "--freestanding", "--no-hidden-alloc", "--target", TRIPLE,
           "--target-features", MFEATURES,
-          "--module-path", CORE_MODULE])
+          "--module-path", CORE_MODULE,
+          "--module-path", IMGFORMAT_MODULE,
+          "--module-path", SOSRT_MODULE])
 
-    objs = [boot_o, rt_o, obj]
+    objs = list(shared_objs) + [obj]
     if case.get("asm"):
         payload_o = os.path.join(BUILD_DIR, f"{name}.payload.o")
         _run([clang, f"--target={TRIPLE}", f"-march={MARCH}", f"-mabi={MABI}",
@@ -396,6 +442,10 @@ def _check(case, status, out, timed_out):
     else:
         if status == 0:
             return False, "expected a failing (non-zero) exit, got 0"
+    # An exact status, where the payload encodes its own verdict in one.
+    want_status = case.get("expect_status")
+    if want_status is not None and status != want_status:
+        return False, f"expected exit status {want_status}, got {status}"
     return True, ""
 
 
@@ -407,9 +457,10 @@ def main():
     print(f"  lld  : {lld}\n")
 
     try:
-        boot_o, rt_o = _build_shared(clang)
+        shared_objs = _build_shared(clang)
     except ToolError as e:
-        print(f"{CROSS} failed to build boot.S / rt.c\n{e}", file=sys.stderr)
+        print(f"{CROSS} failed to build the kernel HAL / runtime support\n{e}",
+              file=sys.stderr)
         sys.exit(1)
 
     # Root packages are built by Blade, so build Blade first — but only if some
@@ -440,7 +491,7 @@ def main():
     for i, case in enumerate(TEST_CASES, 1):
         name = case["name"]
         try:
-            elf = _build_elf(case, boot_o, rt_o, lld, clang)
+            elf = _build_elf(case, shared_objs, lld, clang)
         except ToolError as e:
             print(f"[{i}/{len(TEST_CASES)}] {CROSS} {name}  (build error)")
             for line in str(e).splitlines():

@@ -335,24 +335,41 @@ public extension Builder {
         var objects = Vector<String>()
         objects.push(obj)
 
-        if not cfg.native.is_empty() {
-            let native_obj = ".blade/{name}.native.o"
+        // `[sos] native` is a space-separated list of translation units, each
+        // compiled separately so a HAL file and a shared runtime file can be
+        // named without either knowing about the other.
+        let units = cfg.native.split(" ")
+        var u = 0
+        while u < units.len() {
+            guard let unit = units.get(u) else {
+                u = u + 1
+                continue
+            }
+            if unit.is_empty() {
+                u = u + 1
+                continue
+            }
+            let native_obj = ".blade/{name}.native{u}.o"
             var cc = Command(program: sos_clang())
             cc.arg("--target={cfg.target}")
             cc.arg("-march={cfg.march}")
             cc.arg("-mabi={cfg.mabi}")
             cc.arg("-ffreestanding")
+            // -fno-builtin matters: sos/rt/common_c/support.c DEFINES memcpy,
+            // and without it LLVM may rewrite its byte loop into a call to
+            // itself. See that file's header.
             cc.arg("-fno-builtin")
             cc.arg("-ffunction-sections")
             cc.arg("-fdata-sections")
             cc.arg("-nostdlib")
             cc.arg("-O2")
             cc.arg("-c")
-            cc.arg(cfg.native)
+            cc.arg(unit)
             cc.arg("-o")
             cc.arg(native_obj)
             try self.run_tool(&cc, "clang")
             objects.push(native_obj)
+            u = u + 1
         }
 
         var ld = Command(program: sos_ld())
