@@ -315,9 +315,10 @@ surrounding loop safe. Deliberately NOT in 130 (mechanical migration kept
 separate from judgment-heavy refactoring of the executor's hot paths). [130]
 
 **P4 — design/gap briefs to consider:** structural `Deinit`/`ExplicitCopy`
-synthesis (the Equatable model; hand-transcription is pure tax); DF-121a
-newline-in-brackets (new evidence: a 210-char one-line signature in
-blade/src/resolver.saw); std gaps ranked G1 bit intrinsics (S–M), G2
+synthesis (the Equatable model; hand-transcription is pure tax);
+~~DF-121a newline-in-brackets~~ (LANDED as design 129, Aug 5 — the 210-char
+`blade/src/resolver.saw` signature that was the evidence is now wrapped);
+std gaps ranked G1 bit intrinsics (S–M), G2
 checked/saturating arithmetic (S, tracker already wants it), G3 slices
 (L, language-level), G4 radix/hex formatting (S), G5 iterator adaptors (M);
 compiler pre-port restructures R1 declared AST contract + R2 stable NodeId +
@@ -785,12 +786,12 @@ inlined (the `.build/scratch` probes are gitignored).
 
 ## Design 121 — DF-findings (doc comments + --emit-docs)
 
-- **DF-121a — OPEN (discovered design 121, Aug 4; limitation, not a bug).** A
-  call's argument list cannot span lines: a newline anywhere inside the
-  parentheses is a parse error, so a long call has to be split into extra
-  bindings or run past any line-width convention. Hit while writing the
-  `selfhost/lexer` doc-comment test (an `assert(cond, "message")` whose two
-  arguments did not fit on one line). Repro:
+- **DF-121a — CLOSED by design 129 (Aug 5).** A call's argument list could not
+  span lines: a newline anywhere inside the parentheses was a parse error, so a
+  long call had to be split into extra bindings or run past any line-width
+  convention. Hit while writing the `selfhost/lexer` doc-comment test (an
+  `assert(cond, "message")` whose two arguments did not fit on one line). Repro,
+  which now compiles and prints `3` (`examples/newline_wrapped_call.saw`):
   ```saw
   func add(a: Int, b: Int) -> Int { a + b }
 
@@ -800,15 +801,35 @@ inlined (the `.build/scratch` probes are gitignored).
           b: 2)
       print(x)
   }
-  // error: Parse error at 4:17: Unexpected token: NEWLINE
   ```
-  WANTED: the parser suppresses NEWLINE tokens between `(` and the matching `)`
-  of a call / parameter list (the usual "newlines are insignificant inside
-  brackets" rule), so the repro above compiles and prints `3`. Same question
-  applies to `[` `]` and generic `<` `>` argument lists; a decision should cover
-  all of them at once, and interacts with the statement-terminating role
-  NEWLINE plays elsewhere. Worked around in the test by hoisting the condition
-  into a `let` — recorded rather than silently accommodated.
+  Design 129 took the question in one pass, as the finding asked: a parser-side
+  bracket-depth discipline suppresses NEWLINE inside `(`/`[` and inside a
+  COMMITTED generic `<...>`, `{}` stays newline-significant, a trailing comma is
+  allowed in the `()`/`[]` forms and rejected in `<>`, and an unclosed bracket is
+  reported at its opener. The lexer is untouched, so lexdiff parity with
+  `selfhost/lexer` was never in play.
+
+## Design 129 — DF-findings (newlines in brackets)
+
+- **DF-129a — OPEN (found design 129, Aug 5; PRE-EXISTING, unrelated to 129).**
+  `print(x)` where `x` is an Optional ICEs instead of producing the clean
+  "not `Printable`" error that string interpolation of the same value gives.
+  Reproduced identically on the pre-129 parser, so it is not a regression:
+  ```saw
+  func main() {
+      let v: Vector<Int> = [1, 2, 3]
+      print(v.get(0))            // v.get(i) returns `Int?`
+  }
+  // error: internal compiler error: Cannot print type: {i1, i64}
+  ```
+  Interpolating the same value is already clean — `"{v.get(0)}"` reports
+  "cannot interpolate value of type `Int?` in a string: it is not `Printable`",
+  with the `extension T?: Printable` hint. WANTED: the builtin `print` checks its
+  argument for `Printable` the way interpolation does and reports the same
+  anchored error. Easy for a user to hit, since `Vector.get` returning `T?` is
+  the common source of a stray Optional. Not fixed inside design 129 — it is a
+  typechecker/codegen issue with no bearing on the bracket rule, and the brief's
+  gate battery was the priority. [needs a small brief or a fix-on-discovery pass]
 
 ## Design 126 — findings (pre-port AST contract)
 

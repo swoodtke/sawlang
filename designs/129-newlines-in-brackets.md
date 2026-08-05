@@ -1,7 +1,10 @@
 # Design 129 — newlines inside brackets
 
-STATUS: APPROVED (user, Aug 4) — rule as proposed, both recommendations
-adopted (see Decided). Dispatch-ready. Closes DF-121a when landed.
+STATUS: LANDED (Aug 5) — rule as proposed, both recommendations adopted (see
+Decided). Closed DF-121a. Implemented as a parser-side bracket-depth discipline
+in `sawc/parser/` (the lexer is untouched, so lexdiff parity never entered it);
+regression tests are `examples/newline_*.saw`; the dogfood rewrap is the
+`blade/src/resolver.saw` `visit` signature and its two call sites.
 
 ## Problem
 A newline anywhere inside a call/parameter list is a parse error

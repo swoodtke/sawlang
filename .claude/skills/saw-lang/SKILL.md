@@ -51,6 +51,19 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   `\0` is an interior NUL that `len()` counts. Any other escape is a lex
   error (no silent drop). Strings are immutable UTF-8, refcounted.
 - Comments `//`. No semicolons. `not` for logical negation.
+- Line breaks (design 129): a statement ends at end-of-line, but a newline
+  between `(`/`)`, `[`/`]`, or inside a COMMITTED generic `<...>` is
+  insignificant — so argument lists, parameter lists, tuples, collection
+  literals, index expressions and generic lists all WRAP. A trailing comma is
+  allowed in the `(...)`/`[...]` forms (`f(\n a,\n b,\n)`) and rejected in
+  `<...>` ("a trailing comma is not allowed in a generic argument list"). `{}`
+  stays newline-SIGNIFICANT (a block/closure is a statement container), which
+  holds even for a closure argument inside a wrapped call — so a multi-statement
+  closure body still works there. A newline AFTER the closing bracket still ends
+  the statement. `a < b` stays a comparison whether or not it straddles lines;
+  suppression needs the parser to have committed to the generic reading. An
+  unclosed `(`/`[` is reported AT THE OPENER, not at EOF. Wrap a long signature
+  or call rather than hoisting extra bindings just to fit a line.
 - Doc comments (design 121): `///` documents the declaration that FOLLOWS it
   (top-level func/struct/enum/trait/extension/type/static, struct fields, enum
   cases, extension methods + inits, trait methods); a run of `///` lines is one

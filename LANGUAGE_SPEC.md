@@ -51,6 +51,75 @@ stdlib `Vector` does provide real `map<U>`/`fold<A>` methods
 (see [Generics](#generics)); the illustrative example below is about method
 chaining directly on array literals, which is separate and still planned.
 
+### Statement Boundaries
+
+A statement ends at the end of its line. There are no semicolons.
+
+Inside brackets a line break carries no meaning, so a list that does not fit on
+one line wraps. This holds between `(` and its matching `)`, between `[` and
+`]`, and inside a generic `<...>` list:
+
+```saw
+func total(
+    first: Int,
+    second: Int,
+    third: Int,
+) -> Int {
+    first + second + third
+}
+
+func main() {
+    let grid: Vector<Int> = [
+        1, 2,
+        3, 4,
+    ]
+    print(total(
+        grid.get(0)!,
+        grid.get(1)!,
+        grid.get(2)!,
+    ))                          // prints: 6
+}
+```
+
+A trailing comma is allowed in the `(...)` and `[...]` forms — argument lists,
+parameter lists, tuples, collection literals, and memberwise struct literals.
+It is rejected in a generic list, which has no wrapping idiom to serve:
+
+```saw
+let bad: Vector<Int,> = [1]
+// error: Parse error at 1:20: a trailing comma is not allowed in a generic
+// argument list (it is allowed in `(...)` and `[...]` lists)
+```
+
+`{` and `}` are the exception. A block or closure is a statement container, so
+line breaks inside one keep ending statements, including when the braces sit
+inside a wrapped argument list:
+
+```saw
+let doubled = apply(
+    values: v.copy(),
+    f: { n in
+        let scaled = n * 2      // two statements, two lines
+        scaled
+    },
+)
+```
+
+The line break AFTER a closing bracket still ends the statement, so a wrapped
+call never runs on into the line below it. A bracket that is never closed is
+reported at the opener rather than wherever the parse finally gave up:
+
+```
+error: Parse error at 14:18: unclosed `(` — no matching `)` before the end of
+the file (a line break inside brackets does not close them)
+```
+
+Suppression inside `<...>` applies only where the parser has committed to the
+generic reading — a type annotation, a generic parameter list on a declaration,
+or a call that supplies its type arguments explicitly (`first_of<Int, String>(…)`).
+A `<` that turns out to be a comparison is never treated as a bracket, so
+`show(a < b, a > b)` compares whether or not its arguments straddle lines.
+
 ### Variables and Mutability
 
 ```saw

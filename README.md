@@ -409,6 +409,31 @@ let _ = scale(99)   // discard binding (evaluates, drops, binds nothing)
 assert(byte == 255, "sanity")   // panics with a message when false
 ```
 
+A statement ends at the end of its line, and there are no semicolons. Inside
+brackets a line break carries no meaning, so anything that does not fit wraps —
+argument lists, parameter lists, collection literals, generic lists — with an
+optional trailing comma in the `(...)` and `[...]` forms:
+
+```saw
+func visit(
+    dep_name: String,
+    constraint: String,
+    seen: &var Vector<String>,
+) -> Bool {
+    seen.push(dep_name)
+    constraint.len() > 0
+}
+
+let grid: Vector<Int> = [
+    1, 2,
+    3, 4,
+]
+```
+
+`{` and `}` are the exception: a block or closure is a statement container, so
+line breaks inside one still end statements, even when the braces sit inside a
+wrapped argument list. A bracket that is never closed is reported at the opener.
+
 ### Type Extensions
 
 Add methods and trait conformances to a type, including built-in primitives,
