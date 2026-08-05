@@ -1,0 +1,62 @@
+// design 127 (RC-3), the unbounded form: a compute loop with NO iteration bound
+// of its own must still cede. `spinner` runs until a sibling flips a shared
+// flag, and the sibling can only run if the spinner cedes — so on the pre-127
+// compiler this program HANGS forever (the design-86 runner timeout turns that
+// into a failure) rather than printing a wrong answer.
+//
+// The mirror of examples/net_budget_fairness.saw, which fences the design-89-c
+// half of the same budget with an always-ready io loop instead of arithmetic.
+// Here `spinner` makes no suspending call at all: the yield comes only from the
+// loop-backedge check the coroutine transform inserts.
+//
+// `stopper` runs a fixed 5 cooperative turns and then sets the flag, so the
+// printed 5 is deterministic; how far `spinner` counted is not asserted (the
+// assertion is that the program TERMINATES).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+
+import std.mutex.{Mutex}
+import std.task
+
+// Poll the stop flag every 1000 iterations — often enough to exit promptly,
+// rarely enough that the loop is overwhelmingly plain arithmetic.
+static POLL_EVERY: Int = 1000
+static STOPPER_TURNS: Int = 5
+
+func spinner(stop: Arc<Mutex<Int>>) -> Int {
+    var n = 0
+    var going = true
+    while going {
+        n = n + 1
+        if n % POLL_EVERY == 0 {
+            going = stop.lock { &var f in
+                f == 0
+            }
+        }
+    }
+    n
+}
+
+func stopper(stop: Arc<Mutex<Int>>) -> Int {
+    var k = 0
+    while k < STOPPER_TURNS {
+        k = k + 1
+        yield_now()
+    }
+    stop.lock { &var f in
+        f = 1
+        true
+    }
+    k
+}
+
+func main() {
+    let stop = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    var group = TaskGroup()
+    var hs = group.spawn(spinner(stop))
+    var hk = group.spawn(stopper(stop))
+    let turns = hk.join()
+    let _ = hs.join()
+    print(turns)
+}

@@ -2721,22 +2721,45 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   it with `cancelled()` (rewritten to the frame's word) and returns through normal
   control flow — frame locals drop exactly once. There is no forced destroy and no
   implicit cancellation at suspension points.
-- **Implicit yield + the cooperative fairness budget (designs 89-b/89-c).** A
+- **Implicit yield + the cooperative fairness budget (designs 89-b/89-c/127).** A
   suspending call IS a yield point: when a read / accept / sleep / channel-receive
   PARKS (would-block / empty / deadline-not-reached) it cedes to the scheduler
   automatically, so a task doing real I/O never needs an explicit `yield_now`
   (and a call that has data ready returns WITHOUT parking — no spurious yield).
-  The residual starvation risk — a task that keeps completing suspending io ops
-  WITHOUT ever parking (an always-ready socket) — is bounded by a cooperative
-  **op-count budget** (default 128): each io primitive that completes without
-  parking charges a per-running-task budget, and when it is exhausted the primitive
-  forces one `yield_now` (park-and-immediately-reschedule) so siblings run, then
-  the budget resets; a genuine park resets it too. It is an OP-COUNT, never a
-  wall-clock read — kernel-friendly and DETERMINISTIC (tests may assert exact
-  interleavings). No new yield points, signals, or language surface — purely at
-  existing suspension points. Honest limit: this only helps tasks that make SOME
-  suspending calls; a pure-compute loop with no suspending call at all still needs
-  an explicit `yield_now` (or an MT thread) — the same as every cooperative runtime.
+  Two ways a task can still fail to cede are bounded by the same cooperative
+  **op-count budget** (default 128). It is an OP-COUNT, never a wall-clock read:
+  kernel-friendly, and DETERMINISTIC, so tests may assert exact interleavings.
+  Both forms force the same `yield_now` (park-and-immediately-reschedule, wake
+  reason 0) and then reset the budget; there are no signals and no new language
+  surface.
+  - **Always-ready I/O (design 89-c).** A task that keeps completing suspending
+    io ops without ever PARKING — a socket that always has bytes — charges each
+    non-parking op against a process-global budget. The io primitive itself
+    force-yields when the budget runs out. A genuine park resets it too.
+  - **Pure compute (design 127).** A task that makes no suspending call at all
+    charges every LOOP ITERATION against a frame-resident counter, and the loop
+    force-yields when that runs out. `while true { n = n + 1 }` in a spawned task
+    cedes on its own; no `yield_now` is needed. A body that would otherwise have
+    compiled as a straight sync run-to-completion frame becomes suspending as a
+    result, which is how it gains a place to yield.
+
+  The compute check goes at the TOP of each loop body (so a `continue` reaches it
+  too) in the task's own body, in the suspending callees the compiler embeds into
+  it, and in a suspending `main`. Four bounds, each deliberate:
+  - a SYNC callee is not instrumented, so a compute loop inside a never-suspending
+    helper called from a task stays unpreempted. Put the loop in the task, or give
+    the helper a `yield_now` (which makes it suspending);
+  - a `for` over a COLLECTION (`for x in v.iter()`) is not instrumented, and
+    neither is any loop nested inside one — only a range `for` can be state-split.
+    Write it as a `while` over an index if the loop is long enough to matter;
+  - a CLOSURE body is not instrumented (a closure is not driven, so a yield there
+    would do nothing);
+  - std's own io loops keep the 89-c charge rather than carrying both.
+
+  Cost: a wrapping decrement and a branch per iteration, plus the larger effect
+  that the loop it guards joins the frame's state machine (its variables become
+  frame fields). Measured at 1.53x on a maximally tight arithmetic loop (200M
+  iterations of an LCG step, arm64). Loops outside task bodies are untouched.
 - **Suspending channel receive (design 62 G3).** `Channel.receive() -> T` is the
   first-class cooperative suspending receive: it dequeues a value if ready, else
   suspends the *task* (not the thread) and is rescheduled when a value arrives

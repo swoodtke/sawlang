@@ -334,7 +334,9 @@ a silent blocking call.
 A single cooperative scheduler runs spawned tasks eagerly, backed by an I/O
 reactor (kqueue or epoll). A task parked on a socket wakes exactly when its file
 descriptor is ready, cancellation wakes even an already-parked task, and an
-operation-count budget stops a spinning task from starving the others. So an
+operation-count budget stops a spinning task from starving the others: the
+compiler charges every loop iteration of a task body against that budget, so a
+pure-compute loop cedes without an explicit `yield_now`. So an
 endless `accept`-loop server keeps serving live connections. Blocking FFI calls
 (`extern "C" { blocking func ... }`) run on a separate thread and park the task
 like any other I/O, so the remaining tasks stay responsive.

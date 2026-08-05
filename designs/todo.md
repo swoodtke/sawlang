@@ -17,6 +17,11 @@ backedge preemption (RC-3, user chose fix-not-soften — wave 2); **128/129
 DRAFTS** (Deinit/ExplicitCopy synthesis; newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
 
+**127 LANDED (Aug 5)** — RC-3 closed; the op budget now covers pure-compute
+loops, so the README claim holds as written. Nothing left open, but the fix
+carries four deliberate bounds (sync callee, collection `for`, closure body,
+std's own io loops) — all in LANGUAGE_SPEC + the saw-lang skill.
+
 **124 LANDED (Aug 5)** — RS-3 closed; a group is a scope, not an extender.
 Landing it needed a frame-field ownership fix (DF-124a, folded in). Two things
 it did NOT close: the general `opt!` read-out-of-optional gap DF-124a's root
@@ -208,9 +213,31 @@ open — only its OOM path was separated out.
 - **RC-2 monomorphization misses grafted types**: `substitute_ast_types` walks
   `dataclasses.fields()` only, so ~10 runtime-grafted `SawType` annotations
   survive un-substituted (compiler-preport hazard 1; live bug).
-- **RC-3 op-budget does NOT stop a pure-compute spinning task** — starves
-  siblings completely; README claims otherwise. (Budget counts only I/O-ish
-  ops.)
+- **RC-3 — FIXED (design 127, Aug 5).** The coroutine transform charges every
+  loop iteration of a task body against a frame-resident counter: each loop gets
+  `__saw_loop_budget = __saw_loop_budget &- 1; if __saw_loop_budget <= 0 {
+  __saw_loop_budget = 128; yield_now() }` prepended to its body, over a
+  `var __saw_loop_budget: Int = 128` at the body top. Ordinary Saw — the existing
+  frame-local collection makes the counter a field and the existing splitter
+  handles the suspending `if`, so nothing downstream is special-cased. Top of the
+  body rather than after the last statement, so a `continue` reaches it. A body
+  that used to compile as a straight sync run-to-completion frame becomes
+  suspending, which is how it gains a place to yield. Scope: entry-module task
+  bodies, the suspending callees the transform embeds, entry-module driven
+  methods. Four documented bounds — a SYNC callee is not instrumented; a `for`
+  over a non-range iterable is not (nor any loop nested inside it — `_split_for`
+  can only state-split a range `for`, and instrumenting one would turn working
+  programs into compile errors); a closure body is not; std's io loops keep the
+  89-c charge. Cost measured before any tuning, per the brief: 1.53x on 200M
+  iterations of an LCG chain in a spawned task (194 ms -> 296 ms, arm64), nearly
+  all of it the loop joining the frame's state machine rather than the check;
+  the wrapping `&-` instead of a checked `-` is worth 1.74x -> 1.53x. No gating
+  on provably-finite loops — the shape that starves (`while i < n`, runtime `n`)
+  is exactly what such an analysis cannot prove finite. Tests
+  examples/taskgroup_compute_preemption{,_mt}.saw and
+  examples/taskgroup_budget_loop_semantics.saw. Original finding follows:
+  op-budget does NOT stop a pure-compute spinning task — starves siblings
+  completely; README claims otherwise. (Budget counts only I/O-ish ops.)
 - **RC-4 — FIXED (design 122 unit I, Aug 5).** Every compiler-raised panic now
   carries the design-69 `panic at FILE:LINE: ` prefix: overflow, division by
   zero, shift range and bounds gained a location they never had, and
@@ -263,7 +290,9 @@ the docs-update convention (CLAUDE.md workflow section); "no hidden
 allocations" names its two exceptions. Appendix A picked up two names the
 review missed (`deinit`, `Self` were listed reserved and are not). Left
 untouched on purpose: the op-budget claim (127) and the `panic at FILE:LINE:`
-claim (122 unit I), both being made true rather than softened.
+claim (122 unit I), both being made true rather than softened. Both are now
+true; 127 added the qualifying clause that says HOW (loop iterations of a task
+body are charged).
 
 **Follow-up filed by design 130:** decompose the oversized functions the
 unsafe migration marks wholly-unsafe — `__saw_exec_worker` (~150 lines), the

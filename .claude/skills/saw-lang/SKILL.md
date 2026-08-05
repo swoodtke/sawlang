@@ -357,14 +357,26 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   a task-local resource is NOT a way to extend a lifetime — hold it in the
   spawner if you need it to outlast the task. Suspending calls yield
   IMPLICITLY when they park (a task doing I/O never needs `yield_now`); `yield_now`
-  (design 114: `import std.task` — no longer prelude) is only for a CPU loop that
-  makes no parking calls. Fairness backstop (design
-  89-c): a task that keeps completing suspending io ops WITHOUT ever parking (an
-  always-ready socket) does NOT starve siblings — every 128 non-parking io ops the
-  primitive force-yields once (op-count budget, not wall-clock), so a busy reader
-  cedes automatically. The honest residual limit is unchanged: a PURE-compute loop
-  that makes no suspending calls at all still needs an explicit `yield_now` (or an
-  MT thread) to cede — the budget only helps tasks that make SOME suspending calls.
+  (design 114: `import std.task` — no longer prelude) is now needed only where the
+  compute budget does not reach (the bounds below). Fairness backstop — ONE op-count
+  budget (default 128, never wall-clock, so interleavings stay deterministic)
+  covers both ways a task can fail to cede. (a) An always-ready socket (design
+  89-c): every 128 non-parking io ops the primitive force-yields once, so a busy
+  reader cedes automatically. (b) A PURE-COMPUTE loop (design 127): the compiler
+  charges every LOOP ITERATION of a task body against a frame-resident counter and
+  force-yields when it runs out, so `while true { n = n + 1 }` in a spawned task no
+  longer starves its siblings and needs no `yield_now`. The compute check is
+  inserted at the TOP of each loop body (a `continue` hits it too) in the task's own
+  body, in the suspending callees the compiler embeds, and in a suspending `main` —
+  which means the body becomes SUSPENDING even if you wrote nothing that suspends.
+  Four bounds worth knowing: a SYNC callee is NOT instrumented (a compute loop
+  inside a never-suspending helper called from a task still starves — move the loop
+  into the task or put a `yield_now` in the helper); a `for` over a COLLECTION
+  (`for x in v.iter()`) is not instrumented, nor is any loop nested inside one
+  (only a range `for` can be state-split — use a `while` over an index); a CLOSURE
+  body is not instrumented; std's io loops use the 89-c charge instead. Cost on a
+  maximally tight arithmetic loop in a spawned task: 1.53x (the loop joins the
+  frame's state machine). Loops outside task bodies are untouched.
 - A spawned task may CALL `TcpListener.accept()`, and a **multi-connection
   accept-LOOP** (one server task `accept`-looping to serve N connections
   sequentially, with N client tasks in the same joined group) now round-trips —
