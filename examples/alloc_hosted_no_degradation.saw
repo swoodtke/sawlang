@@ -1,0 +1,39 @@
+// Design 123: the hosted modules' hand-rolled buffers. `Command.output` carried
+// two of the brief's failure modes at once — a refused read-buffer malloc
+// skipped the whole capture block, reaped the child anyway and returned
+// `Some(CommandOutput(stdout: "", exit_code: <the real code>))`, i.e. success
+// with silently empty stdout; and a refused GROW left `output_cap` short while
+// the copy loop wrote past it. `build_argv` reported an allocation failure as
+// "could not launch process", a different failure from the one that happened.
+//
+// File.read/File.write and Directory.current each folded allocator exhaustion
+// into the same `None` their syscall failures use. All of them panic now, so
+// the `None`/`Err` each of these APIs returns has exactly one meaning again.
+//
+// This test asserts the correct answers still come back with allocation
+// available; the panic paths need a real out-of-memory condition in a child
+// process, which the suite has no way to stage.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// hello from a child
+// 0
+// true
+
+import std.process
+import std.directory
+
+func main() {
+    var c = Command(program: "/bin/echo")
+    c.arg("hello from a child")
+    if let out = c.output() {
+        print(out.stdout.trim())        // hello from a child
+        print(out.exit_code)            // 0
+    }
+
+    // Directory.current still answers, and its None now means only "getcwd
+    // failed" (which with the fixed 1024-byte buffer includes an over-long
+    // path — review M15, still open).
+    if let cwd = Directory.current() {
+        print(cwd.as_str().len() > 0)   // true
+    }
+}

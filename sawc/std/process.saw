@@ -145,12 +145,17 @@ extension Command {
     // freed by the caller; both spawn paths below use it and free it at once.
     // (Signature names a raw pointer, so this is already the design-81 marked
     // domain.)
-    func build_argv(&self) -> UnsafePointer<Int8>? {
+    //
+    // Panics if the array cannot be allocated (design 123, infallible tier).
+    // `run`/`output` report a `None` here as "could not launch process", which
+    // is a different failure from the one that happened — the callers' error
+    // channels are about the CHILD, not about memory.
+    func build_argv(&self) -> UnsafePointer<Int8> {
         let n = self.args.len()
         let slot = sizeof<UnsafePointer<Int8>>()
         let slots = n + 2                      // program + args + NULL
         guard let raw = malloc(slots * slot) else {
-            return None
+            panic("Command: allocation failed")
         }
         let arr = raw as UnsafePointer<UnsafePointer<Int8>>
         arr[0] = self.program as UnsafePointer<Int8>
@@ -184,9 +189,7 @@ extension Command {
     //             is the design-92 distinction — a failed launch is surfaced,
     //             not folded into a bogus exit code (never hide errors).
     public func run(&self) -> Result<Int32, ProcessError> {
-        guard let argv = unsafe self.build_argv() else {
-            return ProcessError(program: self.program)
-        }
+        let argv = unsafe self.build_argv()
         let job = __saw_rt_proc_spawn(self.program as UnsafePointer<Int8>, argv, 0)
         free(argv)
         if job <= 0 {
@@ -207,9 +210,7 @@ extension Command {
     // Returns CommandOutput with stdout and exit code, or None if the child
     // could not be spawned.
     public func output(&self) -> CommandOutput? {
-        guard let argv = unsafe self.build_argv() else {
-            return None
-        }
+        let argv = unsafe self.build_argv()
         let job = __saw_rt_proc_spawn(self.program as UnsafePointer<Int8>, argv, 1)
         free(argv)
         if job <= 0 {
@@ -221,51 +222,63 @@ extension Command {
         var output_len = 0
         var output_cap = 0
 
-        if let read_buf = unsafe malloc(PROC_READ_CHUNK) {
-            var done = false
-            while not done {
-                let bytes_read = __saw_rt_proc_read_stdout(job, read_buf, PROC_READ_CHUNK)
-                if bytes_read > 0 {
-                    // Ensure capacity
-                    let needed = output_len + bytes_read + 1
-                    if output_cap < needed {
-                        var new_cap = if output_cap == 0 { PROC_READ_CHUNK } else { output_cap * 2 }
-                        while new_cap < needed {
-                            new_cap = new_cap * 2
-                        }
-
-                        if let old = output_buf {
-                            if let new_buf = unsafe realloc(old, new_cap) {
-                                output_buf = new_buf
-                                output_cap = new_cap
-                            }
-                        } else {
-                            if let new_buf = unsafe malloc(new_cap) {
-                                output_buf = new_buf
-                                output_cap = new_cap
-                            }
-                        }
-                    }
-
-                    // Copy bytes
-                    if let out = output_buf {
-                        var i = 0
-                        while i < bytes_read {
-                            unsafe out[output_len + i] = unsafe read_buf[i]
-                            i = i + 1
-                        }
-                        output_len = output_len + bytes_read
-                        unsafe out[output_len] = 0 as Int8  // null terminate
-                    }
-                } else {
-                    // 0 = EOF (the child closed stdout / exited); < 0 = a read
-                    // error. Either way there is nothing more to collect — the
-                    // child is still reaped below so its status is not lost.
-                    done = true
-                }
-            }
-            free(read_buf)
+        // Design 123. This capture loop carried two of the failure modes the
+        // brief exists to remove. A refused `malloc(PROC_READ_CHUNK)` skipped
+        // the whole block, reaped the child anyway and returned
+        // `Some(CommandOutput(stdout: "", exit_code: <real code>))` — success
+        // with silently empty stdout. And a refused grow left `output_cap`
+        // short while the copy loop below wrote `out[output_len + i]` and the
+        // terminator past it: heap corruption. `output` is the infallible tier,
+        // so both panic now.
+        guard let read_buf = unsafe malloc(PROC_READ_CHUNK) else {
+            panic("Command.output: allocation failed")
         }
+        var done = false
+        while not done {
+            let bytes_read = __saw_rt_proc_read_stdout(job, read_buf, PROC_READ_CHUNK)
+            if bytes_read > 0 {
+                // Ensure capacity
+                let needed = output_len + bytes_read + 1
+                if output_cap < needed {
+                    var new_cap = if output_cap == 0 { PROC_READ_CHUNK } else { output_cap * 2 }
+                    while new_cap < needed {
+                        new_cap = new_cap * 2
+                    }
+
+                    if let old = output_buf {
+                        guard let new_buf = unsafe realloc(old, new_cap) else {
+                            panic("Command.output: allocation failed")
+                        }
+                        output_buf = new_buf
+                        output_cap = new_cap
+                    } else {
+                        guard let new_buf = unsafe malloc(new_cap) else {
+                            panic("Command.output: allocation failed")
+                        }
+                        output_buf = new_buf
+                        output_cap = new_cap
+                    }
+                }
+
+                // Copy bytes. `output_cap >= needed` holds by the block above,
+                // so this cannot run past the end.
+                if let out = output_buf {
+                    var i = 0
+                    while i < bytes_read {
+                        unsafe out[output_len + i] = unsafe read_buf[i]
+                        i = i + 1
+                    }
+                    output_len = output_len + bytes_read
+                    unsafe out[output_len] = 0 as Int8  // null terminate
+                }
+            } else {
+                // 0 = EOF (the child closed stdout / exited); < 0 = a read
+                // error. Either way there is nothing more to collect — the
+                // child is still reaped below so its status is not lost.
+                done = true
+            }
+        }
+        free(read_buf)
 
         // Reap the child. The seam returns the RAW wait status, decoded the same
         // way run() does (DF2): a signal death is a nonzero failure, not exit 0.

@@ -106,26 +106,28 @@ extension File {
             return Data()
         }
 
-        // Allocate buffer and read
-        if let buf = unsafe malloc(bytes_to_read) {
-            let bytes_read = read(self.fd, buf, bytes_to_read)
-            if bytes_read < 0 {
-                free(buf)
-                return None
-            }
-
-            // Create Data and copy bytes
-            var data = Data(capacity: bytes_read)
-            var i = 0
-            while i < bytes_read {
-                data.push(unsafe buf[i] as UInt8)
-                i = i + 1
-            }
-            free(buf)
-            move data
-        } else {
-            None
+        // Allocate buffer and read. `None` means the read(2) failed;
+        // allocator exhaustion panics rather than joining it (design 123), and
+        // the `Data` fill below is the infallible tier too, so a short buffer
+        // can no longer make this return FEWER bytes than the file holds.
+        guard let buf = unsafe malloc(bytes_to_read) else {
+            panic("File.read: allocation failed")
         }
+        let bytes_read = read(self.fd, buf, bytes_to_read)
+        if bytes_read < 0 {
+            free(buf)
+            return None
+        }
+
+        // Create Data and copy bytes
+        var data = Data(capacity: bytes_read)
+        var i = 0
+        while i < bytes_read {
+            data.push(unsafe buf[i] as UInt8)
+            i = i + 1
+        }
+        free(buf)
+        move data
     }
 
     // =========================================================================
@@ -138,27 +140,28 @@ extension File {
             return 0
         }
 
-        // Allocate temporary buffer for write
-        if let buf = unsafe malloc(data.len()) {
-            // Copy data bytes to buffer
-            var i = 0
-            while i < data.len() {
-                if let b = data.get(i) {
-                    unsafe buf[i] = b as Int8
-                }
-                i = i + 1
+        // Allocate temporary buffer for write. `None` means the write(2)
+        // failed; allocator exhaustion panics rather than joining it (design
+        // 123).
+        guard let buf = unsafe malloc(data.len()) else {
+            panic("File.write: allocation failed")
+        }
+        // Copy data bytes to buffer
+        var i = 0
+        while i < data.len() {
+            if let b = data.get(i) {
+                unsafe buf[i] = b as Int8
             }
+            i = i + 1
+        }
 
-            let written = write(self.fd, buf, data.len())
-            free(buf)
+        let written = write(self.fd, buf, data.len())
+        free(buf)
 
-            if written < 0 {
-                None
-            } else {
-                written
-            }
-        } else {
+        if written < 0 {
             None
+        } else {
+            written
         }
     }
 

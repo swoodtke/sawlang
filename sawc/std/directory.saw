@@ -132,19 +132,23 @@ extension Directory {
     // Working directory
     // =========================================================================
 
-    // Get the current working directory
+    // Get the current working directory.
+    //
+    // `None` means getcwd(2) failed — which, with this fixed 1024-byte buffer,
+    // includes a path longer than that (tracked as review M15). Allocator
+    // exhaustion PANICS rather than joining that `None` (design 123): it used
+    // to be a third meaning for the same answer.
     public func current() -> Path? {
-        if let buf = unsafe malloc(1024) {
-            if let result = unsafe getcwd(buf, 1024) {
-                // Copy into an owned String, then free the scratch buffer.
-                let s = __saw_string_from_bytes(result, strlen(result))
-                free(buf)
-                Path(s: s)
-            } else {
-                free(buf)
-                None
-            }
+        guard let buf = unsafe malloc(1024) else {
+            panic("Directory.current: allocation failed")
+        }
+        if let result = unsafe getcwd(buf, 1024) {
+            // Copy into an owned String, then free the scratch buffer.
+            let s = __saw_string_from_bytes(result, strlen(result))
+            free(buf)
+            Path(s: s)
         } else {
+            free(buf)
             None
         }
     }
