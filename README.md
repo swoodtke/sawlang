@@ -201,6 +201,30 @@ definition site, with no runtime cost. Panics and asserts already include a
 print("{#file}:{#line} in {#function} - checkpoint")
 ```
 
+### Documentation Comments
+
+`///` documents the declaration that follows it — a function, type, trait,
+`static`, struct field, enum case, or extension method. `//!` documents the file
+it appears in and belongs at the top, ahead of every declaration. A doc comment
+that documents nothing is a compile error rather than a silent drop.
+
+```saw
+//! Monotonic and wall-clock time.
+
+/// A span of time, held as whole nanoseconds.
+struct Duration {
+    /// Nanoseconds in the span.
+    public nanos: Int64
+}
+```
+
+`sawc <entry.saw> --emit-docs` type-checks the program and writes a JSON
+description of it instead of generating code, covering the entry file's module
+and every module it imports. Each item carries its rendered signature,
+visibility, generic parameters and bounds, trait conformances, doc text, and
+source line. Ordering is fixed, so the output diffs cleanly. Private fields,
+methods, and inits are left out; `--emit-docs-all` keeps them.
+
 ### Shadowing Must Be Earned
 
 Accidentally reusing a name from an enclosing scope is a compile error. The
@@ -280,6 +304,25 @@ func main() {
     print(a.join() + b.join())   // 25, structured join
 }
 ```
+
+A suspending call needs no special position. It can sit in an operand, an
+argument, a receiver, a chain hop, a collection literal, a string interpolation,
+or a `return` value. The compiler rewrites the statement into evaluation-ordered
+steps, so left-to-right order and short-circuiting hold as written:
+
+```saw
+func report() -> Int {
+    let total = work(3) + work(4)      // both operands suspend
+    print("squared: {work(5)}")        // suspends inside an interpolation
+    let cached: Int? = None
+    let extra = cached ?? work(7)      // the `??` RHS suspends only if it runs
+    return total + extra
+}
+// spawned into a TaskGroup: prints "squared: 25", joins 74
+```
+
+A suspension the transform cannot place is a compile error naming the site, not
+a silent blocking call.
 
 A single cooperative scheduler runs spawned tasks eagerly, backed by an I/O
 reactor (kqueue or epoll). A task parked on a socket wakes exactly when its file
@@ -495,10 +538,14 @@ The standard library includes:
 
 - **String** - Immutable, reference-counted byte string (atomic refcount, O(1)
   `len()`), always valid UTF-8. `bytes()`/`chars()` iterator views, `split`,
-  `to_int`/`to_float` parsing, `fromBytes` (validating). Concatenation goes
-  through interpolation or `StringBuilder`.
-- **StringBuilder** - Efficient, geometrically-growing builder: `append`
-  (overloaded for `String`/`Int`), `build`.
+  `fromBytes` (validating), and parsing that returns an Optional rather than
+  panicking: `to_int`, `to_float`, and `to_uint` — the unsigned companion that
+  reaches the whole `0..UInt.max` range, with a `radix:` overload. Concatenation
+  goes through interpolation or `StringBuilder`.
+- **StringBuilder** - Geometrically-growing builder: `append` (overloaded for
+  `String`/`Int`), `append_char`, `append_scalar` (UTF-8-encodes one Unicode
+  scalar, returning the byte count, or `None` for a surrogate or out-of-range
+  value), `len`, `is_empty`, `clear`, `as_str`, `build`.
 - **Vector<T, A>** - Dynamic array: `push`, `pop`, `get`, `len`, `map`/`fold`,
   `sort`/`sort_by`, `swap`; context-driven `[...]` literals.
 - **Map<K, V, A>** - Hash map (open addressing): `insert`, `get`, `remove`,
@@ -517,8 +564,9 @@ The standard library includes:
   silently swallows an error.
 - **std.process** - `Command.run() -> Result<Int32, ProcessError>`, `.output()`.
 - **std.time** - `Duration`, `Instant` (hosted).
-- **Numeric extensions** - `Int`/`Float` methods: `abs`, `pow`, `min`/`max`/
-  `clamp`, `sqrt`, `floor`/`ceil`/`round`, `is_even`/`is_odd`, `signum`.
+- **Numeric extensions** - The two sets are disjoint. `Int`: `abs`, `min`/`max`/
+  `clamp`, `pow`, `is_even`/`is_odd`, `signum`. `Float`: `abs`,
+  `floor`/`ceil`/`round`, `sqrt`, `min`/`max`.
 - **Traits** - `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`.
 
 ## Getting Started
@@ -596,11 +644,14 @@ Saw is in active development. Implemented so far: generics with trait bounds and
 call-site type inference (generics compile to specialized code); algebraic data
 types with exhaustive `match`; the Copy trait family; traits with default bodies
 and trait objects (`any Trait`); overloading; the `Printable`, `Error`,
-`Equatable`, `Comparable`, and `Hashable` traits; colorless concurrency (a
-cooperative scheduler with a precise I/O reactor, multi-threaded task groups, and
-blocking-FFI offload); member visibility with a curated prelude; earned
-shadowing; source-location literals; pluggable allocators; and the freestanding
-toolkit (memory-mapped I/O, `static_assert`, and C-ABI exports).
+`Equatable`, `Comparable`, and `Hashable` traits; multi-hop optional chaining
+including chained assignment; whole-referent replacement through a `&var`
+reference; colorless concurrency (a cooperative scheduler with a precise I/O
+reactor, multi-threaded task groups, blocking-FFI offload, and suspending calls
+in arbitrary expression positions); member visibility with a curated prelude;
+earned shadowing; source-location literals; doc comments with `--emit-docs`
+extraction; pluggable allocators; and the freestanding toolkit (memory-mapped
+I/O, `static_assert`, and C-ABI exports).
 
 [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) is the authoritative language reference —
 when it and the compiler disagree, the compiler wins and the spec is the bug.
