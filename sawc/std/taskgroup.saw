@@ -351,6 +351,23 @@ extension TaskGroup {
         slot
     }
 
+    // design 134: a task reached Done. Mark the slot and RELEASE ITS FRAME BOX
+    // right here — the whole allocation, not just the values inside it. That is
+    // the reclamation design 124 wanted (its item 3) and could not have: the box
+    // used to hold the result and the cancel word a `TaskHandle` addressed, so
+    // dropping it would have invalidated the handle. Both live in the cell now,
+    // which stays, so the frame — params, across-suspend locals, embedded callee
+    // sub-frames, scheduler words and all — dies with the task that owned it.
+    //
+    // Every scan skips a done slot before touching `tasks`, so the `None` left
+    // behind is never dereferenced. The MT caller holds the run-queue lock.
+    func __complete(&var self, slot: Int) {
+        self.done.set(slot, true)
+        self.remaining.set(slot, 0)
+        self.active.set(slot, false)
+        self.tasks.set(slot, None)
+    }
+
     // design 89: link this single-threaded group into the ambient scheduler list
     // (idempotent). `&self` is the group's FINAL storage address here (called on the
     // real binding via a `&var self` method / a `__group[0]` pointer deref), so the
@@ -507,8 +524,7 @@ func __saw_exec_worker(addr: Int) unsafe {
                     })
                     if oc.done {
                         pthread_mutex_lock(lk)
-                        g[0].active.set(idx, false)
-                        g[0].done.set(idx, true)
+                        g[0].__complete(idx)
                         let _ = pthread_mutex_unlock(lk)
                     } else {
                         pthread_mutex_lock(lk)
@@ -981,7 +997,7 @@ func __saw_exec_run(term_group: Int, term_slot: Int) unsafe {
                         })
                         g[0].active.set(i, false)
                         if oc.done {
-                            g[0].done.set(i, true)
+                            g[0].__complete(i)
                         } else {
                             g[0].remaining.set(i, oc.wake)
                         }
