@@ -1,0 +1,85 @@
+// Design 123: Map and Set. `Map._grow` built its slot table with
+// `Vector(capacity:)` + `push`, both of which degraded silently, so on a
+// refused allocation:
+//   * the FIRST grow set `self.cap = 8` over an EMPTY slot vector, and every
+//     later insert dropped its key and value while still incrementing `count` —
+//     the map reported `len() == N` with `get()` answering None for every key;
+//   * a LATER grow sent the rehash probe into an INFINITE LOOP, because
+//     `new_slots.get(b)` answering None never satisfies its exit condition.
+//     A hang, not a crash.
+// Set inherited all of it and additionally returned `true` ("newly inserted")
+// for an element it had just dropped.
+//
+// `insert` panics now; `try_insert` reports and leaves the table intact.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// insert denied: allocation of 320 bytes (align 4) failed
+// 30
+// 20
+// true
+// set insert denied
+// 2
+// true
+// 4
+
+static BUDGET: Atomic<Int> = Atomic(64)
+
+struct FailAlloc {}
+extension FailAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? {
+        let left = BUDGET.load()
+        if left <= 0 {
+            return None
+        }
+        BUDGET.store(left - 1)
+        GlobalAllocator().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    var m = Map<Int, Int, FailAlloc>()
+    m.insert(1, 10)
+    m.insert(2, 20)
+    m.insert(3, 30)
+    print(m.len())                      // 3
+
+    // Load factor: the 7th entry (7*4 > 8*3) triggers the rehash. Get to 6 with
+    // budget, then starve the allocator.
+    m.insert(4, 40)
+    m.insert(5, 50)
+    m.insert(6, 60)
+    BUDGET.store(0)
+    let inserted = m.try_insert(7, 70)
+    BUDGET.store(64)
+    match inserted {
+        case Ok(_) -> print("inserted"),
+        case Err(e) -> print("insert denied: {e}")
+    }
+    print(m.get(3)!)                    // 30 — the old table is intact...
+    print(m.get(2)!)                    // 20 — ...every entry of it
+
+    // Set rides on the same path.
+    var s = Set<Int, FailAlloc>()
+    print(s.insert(1))                  // true — newly inserted
+    s.insert(2)
+    s.insert(3)
+    s.insert(4)
+    s.insert(5)
+    s.insert(6)
+    BUDGET.store(0)
+    let added = s.try_insert(7)
+    BUDGET.store(64)
+    match added {
+        case Ok(_) -> print("set inserted"),
+        case Err(_) -> print("set insert denied")
+    }
+    print(s.len() - 4)                  // 2 — six members, unchanged by the Err
+    print(s.contains(6))                // true — nothing was dropped
+
+    // With budget the same insert lands.
+    print(m.get(3)! - 26)               // 4
+}

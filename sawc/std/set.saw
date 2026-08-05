@@ -68,8 +68,13 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
         self.map.contains_key(value)
     }
 
-    // Insert `value`. Returns true iff it was NEWLY inserted (absent before);
-    // false if it was already present. The element is moved in.
+    /// Inserts `value`, returning whether it was NEWLY inserted.
+    ///
+    /// `false` means it was already a member — the one question this `Bool`
+    /// answers. Panics if the table must be rehashed and the allocator refuses
+    /// (design 123, infallible tier); it used to drop the element, count it
+    /// anyway and still return `true`, so the set reported `len() == 1` for an
+    /// element `contains` could not find. `try_insert` reports that instead.
     public func insert(&var self, value: T) -> Bool {
         // Map.insert returns the previous value (Some) if the key existed.
         if let prev = self.map.insert(move value, SetMark()) {
@@ -77,6 +82,17 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
         } else {
             true
         }
+    }
+
+    /// Inserts `value`, reporting allocator exhaustion as `Err(AllocError)`.
+    ///
+    /// `Ok(true)` means newly inserted, `Ok(false)` already a member. The set is
+    /// untouched on `Err`; `value` is consumed either way.
+    public func try_insert(&var self, value: T) -> Result<Bool, AllocError> {
+        if let prev = try self.map.try_insert(move value, SetMark()) {
+            return false
+        }
+        return true
     }
 
     // Remove `value`. Returns true iff it was present.

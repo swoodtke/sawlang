@@ -137,10 +137,37 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     // (leaving an Empty behind) and probed into the local, and finally the local
     // is moved into `self.slots` — whose old (now all-Empty) buffer the field
     // assignment releases.
+    // The panicking tier: `insert` cannot report a failure through its `V?`
+    // return, so allocator exhaustion during a rehash panics (design 123).
     func _grow(&var self) {
+        if not self._try_grow() {
+            panic("Map.insert: allocation failed")
+        }
+    }
+
+    // The reporting tier. Returns whether the table grew; FALSE means the
+    // allocator refused and the map is untouched — the old table is still
+    // intact and every entry is still in it.
+    //
+    // Before design 123 this could not fail SAFELY: the slot vector was built
+    // with `Vector(capacity:)` + `push`, both of which degraded silently, so a
+    // refused first grow left `self.cap` claiming 8 buckets over an EMPTY
+    // vector, and a refused later grow sent the rehash probe below into an
+    // infinite loop (`new_slots.get(b)` answering None never satisfies its exit
+    // condition — a hang, not a crash). Reserving the whole table up front is
+    // what makes the rest of this function allocation-free.
+    func _try_grow(&var self) -> Bool {
         let new_cap = if self.cap == 0 { 8 } else { self.cap * 2 }
         let mask = new_cap - 1
-        var new_slots = Vector<MapSlot<K, V>, A>(capacity: new_cap)
+        var new_slots = Vector<MapSlot<K, V>, A>()
+        var reserved = false
+        match new_slots.try_reserve(new_cap) {
+            case Ok(_) -> { reserved = true },
+            case Err(_) -> { reserved = false }
+        }
+        if not reserved {
+            return false
+        }
         var f = 0
         while f < new_cap {
             new_slots.push(MapSlot<K, V>.Empty)
@@ -184,11 +211,15 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         }
         self.slots = move new_slots
         self.cap = new_cap
+        true
     }
 
     // ---- public API -------------------------------------------------------
 
-    // Insert or update. Returns the previous value if the key existed, else None.
+    /// Inserts or updates, returning the previous value if the key was present.
+    ///
+    /// Panics if the table must be rehashed and the allocator refuses (design
+    /// 123, infallible tier). `try_insert` reports that instead.
     public func insert(&var self, key: K, value: V) -> V? {
         // Grow before inserting if empty or the load factor would exceed 3/4.
         if self.cap == 0 || (self.count + 1) * 4 > self.cap * 3 {
@@ -223,6 +254,24 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         // Defensive: the load factor keeps at least one empty slot, so this is
         // unreachable in practice; grow and retry to stay total.
         self._grow()
+        return self.insert(move key, move value)
+    }
+
+    /// Inserts or updates, reporting allocator exhaustion as `Err(AllocError)`.
+    ///
+    /// On `Err` the map is untouched: the rehash is attempted first and refused
+    /// before any entry moves, so every key that was in the table still is.
+    /// `key` and `value` are consumed either way.
+    public func try_insert(&var self, key: K, value: V) -> Result<V?, AllocError> {
+        if self.cap == 0 || (self.count + 1) * 4 > self.cap * 3 {
+            if not self._try_grow() {
+                let wanted = if self.cap == 0 { 8 } else { self.cap * 2 }
+                let bytes = wanted * sizeof<MapSlot<K, V>>()
+                return AllocError(size: bytes, align: alignof<MapSlot<K, V>>())
+            }
+        }
+        // The table now has room, so the placement below cannot allocate and
+        // `insert`'s own panicking grow is unreachable.
         return self.insert(move key, move value)
     }
 
