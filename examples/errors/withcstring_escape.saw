@@ -8,10 +8,10 @@
 // EXPECT-ERROR-CONTAINS: non-escaping closure into an escaping
 
 struct PtrKeeper {
-    f: (UnsafePointer<Int8>) -> Void
+    f: (UnsafePointer<Int8>) unsafe -> Void
 }
 
-func stash(body: (UnsafePointer<Int8>) -> Void) -> PtrKeeper {
+func stash(body: (UnsafePointer<Int8>) unsafe -> Void) unsafe -> PtrKeeper {
     PtrKeeper(f: body)          // escape: storing a non-escaping closure
 }
 

@@ -4087,19 +4087,92 @@ Reversing the order (`sync unsafe`) is rejected the same way. `--emit-docs`
 renders the slot in the `signature` field and prefixes the `effect` field with
 `unsafe`.
 
+#### The effect on a function type
+
+On a function type the effect is a property of the **signature**: it is present
+exactly when a parameter or the return names an unsafe type. Both halves are
+compile errors.
+
+```saw
+func with_raw<R>(&self, body: (UnsafePointer<T>) unsafe sync -> R) unsafe -> R   // ok
+func run(body: (UnsafeMmioReg) sync -> Int) unsafe -> Int
+// error: the function type `(UnsafeMmioReg) sync -> Int` names an unsafe type
+//        (`UnsafeMmioReg`) but its effect slot does not say `unsafe`
+func apply(body: (Int) unsafe sync -> Int) -> Int
+// error: the function type `(Int) unsafe sync -> Int` declares `unsafe` but its
+//        signature names no unsafe type
+//   hint: a function taking only safe types must be sound for every input;
+//         unsafety enters a signature only through its types
+```
+
+The type-position effect has one job: handing an unsafe value into a function
+nobody named, which is the `with_raw` shape. Tying it to the signature means one
+contract has one spelling, so there is no marked-versus-unmarked pair to define
+variance between. The rule is checked on the type **as written**, which is what
+keeps generics out of it: `Vector.with_ref`'s `(&T) sync -> R` is judged once
+against `T`, not again for an instantiation that substitutes a pointer.
+
+A declaration is judged the other way round, and a redundant `unsafe` on one
+stays legal (above): a declaration's marker is a promise about its **body**.
+Taking such a function as a value yields the plain type, because the value's
+type is read off the signature like any other.
+
 #### Closures
 
-A closure is judged by the trigger rule on its **own body**. A closure that never
-names an unsafe type is safe even when passed into an unsafe function:
+A closure inherits its enclosing function's unsafe domain. There is no
+closure-level marker, and a closure's own type says `unsafe` under the same
+signature rule as any function type.
+
+```saw
+func read_first() unsafe -> Int {
+    if let block = GlobalAllocator().alloc(BLOCK_BYTES, BLOCK_ALIGN) {
+        block[0] = 7 as Int8
+        let read: () -> Int = { block[0] as Int }   // safe signature, unsafe body
+        ...
+    }
+}
+```
+
+The closure above captures a raw pointer, so its body is unsafe while its
+signature is not — and `read_first`, which declares the effect, is where a
+reviewer reads that. A safe-signature closure with an unsafe body can only occur
+there: the value it touches either came from a capture (so the enclosing body
+bound it, and was already unsafe by the trigger rule) or from a binding written
+inside the enclosing body. So the compiler charges that contact to the enclosing
+declaration, and the same "not declared `unsafe`" error names it:
+
+```
+error: function `read_byte` is not declared `unsafe`, but its body names a value
+       of unsafe type (`UnsafePointer<Int8>`)
+  hint: write `func read_byte(...) unsafe`
+```
+
+The two honest spellings for an unsafe closure in a safe function are declaring
+the enclosing function `unsafe`, or hoisting the body into a small named
+`unsafe` helper. A closure-scoped unsafe region was considered and rejected:
+captures give a closure the whole enclosing frame, so its braces confine the text
+without confining what the text can reach. The enforceable boundary is a
+signature.
+
+A closure whose signature *does* name an unsafe type is the `with_raw` case
+instead. Its contact stays local, because the slot it was passed to already
+declares the effect at the call site:
+
+```saw
+with_register(16) { r in r.read() }    // `r: UnsafeMmioReg`: the slot said so
+```
+
+An unsafe-built, safe-signatured closure that escapes behind a plain function
+type is the author's rule-7 responsibility — the ad-hoc analogue of `Vector`
+wrapping an `UnsafePointer`.
+
+A closure that never names an unsafe type is safe even when passed into an unsafe
+function, which is what keeps the reviewed wrappers usable from safe code:
 
 ```saw
 func with_ref<R>(&self, i: Int, body: (&T) sync -> R) unsafe -> R
 v.with_ref(0) { e in e + 1 }        // the closure sees only `&T`: safe
 ```
-
-Where an unsafe value genuinely is handed to a closure, the closure's parameter
-type names it, so the rule fires and the slot must carry the `unsafe` effect. An
-unsafe closure passed where a safe function type is expected is a clean error.
 
 #### Calling an unsafe function
 

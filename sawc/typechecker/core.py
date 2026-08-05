@@ -285,6 +285,24 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     def _type_tree_has_unsafe(self, t) -> bool:
         return self._first_unsafe_type(t) is not None
 
+    def _fn_signature_names_unsafe(self, t) -> bool:
+        """Whether a FUNCTION type's own signature — a parameter or the return —
+        names an unsafe type.
+
+        design 136: this is exactly what the `unsafe` effect on a function type
+        means. The effect has one job, handing an unsafe value into an unnamed
+        function (the `with_raw` shape), so it is present precisely when the
+        signature demands it. Deriving it from the signature rather than trusting
+        a written keyword is what keeps one contract from having a marked and an
+        unmarked spelling, and with it any variance question between the two.
+        """
+        if t is None or t.kind != TypeKind.FUNCTION:
+            return False
+        for pt in (t.param_types or []):
+            if self._type_tree_has_unsafe(pt):
+                return True
+        return self._type_tree_has_unsafe(t.func_return_type)
+
     def _note_unsafe_contact(self, t, node, what: str) -> None:
         """Record that the function being checked touched an unsafe type. Only
         the FIRST contact is kept — it is the one the diagnostic points at, and
@@ -590,6 +608,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # signatures/fields (design 51 object safety + unsized discipline). Runs
         # after traits are registered so object safety is decidable.
         self._validate_existentials_in_program(program)
+
+        # Same pass over the same positions for the `unsafe` effect on written
+        # function TYPES (design 136): present exactly when the signature names
+        # an unsafe type. Runs after struct registration, which is what makes an
+        # `unsafe struct` recognizable.
+        self._validate_fn_effects_in_program(program)
 
         # Fifth-b pass: check resource management containment rules
         self._check_no_copy_containment()
@@ -1106,8 +1130,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for extension in module_ast.extensions:
             self._register_extension(extension)
 
-        # Validate `any Trait` existentials in declared signatures (design 51).
+        # Validate `any Trait` existentials in declared signatures (design 51),
+        # and the `unsafe` effect on written function types (design 136).
         self._validate_existentials_in_program(module_ast)
+        self._validate_fn_effects_in_program(module_ast)
 
         # Check resource containment rules
         self._check_no_copy_containment()

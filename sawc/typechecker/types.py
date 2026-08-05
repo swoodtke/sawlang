@@ -421,6 +421,106 @@ class TypeUtilsMixin:
         self._validate_existential_type(
             getattr(fn, 'return_type', None), line, column)
 
+    # ------------------------------------------------------- design 136 (unit B)
+
+    def _validate_fn_effects_in_program(self, program):
+        """Signature-level pass: every written function TYPE spells the `unsafe`
+        effect its own signature carries, and no other (design 136).
+
+        Runs over the same declared positions as the existential pass, and for
+        the same reason: the rule needs struct registration (an `unsafe struct`
+        is only known by then) and it judges the annotation AS WRITTEN. Judging
+        the written form is also what keeps generics out of it — a `(T) sync ->
+        R` slot is checked once, against the type parameter, not again against
+        every instantiation that may substitute a pointer for `T`.
+        """
+        for struct in getattr(program, 'structs', []):
+            src = getattr(struct, 'source_file', None)
+            for field in struct.fields:
+                self._validate_fn_type_effect(
+                    field.type, getattr(field, 'line', struct.line),
+                    getattr(field, 'column', struct.column), src)
+        for enum in getattr(program, 'enums', []):
+            for variant in enum.variants:
+                for payload in (variant.associated_types or []):
+                    pt = payload[1] if isinstance(payload, tuple) else payload
+                    self._validate_fn_type_effect(
+                        pt, enum.line, enum.column,
+                        getattr(enum, 'source_file', None))
+        for func in getattr(program, 'functions', []):
+            self._validate_fn_effects_in_signature(func)
+        for ext in getattr(program, 'extensions', []):
+            for method in ext.methods:
+                self._validate_fn_effects_in_signature(method)
+        for trait in getattr(program, 'traits', []):
+            for tm in trait.methods:
+                self._validate_fn_effects_in_signature(
+                    tm, source_file=getattr(trait, 'source_file', None))
+        for static in getattr(program, 'statics', []):
+            self._validate_fn_type_effect(
+                getattr(static, 'type_annotation', None), static.line,
+                static.column, getattr(static, 'source_file', None))
+
+    def _validate_fn_effects_in_signature(self, fn, source_file=None):
+        line = getattr(fn, 'line', 0)
+        column = getattr(fn, 'column', 0)
+        src = source_file or getattr(fn, 'source_file', None)
+        for p in getattr(fn, 'parameters', []):
+            self._validate_fn_type_effect(getattr(p, 'type', None), line,
+                                          column, src)
+        self._validate_fn_type_effect(getattr(fn, 'return_type', None), line,
+                                      column, src)
+
+    def _validate_fn_type_effect(self, t, line: int, column: int,
+                                 source_file=None):
+        """Check one written type annotation, and everything nested in it.
+
+        A function type carries `unsafe` exactly when a parameter or its return
+        names an unsafe type. Both halves are errors: the effect on an all-safe
+        signature claims an obligation the types cannot express, and its absence
+        on a signature that does name one hides the obligation from the reader
+        while the compiler treats the type as unsafe anyway.
+        """
+        if t is None:
+            return
+        if t.kind == TypeKind.FUNCTION:
+            names_unsafe = self._fn_signature_names_unsafe(t)
+            if getattr(t, 'func_is_unsafe', False) and not names_unsafe:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"the function type `{t}` declares `unsafe` but its "
+                    f"signature names no unsafe type",
+                    line, column,
+                    hint="a function taking only safe types must be sound for "
+                         "every input; unsafety enters a signature only through "
+                         "its types — drop the `unsafe`, or state the "
+                         "precondition by taking a parameter of unsafe type",
+                    source_file=source_file)
+            elif names_unsafe and not getattr(t, 'func_is_unsafe', False):
+                found = None
+                for pt in (t.param_types or []):
+                    found = self._first_unsafe_type(pt)
+                    if found is not None:
+                        break
+                if found is None:
+                    found = self._first_unsafe_type(t.func_return_type)
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"the function type `{t}` names an unsafe type "
+                    f"(`{found}`) but its effect slot does not say `unsafe`",
+                    line, column,
+                    hint="write the effect the signature carries, e.g. "
+                         "`(UnsafePointer<T>) unsafe sync -> R` — one contract "
+                         "has one spelling",
+                    source_file=source_file)
+        for sub in (getattr(t, 'inner_type', None),
+                    getattr(t, 'array_element_type', None),
+                    getattr(t, 'func_return_type', None)):
+            self._validate_fn_type_effect(sub, line, column, source_file)
+        for group in ('type_args', 'element_types', 'param_types'):
+            for sub in (getattr(t, group, None) or []):
+                self._validate_fn_type_effect(sub, line, column, source_file)
+
     # =========================================================================
     # Type Resolution Methods
     # =========================================================================
@@ -1168,25 +1268,12 @@ class TypeUtilsMixin:
                          "that is checked suspension-free"
                 )
 
-        # design 130: an UNSAFE function value may not flow into a SAFE slot —
-        # the slot's callers were promised they could call it without naming an
-        # unsafe type. The safe direction is safe-value → unsafe-slot. A closure
-        # LITERAL is exempt here because `_check_closure` already judged it
-        # against the very same expected type, with its body's verdict in hand.
-        if (target_type is not None and target_type.kind == TypeKind.FUNCTION
-                and not getattr(target_type, 'func_is_unsafe', False)
-                and not isinstance(expr, ClosureExpr)):
-            src = getattr(expr, 'resolved_type', None)
-            if (src is not None and src.kind == TypeKind.FUNCTION
-                    and getattr(src, 'func_is_unsafe', False)):
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"cannot pass an `unsafe` function value where a safe "
-                    f"`{target_type}` is expected",
-                    line, column,
-                    hint="declare the slot `unsafe` in its effect position, or "
-                         "wrap the call in a function that is sound for every input"
-                )
+        # There is no `unsafe` variance gate on function values. Design 136 makes
+        # the effect a property of the SIGNATURE — a value and the slot it flows
+        # into agree on it whenever their signatures agree, and a signature
+        # mismatch is an ordinary type error. Design 130's gate compared a
+        # body-derived bit against a written one, which is the pair of spellings
+        # that no longer exists.
 
         # design 16/29 escaping variance: a non-escaping function VALUE may not
         # flow into an escaping slot. non-escaping <: escaping (the SAFE

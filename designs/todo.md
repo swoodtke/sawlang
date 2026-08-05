@@ -72,7 +72,16 @@ signature reads identically to its function TYPE; `unsafe struct` keeps the
 prefix (no parameter list, no slot). All 262 declarations re-spelled tree-wide,
 IR unchanged apart from the debug-info column of each moved keyword. The prefix
 is now a parse error carrying the mirror of 130's fixit, and so is the reversed
-`sync unsafe`.
+`sync unsafe`. Unit B settled the two things 130 left unstated: the `unsafe`
+effect on a function TYPE is well-formed iff the signature names an unsafe type
+(both halves error, the spurious one teaching rule 7), checked on the type as
+written so generic slots are never re-judged per instantiation; and a closure
+INHERITS its enclosing function's unsafe domain — no closure-level marker, its
+type derived from its own signature, and body contact beyond that signature
+charged to the enclosing declaration. The design-130 variance gates
+(closure-into-safe-slot, unsafe-value-into-safe-slot) are deleted: with the
+effect derived from the signature, the pair of spellings they compared cannot
+exist.
 
 **128 LANDED (Aug 5)** — the P4 structural-synthesis line is closed. Deinit is
 implicit (a synthesized memberwise `deinit` for any owning struct/enum, dropping

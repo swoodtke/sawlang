@@ -1,0 +1,34 @@
+// Design 136 unit B: the effect rule reads the function type AS WRITTEN.
+// `Vector.with_ref` declares its callback slot `(&T) sync -> R`; at this
+// instantiation `T` is `UnsafePointer<Int8>`, so the substituted type names an
+// unsafe type while the written one names a type parameter. The rule is checked
+// once, against what the author wrote, so a generic slot is not re-judged per
+// instantiation — and the closure, whose parameter type comes from that slot,
+// still fits.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 1
+
+static BLOCK_BYTES: Int = 4
+static BLOCK_ALIGN: Int = 1
+
+// Naming `Vector<UnsafePointer<Int8>>` is contact: the trigger rule looks into
+// type arguments, so the element type reaches this signature.
+func fill() unsafe -> Int {
+    var pointers = Vector<UnsafePointer<Int8>>()
+    if let block = GlobalAllocator().alloc(BLOCK_BYTES, BLOCK_ALIGN) {
+        block[0] = 3 as Int8
+        pointers.push(block)
+        let value = pointers.with_ref(0) { p in p[0] as Int }
+        print("{value}")
+        GlobalAllocator().dealloc(block, BLOCK_BYTES, BLOCK_ALIGN)
+        pointers.len()
+    } else {
+        0
+    }
+}
+
+func main() {
+    print("{fill()}")
+}

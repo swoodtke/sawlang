@@ -663,10 +663,30 @@ identically.
 safe to name, hold, pass, store. Only the methods reaching through to the field
 are unsafe, and `self` is never counted as contact. Derivation doesn't propagate
 either: a `&T` obtained from `buf[i]` inside an unsafe function is safe onward.
-**Closures are judged on their OWN body:** `v.with_ref(0) { e in e + 1 }` sees
-only `&T` and stays safe even though `with_ref` is unsafe. A closure that DOES
-name an unsafe type carries `unsafe` in its type and fits only an `unsafe` slot
-(`String.withCString`'s callback is the std case).
+**Function TYPES: the effect is the SIGNATURE (design 136).** `unsafe` on a
+function type is well-formed iff a parameter or the return names an unsafe type —
+BOTH halves error: `(UnsafeMmioReg) sync -> Int` ("does not say `unsafe`") and
+`(Int) unsafe sync -> Int` (rule 7: "a function taking only safe types must be
+sound for every input"). One contract, one spelling, so there is no variance
+question. Checked on the type AS WRITTEN, so a generic `(&T) sync -> R` slot is
+judged against `T` and never re-judged for a `T = UnsafePointer<Int8>`
+instantiation. A DECLARATION may still carry a redundant `unsafe` (it promises
+something about its BODY); taking it as a value yields the plain type.
+**Closures: judged on their SIGNATURE, and they INHERIT the enclosing domain.**
+`v.with_ref(0) { e in e + 1 }` sees only `&T` and stays safe even though
+`with_ref` is unsafe. A closure whose signature names an unsafe type carries
+`unsafe` in its type and fits the `unsafe` slot that handed it the value
+(`String.withCString`'s callback is the std case) — that contact stays local.
+Contact BEYOND the signature (a captured pointer, an unsafe binding written in
+the closure body) belongs to the ENCLOSING function: there is NO closure-level
+marker, so a safe-signature closure with an unsafe body needs the enclosing
+`func f(...) unsafe` (the allowed redundant form) or a hoisted named `unsafe`
+helper — inside a safe function it is the ordinary "not declared `unsafe`" error
+naming that function. A closure-scoped unsafe region was considered and rejected:
+captures give a closure the whole enclosing frame, so its braces confine the text
+but not the blast radius; the enforceable boundary is a SIGNATURE. An
+unsafe-built, safe-signatured closure escaping behind a plain function type is
+the author's rule-7 wrapper (the ad-hoc `Vector`-over-`UnsafePointer`).
 **Calling an unsafe function from safe code needs no ceremony.** What makes that
 sound: a function whose parameters are all safe types must be sound for EVERY
 input, and a precondition is expressed by taking an unsafe-typed parameter —

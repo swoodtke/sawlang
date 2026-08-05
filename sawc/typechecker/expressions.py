@@ -61,8 +61,9 @@ class ExpressionsMixin:
             expr.resolved_type = result
             # design 130 rule 3: an expression whose VALUE has an unsafe type is
             # the function naming/binding one. A closure literal is skipped —
-            # it is judged on its own body inside `_check_closure`, and its
-            # function type mentions the unsafe parameter by construction.
+            # `_check_closure` decides which domain its body's contact belongs to
+            # (design 136), and its own function type names the unsafe parameter
+            # by construction, which the slot it is passed to already declares.
             if not isinstance(expr, ClosureExpr):
                 self._note_unsafe_contact(
                     result, expr, "its body names a value of unsafe type")
@@ -7103,12 +7104,13 @@ class ExpressionsMixin:
         # its target type is a `sync` function type (e.g. `Mutex.lock`'s param),
         # the closure is a sync context checked transitively suspension-free.
         self._effect_enter_closure(expr, expected_type)
-        # design 130 q3: a closure is judged by the trigger rule on its OWN body.
-        # A closure that never names an unsafe type is SAFE even when passed into
-        # an unsafe function — `v.with_ref(0) { e in e + 1 }` sees only `&T`, and
-        # that is what keeps the reviewed wrappers usable from safe code. Where an
-        # unsafe value genuinely IS handed to a closure, the closure's parameter
-        # type names it and the rule fires here.
+        # design 130 q3: a closure that never names an unsafe type is SAFE even
+        # when passed into an unsafe function — `v.with_ref(0) { e in e + 1 }`
+        # sees only `&T`, and that is what keeps the reviewed wrappers usable from
+        # safe code. Where an unsafe value genuinely IS handed to a closure, the
+        # closure's parameter type names it. The body is checked against a fresh
+        # contact slot; the verdict at the bottom of this function decides which
+        # domain that contact belongs to (design 136).
         saved_unsafe_contact = self._unsafe_contact
         self._unsafe_contact = None
 
@@ -7336,26 +7338,34 @@ class ExpressionsMixin:
                 hint="call the function that takes it inline, e.g. `m.lock { &var x in ... }`"
             )
         # The closure's own verdict, before the enclosing function's state is
-        # restored. An unsafe closure carries `unsafe` in its TYPE, so it only
-        # fits a slot that declared `(...) unsafe ... -> R`.
-        closure_is_unsafe = self._unsafe_contact is not None
-        unsafe_contact = self._unsafe_contact
+        # restored (design 136).
+        #
+        # Its TYPE says `unsafe` exactly when its SIGNATURE names an unsafe type,
+        # like any other function type — a closure has no effect slot to write,
+        # so there is nothing else the bit could come from. That is the
+        # `with_raw` shape: the callee hands an unsafe value in, and the slot it
+        # was passed to already declared as much.
+        #
+        # Contact the BODY makes beyond that signature belongs to the ENCLOSING
+        # function, which is what "a closure inherits its enclosing function's
+        # unsafe domain" means in the checker. The value can only have arrived by
+        # capture (the enclosing body bound it) or from a binding written inside
+        # the enclosing body, so the enclosing declaration is where a reviewer
+        # reads it — and the honest spelling for an unsafe closure in a safe
+        # function is to declare that function `unsafe`, or to hoist the work
+        # into a named one. Propagating the contact gets exactly that diagnostic
+        # from `_exit_unsafe_scope`, naming the enclosing declaration.
+        signature_is_unsafe = (
+            any(self._type_tree_has_unsafe(pt) for pt in param_types)
+            or self._type_tree_has_unsafe(return_type))
+        contact = self._unsafe_contact
         self._unsafe_contact = saved_unsafe_contact
-        if (closure_is_unsafe and expected_type is not None
-                and expected_type.kind == TypeKind.FUNCTION
-                and not getattr(expected_type, 'func_is_unsafe', False)):
-            self._error(
-                ErrorKind.TYPE_MISMATCH,
-                f"this closure names a value of unsafe type "
-                f"(`{unsafe_contact[3]}`) but is passed where a safe "
-                f"`{expected_type}` is expected",
-                unsafe_contact[0], unsafe_contact[1],
-                hint="mark the slot `unsafe` in its effect position (e.g. "
-                     "`(UnsafePointer<T>) unsafe sync -> R`), or keep the unsafe "
-                     "work in the function the closure is passed to")
+        if (contact is not None and not signature_is_unsafe
+                and self._unsafe_contact is None):
+            self._unsafe_contact = contact
         result_type = SawType(TypeKind.FUNCTION, param_types=param_types,
                               func_return_type=return_type,
-                              func_is_unsafe=closure_is_unsafe,
+                              func_is_unsafe=signature_is_unsafe,
                               func_is_escaping=expr.escapes)
         # Record the resolved signature so codegen lowers parameter/return types
         # (including reference params) accurately rather than guessing. The

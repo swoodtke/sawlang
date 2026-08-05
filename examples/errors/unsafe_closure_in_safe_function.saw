@@ -1,0 +1,30 @@
+// Design 136 unit B: the same closure inside a SAFE function. A closure has no
+// effect slot of its own, so the unsafety has one honest home — the enclosing
+// declaration — and the error points there. (Hoisting the body into a small named
+// `func helper(...) unsafe` is the other spelling. A closure-scoped unsafe region
+// is not: captures give a closure the whole enclosing frame, so its braces would
+// confine the text without confining the blast radius.)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: function `read_byte` is not declared `unsafe`
+// EXPECT-ERROR-CONTAINS: write `func read_byte(...) unsafe`
+
+static BLOCK_BYTES: Int = 4
+static BLOCK_ALIGN: Int = 1
+
+func read_byte() -> Int {
+    let run = {
+        if let buf = GlobalAllocator().alloc(BLOCK_BYTES, BLOCK_ALIGN) {
+            buf[0] = 9 as Int8
+            let value = buf[0] as Int
+            GlobalAllocator().dealloc(buf, BLOCK_BYTES, BLOCK_ALIGN)
+            value
+        } else {
+            0
+        }
+    }
+    run()
+}
+
+func main() {
+    print("{read_byte()}")
+}

@@ -1,0 +1,18 @@
+// Design 136 unit B: a function TYPE carries `unsafe` exactly when its signature
+// names an unsafe type. This slot takes an `UnsafeMmioReg` and says nothing about
+// it, so a reader of `run`'s signature would not see the obligation it hands to
+// the closure — and the marked and unmarked spellings would be two names for one
+// contract. The error names the type and the slot.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: names an unsafe type (`UnsafeMmioReg`) but its effect slot does not say `unsafe`
+// EXPECT-ERROR-CONTAINS: one contract has one spelling
+
+unsafe struct UnsafeMmioReg { addr: Int }
+
+func run(body: (UnsafeMmioReg) sync -> Int) unsafe -> Int {
+    body(UnsafeMmioReg(addr: 4))
+}
+
+func main() {
+    print("{run({ r in r.addr })}")
+}
