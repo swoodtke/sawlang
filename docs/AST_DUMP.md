@@ -50,6 +50,29 @@ are stable within a run and are the compiler's internal node identity, but they
 number nodes in construction order — an implementation detail a second parser
 has no reason to reproduce. The oracle omits them.
 
+**Type names are SHORT, and the module is a separate field** (design 144). A
+type's identity is `(defining module, name)`, carried internally as one
+qualified string. The dump never shows that string. A declaration keeps the
+name the author wrote and gains a ` module=<tag>` field at the end of its
+header line:
+
+```
+Struct Header module=dep {
+  kind: Int
+}
+Extension Header: Printable module=dep {
+```
+
+A reference to a type — a `StructInit`, an `EnumInit`, an `Extension`'s target,
+a rendered `SawType` — shows the short name alone.
+
+The field is absent for the entire corpus `astdiff` sweeps, and that is not an
+accident: `tools/dump_ast.py` parses ONE file with no module context, and
+`sawc --emit-ast` type-checks a single file, whose module is the root — neither
+qualifies anything. So the format grew a field that a module-aware producer can
+fill, and the oracle's output did not change by a byte. A port that never emits
+`module=` matches today's corpus exactly.
+
 ## Error records
 
 A file that does not lex or parse emits exactly one record and nothing else:

@@ -152,6 +152,20 @@ class TypeUtilsMixin:
                 visit(alias.immediate_type)
 
     @staticmethod
+    def _type_key(t) -> str:
+        """A structural key for `t` that PRESERVES its identity (design 144).
+
+        `str(t)` renders the SHORT name — that is what a human reads — so two
+        same-named types from two modules print alike, and any comparison over
+        that string would call them equal. The mangler's encoding is injective
+        and carries the qualified name, so it is the right thing to compare."""
+        from codegen.mangle import mangle_type
+        try:
+            return mangle_type(t)
+        except Exception:
+            return str(t)
+
+    @staticmethod
     def _sym_identity(symbol, fallback: str) -> str:
         """The design-144 identity carried by a resolved type symbol.
 
@@ -1018,7 +1032,7 @@ class TypeUtilsMixin:
                 return True
             if self._types_compatible(ai, bi, allow_literal_to_distinct):
                 return True
-            return str(ai) == str(bi)
+            return self._type_key(ai) == self._type_key(bi)
 
         # Allow implicit wrapping: T is compatible with T?
         if b.is_optional() and not a.is_optional():

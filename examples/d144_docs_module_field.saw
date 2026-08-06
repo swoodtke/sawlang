@@ -1,0 +1,95 @@
+//! The `--emit-docs` half of design 144.
+
+// A type's identity is `(defining module, name)` now, and this pins how that
+// reaches the JSON: every name stays SHORT — the internal qualified spelling
+// never appears — and the module travels as its own `module` field on each
+// type-naming item. Compare `modules.d144_pub_a`'s `Widget` here with the
+// identically-named one in `d144_pub_b`, which the alias test constructs side
+// by side.
+// EXPECT: docs
+// COMPILE-FLAGS: --emit-docs
+// EXPECT-OUTPUT:
+// {
+//   "schema_version": 2,
+//   "modules": [
+//     {
+//       "name": "d144_docs_module_field",
+//       "source": "d144_docs_module_field.saw",
+//       "doc": "The `--emit-docs` half of design 144.",
+//       "items": [
+//         {
+//           "kind": "func",
+//           "name": "main",
+//           "signature": "func main()",
+//           "visibility": "private",
+//           "generics": [],
+//           "params": [],
+//           "returns": "Void",
+//           "effect": "sync",
+//           "self": null,
+//           "doc": null,
+//           "line": 93
+//         }
+//       ]
+//     },
+//     {
+//       "name": "modules.d144_pub_a",
+//       "source": "d144_pub_a.saw",
+//       "doc": null,
+//       "items": [
+//         {
+//           "kind": "extension",
+//           "name": "Widget",
+//           "signature": "public extension Widget",
+//           "visibility": "public",
+//           "generics": [],
+//           "conformances": [],
+//           "methods": [
+//             {
+//               "kind": "method",
+//               "name": "describe",
+//               "signature": "public func describe(&self) -> Int",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [],
+//               "returns": "Int",
+//               "effect": "sync",
+//               "self": "borrows",
+//               "doc": null,
+//               "line": 10
+//             }
+//           ],
+//           "doc": null,
+//           "line": 9,
+//           "module": "modules.d144_pub_a"
+//         },
+//         {
+//           "kind": "struct",
+//           "name": "Widget",
+//           "signature": "public struct Widget",
+//           "visibility": "public",
+//           "unsafe": false,
+//           "generics": [],
+//           "conformances": [],
+//           "fields": [
+//             {
+//               "name": "size",
+//               "type": "Int",
+//               "visibility": "public",
+//               "doc": null,
+//               "line": 6
+//             }
+//           ],
+//           "doc": null,
+//           "line": 5,
+//           "module": "modules.d144_pub_a"
+//         }
+//       ]
+//     }
+//   ]
+// }
+import modules.d144_pub_a.{Widget}
+
+func main() {
+    print(Widget(size: 1).describe())
+}

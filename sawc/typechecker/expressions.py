@@ -1784,9 +1784,10 @@ class ExpressionsMixin:
         """Structural equality used to detect a conflicting inference for one
         parameter (two different concrete solutions)."""
         try:
-            return str(self._resolve_type(a)) == str(self._resolve_type(b))
+            return (self._type_key(self._resolve_type(a))
+                    == self._type_key(self._resolve_type(b)))
         except Exception:
-            return str(a) == str(b)
+            return self._type_key(a) == self._type_key(b)
 
     def _unify_infer(self, pattern, actual, names, out):
         """Structurally match abstract `pattern` (which may mention parameter

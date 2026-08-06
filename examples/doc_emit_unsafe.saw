@@ -12,7 +12,7 @@
 // COMPILE-FLAGS: --emit-docs
 // EXPECT-OUTPUT:
 // {
-//   "schema_version": 1,
+//   "schema_version": 2,
 //   "modules": [
 //     {
 //       "name": "doc_emit_unsafe",
@@ -36,7 +36,7 @@
 //           "effect": "unsafe sync",
 //           "self": null,
 //           "doc": null,
-//           "line": 93
+//           "line": 95
 //         },
 //         {
 //           "kind": "func",
@@ -55,7 +55,7 @@
 //           "effect": "sync",
 //           "self": null,
 //           "doc": null,
-//           "line": 95
+//           "line": 97
 //         },
 //         {
 //           "kind": "struct",
@@ -67,7 +67,8 @@
 //           "conformances": [],
 //           "fields": [],
 //           "doc": null,
-//           "line": 91
+//           "line": 93,
+//           "module": "doc_emit_unsafe"
 //         },
 //         {
 //           "kind": "struct",
@@ -79,7 +80,8 @@
 //           "conformances": [],
 //           "fields": [],
 //           "doc": null,
-//           "line": 89
+//           "line": 91,
+//           "module": "doc_emit_unsafe"
 //         }
 //       ]
 //     }

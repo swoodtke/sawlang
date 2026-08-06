@@ -6,9 +6,9 @@ whether a function suspends — comes from the namespaces and the effect graph t
 typechecker built. The result is the input format for the `sawdoc` site
 generator; the compiler's job ends at the JSON.
 
-Shape (schema_version 1):
+Shape (schema_version 2):
 
-    {"schema_version": 1,
+    {"schema_version": 2,
      "modules": [
        {"name": "std.time", "source": "time.saw", "doc": "...",
         "items": [ ... ]}]}
@@ -17,6 +17,12 @@ An item always carries `kind`, `name`, `signature`, `visibility`, `doc`, `line`.
 Kind-specific keys follow: `generics`/`conformances` on types, `fields` on a
 struct, `cases` on an enum, `methods` on a trait or extension, and
 `params`/`returns`/`effect`/`self` on anything callable.
+
+Design 144: a type's identity is `(defining module, name)`, so an item that
+NAMES a type — struct, enum, trait, typealias, extension — also carries
+`module`, the dotted path of the module that defines it. Names and rendered
+types stay SHORT everywhere (the internal qualified spelling never appears in
+this JSON); `module` is what tells two packages' `Header`s apart.
 
 Ordering is total and machine-independent (modules by name, items by kind then
 name then line, members in declaration order), and `source` is a basename, so the
@@ -35,8 +41,17 @@ from ast_nodes import (
     BoolLiteral, EnumInit, FloatLiteral, Identifier, IntLiteral, NoneLiteral,
     StringLiteral, Visibility,
 )
+from type_identity import decl_identity, display_name
 
-SCHEMA_VERSION = 1
+# Item kinds that NAME a type, hence carry a design-144 module qualifier.
+_TYPE_ITEM_KINDS = ("struct", "enum", "trait", "typealias", "extension")
+
+# 2 (design 144): every type-naming item gained a `module` field, and names are
+# guaranteed SHORT. A type's identity is `(defining module, name)` now, so an
+# item's `name` alone no longer distinguishes two packages' `Header`s — the
+# consumer needs the pair. The `name` field itself is unchanged in meaning:
+# still what the author wrote, never the internal qualified spelling.
+SCHEMA_VERSION = 2
 
 # Compiler-synthesized declarations (coroutine frames, drive/spawn wrappers) are
 # never part of a documented surface.
@@ -148,7 +163,7 @@ class DocsBuilder:
             if name in seen:
                 return
             seen.add(name)
-            items = self._items(decls)
+            items = self._items(decls, name)
             modules.append({"name": name, "source": os.path.basename(source or ""),
                             "doc": doc, "items": items})
 
@@ -216,7 +231,7 @@ class DocsBuilder:
         return decls
 
     # -------------------------------------------------------------------- items
-    def _items(self, decls) -> List[Dict[str, Any]]:
+    def _items(self, decls, module_name: str = "") -> List[Dict[str, Any]]:
         from ast_nodes import (Enum as SawEnum, Extension, Function, StaticDecl,
                                Struct, Trait, TypeDefinition)
         items = []
@@ -241,12 +256,21 @@ class DocsBuilder:
                 if getattr(d, "is_synthesized", False):
                     continue
                 items.append(self._function_item(d))
+        # Design 144: a type-naming item carries the module half of its identity.
+        for item in items:
+            if item["kind"] in _TYPE_ITEM_KINDS:
+                item["module"] = module_name
         items.sort(key=lambda i: (i["kind"], i["name"], i["line"]))
         return items
 
-    def _conformances(self, type_name: str) -> List[str]:
-        traits = self.namespace.conformances.get(type_name, {}) if self.namespace else {}
-        return sorted(t for t in traits if not _is_synthetic(t))
+    def _conformances(self, type_identity: str) -> List[str]:
+        """Trait names a type conforms to, rendered SHORT (design 144).
+
+        Keyed by the type's IDENTITY — that is what the conformance table
+        holds — while the trait names come back out as the author wrote them."""
+        traits = (self.namespace.conformances.get(type_identity, {})
+                  if self.namespace else {})
+        return sorted(display_name(t) for t in traits if not _is_synthetic(t))
 
     def _struct_item(self, s) -> Dict[str, Any]:
         gen = _generics_str(s.type_params)
@@ -268,7 +292,7 @@ class DocsBuilder:
             "visibility": _visibility_str(s.visibility),
             "unsafe": bool(getattr(s, 'is_unsafe', False)),
             "generics": _generics(s.type_params),
-            "conformances": self._conformances(s.name),
+            "conformances": self._conformances(decl_identity(s)),
             "fields": fields, "doc": s.doc, "line": s.line,
         }
 
@@ -284,13 +308,16 @@ class DocsBuilder:
             "signature": "%senum %s%s" % (_vis_prefix(e.visibility), e.name, gen),
             "visibility": _visibility_str(e.visibility),
             "generics": _generics(e.type_params),
-            "conformances": self._conformances(e.name),
+            "conformances": self._conformances(decl_identity(e)),
             "cases": cases, "doc": e.doc, "line": e.line,
         }
 
     def _trait_item(self, t) -> Dict[str, Any]:
         gen = _generics_str(t.type_params)
-        parents = _conformance_suffix(t.parent_traits)
+        # Parent traits are type REFERENCES, so they carry identities; the page
+        # shows the short names (design 144).
+        parent_names = [display_name(p) for p in (t.parent_traits or [])]
+        parents = _conformance_suffix(parent_names)
         # A trait method has no visibility of its own — the trait's requirement is
         # as visible as the trait.
         methods = [self._callable(m, owner=t.name, is_trait_method=True,
@@ -303,13 +330,17 @@ class DocsBuilder:
                                              gen, parents),
             "visibility": _visibility_str(t.visibility),
             "generics": _generics(t.type_params),
-            "parent_traits": list(t.parent_traits or []),
+            "parent_traits": parent_names,
             "methods": methods, "doc": t.doc, "line": t.line,
         }
 
     def _extension_item(self, x) -> Dict[str, Any]:
         gen = _generics_str(x.type_params)
-        conf = _conformance_suffix(x.conformances)
+        # `Extension.struct_name` and the conformance list are type REFERENCES,
+        # so they hold identities; the page shows short names (design 144).
+        target = display_name(x.struct_name)
+        conf_names = [display_name(c) for c in (x.conformances or [])]
+        conf = _conformance_suffix(conf_names)
         methods = []
         for m in x.methods:
             if getattr(m, "is_synthesized", False) or _is_synthetic(m.name):
@@ -319,12 +350,12 @@ class DocsBuilder:
             methods.append(self._callable(m, owner=x.struct_name))
         methods.sort(key=lambda m: (m["name"], m["line"]))
         return {
-            "kind": "extension", "name": x.struct_name,
+            "kind": "extension", "name": target,
             "signature": "%sextension %s%s%s" % (_vis_prefix(x.visibility),
-                                                 x.struct_name, gen, conf),
+                                                 target, gen, conf),
             "visibility": _visibility_str(x.visibility),
             "generics": _generics(x.type_params),
-            "conformances": list(x.conformances or []),
+            "conformances": conf_names,
             "methods": methods, "doc": x.doc, "line": x.line,
         }
 

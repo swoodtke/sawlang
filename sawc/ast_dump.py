@@ -24,6 +24,9 @@ The format is documented in `docs/AST_DUMP.md`, which the port is written agains
 """
 
 from typing import Any, Optional
+# Design 144: a type REFERENCE slot carries the module-qualified identity; the
+# dump renders the short name and puts the module in a field of its own.
+from type_identity import display_name as _short
 from ast_nodes import (
     Program, Struct, Function, Extension, Enum, Trait, TypeDefinition, ExternBlock,
     Method, Parameter, StructField, EnumVariant, TraitMethod, AssociatedType, TypeAssignment,
@@ -262,13 +265,27 @@ class ASTDumper:
         self._dedent()
         self._emit("}")
 
+    def _module_suffix(self, decl) -> str:
+        """The design-144 module half of a type declaration's identity, as a
+        FIELD appended to the header line — ` module=dep` — or empty.
+
+        Empty for the whole corpus the oracle sweeps: `tools/dump_ast.py` parses
+        ONE file with no module context, and `--emit-ast` type-checks a single
+        file, whose module is the root. The field exists so a module-aware
+        producer has a place to put the qualifier that is not the NAME, which
+        stays what the author wrote."""
+        from type_identity import identity_tag
+        tag = identity_tag(getattr(decl, 'type_identity', "") or "")
+        return f" module={tag}" if tag else ""
+
     def _dump_struct(self, struct: Struct):
         type_params = ""
         if struct.type_params:
             params = ", ".join(tp.name for tp in struct.type_params)
             type_params = f"<{params}>"
         unsafe = "unsafe " if getattr(struct, 'is_unsafe', False) else ""
-        self._emit(f"{unsafe}Struct {struct.name}{type_params} {{")
+        self._emit(f"{unsafe}Struct {struct.name}{type_params}"
+                   f"{self._module_suffix(struct)} {{")
         self._indent()
         for field in struct.fields:
             self._emit(f"{field.name}: {self._type_str(field.type)}")
@@ -280,7 +297,8 @@ class ASTDumper:
         if enum.type_params:
             params = ", ".join(tp.name for tp in enum.type_params)
             type_params = f"<{params}>"
-        self._emit(f"Enum {enum.name}{type_params} {{")
+        self._emit(f"Enum {enum.name}{type_params}"
+                   f"{self._module_suffix(enum)} {{")
         self._indent()
         for variant in enum.variants:
             if variant.associated_types:
@@ -292,10 +310,13 @@ class ASTDumper:
         self._emit("}")
 
     def _dump_trait(self, iface: Trait):
+        from type_identity import display_name
         parents = ""
         if iface.parent_traits:
-            parents = ": " + ", ".join(iface.parent_traits)
-        self._emit(f"Trait {iface.name}{parents} {{")
+            parents = ": " + ", ".join(display_name(p)
+                                       for p in iface.parent_traits)
+        self._emit(f"Trait {iface.name}{parents}"
+                   f"{self._module_suffix(iface)} {{")
         self._indent()
         for at in iface.associated_types:
             self._emit(f"type {at.name}")
@@ -311,10 +332,15 @@ class ASTDumper:
         if ext.type_params:
             params = ", ".join(tp.name for tp in ext.type_params)
             type_params = f"<{params}>"
+        from type_identity import display_name
         conformances = ""
         if ext.conformances:
-            conformances = ": " + ", ".join(ext.conformances)
-        self._emit(f"Extension {ext.struct_name}{type_params}{conformances} {{")
+            conformances = ": " + ", ".join(display_name(c)
+                                            for c in ext.conformances)
+        # `struct_name` is a type REFERENCE, so it carries the identity; the
+        # dump shows the short name plus the module as its own field.
+        self._emit(f"Extension {display_name(ext.struct_name)}{type_params}"
+                   f"{conformances}{self._module_suffix(ext)} {{")
         self._indent()
 
         for ta in ext.type_assignments:
@@ -641,7 +667,8 @@ class ASTDumper:
             resolved = ""
             if expr.resolved_init_params is not None:
                 resolved = f" [resolved: init({', '.join(expr.resolved_init_params)})]"
-            self._emit(f"StructInit {expr.struct_name}{type_args}{resolved}")
+            self._emit(f"StructInit {_short(expr.struct_name)}"
+                       f"{type_args}{resolved}")
             self._indent()
             for name, value in expr.field_inits:
                 self._emit(f"{name}:")
@@ -655,7 +682,8 @@ class ASTDumper:
             if expr.type_args:
                 args = ", ".join(self._type_str(t) for t in expr.type_args)
                 type_args = f"<{args}>"
-            self._emit(f"EnumInit {expr.enum_name}{type_args}.{expr.variant_name}")
+            self._emit(f"EnumInit {_short(expr.enum_name)}"
+                       f"{type_args}.{expr.variant_name}")
             self._indent()
             for i, arg in enumerate(expr.arguments):
                 name = f"{arg.name}: " if arg.name else ""
@@ -1051,13 +1079,13 @@ class ASTDumper:
         elif isinstance(expr, NoneLiteral):
             return "None"
         elif isinstance(expr, EnumInit):
-            return f"{expr.enum_name}.{expr.variant_name}"
+            return f"{_short(expr.enum_name)}.{expr.variant_name}"
         elif isinstance(expr, MethodCall):
             return f"...{expr.method_name}()"
         elif isinstance(expr, FunctionCall):
             return f"{expr.name}(...)"
         elif isinstance(expr, StructInit):
-            return f"{expr.struct_name}(...)"
+            return f"{_short(expr.struct_name)}(...)"
         elif isinstance(expr, ArrayLiteral):
             return f"[{len(expr.elements)} elements]"
         elif isinstance(expr, UnaryOp):

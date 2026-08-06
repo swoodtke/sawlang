@@ -169,6 +169,12 @@ class SawType:
     symbol: Optional[Any] = None
 
     def __repr__(self):
+        # Design 144: a named type's slot holds its module-qualified IDENTITY
+        # (`Header$m$dep`). This is the RENDERING, so it shows the short name —
+        # what the author wrote, in every diagnostic, doc page and AST dump that
+        # goes through `str(t)`. Anything comparing types must compare
+        # identities instead (`_type_key`), never this string.
+        from type_identity import display_name as _short
         if self.kind == TypeKind.TUPLE and self.element_types:
             if self.tuple_field_names:
                 types_str = ", ".join(
@@ -179,8 +185,8 @@ class SawType:
         if self.kind == TypeKind.STRUCT and self.struct_name:
             if self.type_args:
                 args_str = ", ".join(str(t) for t in self.type_args)
-                return f"{self.struct_name}<{args_str}>"
-            return self.struct_name
+                return f"{_short(self.struct_name)}<{args_str}>"
+            return _short(self.struct_name)
         if self.kind == TypeKind.OPTIONAL and self.inner_type:
             return f"{self.inner_type}?"
         if self.kind == TypeKind.ENUM and self.enum_name:
@@ -196,8 +202,8 @@ class SawType:
                 return "<error union>"
             if self.type_args:
                 args_str = ", ".join(str(t) for t in self.type_args)
-                return f"{self.enum_name}<{args_str}>"
-            return self.enum_name
+                return f"{_short(self.enum_name)}<{args_str}>"
+            return _short(self.enum_name)
         if self.kind == TypeKind.TYPE_PARAM and self.type_param_name:
             return self.type_param_name
         if self.kind == TypeKind.ARRAY and self.array_element_type is not None:
@@ -226,7 +232,7 @@ class SawType:
                 return f"&var {self.inner_type}"
             return f"&{self.inner_type}"
         if self.kind == TypeKind.EXISTENTIAL:
-            return f"any {self.existential_trait}"
+            return f"any {_short(self.existential_trait)}"
         # Map TypeKind names to CamelCase display names
         display_names = {
             TypeKind.INT: "Int",
