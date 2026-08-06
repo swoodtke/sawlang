@@ -1183,6 +1183,100 @@ noted live-range packing of locals; do both in one sizing brief.
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
 
+## Design 149 — runtime authoring in Saw (LANDED, Aug 6)
+
+Closes **DF-140g** (originally filed on the parked SOS M1 branch; refiled here
+at landing, as design 147 did with DF-140e). A freestanding package can now BE
+its own runtime: it holds compound global state, declares zero regions that cost
+nothing, locks state several cores share, and implements the `__saw_rt_*` seams
+under a checked contract. Five commits, full suite green each.
+
+- **DF-149a — FOUND AND FIXED here, before unit (a).** An `Atomic` field mutated
+  through a plain `&self` method incremented the callee's COPY and threw it away
+  at the return. Silent: no error anywhere, the count just stayed 0
+  (`struct Counter { n: Atomic<Int> }`, `bump(&self)`, two calls, `get()` → 0).
+  A `&self` receiver is passed BY VALUE, so the atomic RMW addressed a copy of
+  the cell. Interior mutability is mutation THROUGH a shared borrow, so a
+  receiver carrying an `Atomic` now arrives as the caller's storage —
+  `_self_by_pointer_for(struct_name, method)`, a third spelling beside `&var
+  self` and design 146's `borrows`, read at BOTH the declaration and the body so
+  the two always agree. Call sites read the convention off the emitted signature;
+  the vtable thunk asks the impl's own first parameter type. Two gaps closed
+  with it: a module static as the receiver of a by-pointer method passes the
+  global instead of a spilled temporary, and a monomorphized receiver resolves
+  its cell through the template. std had been working around this by writing
+  slab's bookkeeping as free functions over a `&SlabHead` parameter rather than
+  as methods; `SpinLock` could not have existed without the fix.
+- **Unit (a) — `unsafe static var`.** Compound state Atomics cannot express: a
+  handle table of multi-word slots, a bitmap paired with its queues, an arena
+  region. NOT an Atomic replacement, and the diagnostics say so. Design 130's
+  trigger rule extends to NAMING one (the type is usually safe — the unsafety is
+  the DECLARATION's), so every touching function is `unsafe` and reviewed. `var`
+  and `unsafe` come as a pair, each half alone a clean error, so there is one way
+  to declare global mutable state. Prefix position, like `unsafe struct`, for the
+  same reason: no parameter list, no effect slot.
+  - Two static rules restated honestly. An `unsafe static var` is EXEMPT from
+    Sync (Sync is the claim it is already making by hand, and the state this
+    exists for is structurally non-Sync exactly where it is most wanted). And
+    immortality now asks whether a destructor would have done work — a
+    hand-written `deinit`, or a field owning a resource — rather than whether a
+    copy POLICY was declared. `NoCopy` says "do not duplicate me", which has
+    nothing to say about a value that is never duplicated; that is also what lets
+    `static LOCK: SpinLock<T>` be declared with no initializer.
+- **Unit (b) — zero statics cost no image bytes.** Two separate causes. Hosted:
+  LLVM deliberately keeps a CONSTANT zero global in a readonly section so it can
+  be shared, so `global_constant` was exactly what kept zeros out of .bss.
+  Freestanding — the profile where it matters most — was ours: design 113's
+  per-symbol `.data.<name>` placement suppresses LLVM's zerofill classification,
+  so every zero global in a kernel image carried its zeros. Zero globals go to
+  `.bss.<name>` now, a name LLVM recognizes as SHT_NOBITS, keeping both the
+  `--gc-sections` granularity and the zerofill. **Measured: 330488-byte object
+  before, 2804 after**, on a test declaring 320 KiB of zero regions. New
+  `EXPECT-OBJECT-MAX-BYTES` test directive — proven by SIZE, so a regression
+  fails by the width of the region rather than by a rounding error.
+- **Unit (c) — runtime-provider packages. THE ORCHESTRATOR PIN; veto-able.**
+  `[package] runtime = true` (blade passes `--runtime-provider`) permits the seam
+  exports on `--runtime-build`'s terms, links no runtime of ours beside the
+  package, and otherwise builds an ordinary package (std available, output
+  links). The value-add: an exported seam's signature is CHECKED against
+  rt/ABI.md, whose signatures are PARSED OUT OF THE DOCUMENT rather than
+  transcribed, so the document is the contract and cannot drift from what is
+  enforced. Arity and machine width are compared; pointer-vs-integer is not (the
+  C ABI does not distinguish them at this width, and ABI.md itself spells the
+  same handle `ptr` in one place and `word` in another). The check runs under
+  `--runtime-build` too, so it validates OUR runtime — all 12 objects and ~50
+  seams of sawc/rt build clean under it. `make abidoc` checks the other
+  direction: the document describes exactly the frozen symbol set.
+  **Nothing else in the design depends on this unit** — (a), (b) and (d) stand
+  alone if the user vetoes it.
+- **Unit (d) — `SpinLock<T>`** (std/spinlock.saw, `import std.spinlock`). NoCopy,
+  Sync when `T: Send`, Mutex-shaped `lock`/`try_lock` returning the body's own
+  result. The point is where it can LIVE: `Mutex<T>` keeps a pthread_mutex_t in
+  an allocated block, so it cannot be a static and a freestanding target has no
+  libc to give it one. A `SpinLock` static is declared with NO initializer — zero
+  is unlocked over a zeroed payload — so it is const-initializable and, with unit
+  (b), free of image bytes. Two constraints ENFORCED: the body is `sync` (a
+  suspended task keeps the lock while the executor runs the task waiting for it),
+  and the target must have real atomics (rv32i gets a teaching error naming
+  `--target-features +a`, never a silent fallback into a C runtime the target
+  does not have). A second payoff of the sync rule: `lock` and its body are both
+  `sync`, so a task cannot be interrupted holding the lock — two tasks on one
+  thread never contend, and contention always means another thread or core.
+
+**The `__saw_reactor` getter did NOT migrate, and should not.** The brief's
+payoff list expected the compiler-synthesized getter to become a plain unsafe
+static. It was already retired — design 118 stage 3 moved it into Saw as
+`__saw_host_reactor()` in std/taskgroup.saw. What remains is
+`static __saw_reactor_instance: Atomic<Int>`, a lazy singleton published by
+`compare_exchange` from racing threads: single-word state updated independently,
+which is precisely the case this design's own settled rule keeps on `Atomic`.
+Converting it would delete the atomicity that makes the singleton race-safe.
+
+**Not in v1:** a non-trivially-destructible static (statics stay deinit-free);
+relaxed/acquire-release orderings on `Atomic` or `SpinLock` (everything is
+seq_cst); a `SpinLockIrq` for the same-core ISR case, which the brief assigns to
+sos-side composition when M2-era interrupt work lands.
+
 ## Design 135 — `--no-hidden-alloc` (LANDED, Aug 6)
 
 Restores the no-hidden-allocations claim to guarantee form; closes the design

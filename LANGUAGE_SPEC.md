@@ -4022,7 +4022,8 @@ constant-initialized global:
 static MAX_TASKS: Int = 256           // POD scalar → rodata
 static PRIMES: [Int; 3] = [2, 3, 5]   // constant fixed-array literal
 static ORIGIN: Point = Point(x: 0, y: 0)  // POD struct literal
-static SLAB: [Int8; 4096]             // bare declaration → zero-init (BSS)
+static SLAB: [Int8; 4096]             // bare declaration → zero-init (.bss)
+static ARENA: [UInt8; 65536] = [0; 65536]  // all-zero initializer → .bss too
 public static VERSION: Int = 7        // exported; read as `mod.VERSION`
 ```
 
@@ -4030,23 +4031,92 @@ Statics obey four rules, ratified in design 19 (Rust's model):
 
 - **Const-initialized only.** The initializer must be a compile-time
   constant: literals, a negated numeric literal, POD struct literals with
-  constant fields, constant fixed-array literals, or `Atomic(<int>)`.
-  Function calls, `String`, and heap types are rejected. A POD or
-  fixed-array static may be declared with NO initializer — it is
-  zero-initialized (there is no `[0; N]` repeat literal; bare declaration
-  is the mechanism for large zero regions such as slab buffers).
+  constant fields, constant fixed-array literals (including a `[v; N]`
+  repeat literal), or `Atomic(<int>)`. Function calls, `String`, and heap
+  types are rejected. A static may be declared with NO initializer when
+  all-zero is a valid value of its type — every scalar, a struct of them,
+  a fixed array of them, an `Atomic<Int>`, a `SpinLock<T>` over any of
+  those. Copyability is irrelevant here: a static is never copied, so a
+  `NoCopy` type whose storage is scalar throughout still qualifies, which
+  is what makes `static LOCK: SpinLock<T>` a legal declaration.
 - **Sync-only.** The static's type must be `Sync` (a static is reachable
   from every task). A non-Sync type is a compile error naming the type.
-- **Immutable — there is NO `static mut`, ever.** Assigning to a static
-  (whole, field, or element) or taking `&var STATIC` is a compile error;
-  an `&STATIC` immutable lend is fine. Mutation of global state flows ONLY
-  through interior-synchronized types. This makes "all shared mutable
-  state is mediated" a language-level theorem.
-- **Immortal.** Statics never run `deinit` (const-init keeps `Deinit`
-  types out in practice); the OS / reset reclaims them.
+  An `unsafe static var` is exempt — see below.
+- **Immutable, unless declared `unsafe static var`.** Assigning to a
+  static (whole, field, or element) or taking `&var STATIC` is a compile
+  error; an `&STATIC` shared lend is fine. Mutation of global state flows
+  through interior-synchronized types (`Atomic<Int>`, `SpinLock<T>`), or
+  through the `unsafe` declaration below — never silently.
+- **Immortal.** Statics never run `deinit`, so a static's type must be
+  trivially destructible: no hand-written `deinit` anywhere in its type
+  tree, and no field that owns a resource. A declared copy POLICY is not
+  the test — `NoCopy` says "do not duplicate me", which has nothing to say
+  about a value that is never duplicated.
 
 Reads elsewhere in the module (or `mod.NAME` from an importer of a
 `public` static) behave like an immutable binding.
+
+**Zero statics cost no image bytes.** A static whose initializer is
+all-zero — a bare declaration, or an explicit `[0; N]` — is emitted as
+zerofill storage, in both the hosted and the freestanding profile. The 64
+KiB arena above adds 64 KiB to the program's address space and nothing to
+its file. A non-zero initializer has bytes to carry and carries them.
+
+#### `unsafe static var` — mutable statics for compound state
+
+**Status: implemented (design 149).** Some global state is wider than one
+word and has invariants that span it: a handle table of multi-word slots,
+a bitmap paired with the queues it indexes, an arena's backing storage. No
+atomic expresses that, because atomicity is per-word and the invariant is
+not.
+
+```saw
+struct Slot { owner: Int, used: Bool }
+
+unsafe static var TABLE: [Slot; 64] = [Slot(owner: 0, used: false); 64]
+unsafe static var LIVE: Int = 0
+
+func claim(owner: Int) unsafe -> Int {       // `unsafe`: it names TABLE
+    var i = 0
+    while i < 64 {
+        if not TABLE[i].used {
+            TABLE[i] = Slot(owner: owner, used: true)
+            LIVE = LIVE + 1
+            return i
+        }
+        i = i + 1
+    }
+    -1
+}
+```
+
+This is not an `Atomic` replacement, and reaching for it where an
+`Atomic` fits is a mistake the diagnostics point out. Single-word state
+that several tasks update independently wants `Atomic`; state several
+threads genuinely share wants `SpinLock`. `unsafe static var` is for
+state whose consistency comes from a serialization argument the compiler
+cannot see — interrupts off, a single core, boot-time only — and the
+`unsafe` declaration is what makes that argument somebody's job to state.
+
+Four rules:
+
+- **`var` and `unsafe` come as a pair.** A `static var` without `unsafe`,
+  and an `unsafe static` without `var`, are each a clean error naming the
+  spelling. There is one way to declare global mutable state.
+- **Naming one is unsafe contact.** Design 130's trigger rule extends to
+  it: a function whose body names an unsafe static is declared `unsafe`
+  or is a compile error. The type is usually an ordinary safe one, so the
+  unsafety is the DECLARATION's, and the rule is what puts every touching
+  function in front of a reviewer.
+- **Exempt from Sync.** Sync is the claim the declaration is already
+  making by hand, and the compound state this exists for (slots holding
+  raw pointers, shadow register state) is structurally non-Sync exactly
+  where it is most wanted.
+- **Trivially destructible only** (v1), like every static.
+
+`unsafe` takes the PREFIX position here, as it does on `unsafe struct`
+and for the same reason: a static has no parameter list, so there is no
+effect slot for it to ride.
 
 ### `Atomic<Int>`
 
@@ -4071,6 +4141,63 @@ func main() {
 ```
 
 All four operations lower to sequentially-consistent LLVM atomics.
+
+A receiver carrying an `Atomic` cell — `Atomic<Int>` itself, or any
+struct holding one — arrives at a `&self` method as the caller's STORAGE
+rather than as a copy, which is what makes interior mutation through a
+shared borrow reach the real cell (design 149). Every other `&self`
+receiver is still passed by value.
+
+### `SpinLock<T>`
+
+**Status: implemented (design 149).** `import std.spinlock`. A value
+guarded by an atomic word: one word plus the payload, no allocation, no
+operating system, and const-initializable, so it can live in a `static`.
+`Mutex<T>` cannot — it holds a `pthread_mutex_t` in an allocated block —
+which left global state shared across threads with no safe spelling.
+
+```saw
+import std.spinlock
+
+struct Counters { hits: Int, misses: Int }
+
+static STATS: SpinLock<Counters>         // zero = unlocked, payload zeroed
+
+func record(hit: Bool) {
+    STATS.lock({ c in
+        if hit { c.hits = c.hits + 1 } else { c.misses = c.misses + 1 }
+    })
+}
+
+let seen = STATS.lock({ c in c.hits })   // the body's result comes back out
+if let n = STATS.try_lock({ c in c.hits }) { }  // None if held; never spins
+```
+
+- `lock<R>(body: (&var T) sync -> R) -> R` spins until free, runs `body`
+  once with `&var` access, releases, and returns what `body` returned.
+- `try_lock<R>(body: (&var T) sync -> R) -> R?` decides with one
+  compare-and-swap. `None` means the lock was held at that instant.
+- `is_locked() -> Bool` is a debugging aid; the answer can be stale
+  before it is read, so branch with `try_lock`, not with this.
+
+`NoCopy` (a copied lock is two locks guarding two payloads), and `Sync`
+when `T` is `Send`, on the same terms as `Mutex`. Locking is not
+reentrant: taking the lock while holding it spins forever.
+
+Two constraints are enforced, not documented:
+
+- **The body is `sync`.** Suspending inside a critical section is a
+  compile error. A suspended task keeps the lock while the executor runs
+  somebody else, and that somebody may be the task waiting for it.
+  A consequence: since `lock` and its body are both `sync`, a task cannot
+  be interrupted while holding the lock, so two tasks on one thread never
+  contend and contention always means another thread or another core.
+- **The target must have atomics.** Where a compare-and-swap lowers to
+  `__atomic_*` libcalls (rv32i), naming a `SpinLock` is a compile error
+  pointing at `--target-features +a`, never a silent fallback into a C
+  runtime a freestanding target does not have.
+
+Hold it briefly. A waiter burns its core until the lock is free.
 
 ---
 
@@ -4765,16 +4892,27 @@ nanoseconds keep the layout stable across platform Int widths.
 The default **hosted** profile links libc and provides everything above. The
 **freestanding** profile (`sawc --freestanding`, optionally with `--target
 <triple>`) targets kernels and bare-metal: it links no libc and emits an
-unlinked object file. In this profile the runtime rests on exactly four seam
-symbols the environment must supply at link time — `saw_alloc(size, align)`,
-`saw_dealloc(ptr, size, align)`, `saw_write(ptr, len)`, and the noreturn
-`saw_panic(msg, len)` — which the hosted profile instead satisfies with weak
-libc-backed defaults (overridable at link time without a flag). Freestanding
+unlinked object file. In this profile the runtime rests on the `__saw_rt_*` seam
+symbols the environment must supply at link time — `__saw_rt_alloc(size, align)`,
+`__saw_rt_dealloc(ptr, size, align)`, `__saw_rt_write(ptr, len)`, the noreturn
+`__saw_rt_panic(msg, len)` and the rest of the frozen set — which the hosted
+profile satisfies by linking a runtime built from `sawc/rt/`. Freestanding
 programs may use `core` and the `alloc`-layer types (`String`, `Vector`, `Map`,
 `Data`, `StringBuilder`, `Path`), which allocate only through the seams; the
 hosted-only modules (`File`, `process` (`Command`), `Env`, `Directory`, `time`,
 `net`) and `Float`
 printing are unavailable. See `designs/19-freestanding-profile.md` for the full design.
+
+**A package may BE the runtime.** `[package] runtime = true` in `Saw.toml`
+declares a package a runtime provider (blade passes `sawc
+--runtime-provider`). It may then `@export` the frozen `__saw_rt_*` names, no
+runtime of the compiler's is linked beside it, and every exported seam's
+signature is checked against the contract in `sawc/rt/ABI.md` at compile time. A
+mismatch — the wrong arity, or a `word` return where the ABI says `Int64` — is a
+compile error naming the document, rather than a clean link and a wrong answer at
+run time. `sawc --runtime-build`, which is how `sawc/rt/` itself is compiled, is
+the same permission plus a std-free unlinked build; a kernel wants the package
+form.
 
 ---
 
@@ -4995,6 +5133,12 @@ than "performs a deref": `Vector.iter()` only reads `self.buffer` and hands it t
 an iterator struct, and that narrow reading is what hid two use-after-free bugs
 under the previous model.
 
+It fires on one thing that is not a type: **naming an `unsafe static var`**
+(design 149). A mutable static's type is usually an ordinary safe one —
+`[HandleSlot; 64]` says nothing about who may write it — so there the unsafety
+belongs to the declaration rather than to the type, and the same rule carries it
+to every function that touches the state.
+
 Failing to declare it is a clean error naming the type and the fix:
 
 ```
@@ -5002,6 +5146,9 @@ error: method `Vector.push` is not declared `unsafe`, but its body names a value
        of unsafe type (`UnsafePointer<T>`)
   hint: write `func push(...) unsafe` — the unsafety belongs in the signature
         where every caller can see it
+
+error: function `peek_owner` is not declared `unsafe`, but its body names an
+       unsafe static (`TABLE`)
 ```
 
 **Derivation does not propagate.** A value or reference of a *safe* type produced
@@ -5032,9 +5179,10 @@ func with_raw<R>(&self, body: (UnsafePointer<T>) unsafe sync -> R) unsafe -> R
 ```
 
 A signature therefore reads identically whether it is declared or written as a
-type. `unsafe struct` is the one prefix that remains: a struct declaration has no
-parameter list and so no slot, and the enforced `Unsafe*` name already carries
-the unsafety to every use site.
+type. Two declarations keep the PREFIX, both because they have no parameter list
+to put a slot after: `unsafe struct`, whose enforced `Unsafe*` name carries the
+unsafety to every use site, and `unsafe static var` (design 149), which the
+trigger rule carries to every function that names it.
 
 Writing `unsafe` in front of a `func` or an `init` names the slot instead:
 

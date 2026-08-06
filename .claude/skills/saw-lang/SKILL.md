@@ -907,6 +907,43 @@ forwarding cannot reach a method-generic method).
 allocator type params `Vector<T, A: Allocator = GlobalAllocator>`, `Box<T, A>`,
 slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
 (volatile, RO/WO markers);
+- **GLOBAL MUTABLE STATE: three tools, not interchangeable (design 149).**
+  Pick by the SHAPE of the state, not by convenience:
+  - **`Atomic<Int>`** — single-word state several tasks update
+    independently. Still the recommendation everywhere it fits.
+  - **`SpinLock<T>`** (`import std.spinlock`) — state several THREADS or
+    cores genuinely share. One word + the payload, no allocation, no OS,
+    const-initializable, so `static LOCK: SpinLock<Counters>` (NO
+    initializer — zero IS unlocked + zeroed payload) finally makes a
+    lockable static exist. `lock({ c in ... })` / `try_lock` hand out
+    `&var T` and return the body's own result; the body is `sync`
+    ENFORCED (suspending under a lock is a compile error, not a
+    livelock). NoCopy, so it cannot be captured into a closure — reach
+    one through a static or a `&` param, not a capture. Needs real target
+    atomics: on rv32i, naming one is a compile error pointing at
+    `--target-features +a`. Short critical sections; a waiter burns its
+    core.
+  - **`unsafe static var NAME: T = init`** — COMPOUND state whose
+    consistency spans words (a `[Slot; 64]` handle table, a bitmap+queue
+    pair, an arena region) and rests on a serialization argument the
+    compiler cannot see (interrupts off, single core, boot only).
+    Assignable by name, `&var`-lendable, exempt from Sync. NAMING one
+    triggers design 130's rule, so every touching function is declared
+    `unsafe` and reviewed. `var` and `unsafe` come as a pair — each half
+    alone is a clean error. Prefix position, like `unsafe struct`.
+    Trivially-destructible types only (v1).
+- **A ZERO static costs no image bytes** (design 149): a bare declaration
+  or an all-zero initializer (`static ARENA: [UInt8; 65536] = [0; 65536]`)
+  is zerofill in BOTH profiles. Declare the region at its real size.
+- **A struct holding an `Atomic` is received by POINTER even at `&self`**,
+  so `func bump(&self) { self.n.fetch_add(1) }` mutates the real cell on a
+  field or a static. Every other `&self` still arrives BY VALUE (the
+  `FixedBuf.ptr()` gotcha).
+- **A package can BE the runtime** (design 149): `[package] runtime = true`
+  in Saw.toml lets it `@export` the frozen `__saw_rt_*` seams, links no
+  runtime beside it, and CHECKS each seam's signature against
+  `sawc/rt/ABI.md` — a wrong arity or width is a compile error naming the
+  document rather than a clean link and a wrong answer at run time.
 - **Wire/register structures are TYPED VIEWS, never offset arithmetic**
   (user idiom ruling, Aug 5). Declare the layout ONCE as a struct of
   fixed-width fields (+ explicit reserved bytes), pin the ABI with

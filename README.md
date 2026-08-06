@@ -845,6 +845,27 @@ Saw is freestanding: the same language targets bare metal.
   `--freestanding` (a kernel with a slab allocator may want real `String`s) and
   the two combine; the SOS kernel builds under both, which is what keeps its log
   lines off the heap.
+- **Global state, three ways, none of them silent**: `Atomic<Int>` for a word
+  several tasks update independently; `SpinLock<T>` for state threads or cores
+  genuinely share — one word plus the payload, no allocator and no OS, so
+  `static TABLE: SpinLock<HandleTable>` is a declaration a kernel can write; and
+  `unsafe static var` for compound state whose consistency spans words and comes
+  from a serialization argument only the author knows (interrupts off, one core,
+  boot only). The last one is `unsafe` for a reason: naming it makes every
+  function that touches it declare `unsafe` too, so the argument is in front of
+  whoever reviews the code.
+- **A critical section cannot suspend**: `SpinLock`'s body is a `sync` function
+  type, so suspending while holding the lock is a compile error rather than a
+  livelock. And the lock needs real atomics — on rv32i, where a
+  compare-and-swap would become a libcall into a C runtime the target does not
+  have, naming a `SpinLock` is an error naming the flag that fixes it.
+- **Zero regions cost nothing**: `unsafe static var ARENA: [UInt8; 65536] = [0;
+  65536]` is 64 KiB of address space and zero bytes of image, in both profiles.
+- **A package can be the runtime**: `[package] runtime = true` in `Saw.toml` lets
+  a package implement the `__saw_rt_*` seams itself. The compiler links no
+  runtime of its own beside it and checks every exported seam against the
+  signatures in `sawc/rt/ABI.md`, so a seam with the wrong arity or width fails
+  the build instead of linking cleanly and misbehaving.
 - **Compile-time layout checks**: `static_assert(sizeof<UartRegs>() == 0x1C,
   "...")` fails the build when a register block's layout drifts, at no runtime
   cost.
@@ -856,12 +877,37 @@ Saw is freestanding: the same language targets bare metal.
   have stable layouts for wire formats.
 
 ```saw
+import std.spinlock
+
 struct UartRegs {
     data: UInt32
     status: UInt32
 }
 
 static_assert(sizeof<UartRegs>() == 8, "UartRegs layout drift")
+
+struct Slot { owner: Int, used: Bool }
+
+// Compound state, serialized by the caller's argument: every function that
+// names it says `unsafe`, and the compiler will not let one forget.
+unsafe static var HANDLES: [Slot; 64] = [Slot(owner: 0, used: false); 64]
+
+// Genuinely shared state, serialized by the lock. No allocator involved, and
+// no bytes in the image until something writes it.
+static PENDING: SpinLock<Int>
+
+func claim(owner: Int) unsafe -> Int {
+    var i = 0
+    while i < 64 {
+        if not HANDLES[i].used {
+            HANDLES[i] = Slot(owner: owner, used: true)
+            PENDING.lock({ n in n = n + 1 })
+            return i
+        }
+        i = i + 1
+    }
+    -1
+}
 
 @export("kernel_add")
 func add(a: Int, b: Int) -> Int {
