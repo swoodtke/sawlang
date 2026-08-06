@@ -269,7 +269,8 @@ def topological_sort_modules(module_map):
 
 
 def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
-                            runtime_build: bool = False, builtin_ast=None):
+                            runtime_build: bool = False, builtin_ast=None,
+                            target_triple: str = None):
     """Load, parse, and type-check the builtins once, returning
     ``(builtin_ast, builtin_ns)``.
 
@@ -294,7 +295,8 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     # never pollute user diagnostics. require_main=False: builtins are a library.
     builtin_reporter = ErrorReporter("", "builtins")
     builtin_tc = TypeChecker(builtin_reporter, freestanding=freestanding,
-                             runtime_build=runtime_build)
+                             runtime_build=runtime_build,
+                             target_triple=target_triple)
     builtin_tc.namespace.allow_all_access = True
     # design 82 Part B: mark this as the builtin/std check so the prelude gate and
     # the hidden-std shadow allowance are BOTH disabled while std checks itself
@@ -765,7 +767,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # Load builtins and build the (type-checked) builtin namespace once.
     builtin_ast, builtin_ns = build_builtin_namespace(
         verbose, freestanding, runtime_build,
-        builtin_ast=parsed['builtin_ast'] if parsed else None)
+        builtin_ast=parsed['builtin_ast'] if parsed else None,
+        target_triple=target_triple)
     # The AST to hand a re-entry is this one, BEFORE `_filter_std_ast` narrows
     # it for codegen: the filter drops the std files this program does not
     # compile in, and a re-entry has to start from the whole stdlib again.
@@ -833,7 +836,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     typechecker = TypeChecker(reporter, freestanding=freestanding,
                               runtime_build=runtime_build,
                               post_transform=post_transform,
-                              no_hidden_alloc=no_hidden_alloc)
+                              no_hidden_alloc=no_hidden_alloc,
+                              target_triple=target_triple)
     # design 84: carry the pre-computed suspending std (struct, method) set (std is
     # checked under a separate builtin typechecker, so the main one cannot infer it)
     # so the coroutine transform can embed nested suspending std methods.

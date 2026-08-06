@@ -1347,6 +1347,51 @@ tools/irdet.py --all`.
   final round trip on the recovered stream proves the disarm dropped the
   registration and not the fd.
 
+- **DF-137d + DF-140a — FIXED here (unit E). Literal range checks are
+  target-width-aware, and `static` initializers are checked at all.** DF-137d was
+  filed on main's tracker, DF-140a on the parked SOS M1 branch's; they are the
+  same bug seen twice, refiled together.
+
+  Platform `Int`/`UInt` are pointer-width (design 47), so `0x80000000` fits a
+  64-bit `Int` and does not fit a 32-bit one. The literal check knew every
+  FIXED-width type and skipped the platform pair entirely, so on riscv32 the
+  literal wrapped to -2147483648 in silence — and the same source meant a
+  different number on the arm64 profile, which is exactly the two-profile
+  portability the fixed-width discipline exists to protect. Surfaced when the SOS
+  kernel's first formatted log line printed its RAM base as a negative number.
+
+  The blocker was structural: only CODEGEN knew the effective triple. New
+  `sawc/target_info.py` derives the platform width from the triple's LLVM data
+  layout — the same `p0:` parse `CodeGenerator._pointer_size_bits` uses, kept
+  deliberately identical so the front end and back end cannot disagree about what
+  `Int` is — and `--target` is threaded into both TypeChecker constructions (the
+  entry one and the builtin/std one). One trap worth recording: LLVM registers no
+  targets until asked, and the front end runs before `CodeGenerator` does it, so
+  `Target.from_triple` raised "no targets are registered" and the fallback
+  silently returned 64 — the check appeared to work while doing nothing.
+  `platform_int_width` registers targets itself and caches per triple.
+
+  `_int_range_for(kind)` replaces the direct `_FIXED_INT_RANGES` lookups at every
+  RANGE-CHECK site (the central design-87 literal propagation and its unary-minus
+  arm, `_check_fixed_width_literal`, and the raw-backed-enum `_int_fits_kind`,
+  which judged the platform pair at a hardcoded 64). The literal-ADOPTION sites
+  are untouched: `Int`/`UInt` are not fixed-width and a bare literal must not
+  adopt them.
+
+  DF-140a's second half: `_register_static` type-checked its initializer but never
+  routed it through `_apply_literal_expected_type`, so `static B: UInt8 = 256`
+  compiled clean while the `let` spelling was already a clean error. Statics now
+  take the same treatment as every other typed slot.
+
+  Regressions: `examples/df137d_literal_width_riscv32.saw` (riscv32 via
+  COMPILE-FLAGS; the signed RAM-base constant, an out-of-range `UInt`, and the
+  `UInt8` static all rejected) and `examples/df137d_literal_width_riscv32_ok.saw`
+  (the exact boundary values — `UInt` 0x80000000, Int32 min and max, UInt32 max —
+  still compile, so the check rejects only what the target cannot represent). The
+  test runner's builtin-namespace cache is keyed on the triple now: what std
+  type-checks to is target-dependent since this change. `make sos-test` passes,
+  which is the real riscv32 build.
+
 ## Design 145 — DF-findings (enum methods; the std private-symbol reach)
 
 - **DF-140h — FIXED here (unit A). Originally filed on the parked SOS M1

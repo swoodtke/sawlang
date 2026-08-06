@@ -3672,10 +3672,11 @@ class ExpressionsMixin:
         #     call args are checked before the winning param type is known, then
         #     coerced through this method — as well as the before-check slots.
         if isinstance(value_expr, IntLiteral):
-            if (getattr(value_expr, 'suffix', None) is None
-                    and rt.kind in self._FIXED_INT_RANGES):
+            _rng = (self._int_range_for(rt.kind)
+                    if getattr(value_expr, 'suffix', None) is None else None)
+            if _rng is not None:
                 value_expr.expected_type = rt
-                lo, hi = self._FIXED_INT_RANGES[rt.kind]
+                lo, hi = _rng
                 if not (lo <= value_expr.value <= hi):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -3693,11 +3694,12 @@ class ExpressionsMixin:
         #     is handled here rather than via the plain-literal recursion.
         if isinstance(value_expr, UnaryOp) and value_expr.op == '-':
             operand = value_expr.operand
-            if (isinstance(operand, IntLiteral)
-                    and getattr(operand, 'suffix', None) is None
-                    and rt.kind in self._FIXED_INT_RANGES):
+            _rng = (self._int_range_for(rt.kind)
+                    if (isinstance(operand, IntLiteral)
+                        and getattr(operand, 'suffix', None) is None) else None)
+            if _rng is not None:
                 operand.expected_type = rt
-                lo, hi = self._FIXED_INT_RANGES[rt.kind]
+                lo, hi = _rng
                 if not (lo <= -operand.value <= hi):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -4478,6 +4480,26 @@ class ExpressionsMixin:
         TypeKind.UINT64: (0, (1 << 64) - 1),
     }
 
+    def _int_range_for(self, kind):
+        """The inclusive literal range for an integer TypeKind, or None.
+
+        DF-137d / DF-140a: platform `Int`/`UInt` are POINTER-WIDTH (design 47),
+        so their range is a fact about the effective target rather than a
+        constant. `0x80000000` fits a 64-bit `Int` and does not fit a 32-bit one,
+        and until this was checked the riscv32 spelling silently wrapped to
+        -2147483648 — on the profile where an address constant at or above
+        0x8000_0000 is the most ordinary thing a kernel writes.
+        """
+        fixed = self._FIXED_INT_RANGES.get(kind)
+        if fixed is not None:
+            return fixed
+        w = getattr(self, 'platform_int_width', 64)
+        if kind == TypeKind.INT:
+            return (-(1 << (w - 1)), (1 << (w - 1)) - 1)
+        if kind == TypeKind.UINT:
+            return (0, (1 << w) - 1)
+        return None
+
     def _fixed_width_binop_type(self, expr, left_type, right_type):
         """Arithmetic (`+ - * / %`) mixing a BARE integer literal with a
         fixed-width integer operand: the literal adopts the fixed-width type, so
@@ -4514,14 +4536,18 @@ class ExpressionsMixin:
         """Reject a bare integer literal that does not fit a fixed-width integer
         target (design 65 followup). A literal adopts the field's type exactly, so
         `Rec(tag: 999)` with `tag: Int8` is a clean range error here rather than a
-        codegen ICE. Suffixed literals are already range-checked at lex time;
-        platform `Int`/`UInt` are checked at the literal in codegen."""
+        codegen ICE. Suffixed literals are already range-checked at lex time.
+
+        DF-137d / DF-140a: platform `Int`/`UInt` are checked here too now, against
+        the EFFECTIVE target's pointer width — they used to be skipped entirely,
+        so a literal too large for a 32-bit `Int` wrapped in silence."""
         if not isinstance(value_expr, IntLiteral) or getattr(value_expr, 'suffix', None):
             return
         rt = self._resolve_type(expected_type) if expected_type is not None else None
-        if rt is None or rt.kind not in self._FIXED_INT_RANGES:
+        rng = self._int_range_for(rt.kind) if rt is not None else None
+        if rng is None:
             return
-        lo, hi = self._FIXED_INT_RANGES[rt.kind]
+        lo, hi = rng
         if not (lo <= value_expr.value <= hi):
             self._error(
                 ErrorKind.TYPE_MISMATCH,

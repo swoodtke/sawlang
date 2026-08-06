@@ -369,17 +369,14 @@ class RegistrationMixin:
     )
 
     def _int_fits_kind(self, value: int, kind) -> bool:
-        """Whether `value` is representable in integer type `kind`. Platform
-        `Int`/`UInt` are judged at 64 bits, matching `Int.max`/`UInt.max`."""
-        rng = self._FIXED_INT_RANGES.get(kind)
-        if rng is None:
-            if kind == TypeKind.INT:
-                rng = (-(1 << 63), (1 << 63) - 1)
-            elif kind == TypeKind.UINT:
-                rng = (0, (1 << 64) - 1)
-            else:
-                return False
-        return rng[0] <= value <= rng[1]
+        """Whether `value` is representable in integer type `kind`.
+
+        DF-137d / DF-140a: platform `Int`/`UInt` are judged at the EFFECTIVE
+        target's width, not a fixed 64 — a raw-backed enum case value is ABI, so
+        a case that does not fit the target's `Int` must be rejected on that
+        target rather than wrapped."""
+        rng = self._int_range_for(kind)
+        return rng is not None and rng[0] <= value <= rng[1]
 
     def _check_enum_raw_backing(self, enum: SawEnum):
         """Validate `enum E: <Int> { case A = 0, ... }` and return
@@ -1028,6 +1025,13 @@ class RegistrationMixin:
             # the const-init walk sees checked nodes.
             saved_scope = self.current_scope
             self.current_scope = type(saved_scope)()
+            # DF-140a: a static initializer takes the SAME literal treatment as
+            # every other typed slot — adopt the declared type and range-check at
+            # the literal, BEFORE checking it. Statics were skipping this
+            # entirely, so `static B: UInt8 = 256` compiled clean while the `let`
+            # spelling of it was a clean error, and (with DF-137d) a riscv32
+            # `static BASE: Int = 0x80000000` wrapped negative in silence.
+            self._apply_literal_expected_type(static.initializer, resolved_type)
             init_type = self._check_expression(static.initializer)
             self.current_scope = saved_scope
             if init_type is not None and not self._types_compatible(resolved_type, init_type):

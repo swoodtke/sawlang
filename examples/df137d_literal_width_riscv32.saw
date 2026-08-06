@@ -1,0 +1,28 @@
+// DF-137d / DF-140a: a bare integer literal is range-checked against platform
+// `Int`/`UInt` at the EFFECTIVE target's width.
+//
+// Platform `Int`/`UInt` are pointer-width (design 47), so `0x80000000` fits a
+// 64-bit `Int` and does not fit a 32-bit one. The check knew every fixed-width
+// type and skipped the platform pair entirely, so on riscv32 the literal wrapped
+// to -2147483648 in silence — on exactly the profile where an address constant
+// at or above 0x8000_0000 is the most ordinary thing a kernel writes, and where
+// the same source means a different number per target.
+//
+// Separately, `static` initializers did not go through the literal check at all,
+// so `static B: UInt8 = 256` compiled clean while the `let` spelling of it was
+// already a clean error. Both statics below are rejected now.
+// COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 2147483648 does not fit in `Int` (range -2147483648..=2147483647)
+// EXPECT-ERROR-CONTAINS: integer literal 4294967296 does not fit in `UInt` (range 0..=4294967295)
+// EXPECT-ERROR-CONTAINS: integer literal 256 does not fit in `UInt8` (range 0..=255)
+
+static RAM_BASE: Int = 0x80000000       // wrapped negative before this check
+static SMALL: UInt8 = 256               // statics skipped the check entirely
+
+@export("kmain")
+func kmain() {
+    let big_local: Int = 0x80000000
+    let wide: UInt = 0x100000000
+    print("{} {} {} {}", RAM_BASE, SMALL, big_local, wide)
+}

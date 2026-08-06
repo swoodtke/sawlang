@@ -26,6 +26,7 @@ from ast_nodes import (
     ImportDecl, Visibility
 )
 from errors import ErrorReporter, ErrorKind
+from target_info import platform_int_width
 from namespace import (
     Namespace, SymbolKind,
     FunctionSymbol, StructSymbol, EnumSymbol, TraitSymbol, TypeAliasSymbol,
@@ -89,7 +90,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False,
                  runtime_build: bool = False, post_transform: bool = False,
-                 no_hidden_alloc: bool = False):
+                 no_hidden_alloc: bool = False,
+                 target_triple: Optional[str] = None):
         self.reporter = reporter
         # design 135: `--no-hidden-alloc`. Forbids the allocations the COMPILER
         # inserts that no source construct names — the escaping-closure
@@ -99,6 +101,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # `Box<any Error>` in a written signature, `spawn`) is untouched. The
         # audit table in LANGUAGE_SPEC.md is the full classification.
         self.no_hidden_alloc = no_hidden_alloc
+        # design 47 + DF-137d/DF-140a: platform `Int`/`UInt` are pointer-width,
+        # so which bare literals fit them is a fact about the EFFECTIVE target.
+        # Carried here (not just in codegen) so the literal range check rejects
+        # `0x80000000` for riscv32 instead of letting it wrap to a negative.
+        self.target_triple = target_triple
+        self.platform_int_width = platform_int_width(target_triple)
         # design 130: True on the RE-CHECK that follows the coroutine transform.
         # The transform rewrites user bodies in place — a held `&var` param
         # becomes a frame-resident `UnsafePointer<T>`, a spawned task reaches its

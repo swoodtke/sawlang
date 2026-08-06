@@ -1,0 +1,25 @@
+// DF-137d companion: the boundary values that DO fit a 32-bit platform `Int`/
+// `UInt` still compile for riscv32, so the width-aware check rejects only what
+// the target cannot represent.
+//
+// `UInt` is the honest type for an address, and 0x8000_0000 fits it at 32 bits —
+// which is why the SOS kernel holds every address as `UInt`. The signed spelling
+// of the same constant is what the sibling test rejects.
+// COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
+// EXPECT: object
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write
+
+static RAM_BASE: UInt = 0x80000000      // fits a 32-bit UInt
+static INT_MAX_32: Int = 2147483647     // the exact upper bound
+static INT_MIN_32: Int = -2147483648    // the exact lower bound, via unary minus
+static UINT_MAX_32: UInt = 4294967295   // the exact unsigned bound
+static BYTE: UInt8 = 255                // fixed-width statics still check
+
+@export("kmain")
+func kmain() {
+    let addr: UInt = 0x80000000
+    let hi: Int = 2147483647
+    let lo: Int = -2147483648
+    print("{} {} {} {} {} {} {}", RAM_BASE, INT_MAX_32, INT_MIN_32,
+          UINT_MAX_32, BYTE, addr, hi + lo)
+}

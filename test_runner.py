@@ -288,22 +288,26 @@ def _install_builtin_cache(sawc_mod):
     codegen annotates AST nodes — so a compile needs its OWN copies. Deep-copying
     the PAIR together (one memo) preserves that shared-identity invariant while
     isolating each compile. The cache is keyed on the two flags that change what
-    gets loaded (freestanding drops hosted std; runtime-build loads no std).
+    gets loaded (freestanding drops hosted std; runtime-build loads no std) plus
+    the target triple, which since DF-137d changes what the checked result MEANS:
+    platform `Int`/`UInt` are pointer-width, so a literal std accepts for a
+    64-bit host can be a range error for riscv32.
     """
     orig = sawc_mod.build_builtin_namespace
     cache = {}
 
     def cached(verbose=False, freestanding=False, runtime_build=False,
-               builtin_ast=None):
+               builtin_ast=None, target_triple=None):
         # design 146: a re-entry hands its own already-parsed builtin AST back —
         # the one a source-level transform just rewrote. That AST is the program's
         # std, so check it rather than serving a pristine copy from the cache.
         if builtin_ast is not None:
             return orig(verbose, freestanding, runtime_build,
-                        builtin_ast=builtin_ast)
-        key = (freestanding, runtime_build)
+                        builtin_ast=builtin_ast, target_triple=target_triple)
+        key = (freestanding, runtime_build, target_triple)
         if key not in cache:
-            cache[key] = orig(verbose, freestanding, runtime_build)
+            cache[key] = orig(verbose, freestanding, runtime_build,
+                              target_triple=target_triple)
         return copy.deepcopy(cache[key])
 
     sawc_mod.build_builtin_namespace = cached
