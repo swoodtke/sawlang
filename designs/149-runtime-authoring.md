@@ -47,6 +47,25 @@ auto-linking, and — the value-add — CHECKS the exported seam signatures
 against rt/ABI.md's contract at compile time. Sync-only discipline
 applies to the exports as it does under --runtime-build.
 
+## (d) `SpinLock<T>` — the SAFE cross-context lock [user, Aug 5]
+std/spinlock.saw: `NoCopy`, `Sync` when `T: Send`, Mutex-shaped API
+(`lock<R>(body: (&var T) sync -> R) -> R`, `try_lock`), a word + payload
+over `Atomic` CAS/swap — no OS dependency, and CONST-INITIALIZABLE, so
+lockable STATICS finally exist (`static TABLE: SpinLock<HandleTable> =
+...`) — the safe complement to (a): unsafe static var for proven-serial
+aggregates, SpinLock for genuinely concurrent ones. Two enforced
+constraints: the body is `sync` (suspending under a spinlock is
+livelock-by-construction on the cooperative executor — the effect
+checker makes it a COMPILE ERROR, Saw's best-in-class version of this
+primitive); and SpinLock REQUIRES real target atomics — on targets
+whose `Atomic` lowers to the plain-RMW libcalls it is a teaching error
+("enable +a via --target-features"), never a silent fallback (137's
+flag exists; Profile A's Saw half moves to rv32imac's amoswap). The
+same-core ISR deadlock is handled by composition, not std: sos builds
+`SpinLockIrq` from SpinLock + HAL interrupt masking when M2-era
+interrupt work lands. Hosted use legal; docs say short critical
+sections only.
+
 ## Payoff
 support.c shrinks to the two stays-C-forever categories (mem* — the
 loop-idiom-recursion trap; atomics until the A-extension story) and
