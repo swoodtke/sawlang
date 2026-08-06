@@ -63,9 +63,9 @@ from ast_nodes import (
     Argument, ArrayIndex, Block, BreakStatement, ClosureExpr,
     ContinueStatement, ExpressionStatement, ForceUnwrap, ForLoop, FunctionCall,
     GuardLetStatement, Identifier, IfExpr, IfLetExpr, LendStatement,
-    LetStatement, MatchExpr, MemberAccess, NoneLiteral, Parameter, Program,
-    ReferenceExpr, ReturnStatement, SawType, SelfExpr, TupleIndex, TypeKind,
-    TypeParameter, WhileExpr, structural_fields,
+    LetStatement, MatchExpr, MemberAccess, MethodCall, NoneLiteral, Parameter,
+    Program, ReferenceExpr, ReturnStatement, SawType, SelfExpr, TupleIndex,
+    TypeKind, TypeParameter, WhileExpr, structural_fields,
 )
 from errors import ErrorKind
 
@@ -167,7 +167,7 @@ class _PlaceTransform:
                 type=SawType(TypeKind.FUNCTION, param_types=[],
                              func_return_type=result_ty, func_is_sync=True)))
 
-        new_body = self._rewrite_block(decl.body, [], place_optional)
+        new_body = self._rewrite_block(decl.body, [], place_optional, tail=True)
 
         decl.parameters = params
         decl.type_params = list(decl.type_params or []) + [
@@ -194,7 +194,8 @@ class _PlaceTransform:
 
     # -- body rewrite ------------------------------------------------------
 
-    def _rewrite_block(self, block: Block, cont: List, place_optional: bool) -> Block:
+    def _rewrite_block(self, block: Block, cont: List, place_optional: bool,
+                       tail: bool = False) -> Block:
         stmts = list(block.statements)
         if block.final_expr is not None:
             stmts.append(ExpressionStatement(
@@ -205,31 +206,49 @@ class _PlaceTransform:
         out = []
         for j, stmt in enumerate(stmts):
             rest = stmts[j + 1:]
+            # TAIL position: this block's value IS the accessor's result, so the
+            # window call can stay an EXPRESSION rather than become a `return`.
+            # That is what keeps a lending `match` free of `return` statements —
+            # and the use-site lowering needs it free of them, because a window
+            # is a closure and a `return` inside one would leave the window
+            # rather than the accessor (design 146). A match whose arms are
+            # expressions is matched WHERE IT SITS, which is the whole point of
+            # lending an enum payload.
+            at_tail = tail and not rest and not cont
 
             if isinstance(stmt, LendStatement):
+                if at_tail:
+                    return _block_like(block, out, self._window_expr(stmt))
                 out.extend(self._lend_sequence(stmt, rest + cont, place_optional))
                 return _block_like(block, out)
 
             if _is_return_none(stmt):
-                out.append(ReturnStatement(
-                    value=_call(ABSENT_PARAM, [], stmt),
-                    line=stmt.line, column=stmt.column))
+                absent = _call(ABSENT_PARAM, [], stmt)
+                if at_tail:
+                    return _block_like(block, out, absent)
+                out.append(ReturnStatement(value=absent,
+                                           line=stmt.line, column=stmt.column))
                 return _block_like(block, out)
 
             if _contains(stmt, LendStatement):
                 # A branch below lends, so everything after this statement is
                 # the epilogue of those windows and moves into them.
-                out.append(self._rewrite_container(stmt, rest + cont,
-                                                   place_optional))
+                as_expr = at_tail and isinstance(_ctrl(stmt), MatchExpr)
+                rewritten = self._rewrite_container(stmt, rest + cont,
+                                                    place_optional, as_expr)
+                if as_expr:
+                    return _block_like(block, out, _ctrl(rewritten))
+                out.append(rewritten)
                 return _block_like(block, out)
 
             out.append(self._rewrite_absent_only(stmt, place_optional))
 
         return _block_like(block, out)
 
-    def _rewrite_container(self, stmt, cont: List, place_optional: bool):
+    def _rewrite_container(self, stmt, cont: List, place_optional: bool,
+                           tail: bool = False):
         """Recurse into a control-flow statement that lends on some path."""
-        ctrl = stmt.expression if isinstance(stmt, ExpressionStatement) else stmt
+        ctrl = _ctrl(stmt)
 
         if isinstance(ctrl, (IfExpr, IfLetExpr)):
             ctrl.then_branch = self._rewrite_block(ctrl.then_branch, cont,
@@ -243,7 +262,7 @@ class _PlaceTransform:
             for arm in ctrl.arms:
                 if isinstance(arm.body, Block):
                     arm.body = self._rewrite_block(arm.body, cont,
-                                                   place_optional)
+                                                   place_optional, tail)
             return stmt
 
         if isinstance(ctrl, GuardLetStatement):
@@ -274,15 +293,19 @@ class _PlaceTransform:
             ctrl.body = self._rewrite_block(ctrl.body, [], place_optional)
         return stmt
 
-    def _lend_sequence(self, stmt: LendStatement, tail: List,
-                       place_optional: bool) -> List:
-        """`lend X` plus its epilogue, as ordinary statements."""
-        window_call = _call(
+    def _window_expr(self, stmt: LendStatement) -> FunctionCall:
+        """`lend X` as the call that opens the window."""
+        return _call(
             WINDOW_PARAM,
             [ReferenceExpr(expr=stmt.place, mutable=True,
                            in_argument_position=True, from_lend=True,
                            line=stmt.place.line, column=stmt.place.column)],
             stmt)
+
+    def _lend_sequence(self, stmt: LendStatement, tail: List,
+                       place_optional: bool) -> List:
+        """`lend X` plus its epilogue, as ordinary statements."""
+        window_call = self._window_expr(stmt)
 
         if not tail:
             # The overwhelmingly common shape: no epilogue, so the window call
@@ -343,6 +366,7 @@ class _PlaceTransform:
         self._ok = True
         self._optional = place_optional
         self._lend_seen = False
+        self._arms = []
         outcome = self._walk_block(decl.body, in_loop=False)
 
         # A more specific diagnostic (a branch that forgets to lend, a `lend`
@@ -406,6 +430,8 @@ class _PlaceTransform:
                     "a temporary, which would be gone before the caller's "
                     "window opened")
                 self._ok = False
+            else:
+                self._claim_payload_lend(stmt)
             self._lend_seen = True
             return _LEND
 
@@ -444,7 +470,9 @@ class _PlaceTransform:
             outs = []
             for arm in ctrl.arms:
                 if isinstance(arm.body, Block):
+                    self._arms.append((ctrl, arm))
                     outs.append(self._walk_block(arm.body, in_loop))
+                    self._arms.pop()
                 elif _diverges(arm.body):
                     outs.append(_DIVERGE)
                 else:
@@ -463,6 +491,48 @@ class _PlaceTransform:
 
         self._reject_lend_in_closure(stmt)
         return _FALL
+
+    def _claim_payload_lend(self, stmt: LendStatement) -> None:
+        """`lend v` where `v` is a MATCH-ARM binding: the place is an ENUM
+        PAYLOAD (design 146, DF-146d).
+
+        A match arm binds the payload, and design 146 already matches a place
+        WHERE IT SITS — so `case Occupied(_, v) -> lend v` names storage the
+        container still holds. The arm records which of its bindings was lent,
+        and codegen writes that binding back into the scrutinee when the window
+        closes. Copy-in/copy-out is indistinguishable from aliasing here: the
+        window borrows the scrutinee's ROOT for its whole extent, so the Law of
+        Exclusivity already freezes the enum — tag included — and nothing else
+        can look at the slot while the payload is out. It is also the only
+        spelling that keeps the lent pointer properly aligned, since an enum's
+        payload is a byte array sitting behind a 4-byte tag.
+
+        The scrutinee must therefore be storage reached THROUGH THE RECEIVER. A
+        `match` on a value the body just built would lend a temporary that dies
+        with the accessor, and the caller's write would go nowhere.
+        """
+        root = _place_root(stmt.place)
+        if root is None:
+            return
+        for ctrl, arm in reversed(self._arms):
+            if root not in (arm.bindings or []):
+                continue
+            if not _rooted_at_self(ctrl.matched_expr):
+                self._error(
+                    stmt.place,
+                    f"`lend {root}` names the payload of a `match` on "
+                    "something other than the receiver's own storage, so the "
+                    "window would open onto a value that dies with this "
+                    "accessor. Match on a field, an element, or another place "
+                    "reached through `self` — the payload is then lent where "
+                    "it sits")
+                self._ok = False
+                return
+            lent = list(getattr(arm, 'lent_bindings', None) or [])
+            if root not in lent:
+                lent.append(root)
+            arm.lent_bindings = lent
+            return
 
     def _walk_return(self, stmt: ReturnStatement) -> str:
         value = stmt.value
@@ -562,9 +632,14 @@ class _PlaceTransform:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _block_like(block: Block, statements: List) -> Block:
-    return Block(statements=statements, final_expr=None,
+def _block_like(block: Block, statements: List, final_expr=None) -> Block:
+    return Block(statements=statements, final_expr=final_expr,
                  line=block.line, column=block.column)
+
+
+def _ctrl(stmt):
+    """The control-flow expression a statement carries, or the statement."""
+    return stmt.expression if isinstance(stmt, ExpressionStatement) else stmt
 
 
 def _call(name: str, args: List, at) -> FunctionCall:
@@ -596,6 +671,52 @@ def _is_place_expr(expr) -> bool:
         return _is_place_expr(expr.expr)
     return isinstance(expr, (Identifier, MemberAccess, ArrayIndex, TupleIndex,
                              SelfExpr))
+
+
+def _place_root(expr):
+    """The name a place expression is rooted at, or None for `self`/no root."""
+    node = expr
+    while node is not None:
+        if isinstance(node, Identifier):
+            return node.name
+        if isinstance(node, MemberAccess):
+            node = node.object
+        elif isinstance(node, ArrayIndex):
+            node = node.array_expr
+        elif isinstance(node, TupleIndex):
+            node = node.tuple_expr
+        elif isinstance(node, ForceUnwrap):
+            node = node.expr
+        else:
+            return None
+    return None
+
+
+def _rooted_at_self(expr) -> bool:
+    """Is this scrutinee storage reached through the receiver?
+
+    `self.slot`, `self.slots[i]`, `self.slots.get(i)!` — a field, an element,
+    or another place hanging off `self`. A borrows accessor is entitled to lend
+    out of its receiver and nothing else, so this is exactly the set of
+    scrutinees whose payload survives the window.
+    """
+    node = expr
+    while node is not None:
+        if isinstance(node, SelfExpr):
+            return True
+        if isinstance(node, MemberAccess):
+            node = node.object
+        elif isinstance(node, MethodCall):
+            node = node.object
+        elif isinstance(node, ArrayIndex):
+            node = node.array_expr
+        elif isinstance(node, TupleIndex):
+            node = node.tuple_expr
+        elif isinstance(node, ForceUnwrap):
+            node = node.expr
+        else:
+            return False
+    return False
 
 
 def _contains(node, kind) -> bool:

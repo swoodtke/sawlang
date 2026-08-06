@@ -12,7 +12,7 @@ Usage:
 from llvmlite import ir
 from ast_nodes import (
     MatchExpr, Block, Identifier, TypeKind, SelfExpr,
-    IntLiteral, BoolLiteral, StringLiteral, UnaryOp,
+    IntLiteral, BoolLiteral, StringLiteral, UnaryOp, ReferenceExpr,
     WildcardPattern, BindingPattern, LiteralPattern,
     RangePattern, TuplePattern, EnumPattern,
 )
@@ -32,8 +32,27 @@ class MatchMixin:
         # lowering; classic enum matches keep the switch below.
         if getattr(expr, 'use_general_match', False):
             return self._generate_match_general(expr)
-        # Generate the matched value
-        matched_val = self._generate_expression(expr.matched_expr)
+
+        # An arm may `lend` one of its payload bindings (design 146, DF-146d).
+        # The binding is still EXTRACTED into an alloca — an enum is
+        # `{ i32 tag, [N x i8] payload }`, so a pointer into the payload carries
+        # only the tag's alignment and would be under-aligned for whatever the
+        # payload holds — and the arm stores it back into the scrutinee when the
+        # window closes. Copy-in/copy-out is indistinguishable from aliasing
+        # here: a place window borrows the scrutinee's ROOT for its whole
+        # extent, so the Law of Exclusivity guarantees nothing else can read the
+        # slot while the payload is out.
+        lends_payload = any(getattr(arm, 'lent_bindings', None)
+                            for arm in expr.arms)
+        scrut_ptr = None
+        if lends_payload:
+            scrut_ptr = self._generate_reference_expr(
+                ReferenceExpr(expr=expr.matched_expr, mutable=True,
+                              in_argument_position=True))
+            matched_val = self.builder.load(scrut_ptr, name="lend_scrutinee")
+        else:
+            # Generate the matched value
+            matched_val = self._generate_expression(expr.matched_expr)
 
         # Extract the tag
         # Check if enum is simple (i32) or has payload ({ i32, [N x i8] })
@@ -173,6 +192,12 @@ class MatchMixin:
             # early `return`/`break` cleans it via `_cleanup_all_scopes`.
             arm_scope_pushed = False
             owning_bindings = []
+            # The arm's lent payload bindings, as (payload field index, alloca)
+            # pairs, plus the struct type the payload is read through — what the
+            # write-back below needs (design 146, DF-146d).
+            arm_lent = list(getattr(arm, 'lent_bindings', None) or [])
+            lent_slots = []
+            param_struct_type = None
 
             # Extract and bind associated values if any (not for wildcard).
             # A fully Void payload (design 92: the Ok arm of `Result<Void, E>`)
@@ -222,6 +247,8 @@ class MatchMixin:
                     var_alloca = self._entry_alloca(field_val.type, name=binding_name)
                     self.builder.store(field_val, var_alloca)
                     self.variables[binding_name] = var_alloca
+                    if binding_name in arm_lent:
+                        lent_slots.append((i, var_alloca))
 
                     # In consume mode the binding OWNS its payload field: register
                     # cleanup-needing bindings so they drop once at arm end unless
@@ -283,6 +310,29 @@ class MatchMixin:
                     arm_result = ir.Constant(ir.IntType(32), 0)  # Placeholder
                 else:
                     match_produces_value = True
+
+            # The window has closed, so write each LENT payload binding back
+            # into the scrutinee (design 146, DF-146d) — that is what makes a
+            # write through the place reach the enum's own storage. `align=1`:
+            # the payload byte array sits behind the tag, so its address is not
+            # promised to carry the payload type's natural alignment.
+            if lent_slots and scrut_ptr is not None and not self.builder.block.is_terminated:
+                payload_ptr = self.builder.gep(
+                    scrut_ptr,
+                    [ir.Constant(ir.IntType(32), 0),
+                     ir.Constant(ir.IntType(32), 1)],
+                    inbounds=True, name="lend_payload_ptr")
+                back_ptr = self.builder.bitcast(
+                    payload_ptr, ir.PointerType(param_struct_type),
+                    name="lend_writeback_struct")
+                for slot_index, slot_alloca in lent_slots:
+                    field_back = self.builder.gep(
+                        back_ptr,
+                        [ir.Constant(ir.IntType(32), 0),
+                         ir.Constant(ir.IntType(32), slot_index)],
+                        inbounds=True, name="lend_writeback_field")
+                    self.builder.store(self.builder.load(slot_alloca),
+                                       field_back, align=1)
 
             # Drop the arm's owning bindings (consume mode): an un-`move`d binding
             # is released here, exactly once. A terminated arm (return/break)

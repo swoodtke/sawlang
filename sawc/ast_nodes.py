@@ -1395,6 +1395,12 @@ class MatchArm(ASTNode):
     pattern: Optional['Pattern'] = None
     guard: Optional['Expression'] = None
 
+    # --- place transform -> codegen (design 146, DF-146d) ---
+    # The arm's own payload bindings that a `lend` in this arm hands out as a
+    # PLACE. Codegen writes each one back into the scrutinee's payload when the
+    # window closes, so a write through the window reaches the enum's storage.
+    lent_bindings: Optional[List[str]] = annotation(None)
+
 
 @dataclass
 class MatchExpr(Expression):

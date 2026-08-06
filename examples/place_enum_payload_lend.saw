@@ -1,0 +1,127 @@
+// DF-146d: `lend` from inside a borrowing match arm — an ENUM PAYLOAD as a
+// place.
+//
+// Design 146 already matched a place WHERE IT SITS, so an arm that binds binds
+// the payload in place. This is the other half: that binding can be LENT, which
+// is what gives a slot-shaped container an accessor at all. Tag stability comes
+// free — the window borrows the scrutinee's ROOT, so the Law of Exclusivity
+// freezes the whole enum for as long as the window is open, discriminant
+// included.
+//
+// The counts are the proof. `deinit` prints once, at teardown, for a payload
+// read twice and written through; a String payload read out as a VALUE retains,
+// so the container keeps its own.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- borrow through the payload place
+// a
+// a
+// -- write through the payload place
+// b
+// -- the absent path
+// absent
+// out of range
+// -- an ImplicitCopy payload reads out as a value
+// hello
+// hello
+// hello
+// none
+// -- teardown
+// deinit b
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.name}") }
+}
+
+extension Res {
+    func label(&self) -> String { self.name }
+    func rename(&var self, to: String) { self.name = to }
+}
+
+enum Slot { case Empty, case Filled(key: Int, res: Res) }
+
+extension Slot: NoCopy {}
+
+struct Table { slots: Vector<Slot> }
+
+extension Table: NoCopy {}
+
+extension Table {
+    /// The resource in the occupied slot at `i`, as a PLACE.
+    ///
+    /// The match reads `self.slots[i]` where it sits and `lend r` hands the
+    /// payload out of the arm; the Empty arm is the conditional lend's absent
+    /// path, which opens no window at all.
+    public func at(&self, i: Int) borrows -> Res? {
+        if i < 0 || i >= self.slots.len() {
+            return None
+        }
+        match self.slots[i] {
+            case Filled(_, r) -> { lend r },
+            case Empty -> { return None }
+        }
+    }
+}
+
+enum Note { case Blank, case Text(body: String) }
+
+struct Log { notes: Vector<Note> }
+
+extension Log: NoCopy {}
+
+extension Log {
+    public func at(&self, i: Int) borrows -> String? {
+        if i < 0 || i >= self.notes.len() {
+            return None
+        }
+        match self.notes[i] {
+            case Text(b) -> { lend b },
+            case Blank -> { return None }
+        }
+    }
+}
+
+func main() {
+    var t = Table(slots: Vector<Slot>())
+    t.slots.push(Slot.Filled(key: 1, res: Res(name: "a")))
+    t.slots.push(Slot.Empty)
+
+    // A move-only payload, borrowed twice: neither read copies it, so neither
+    // drops it.
+    print("-- borrow through the payload place")
+    print(t.at(0)!.label())
+    print(t.at(0)!.label())
+
+    // A `&var self` method on the payload opens an EXCLUSIVE window out of the
+    // same `&self` declaration, and the write lands in the slot.
+    print("-- write through the payload place")
+    t.at(0)!.rename(to: "b")
+    print(t.at(0)!.label())
+
+    print("-- the absent path")
+    if let _ = t.at(1) {
+        print("unreachable")
+    } else {
+        print("absent")
+    }
+    if let _ = t.at(9) {
+        print("unreachable")
+    } else {
+        print("out of range")
+    }
+
+    print("-- an ImplicitCopy payload reads out as a value")
+    var l = Log(notes: Vector<Note>())
+    l.notes.push(Note.Text(body: "hello"))
+    let held = l.at(0)!
+    print(held)
+    print(l.at(0)!)
+    print(l.at(0) ?? "none")
+    print(l.at(5) ?? "none")
+
+    print("-- teardown")
+    let _ = move l
+    let _ = move t
+}

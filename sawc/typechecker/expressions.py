@@ -724,7 +724,16 @@ class ExpressionsMixin:
                              f"or forward it as `&{expr.expr.name}`"
                     )
                     return None
-                if var_info and not var_info.mutable and not is_mut_ref_binding:
+                # The `&var` the place transform builds out of a `lend` is
+                # exempt (design 146, DF-146d). `lend` names a PLACE, and the
+                # transform has already proved this one is storage — the new
+                # case being a match-arm binding, which the checker registers
+                # immutable because a match ordinarily binds a copy. Here the
+                # arm is matching a place WHERE IT SITS, so the binding names
+                # the enum's own payload and the window writes back through it.
+                from_lend = getattr(expr, 'from_lend', False)
+                if (var_info and not var_info.mutable and not is_mut_ref_binding
+                        and not from_lend):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"cannot take mutable reference to immutable variable `{expr.expr.name}`",

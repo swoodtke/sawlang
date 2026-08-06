@@ -1,0 +1,26 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: names the payload of a `match` on
+//
+// DF-146d. An arm may `lend` one of its payload bindings, but only when the
+// match is reading storage the accessor can reach through its receiver — that
+// is what makes the payload survive the window and what makes a write through
+// it land. Matching on a value the body just BUILT lends a temporary that dies
+// with the accessor, so the caller's write would go nowhere.
+
+enum Slot { case Empty, case Filled(n: Int) }
+
+struct Table { slot: Slot }
+
+extension Table {
+    func fresh(&self) -> Slot { Slot.Filled(n: 1) }
+
+    public func at(&self) borrows -> Int? {
+        let built = self.fresh()
+        match built {
+            case Filled(n) -> { lend n },
+            case Empty -> { return None }
+        }
+    }
+}
+
+func main() { print("unreached") }
