@@ -12,6 +12,11 @@
 //
 // `sync` is not rendered on a borrows accessor: it is implied by `borrows` (a
 // place window may not span a suspension) and the author never writes it.
+//
+// The receiver is reported as `"window"`, not `"borrows"` (design 146). A
+// `borrows` accessor spelled `&self` is borrowed with the WINDOW's flavor,
+// chosen at each use site -- shared for a read, exclusive for a write -- so
+// calling it shared-only in generated docs would say the opposite of the truth.
 
 // EXPECT: docs
 // COMPILE-FLAGS: --emit-docs
@@ -47,9 +52,9 @@
 //               ],
 //               "returns": "Int",
 //               "effect": "sync",
-//               "self": "borrows",
+//               "self": "window",
 //               "doc": "The element at `i`, as a place.",
-//               "line": 98
+//               "line": 103
 //             },
 //             {
 //               "kind": "method",
@@ -66,13 +71,13 @@
 //               ],
 //               "returns": "Int?",
 //               "effect": "sync",
-//               "self": "borrows",
+//               "self": "window",
 //               "doc": "The element at `i` if it exists -- an optional place.",
-//               "line": 106
+//               "line": 111
 //             }
 //           ],
 //           "doc": null,
-//           "line": 96
+//           "line": 101
 //         },
 //         {
 //           "kind": "struct",
@@ -84,7 +89,7 @@
 //           "conformances": [],
 //           "fields": [],
 //           "doc": null,
-//           "line": 94
+//           "line": 99
 //         }
 //       ]
 //     }

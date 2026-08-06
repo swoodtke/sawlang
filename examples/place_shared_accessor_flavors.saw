@@ -1,0 +1,103 @@
+// Design 146 (DF-146b): a `borrows` accessor declared `&self` serves BOTH
+// window flavors, and the USE SITE picks — design 141 decision 3, made real.
+//
+// This is the one place in Saw where a `&self` spelling does not mean
+// shared-only. `borrows` changes what the receiver means: the accessor's
+// receiver is borrowed with the WINDOW's flavor, so `print(b[0].count)` borrows
+// `b` shared and `b[0].count += 1` borrows it exclusively -- out of ONE
+// declaration. The polymorphism stops at the `lend`: everything else in the
+// body is ordinary `&self` code, and a `&var self.field` written anywhere else
+// under a `&self` receiver is still a hard error
+// (`errors/var_ref_into_shared_self.saw`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 12
+// b
+// 42
+// 1
+// closings 2
+// deep 7
+
+struct Cell {
+    count: Int
+    tag: String
+}
+
+struct Row {
+    cells: [Cell; 2]
+}
+
+struct Bag {
+    rows: [Row; 2]
+    hits: Int
+}
+
+extension Row {
+    // `&self`, and yet `r[i].count = 1` writes through it.
+    public func [](&self, i: Int) borrows -> Cell {
+        if i < 0 || i >= 2 {
+            panic("Row.[]: index out of range")
+        }
+        lend self.cells[i]
+    }
+}
+
+extension Bag {
+    public func [](&self, i: Int) borrows -> Row {
+        if i < 0 || i >= 2 {
+            panic("Bag.[]: index out of range")
+        }
+        lend self.rows[i]
+    }
+
+    // An epilogue on a `&self` accessor. It may READ the receiver but not
+    // write it -- the window's flavor reaches the `lend` and nothing else --
+    // so the closing count lives in a caller-side counter.
+    public func peek(&self, i: Int) borrows -> Row {
+        if i < 0 || i >= 2 {
+            panic("Bag.peek: index out of range")
+        }
+        lend self.rows[i]
+        print("closings {self.hits}")
+    }
+}
+
+func bump(c: &var Cell) {
+    c.count = c.count + 30
+}
+
+func main() {
+    var b = Bag(rows: [Row(cells: [Cell(count: 1, tag: "a"),
+                                   Cell(count: 2, tag: "b")]),
+                       Row(cells: [Cell(count: 3, tag: "c"),
+                                   Cell(count: 4, tag: "d")])],
+                hits: 2)
+
+    // Shared window: the place becomes a value at `.count`.
+    print("{b[0][1].count}")
+
+    // Exclusive window from the SAME declaration.
+    b[0][1].count += 10
+    print("{b[0][1].count}")
+
+    // Value read of an ImplicitCopy field through two chained windows.
+    let tag = b[0][1].tag
+    print("{tag}")
+
+    // A place handed to a call as a `&var` reference: the window spans the call.
+    bump(&var b[0][1])
+    print("{b[0][1].count}")
+    print("{b[0][0].count}")
+
+    // The epilogue runs when the window closes.
+    let _ = b.peek(1)[0].count
+
+    // A `let` root is fine for a SHARED window.
+    let frozen = Bag(rows: [Row(cells: [Cell(count: 7, tag: "x"),
+                                        Cell(count: 8, tag: "y")]),
+                            Row(cells: [Cell(count: 9, tag: "z"),
+                                        Cell(count: 10, tag: "w")])],
+                     hits: 0)
+    print("deep {frozen[0][0].count}")
+}

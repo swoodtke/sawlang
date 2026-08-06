@@ -37,6 +37,17 @@ are checked against a pinned `__R`, and a bare payload auto-wraps into it.
 read is where a place stops being storage: reading `let s = v[i]` out of an
 ImplicitCopy element retains, and out of an ExplicitCopy/NoCopy element it is
 the same clean error the rest of the language gives, naming the same ways out.
+
+**The window's FLAVOR is decided here, per use site** (design 141 decision 3,
+settled as DF-146b): a chain that only reads opens a shared window, a chain that
+writes -- or hands the place over as `&var` -- opens an exclusive one, and both
+come out of ONE `&self` declaration. The flavor rides on `place_window_exclusive`,
+which the checker reads to demand a `var` root and to join the access set as a
+mutable path; codegen gets the other half from `self_by_pointer`, which passes a
+borrows accessor's receiver as storage rather than a copy. So `borrows` changes
+what `&self` means -- the one place in Saw where that spelling is not
+shared-only -- and everything else in the accessor's body stays ordinary `&self`
+code.
 """
 
 from ast_nodes import (
@@ -233,65 +244,9 @@ class _PlaceUses:
 
     # -- window synthesis --------------------------------------------------
 
-    def _exclusive_ok(self, place) -> bool:
-        """Can this accessor lend an EXCLUSIVE window? (v1 fence.)
-
-        Design 141 decision 3 wants one body to serve both flavors with the USE
-        SITE picking. The compiler cannot honor that yet: a `&self` receiver is
-        passed as a COPY, so `&var self.field` inside such a body writes to the
-        copy — silently, today, for hand-written code too (DF-146b). Until that
-        is settled, an exclusive window needs an accessor that took its receiver
-        mutably, which is the honest half of the decision rather than a silent
-        wrong answer.
-        """
-        info = self.ns.lookup_method(place.place_struct, place.place_method)
-        if info is not None and getattr(info, 'self_mutable', False):
-            return True
-        spelling = (f"{self._render(self._place_receiver(place))}[…]"
-                    if isinstance(place, ArrayIndex)
-                    else f"{self._render(self._place_receiver(place))}"
-                         f".{place.place_method}(…)")
-        self.reporter.error(
-            ErrorKind.TYPE_MISMATCH,
-            f"`{spelling}` opens an EXCLUSIVE window, but "
-            f"`{place.place_struct}.{place.place_method}` takes `&self` — a "
-            f"shared receiver cannot lend storage to write through",
-            place.line, place.column or 1,
-            f"declare the accessor `func {place.place_method}(&var self, …) "
-            f"borrows -> T`; a `&self` accessor serves reads",
-            self._file)
-        return False
-
-    def _conditional_ok(self, place) -> bool:
-        """v1 fence: a conditional lend may be DECLARED but not yet USED.
-
-        `borrows -> T?` needs the two window closures to agree on `__R`, and
-        the absent one takes no parameters — which is the one shape whose
-        result type does not survive to codegen (it arrives as Void and the
-        `None` it returns has nothing to be a `None` OF). Rather than emit that
-        as an internal error at the user, say so here. DF-146c.
-        """
-        self.reporter.error(
-            ErrorKind.TYPE_MISMATCH,
-            f"`{place.place_struct}.{place.place_method}` lends CONDITIONALLY "
-            f"(`borrows -> T?`), and calling a conditional lend is not "
-            f"implemented yet — only unconditional `borrows -> T` accessors "
-            f"can be used so far",
-            place.line, place.column or 1,
-            "declare the accessor `borrows -> T` and bounds-check in its "
-            "prologue (panicking out of range), or reach the element with "
-            "`with_ref`/`with_var_ref` until this lands",
-            self._file)
-        return False
-
     def _window_call(self, place, param_name, body, result_type, exclusive,
                      absent):
         """The accessor call that opens one window."""
-        if exclusive and not self._exclusive_ok(place):
-            exclusive = False
-        if getattr(place, 'place_optional', False) and not self._conditional_ok(
-                place):
-            return place
         closure = ClosureExpr(
             parameters=[ClosureParam(name=param_name, line=place.line,
                                      column=place.column)],
@@ -431,6 +386,15 @@ class _PlaceUses:
     def _replace_head(self, expr, place, name):
         """`expr` with `place` swapped for the window's parameter."""
         if expr is place:
+            return Identifier(name=name, line=place.line, column=place.column)
+        if (isinstance(expr, ForceUnwrap) and expr.expr is place
+                and getattr(place, 'place_optional', False)):
+            # `v.get(i)!.m()`: the `!` is how the source says "I promise the
+            # place is there", and the window is where that promise is kept —
+            # the present path opens it with the payload itself, the absent path
+            # is the panic the `!` asked for. So the unwrap is CONSUMED here; the
+            # window parameter is already `&var T`, and leaving the `!` on would
+            # force-unwrap a non-optional.
             return Identifier(name=name, line=place.line, column=place.column)
         if isinstance(expr, MemberAccess):
             expr.object = self._replace_head(expr.object, place, name)

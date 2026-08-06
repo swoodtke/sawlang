@@ -695,9 +695,60 @@ class ExpressionsMixin:
                         hint="use `&var self` in method signature to make self mutable"
                     )
                     return None
+            elif self._projects_from_self(expr.expr):
+                # A `&self` receiver arrives BY VALUE, so a `&var` projection out
+                # of it addresses the callee's own copy: the write compiles, runs,
+                # and is thrown away with the copy (DF-146b — live in the tree
+                # from the first `&self` method until design 146 closed it).
+                # Design 106 already refuses to upgrade a `&` PARAMETER to `&var`;
+                # this is the same rule reaching the receiver it never covered.
+                #
+                # The one exception is the `&var` the place transform builds out
+                # of a `lend`: a borrows accessor's receiver travels by pointer
+                # exactly so its window can write through, and that reference is
+                # marked `from_lend`.
+                cm = getattr(self, "current_method", None)
+                self_is_mut = cm is not None and getattr(cm, "self_mutable", False)
+                if not self_is_mut and not getattr(expr, 'from_lend', False):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        "cannot take a mutable reference into a `&self` "
+                        "receiver: `self` is borrowed SHARED here, so `&var "
+                        "self....` would hand out a mutable reference to a copy "
+                        "and the write would be lost",
+                        expr.line, expr.column,
+                        hint="declare the method `&var self` to mutate through "
+                             "the receiver, or `borrows -> T` to lend the place "
+                             "and let each use site choose the window's flavor"
+                    )
+                    return None
 
         # Return reference type
         return SawType(TypeKind.REFERENCE, inner_type=inner_type, reference_mutable=expr.mutable)
+
+    def _projects_from_self(self, expr: Expression) -> bool:
+        """Is this lvalue a projection rooted at `self` — `self.a`, `self.a[i]`,
+        `self.t.0`, `self.opt!` — rather than storage reached some other way?
+
+        A projection through a local (`if let buf = self.buffer  &var buf[i]`)
+        is NOT one: the local holds a pointer value, and the storage it addresses
+        is the heap's, not the receiver's copy.
+        """
+        node = expr
+        while node is not None:
+            if isinstance(node, SelfExpr):
+                return True
+            if isinstance(node, MemberAccess):
+                node = node.object
+            elif isinstance(node, ArrayIndex):
+                node = node.array_expr
+            elif isinstance(node, TupleIndex):
+                node = node.tuple_expr
+            elif isinstance(node, ForceUnwrap):
+                node = node.expr
+            else:
+                return False
+        return False
 
     def _is_lvalue(self, expr: Expression) -> bool:
         """Check if an expression is an lvalue (can have its address taken)."""
@@ -709,6 +760,14 @@ class ExpressionsMixin:
         # extension for taking a reference into an optional's contents.
         if isinstance(expr, ForceUnwrap):
             return self._is_lvalue(expr.expr)
+        # A PLACE is storage by definition (design 141): `v.first()` and
+        # `v.get(i)!` name an element the container already holds, so `&var`
+        # into one is exactly as addressable as `&var v[i]`. The use-site
+        # lowering turns the whole call into a window that spans it. The
+        # annotation is stamped by `_check_place_use`, which has already run on
+        # this node — `_check_reference_expr` checks the operand first.
+        if getattr(expr, 'place_struct', None) is not None:
+            return True
         return isinstance(expr, (Identifier, MemberAccess, ArrayIndex, SelfExpr))
 
     def _check_cast_expr(self, expr: CastExpr) -> Optional[SawType]:
@@ -7728,6 +7787,44 @@ class ExpressionsMixin:
         return_type = self._check_block(expr.body)
         if return_type is None:
             return_type = SawType(TypeKind.VOID)
+        # A closure passed to a known function type takes its RETURN CONTEXT from
+        # that type, the same way a function body takes it from its signature —
+        # so a bare `None` in tail position learns what it is a `None` OF. The
+        # shape that needed it is the absent path of a conditional lend, `{ None }`
+        # checked against `() sync -> T?` (design 141/146, DF-146c): without the
+        # pin the optional reached codegen with no inner type at all.
+        expected_ret = (expected_type.func_return_type
+                        if expected_type is not None
+                        and expected_type.kind == TypeKind.FUNCTION else None)
+        if expected_ret is not None and expected_ret.kind == TypeKind.TYPE_PARAM:
+            expected_ret = None          # unsolved `U` — nothing to pin against
+        if expected_ret is not None and return_type.kind == TypeKind.NEVER:
+            # A body that never comes back satisfies any expected result type,
+            # and the SIGNATURE is what codegen emits — so a `{ panic(...) }`
+            # closure in an `-> Int` slot must be an `-> Int` function that
+            # happens never to return. This is the absent path of a conditional
+            # lend reached through a force-unwrap (`v.get(i)!.m()`), where the
+            # `!`'s promise becomes the panic.
+            return_type = expected_ret
+        elif (expected_ret is not None
+                and expected_ret.kind == TypeKind.OPTIONAL
+                and expected_ret.inner_type is not None):
+            self._propagate_optional_type(expr.body, expected_ret)
+            if (return_type.kind == TypeKind.OPTIONAL
+                    and return_type.inner_type is None):
+                return_type = expected_ret
+            elif (not return_type.is_optional()
+                    and return_type.kind not in (TypeKind.VOID, TypeKind.NEVER)
+                    and expr.body.final_expr is not None):
+                # A tail value where an optional is expected AUTO-WRAPS, exactly
+                # as it does in a function body — `{ __p in __p }` against
+                # `(&var T) sync -> T?` is the present path of a conditional
+                # lend, and the wrap is what makes it a `Some` place read.
+                expr.body.final_expr = OptionalWrap(
+                    value=expr.body.final_expr, target_type=expected_ret,
+                    line=expr.body.final_expr.line,
+                    column=expr.body.final_expr.column)
+                return_type = expected_ret
         captures = self._analyze_closure_captures(expr.body, outer_scope)
         # An explicitly-listed capture is captured even if the body scan missed
         # it (e.g. a borrow named for its side of an exclusivity check). Preserve

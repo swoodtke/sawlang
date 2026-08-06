@@ -379,6 +379,15 @@ class DocsBuilder:
             params = params[1:]
             if getattr(node, "self_mutable", False):
                 self_kind = "borrows-var"
+            elif is_borrows:
+                # design 146 (DF-146b): a `borrows` accessor spelled `&self`
+                # does NOT borrow its receiver shared-only. The window's flavor
+                # is chosen at each use site — a read borrows shared, a write
+                # borrows exclusively — so reporting "borrows" here would tell
+                # a reader the opposite of the truth. `window` is the honest
+                # answer, and the only receiver kind that means "it depends on
+                # the caller".
+                self_kind = "window"
             elif getattr(node, "self_is_reference", False):
                 self_kind = "borrows"
             else:
@@ -398,7 +407,7 @@ class DocsBuilder:
         gen = _generics_str(type_params)
         head = ("init" if is_init else "func %s" % name) + gen
         self_txt = {"borrows-var": "&var self", "borrows": "&self",
-                    "consumes": "self"}.get(self_kind)
+                    "window": "&self", "consumes": "self"}.get(self_kind)
         rendered = ([self_txt] if self_txt else [])
         for e in param_entries:
             text = "%s: %s" % (e["name"], e["type"])

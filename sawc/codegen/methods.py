@@ -11,7 +11,7 @@ Usage:
 
 from llvmlite import ir
 from ast_nodes import (
-    Function, Block, Method, Extension, SawType, TypeKind
+    Function, Block, Method, Extension, SawType, TypeKind, self_by_pointer
 )
 from .mangle import mangle_named
 
@@ -88,7 +88,7 @@ class MethodsMixin:
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
             # For mutable self, it's already a pointer - just store it directly
-            if i == 0 and param.name == "self" and method.self_mutable:
+            if i == 0 and param.name == "self" and self_by_pointer(method):
                 self.variables[param.name] = llvm_func.args[i]
                 self.variable_types[param.name] = self_saw_type
             elif param.name == "self":

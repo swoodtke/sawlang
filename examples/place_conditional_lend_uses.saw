@@ -1,0 +1,94 @@
+// Design 141 decision 5 / design 146 (DF-146c): CALLING a conditional lend.
+//
+// `borrows -> T?` is the optional place. Each path through the body either
+// `lend`s real storage (the present path) or plainly `return None` (the absent
+// path -- no storage, an immediate value). At the use site the two paths are
+// two closures, and the absent one opens NO window and runs NO epilogue: the
+// caller decides what absence means. A value read means `None`; a chain that
+// reached THROUGH the place with `!` already promised it was there, so absence
+// is that force-unwrap's panic.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 12
+// b
+// 42
+// none
+// closed 1
+// closed 2
+
+struct Cell {
+    count: Int
+    tag: String
+}
+
+struct Bag {
+    cells: [Cell; 3]
+    closings: Int
+}
+
+extension Bag {
+    /// The element at `i` if it exists -- an optional place.
+    public func get(&self, i: Int) borrows -> Cell? {
+        if i < 0 || i >= 3 {
+            return None
+        }
+        lend self.cells[i]
+    }
+
+    /// An optional place with an EPILOGUE. It runs only on the path that
+    /// actually lent: the absent path never opens a window, so it never closes
+    /// one either.
+    public func tracked(&var self, i: Int) borrows -> Cell? {
+        if i < 0 || i >= 3 {
+            return None
+        }
+        lend self.cells[i]
+        self.closings = self.closings + 1
+        print("closed {self.closings}")
+    }
+}
+
+func bump(c: &var Cell) {
+    c.count = c.count + 30
+}
+
+func main() {
+    var b = Bag(cells: [Cell(count: 1, tag: "a"),
+                        Cell(count: 2, tag: "b"),
+                        Cell(count: 3, tag: "c")],
+                closings: 0)
+
+    // Present path, shared window through the `!`.
+    print("{b.get(1)!.count}")
+
+    // Present path, EXCLUSIVE window -- from the same `&self` declaration.
+    b.get(1)!.count += 10
+    print("{b.get(1)!.count}")
+
+    // Value read of the optional place: design 131's table, so an ImplicitCopy
+    // payload retains and the binding is the caller's own.
+    if let c = b.get(1) {
+        print("{c.tag}")
+    }
+
+    // A place handed over as a `&var` argument: the window spans the call.
+    bump(&var b.get(1)!)
+    print("{b.get(1)!.count}")
+
+    // Absent path: no window opens.
+    if let c = b.get(9) {
+        print("unreachable {c.count}")
+    } else {
+        print("none")
+    }
+
+    // The epilogue runs on the lending path, once per closed window.
+    let _ = b.tracked(0)!.count
+    let _ = b.tracked(2)!.count
+
+    // ...and not at all on the absent one.
+    if let c = b.tracked(9) {
+        print("unreachable {c.count}")
+    }
+}

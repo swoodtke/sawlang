@@ -22,6 +22,17 @@ one stack frame, nothing dynamic. A conditional lend (`borrows -> T?`) takes a
 second closure for the absent path, so `return None` becomes `return
 __absent()` and the window simply never opens.
 
+**The receiver goes by POINTER even when the author wrote `&self`** (design 146,
+DF-146b). `lend self.cells[i]` becomes `__window(&var self.cells[i])`, and a
+`&self` receiver arrives as a COPY -- so that `&var` would address the callee's
+copy and an exclusive window's write would be thrown away. `place_self_by_pointer`
+(read through `ast_nodes.self_by_pointer`) fixes that at the ABI, which is what
+lets design 141 decision 3 hold: one body, both flavors, the use site choosing.
+The polymorphism is confined to the `lend` -- its `&var` is marked `from_lend`
+and is the single exception to the rule that a `&var` projection out of a `&self`
+receiver is an error, so a field write or a stray `&var self.x` in the prologue
+or epilogue is rejected exactly as it is in any other `&self` method.
+
 **The epilogue and tail duplication.** Statements after the `lend` run when the
 window closes, so the call cannot stay in return position:
 
@@ -125,6 +136,9 @@ class _PlaceTransform:
             self._error(decl, "a `borrows -> T?` declaration must name `T`")
             return
 
+        if is_method and not self._validate_receiver(decl):
+            return
+
         if not self._validate(decl, place_optional):
             return
 
@@ -168,6 +182,14 @@ class _PlaceTransform:
         decl.is_sync = True
         decl.place_type = inner
         decl.place_optional = place_optional
+        # The receiver travels as a POINTER from here on, whichever flavor the
+        # author spelled (design 146, DF-146b): the place this body lends is
+        # storage inside the receiver, and an exclusive window has to reach the
+        # CALLER's storage to write through it. `self_by_pointer` is what codegen
+        # consults; the checker still sees a plain `&self` body, so a field write
+        # or a stray `&var self.x` in the prologue stays the error it always was.
+        if is_method and not getattr(decl, 'is_static', False):
+            decl.place_self_by_pointer = True
         self.changed = True
 
     # -- body rewrite ------------------------------------------------------
@@ -258,7 +280,7 @@ class _PlaceTransform:
         window_call = _call(
             WINDOW_PARAM,
             [ReferenceExpr(expr=stmt.place, mutable=True,
-                           in_argument_position=True,
+                           in_argument_position=True, from_lend=True,
                            line=stmt.place.line, column=stmt.place.column)],
             stmt)
 
@@ -287,6 +309,34 @@ class _PlaceTransform:
         return seq
 
     # -- validation --------------------------------------------------------
+
+    def _validate_receiver(self, decl) -> bool:
+        """A borrows METHOD lends storage out of its receiver, so it must borrow
+        that receiver rather than take a copy of it (design 146, DF-146b)."""
+        if getattr(decl, 'is_static', False) or getattr(decl, 'is_init', False):
+            self._error(
+                decl,
+                "a `borrows` accessor lends storage out of a receiver, so it "
+                "needs one — `init` builds a value and a static method has no "
+                "receiver at all")
+            return False
+        params = list(decl.parameters or [])
+        if not params or params[0].name != "self":
+            self._error(
+                decl,
+                "a `borrows` accessor lends storage out of a receiver, so it "
+                "needs one — declare it `func name(&self, ...) borrows -> T`")
+            return False
+        if not getattr(decl, 'self_is_reference', False):
+            self._error(
+                decl,
+                "a `borrows` accessor must take its receiver BY REFERENCE — "
+                "write `&self` (the receiver is then borrowed with each use "
+                "site's window flavor) or `&var self` (every use site borrows "
+                "it exclusively). A by-value `self` is a copy, and the place "
+                "lent out of it would be gone before the window opened")
+            return False
+        return True
 
     def _validate(self, decl, place_optional: bool) -> bool:
         """The coverage rule. Returns True if the body may be lowered."""

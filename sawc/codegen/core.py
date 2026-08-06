@@ -21,7 +21,7 @@ from ast_nodes import (
     Extension, Method, MethodCall, SelfExpr,
     SawType, TypeKind, Argument, TypeParameter, TypeDefinition,
     ExternFunction, ExternBlock,
-    ClosureExpr
+    ClosureExpr, self_by_pointer
 )
 from namespace import Namespace
 
@@ -2182,7 +2182,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     else:
                         llvm_type = self._get_llvm_type(p.type)
                     # If first param is self and it's mutable, make it a pointer
-                    if i == 0 and p.name == "self" and method.self_mutable:
+                    # (design 146: a `borrows` accessor's receiver too — its
+                    # window writes through it).
+                    if i == 0 and p.name == "self" and self_by_pointer(method):
                         llvm_type = llvm_type.as_pointer()
                     param_types.append(llvm_type)
                 return_type = self._get_llvm_type(method.return_type)

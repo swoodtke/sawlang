@@ -1,0 +1,30 @@
+// A `&self` receiver arrives BY VALUE, so `&var self.<field>` inside such a
+// method hands out a mutable reference INTO THE CALLEE'S COPY: the write runs
+// and is thrown away with the copy. That compiled silently from the first
+// `&self` method until design 146 closed it (DF-146b) -- design 106 already
+// refused to upgrade a `&` PARAMETER to `&var`, and this is the same rule
+// reaching the receiver it never covered.
+//
+// `borrows` is the one exception, and it is a narrow one: the `&var` that a
+// `lend` becomes is allowed, because a borrows accessor's receiver travels by
+// pointer and the window's flavor comes from the use site. Everywhere else --
+// including the prologue and epilogue of a borrows body -- this stays an error.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot take a mutable reference into a `&self` receiver
+
+struct Cell { count: Int }
+struct Bag { slot: Cell }
+
+func bump(c: &var Cell) { c.count += 10 }
+
+extension Bag {
+    func nudge(&self) {
+        bump(&var self.slot)
+    }
+}
+
+func main() {
+    var b = Bag(slot: Cell(count: 0))
+    b.nudge()
+    print("{b.slot.count}")
+}

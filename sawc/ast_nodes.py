@@ -40,6 +40,24 @@ def structural_fields(node):
             if not f.metadata.get("saw_annotation", False)]
 
 
+def self_by_pointer(method) -> bool:
+    """Does this method receive `self` as a POINTER rather than by value?
+
+    Two spellings say yes. `&var self` is the obvious one (design 40): the
+    method mutates its receiver, so it needs the caller's storage.
+
+    A `borrows` accessor is the other, and it is the one place in the language
+    where a `&self` spelling does not mean shared-only (design 146, DF-146b).
+    A borrows body lends a place OUT of the receiver, and design 141 decision 3
+    puts the window's mutability at the USE SITE, not on the declaration -- so
+    the receiver has to arrive as storage whichever flavor the use site picks,
+    or `v[i].n += 1` would write to the callee's copy. The polymorphism stops
+    at the `lend`: everything else in the body is ordinary `&self` code.
+    """
+    return bool(getattr(method, 'self_mutable', False)
+                or getattr(method, 'place_self_by_pointer', False))
+
+
 class TypeKind(Enum):
     INT = auto()         # System-width signed integer (typically 64-bit)
     UINT = auto()        # System-width unsigned integer (typically 64-bit)
@@ -669,6 +687,13 @@ class ReferenceExpr(Expression):
     # concrete type being erased and the trait it is erased to.
     erase_concrete: Optional['SawType'] = annotation(None)
     erase_to_trait: Optional[str] = annotation(None)
+
+    # This `&var` is the one the place transform built out of a `lend` (design
+    # 141/146). It is the single exception to the rule that a `&var` projection
+    # out of a `&self` receiver is an error: a borrows accessor's receiver is
+    # passed by POINTER precisely so the window can write through it, and the
+    # window's flavor is chosen at each use site. See `self_by_pointer`.
+    from_lend: bool = annotation(False)
 
 
 @dataclass
@@ -1565,6 +1590,10 @@ class Method(ASTNode):
     # that followed it would visit the same subtree twice.
     place_type: Optional['SawType'] = annotation(None)
     place_optional: bool = annotation(False)
+    # Set with `place_type` on a lowered borrows METHOD: its receiver travels as
+    # a POINTER even when the author wrote `&self`, because the window may write
+    # through it (design 146, DF-146b). See `self_by_pointer`.
+    place_self_by_pointer: bool = annotation(False)
     # Method-level generic type params (brief 36): the `U` in `func map<U>(...)`,
     # distinct from and in addition to the enclosing extension's own type params.
     type_params: List['TypeParameter'] = field(default_factory=list)

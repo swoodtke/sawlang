@@ -14,7 +14,7 @@ Usage:
 from typing import Optional, List
 from llvmlite import ir
 from ast_nodes import (
-    SawType, TypeKind, Extension, EnumVariant, Method
+    SawType, TypeKind, Extension, EnumVariant, Method, self_by_pointer
 )
 from .mangle import mangle_function, mangle_named, mangle_method
 
@@ -640,7 +640,7 @@ class GenericsMixin:
                     else:
                         substituted = self._substitute_saw_type(p.type, type_mapping)
                         llvm_type = self._get_llvm_type(substituted)
-                    if i == 0 and p.name == "self" and method.self_mutable:
+                    if i == 0 and p.name == "self" and self_by_pointer(method):
                         llvm_type = llvm_type.as_pointer()
                     param_types.append(llvm_type)
                 substituted_return = self._substitute_saw_type(method.return_type, type_mapping)
@@ -818,7 +818,7 @@ class GenericsMixin:
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
             is_self = (i == 0 and param.name == "self")
-            if is_self and method.self_mutable:
+            if is_self and self_by_pointer(method):
                 self.variables[param.name] = llvm_func.args[i]
                 continue
             if is_self:
