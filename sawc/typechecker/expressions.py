@@ -28,7 +28,7 @@ from ast_nodes import (
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     Pattern, WildcardPattern, BindingPattern, LiteralPattern,
     RangePattern, TuplePattern, EnumPattern,
-    Argument,
+    Argument, ASTNode, MatchArm, structural_fields,
 )
 from errors import ErrorKind
 from const_eval import const_eval, ConstEvalError
@@ -8534,7 +8534,16 @@ class ExpressionsMixin:
             elif isinstance(expr, MatchExpr):
                 collect_names(expr.matched_expr)
                 for arm in expr.arms:
-                    collect_names(arm.body)
+                    # An arm body is a Block as often as it is an expression,
+                    # and a guard is ordinary code too. Scanning only the
+                    # expression form left a name used inside `case A -> { n }`
+                    # uncaptured, and the closure ICE'd on it at codegen.
+                    if arm.guard is not None:
+                        collect_names(arm.guard)
+                    if isinstance(arm.body, Block):
+                        collect_block(arm.body)
+                    else:
+                        collect_names(arm.body)
             elif isinstance(expr, RangeExpr):
                 collect_names(expr.start)
                 collect_names(expr.end)
@@ -8569,6 +8578,42 @@ class ExpressionsMixin:
                 # frame is captured here too; its own params/locals won't resolve
                 # in outer_scope and are filtered out below.
                 collect_block(expr.body)
+            else:
+                # Everything the cases above do not name. A hand-written walker
+                # over an open set of node kinds silently misses the ones nobody
+                # thought of, and a MISS here is not a wrong answer but a
+                # codegen failure: `{ x in "n={n}" }` never captured `n` (no
+                # `StringInterpolation` case) and died with "Undefined variable:
+                # n". So the tail is a STRUCTURAL walk, which cannot be
+                # incomplete. The cases above stay because each says something
+                # the structure does not — a bare name IS a use, a `move`'s
+                # subject is a plain string, a call's callee may be a captured
+                # closure binding, and a nested closure's parameters are not
+                # uses at all.
+                collect_structural(expr)
+
+        def collect_structural(node):
+            """Walk NODE'S CHILDREN. Never re-dispatches `node` itself, which is
+            what keeps the mutual recursion with `collect_names` finite."""
+            if node is None or isinstance(node, (SawType, str)):
+                return
+            if isinstance(node, (list, tuple)):
+                for item in node:
+                    collect_child(item)
+                return
+            if isinstance(node, Block):
+                collect_block(node)
+                return
+            if not isinstance(node, (ASTNode, Argument, MatchArm)):
+                return
+            for f in structural_fields(node):
+                collect_child(getattr(node, f.name, None))
+
+        def collect_child(value):
+            if isinstance(value, Expression):
+                collect_names(value)
+            else:
+                collect_structural(value)
 
         def collect_block(block):
             if block is None:
@@ -8595,6 +8640,10 @@ class ExpressionsMixin:
                         collect_names(stmt.value)
                 elif isinstance(stmt, (WhileExpr, ForLoop)):
                     collect_names(stmt)
+                else:
+                    # Any other statement — a bare `if`/`match`, a `lend`, a
+                    # `try` — through the same structural tail.
+                    collect_structural(stmt)
             if block.final_expr:
                 collect_names(block.final_expr)
 

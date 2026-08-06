@@ -1,0 +1,79 @@
+// A closure captures every name its body uses, whatever shape the use has.
+//
+// The capture scan was a hand-written walk over an open set of node kinds, and
+// the kinds nobody listed were silently skipped — so the name never entered the
+// environment and codegen died with "Undefined variable". Three were missing:
+// a STRING INTERPOLATION (`{ x in "n={n}" }` — the visible one), a match arm
+// written as a BLOCK rather than an expression (`case First -> { n }`), and an
+// arm GUARD. The walk now falls back to a STRUCTURAL one, which cannot be
+// incomplete.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// n=7 x=2
+// 7
+// 3
+// guarded 12
+// under
+// nested 5
+
+enum Pick { case First, case Second }
+
+func apply(f: (Pick) -> Int, p: Pick) -> Int {
+    f(p)
+}
+
+func describe(f: (Int) -> String, x: Int) -> String {
+    f(x)
+}
+
+func label(f: (Pick) -> String, p: Pick) -> String {
+    f(p)
+}
+
+func main() {
+    let n = 7
+    let g = 3
+    // A name used only inside a string interpolation.
+    print(describe({ x in "n={n} x={x}" }, 2))
+    print(apply({ p in
+        match p {
+            case First -> { n },
+            case Second -> { g }
+        }
+    }, Pick.First))
+    print(apply({ p in
+        match p {
+            case First -> { n },
+            case Second -> { g }
+        }
+    }, Pick.Second))
+
+    // A guard is ordinary code in an arm too.
+    let limit = 12
+    print(describe({ x in
+        match x {
+            case v if v > limit -> { "guarded {limit}" },
+            case _ -> { "under" }
+        }
+    }, 20))
+    print(describe({ x in
+        match x {
+            case v if v > limit -> { "guarded {limit}" },
+            case _ -> { "under" }
+        }
+    }, 4))
+
+    // A match nested inside a block arm reaches the same enclosing frame.
+    let inner = 5
+    print(label({ p in
+        match p {
+            case First -> {
+                match p {
+                    case First -> { "nested {inner}" },
+                    case Second -> { "no" }
+                }
+            },
+            case Second -> { "no" }
+        }
+    }, Pick.First))
+}
