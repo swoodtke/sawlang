@@ -98,14 +98,15 @@ class StructsMixin:
                 value = self._coerce_int_to_field(value, field_type, value_expr)
 
             if field_type and self._needs_copy_for_struct_init(value_expr, field_type):
-                # design 124: a frame-field read (`self.name!`) is the bare
-                # PAYLOAD, while an opt-encoded destination field is `T?` (the
-                # wrap happens below). Retain against the value's own type or the
-                # copy glue is handed the wrong shape.
-                copy_type = field_type
-                if getattr(value_expr, 'frame_owning_read', False):
-                    copy_type = self._expr_type(value_expr) or field_type
-                value = self._generate_copy(value, copy_type)
+                # An opt-encoded destination field is `T?` while the value is
+                # the bare payload — the wrap happens below, so the copy glue
+                # must be driven by the PAYLOAD's type, not the field's.
+                # `_generate_copy_for_dest` is that rule. It was written here as
+                # a design-124 special case (only a frame-field read
+                # `self.name!` got the payload type), but the hazard belongs to
+                # the DESTINATION, so an ordinary `Holder(o: s)` on a
+                # `String?` field hit it just the same (DF-151c).
+                value = self._generate_copy_for_dest(value, field_type)
 
             field_values[field_name] = value
 

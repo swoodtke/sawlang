@@ -1137,6 +1137,40 @@ class ResourcesMixin:
         # Regular / trivially-copyable types: bitwise copy (the value as-is).
         return value
 
+    def _transfer_type_for(self, value, dest_saw: SawType) -> SawType:
+        """The SawType that actually describes `value` at a transfer whose
+        DESTINATION is `dest_saw` (DF-151c).
+
+        Retain and drop glue are both driven off the type they are HANDED, so
+        that type must describe the value in hand. Every transfer site — a
+        local, a field, an array element, a `&var` referent, a struct-literal
+        field, a `let _` discard — has only the DESTINATION's type conveniently
+        available, and at each of them the destination may be opt-encoded (`T?`)
+        while the value is still the bare payload `T`: the optional wrap happens
+        AFTER the copy, so a `T`-shaped value is what the glue sees. Driving it
+        with `T?` walks Optional layout over a value that has no tag word — it
+        reads a payload out of the payload itself and hands `T.copy`/`T.deinit`
+        garbage (`i8* != i8` out of `_emit_optional_retain_at`). Unwrap to the
+        payload in exactly the case the wrap will fire, so glue and wrap agree
+        on what the value is.
+
+        Keyed on the LLVM shape rather than on the source expression, for two
+        reasons: it is the same test the wrap itself uses, and it holds for the
+        synthesized nodes (coroutine frame stores) that carry no `resolved_type`
+        to consult.
+        """
+        if (dest_saw is not None and dest_saw.is_optional()
+                and dest_saw.inner_type is not None
+                and not self._is_optional_type(value.type)):
+            return dest_saw.inner_type
+        return dest_saw
+
+    def _generate_copy_for_dest(self, value, dest_saw: SawType):
+        """Copy `value` for a transfer into a `dest_saw` destination — the
+        `_generate_copy` every assignment/initialization site wants. See
+        `_transfer_type_for` for why the destination's own type is not it."""
+        return self._generate_copy(value, self._transfer_type_for(value, dest_saw))
+
     def _emit_copy_value(self, value, saw_type: SawType):
         """Produce an independent copy of a single value of `saw_type`.
 

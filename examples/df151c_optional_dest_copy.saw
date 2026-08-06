@@ -1,0 +1,233 @@
+// DF-151c: a transfer into an OPT-ENCODED destination copied the value against
+// the DESTINATION's type instead of its own.
+//
+// Retain and drop glue are driven off the type they are handed, so that type
+// must describe the value in hand. Every transfer site below has only the
+// destination's type conveniently available, and at each of them the
+// destination is `T?` while the value is still the bare payload `T` — the
+// optional wrap happens AFTER the copy. Driving the glue with `T?` walked
+// Optional layout over a value with no tag word: it read a payload out of the
+// payload itself and handed `String.copy` garbage, which llvmlite caught as
+//   internal compiler error: Type of #1 arg mismatch: i8* != i8
+//
+// The whole class is LOUD — a refcounted payload ICEs, a trivial one needs no
+// glue at all — so none of these shapes could ever have miscompiled silently.
+// They were simply uncompilable, which is why the suite stayed green.
+//
+// The filed repro was the suspending `match` arm (the coroutine transform
+// stores an arm binding into an opt-encoded frame field, `self.v = v`), but the
+// hazard belongs to the DESTINATION, not to coroutines: every OTHER site here
+// ICE'd on plain sync source, with no coroutine anywhere in the program.
+// `sawc/codegen/resources.py:_transfer_type_for` is the one rule they share.
+//
+// EVERY STRING HERE IS INTERPOLATED ON PURPOSE (design 159's lesson): a string
+// LITERAL is immortal, so `String_deinit` on one is a no-op and a
+// literal-valued probe cannot fail no matter how broken the copy is.
+//
+// The `balance_*` lines are the refcount oracle. Each reads `Arc.strong_count()`
+// before a transfer and again after the frame holding it has died; the two must
+// be EQUAL, and the single `deinit` at the end proves the payload was destroyed
+// exactly once rather than leaked or double-released.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sync-arm one-7
+// suspending-arm one-7
+// local loc-7 loc-7
+// field fld-7 fld-7
+// method-field mth-7 mth-7
+// init ini-7 ini-7
+// ref ref-7 ref-7
+// self-replace slf-7 slf-7
+// chain chn-7 chn-7
+// discard dsc-7
+// balance-field 1 2 1
+// deinit 1
+// balance-init 1 3 1
+// deinit 2
+// balance-suspending-arm 1 4 1
+// deinit 3
+
+import std.task
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+enum E { case A(s: String), case B }
+
+func pick(n: Int) -> E { return E.A(s: "one-{n}") }
+
+// The sync control for the filed repro: the same arm, no suspension. This one
+// always compiled — the arm binding is an ordinary local, not a frame field.
+func sync_arm(n: Int) {
+    match pick(n) {
+        case A(v) -> print("sync-arm {v}"),
+        case B -> print("sync-arm none")
+    }
+}
+
+// THE FILED REPRO. `v` becomes an opt-encoded frame field because the arm
+// spans a suspension, and the transform's `self.v = v` is the transfer that
+// ICE'd. Printed AFTER the suspend, so the payload has to survive it.
+func suspending_arm(n: Int) {
+    match pick(n) {
+        case A(v) -> {
+            yield_now()
+            print("suspending-arm {v}")
+        },
+        case B -> print("suspending-arm none")
+    }
+}
+
+struct Holder { o: String? }
+struct Outer { inner: Holder? }
+
+extension Holder {
+    // Field assignment through a `&var self` receiver.
+    func put(&var self, v: String) { self.o = v }
+    // Design 110 whole-referent replacement.
+    func reset(&var self, v: String) { self = Holder(o: v) }
+}
+
+// Design 110 replacement through a `&var` parameter.
+func through_ref(r: &var String?, v: String) { r = v }
+
+func site_local(n: Int) {
+    let s = "loc-{n}"
+    var o: String? = None
+    o = s
+    print("local {o!} {s}")
+}
+
+func site_field(n: Int) {
+    let s = "fld-{n}"
+    var h = Holder(o: None)
+    h.o = s
+    print("field {h.o!} {s}")
+}
+
+func site_method_field(n: Int) {
+    let s = "mth-{n}"
+    var h = Holder(o: None)
+    h.put(s)
+    print("method-field {h.o!} {s}")
+}
+
+func site_init(n: Int) {
+    let s = "ini-{n}"
+    let h = Holder(o: s)
+    print("init {h.o!} {s}")
+}
+
+func site_ref(n: Int) {
+    let s = "ref-{n}"
+    var o: String? = None
+    through_ref(&var o, s)
+    print("ref {o!} {s}")
+}
+
+func site_self_replace(n: Int) {
+    let s = "slf-{n}"
+    var h = Holder(o: None)
+    h.reset(s)
+    print("self-replace {h.o!} {s}")
+}
+
+func site_chain(n: Int) {
+    let s = "chn-{n}"
+    var x = Outer(inner: Holder(o: None))
+    x.inner?.o = s
+    print("chain {x.inner!.o!} {s}")
+}
+
+// `let _` has no destination SLOT, so nothing wraps — but the annotation is
+// still `String?`. Both the retain and the immediate drop are glue over the
+// same bare value, so both had to stop believing the annotation.
+func site_discard(n: Int) {
+    let s = "dsc-{n}"
+    let _: String? = s
+    print("discard {s}")
+}
+
+// An `Arc` field makes every retain countable, which a `String` field does not.
+struct ArcHolder { o: Arc<Res>? }
+extension ArcHolder: NoCopy {}
+
+// Field assignment, measured in place: the write RETAINS (held == alone + 1)
+// and overwriting the slot with None RELEASES the old payload (after == alone).
+func balance_field() {
+    let arc = Arc<Res>(value: Res(id: 1))
+    let alone = arc.strong_count()
+    var h = ArcHolder(o: None)
+    h.o = arc
+    let held = arc.strong_count()
+    h.o = None
+    let after = arc.strong_count()
+    print("balance-field {alone} {held} {after}")
+}
+
+// Struct-literal init, measured across a frame: the by-value argument takes one
+// retain and the opt-encoded field takes another, and both come back when the
+// callee's frame dies — so `after` must equal `alone`.
+func hold_and_count(a: Arc<Res>) -> Int {
+    let h = ArcHolder(o: a)
+    return h.o!.strong_count()
+}
+
+func balance_init() {
+    let arc = Arc<Res>(value: Res(id: 2))
+    let alone = arc.strong_count()
+    let during = hold_and_count(arc)
+    let after = arc.strong_count()
+    print("balance-init {alone} {during} {after}")
+}
+
+enum ArcE { case A(a: Arc<Res>), case B }
+
+// The filed shape with a countable payload — an `Arc` payload reached the SAME
+// defect through a different llvmlite message ("tuple index out of range"),
+// because the value handed to the glue is struct-shaped rather than a pointer.
+//
+// The arm binding lives in the coroutine frame, so its retain comes back only
+// at frame teardown — which is why the count is read AFTER this callee has
+// returned, not inside it. The scrutinee is bound to a local rather than
+// matched as a temporary on purpose: `match ArcE.A(a: a) { ... }` leaks the
+// temporary, which is a separate pre-existing defect (DF-151d, filed) and would
+// otherwise sit on top of this oracle's numbers.
+func suspending_arc_arm(a: Arc<Res>) -> Int {
+    let e = ArcE.A(a: a)
+    match e {
+        case A(v) -> {
+            yield_now()
+            v.strong_count()
+        },
+        case B -> 0
+    }
+}
+
+func balance_suspending_arm() {
+    let arc = Arc<Res>(value: Res(id: 3))
+    let alone = arc.strong_count()
+    let during = suspending_arc_arm(arc)
+    let after = arc.strong_count()
+    print("balance-suspending-arm {alone} {during} {after}")
+}
+
+func main() {
+    let n = 7
+    sync_arm(n)
+    suspending_arm(n)
+    site_local(n)
+    site_field(n)
+    site_method_field(n)
+    site_init(n)
+    site_ref(n)
+    site_self_replace(n)
+    site_chain(n)
+    site_discard(n)
+    balance_field()
+    balance_init()
+    balance_suspending_arm()
+}

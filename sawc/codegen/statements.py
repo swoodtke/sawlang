@@ -145,6 +145,12 @@ class StatementsMixin:
         value = self._generate_expression(stmt.value)
         var_type = (self._resolve_type_alias(stmt.type_annotation)
                     if stmt.type_annotation else self._expr_type(stmt.value))
+        # A discard has no destination SLOT — nothing is stored, so nothing
+        # wraps — while the annotation may still be opt-encoded (`let _:
+        # String? = s`). Reconcile it with the value in hand ONCE, up front:
+        # both the retain below and the drop registered after it are glue over
+        # this same value, so both must be driven by the same type (DF-151c).
+        var_type = self._transfer_type_for(value, var_type)
         if (var_type and isinstance(stmt.value, Identifier)
                 and not isinstance(stmt.value, MoveExpr)):
             value = self._generate_copy(value, var_type)
@@ -402,7 +408,7 @@ class StatementsMixin:
 
                 # Apply copy behavior for ImplicitCopy types
                 if isinstance(stmt.value, Identifier):
-                    value = self._generate_copy(value, var_type)
+                    value = self._generate_copy_for_dest(value, var_type)
                 elif self._frame_owning_read_copy(stmt.value):
                     # design 124: see the field-assignment path below.
                     value = self._generate_copy(value, self._expr_type(stmt.value))
@@ -479,15 +485,14 @@ class StatementsMixin:
             # variable- and array-element-assignment paths); NoCopy/ExplicitCopy
             # already moved at the value-transfer checkpoint.
             if field_saw is not None and isinstance(stmt.value, Identifier):
-                value = self._generate_copy(value, field_saw)
+                value = self._generate_copy_for_dest(value, field_saw)
             elif self._frame_owning_read_copy(stmt.value):
                 # design 124: a coroutine frame reading one of its own owned
                 # locals (`self.name!`) into another field — `__result` at a
                 # `return loc`, a sub-frame's param slot — duplicates it: the
                 # source field keeps its drop flag and is released at the task's
-                # eager teardown. Copy against the VALUE's type, not the field's:
-                # an opt-encoded destination is `T?` while the value is the bare
-                # payload (the optional wrap happens further down).
+                # eager teardown. Copy against the VALUE's type, not the field's
+                # (the same rule `_generate_copy_for_dest` applies above).
                 value = self._generate_copy(value, self._expr_type(stmt.value))
 
             # Check if we need to wrap in optional (non-optional value for optional
@@ -537,7 +542,7 @@ class StatementsMixin:
                     # the Identifier-target path). NoCopy/ExplicitCopy already
                     # moved at the value-transfer checkpoint.
                     if elem_saw is not None and isinstance(stmt.value, Identifier):
-                        value = self._generate_copy(value, elem_saw)
+                        value = self._generate_copy_for_dest(value, elem_saw)
                 elif isinstance(container_val.type, ir.PointerType):
                     # Pointer: GEP with single index.
                     #
@@ -584,7 +589,7 @@ class StatementsMixin:
                     if elem_saw is not None and self._needs_cleanup(elem_saw):
                         self._emit_drop_at(elem_ptr, elem_saw)
                     if elem_saw is not None and isinstance(stmt.value, Identifier):
-                        value = self._generate_copy(value, elem_saw)
+                        value = self._generate_copy_for_dest(value, elem_saw)
                 else:
                     # A non-identifier container (e.g. `self.field_ptr[i] = v`,
                     # design 52b): evaluate it as a value; a pointer-typed one
@@ -662,7 +667,7 @@ class StatementsMixin:
         # variable/field/element paths); NoCopy/ExplicitCopy already moved at the
         # value-transfer checkpoint, and `move v`/temporaries are not Identifiers.
         if referent_saw is not None and isinstance(stmt.value, Identifier):
-            value = self._generate_copy(value, referent_saw)
+            value = self._generate_copy_for_dest(value, referent_saw)
         expected_type = referent_ptr.type.pointee
         if (self._is_optional_type(expected_type)
                 and not self._is_optional_type(value.type)):

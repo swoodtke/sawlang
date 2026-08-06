@@ -517,7 +517,7 @@ class OptionalsMixin:
                 if field_saw is not None and self._needs_cleanup(field_saw):
                     self._emit_drop_at(field_ptr, field_saw)
                 if field_saw is not None and isinstance(expr.value, Identifier):
-                    value = self._generate_copy(value, field_saw)
+                    value = self._generate_copy_for_dest(value, field_saw)
                 expected_field_type = field_ptr.type.pointee
                 if (self._is_optional_type(expected_field_type)
                         and not self._is_optional_type(value.type)):
