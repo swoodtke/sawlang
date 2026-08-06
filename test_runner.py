@@ -354,7 +354,7 @@ def _parse_compile_flags(flags: List[str]):
     back to a faithful subprocess compile rather than silently diverge.
     """
     kwargs = {'object_only': False, 'freestanding': False, 'runtime_build': False,
-              'target_triple': None, 'module_paths': {}}
+              'runtime_provider': False, 'target_triple': None, 'module_paths': {}}
     i, n = 0, len(flags)
     while i < n:
         f = flags[i]
@@ -364,6 +364,8 @@ def _parse_compile_flags(flags: List[str]):
             kwargs['freestanding'] = True
         elif f == '--runtime-build':
             kwargs['runtime_build'] = True
+        elif f == '--runtime-provider':
+            kwargs['runtime_provider'] = True
         elif f == '--target':
             i += 1
             if i >= n:

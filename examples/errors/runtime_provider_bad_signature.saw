@@ -1,0 +1,36 @@
+// design 149 unit (c): an exported seam is checked against the signature
+// sawc/rt/ABI.md freezes for it. A runtime is a link-time swap, so a seam that
+// disagrees with the document links cleanly and misbehaves at run time — which
+// is the one failure mode the whole `__saw_rt_*` boundary exists to prevent.
+//
+// The signatures are read out of ABI.md itself, so the document cannot drift
+// from what the compiler enforces.
+//
+// COMPILE-FLAGS: --runtime-provider -c
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not match the runtime ABI
+// EXPECT-ERROR-CONTAINS: it returns `word` where the ABI returns `i64`
+// EXPECT-ERROR-CONTAINS: sawc/rt/ABI.md freezes this contract
+// EXPECT-ERROR-CONTAINS: it takes 1 parameter(s) where the ABI takes 2
+// EXPECT-ERROR-CONTAINS: parameter 1 is `i32` where the ABI takes `word`
+
+// ABI.md: `__saw_rt_clock_monotonic_nanos() -> Int64`. `Int` is 32 bits on a
+// 32-bit target, so this is a real difference and not a spelling.
+@export("__saw_rt_clock_monotonic_nanos")
+func k_clock() -> Int {
+    0
+}
+
+// ABI.md: `__saw_rt_write(ptr: i8*, len: word) -> void`.
+@export("__saw_rt_write")
+func k_write(ptr: UnsafePointer<Int8>) unsafe {
+}
+
+// ABI.md: `__saw_rt_sleep_ms(ms: word) -> void`.
+@export("__saw_rt_sleep_ms")
+func k_sleep(ms: Int32) {
+}
+
+func main() {
+    print("unreachable")
+}

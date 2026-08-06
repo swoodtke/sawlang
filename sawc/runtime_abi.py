@@ -99,3 +99,106 @@ def valid_export_names_message() -> str:
     """A stable, sorted rendering of the ABI set for the reservation error's
     typo-protection hint under `--runtime-build`."""
     return ", ".join(sorted(RUNTIME_ABI_SYMBOLS))
+
+
+# ---------------------------------------------------------------------------
+# Signatures (design 149 unit c)
+#
+# ABI.md carries a C signature for every seam. Those signatures are the contract
+# a runtime implements, and until now nothing checked an implementation against
+# them: a seam written with the wrong arity or a 32-bit result where the ABI says
+# 64 linked fine and misbehaved at run time, on the ONE boundary in the language
+# whose whole purpose is to be stable.
+#
+# The signatures are read out of ABI.md itself rather than transcribed here, so
+# the document IS the contract and cannot drift from what the compiler enforces.
+# `test_runtime_abi_doc.py` checks the other direction — that the document names
+# exactly the frozen symbol set.
+# ---------------------------------------------------------------------------
+
+import os
+import re
+from typing import Dict, Optional, Tuple
+
+_ABI_DOC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rt", "ABI.md")
+
+# A signature inside backticks: `name(params) -> ret`, with an optional trailing
+# parenthesized gloss on the return (`-> word  (0/-1)`).
+_SIG_RE = re.compile(r"`(__saw_rt_[A-Za-z0-9_]+)\(([^`]*)\)\s*->\s*([^`]+)`")
+
+# ABI type vocabulary -> the machine class the C ABI actually distinguishes.
+# Every pointer and every `word` is pointer-width, so they share a class: the
+# check is about ARITY and WIDTH, which is what a mismatch can actually corrupt.
+# `Int64` stays distinct from `word` because they differ on a 32-bit target,
+# which is exactly where a wrong one would bite.
+_ABI_CLASSES = {
+    "void": "void",
+    "!": "noreturn",
+    "i32": "i32",
+    "int64": "i64",
+    "i64": "i64",
+    "word": "word",
+    "ptr": "word",
+}
+
+_SIGNATURE_CACHE: Optional[Dict[str, Tuple[Tuple[str, ...], str]]] = None
+
+
+def _abi_class(spelling: str) -> str:
+    """The machine class of one ABI type spelling from the document."""
+    text = spelling.strip()
+    # Drop a trailing prose gloss: `word  (0/-1)`, `! (noreturn)`, `ptr (handle)`.
+    text = text.split('(')[0].strip() if not text.startswith('void*') else text
+    if not text:
+        return "void"
+    if text.endswith('*') or text.startswith('void*'):
+        return "word"          # every pointer spelling is pointer-width
+    return _ABI_CLASSES.get(text.lower(), text.lower())
+
+
+def abi_signatures() -> Dict[str, Tuple[Tuple[str, ...], str]]:
+    """`{symbol: (param classes, return class)}` parsed from rt/ABI.md.
+
+    Cached: one compile asks once per exported seam. A symbol the document
+    describes more than once keeps its FIRST signature, and a symbol it does not
+    describe is simply absent — the caller then checks nothing, which is the
+    right behavior for a document that has fallen behind rather than a reason to
+    refuse a build.
+    """
+    global _SIGNATURE_CACHE
+    if _SIGNATURE_CACHE is not None:
+        return _SIGNATURE_CACHE
+
+    found: Dict[str, Tuple[Tuple[str, ...], str]] = {}
+    try:
+        with open(_ABI_DOC, 'r') as f:
+            text = f.read()
+    except OSError:
+        _SIGNATURE_CACHE = found
+        return found
+
+    for match in _SIG_RE.finditer(text):
+        name, params, ret = match.group(1), match.group(2), match.group(3)
+        if name in found:
+            continue
+        classes = []
+        for part in params.split(','):
+            part = part.strip()
+            if not part:
+                continue
+            # `size: word` — the name is documentation, the type is the contract.
+            spelling = part.split(':', 1)[1] if ':' in part else part
+            classes.append(_abi_class(spelling))
+        found[name] = (tuple(classes), _abi_class(ret))
+
+    _SIGNATURE_CACHE = found
+    return found
+
+
+def render_abi_signature(name: str) -> Optional[str]:
+    """The documented signature of `name` as a readable string, for diagnostics."""
+    sig = abi_signatures().get(name)
+    if sig is None:
+        return None
+    params, ret = sig
+    return f"{name}({', '.join(params) or ''}) -> {ret}"

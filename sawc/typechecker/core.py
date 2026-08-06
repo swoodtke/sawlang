@@ -92,7 +92,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                  runtime_build: bool = False, post_transform: bool = False,
                  no_hidden_alloc: bool = False,
                  target_triple: Optional[str] = None,
-                 target_features: Optional[str] = None):
+                 target_features: Optional[str] = None,
+                 runtime_provider: bool = False):
         self.reporter = reporter
         # design 135: `--no-hidden-alloc`. Forbids the allocations the COMPILER
         # inserts that no source construct names — the escaping-closure
@@ -132,6 +133,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # below the machinery that suspends). Loosens the `@export` reservation
         # for exactly those names; every other reserved name stays rejected.
         self.runtime_build = runtime_build
+        # design 149 unit c: `[package] runtime = true` — this PACKAGE is a
+        # runtime provider. Same export permission as `--runtime-build`, and the
+        # same sync-only discipline (an `@export` function is a sync root), but
+        # it is an ordinary package build: std is loaded, and the output links.
+        # What it adds is the check nothing did before — an exported seam's
+        # signature against the contract in rt/ABI.md.
+        self.runtime_provider = runtime_provider
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
         self.current_method: Optional['Method'] = None  # Track current method for 'self'
@@ -975,6 +983,77 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             return True
         return False
 
+    # Saw type -> the machine class the C ABI distinguishes, matching
+    # `runtime_abi._ABI_CLASSES`. Pointers and platform Int/UInt are all
+    # pointer-width and share a class; the fixed-width kinds are their own,
+    # because that is where a mismatch changes what crosses the boundary.
+    _ABI_CLASS_BY_KIND = {
+        TypeKind.VOID: "void",
+        TypeKind.NEVER: "noreturn",
+        TypeKind.INT: "word",
+        TypeKind.UINT: "word",
+        TypeKind.POINTER: "word",
+        TypeKind.INT64: "i64",
+        TypeKind.UINT64: "i64",
+        TypeKind.INT32: "i32",
+        TypeKind.UINT32: "i32",
+        TypeKind.INT16: "i16",
+        TypeKind.UINT16: "i16",
+        TypeKind.INT8: "i8",
+        TypeKind.UINT8: "i8",
+        TypeKind.FLOAT: "float",
+    }
+
+    def _saw_abi_class(self, t: SawType) -> str:
+        resolved = self._resolve_type_alias(t) if t is not None else None
+        if resolved is None:
+            return "void"
+        return self._ABI_CLASS_BY_KIND.get(resolved.kind, resolved.kind.name.lower())
+
+    def _check_runtime_abi_signature(self, sym: str, func) -> None:
+        """Check an exported seam against rt/ABI.md's signature (design 149 c).
+
+        The `__saw_rt_*` boundary exists to be stable, and until now nothing
+        checked an implementation against the document that freezes it: a seam
+        written with the wrong arity, or returning a `word` where the ABI says
+        `Int64`, linked cleanly and went wrong at run time on a 32-bit target.
+        The document is read directly, so it cannot drift from what is enforced.
+
+        Width and arity are what is checked. Pointer-versus-integer is not a
+        distinction the C ABI makes at this width, and ABI.md itself spells the
+        same handle `ptr` in one place and `word` in another, so treating them
+        as different would report differences that are not.
+        """
+        from runtime_abi import abi_signatures, render_abi_signature
+        expected = abi_signatures().get(sym)
+        if expected is None:
+            return  # not described by the document — nothing to check against
+        want_params, want_ret = expected
+        got_params = tuple(self._saw_abi_class(p.type) for p in func.parameters)
+        got_ret = self._saw_abi_class(func.return_type)
+        if got_params == want_params and got_ret == want_ret:
+            return
+        got = f"{sym}({', '.join(got_params)}) -> {got_ret}"
+        if len(got_params) != len(want_params):
+            detail = (f"it takes {len(got_params)} parameter(s) where the ABI "
+                      f"takes {len(want_params)}")
+        elif got_ret != want_ret:
+            detail = f"it returns `{got_ret}` where the ABI returns `{want_ret}`"
+        else:
+            i = next(n for n, (a, b) in enumerate(zip(got_params, want_params))
+                     if a != b)
+            detail = (f"parameter {i + 1} is `{got_params[i]}` where the ABI "
+                      f"takes `{want_params[i]}`")
+        self.reporter.error(
+            ErrorKind.TYPE_MISMATCH,
+            f"`@export` seam `{sym}` does not match the runtime ABI: {detail}",
+            func.line, func.column,
+            hint=f"sawc/rt/ABI.md freezes this contract as "
+                 f"`{render_abi_signature(sym)}`; this one is `{got}`. A runtime "
+                 f"is a link-time swap, so a seam that disagrees with the "
+                 f"document links cleanly and misbehaves at run time",
+            source_file=getattr(func, 'source_file', None))
+
     def _register_export_symbol(self, sym: str, node) -> None:
         """Symbol hygiene (design 58): reserved-symbol collision + duplicate
         exported-symbol detection across the whole compilation unit."""
@@ -987,16 +1066,22 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             # this mode — a runtime must not hijack `main`/`saw_*`/the `__saw_*`
             # compiler-internal helpers.
             from runtime_abi import RUNTIME_ABI_SYMBOLS, valid_export_names_message
-            if getattr(self, 'runtime_build', False) and sym in RUNTIME_ABI_SYMBOLS:
+            # design 149 unit c: a package that DECLARES itself a runtime
+            # provider (`[package] runtime = true`) exports the seams on the same
+            # terms as a `--runtime-build` compile of `sawc/rt/`. Both are a
+            # runtime; only one of them is ours.
+            runtime_role = (getattr(self, 'runtime_build', False)
+                            or getattr(self, 'runtime_provider', False))
+            if runtime_role and sym in RUNTIME_ABI_SYMBOLS:
                 pass  # a valid runtime-ABI export
-            elif getattr(self, 'runtime_build', False) and sym.startswith("__saw_rt_"):
+            elif runtime_role and sym.startswith("__saw_rt_"):
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
                     f"`@export` symbol `{sym}` is not part of the frozen "
                     f"`__saw_rt_*` runtime ABI",
                     node.line, node.column,
-                    hint="under `--runtime-build` only the frozen ABI names may "
-                         "be exported; valid names are: "
+                    hint="a runtime may export only the frozen ABI names; "
+                         "valid names are: "
                          f"{valid_export_names_message()}",
                     source_file=src)
                 return
@@ -1078,6 +1163,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                          "Float, UnsafePointer<T>, Void, or Never (noreturn)",
                     source_file=func.source_file)
             self._register_export_symbol(sym, func)
+            # design 149 unit c: a seam's signature is checked against the
+            # document that freezes it, for a runtime built either way.
+            if sym.startswith("__saw_rt_") and (
+                    getattr(self, 'runtime_build', False)
+                    or getattr(self, 'runtime_provider', False)):
+                self._check_runtime_abi_signature(sym, func)
 
         for static in getattr(program, 'statics', []):
             sec = section_name(static)

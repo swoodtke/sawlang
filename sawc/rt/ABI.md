@@ -43,6 +43,22 @@ Every C-ABI signature below fits the design-58 `@export` whitelist (fixed-width
 ints, `Int`/`UInt`, `UnsafePointer`, `Void`/`Never`) — a runtime written in Saw
 exports each body under its `__saw_rt_*` name.
 
+**The signatures below are MACHINE-CHECKED (design 149).** `runtime_abi.py`
+parses them out of this file, and a compile that builds a runtime — `sawc
+--runtime-build` for `sawc/rt/`, or `--runtime-provider` for a package declaring
+`[package] runtime = true` — checks every exported seam against the signature
+written here. A mismatch is a compile error naming this document. Arity and
+machine WIDTH are what is compared: `word`, `ptr` and every `i8*`/`i8**`/`word*`
+spelling are one pointer-width class (the C ABI does not distinguish them at this
+width, and this document uses `word` and `ptr` for the same handles), while
+`Int64` and `i32` are their own, because those differ from `word` on a 32-bit
+target. So editing a signature here changes what implementations are accepted —
+which is the point, and the reason an edit is an ABI change.
+
+`make abidoc` checks the other direction: that this document describes exactly
+the frozen symbol set, with no seam left undescribed and none described that the
+compiler would refuse to let anyone export.
+
 ---
 
 ## Allocation / output / panic

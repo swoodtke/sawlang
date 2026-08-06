@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all abidoc
 
 # Default target
 all: test
@@ -57,6 +57,12 @@ irdet:
 irdet-all:
 	@python3 tools/irdet.py --all
 
+# Runtime-ABI document check (design 149 unit c): the compiler checks exported
+# seams against the signatures in rt/ABI.md, so the document has to describe
+# exactly the frozen symbol set. Neither kind of drift shows up in a build.
+abidoc:
+	@python3 tools/test_runtime_abi_doc.py
+
 # Clean build artifacts. Everything generated lives under a `.build/` directory
 # — the repo's own, plus one per Saw package holding that package's per-target
 # output (design 143). Nothing generated sits beside a source file, so these two
@@ -85,6 +91,7 @@ help:
 	@echo "  make astdiff         - Dump every tracked .saw file and require stability"
 	@echo "  make irdet           - IR determinism over a 40-example sample (per commit)"
 	@echo "  make irdet-all       - IR determinism over the WHOLE corpus (final gate)"
+	@echo "  make abidoc          - rt/ABI.md describes exactly the frozen seam set"
 	@echo "  make clean           - Remove build artifacts"
 	@echo "  make help            - Show this help message"
 	@echo ""

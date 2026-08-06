@@ -562,7 +562,7 @@ def _reject_freestanding_macho(target_triple: str = None):
     sys.exit(1)
 
 
-def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None, places_lowered: bool = False, no_hidden_alloc: bool = False):
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None, places_lowered: bool = False, no_hidden_alloc: bool = False, runtime_provider: bool = False):
     """Resolve modules, load builtins, and type-check the whole program.
 
     This is the single front half of the compile pipeline: a plain single file
@@ -838,7 +838,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                               post_transform=post_transform,
                               no_hidden_alloc=no_hidden_alloc,
                               target_triple=target_triple,
-                              target_features=target_features)
+                              target_features=target_features,
+                              runtime_provider=runtime_provider)
     # design 84: carry the pre-computed suspending std (struct, method) set (std is
     # checked under a separate builtin typechecker, so the main one cannot infer it)
     # so the coroutine transform can embed nested suspending std methods.
@@ -1014,7 +1015,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                                             'module_sources': module_sources,
                                             'builtin_ast': reentry_builtin_ast},
                                     places_lowered=True,
-                                    no_hidden_alloc=no_hidden_alloc)
+                                    no_hidden_alloc=no_hidden_alloc,
+                                    runtime_provider=runtime_provider)
         if reporter.has_errors():
             reporter.print_all()
             sys.exit(1)
@@ -1064,7 +1066,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                                             'module_sources': module_sources,
                                             'builtin_ast': reentry_builtin_ast},
                                     places_lowered=True,
-                                    no_hidden_alloc=no_hidden_alloc)
+                                    no_hidden_alloc=no_hidden_alloc,
+                                    runtime_provider=runtime_provider)
 
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns
@@ -1079,7 +1082,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
 
 
 def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
-                 object_only: bool, optimize: bool, freestanding: bool = False):
+                 object_only: bool, optimize: bool, freestanding: bool = False,
+                 runtime_provider: bool = False):
     """Write the module's IR sidecar, compile to an object file, and (for
     executables) link it. Shared output tail for the compile pipeline."""
     llvm_ir = codegen.emit_ir(optimize=False)
@@ -1114,13 +1118,20 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
             print("  Linking...")
 
         rt_objects = []
-        try:
-            from rt_build import build_runtime, RuntimeBuildError
-            rt_objects = build_runtime(codegen.triple, verbose=verbose)
-        except RuntimeBuildError as e:
-            print(f"\033[1;31merror\033[0m: the Saw runtime failed to build "
-                  f"(needed to link a hosted binary):\n{e}", file=sys.stderr)
-            sys.exit(1)
+        if runtime_provider:
+            # design 149 unit c: this package IS the runtime. Linking ours beside
+            # it would define every seam twice; the whole point of declaring the
+            # role is to take the job over.
+            if verbose:
+                print("  Runtime objects: none (this package provides the seams)")
+        else:
+            try:
+                from rt_build import build_runtime, RuntimeBuildError
+                rt_objects = build_runtime(codegen.triple, verbose=verbose)
+            except RuntimeBuildError as e:
+                print(f"\033[1;31merror\033[0m: the Saw runtime failed to build "
+                      f"(needed to link a hosted binary):\n{e}", file=sys.stderr)
+                sys.exit(1)
 
         if verbose and rt_objects:
             print("  Runtime objects:")
@@ -1147,7 +1158,7 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
         print(f"Compiled {source_path} -> {output_path}")
 
 
-def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, target_features: str = None, no_hidden_alloc: bool = False):
+def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, target_features: str = None, no_hidden_alloc: bool = False, runtime_provider: bool = False):
     """Compile a Saw source file to an executable or object file.
 
     A single file is just a module graph of size one, so there is one pipeline:
@@ -1192,7 +1203,8 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
     codegen, merged_ast = _prepare_codegen(
         source_path, entry_ast, source, verbose, object_only, target_triple,
         freestanding, module_paths, runtime_build,
-        target_features=target_features, no_hidden_alloc=no_hidden_alloc)
+        target_features=target_features, no_hidden_alloc=no_hidden_alloc,
+        runtime_provider=runtime_provider)
 
     if verbose:
         print("  Generating LLVM IR...")
@@ -1201,7 +1213,8 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
         print("  Generated LLVM IR")
 
     _emit_object(codegen, source_path, output_path, verbose, object_only,
-                 optimize, freestanding=freestanding)
+                 optimize, freestanding=freestanding,
+                 runtime_provider=runtime_provider)
 
 
 def emit_docs(source_path: str, output_path: str = None, verbose: bool = False,
@@ -1298,6 +1311,15 @@ Examples:
                              "that `@export`s the frozen `__saw_rt_*` ABI. Sync-only, "
                              "suppresses seam auto-declaration for exported seams, "
                              "unlinked object output. Used to build sawc/rt/.")
+    parser.add_argument("--runtime-provider", action="store_true",
+                        dest="runtime_provider",
+                        help="This package IS a runtime (design 149; Blade passes "
+                             "it for `[package] runtime = true`). Permits "
+                             "`@export`ing the frozen `__saw_rt_*` seams, CHECKS "
+                             "each exported seam's signature against "
+                             "sawc/rt/ABI.md, and links no runtime of ours beside "
+                             "it. Unlike --runtime-build this is an ordinary "
+                             "package build: std is available and the output links.")
     parser.add_argument("--module-path", metavar="NAME=DIR", action="append",
                         default=[], dest="module_path",
                         help="Map package NAME to source directory DIR "
@@ -1395,7 +1417,8 @@ Examples:
             freestanding=args.freestanding, module_paths=module_paths,
             runtime_build=args.runtime_build,
             target_features=args.target_features,
-            no_hidden_alloc=args.no_hidden_alloc)
+            no_hidden_alloc=args.no_hidden_alloc,
+            runtime_provider=args.runtime_provider)
         run_codegen(codegen, merged_ast)
         llvm_ir = codegen.emit_ir(optimize=not args.no_optimize)
 
@@ -1414,7 +1437,8 @@ Examples:
                     target_triple=args.target, freestanding=args.freestanding,
                     module_paths=module_paths, runtime_build=args.runtime_build,
                     target_features=args.target_features,
-                    no_hidden_alloc=args.no_hidden_alloc)
+                    no_hidden_alloc=args.no_hidden_alloc,
+                    runtime_provider=args.runtime_provider)
 
 
 if __name__ == "__main__":

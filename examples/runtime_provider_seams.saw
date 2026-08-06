@@ -1,0 +1,42 @@
+// design 149 unit (c): a package that provides the runtime. `[package] runtime
+// = true` in Saw.toml (Blade passes `--runtime-provider`) permits `@export`ing
+// the frozen `__saw_rt_*` seams, links no runtime of ours beside it, and checks
+// each exported signature against sawc/rt/ABI.md.
+//
+// Unlike `--runtime-build`, which is how sawc/rt/ itself is compiled, this is an
+// ordinary package build: std is available and the package is what a
+// freestanding target actually looks like — a kernel that IS its own runtime.
+//
+// COMPILE-FLAGS: --runtime-provider -c
+// EXPECT: object
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_alloc
+
+@export("__saw_rt_write")
+func k_write(ptr: UnsafePointer<Int8>, len: Int) unsafe {
+    // A real one drives a UART. The signature is the contract; the body is the
+    // provider's business.
+    var i = 0
+    while i < len {
+        i = i + 1
+    }
+}
+
+@export("__saw_rt_sleep_ms")
+func k_sleep(ms: Int) {
+    var spun = 0
+    while spun < ms {
+        spun = spun + 1
+    }
+}
+
+@export("__saw_rt_clock_monotonic_nanos")
+func k_clock() -> Int64 {
+    0i64
+}
+
+// Not provided here, so it stays an undefined external — the seams a provider
+// does not implement are still the environment's to supply.
+func main() {
+    let v: Vector<Int> = [1, 2, 3]
+    print(v.len())
+}

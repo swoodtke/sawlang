@@ -106,6 +106,13 @@ public extension DepList {
 public struct Package {
     name: String
     version: String
+    // design 149: `runtime = true` declares this package a RUNTIME PROVIDER —
+    // it implements the `__saw_rt_*` seams itself. Blade passes
+    // `--runtime-provider`, which permits the exports, checks each seam's
+    // signature against sawc/rt/ABI.md, and links no runtime of ours beside it.
+    // Absent or any other value means false; a package is not a runtime by
+    // accident.
+    runtime: Bool
 }
 
 public struct Manifest {
@@ -152,6 +159,7 @@ public extension Manifest {
 
         let name = doc.section_at(pkg).get("name") ?? "unknown"
         let version = doc.section_at(pkg).get("version") ?? "0.0.0"
+        let runtime = (doc.section_at(pkg).get("runtime") ?? "false") == "true"
 
         // Get current directory as root
         let root = if let cwd = Directory.current() {
@@ -160,7 +168,9 @@ public extension Manifest {
             Path(s: ".")
         }
 
-        return Manifest(package: Package(name: name, version: version), root_dir: root)
+        return Manifest(
+            package: Package(name: name, version: version, runtime: runtime),
+            root_dir: root)
     }
 
     // Load manifest from a specific directory (erased Result, as `load`).
@@ -185,8 +195,11 @@ public extension Manifest {
 
         let name = doc.section_at(pkg).get("name") ?? "unknown"
         let version = doc.section_at(pkg).get("version") ?? "0.0.0"
+        let runtime = (doc.section_at(pkg).get("runtime") ?? "false") == "true"
 
-        return Manifest(package: Package(name: name, version: version), root_dir: dir)
+        return Manifest(
+            package: Package(name: name, version: version, runtime: runtime),
+            root_dir: dir)
     }
 
     // Read and validate the [dependencies] table from this package's manifest
@@ -247,5 +260,10 @@ public extension Manifest {
     // Get the package version
     public func version(&self) -> String {
         self.package.version
+    }
+
+    // Whether this package provides the `__saw_rt_*` runtime seams (design 149).
+    public func is_runtime(&self) -> Bool {
+        self.package.runtime
     }
 }

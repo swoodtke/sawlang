@@ -310,6 +310,12 @@ public extension Builder {
             cmd.arg("--target")
             cmd.arg(triple)
         }
+        // design 149: `[package] runtime = true` says this package implements
+        // the `__saw_rt_*` seams. sawc then permits those exports, checks each
+        // signature against rt/ABI.md, and links no runtime of its own beside it.
+        if self.manifest.is_runtime() {
+            cmd.arg("--runtime-provider")
+        }
         var i = 0
         while i < res.len() {
             let name = res.name(i)
