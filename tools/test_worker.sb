@@ -1,0 +1,161 @@
+;; Sandbox profile for the Saw remote test worker (design 160).
+;;
+;; Launch line (from the worker's checkout):
+;;
+;;   sandbox-exec -D WORKER_ROOT="$PWD" -f tools/test_worker.sb \
+;;       ./.venv/bin/python tools/test_worker.py --bind 0.0.0.0:8710
+;;
+;; The daemon and every process it spawns run under this profile — seatbelt is
+;; inherited across fork and exec, so confining the daemon confines the jobs.
+;; The daemon prints `sandbox: ACTIVE` when the profile took effect, so a
+;; forgotten wrapper is visible rather than silent.
+;;
+;; The one parameter, WORKER_ROOT, is the checkout the daemon runs from. It is
+;; READ ONLY, deliberately: a job cannot modify the daemon, this profile, or
+;; the venv it is about to be run by. The single writable place in the user's
+;; account is WORKER_ROOT/.worker-jobs, which is where the daemon creates and
+;; purges job directories (its `--job-root` default). Point `--job-root`
+;; somewhere else and the daemon will say, at startup, that it cannot write
+;; there.
+;;
+;; What this profile is defending against: a test in a submitted tree is
+;; arbitrary code that will be compiled and executed on this machine. The three
+;; axes that matter, in order, are (1) it must not write outside its own job
+;; directory, (2) it must not talk to anything but this machine, and (3) it
+;; must not read the account's private files. Each allowance below says which
+;; part of the suite needs it.
+
+(version 1)
+(deny default)
+
+;; ---------------------------------------------------------------------------
+;; Processes
+;; ---------------------------------------------------------------------------
+;; The daemon spawns the test runner; the runner spawns a compiler worker per
+;; core; each compile spawns `clang` to link; each test is then executed as its
+;; own child. `std.process` tests spawn children of their own. Subprocess
+;; execution is the suite's normal mode of operation, not an exception in it.
+(allow process-fork)
+(allow process-exec*)
+;; Executing a freshly linked Mach-O means mapping it, and mapping any system
+;; dylib the program links against.
+(allow file-map-executable)
+;; The runner kills a hung test's whole process group (test_runner.py's
+;; 30s run cap). Restricted to processes inside this sandbox, so a job cannot
+;; signal anything else on the machine.
+(allow signal (target same-sandbox))
+;; Reading own/child process state: `subprocess` waits, `os.cpu_count`, the
+;; runner's process-group bookkeeping.
+(allow process-info* (target same-sandbox))
+(allow sysctl-read)
+
+;; ---------------------------------------------------------------------------
+;; Reading
+;; ---------------------------------------------------------------------------
+;; Path resolution needs metadata on every parent directory of the job tree,
+;; including the ones this profile grants nothing else on (`/`, `/Users`,
+;; `/Users/<account>`). Metadata is names, sizes and timestamps — not content.
+(allow file-read-metadata)
+
+;; The toolchain: the interpreter, llvmlite's bundled LLVM, clang, ld, the
+;; macOS SDK, the dyld shared cache, and the system frameworks every linked
+;; binary loads. These live scattered across the system prefixes below, and the
+;; set genuinely is "everything Apple and Homebrew install".
+(allow file-read*
+    (subpath "/usr")
+    (subpath "/bin")
+    (subpath "/sbin")
+    (subpath "/System")
+    (subpath "/Library")
+    (subpath "/opt")                 ; Homebrew, MacPorts
+    (subpath "/Applications/Xcode.app")
+    (subpath "/private/etc")
+    (subpath "/private/var")         ; xcrun's toolchain cache, /var/db, /var/select
+    (subpath "/private/tmp")
+    (subpath "/dev"))
+
+;; The worker's own checkout: the daemon, the venv that runs jobs, this file —
+;; and, nested inside it, the job directories, which a job reads back after
+;; compiling into them.
+(allow file-read* (subpath (param "WORKER_ROOT")))
+
+;; Everything NOT listed above is denied, and the important omission is the
+;; rest of this account's home directory: `~/Documents`, `~/.ssh`, browser
+;; profiles, keychains. A test that goes looking for them gets EPERM.
+
+;; ---------------------------------------------------------------------------
+;; Writing
+;; ---------------------------------------------------------------------------
+;; The job directories, which hold the unpacked tree, everything the compiler
+;; builds, and the job's TMPDIR. Each one is purged when its job ends. This is
+;; the ONLY writable path in the account, and it is a strict subdirectory of
+;; the read-only checkout above.
+(allow file-write* (subpath (string-append (param "WORKER_ROOT") "/.worker-jobs")))
+
+;; The per-user temporary area. `TMPDIR` is pointed inside the job directory
+;; for children, but macOS libraries write here regardless of it: CFPreferences
+;; caches, xcrun's toolchain lookup cache, and dyld's closure cache all live
+;; under /private/var/folders.
+(allow file-write* (subpath "/private/var/folders"))
+
+;; Console output. The daemon logs to stdout; a redirect into JOB_ROOT is
+;; already covered above.
+(allow file-write-data (literal "/dev/null"))
+(allow file-write* (regex #"^/dev/tty"))
+(allow file-ioctl (regex #"^/dev/tty"))
+
+;; WORKER_ROOT is absent from this section on purpose: the shipped daemon,
+;; profile and venv are read-only to the jobs they run.
+
+;; ---------------------------------------------------------------------------
+;; Networking
+;; ---------------------------------------------------------------------------
+;; Outbound is the axis that matters — it is how code exfiltrates, phones home,
+;; or fetches a second stage — so it is pinned to this machine. The suite's
+;; std.net tests connect to listeners they opened themselves a moment earlier,
+;; which is loopback by construction.
+(allow network-outbound (remote ip "localhost:*"))
+
+;; Inbound and bind cover two listeners: the daemon's own job port (a LAN
+;; address given on the command line, which a profile compiled before that
+;; command line exists cannot name) and the ephemeral loopback ports std.net
+;; tests bind. Hard-coding the port is the tighter option; see the note at the
+;; bottom of this file.
+(allow network-bind)
+(allow network-inbound)
+;; Socket creation, and the route socket `getifaddrs` reads to enumerate
+;; interfaces.
+(allow system-socket)
+
+;; ---------------------------------------------------------------------------
+;; Mach services
+;; ---------------------------------------------------------------------------
+;; How a macOS process reaches system daemons at all: `xcrun` asking for the
+;; developer directory, the notification centre, the diagnostics daemon a
+;; crashing test binary reports to. This grants no filesystem and no network
+;; access of its own, and denying it selectively breaks the toolchain in ways
+;; that surface as unrelated errors much later.
+(allow mach-lookup)
+(allow ipc-posix-shm)
+
+;; ---------------------------------------------------------------------------
+;; Tightening further
+;; ---------------------------------------------------------------------------
+;; If you always launch the worker on the same port, replace the two blanket
+;; network rules above with the four below, writing that port in literally
+;; (seatbelt takes exactly one -D parameter reliably, and WORKER_ROOT is
+;; already spending it):
+;;
+;;   (allow network-bind    (local ip "*:8710"))
+;;   (allow network-bind    (local ip "localhost:*"))
+;;   (allow network-inbound (local ip "*:8710"))
+;;   (allow network-inbound (local ip "localhost:*"))
+;;
+;; Check any edit to this file before relying on it — the OS parses it, and
+;; `--check-profile` is that parse:
+;;
+;;   ./.venv/bin/python tools/test_worker.py --check-profile tools/test_worker.sb
+;;
+;; A dedicated low-privilege account composes with all of this: the profile
+;; bounds what the account may do, and the account bounds what the profile can
+;; reach in the first place.

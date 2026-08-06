@@ -4,6 +4,11 @@
 # Blade's `blade test` scratch directory (compiled test binaries)
 .blade/
 
+# Remote test worker (design 160): job directories, created and purged per job.
+# The sandbox profile grants write to exactly this path and nothing else in the
+# account, so it is also where a worker's logs belong.
+.worker-jobs/
+
 # A lock file resolved inside a test FIXTURE is build output, not a package's
 # committed lock (blade/Saw.lock is the real one and stays tracked). Design
 # 149's runtime-provider test is the first to run `blade build` in a fixture,
