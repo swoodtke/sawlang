@@ -45,6 +45,7 @@ Test expectations are specified via comments in the source files:
 
 import os
 import sys
+import json
 import signal
 import subprocess
 import itertools
@@ -1001,13 +1002,29 @@ def discover_tests(examples_dir: Path) -> List[TestCase]:
 
 
 def print_summary(results: List[tuple[TestCase, TestStatus, str, Optional[str]]],
-                  verbose: bool):
-    """Print test results summary"""
+                  verbose: bool, origins=None, notes=None):
+    """Print test results summary.
+
+    `origins` maps a test's repo-relative path to the machine that judged it,
+    and is only populated by a `--remote` run. It annotates the failures,
+    because the first question about a red test on a split run is which machine
+    saw it — a failure that reproduces on only one of them is a different bug
+    from one that reproduces on both.
+
+    `notes` are the run's degradation notes: everything the worker did or
+    failed to do. They print with the summary rather than scrolling past
+    mid-run, since a run that quietly completed locally after the worker died
+    still needs to say so.
+    """
     counts = {status: 0 for status in TestStatus}
     for _, status, _, _ in results:
         counts[status] += 1
 
     broken = counts[TestStatus.FAIL] + counts[TestStatus.XPASS]
+
+    def where(test):
+        origin = (origins or {}).get(repo_path(test))
+        return f" {Colors.DIM}[{origin}]{Colors.RESET}" if origin else ""
 
     print("\n" + "=" * 70)
     print(f"{Colors.BOLD}Test Results{Colors.RESET}")
@@ -1018,7 +1035,7 @@ def print_summary(results: List[tuple[TestCase, TestStatus, str, Optional[str]]]
         print(f"\n{Colors.RED}{Colors.BOLD}FAILED TESTS:{Colors.RESET}")
         for test, status, msg, _ in results:
             if status is TestStatus.FAIL:
-                print(f"\n  {Colors.RED}✗{Colors.RESET} {test.name}")
+                print(f"\n  {Colors.RED}✗{Colors.RESET} {test.name}{where(test)}")
                 # Indent the message
                 for line in msg.split('\n'):
                     print(f"    {line}")
@@ -1028,7 +1045,7 @@ def print_summary(results: List[tuple[TestCase, TestStatus, str, Optional[str]]]
         print(f"\n{Colors.RED}{Colors.BOLD}UNEXPECTEDLY PASSING (stale XFAIL):{Colors.RESET}")
         for test, status, msg, _ in results:
             if status is TestStatus.XPASS:
-                print(f"\n  {Colors.RED}!{Colors.RESET} {test.name}")
+                print(f"\n  {Colors.RED}!{Colors.RESET} {test.name}{where(test)}")
                 for line in msg.split('\n'):
                     print(f"    {line}")
 
@@ -1059,6 +1076,18 @@ def print_summary(results: List[tuple[TestCase, TestStatus, str, Optional[str]]]
         print(f"\n{Colors.YELLOW}{Colors.BOLD}RE-RAN:{Colors.RESET}")
         for test, note in retried:
             print(f"  {test.name}: {note}")
+
+    # What the remote worker did, or failed to do. Printed on a green run too:
+    # a run that completed locally because the worker was unreachable looks
+    # exactly like an ordinary run unless it says otherwise.
+    if notes:
+        print(f"\n{Colors.YELLOW}{Colors.BOLD}REMOTE:{Colors.RESET}")
+        for note in notes:
+            print(f"  {note}")
+    elif origins:
+        split = collections.Counter(origins.values())
+        print(f"\n{Colors.BOLD}REMOTE:{Colors.RESET} " +
+              ", ".join(f"{n} {name}" for name, n in sorted(split.items())))
 
     # Summary line
     print("\n" + "=" * 70)
@@ -1203,7 +1232,51 @@ def _compile_parallel_in_process(tests, num_workers, verbose, on_result):
     return results
 
 
-def main():
+REPO_ROOT = Path(__file__).resolve().parent
+
+
+def repo_path(test: TestCase) -> str:
+    """A test's path relative to the repo root — `examples/ffi/casting.saw`.
+
+    This is the name a test has on the wire. Both machines are running the same
+    tree, so it identifies the same test on either of them, which the `name`
+    field does not: `examples/int_types.saw` and `examples/ffi/int_types.saw`
+    share a name.
+    """
+    return str(Path(test.path).resolve().relative_to(REPO_ROOT))
+
+
+class JsonlSink:
+    """Append one record per verdict, flushed as it lands.
+
+    A remote worker tails this file while the run is still going, which is what
+    lets a shard stream its verdicts home instead of delivering them in one
+    lump at the end. Flushing per line is the whole contract; the offset-based
+    tailer on the other side only consumes complete lines, so a partial write
+    is never misread.
+    """
+
+    def __init__(self, path):
+        self._fh = open(path, "a", encoding="utf-8") if path else None
+        self._lock = threading.Lock()
+
+    def verdict(self, test: TestCase, status: 'TestStatus', msg: str,
+                note) -> None:
+        if self._fh is None:
+            return
+        record = {"kind": "test", "path": repo_path(test), "name": test.name,
+                  "status": status.value, "msg": msg, "note": note}
+        with self._lock:
+            self._fh.write(json.dumps(record, sort_keys=True) + "\n")
+            self._fh.flush()
+
+    def close(self) -> None:
+        if self._fh is not None:
+            self._fh.close()
+            self._fh = None
+
+
+def parse_args(argv=None):
     import argparse
     parser = argparse.ArgumentParser(description='Run Saw language tests')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
@@ -1225,18 +1298,51 @@ def main():
                              f'before it may be executed (default '
                              f'{SETTLE_LAG_SECS:g}; DF-149b/DF-156a). 0 executes '
                              f'each binary the moment it lands.')
-    args = parser.parse_args()
+    # --- the remote worker (design 160) ---------------------------------
+    parser.add_argument('--remote', metavar='URL',
+                        help='Run a core-weighted share of the tests on a '
+                             'remote test worker (tools/test_worker.py), '
+                             'concurrently with the share kept here. A worker '
+                             'that is unreachable, refuses the token, or dies '
+                             'mid-run costs a note: this machine finishes the '
+                             'tests it did not answer for.')
+    parser.add_argument('--remote-token-file', metavar='PATH',
+                        help='The shared secret to present to the worker '
+                             '(default ~/.config/saw-worker/token).')
+    parser.add_argument('--remote-connect-timeout', type=float, default=10.0,
+                        metavar='SECS',
+                        help='How long to wait for the worker to answer '
+                             '/health before giving up on it (default 10).')
+    parser.add_argument('--only-paths', metavar='FILE',
+                        help='Run exactly the repo-relative paths listed in '
+                             'FILE, one per line. This is how a worker is '
+                             'handed its shard; the order and the filters are '
+                             'ignored.')
+    parser.add_argument('--jsonl', metavar='FILE',
+                        help='Append one JSON record per verdict to FILE, '
+                             'flushed as each lands.')
+    return parser.parse_args(argv)
 
-    # Default: compile in-process in persistent worker processes (design 115).
-    # --subprocess restores the spawn-a-sawc.py-per-test path for debugging.
-    in_process = not args.subprocess
-    compile_fn = compile_saw_in_process if in_process else compile_saw_file
 
-    examples_dir = Path(__file__).parent / 'examples'
-    sweep_stale_temp_products(Path('.build'))
-
-    print(f"{Colors.BLUE}{Colors.BOLD}Discovering tests...{Colors.RESET}")
+def select_tests(args, examples_dir):
+    """Discover the tests this invocation is about, or None if it is empty."""
     tests = discover_tests(examples_dir)
+
+    if args.only_paths:
+        wanted = [ln.strip() for ln in
+                  Path(args.only_paths).read_text(encoding='utf-8').splitlines()
+                  if ln.strip()]
+        by_path = {repo_path(t): t for t in tests}
+        missing = [p for p in wanted if p not in by_path]
+        if missing:
+            # Never silently run fewer tests than asked for: a shard that
+            # quietly shrinks is a shard whose verdicts mean nothing.
+            print(f"{Colors.RED}--only-paths names {len(missing)} path(s) that "
+                  f"are not tests in this tree:{Colors.RESET}")
+            for p in missing[:10]:
+                print(f"  {p}")
+            return None
+        return [by_path[p] for p in wanted]
 
     # Filter tests if requested (match against relative path or name)
     if args.filter:
@@ -1246,13 +1352,17 @@ def main():
             rel_path = str(test.path.relative_to(examples_dir).with_suffix(''))
             return any(p in rel_path or p in test.name for p in patterns)
         tests = [t for t in tests if matches_filter(t)]
+    return tests
 
-    print(f"Found {len(tests)} test(s)\n")
 
-    if not tests:
-        print("No tests found!")
-        return 1
+def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None):
+    """Compile and run `tests` on THIS machine, returning one
+    `(test, status, msg, note)` per test.
 
+    This is the whole pre-design-160 runner, unchanged in what it does and now
+    callable more than once: a `--remote` run calls it for the local shard, and
+    again for whatever the worker did not answer for.
+    """
     num_workers = args.jobs if args.jobs else os.cpu_count()
     if args.sequential:
         num_workers = 1
@@ -1279,6 +1389,8 @@ def main():
         test = tests[index]
         status, msg = resolve_status(test, passed, msg)
         results[index] = (test, status, msg, note)
+        if jsonl is not None:
+            jsonl.verdict(test, status, msg, note)
         print(f"{prefix}{STATUS_SYMBOLS[status]} {test.name}")
         if note:
             # Printed on a PASS too: a retry the reader never sees is a retry
@@ -1415,10 +1527,166 @@ def main():
             results[i] = (tests[i], TestStatus.FAIL,
                           "the runner produced no verdict for this test", None)
 
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Splitting a run across this machine and a remote worker (design 160).
+# ---------------------------------------------------------------------------
+
+# Once the local shard is finished, how long the worker gets to deliver the
+# rest before this machine stops waiting and runs them itself. Generous against
+# a worker that is merely slow (a shard is sized by cores, so it should finish
+# around when the local one does), and finite against one that has stopped
+# answering without dropping the connection — the case a heartbeat cannot see,
+# because the heartbeat is alive and the job is not.
+REMOTE_GRACE_FLOOR_SECS = 300.0
+
+
+def run_split(tests, args, in_process, compile_fn, jsonl, notes, origins):
+    """Run `tests` across this machine and a worker, and return every verdict.
+
+    The shape of this function is the design's hard requirement: nothing about
+    the worker may cost the run a verdict. Each step that can fail — resolving
+    the token, reaching the worker, packing the tree, streaming results —
+    appends a note and falls back to running the work here.
+    """
+    sys.path.insert(0, str(REPO_ROOT / 'tools'))
+    import worker_client
+    import worker_proto
+
+    def all_local(why):
+        notes.append(why)
+        results = run_tests_locally(tests, args, in_process, compile_fn, jsonl)
+        for test, *_ in results:
+            origins[repo_path(test)] = 'local'
+        return results
+
+    worker, info, why = worker_client.connect(
+        args.remote, args.remote_token_file, args.remote_connect_timeout)
+    if worker is None:
+        return all_local(f"{why} — every test ran here")
+
+    weights = [os.cpu_count() or 1, info.cores]
+    by_path = {repo_path(t): t for t in tests}
+    local_keys, remote_keys = worker_proto.split_by_shard(list(by_path), weights)
+    if not remote_keys:
+        return all_local(f"the split sent nothing to {info.describe()}")
+
+    snapshot, why = worker_client.snapshot(REPO_ROOT)
+    if snapshot is None:
+        return all_local(f"{why} — every test ran here")
+
+    print(f"{Colors.BOLD}Remote{Colors.RESET} {info.describe()}: "
+          f"{len(local_keys)} test(s) here, {len(remote_keys)} there "
+          f"(weighted {weights[0]}:{weights[1]} by cores).")
+    if not info.sandboxed:
+        print(f"{Colors.YELLOW}  that worker is NOT running under a sandbox "
+              f"profile{Colors.RESET}")
+
+    remote_records = {}
+    outcome = {}
+
+    def collect():
+        outcome['run'] = worker.submit(
+            {"kind": "suite", "paths": remote_keys,
+             "settle_lag": args.settle_lag},
+            snapshot, {"result": lambda e: remote_records.__setitem__(
+                e.get("path"), e)})
+
+    thread = threading.Thread(target=collect, daemon=True)
+    thread.start()
+
+    started = time.monotonic()
+    results = run_tests_locally([by_path[k] for k in local_keys], args,
+                                in_process, compile_fn, jsonl)
+    for test, *_ in results:
+        origins[repo_path(test)] = 'local'
+    local_seconds = time.monotonic() - started
+
+    grace = max(REMOTE_GRACE_FLOOR_SECS, 2.0 * local_seconds)
+    thread.join(timeout=grace)
+    if thread.is_alive():
+        notes.append(f"the worker was still going {grace:.0f}s after this "
+                     f"machine finished; giving up on it")
+    else:
+        run = outcome.get('run')
+        if run is not None:
+            notes.extend(run.notes)
+
+    # A snapshot: the abandoned thread may still be writing into the dict, and
+    # a test must be decided by exactly one of the two machines.
+    delivered = dict(remote_records)
+    for key in remote_keys:
+        record = delivered.get(key)
+        if record is None:
+            continue
+        test = by_path[key]
+        try:
+            status = TestStatus(record.get('status'))
+        except ValueError:
+            status = TestStatus.FAIL
+        results.append((test, status, record.get('msg') or '',
+                        record.get('note')))
+        origins[key] = 'remote'
+        if jsonl is not None:
+            jsonl.verdict(test, status, record.get('msg') or '',
+                          record.get('note'))
+
+    missing = [k for k in remote_keys if k not in delivered]
+    if missing:
+        notes.append(f"the worker answered for {len(remote_keys) - len(missing)} "
+                     f"of {len(remote_keys)} test(s); running the other "
+                     f"{len(missing)} here")
+        print(f"\n{Colors.YELLOW}{Colors.BOLD}The worker did not finish "
+              f"{len(missing)} test(s) — running them here.{Colors.RESET}")
+        recovered = run_tests_locally([by_path[k] for k in missing], args,
+                                      in_process, compile_fn, jsonl)
+        results.extend(recovered)
+        for test, *_ in recovered:
+            origins[repo_path(test)] = 'local (the worker did not answer)'
+    return results
+
+
+def main():
+    args = parse_args()
+
+    # Default: compile in-process in persistent worker processes (design 115).
+    # --subprocess restores the spawn-a-sawc.py-per-test path for debugging.
+    in_process = not args.subprocess
+    compile_fn = compile_saw_in_process if in_process else compile_saw_file
+
+    examples_dir = REPO_ROOT / 'examples'
+    sweep_stale_temp_products(Path('.build'))
+
+    print(f"{Colors.BLUE}{Colors.BOLD}Discovering tests...{Colors.RESET}")
+    tests = select_tests(args, examples_dir)
+    if tests is None:
+        return 1
+
+    print(f"Found {len(tests)} test(s)\n")
+
+    if not tests:
+        print("No tests found!")
+        return 1
+
+    jsonl = JsonlSink(args.jsonl)
+    notes, origins = [], {}
+    try:
+        if args.remote:
+            results = run_split(tests, args, in_process, compile_fn, jsonl,
+                                notes, origins)
+        else:
+            results = run_tests_locally(tests, args, in_process, compile_fn,
+                                        jsonl)
+    finally:
+        jsonl.close()
+
     results.sort(key=lambda r: r[0].name)
 
     # Print summary
-    all_passed = print_summary(results, args.verbose)
+    all_passed = print_summary(results, args.verbose, origins=origins,
+                               notes=notes)
 
     return 0 if all_passed else 1
 
