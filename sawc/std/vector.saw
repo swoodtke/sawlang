@@ -87,7 +87,41 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         self.length == 0
     }
 
-    // Get element at index (returns None if out of bounds)
+    /// The element at `index`, as a PLACE (design 141).
+    ///
+    /// The element is read or written where it sits, so `v[i].count += 1`
+    /// mutates the element in the vector and never copies it out. Reading the
+    /// place out as a VALUE follows the element's copy tier: trivial copies
+    /// bitwise, `ImplicitCopy` retains, and `ExplicitCopy`/`NoCopy` is refused
+    /// with the ways out named.
+    ///
+    /// The receiver is borrowed with the WINDOW's flavor, chosen at the use
+    /// site, which is why one `&self` declaration serves both a read and a
+    /// write. While the window is open the whole vector is borrowed, so
+    /// `v.push(x)` inside one is a compile error.
+    ///
+    /// Panics if `index` is outside `0..<len()` (design 130's accessor rule).
+    /// `get` is the `None`-returning twin.
+    public func [](&self, index: Int) unsafe borrows -> T {
+        if index < 0 || index >= self.length {
+            panic("Vector.[]: index out of range")
+        }
+        if let buf = self.buffer {
+            lend buf[index]
+        } else {
+            panic("Vector.[]: buffer is empty")
+        }
+    }
+
+    // Get element at index (returns None if out of bounds).
+    //
+    // STILL BY VALUE, and still unsound for a NoCopy element (DF-132a): the
+    // conversion to `borrows -> T?` is written and proven, but it cannot land
+    // until DF-146e is settled — a place VALUE READ whose element type is an
+    // enum with abstract type arguments (`MapSlot<K, V>`, the shape Map and Set
+    // probe through) does not retain, while its binding is still dropped, so
+    // each probe over-releases. `[]` above is the same lowering without that
+    // exposure. See the tracker.
     public func get(&self, index: Int) unsafe -> T? {
         if index < 0 || index >= self.length {
             None

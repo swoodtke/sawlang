@@ -660,7 +660,10 @@ class TypeUtilsMixin:
             # Recursively resolve function param and return types
             resolved_params = [self._resolve_type(t) for t in (saw_type.param_types or [])]
             resolved_return = self._resolve_type(saw_type.func_return_type) if saw_type.func_return_type else None
-            return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return, func_is_sync=saw_type.func_is_sync, func_is_escaping=saw_type.func_is_escaping, func_is_unsafe=saw_type.func_is_unsafe)
+            # `func_escaping_stamped` rides along: resolution rebuilds the node,
+            # and losing the bit would make the next `_stamp_escaping_roles`
+            # read our own stamp as an author-written `escaping`.
+            return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return, func_is_sync=saw_type.func_is_sync, func_is_escaping=saw_type.func_is_escaping, func_escaping_stamped=saw_type.func_escaping_stamped, func_is_unsafe=saw_type.func_is_unsafe)
         return saw_type
 
     def _stamp_escaping_roles(self, t: Optional[SawType], is_param: bool = False,
@@ -685,7 +688,13 @@ class TypeUtilsMixin:
             return t
         if t.kind == TypeKind.FUNCTION:
             if not is_param:
-                if t.func_is_escaping and report_at is not None:
+                # Only an AUTHOR-written marker is redundant. This runs over one
+                # declared type more than once (the coroutine transform re-enters
+                # the front half), so a bit this pass set on a previous visit is
+                # the compiler's own stamp, not a second `escaping` in the
+                # source — see `SawType.func_escaping_stamped`.
+                if (t.func_is_escaping and not t.func_escaping_stamped
+                        and report_at is not None):
                     line, col = report_at
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -694,6 +703,7 @@ class TypeUtilsMixin:
                         line, col
                     )
                 t.func_is_escaping = True
+                t.func_escaping_stamped = True
             for p in (t.param_types or []):
                 self._stamp_escaping_roles(p, is_param=True, report_at=report_at)
             self._stamp_escaping_roles(t.func_return_type, is_param=False,

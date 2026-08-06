@@ -6,14 +6,18 @@ func main() {
 
     match TomlDoc.parse(content) {
         case Ok(doc) -> {
-            guard let server = doc.get_section("server") else {
+            guard let server = doc.index_of("server") else {
                 panic("expected a [server] section")
             }
-            let host = server.get("host") ?? "MISSING"
+            let host = doc.section_at(server).get("host") ?? "MISSING"
             assert(host.equals("localhost"), "host should be localhost")
 
-            if let _present = doc.get_section("package") {
-                panic("absent section should be None, got a value")
+            // A section is NoCopy, so presence is a question, not a value read.
+            assert(doc.has_section("server"), "server should be present")
+            assert(not doc.has_section("package"),
+                   "absent section should report absent")
+            if let _absent = doc.index_of("package") {
+                panic("absent section should have no index, got one")
             }
 
             print("toml_missing_section: ok")

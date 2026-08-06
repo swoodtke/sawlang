@@ -363,6 +363,19 @@ class ExpressionsMixin:
             self._check_expression(expr.value)
         return getattr(expr, 'result_type', None)
 
+    def visit_OptionalWrap(self, expr) -> Optional[SawType]:
+        """Re-check an already-inserted `T -> T?` wrap — see visit_ResultOkWrap.
+
+        The Result wraps got this visitor when the coroutine transform started
+        re-checking its own output; the optional wrap needs it for the same
+        reason and had simply never been re-checked before. Without it the node
+        types as None, which becomes `Void` at the nearest block tail — and a
+        window closure whose tail wraps a place read (`{ __p in __p }` against
+        `-> T?`) then arrives at the argument check as `(&var T) -> Void`."""
+        if expr.value is not None:
+            self._check_expression(expr.value)
+        return getattr(expr, 'target_type', None)
+
     def visit_FunctionCall(self, expr: FunctionCall) -> Optional[SawType]:
         return self._check_function_call(expr)
 

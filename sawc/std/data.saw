@@ -122,6 +122,25 @@ extension Data {
     // Element Access
     // =========================================================================
 
+    /// The byte at `index`, as a PLACE (design 141).
+    ///
+    /// `d[i] = 0` writes the byte where it sits, and `print(d[i])` reads it
+    /// there. Panics if `index` is outside `0..<len()`, on the same terms as
+    /// `set`.
+    ///
+    /// If the buffer is SHARED, a write through the window reaches every holder
+    /// — call `copy()` first for copy-on-write semantics, exactly as with `set`.
+    public func [](&self, index: Int) unsafe borrows -> UInt8 {
+        if index < 0 || index >= self.length {
+            panic("Data.[]: index out of range")
+        }
+        guard let inner = self.inner else {
+            panic("Data.[]: buffer is empty")
+        }
+        let buf = inner[0].buffer
+        lend buf[self.offset + index]
+    }
+
     // Get byte at index (returns None if out of bounds)
     public func get(&self, index: Int) unsafe -> UInt8? {
         if index < 0 || index >= self.length {

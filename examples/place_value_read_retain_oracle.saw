@@ -1,0 +1,64 @@
+// Reading a PLACE out as a value follows the element's copy tier (design 131's
+// table, applied where a place stops being storage).
+//
+// A trivial element copies bitwise, an ImplicitCopy element RETAINS at the
+// read — so the vector keeps its own reference and each holder is destroyed
+// exactly once. `copy` and `deinit` print here, so the counts are the proof
+// rather than a claim about them.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- trivial
+// 20
+// 30
+// -- borrow, no copy
+// a
+// -- value read retains
+// copy a
+// have a
+// -- vector cleared
+// deinit a
+// deinit b
+// -- holder still valid
+// a
+// deinit a
+
+struct Res { name: String }
+
+extension Res: ImplicitCopy {
+    func copy(&self) -> Res {
+        print("copy {self.name}")
+        Res(name: self.name)
+    }
+    func deinit(&var self) { print("deinit {self.name}") }
+}
+
+func main() {
+    // ---- trivial elements: no traffic at all ----
+    print("-- trivial")
+    var nums: Vector<Int> = [10, 20, 30]
+    print("{nums[1]}")
+    nums[1] = 30              // whole-element write through the place
+    print("{nums[1]}")
+
+    // ---- ImplicitCopy elements ----
+    var res = Vector<Res>()
+    res.push(Res(name: "a"))
+    res.push(Res(name: "b"))
+
+    // A BORROW through the place costs nothing.
+    print("-- borrow, no copy")
+    print("{res[0].name}")
+
+    // A VALUE READ retains, so the holder and the vector each own one.
+    print("-- value read retains")
+    let held = res[0]
+    print("have {held.name}")
+
+    // The vector's own elements deinit once each when it goes.
+    print("-- vector cleared")
+    let _ = move res
+
+    // `held` outlived the vector because the read retained it.
+    print("-- holder still valid")
+    print("{held.name}")
+}

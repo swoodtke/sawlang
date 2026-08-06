@@ -19,7 +19,9 @@ func main() {
     let a = R(id: 7)
     let b = R(id: 9)
     let v: Vector<R> = [move a, move b]
-    print(v.len())                     // 2
-    if let x = v.get(0) { print(x.id) }  // 7
-    if let x = v.get(1) { print(x.id) }  // 9
+    print(v.len())            // 2
+    // A NoCopy element is READ IN PLACE through the element place (design
+    // 141/146); taking it out as a value would alias storage the vector owns.
+    print(v[0].id)            // 7
+    print(v[1].id)            // 9
 }

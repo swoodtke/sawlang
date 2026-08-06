@@ -1320,6 +1320,17 @@ class CallsMixin:
             method_type_args = [self._substitute_saw_type(a, self.type_param_context)
                                 for a in expr.type_args]
             recv_type = self._expr_type(expr.object)
+            # The RECEIVER's own type args need the same substitution. Inside
+            # `Vector<T, A>.each`, `self.get(i)` has receiver type `Vector<T, A>`
+            # as written; monomorphizing against that binds the accessor's `T` to
+            # itself, and every type mentioning `T` in its signature then reaches
+            # `_get_llvm_type` unsubstituted. Design 146 unit C is the first
+            # caller to hit it — a std generic body calling a method-generic
+            # method on its own generic receiver — because that is what a place
+            # use inside std compiles to.
+            if recv_type is not None and self.type_param_context:
+                recv_type = self._substitute_saw_type(recv_type,
+                                                      self.type_param_context)
             self._ensure_monomorphized_generic_method(
                 struct_name, recv_type, expr.method_name, method_type_args)
 

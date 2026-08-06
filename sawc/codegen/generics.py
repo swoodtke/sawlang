@@ -685,6 +685,17 @@ class GenericsMixin:
         # mangled name as the lookup key (design 40 item 9).
         base_name = recv_type.struct_name or mangled_struct_name
         struct_type_args = recv_type.type_args or []
+        # A receiver whose SawType carries no type args — `self` inside an
+        # already-monomorphized body is recorded as a bare `Vector` — leaves the
+        # struct's own parameters unbound, and every signature type mentioning
+        # one then reaches `_get_llvm_type` unsubstituted. The instantiation is
+        # known: it is the mangled struct we are generating into. (Design 146
+        # unit C: `self.get(i)` inside `Vector.each` is the first call to need
+        # this, because a place use in std compiles to exactly that shape.)
+        if not struct_type_args:
+            base_args = self.mono_struct_args.get(mangled_struct_name)
+            if base_args is not None:
+                base_name, struct_type_args = base_args[0], list(base_args[1])
 
         mangled_name = self._mangle_method_name(mangled_struct_name, method_name,
                                                 method_type_args=method_type_args)

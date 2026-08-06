@@ -192,23 +192,25 @@ public func parse_lock(content: String) -> LockData? {
 
     var data = LockData()
 
-    guard let lock_sec = doc.get_section("lock") else {
+    // A section is a PLACE in the document (it is NoCopy and stays there), so
+    // the index is what a caller holds across several reads.
+    guard let lock_sec = doc.index_of("lock") else {
         return None
     }
-    data.manifest_hash = lock_sec.get("manifest_hash") ?? ""
+    data.manifest_hash = doc.section_at(lock_sec).get("manifest_hash") ?? ""
 
     let secs = doc.section_names()
     for name in secs.iter() {
         if name.starts_with("pkg.") {
             let pkg = name.substring(4, name.len())
-            guard let sec = doc.get_section(name) else {
+            guard let sec = doc.index_of(name) else {
                 continue
             }
             data.names.push(pkg)
-            data.versions.push(sec.get("version") ?? "")
-            data.sources.push(sec.get("source") ?? "")
-            data.locs.push(sec.get("loc") ?? "")
-            data.revs.push(sec.get("rev") ?? "")
+            data.versions.push(doc.section_at(sec).get("version") ?? "")
+            data.sources.push(doc.section_at(sec).get("source") ?? "")
+            data.locs.push(doc.section_at(sec).get("loc") ?? "")
+            data.revs.push(doc.section_at(sec).get("rev") ?? "")
         }
     }
 

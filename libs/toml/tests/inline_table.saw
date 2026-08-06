@@ -5,16 +5,22 @@ func main() {
     let src = "[package]\nname = \"app\"\n\n[dependencies]\nmathx = \{ path = \"../mathx\" \}\njsonx = \{ git = \"https://x/jsonx\", version = \"1.2.0\" \}\n"
     match TomlDoc.parse(src) {
         case Ok(doc) -> {
-            guard let deps = doc.get_section("dependencies") else {
+            guard let deps = doc.index_of("dependencies") else {
                 panic("expected a [dependencies] section")
             }
-            assert(deps.is_table("mathx"), "mathx should be an inline table")
-            assert(deps.is_table("jsonx"), "jsonx should be an inline table")
-            assert((deps.table_value("mathx", "path") ?? "").equals("../mathx"), "mathx path")
-            assert((deps.table_value("jsonx", "git") ?? "").equals("https://x/jsonx"), "jsonx git")
-            assert((deps.table_value("jsonx", "version") ?? "").equals("1.2.0"), "jsonx version")
-            assert((deps.table_value("mathx", "git") ?? "").is_empty(), "mathx has no git")
-            let names = deps.names()
+            assert(doc.section_at(deps).is_table("mathx"), "mathx should be an inline table")
+            assert(doc.section_at(deps).is_table("jsonx"), "jsonx should be an inline table")
+            assert((doc.section_at(deps).table_value("mathx", "path") ?? "").equals("../mathx"), "mathx path")
+            assert((doc.section_at(deps).table_value("jsonx", "git") ?? "").equals("https://x/jsonx"), "jsonx git")
+            assert((doc.section_at(deps).table_value("jsonx", "version") ?? "").equals("1.2.0"), "jsonx version")
+            assert((doc.section_at(deps).table_value("mathx", "git") ?? "").is_empty(), "mathx has no git")
+
+            // The inline table as a chained place: TomlTable is NoCopy too, so
+            // it is read through the window rather than handed over.
+            assert((doc.section_at(deps).table("mathx")!.get("path") ?? "").equals("../mathx"),
+                   "mathx path through the table place")
+
+            let names = doc.section_at(deps).names()
             assert(names.len() == 2, "two dependency entries")
             print("inline_table: ok")
         },

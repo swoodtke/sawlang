@@ -135,6 +135,14 @@ class SawType:
     # store it); an escaping value into a non-escaping slot? YES (safe — the
     # callee promises not to store it). So non-escaping <: escaping.
     func_is_escaping: bool = False
+    # Did `_stamp_escaping_roles` set `func_is_escaping`, as opposed to the
+    # author writing the marker? The redundancy error must fire only for what
+    # the AUTHOR wrote, and type resolution can run over one declared type more
+    # than once — the coroutine transform re-enters the front half, and design
+    # 146 made that the norm rather than the exception. Without this the SECOND
+    # pass reads the compiler's own stamp as a redundant marker and rejects a
+    # correct program. Same shape as DF-146a's `_derivation_slot`.
+    func_escaping_stamped: bool = False
     # For function types (FUNCTION): True for an `unsafe` function type
     # (`(UnsafePointer<T>) unsafe sync -> R`, design 130). A closure whose own
     # body names an unsafe type is an unsafe closure (rule 3 judged per body), so
@@ -386,7 +394,7 @@ class SawType:
         if self.kind == TypeKind.FUNCTION:
             substituted_params = [t.substitute(type_map) for t in (self.param_types or [])]
             substituted_return = self.func_return_type.substitute(type_map) if self.func_return_type else None
-            return SawType(TypeKind.FUNCTION, param_types=substituted_params, func_return_type=substituted_return, func_is_sync=self.func_is_sync, func_is_escaping=self.func_is_escaping, func_is_unsafe=self.func_is_unsafe)
+            return SawType(TypeKind.FUNCTION, param_types=substituted_params, func_return_type=substituted_return, func_is_sync=self.func_is_sync, func_is_escaping=self.func_is_escaping, func_escaping_stamped=self.func_escaping_stamped, func_is_unsafe=self.func_is_unsafe)
 
         # Primitives and other types don't need substitution
         return self

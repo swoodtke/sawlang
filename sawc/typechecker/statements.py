@@ -1658,12 +1658,25 @@ class StatementsMixin:
                     return
                 element_type = container_type.inner_type
             else:
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"cannot index into type `{container_type}`",
-                    stmt.target.line, stmt.target.column
-                )
-                return
+                # design 141: `v[i] = x` through a `[]` borrows accessor is the
+                # WHOLE-ELEMENT write. The place names the element's storage, so
+                # the assignment happens inside an exclusive window and replaces
+                # the element in place — set semantics, and the overwritten
+                # element deinits exactly once.
+                place_type = None
+                if container_type.kind == TypeKind.STRUCT:
+                    place_type = self._check_place_index(stmt.target,
+                                                         container_type)
+                if place_type is None:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"cannot index into type `{container_type}`",
+                        stmt.target.line, stmt.target.column
+                    )
+                    return
+                element_type = (place_type.inner_type
+                                if place_type.kind == TypeKind.OPTIONAL
+                                else place_type)
 
             # Check index type
             index_type = self._check_expression(stmt.target.index)

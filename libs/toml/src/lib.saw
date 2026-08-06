@@ -75,10 +75,8 @@ public extension TomlTable {
     public func get(&self, subkey: String) -> String? {
         var i = 0
         while i < self.values.len() {
-            if let val = self.values.get(i) {
-                if val.key.equals(subkey) {
-                    return val.value
-                }
+            if self.values[i].key.equals(subkey) {
+                return self.values[i].value
             }
             i = i + 1
         }
@@ -110,10 +108,8 @@ public extension TomlSection {
     public func get(&self, key: String) -> String? {
         var i = 0
         while i < self.values.len() {
-            if let val = self.values.get(i) {
-                if val.key.equals(key) {
-                    return val.value
-                }
+            if self.values[i].key.equals(key) {
+                return self.values[i].value
             }
             i = i + 1
         }
@@ -130,30 +126,43 @@ public extension TomlSection {
         self.tables.push(move table)
     }
 
-    // True if `key` names an inline table in this section.
-    public func is_table(&self, key: String) -> Bool {
+    // Internal: the index of the inline table named `key`, or None. `lend` may
+    // not appear in a loop (a loop would lend more than once), so the search
+    // that PICKS the place and the accessor that LENDS it are separate.
+    func _table_index(&self, key: String) -> Int? {
         var i = 0
         while i < self.tables.len() {
-            if let t = self.tables.get(i) {
-                if t.key.equals(key) {
-                    return true
-                }
+            if self.tables[i].key.equals(key) {
+                return i
             }
             i = i + 1
+        }
+        None
+    }
+
+    // True if `key` names an inline table in this section.
+    public func is_table(&self, key: String) -> Bool {
+        if let _ = self._table_index(key) {
+            return true
         }
         false
     }
 
+    // The inline table named `key`, as an optional PLACE. `TomlTable` is
+    // NoCopy, so it is reached IN the section rather than handed out:
+    // `sec.table("git")!.get("url")`.
+    public func table(&self, key: String) borrows -> TomlTable? {
+        if let i = self._table_index(key) {
+            lend self.tables[i]
+        } else {
+            return None
+        }
+    }
+
     // Look up `subkey` inside the inline table named `key`.
     public func table_value(&self, key: String, subkey: String) -> String? {
-        var i = 0
-        while i < self.tables.len() {
-            if let t = self.tables.get(i) {
-                if t.key.equals(key) {
-                    return t.get(subkey)
-                }
-            }
-            i = i + 1
+        if let i = self._table_index(key) {
+            return self.tables[i].get(subkey)
         }
         None
     }
@@ -164,16 +173,12 @@ public extension TomlSection {
         var out = Vector<String>()
         var i = 0
         while i < self.values.len() {
-            if let val = self.values.get(i) {
-                out.push(val.key)
-            }
+            out.push(self.values[i].key)
             i = i + 1
         }
         var j = 0
         while j < self.tables.len() {
-            if let t = self.tables.get(j) {
-                out.push(t.key)
-            }
+            out.push(self.tables[j].key)
             j = j + 1
         }
         move out
@@ -299,25 +304,68 @@ public extension TomlDoc {
         var out = Vector<String>()
         var i = 0
         while i < self.sections.len() {
-            if let s = self.sections.get(i) {
-                out.push(s.name)
-            }
+            out.push(self.sections[i].name)
             i = i + 1
         }
         move out
     }
 
-    // Get a section by name
-    public func get_section(&self, name: String) -> TomlSection? {
+    // Internal: the index of the section named `name`, or None. See
+    // `TomlSection._table_index` for why the search is its own function.
+    func _section_index(&self, name: String) -> Int? {
         var i = 0
         while i < self.sections.len() {
-            if let section = self.sections.get(i) {
-                if section.name.equals(name) {
-                    return section
-                }
+            if self.sections[i].name.equals(name) {
+                return i
             }
             i = i + 1
         }
         None
+    }
+
+    // Whether this document has a section named `name`.
+    public func has_section(&self, name: String) -> Bool {
+        if let _ = self._section_index(name) {
+            return true
+        }
+        false
+    }
+
+    // The number of sections, in document order.
+    public func section_count(&self) -> Int {
+        self.sections.len()
+    }
+
+    // The index of the section named `name`, or None. Pair it with
+    // `section_at` when a caller reads several values out of one section: the
+    // search runs once and each read is a direct place.
+    public func index_of(&self, name: String) -> Int? {
+        self._section_index(name)
+    }
+
+    // The section at `index`, as a PLACE. Panics if `index` is outside
+    // `0..<section_count()`.
+    public func section_at(&self, index: Int) borrows -> TomlSection {
+        if index < 0 || index >= self.sections.len() {
+            panic("TomlDoc.section_at: index out of range")
+        }
+        lend self.sections[index]
+    }
+
+    // The section named `name`, as an optional PLACE.
+    //
+    // `TomlSection` is NoCopy, so it is reached IN the document rather than
+    // handed out: `doc.section("package")!.get("name")` borrows the section for
+    // the duration of that expression. This REPLACED `get_section`, which
+    // returned the section by value out of a `Vector<TomlSection>` and so
+    // handed back a non-retained alias of storage the document still owned —
+    // two lookups destroyed one section twice (DF-132a). Pair it with
+    // `has_section` when absence is not an error.
+    public func section(&self, name: String) borrows -> TomlSection? {
+        if let i = self._section_index(name) {
+            lend self.sections[i]
+        } else {
+            return None
+        }
     }
 }

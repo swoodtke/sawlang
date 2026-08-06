@@ -4,18 +4,18 @@ import src.lib.*
 func main() {
     match TomlDoc.parse("[deps]\ncount = \"42\"\nname = \"widget\"\n") {
         case Ok(doc) -> {
-            guard let sec = doc.get_section("deps") else {
+            guard let sec = doc.index_of("deps") else {
                 panic("expected a [deps] section")
             }
-            guard let n = sec.get_int("count") else {
+            guard let n = doc.section_at(sec).get_int("count") else {
                 panic("count should parse as an int")
             }
             assert(n == 42, "count should be 42")
 
-            if let bad = sec.get_int("name") {
+            if let bad = doc.section_at(sec).get_int("name") {
                 panic("name should not parse as an int")
             }
-            if let missing = sec.get_int("nope") {
+            if let missing = doc.section_at(sec).get_int("nope") {
                 panic("absent key should be None")
             }
 

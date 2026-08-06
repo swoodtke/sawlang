@@ -55,8 +55,8 @@ from ast_nodes import (
     ClosureParam, CompoundAssignStatement, Expression, ExpressionStatement,
     ForceUnwrap, ForLoop, FunctionCall, GuardLetStatement, Identifier,
     LetStatement, MatchArm, MemberAccess, MethodCall, NoneLiteral,
-    ReferenceExpr, ReturnStatement, SawType, StringLiteral, TupleIndex,
-    TypeKind, structural_fields,
+    ReferenceExpr, ReturnStatement, SawType, SelfExpr, StringLiteral,
+    TupleIndex, TypeKind, structural_fields,
 )
 from errors import ErrorKind
 
@@ -319,12 +319,22 @@ class _PlaceUses:
         rendered = f"{self._render(self._place_receiver(place))}"
         if isinstance(place, ArrayIndex):
             spelling = f"{rendered}[…]"
-            hint = (f"`{rendered}.with_ref(…)` borrows it in place, "
-                    f"`{rendered}.swap_out(…)` moves it out")
+            borrow = f"`{spelling}.method()`"
         else:
             spelling = f"{rendered}.{place.place_method}(…)"
-            hint = (f"reach it in place — `{spelling}!.method()` borrows "
-                    f"through the window without taking the value out")
+            borrow = (f"`{spelling}!.method()`"
+                      if getattr(place, 'place_optional', False)
+                      else f"`{spelling}.method()`")
+        # Only name an escape hatch the receiver's type actually has. Vector
+        # publishes both; a user type with a `[]` accessor may publish neither,
+        # and pointing at a method that does not exist is worse than silence.
+        outs = [f"{borrow} borrows through the window without taking the value "
+                f"out"]
+        if self.ns.lookup_method(place.place_struct, "with_ref") is not None:
+            outs.append(f"`{rendered}.with_ref(…)` borrows it for a whole scope")
+        if self.ns.lookup_method(place.place_struct, "swap_out") is not None:
+            outs.append(f"`{rendered}.swap_out(…)` moves it out")
+        hint = ", ".join(outs)
         self.reporter.error(
             ErrorKind.TYPE_MISMATCH,
             f"`{spelling}` lends a place of type `{elem}`, which is "
@@ -451,8 +461,16 @@ class _PlaceUses:
     def _render(self, expr) -> str:
         if isinstance(expr, Identifier):
             return expr.name
+        if isinstance(expr, SelfExpr):
+            return "self"
         if isinstance(expr, MemberAccess):
             return f"{self._render(expr.object)}.{expr.member}"
+        if isinstance(expr, MethodCall):
+            return f"{self._render(expr.object)}.{expr.method_name}(…)"
+        if isinstance(expr, ArrayIndex):
+            return f"{self._render(expr.array_expr)}[…]"
+        if isinstance(expr, ForceUnwrap):
+            return f"{self._render(expr.expr)}!"
         return "<expr>"
 
 

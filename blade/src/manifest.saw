@@ -142,12 +142,16 @@ public extension Manifest {
         // `try` re-boxes a TomlError into Box<any Error> on failure.
         let doc = try toml.TomlDoc.parse(content)
 
-        guard let pkg_section = doc.get_section("package") else {
+        // A `TomlSection` is NoCopy and lives in the document, so it is reached
+        // as a PLACE rather than bound: find the index once, then read through
+        // it. `doc.section("package")!.get(...)` is the same borrow spelled
+        // without the index.
+        guard let pkg = doc.index_of("package") else {
             return ManifestError(msg: "Missing [package] section in Saw.toml")
         }
 
-        let name = pkg_section.get("name") ?? "unknown"
-        let version = pkg_section.get("version") ?? "0.0.0"
+        let name = doc.section_at(pkg).get("name") ?? "unknown"
+        let version = doc.section_at(pkg).get("version") ?? "0.0.0"
 
         // Get current directory as root
         let root = if let cwd = Directory.current() {
@@ -175,12 +179,12 @@ public extension Manifest {
 
         let doc = try toml.TomlDoc.parse(content)
 
-        guard let pkg_section = doc.get_section("package") else {
+        guard let pkg = doc.index_of("package") else {
             return ManifestError(msg: "Missing [package] section in Saw.toml")
         }
 
-        let name = pkg_section.get("name") ?? "unknown"
-        let version = pkg_section.get("version") ?? "0.0.0"
+        let name = doc.section_at(pkg).get("name") ?? "unknown"
+        let version = doc.section_at(pkg).get("version") ?? "0.0.0"
 
         return Manifest(package: Package(name: name, version: version), root_dir: dir)
     }
@@ -200,19 +204,19 @@ public extension Manifest {
 
         var list = DepList()
 
-        guard let section = doc.get_section("dependencies") else {
+        guard let deps = doc.index_of("dependencies") else {
             return move list
         }
 
-        let names = section.names()
+        let names = doc.section_at(deps).names()
         for name in names.iter() {
-            if section.is_table(name) {
+            if doc.section_at(deps).is_table(name) {
                 // Empty-string sentinels: a present path/git is never empty, so
                 // `is_empty()` cleanly distinguishes present vs absent without the
                 // nested `if let ... { return }` shape that currently ICEs codegen.
-                let path_s = section.table_value(name, "path") ?? ""
-                let git_s = section.table_value(name, "git") ?? ""
-                let version = section.table_value(name, "version") ?? ""
+                let path_s = doc.section_at(deps).table_value(name, "path") ?? ""
+                let git_s = doc.section_at(deps).table_value(name, "git") ?? ""
+                let version = doc.section_at(deps).table_value(name, "version") ?? ""
                 let has_path = not path_s.is_empty()
                 let has_git = not git_s.is_empty()
 

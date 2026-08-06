@@ -6,19 +6,23 @@ func main() {
 
     match TomlDoc.parse(content) {
         case Ok(doc) -> {
-            guard let pkg = doc.get_section("package") else {
+            guard let pkg = doc.index_of("package") else {
                 panic("expected a [package] section")
             }
 
-            let name = pkg.get("name") ?? "MISSING"
-            let version = pkg.get("version") ?? "MISSING"
+            let name = doc.section_at(pkg).get("name") ?? "MISSING"
+            let version = doc.section_at(pkg).get("version") ?? "MISSING"
 
             assert(name.equals("demo"), "name should be demo")
             assert(version.equals("1.2.3"), "version should be 1.2.3")
 
-            if let _present = pkg.get("license") {
+            if let _present = doc.section_at(pkg).get("license") {
                 panic("missing key should be None, got a value")
             }
+
+            // The named place reads the same section without the index.
+            let named = doc.section("package")!.get("name") ?? "MISSING"
+            assert(named.equals("demo"), "named place should read the same value")
 
             print("toml_parsing: ok")
         },
