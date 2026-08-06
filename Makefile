@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all
 
 # Default target
 all: test
@@ -44,8 +44,18 @@ astdiff:
 # Compiler output determinism (design 126 R2): compile a corpus sample twice,
 # in fresh processes under differing PYTHONHASHSEED, and require byte-identical
 # IR. Zero non-reproducible files is the acceptance bar.
+#
+# `irdet` samples 40 examples — fast enough for per-commit use. `irdet-all`
+# sweeps the WHOLE corpus and is the standard for a brief's final gate battery
+# (design 146 unit D): a random sample cannot police a whole-corpus property,
+# and design 141 proved it — two nondeterministic emission orders had been
+# sitting in the tree unnoticed until adding two unrelated examples reshuffled
+# the sample onto one of them.
 irdet:
 	@python3 tools/irdet.py
+
+irdet-all:
+	@python3 tools/irdet.py --all
 
 # Clean build artifacts. Everything generated lives under a `.build/` directory
 # — the repo's own, plus one per Saw package holding that package's per-target
@@ -71,6 +81,10 @@ help:
 	@echo "  make test-filter     - Run tests matching FILTER pattern"
 	@echo "                         Example: make test-filter FILTER=enum"
 	@echo "  make sos-test        - Build + run the SOS M0 riscv32 kernel under QEMU"
+	@echo "  make lexdiff         - Diff the Saw lexer against sawc's over the corpus"
+	@echo "  make astdiff         - Dump every tracked .saw file and require stability"
+	@echo "  make irdet           - IR determinism over a 40-example sample (per commit)"
+	@echo "  make irdet-all       - IR determinism over the WHOLE corpus (final gate)"
 	@echo "  make clean           - Remove build artifacts"
 	@echo "  make help            - Show this help message"
 	@echo ""

@@ -18,8 +18,124 @@ DRAFTS** (Deinit/ExplicitCopy synthesis — LANDED, see below;
 newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
 
-**141 PARTIAL (Aug 5) — the DECLARATION half of element places landed; USE
-SITES are stopped on a front-end finding.** Units A and B are in: `lend` and
+**146 PARTIAL (Aug 5) — units A, B and D landed; unit C is NOT started and the
+brief's P0 pair is STILL OPEN.** Read this before the 141 entry below, which it
+supersedes on the use-site question.
+
+- **Unit A DONE.** `_prepare_codegen` re-enters over the ASTs it already parsed
+  (`parsed=`: module map, module sources, and the builtin+std AST from before
+  `_filter_std_ast` narrows it). Front half on a re-entering program: 451 -> 310
+  ms, 503 -> 359 ms, 485 -> 345 ms, 483 -> 320 ms across the sample — 29-34%
+  off; a non-re-entering program is unchanged (242 -> 252 ms, noise). Reuse
+  means the second pass re-checks objects the first pass touched, which
+  surfaced two latent defects, both FIXED here: **DF-146a** (below) and the
+  coroutine transform DESTROYING imported std method bodies — a nested
+  suspending std method's frame is built by a builder that hoists/ANF/state-
+  splits the body IN PLACE, and the code relied on the re-parse to undo it
+  ("it re-parses fresh on the recursive pass anyway"). Imported methods now
+  build from a copy. Commit 9f7e5dd.
+- **Unit B LANDED for UNCONDITIONAL accessors, fenced elsewhere.** A place use
+  is recognized by the checker (`typechecker/places.py`: `v[i]` against a `[]`
+  accessor, `v.name(...)` against a named one — the window closures are
+  compiler-added trailing parameters, so the ordinary arity path would count
+  them against the author) and lowered post-typecheck by the new
+  `sawc/place_uses.py`. Working, with `examples/place_use_sites.saw` as the
+  oracle: both flavors from ONE declaration, window extent = the smallest
+  expression that turns the place back into a value, chained windows
+  (`b[0][1].count += 10` is two nested windows), `f(&var v[i])` call-spanning
+  windows, value reads through the copy-tier table, and the LIFO epilogue
+  ordering (which comes free from nesting). `__R` is passed EXPLICITLY as the
+  accessor's one type argument, taken from the replaced expression's
+  `resolved_type` — nothing about the window has to be inferred. Exclusivity
+  needed NO new checker rule: a place use is still syntactically `v[i]` when
+  `_build_access_path` runs, so `f(&var v, &v[i])` and the `[&var v]`-capture
+  probe are already the existing Law-of-Exclusivity shapes. TWO FENCES, each a
+  clean teaching error, each a design question below: DF-146b (exclusive window
+  through a `&self` accessor) and DF-146c (calling a conditional lend).
+- **Unit C NOT STARTED.** No std conversion, no `Vector.[]`/`Vector.get`, no
+  Map/Data, no `_type_method_base` drop-glue fix, no toml/blade migration, no
+  docs. **DF-132a and DF-128c remain OPEN and unpaired** — and note that unit
+  C now depends on DF-146b/DF-146c being decided first: `Vector.get` is a
+  CONDITIONAL lend (DF-146c blocks it outright) and `Vector.[]` as 141 spells
+  it takes `&self` (DF-146b blocks writing through it).
+- **Unit D DONE.** See the DF-126b entry below for the strengthened gate and
+  its measured cost.
+
+- **DF-146a — FIXED (design 146 unit A). A `@synthesize` type in a program that
+  uses concurrency did not compile.** Registration was not idempotent: each
+  derivation writes its synthesized `copy`/`equals`/`compare`/`hash` back into
+  the extension, and the coroutine transform re-runs the whole front half over
+  the entry AST, so the second registration read the compiler's own body as a
+  hand-written one and reported "``@synthesize`` on `extension T` derives
+  nothing" against a correct program. Live on main since design 128 met design
+  44. `_derivation_slot` now separates "an author wrote one" from "we derived
+  one already". Regression test:
+  `examples/synthesize_across_coro_reentry.saw` (fails before the fix).
+
+- **DF-146b — OPEN, P1, and a DESIGN QUESTION for the lead. `&var self.<field>`
+  inside a `&self` method compiles and silently writes to a COPY** (found by
+  design 146 unit B, Aug 5; PRE-EXISTING, nothing to do with places). A `&self`
+  receiver is passed by value, so every `&var` projection out of it addresses
+  the callee's copy. No error, no warning, no write. Repro:
+
+  ```saw
+  struct Cell { count: Int }
+  struct Bag { slot: Cell, cells: [Cell; 3] }
+
+  extension Bag {
+      func shared_field<R>(&self, body: (&var Cell) sync -> R) -> R {
+          body(&var self.slot)          // writes a copy
+      }
+      func shared_elem<R>(&self, i: Int, body: (&var Cell) sync -> R) -> R {
+          body(&var self.cells[i])      // writes a copy
+      }
+      func var_field<R>(&var self, body: (&var Cell) sync -> R) -> R {
+          body(&var self.slot)          // writes the real thing
+      }
+  }
+
+  func main() {
+      var b = Bag(slot: Cell(count: 0),
+                  cells: [Cell(count: 1), Cell(count: 2), Cell(count: 3)])
+      b.shared_field { c in c.count += 10 }
+      print("{b.slot.count}")       // 0   -- want 10, or a compile error
+      b.var_field   { c in c.count += 10 }
+      print("{b.slot.count}")       // 10  -- correct
+      b.shared_elem(1) { c in c.count += 10 }
+      print("{b.cells[1].count}")   // 2   -- want 12, or a compile error
+  }
+  ```
+
+  Design 106 already says a `&` may not upgrade to `&var` and gives a clean
+  error for a reference PARAM; `self` was never covered. On its own the fix is
+  "make it that same error" — but it is load-bearing for design 141 decision 3
+  ("mutability comes from the USE SITE, never the declaration — one body serves
+  both flavors"), because the shape 141 blesses is exactly
+  `func [](&self, i: Int) borrows -> T` with `lend self.buffer![i]`, which
+  lowers to `__window(&var self.buffer![i])`. So the landed
+  `examples/borrows_declaration_lowers.saw` declares accessors that would
+  silently not write. THE DECISION: either (a) an accessor's receiver is
+  borrowed per the USE SITE — the checker half of that is already implemented
+  (`place_window_exclusive` makes an exclusive window demand a `var` root and
+  join the access set as a mutable path), and what is missing is passing the
+  receiver by pointer rather than by copy; or (b) retreat from decision 3 and
+  let a `borrows` accessor declare `&var self` when it lends writable storage,
+  which is what the landed fence already requires and what
+  `examples/place_use_sites.saw` is written against. Until it is decided, an
+  exclusive window on a `&self` accessor is a clean error naming the `&var
+  self` spelling (`examples/errors/place_exclusive_shared_accessor.saw`).
+
+- **DF-146c — OPEN. Calling a CONDITIONAL lend (`borrows -> T?`) is not
+  implemented** (design 146 unit B). Declaring one works (design 141); using
+  one is a clean "not implemented yet" error naming `with_ref`/`with_var_ref`
+  as the interim. What blocks it: the absent path's closure takes no parameters
+  and its `__R` does not survive to codegen — the synthesized `{ None }` body
+  reaches the backend with `current_return_type=Void`, so the `None` has
+  nothing to be a `None` OF (internal error rather than a wrong answer). The
+  present path (`{ __p in __p }`, auto-wrapping into a pinned `__R = T?`) is
+  believed right; the parameterless twin is where the type is lost. Blocks
+  `Vector.get`, hence blocks the DF-132a/DF-128c pair.
+ Units A and B are in: `lend` and
 `borrows` are reserved in BOTH lexers (selfhost mirrored, lexdiff clean over
 1326 files); `borrows` joins the declaration effect slot in canonical order
 `unsafe sync borrows`, matching the type grammar's
@@ -414,12 +530,12 @@ it returned `None` before.
   proven deinit-twice). `set` also leaks the overwritten element;
   `String.byte_at` reads OOB heap from a safe signature; `Data.to_string`
   mints invalid UTF-8.
-- **DF-132a — OPEN, P0. STILL OPEN after design 141's partial landing (Aug 5):
-  the fix needs `Vector.get` to become `borrows -> T?`, and 141 landed the
-  declaration half only — a borrows accessor can be DECLARED but not yet CALLED,
-  so `get` cannot be converted yet. See the 141 PARTIAL entry at the top for the
-  two front-end findings that stopped use sites. This pair remains the first
-  thing the 141 follow-up must land. `Vector.get` has NO `T: Copy` bound, so a
+- **DF-132a — OPEN, P0. STILL OPEN after design 146 (Aug 5): use sites now work
+  for UNCONDITIONAL accessors, but `Vector.get` is a CONDITIONAL lend and
+  calling one is not implemented (DF-146c); `Vector.[]` as design 141 spells it
+  takes `&self`, which cannot lend writable storage (DF-146b). Both are named
+  in the 146 PARTIAL entry at the top, and both want a decision before unit C
+  is dispatched. This pair remains the first thing the follow-up must land. `Vector.get` has NO `T: Copy` bound, so a
   NoCopy element
   is handed out BY VALUE as a non-retained alias — proven double-deinit in safe
   code (found by design 132 unit H, Aug 5; PRE-EXISTING).** RS-2's unfinished
@@ -2001,11 +2117,16 @@ inlined (the `.build/scratch` probes are gitignored).
   (`examples/coro_tuple_across_suspend.saw`). Both now sort. Verified with
   `irdet --all` rather than the 40-file sample.
 
-  The guard is still the weak part: a 40-file random sample cannot police a
-  whole-corpus property, and this pair proves a latent instance can sit in the
-  tree indefinitely. WANTED: run `irdet --all` (or a much larger sample) in the
-  gate rather than the default sample, or a static check for `set` iteration
-  that reaches an emission list.
+  **GATE STRENGTHENED (design 146 unit D, Aug 5).** `make irdet` keeps the
+  40-file sample as the cheap per-commit check; `make irdet-all` sweeps the
+  whole corpus and is now the documented standard for a brief's FINAL gate
+  battery (CLAUDE.md's testing section says so). Measured cost of the full
+  sweep: **728 examples compiled twice under differing PYTHONHASHSEED, 102
+  skipped (they need module paths or a host), 1128.6s of tool time / 18m49s
+  wall** on the dev Mac. That is affordable once per brief and not once per
+  commit, which is exactly the split. Still open as a cheaper guard: a static
+  check for `set`-of-`str` iteration that reaches an emission list — the sweep
+  catches instances, not the class.
 
 ## Milestones
 - **App-1 Blade: DONE** (design 64 + 67; real resolver/lock/git/

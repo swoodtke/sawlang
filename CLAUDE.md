@@ -71,6 +71,12 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
 - App-level: `blade test` (tests/*.saw exit 0 = pass; see TESTING.md);
   `./.venv/bin/python tools/blade_bootstrap.py` or
   `make blade-bootstrap` runs the self-hosting loop (stage0→stage2).
+- IR determinism: `make irdet` samples 40 examples — cheap enough per
+  commit. **A brief's FINAL gate battery runs `make irdet-all`** (the
+  whole corpus; design 146 unit D). A random sample cannot police a
+  whole-corpus property: design 141 found two nondeterministic emission
+  orders that had sat in the tree unnoticed until two unrelated new
+  examples reshuffled the sample onto one of them.
 - Pyright diagnostics on sawc/ are NOISE (mixin `self.X` false
   positives) — ignore unless a real behavior test fails.
 
