@@ -560,7 +560,7 @@ def _reject_freestanding_macho(target_triple: str = None):
     sys.exit(1)
 
 
-def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None):
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None, places_lowered: bool = False):
     """Resolve modules, load builtins, and type-check the whole program.
 
     This is the single front half of the compile pipeline: a plain single file
@@ -984,6 +984,34 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         })
         return None, merged_ast
 
+    # design 141/146: the use-site half of element places. A place use needs the
+    # receiver's TYPE to become a window call (`__window`'s parameter type is
+    # where `&var T` comes from), so it runs here — after checking, before the
+    # coroutine transform, whose own rewrite would otherwise have to understand
+    # places. It rewrites std and every imported module as well as the entry
+    # file, which is exactly what the re-entry's AST reuse above makes possible.
+    if not places_lowered:
+        from place_uses import transform_place_uses
+        place_asts = [reentry_builtin_ast] + list(module_map.values()) + [entry_ast]
+        if transform_place_uses(place_asts, merged_ns, reporter):
+            if reporter.has_errors():
+                reporter.print_all()
+                sys.exit(1)
+            if verbose:
+                print("  Lowered place uses; re-checking...")
+            return _prepare_codegen(source_path, entry_ast, entry_source, verbose,
+                                    object_only, target_triple, freestanding,
+                                    module_paths, runtime_build,
+                                    post_transform=post_transform,
+                                    target_features=target_features,
+                                    parsed={'module_map': module_map,
+                                            'module_sources': module_sources,
+                                            'builtin_ast': reentry_builtin_ast},
+                                    places_lowered=True)
+        if reporter.has_errors():
+            reporter.print_all()
+            sys.exit(1)
+
     # design 44: the source-level coroutine transform. If the program drove any
     # suspending function (`__saw_drive(...)` recorded roots during the effect
     # analysis above), rewrite those roots into frame structs + resume methods on
@@ -1022,7 +1050,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                                     target_features=target_features,
                                     parsed={'module_map': module_map,
                                             'module_sources': module_sources,
-                                            'builtin_ast': reentry_builtin_ast})
+                                            'builtin_ast': reentry_builtin_ast},
+                                    places_lowered=True)
 
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns

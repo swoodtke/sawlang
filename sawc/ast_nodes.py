@@ -770,6 +770,17 @@ class ArrayIndex(Expression):
     # Projection into an UnsafeMemory register block (design 112, R1).
     um_projection: bool = annotation(False)
 
+    # A PLACE use (design 141/146): this index resolved to a `[]` borrows
+    # accessor, so it names storage rather than producing a value. The checker
+    # stamps these and `place_uses.py` turns the node into the window call.
+    # `place_elem_type` is a real type and must be substituted along with every
+    # other one when a generic body is monomorphized, which is why it is a
+    # declared annotation rather than a runtime graft.
+    place_struct: Optional[str] = annotation(None)
+    place_method: Optional[str] = annotation(None)
+    place_elem_type: Optional['SawType'] = annotation(None)
+    place_optional: bool = annotation(False)
+
 
 @dataclass
 class MemberAccess(Expression):
@@ -1054,6 +1065,21 @@ class MethodCall(Expression):
     um_scalar_type: Optional['SawType'] = annotation(None)
     um_volatile: bool = annotation(False)
     resolved_init_params: Optional[List[str]] = annotation(None)
+    # A PLACE use (design 141/146): this call resolved to a named `borrows`
+    # accessor (`v.get(i)`, `v.first()`), so it names storage rather than
+    # returning a value. See ArrayIndex for what each field carries.
+    place_struct: Optional[str] = annotation(None)
+    place_method: Optional[str] = annotation(None)
+    place_elem_type: Optional['SawType'] = annotation(None)
+    place_optional: bool = annotation(False)
+    # Set by the use-site lowering on the call IT synthesized: this is the
+    # accessor's window call, with the closures supplied, so the place path must
+    # not claim it a second time on the re-check.
+    place_lowered: bool = annotation(False)
+    # Design 141 decision 3: mutability comes from the USE SITE, so the window
+    # this call opens — not the accessor's `&self` declaration — says whether
+    # the root is borrowed shared or exclusively.
+    place_window_exclusive: bool = annotation(False)
 
 
 @dataclass

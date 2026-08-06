@@ -3671,6 +3671,14 @@ class ExpressionsMixin:
         # region yields `UnsafeMemory<E, Use>` at base + i*stride (no load).
         if self._is_unsafe_memory(container_type):
             return self._check_um_index_projection(expr, container_type)
+        # design 141: a struct may declare `func [](...) borrows -> T`, which
+        # makes `v[i]` a PLACE. Intercept before the Int-index rule below — an
+        # accessor's parameter is whatever it declared (`Map.[]` takes a key),
+        # and its own checking happens against that declaration.
+        if container_type.kind == TypeKind.STRUCT:
+            place = self._check_place_index(expr, container_type)
+            if place is not None:
+                return place
         index_type = self._check_expression(expr.index)
         if index_type is None:
             return None
@@ -6300,6 +6308,15 @@ class ExpressionsMixin:
                 hint="use a nested scope or `move` to transfer ownership if you need early cleanup"
             )
             return None
+        # design 141: a named `borrows` accessor (`v.get(i)`, `v.first()`) hands
+        # out a PLACE. Its window closures are compiler-added trailing
+        # parameters, so the ordinary arity path below would count them against
+        # the author; place checking owns the call from here.
+        if (self._place_accessor_node(method_info) is not None
+                and not getattr(expr, 'place_lowered', False)):
+            return self._check_place_use(
+                expr, method_info, struct_name, obj_type, expr.method_name,
+                [a.value for a in expr.arguments])
         # Method-level generic type parameters (brief 36): fold the call-site type
         # arguments (`v.map<Int>(...)`) into the substitution map alongside the
         # struct's own args, so param/return types mentioning the method's own
@@ -6411,13 +6428,21 @@ class ExpressionsMixin:
         # it may not be called on an immutable `let` (or `&`) binding — the same
         # rule as a `p.x = ...` field write. (`init` builds a fresh value; not a
         # receiver mutation.)
-        if getattr(method_info, "self_mutable", False) and not method_info.is_init:
+        # design 141: an EXCLUSIVE place window borrows its root mutably even
+        # though the accessor declares `&self` — one body serves both flavors,
+        # and the use site picks. So `let v` plus `v[0].n = 1` is the same
+        # immutable-binding error a `&var self` method would give.
+        window_exclusive = getattr(expr, 'place_window_exclusive', False)
+        if ((getattr(method_info, "self_mutable", False) or window_exclusive)
+                and not method_info.is_init):
             imm_root = self._assign_target_immutable_struct_root(expr.object)
             if imm_root is not None:
+                what = (f"open an exclusive place window on"
+                        if window_exclusive
+                        else f"call `&var self` method `{expr.method_name}` on")
                 self._error(
                     ErrorKind.IMMUTABLE_ASSIGNMENT,
-                    f"cannot call `&var self` method `{expr.method_name}` on "
-                    f"immutable variable `{imm_root}`",
+                    f"cannot {what} immutable variable `{imm_root}`",
                     expr.line, expr.column,
                     hint="consider using `var` instead of `let` to make it mutable",
                 )
@@ -6429,7 +6454,7 @@ class ExpressionsMixin:
             [a.value for a in expr.arguments],
             aligned_types,
             receiver=expr.object if not method_info.is_init else None,
-            receiver_mutable=method_info.self_mutable,
+            receiver_mutable=method_info.self_mutable or window_exclusive,
             param_names=aligned_names,
         )
         return_type = method_info.return_type

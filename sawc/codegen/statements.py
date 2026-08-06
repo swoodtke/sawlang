@@ -750,6 +750,16 @@ class StatementsMixin:
 
         # Now return
         if value is not None:
+            ret_type = self.builder.function.function_type.return_type
+            if isinstance(ret_type, ir.VoidType):
+                # design 132 unit C's instantiation-uniformity rule: a generic
+                # `-> R` body writes `return <expr>` and must compile at EVERY
+                # instantiation, `R = Void` included. A Void value is zero-sized
+                # and this instantiation's LLVM signature returns void, so the
+                # expression is evaluated for its effect and nothing is handed
+                # back — `ret void %val` is not an instruction.
+                self.builder.ret_void()
+                return
             value = self._coerce_ret_value(value)
             self.builder.ret(value)
         else:
