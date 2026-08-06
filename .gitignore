@@ -4,6 +4,12 @@
 # Blade's `blade test` scratch directory (compiled test binaries)
 .blade/
 
+# A lock file resolved inside a test FIXTURE is build output, not a package's
+# committed lock (blade/Saw.lock is the real one and stays tracked). Design
+# 149's runtime-provider test is the first to run `blade build` in a fixture,
+# so it is the first to leave one behind.
+blade/tests/fixtures/**/Saw.lock
+
 # Python
 __pycache__/
 *.pyc
