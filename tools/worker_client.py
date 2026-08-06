@@ -138,7 +138,17 @@ class RemoteWorker:
             headers = self._headers()
             headers["Content-Type"] = "application/octet-stream"
             headers["Content-Length"] = str(len(body))
-            conn.request("POST", "/job", body=body, headers=headers)
+            try:
+                conn.request("POST", "/job", body=body, headers=headers)
+            except (OSError, http.client.HTTPException) as e:
+                # The worker can refuse a job — it is already running one —
+                # before this side has finished uploading the snapshot, which
+                # arrives here as a broken pipe rather than as the refusal. The
+                # reply is usually still sitting in the socket, and it says
+                # something useful; the write error does not.
+                if not self._recover_refusal(conn, run):
+                    run.note(f"could not send the job to {self.url} ({e})")
+                return run
             # Hold the socket now. The response says `Connection: close`, so
             # `getresponse` hands the socket to the response object and clears
             # `conn.sock` — leaving no way to reach it afterwards, and the
@@ -171,6 +181,22 @@ class RemoteWorker:
             run.note(f"worker {self.url} closed the stream without finishing "
                      f"the job")
         return run
+
+    def _recover_refusal(self, conn, run: RemoteRun) -> bool:
+        """Try to read a reply the worker sent while we were still uploading.
+
+        Returns whether one was found. Best-effort by nature: if the socket is
+        gone there is nothing to read, and the caller falls back to reporting
+        the write error.
+        """
+        try:
+            resp = conn.getresponse()
+            detail = _short(resp.read())
+        except (OSError, http.client.HTTPException):
+            return False
+        run.note(f"worker {self.url} refused the job "
+                 f"({resp.status}: {detail})")
+        return True
 
     def _consume(self, resp, handlers: dict, run: RemoteRun) -> None:
         while True:

@@ -79,6 +79,15 @@
 ;; compiling into them.
 (allow file-read* (subpath (param "WORKER_ROOT")))
 
+;; The shared secret, which the daemon reads at startup. Its default home is
+;; `~/.config/saw-worker/token`, outside the checkout, so the profile has to
+;; name it or the worker cannot start at all. One directory, read only. Create
+;; the token BEFORE launching (`--init-token` writes it, and writing there is
+;; not allowed from in here). If this account's home is not under /Users, keep
+;; the token inside the checkout instead and pass `--token-file`; the rule
+;; above already covers reading it there.
+(allow file-read* (regex #"^/Users/[^/]+/\.config/saw-worker/"))
+
 ;; Everything NOT listed above is denied, and the important omission is the
 ;; rest of this account's home directory: `~/Documents`, `~/.ssh`, browser
 ;; profiles, keychains. A test that goes looking for them gets EPERM.
@@ -98,8 +107,8 @@
 ;; under /private/var/folders.
 (allow file-write* (subpath "/private/var/folders"))
 
-;; Console output. The daemon logs to stdout; a redirect into JOB_ROOT is
-;; already covered above.
+;; Console output. The daemon logs to stdout; redirecting that into
+;; `.worker-jobs/` is already covered above.
 (allow file-write-data (literal "/dev/null"))
 (allow file-write* (regex #"^/dev/tty"))
 (allow file-ioctl (regex #"^/dev/tty"))

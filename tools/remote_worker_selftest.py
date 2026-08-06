@@ -344,8 +344,11 @@ def test_second_job_is_refused_not_queued(worker):
     info, why = worker.client().probe()
     _check(info is None and "already running" in why,
            f"a busy worker should be declined at /health, got {info} / {why}")
-    run = worker.client().submit({"kind": "suite", "paths": SHARD}, b"",
-                                 {})
+    # A real snapshot, not an empty body: a refusal that arrives while this
+    # side is still uploading megabytes is the case that used to surface as a
+    # broken pipe instead of as the worker's reason.
+    run = worker.client().submit({"kind": "suite", "paths": SHARD},
+                                 proto.build_snapshot(REPO), {})
     _check(not run.completed, "a second concurrent job was accepted")
     _check(any("refused" in n for n in run.notes),
            f"the refusal should be a note, got {run.notes}")
