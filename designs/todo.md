@@ -1778,43 +1778,104 @@ statement dropped its `Result` with no diagnostic.
   refcount, and the brief's gate should run the affected examples under
   `libgmalloc`, because that is the only configuration in which a latent
   double-release is visible at all.
-- **DF-151c — FILED, NOT FIXED (codegen; found by the DF-151a audit, Aug 6).**
-  A suspending `match` arm that binds a REFCOUNTED payload is an ICE. Loud, not
-  silent, and it PREDATES the DF-151a fix (it reproduces unchanged on
-  `7331823`) — it surfaced only because fixing the name collision let the shape
-  reach codegen at all. ONE payload-carrying arm is enough, and it has nothing
-  to do with binding names: it reproduces with every arm binding a distinct name.
+- **DF-151c — FIXED Aug 6.** Filed as "a suspending `match` arm binding a
+  REFCOUNTED payload is an ICE (`Type of #1 arg mismatch: i8* != i8`)". The filed
+  diagnosis was exactly right; the filed SCOPE was one site out of six. The
+  hazard belongs to the DESTINATION, not to coroutines — the frame store was
+  merely the one shape somebody happened to write.
+  **ROOT CAUSE.** Retain and drop glue are driven off the type they are HANDED,
+  so that type must describe the value IN HAND. Every transfer site has only the
+  DESTINATION's type conveniently available, and at each of them the destination
+  may be opt-encoded (`T?`) while the value is still the bare payload `T` — the
+  optional wrap happens AFTER the copy. Driving the glue with `T?` walks Optional
+  layout over a value that has no tag word: it reads a payload out of the payload
+  itself and hands `T.copy`/`T.deinit` garbage.
+  **THE AUDIT FOUND FIVE MORE, EVERY ONE OF THEM REACHABLE FROM PLAIN SYNC
+  SOURCE.** None of these needs a coroutine, a `match`, or a suspension:
   ```saw
-  import std.task
-  enum E { case A(s: String), case B }
-  func pick() -> E { return E.A(s: "one") }
-  func main() {
-      match pick() {
-          case A(v) -> { yield_now()  print("A: {v}") },
-          case B -> print("b")
+  var o: String? = None
+  o = s                    // statements.py:405 — local assignment
+  h.o = s                  // statements.py:482 — field (the site as filed)
+  r = v                    // statements.py:665 — `&var` referent / `self = v`
+  Holder(o: s)             // structs.py:108    — struct-literal field
+  x?.y = s                 // optionals.py:520  — chained assignment
+  let _: String? = s       // statements.py:150 — discard, BOTH copy and drop
+  ```
+  The discard is the interesting one: it has no destination SLOT, so nothing
+  wraps, and the annotation misled the retain AND the immediately-following drop
+  registration — the same defect mirrored onto the release side.
+  `structs.py` already carried a PARTIAL patch of this exact bug, keyed on design
+  124's `frame_owning_read` alone; that is the special case that missed the rule.
+  **THE FIX — one named rule, `sawc/codegen/resources.py:_transfer_type_for`.**
+  It answers "what type actually describes this value at a transfer into that
+  destination", by unwrapping `T?` to `T` in exactly the case the wrap will
+  fire. Keyed on the LLVM shape rather than on the source expression for two
+  reasons: it is the same test the wrap itself uses, and it holds for the
+  synthesized frame stores that carry no `resolved_type` to consult.
+  `_generate_copy_for_dest` is the copy-site wrapper over it; the discard path
+  calls it directly, because there both the retain and the drop need the answer.
+  **NOTHING COULD HAVE MISCOMPILED SILENTLY.** The class is loud everywhere: a
+  refcounted payload ICEs, and a trivial one needs no glue at all
+  (`_needs_cleanup(Int?)` is false, so the bad type was never walked). These
+  shapes were uncompilable, not miswritten — which is exactly why the suite
+  stayed green through all six.
+  **An `Arc` payload is the same defect** (the filer flagged it as worth
+  re-probing): it arrives as `internal compiler error: tuple index out of range`
+  instead, because the value handed to the glue is struct-shaped rather than a
+  pointer. Fixed by the same change.
+  `examples/df151c_optional_dest_copy.saw` covers the filed repro, its sync
+  control, all six sites, and three `Arc.strong_count()` balance oracles — the
+  field write measured in place (retain on write, release on overwrite), and the
+  struct-literal init and the suspending arm measured across a frame that has
+  DIED, so `after == alone` is the balance. Every string in it is interpolated
+  (design 159's lesson: a literal is immortal and cannot fail).
+- **DF-151d — FILED, NOT FIXED (codegen; found by the DF-151c audit, Aug 6).**
+  A `match` whose SCRUTINEE is a TEMPORARY never releases it, so an owning
+  payload LEAKS. Silent — no error, no crash, just a destructor that never runs.
+  ```saw
+  enum ArcE { case A(a: Arc<Res>), case B }
+  func leaks(a: Arc<Res>) -> Int {
+      match ArcE.A(a: a) {          // built here, never released
+          case A(_) -> 1,
+          case B -> 0
       }
   }
-  // error: internal compiler error: Type of #1 arg mismatch: i8* != i8
+  // count before 1, after 2; `Res.deinit` never runs
   ```
-  **Diagnosed, so it should be cheap.** The frame field for the binding is
-  opt-encoded (`String?`) while the dispatch assigns the bare payload
-  (`self.v = v`, `_split_match` in `coro_transform.py`). In
-  `_generate_assign_statement` (`sawc/codegen/statements.py:481`) the RHS is an
-  `Identifier`, so it takes the branch that copies against the FIELD's type —
-  `_generate_copy(value, field_saw)` — and `_emit_optional_retain_at` then reads
-  a payload pointer out of a value that is not an optional (i8 where i8* was
-  wanted). The very next branch, `_frame_owning_read_copy` at line 483, exists
-  for this exact hazard and its comment states the rule: "Copy against the
-  VALUE's type, not the field's: an opt-encoded destination is `T?` while the
-  value is the bare payload (the optional wrap happens further down)." The
-  Identifier branch needs the same treatment when the field is OPTIONAL and the
-  value is not. An Int payload needs no retain, which is why only refcounted
-  payloads trip it — an `Arc`/`Vector`/closure payload is worth re-probing with
-  the fix. Left alone here because it is a separate defect on a hot shared
-  codegen path, and the DF-151a brief is scoped to `coro_transform.py`.
-  Nothing in the tree hits it (the suite is green);
-  `examples/coro_bind_id_match_arms_same_name.saw` uses `Int` and `Bool`
-  payloads and says why in a comment.
+  **Not about coroutines, not about bindings, not about DF-151c.** It reproduces
+  with a SYNC arm and with `case A(_)`, which binds nothing and therefore never
+  reaches the copy path DF-151c fixed; it is byte-identical on the pre-fix
+  compiler. Binding the scrutinee to a local first BALANCES
+  (`let e = ArcE.A(a: a)` then `match e` releases correctly), which is both the
+  workaround and the shape of the diagnosis: the named local is registered for
+  cleanup and the temporary is not. Suspect the match lowering's scrutinee
+  handling in `sawc/codegen/match.py` — a temporary scrutinee needs the
+  statement-temp registration (`_register_stmt_temp`) that other owned
+  temporaries get. Worth checking whether a temporary scrutinee that is a
+  STRUCT (not an enum) leaks the same way, and whether `if let f()` does.
+  This is the reason `examples/df151c_optional_dest_copy.saw` binds its oracle's
+  scrutinee to a local — the leak would otherwise sit on top of its counts.
+- **DF-151e — FILED, NOT FIXED (codegen; found by the DF-151c audit, Aug 6).**
+  **A fixed array of optionals `[T?; N]` cannot be constructed AT ALL** — at any
+  payload type, by any initializer. Three different ICEs, all pre-existing
+  (identical on the pre-fix compiler), none of them DF-151c:
+  ```saw
+  var a: [Int?; 2] = [None, None]      // None literal ... has no type information
+  var a: [Int?; 2] = [1, 2]            // Can't index at [0] in i64
+  var a: [String?; 2] = [s0, s1]       // Type of #1 arg mismatch: i8** != i8*
+  ```
+  The through-line is that the array literal never pushes the ELEMENT type into
+  its elements: a `None` is left with an `OPTIONAL` whose `inner_type` is None
+  (`_generate_none_literal` fails loud on it), and a bare `T` element is stored
+  UNWRAPPED, so the array is laid out `[T x N]` while everything downstream —
+  the element drop, `a[i] = v`, the read — believes `[{i1,T} x N]`. Fixing it
+  means the element wrap the struct-literal and assignment paths already do,
+  applied in `_generate_array_literal`; the first ICE looks like a typechecker
+  gap (element-type propagation into `None`) rather than a codegen one.
+  Consequence worth knowing while it stands: the two array-element transfer
+  sites in `_generate_assign_statement` (`statements.py:540`/`587`) carry the
+  DF-151c rule but cannot be exercised, because no `[T?; N]` can be built to
+  exercise them.
 
 ## Design 149 — runtime authoring in Saw (LANDED, Aug 6)
 
