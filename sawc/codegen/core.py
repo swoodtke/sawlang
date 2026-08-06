@@ -1766,10 +1766,25 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 gv.linkage = "internal"
             if place_sections and not getattr(gv, 'section', None):
                 # Constants (incl. relro tables of function pointers, resolved at
-                # link time in a static kernel) → `.rodata.<name>`; mutable data →
-                # `.data.<name>`. The kernel linker script catches `.rodata.*` and
-                # `.data.*`; `--gc-sections` drops the unreferenced ones.
-                prefix = ".rodata" if gv.global_constant else ".data"
+                # link time in a static kernel) → `.rodata.<name>`; ZERO data →
+                # `.bss.<name>`; everything else → `.data.<name>`. The kernel
+                # linker script catches all three; `--gc-sections` drops the
+                # unreferenced ones.
+                #
+                # The `.bss` case is design 149 unit b, and it has to be spelled
+                # HERE rather than left to LLVM: naming a section at all is what
+                # suppresses LLVM's own zerofill classification, so before this
+                # every zero global in the freestanding profile — the profile
+                # where it matters most — was placed in `.data` and the kernel
+                # image carried the zeros. A 64 KiB arena cost 64 KiB of image.
+                # `.bss.*` is a name LLVM recognizes as SHT_NOBITS, so this keeps
+                # the per-symbol `--gc-sections` granularity AND the zerofill.
+                if gv.global_constant:
+                    prefix = ".rodata"
+                elif self._is_zero_constant(gv.initializer):
+                    prefix = ".bss"
+                else:
+                    prefix = ".data"
                 gv.section = f"{prefix}.{gv.name}"
 
     # ---- design 53: static_assert compile-time evaluation ----

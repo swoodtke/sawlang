@@ -16,6 +16,14 @@ Test expectations are specified via comments in the source files:
                                 definition. Used to prove the freestanding profile
                                 still EXTERNS the runtime seams and links no runtime
                                 (design 113 / 113b negative test).
+    // EXPECT-OBJECT-MAX-BYTES: n  - The compiled object is at most `n` bytes.
+                                A size assertion, not a symbol one: it is how a
+                                static that must cost NO IMAGE BYTES is proven to
+                                cost none (design 149 unit b — an all-zero
+                                initializer lands in zerofill storage). Declare a
+                                region far larger than the bound and the check
+                                fails by the width of the region if it ever
+                                regresses into a data section.
     // EXPECT: docs           - Compile with `// COMPILE-FLAGS: --emit-docs` and
                                 compare the COMPILER's stdout (the design-121
                                 documentation JSON) against EXPECT-OUTPUT; never
@@ -86,6 +94,7 @@ class TestCase:
     xfail_reason: Optional[str] = None  # Set by '// XFAIL: reason'
     compile_flags: List[str] = None  # Extra sawc flags from '// COMPILE-FLAGS:'
     expected_undefined_symbols: List[str] = None  # '// EXPECT-SYMBOL-UNDEFINED:'
+    object_max_bytes: Optional[int] = None  # '// EXPECT-OBJECT-MAX-BYTES:'
 
 
 class Colors:
@@ -119,6 +128,7 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
     xfail_reason = None
     compile_flags = []
     expected_undefined_symbols = []
+    object_max_bytes = None
 
     with open(file_path, 'r') as f:
         in_output_block = False
@@ -150,6 +160,11 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
                 sym = line.split('// EXPECT-SYMBOL-UNDEFINED:')[1].strip()
                 if sym:
                     expected_undefined_symbols.append(sym)
+                in_output_block = False
+
+            elif '// EXPECT-OBJECT-MAX-BYTES:' in line:
+                raw = line.split('// EXPECT-OBJECT-MAX-BYTES:')[1].strip()
+                object_max_bytes = int(raw.replace('_', ''))
                 in_output_block = False
 
             elif '// EXPECT-OUTPUT:' in line:
@@ -200,7 +215,8 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
         expected_panic_contains=expected_panic_contains,
         xfail_reason=xfail_reason,
         compile_flags=compile_flags,
-        expected_undefined_symbols=expected_undefined_symbols
+        expected_undefined_symbols=expected_undefined_symbols,
+        object_max_bytes=object_max_bytes
     )
 
 
@@ -491,8 +507,12 @@ def run_test(test: TestCase, verbose: bool = False, compile_fn=None) -> tuple[bo
         return False, "Error test must have at least one '// EXPECT-ERROR-CONTAINS:' directive"
     if test.expect_type == ExpectType.PANIC and not test.expected_panic_contains:
         return False, "Panic test must have at least one '// EXPECT-PANIC-CONTAINS:' directive"
-    if test.expect_type == ExpectType.OBJECT and not test.expected_undefined_symbols:
-        return False, "Object test must have at least one '// EXPECT-SYMBOL-UNDEFINED:' directive"
+    if (test.expect_type == ExpectType.OBJECT
+            and not test.expected_undefined_symbols
+            and test.object_max_bytes is None):
+        return False, ("Object test must have at least one "
+                       "'// EXPECT-SYMBOL-UNDEFINED:' or "
+                       "'// EXPECT-OBJECT-MAX-BYTES:' directive")
     if test.expect_type == ExpectType.DOCS and not test.expected_output:
         return False, "Docs test must have '// EXPECT-OUTPUT:' with the expected JSON"
 
@@ -565,6 +585,17 @@ def run_test(test: TestCase, verbose: bool = False, compile_fn=None) -> tuple[bo
             obj = exe_path if exe_path.suffix == '.o' else Path(str(exe_path) + '.o')
             if not obj.exists():
                 return False, f"Expected object file not found: {obj}"
+
+            if test.object_max_bytes is not None:
+                actual = obj.stat().st_size
+                if actual > test.object_max_bytes:
+                    return False, (
+                        f"{obj.name} is {actual} bytes, over the "
+                        f"{test.object_max_bytes}-byte bound — a static that "
+                        f"should cost no image bytes is carrying them.")
+
+            if not test.expected_undefined_symbols:
+                return True, "Object size as expected"
 
             nm = subprocess.run(["nm", str(obj)], capture_output=True, text=True)
             if nm.returncode != 0:
