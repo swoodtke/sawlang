@@ -1,0 +1,124 @@
+// A struct FIELD of enum type drops its payload.
+//
+// Every value-lifecycle dispatch in codegen is keyed on a type's `kind`, and a
+// struct field arrives with the raw parsed annotation — so an enum field is
+// tagged STRUCT and falls off the end of the chain, emitting no drop, no retain
+// and no release. The field was correctly judged cleanup-needing and then
+// dropped by a path that had no idea it was looking at an enum, so every shape
+// below leaked its payload. (Retain and release cancelled each other, which is
+// why it presented as a leak rather than a double free — the same accidental
+// balance design 141 found in `Vector.get`. All three sites are re-tagged
+// together, since fixing one alone would turn the leak into an over-release.)
+//
+// A bare enum local and an enum used directly as a Vector element already
+// worked: those arrive genuinely ENUM-tagged. They are the controls here.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- struct field
+// deinit direct
+// -- optional enum field
+// deinit optional
+// -- two structs deep
+// deinit nested
+// -- generic enum field
+// deinit generic
+// -- struct-with-enum in a vector
+// deinit in-vector
+// -- no declared conformance anywhere
+// structural payload alive
+// -- fixed-array field
+// deinit array1
+// deinit array0
+// -- controls: already worked
+// deinit bare-local
+// deinit vector-element
+// -- done
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.name}") }
+}
+
+enum Slot { case Empty, case Filled(res: Res) }
+
+extension Slot: NoCopy {}
+
+struct Direct { slot: Slot }
+extension Direct: NoCopy {}
+
+struct Opt { slot: Slot? }
+extension Opt: NoCopy {}
+
+struct Inner { slot: Slot }
+extension Inner: NoCopy {}
+
+struct Outer { inner: Inner }
+extension Outer: NoCopy {}
+
+enum GSlot<T> { case Empty, case Filled(value: T) }
+extension GSlot<T>: NoCopy {}
+
+struct Generic { slot: GSlot<Res> }
+extension Generic: NoCopy {}
+
+// No conformance declared on either the enum or the struct: the whole chain is
+// structural, and a String payload is what has to be released.
+enum Bare { case Nothing, case Some_(text: String) }
+struct Structural { slot: Bare }
+
+struct Fixed { slots: [Slot; 2] }
+extension Fixed: NoCopy {}
+
+func main() {
+    print("-- struct field")
+    var d = Direct(slot: Slot.Filled(res: Res(name: "direct")))
+    let _ = move d
+
+    print("-- optional enum field")
+    var o = Opt(slot: Slot.Filled(res: Res(name: "optional")))
+    let _ = move o
+
+    print("-- two structs deep")
+    var n = Outer(inner: Inner(slot: Slot.Filled(res: Res(name: "nested"))))
+    let _ = move n
+
+    print("-- generic enum field")
+    var g = Generic(slot: GSlot<Res>.Filled(value: Res(name: "generic")))
+    let _ = move g
+
+    print("-- struct-with-enum in a vector")
+    var v = Vector<Direct>()
+    v.push(Direct(slot: Slot.Filled(res: Res(name: "in-vector"))))
+    let _ = move v
+
+    print("-- no declared conformance anywhere")
+    var s = Structural(slot: Bare.Some_(text: "structural payload alive"))
+    print(text_of(&s))
+    let _ = move s
+
+    print("-- fixed-array field")
+    var f = Fixed(slots: [Slot.Filled(res: Res(name: "array0")),
+                          Slot.Filled(res: Res(name: "array1"))])
+    let _ = move f
+
+    print("-- controls: already worked")
+    var bare = Slot.Filled(res: Res(name: "bare-local"))
+    let _ = move bare
+    var ev = Vector<Slot>()
+    ev.push(Slot.Filled(res: Res(name: "vector-element")))
+    let _ = move ev
+
+    print("-- done")
+}
+
+// A String release prints nothing, so the structural case cannot show its own
+// teardown. Reading the payload back proves it was still live at that point;
+// the shape is here because it is the one where the RETAIN was skipped too, and
+// the two have to move together or the leak becomes an over-release.
+func text_of(s: &Structural) -> String {
+    match s.slot {
+        case Some_(t) -> t,
+        case Nothing -> ""
+    }
+}

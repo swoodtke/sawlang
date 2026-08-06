@@ -217,6 +217,29 @@ class ResourcesMixin:
         self.type_cleanup_behavior[cache_key] = behavior
         return behavior
 
+    def _retag_enum(self, saw_type: SawType) -> SawType:
+        """Re-tag a STRUCT-kinded type that actually names an ENUM.
+
+        A named type reaches codegen still tagged STRUCT whenever nothing
+        re-resolved it (design 61, L14: the parser cannot know which it is, and
+        not every path canonicalizes). A STRUCT FIELD is the case that matters:
+        `namespace.get_struct_fields` hands back the raw parsed annotation, so
+        `struct Holder { slot: Slot }` describes its enum field as a struct.
+
+        Every value-lifecycle dispatch below is keyed on `kind`, so a
+        mis-tagged type falls off the end of the chain and emits NOTHING — no
+        drop, no retain, no release. That is why an enum-typed struct field
+        leaked its payload: the field was correctly judged cleanup-needing and
+        then dropped by a path that had no idea it was looking at an enum.
+        """
+        if (saw_type is not None and saw_type.kind == TypeKind.STRUCT
+                and saw_type.struct_name
+                and (saw_type.struct_name in self.enum_types
+                     or saw_type.struct_name in self.generic_enums)):
+            return SawType(TypeKind.ENUM, enum_name=saw_type.struct_name,
+                           type_args=saw_type.type_args, symbol=saw_type.symbol)
+        return saw_type
+
     def _needs_cleanup(self, saw_type: SawType) -> bool:
         """Check if a type needs cleanup.
 
@@ -234,19 +257,13 @@ class ResourcesMixin:
         # teardown (vtable destructor + dealloc) must run at scope death.
         if self._is_erased_box(saw_type):
             return True
-        # A named type that actually denotes an ENUM can reach here still tagged
-        # STRUCT (design 61, L14: the parser can't know; not every path is
-        # canonicalized). Left as-is it would fall to the struct-field path below,
+        # Left tagged STRUCT this would fall to the struct-field path below,
         # which finds no fields AND poisons the shared cache under the bare name
         # with `False` — so the enum's own `_enum_needs_variant_cleanup` then reads
         # that stale `False` and an owning enum payload (e.g. an `Arc` inside a
         # `Vector<enum>` slot) is treated as non-owning: leaked drop glue, and (for
         # design 65's copy-with-retain) no retain. Re-tag to ENUM first.
-        if (saw_type.kind == TypeKind.STRUCT and saw_type.struct_name
-                and (saw_type.struct_name in self.enum_types
-                     or saw_type.struct_name in self.generic_enums)):
-            saw_type = SawType(TypeKind.ENUM, enum_name=saw_type.struct_name,
-                               type_args=saw_type.type_args, symbol=saw_type.symbol)
+        saw_type = self._retag_enum(saw_type)
         if self._get_cleanup_behavior(saw_type) != "none":
             return True
         # An escaping closure value (design 71) is an OWNING value: it may carry a
@@ -451,6 +468,7 @@ class ResourcesMixin:
         if self._is_erased_box(saw_type):
             self._emit_erased_box_drop(ptr, saw_type)
             return
+        saw_type = self._retag_enum(saw_type)
         method_base = self._type_method_base(saw_type)
         if method_base is not None:
             deinit_name = self._mangle_method_name(method_base, "deinit")
@@ -685,6 +703,7 @@ class ResourcesMixin:
         it). The structural mirror of `_emit_drop_at`."""
         if not self._needs_cleanup(saw_type):
             return
+        saw_type = self._retag_enum(saw_type)
         # A leaf with its own copy() (ImplicitCopy String/Arc/user type): retain
         # in place — copy() bumps the refcount and returns the (same-buffer)
         # value, which we store back.
@@ -922,6 +941,7 @@ class ResourcesMixin:
     def _emit_release_at(self, ptr, saw_type: SawType):
         if not self._needs_cleanup(saw_type):
             return
+        saw_type = self._retag_enum(saw_type)
         # ImplicitCopy leaf (String/Arc/user copy()): retain bumped it, so release
         # is its ordinary drop (refcount decrement).
         method_base = self._type_method_base(saw_type)
