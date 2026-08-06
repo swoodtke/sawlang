@@ -1,0 +1,128 @@
+//! A lock that costs one word and needs no operating system.
+//!
+//! `SpinLock<T>` guards a value behind an atomic word, so it can live anywhere
+//! its payload can: a local, a field, or a `static`. That last one is the point.
+//! `Mutex<T>` holds a `pthread_mutex_t` in an allocated block, which a `static`
+//! cannot construct and a freestanding target has no libc to provide, so global
+//! state that several threads share had no safe spelling before this.
+//!
+//! ```saw
+//! import std.spinlock
+//!
+//! struct Counters {
+//!     hits: Int,
+//!     misses: Int
+//! }
+//!
+//! static STATS: SpinLock<Counters>          // zero means unlocked and zeroed
+//!
+//! func record(hit: Bool) {
+//!     STATS.lock({ c in
+//!         if hit { c.hits = c.hits + 1 } else { c.misses = c.misses + 1 }
+//!     })
+//! }
+//! ```
+//!
+//! Hold it briefly. A waiter burns its core until the lock is free, so a
+//! critical section that runs long wastes exactly as much time as it takes.
+
+/// A value guarded by an atomic word.
+///
+/// `lock` hands the payload to a closure under mutual exclusion and gives back
+/// whatever the closure returned. The closure is a `sync` function type, so
+/// suspending inside a critical section is a compile error rather than a
+/// livelock: a suspended task keeps the lock while the executor runs somebody
+/// else, and that somebody may be the task waiting for it.
+///
+/// One consequence worth knowing: because `lock` is `sync` and its body is
+/// `sync`, a task cannot be interrupted while holding the lock. Two tasks on one
+/// thread therefore never contend, and contention means another THREAD or
+/// another core.
+///
+/// `SpinLock` is `NoCopy` — a copied lock is two locks guarding two payloads,
+/// which is not a thing anyone wants. It is `Sync` when `T` is `Send`, on the
+/// same terms as `Mutex`: handing a `&var T` out under mutual exclusion is safe
+/// to share exactly when moving a `T` between threads is.
+///
+/// Locking is NOT reentrant. Taking the lock again while holding it spins
+/// forever, since the thread that would release it is the one spinning.
+///
+/// Every operation is a compare-and-swap or a store, so the type needs a target
+/// whose atomics are real instructions. On one whose base ISA omits them — rv32i
+/// — naming a `SpinLock` is a compile error naming `--target-features +a`.
+public struct SpinLock<T> {
+    // 0 is unlocked, 1 is held. Zero being the unlocked state is what lets a
+    // `static SpinLock<T>` be declared with no initializer at all: the whole
+    // value is zerofill storage, so an idle lock costs no image bytes either.
+    state: Atomic<Int>,
+    value: T
+}
+
+extension SpinLock<T> {
+    /// Creates an unlocked lock owning `value`.
+    ///
+    /// A `static` does not need this: declare it without an initializer and the
+    /// zero pattern is already an unlocked lock over a zeroed payload.
+    public init(value: T) -> SpinLock<T> {
+        SpinLock<T>(state: Atomic(0), value: value)
+    }
+
+    /// Acquires the lock, runs `body` on the payload, releases, and returns what
+    /// `body` returned.
+    ///
+    /// Spins until the lock is free. `body` runs exactly once, with `&var`
+    /// access to the payload, and cannot suspend.
+    public func lock<R>(&self, body: (&var T) sync -> R) unsafe sync -> R {
+        self._acquire()
+        let result = body(self._payload())
+        self._release()
+        result
+    }
+
+    /// Runs `body` on the payload if the lock is free, and returns `None` if it
+    /// was held.
+    ///
+    /// Never spins: one compare-and-swap decides it. `None` means another holder
+    /// had the lock at that instant and says nothing about whether it still
+    /// does.
+    public func try_lock<R>(&self, body: (&var T) sync -> R) unsafe sync -> R? {
+        if not self.state.compare_exchange(UNLOCKED, HELD) {
+            return None
+        }
+        let result = body(self._payload())
+        self._release()
+        return result
+    }
+
+    /// Whether the lock is held at this instant.
+    ///
+    /// A debugging and assertion aid. The answer can be stale before it is
+    /// read, so branching on it is a race; use `try_lock` to act on the answer.
+    public func is_locked(&self) -> Bool {
+        self.state.load() != UNLOCKED
+    }
+
+    // The address of the guarded value. Sound only while the caller holds the
+    // lock, which is why it is private and why both callers take it first.
+    //
+    // Taking the address inside a `&self` method works because a receiver
+    // carrying an `Atomic` cell arrives as the caller's storage rather than as a
+    // copy. On an ordinary type this would address the callee's copy.
+    func _payload(&self) unsafe -> UnsafePointer<T> {
+        (&self.value) as UnsafePointer<T>
+    }
+
+    func _acquire(&self) {
+        while not self.state.compare_exchange(UNLOCKED, HELD) {
+        }
+    }
+
+    func _release(&self) {
+        self.state.store(UNLOCKED)
+    }
+}
+
+extension SpinLock<T>: NoCopy {}
+
+static UNLOCKED: Int = 0
+static HELD: Int = 1

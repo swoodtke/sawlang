@@ -26,7 +26,7 @@ from ast_nodes import (
     ImportDecl, Visibility
 )
 from errors import ErrorReporter, ErrorKind
-from target_info import platform_int_width
+from target_info import platform_int_width, has_native_atomics
 from namespace import (
     Namespace, SymbolKind,
     FunctionSymbol, StructSymbol, EnumSymbol, TraitSymbol, TypeAliasSymbol,
@@ -91,7 +91,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False,
                  runtime_build: bool = False, post_transform: bool = False,
                  no_hidden_alloc: bool = False,
-                 target_triple: Optional[str] = None):
+                 target_triple: Optional[str] = None,
+                 target_features: Optional[str] = None):
         self.reporter = reporter
         # design 135: `--no-hidden-alloc`. Forbids the allocations the COMPILER
         # inserts that no source construct names — the escaping-closure
@@ -107,6 +108,14 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # `0x80000000` for riscv32 instead of letting it wrap to a negative.
         self.target_triple = target_triple
         self.platform_int_width = platform_int_width(target_triple)
+        # design 149 unit d: `SpinLock` is a CAS loop, so it needs the target to
+        # HAVE a compare-and-swap. Where the backend expands one into `__atomic_*`
+        # libcalls (rv32i and friends) the type is refused with a teaching error
+        # rather than compiled into a lock that calls into a C runtime a kernel
+        # does not have. Computed once — on every ordinary target it is True and
+        # the check below costs a boolean test per expression.
+        self._atomics_native = has_native_atomics(target_triple, target_features)
+        self._spinlock_refused = False
         # design 130: True on the RE-CHECK that follows the coroutine transform.
         # The transform rewrites user bodies in place — a held `&var` param
         # becomes a frame-resident `UnsafePointer<T>`, a spawned task reaches its
@@ -382,6 +391,62 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             return
         self._unsafe_contact = (getattr(node, 'line', 0),
                                 getattr(node, 'column', 0), what, str(found))
+
+    _SPINLOCK_NAME = "SpinLock"
+
+    def _check_spinlock_target(self, t, node) -> None:
+        """Refuse `SpinLock` on a target with no real atomics (design 149 unit d).
+
+        A spinlock IS its compare-and-swap loop. Where the backend has no atomic
+        instruction to lower that to, it emits `__atomic_compare_exchange` — a
+        call into a C runtime a freestanding kernel does not have, and which,
+        where it exists, is usually itself implemented with a lock. Either way
+        the type would not be what it says it is, so this is a teaching error
+        naming the flag rather than a silent fallback. Reported once per compile:
+        the fix is one flag, not one edit per use site.
+        """
+        if self._atomics_native or self._spinlock_refused or t is None:
+            return
+        # std checks itself under its own typechecker; refusing the type there
+        # would anchor the diagnostic in `std/spinlock.saw` rather than at the
+        # use site, and report it as a builtin failure on top. The user's own
+        # check reaches every `SpinLock` they actually named.
+        if getattr(self, '_checking_builtins', False):
+            return
+        if not self._type_names_spinlock(t):
+            return
+        self._spinlock_refused = True
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"`SpinLock` needs target atomics, and `{self.target_triple}` has "
+            f"none: its base ISA omits the `A` extension, so a "
+            f"compare-and-swap lowers to an `__atomic_*` libcall",
+            getattr(node, 'line', 0), getattr(node, 'column', 0),
+            hint="enable the extension: `--target-features +a`. Without it the "
+                 "lock would call into a C runtime a freestanding target does "
+                 "not have, and which is usually itself implemented with a "
+                 "lock; for state a single core serializes by construction, "
+                 "reach for `unsafe static var` instead",
+            source_file=getattr(node, 'source_file', None) or None,
+        )
+
+    def _type_names_spinlock(self, t) -> bool:
+        """Whether `t`'s own tree names a `SpinLock` (walked like the unsafe
+        tree: through optionals, references, arrays, tuples and type args)."""
+        if t is None:
+            return False
+        if t.kind == TypeKind.STRUCT and t.struct_name == self._SPINLOCK_NAME:
+            return True
+        for sub in (getattr(t, 'inner_type', None),
+                    getattr(t, 'array_element_type', None),
+                    getattr(t, 'func_return_type', None)):
+            if self._type_names_spinlock(sub):
+                return True
+        for group in ('type_args', 'element_types', 'param_types'):
+            for sub in (getattr(t, group, None) or []):
+                if self._type_names_spinlock(sub):
+                    return True
+        return False
 
     def _note_unsafe_static_contact(self, name: str, node) -> None:
         """Record that the function being checked NAMED an `unsafe static var`

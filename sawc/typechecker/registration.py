@@ -1021,6 +1021,12 @@ class RegistrationMixin:
 
         resolved_type = self._resolve_type(static.type)
 
+        # design 149 unit d: a `SpinLock` static on a target with no atomic
+        # instruction. Checked here as well as at every expression, because a
+        # lockable static is the headline use and its declaration is not one.
+        if not self._atomics_native:
+            self._check_spinlock_target(resolved_type, static)
+
         # design 46: `UnsafeMemory<T, Use>` statics — validate the intent marker
         # is present and explicit (`Device`/`Normal`).
         if self._is_unsafe_memory(resolved_type):

@@ -37,6 +37,53 @@ def _pointer_size_bits(data_layout: str) -> int:
     return 64
 
 
+def has_native_atomics(target_triple: Optional[str] = None,
+                       target_features: Optional[str] = None) -> bool:
+    """Whether the target lowers a word-size atomic RMW to a real INSTRUCTION.
+
+    `SpinLock` (design 149 unit d) needs this to be true: its whole
+    implementation is a compare-and-swap loop, and where the backend expands
+    that into `__atomic_*` libcalls the lock is a call into a C runtime that a
+    freestanding kernel does not have — and, if one is supplied, is itself
+    usually implemented with a lock. Saying so is a teaching error; falling back
+    silently would hand somebody a lock that does not lock.
+
+    The rule is deliberately narrow. RISC-V is the one target in play whose base
+    ISA omits atomics, so `--target-features +a` is what answers the question for
+    it. Every other architecture Saw targets has word-size atomics in its base
+    ISA and answers yes. An ISA string in the triple's arch field (`riscv32imac`,
+    or `riscv64gc` — `G` means `IMAFD`) is read too, for the LLVM builds that
+    accept one; the diagnostic names only the flag, which every build accepts.
+    """
+    triple = (target_triple or "").lower()
+    if not triple:
+        from llvmlite import binding
+        try:
+            triple = binding.get_default_triple().lower()
+        except Exception:
+            return True
+    arch = triple.split('-')[0]
+    if not arch.startswith("riscv"):
+        return True
+
+    # An explicit feature wins over the triple, and the LAST mention wins over
+    # an earlier one (`+a,-a` disables), matching how LLVM reads the list.
+    verdict = None
+    for feat in (target_features or "").lower().split(','):
+        feat = feat.strip()
+        if feat in ('+a', 'a'):
+            verdict = True
+        elif feat == '-a':
+            verdict = False
+    if verdict is not None:
+        return verdict
+
+    isa = arch[len("riscv"):]
+    if isa[:2] in ("32", "64"):
+        isa = isa[2:]
+    return 'a' in isa or 'g' in isa
+
+
 def platform_int_width(target_triple: Optional[str] = None) -> int:
     """Platform `Int`/`UInt` width in bits for `target_triple` (default host).
 

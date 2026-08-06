@@ -1,0 +1,49 @@
+// design 149: `SpinLock` and `unsafe static var` allocate nothing. Both exist
+// for targets where the allocator may be absent, so this compiles the pair under
+// `--no-hidden-alloc`, which rejects every allocation the compiler inserts that
+// the source did not name.
+//
+// The closures are passed straight to the call that runs them, so their
+// environments stay on the stack; the `print("{}", x)` form writes its pieces
+// without building a String.
+//
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: success
+// EXPECT-OUTPUT:
+// hits 2
+// misses 1
+// stage 1
+
+import std.spinlock
+
+struct Counters {
+    hits: Int,
+    misses: Int
+}
+
+static STATS: SpinLock<Counters>
+unsafe static var BOOT_STAGE: Int = 0
+
+func record(hit: Bool) {
+    STATS.lock({ c in
+        if hit {
+            c.hits = c.hits + 1
+        } else {
+            c.misses = c.misses + 1
+        }
+    })
+}
+
+func advance() unsafe -> Int {
+    BOOT_STAGE = BOOT_STAGE + 1
+    BOOT_STAGE
+}
+
+func main() {
+    record(true)
+    record(false)
+    record(true)
+    print("hits {}", STATS.lock({ c in c.hits }))
+    print("misses {}", STATS.lock({ c in c.misses }))
+    print("stage {}", advance())
+}

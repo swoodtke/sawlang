@@ -1738,9 +1738,16 @@ class Namespace:
                 inner = args[0] if args else None
                 return (self._send_sync(inner, False, visiting) and
                         self._send_sync(inner, True, visiting))
-            if name in ("Mutex", "Channel", "Task"):
+            if name in ("Mutex", "Channel", "Task", "SpinLock"):
                 inner = args[0] if args else None
                 # Send iff T: Send; Sync iff T: Send (the wrappers add the sync).
+                # `SpinLock` (design 149) is here for the same reason as `Mutex`:
+                # it hands out `&var T` under mutual exclusion, so sharing one
+                # across threads is safe exactly when MOVING a `T` across is.
+                # Structurally it would also derive Sync from its `Atomic` word
+                # and its payload, but that would make `SpinLock<T>` Sync for a
+                # non-Send `T` — the wrapper is what adds the synchronization, so
+                # the wrapper is what has to state the rule.
                 return self._send_sync(inner, False, visiting)
             # design 46: UnsafeMemory<T, Use> is Send + Sync BY FIAT (the Atomic
             # precedent). It is one word (a fixed address); statics of this type

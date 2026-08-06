@@ -1,0 +1,22 @@
+// design 149 unit (d): `SpinLock` requires real target atomics. rv32i has no
+// `A` extension, so a compare-and-swap lowers to an `__atomic_*` libcall — a
+// call into a C runtime a freestanding target does not have, and which where it
+// exists is usually itself implemented with a lock. Saying so is the whole
+// point: a silent fallback hands somebody a lock that does not lock.
+//
+// COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `SpinLock` needs target atomics
+// EXPECT-ERROR-CONTAINS: --target-features +a
+
+import std.spinlock
+
+static COUNT: SpinLock<Int>
+
+@export("kmain")
+func kmain() -> Int {
+    COUNT.lock({ n in
+        n = n + 1
+        n
+    })
+}

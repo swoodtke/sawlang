@@ -837,7 +837,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                               runtime_build=runtime_build,
                               post_transform=post_transform,
                               no_hidden_alloc=no_hidden_alloc,
-                              target_triple=target_triple)
+                              target_triple=target_triple,
+                              target_features=target_features)
     # design 84: carry the pre-computed suspending std (struct, method) set (std is
     # checked under a separate builtin typechecker, so the main one cannot infer it)
     # so the coroutine transform can embed nested suspending std methods.

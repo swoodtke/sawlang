@@ -74,6 +74,11 @@ class ExpressionsMixin:
             if not isinstance(expr, ClosureExpr):
                 self._note_unsafe_contact(
                     result, expr, "its body names a value of unsafe type")
+            # design 149 unit d: on a target with no atomic instruction, naming a
+            # `SpinLock` is refused. Guarded on the target so the ordinary case
+            # is one boolean test.
+            if not self._atomics_native:
+                self._check_spinlock_target(result, expr)
         return result
 
     # ===== Expression Visitor Methods =====

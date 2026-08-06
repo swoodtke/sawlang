@@ -1,0 +1,70 @@
+// design 149 unit (d): `SpinLock<T>` — a lock that costs one word and needs no
+// operating system, so it can live in a `static`. `Mutex<T>` holds a
+// pthread_mutex_t in an allocated block, which a static cannot construct and a
+// freestanding target has no libc to provide; global state shared across threads
+// had no safe spelling before this.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// hits 2 misses 1
+// doubled 10
+// after 15
+// try got 15
+// locked? false
+// nested try refused
+// held during body? true
+
+import std.spinlock
+
+struct Counters {
+    hits: Int,
+    misses: Int
+}
+
+// The headline: a lockable static, declared with NO initializer. Zero is the
+// unlocked state and a zeroed payload, so an idle lock costs no image bytes
+// either (unit b).
+static STATS: SpinLock<Counters>
+
+func record(hit: Bool) {
+    STATS.lock({ c in
+        if hit {
+            c.hits = c.hits + 1
+        } else {
+            c.misses = c.misses + 1
+        }
+    })
+}
+
+func main() {
+    record(true)
+    record(false)
+    record(true)
+    print("hits {STATS.lock({ c in c.hits })} misses {STATS.lock({ c in c.misses })}")
+
+    // A local lock, built through `init`. The body's result comes back out.
+    var local = SpinLock<Int>(value: 5)
+    print("doubled {local.lock({ n in n * 2 })}")
+
+    // `&var` access mutates the guarded value in place.
+    local.lock({ n in n = n + 10 })
+    print("after {local.lock({ n in n })}")
+
+    if let v = local.try_lock({ n in n }) {
+        print("try got {v}")
+    }
+    print("locked? {local.is_locked()}")
+
+    // Locking is not reentrant: inside a critical section the lock is held, so
+    // a `try_lock` from within one refuses rather than deadlocking. (A static
+    // rather than the local above, because a closure would have to CAPTURE the
+    // local, and a NoCopy lock is not copyable into an environment.)
+    STATS.lock({ _c in
+        if let _v = STATS.try_lock({ inner in inner.hits }) {
+            print("nested try succeeded")
+        } else {
+            print("nested try refused")
+        }
+        print("held during body? {STATS.is_locked()}")
+    })
+}

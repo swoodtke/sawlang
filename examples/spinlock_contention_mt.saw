@@ -1,0 +1,49 @@
+// design 149 unit (d): `SpinLock` under real contention. Four OS worker threads
+// each take the lock 250 times, and the guarded pair of counters has to agree
+// with the 1000 increments afterwards — an unguarded read-modify-write across
+// four threads loses updates.
+//
+// Counts, not interleavings: which thread wins any given compare-and-swap is
+// unspecified and untested.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// spawned 1000
+// total 1000
+// turns 1000
+// locked? false
+
+import std.spinlock
+
+struct Tally {
+    total: Int,
+    turns: Int
+}
+
+static SHARED: SpinLock<Tally>
+
+// `SpinLock<Tally>` is Sync because `Tally` is Send, so the static is reachable
+// from every worker.
+func contribute(n: Int) -> Int {
+    var i = 0
+    while i < n {
+        SHARED.lock({ t in
+            t.total = t.total + 1
+            t.turns = t.turns + 1
+        })
+        i = i + 1
+    }
+    n
+}
+
+func main() {
+    var group = TaskGroup(threads: 4)
+    let a = group.spawn(contribute(250))
+    let b = group.spawn(contribute(250))
+    let c = group.spawn(contribute(250))
+    let d = group.spawn(contribute(250))
+    print("spawned {a.join() + b.join() + c.join() + d.join()}")
+    print("total {SHARED.lock({ t in t.total })}")
+    print("turns {SHARED.lock({ t in t.turns })}")
+    print("locked? {SHARED.is_locked()}")
+}
